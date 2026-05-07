@@ -3,6 +3,7 @@
  *
  * Vault list persisted to userData/vaults.json.
  * Each vault's SQLite db lives at <rootPath>/.supernote/index.db.
+ * A lock file at <rootPath>/.supernote/lock.json prevents concurrent multi-machine access.
  */
 
 import fs from "node:fs";
@@ -11,6 +12,8 @@ import { app } from "electron";
 import { ulid } from "ulid";
 import type { PrismaClient } from "@supernote/db";
 import { createPrismaForVault, disconnectPrisma } from "./prisma-client.js";
+import { VaultLock, isVaultLockedError } from "./vault-lock.js";
+import { applyMigrations, checkIntegrity } from "./vault-migrator.js";
 import { logger } from "../logger.js";
 
 export interface VaultRecord {
@@ -34,6 +37,7 @@ export class VaultManager {
   private currentVaultId: string | null = null;
   private currentPrisma: PrismaClient | null = null;
   private readonly storePath: string;
+  private readonly lock = new VaultLock();
 
   constructor() {
     this.storePath = path.join(app.getPath("userData"), "vaults.json");
@@ -90,6 +94,10 @@ export class VaultManager {
     return path.join(rootPath, SUPERNOTE_DIR, "index.db");
   }
 
+  private getSupernoteDir(rootPath: string): string {
+    return path.join(rootPath, SUPERNOTE_DIR);
+  }
+
   // ── Public API ─────────────────────────────────────────────────────────────
 
   listVaults(): VaultRecord[] {
@@ -105,6 +113,14 @@ export class VaultManager {
     return this.currentPrisma;
   }
 
+  /**
+   * Open a vault.
+   * - Ensures the vault directory structure exists.
+   * - Acquires the multi-machine lock (throws VaultLockedError if held by another host).
+   * - Applies any pending Prisma migrations.
+   * - Checks DB integrity (logs warning but does not abort on mild issues).
+   * - Creates a Prisma client connected to the vault's own index.db.
+   */
   async openVault(rootPath: string): Promise<VaultRecord> {
     const absPath = path.resolve(rootPath);
 
@@ -112,7 +128,7 @@ export class VaultManager {
       throw new Error(`Vault path does not exist: ${absPath}`);
     }
 
-    // Close current vault first
+    // Close current vault first (releases existing lock)
     await this.closeVault();
 
     // Find or create the vault record
@@ -123,7 +139,25 @@ export class VaultManager {
 
     this.ensureVaultStructure(absPath);
 
+    const supernoteDir = this.getSupernoteDir(absPath);
     const dbPath = this.getDbPath(absPath);
+
+    // Acquire multi-machine lock — throws VaultLockedError if another host is active
+    await this.lock.acquire(supernoteDir);
+
+    // Apply migrations (creates DB if it doesn't exist; idempotent on existing DB)
+    try {
+      applyMigrations(dbPath);
+    } catch (err) {
+      this.lock.release();
+      throw new Error(`Failed to apply migrations for vault ${absPath}: ${String(err)}`);
+    }
+
+    // Integrity check (non-fatal warning)
+    if (!checkIntegrity(dbPath)) {
+      logger.warn("VaultMigrator: integrity check failed — database may be corrupted", { dbPath });
+    }
+
     this.currentPrisma = createPrismaForVault(dbPath);
     this.currentVaultId = vault.id;
 
@@ -141,9 +175,8 @@ export class VaultManager {
         },
       });
     } catch (err) {
-      logger.error("Failed to upsert vault row — DB may need migration", {
-        err: String(err),
-      });
+      logger.error("Failed to upsert vault row", { err: String(err) });
+      // Non-fatal: vault row might already exist from a previous open
     }
 
     vault.isActive = true;
@@ -159,6 +192,9 @@ export class VaultManager {
       await disconnectPrisma(this.currentPrisma);
       this.currentPrisma = null;
     }
+    // Release the lock before clearing currentVaultId
+    this.lock.release();
+
     const current = this.getCurrentVault();
     if (current) {
       current.isActive = false;
@@ -182,6 +218,7 @@ export class VaultManager {
     const removed = this.vaults.splice(idx, 1)[0]!;
     if (this.currentVaultId === id) {
       this.currentVaultId = null;
+      this.lock.release();
       void disconnectPrisma(this.currentPrisma!).then(() => {
         this.currentPrisma = null;
       });

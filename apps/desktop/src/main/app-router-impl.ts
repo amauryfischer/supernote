@@ -3,14 +3,16 @@
  *
  * Reuses the tRPC instance and publicProcedure from @supernote/ipc so that
  * the IpcContext generic matches the contracts defined there.
- * Runtime services (VaultManager, PrismaClient) are accessed via the
- * service-registry module singleton.
+ * Runtime services (VaultManager, PrismaClient, FileWatcher) are accessed
+ * via the service-registry module singleton.
  */
 
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { shell, dialog, app as electronApp } from "electron";
 import { ulid } from "ulid";
+import path from "node:path";
+import crypto from "node:crypto";
 
 import { router, publicProcedure } from "@supernote/ipc";
 import {
@@ -41,11 +43,24 @@ import {
   SelectFileInput,
   SelectFileOutput,
 } from "@supernote/ipc";
+import { entityFilePath, serializeEntity } from "@supernote/core";
+import { ftsQuery, indexEntity, removeFromFts } from "@supernote/search";
 
-import { getVaultManager, getCurrentPrisma } from "./services/service-registry.js";
+import {
+  getVaultManager,
+  getCurrentPrisma,
+  getFileWatcher,
+  getRawDb,
+  setRawDb,
+} from "./services/service-registry.js";
+import { writeEntity, deleteEntity, hashFile } from "./services/file-io.js";
+import { openRawDb, closeRawDb } from "./services/raw-db.js";
+import { reindexVault, reindexFile } from "./services/indexer.js";
 import { logger } from "./logger.js";
 import type { PrismaClient } from "@supernote/db";
 import type { FieldDefinition } from "@supernote/ipc";
+import type { Entity as CoreEntity, EntityType as CoreEntityType } from "@supernote/core";
+import type { WatchEvent } from "./services/file-watcher.js";
 
 // ── Type helpers ────────────────────────────────────────────────────────────
 
@@ -136,6 +151,65 @@ const ENTITY_INCLUDE = {
   entityTags: { include: { tag: true } },
 } as const;
 
+// ── Watcher lifecycle helpers ───────────────────────────────────────────────
+
+/** Wire the FileWatcher to the Indexer after a vault is opened. */
+function startWatcherForVault(vaultId: string, vaultPath: string): void {
+  const watcher = getFileWatcher();
+  if (!watcher) return;
+
+  // Stop any previous watch session
+  watcher.stop();
+  watcher.start(vaultPath);
+
+  watcher.on("watch", (event: WatchEvent) => {
+    const prisma = getCurrentPrisma();
+    if (!prisma) return;
+
+    if (event.type === "file:removed") {
+      void reindexFile(prisma, vaultId, vaultPath, event.path).catch((err: unknown) => {
+        logger.warn("Watcher: reindexFile (remove) failed", { path: event.path, err: String(err) });
+      });
+    } else if (event.type === "file:added" || event.type === "file:changed") {
+      void reindexFile(prisma, vaultId, vaultPath, event.path).catch((err: unknown) => {
+        logger.warn("Watcher: reindexFile failed", { path: event.path, err: String(err) });
+      });
+    }
+  });
+}
+
+// ── Build CoreEntity from DB row for use with @supernote/core serializers ──
+
+function buildCoreEntity(
+  row: { id: string; typeId: string; filePath: string; fields: string; body: string | null; createdAt: Date; updatedAt: Date },
+  tags: string[] = [],
+): CoreEntity {
+  return {
+    id: row.id,
+    typeId: row.typeId,
+    filePath: row.filePath,
+    fields: parseEntityFields(row.fields) as Record<string, unknown> as CoreEntity["fields"],
+    body: row.body ?? "",
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    tags,
+  };
+}
+
+function buildCoreEntityType(et: RawEntityTypeRow): CoreEntityType {
+  return {
+    id: et.id,
+    name: et.name,
+    plural: et.plural,
+    icon: et.icon ?? undefined,
+    color: et.color ?? undefined,
+    fields: parseFieldDefs(et.fields) as unknown as CoreEntityType["fields"],
+    defaultPath: et.defaultPath ?? et.name,
+    fileNamePattern: et.fileNamePattern ?? "{id}",
+    defaultView: undefined,
+  };
+}
+
 // ── Vault router ───────────────────────────────────────────────────────────
 
 const vaultRouter = router({
@@ -143,8 +217,27 @@ const vaultRouter = router({
     .input(OpenVaultInput)
     .output(VaultSchema)
     .mutation(async (opts) => {
+      // Close raw DB from any previous vault
+      const prevDb = getRawDb();
+      if (prevDb) {
+        closeRawDb(prevDb);
+        setRawDb(null);
+      }
+
       try {
-        return await getVaultManager().openVault(opts.input.path);
+        const vault = await getVaultManager().openVault(opts.input.path);
+
+        // Open raw DB for FTS operations
+        const dbPath = path.join(vault.path, ".supernote", "index.db");
+        const rawDb = openRawDb(dbPath);
+        setRawDb(rawDb);
+
+        const prisma = getCurrentPrisma()!;
+        // Run full reindex then start watcher
+        await reindexVault(prisma, vault.id, vault.path);
+        startWatcherForVault(vault.id, vault.path);
+
+        return vault;
       } catch (err) {
         logger.error("vault.open failed", { err: String(err) });
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: String(err) });
@@ -157,6 +250,17 @@ const vaultRouter = router({
     .mutation(async (opts) => {
       const vault = getVaultManager().listVaults().find((v) => v.id === opts.input.id);
       if (!vault) throw new TRPCError({ code: "NOT_FOUND", message: `Vault ${opts.input.id} not found` });
+
+      // Stop watcher before closing vault
+      getFileWatcher()?.stop();
+
+      // Close raw DB
+      const rawDb = getRawDb();
+      if (rawDb) {
+        closeRawDb(rawDb);
+        setRawDb(null);
+      }
+
       await getVaultManager().closeVault();
       return { ...vault, isActive: false, updatedAt: new Date().toISOString() };
     }),
@@ -220,7 +324,6 @@ const entitiesRouter = router({
         total,
         items: rawRows.map((row) => {
           const mapped = mapEntityRow(row);
-          // List output omits body
           return {
             id: mapped.id, typeId: mapped.typeId, typeName: mapped.typeName,
             filePath: mapped.filePath, fields: mapped.fields, tags: mapped.tags,
@@ -249,20 +352,80 @@ const entitiesRouter = router({
       const vaultPath = requireVaultPath();
       const { typeId, fields, body, tags: _tags } = opts.input;
 
-      const et = await prisma.entityType.findUnique({ where: { id: typeId }, select: { id: true, name: true, defaultPath: true } });
-      if (!et) throw new TRPCError({ code: "NOT_FOUND", message: `EntityType ${typeId} not found` });
+      // Resolve entity type
+      const etRow = await prisma.entityType.findUnique({
+        where: { id: typeId },
+        select: { id: true, name: true, plural: true, icon: true, color: true, fields: true, defaultPath: true, fileNamePattern: true, defaultView: true, createdAt: true, updatedAt: true },
+      });
+      if (!etRow) throw new TRPCError({ code: "NOT_FOUND", message: `EntityType ${typeId} not found` });
 
       const id = ulid();
       const now = new Date();
-      const relPath = et.defaultPath ?? et.name;
-      const filePath = `${vaultPath}/${relPath}/${id}.md`;
 
-      const row = await prisma.entity.create({
-        data: { id, vaultId, typeId, filePath, fields: JSON.stringify(fields), body: body ?? "" },
-        include: ENTITY_INCLUDE,
-      });
-      const mapped = mapEntityRow(row as unknown as RawEntityRow);
-      return { ...mapped, createdAt: now.toISOString(), updatedAt: now.toISOString() };
+      // Build core entity for path resolution and serialization
+      const coreEt = buildCoreEntityType(etRow as unknown as RawEntityTypeRow);
+      const partialEntity: CoreEntity = {
+        id,
+        typeId,
+        filePath: "",
+        fields: (fields ?? {}) as CoreEntity["fields"],
+        body: body ?? "",
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      // Compute file path using core helper
+      const resolvedFilePath = entityFilePath(partialEntity, coreEt, vaultPath);
+      const fullEntity: CoreEntity = { ...partialEntity, filePath: resolvedFilePath };
+
+      // Serialize to markdown
+      const content = serializeEntity(fullEntity, coreEt);
+      const fileHash = crypto.createHash("sha256").update(content, "utf-8").digest("hex");
+
+      // Register own write to prevent watcher loopback
+      getFileWatcher()?.registerOwnWrite(resolvedFilePath, fileHash);
+
+      // Write file first — if this fails, we do NOT create the DB row
+      await writeEntity(resolvedFilePath, { id, type: coreEt.name, created: now.toISOString(), updated: now.toISOString(), fields: fields ?? {} }, body ?? "");
+
+      // Write to DB
+      let row: RawEntityRow;
+      try {
+        const created = await prisma.entity.create({
+          data: {
+            id,
+            vaultId,
+            typeId,
+            filePath: resolvedFilePath,
+            fields: JSON.stringify(fields ?? {}),
+            body: body ?? "",
+            fileHash,
+          },
+          include: ENTITY_INCLUDE,
+        });
+        row = created as unknown as RawEntityRow;
+      } catch (err) {
+        // Rollback: attempt to delete the written file
+        logger.error("entities.create: DB insert failed, rolling back file write", { id, err: String(err) });
+        try {
+          await deleteEntity(resolvedFilePath, false);
+        } catch (cleanupErr) {
+          logger.warn("entities.create: rollback file delete failed", { err: String(cleanupErr) });
+        }
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: `Failed to create entity: ${String(err)}` });
+      }
+
+      // Update FTS index
+      const rawDb = getRawDb();
+      if (rawDb) {
+        try {
+          indexEntity(rawDb, buildCoreEntity(row, []), coreEt);
+        } catch (err) {
+          logger.warn("entities.create: FTS indexing failed (non-fatal)", { id, err: String(err) });
+        }
+      }
+
+      return mapEntityRow(row);
     }),
 
   update: publicProcedure
@@ -271,19 +434,67 @@ const entitiesRouter = router({
     .mutation(async (opts) => {
       const prisma = requirePrisma();
       const { id, fields, body } = opts.input;
-      const existing = await prisma.entity.findUnique({ where: { id } });
+
+      const existing = await prisma.entity.findUnique({ where: { id }, include: ENTITY_INCLUDE });
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: `Entity ${id} not found` });
 
+      const existingRow = existing as unknown as RawEntityRow;
+      const etRow = await prisma.entityType.findUnique({
+        where: { id: existingRow.typeId },
+        select: { id: true, name: true, plural: true, icon: true, color: true, fields: true, defaultPath: true, fileNamePattern: true, defaultView: true, createdAt: true, updatedAt: true },
+      });
+
+      const now = new Date();
+      const updatedFields = fields ?? parseEntityFields(existingRow.fields);
+      const updatedBody = body ?? existingRow.body ?? "";
+
+      // Serialize and write the file atomically
+      if (etRow) {
+        const coreEt = buildCoreEntityType(etRow as unknown as RawEntityTypeRow);
+        const coreEntity: CoreEntity = {
+          id: existingRow.id,
+          typeId: existingRow.typeId,
+          filePath: existingRow.filePath,
+          fields: updatedFields as CoreEntity["fields"],
+          body: updatedBody,
+          createdAt: existingRow.createdAt,
+          updatedAt: now,
+          tags: existingRow.entityTags.map((et) => et.tag.path),
+        };
+        const content = serializeEntity(coreEntity, coreEt);
+        const fileHash = crypto.createHash("sha256").update(content, "utf-8").digest("hex");
+        getFileWatcher()?.registerOwnWrite(existingRow.filePath, fileHash);
+        await writeEntity(
+          existingRow.filePath,
+          { id: existingRow.id, type: coreEt.name, created: existingRow.createdAt.toISOString(), updated: now.toISOString(), fields: updatedFields },
+          updatedBody,
+        );
+      }
+
+      // Update DB
       const row = await prisma.entity.update({
         where: { id },
         data: {
           fields: fields ? JSON.stringify(fields) : undefined,
-          body: body ?? existing.body,
-          updatedAt: new Date(),
+          body: updatedBody,
+          updatedAt: now,
         },
         include: ENTITY_INCLUDE,
       });
-      return mapEntityRow(row as unknown as RawEntityRow);
+      const updatedRow = row as unknown as RawEntityRow;
+
+      // Update FTS
+      const rawDb = getRawDb();
+      if (rawDb && etRow) {
+        const coreEt = buildCoreEntityType(etRow as unknown as RawEntityTypeRow);
+        try {
+          indexEntity(rawDb, buildCoreEntity(updatedRow, updatedRow.entityTags.map((et) => et.tag.path)), coreEt);
+        } catch (err) {
+          logger.warn("entities.update: FTS update failed (non-fatal)", { id, err: String(err) });
+        }
+      }
+
+      return mapEntityRow(updatedRow);
     }),
 
   delete: publicProcedure
@@ -292,34 +503,150 @@ const entitiesRouter = router({
     .mutation(async (opts) => {
       const prisma = requirePrisma();
       const { id } = opts.input;
+
       const existing = await prisma.entity.findUnique({ where: { id } });
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: `Entity ${id} not found` });
-      // TODO: delete or trash the physical .md file via file-io
+
+      const filePath = (existing as unknown as { filePath: string }).filePath;
+
+      // Move file to OS trash first
+      await deleteEntity(filePath, true);
+
+      // Remove from DB (cascades to EntityTag, Mention, etc.)
       await prisma.entity.delete({ where: { id } });
-      logger.info("entities.delete", { id });
+
+      // Remove from FTS
+      const rawDb = getRawDb();
+      if (rawDb) {
+        try {
+          removeFromFts(rawDb, id);
+        } catch (err) {
+          logger.warn("entities.delete: FTS remove failed (non-fatal)", { id, err: String(err) });
+        }
+      }
+
+      logger.info("entities.delete", { id, filePath });
       return { id, deleted: true };
     }),
 
   search: publicProcedure
-    .input(z.object({ query: z.string().min(1), typeId: z.string().optional(), tags: z.array(z.string()).optional(), limit: z.number().int().positive().max(200).default(20) }))
-    .output(z.object({ items: z.array(EntitySchema.omit({ body: true })), total: z.number().int().nonnegative() }))
-    .query(() => {
-      // TODO: implement FTS5 virtual table search
-      throw new TRPCError({ code: "METHOD_NOT_SUPPORTED", message: "entities.search: FTS not yet implemented" });
+    .input(z.object({
+      query: z.string().min(1),
+      typeId: z.string().optional(),
+      tags: z.array(z.string()).optional(),
+      limit: z.number().int().positive().max(200).default(20),
+    }))
+    .output(z.object({
+      items: z.array(EntitySchema.omit({ body: true })),
+      total: z.number().int().nonnegative(),
+    }))
+    .query(async (opts) => {
+      const prisma = requirePrisma();
+      const rawDb = getRawDb();
+
+      if (!rawDb) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "No vault open for search" });
+      }
+
+      const { query, typeId, limit } = opts.input;
+      const results = ftsQuery(rawDb, query, { limit, typeFilter: typeId });
+
+      if (results.length === 0) {
+        return { items: [], total: 0 };
+      }
+
+      const entityIds = results.map((r) => r.entityId);
+      const rows = await prisma.entity.findMany({
+        where: { id: { in: entityIds } },
+        include: ENTITY_INCLUDE,
+      });
+
+      // Sort results in FTS rank order (preserving BM25 ranking)
+      const rankMap = new Map(results.map((r, i) => [r.entityId, i]));
+      const sortedRows = (rows as unknown as RawEntityRow[]).sort(
+        (a, b) => (rankMap.get(a.id) ?? 9999) - (rankMap.get(b.id) ?? 9999),
+      );
+
+      const items = sortedRows.map((row) => {
+        const mapped = mapEntityRow(row);
+        return {
+          id: mapped.id, typeId: mapped.typeId, typeName: mapped.typeName,
+          filePath: mapped.filePath, fields: mapped.fields, tags: mapped.tags,
+          createdAt: mapped.createdAt, updatedAt: mapped.updatedAt,
+        };
+      });
+
+      return { items, total: items.length };
     }),
 
   getRelated: publicProcedure
     .input(z.object({ id: z.string().min(1), relationTypeId: z.string().optional() }))
-    .output(z.object({ items: z.array(EntitySchema.omit({ body: true })), total: z.number().int().nonnegative() }))
-    .query(() => {
-      throw new TRPCError({ code: "METHOD_NOT_SUPPORTED", message: "entities.getRelated: not yet implemented" });
+    .output(z.object({
+      items: z.array(EntitySchema.omit({ body: true })),
+      total: z.number().int().nonnegative(),
+    }))
+    .query(async (opts) => {
+      const prisma = requirePrisma();
+      const { id, relationTypeId } = opts.input;
+
+      const edgeWhere: Record<string, unknown> = {
+        OR: [{ sourceId: id }, { targetId: id }],
+      };
+      if (relationTypeId) edgeWhere["relationTypeId"] = relationTypeId;
+
+      const edges = await prisma.relationEdge.findMany({
+        where: edgeWhere,
+        select: { sourceId: true, targetId: true },
+      });
+
+      const relatedIds = [
+        ...new Set(
+          edges
+            .flatMap((e: { sourceId: string; targetId: string }) => [e.sourceId, e.targetId])
+            .filter((eid: string) => eid !== id),
+        ),
+      ];
+
+      if (relatedIds.length === 0) return { items: [], total: 0 };
+
+      const rows = await prisma.entity.findMany({
+        where: { id: { in: relatedIds } },
+        include: ENTITY_INCLUDE,
+      });
+
+      const items = (rows as unknown as RawEntityRow[]).map((row) => {
+        const mapped = mapEntityRow(row);
+        return {
+          id: mapped.id, typeId: mapped.typeId, typeName: mapped.typeName,
+          filePath: mapped.filePath, fields: mapped.fields, tags: mapped.tags,
+          createdAt: mapped.createdAt, updatedAt: mapped.updatedAt,
+        };
+      });
+
+      return { items, total: items.length };
     }),
 
   getBacklinks: publicProcedure
     .input(z.object({ id: z.string().min(1) }))
-    .output(z.array(z.object({ sourceId: z.string(), sourceFilePath: z.string(), context: z.string().optional() })))
-    .query(() => {
-      throw new TRPCError({ code: "METHOD_NOT_SUPPORTED", message: "entities.getBacklinks: not yet implemented" });
+    .output(z.array(z.object({
+      sourceId: z.string(),
+      sourceFilePath: z.string(),
+      context: z.string().optional(),
+    })))
+    .query(async (opts) => {
+      const prisma = requirePrisma();
+      const { id } = opts.input;
+
+      const mentions = await prisma.mention.findMany({
+        where: { targetId: id },
+        include: { source: { select: { id: true, filePath: true } } },
+      });
+
+      return mentions.map((m: { source: { id: string; filePath: string }; rawText: string }) => ({
+        sourceId: m.source.id,
+        sourceFilePath: m.source.filePath,
+        context: m.rawText,
+      }));
     }),
 });
 
@@ -349,7 +676,12 @@ const schemasRouter = router({
     }),
 
   create: publicProcedure
-    .input(z.object({ name: z.string().min(1), plural: z.string().min(1), icon: z.string().optional(), color: z.string().optional(), fields: z.array(z.unknown()).optional(), defaultPath: z.string().optional(), fileNamePattern: z.string().optional() }))
+    .input(z.object({
+      name: z.string().min(1), plural: z.string().min(1),
+      icon: z.string().optional(), color: z.string().optional(),
+      fields: z.array(z.unknown()).optional(),
+      defaultPath: z.string().optional(), fileNamePattern: z.string().optional(),
+    }))
     .output(EntityTypeSchema)
     .mutation(async (opts) => {
       const prisma = requirePrisma();
@@ -363,7 +695,13 @@ const schemasRouter = router({
     }),
 
   update: publicProcedure
-    .input(z.object({ id: z.string().min(1), name: z.string().min(1).optional(), plural: z.string().min(1).optional(), icon: z.string().optional(), color: z.string().optional(), fields: z.array(z.unknown()).optional(), defaultPath: z.string().optional(), fileNamePattern: z.string().optional(), defaultView: z.string().optional() }))
+    .input(z.object({
+      id: z.string().min(1), name: z.string().min(1).optional(),
+      plural: z.string().min(1).optional(), icon: z.string().optional(),
+      color: z.string().optional(), fields: z.array(z.unknown()).optional(),
+      defaultPath: z.string().optional(), fileNamePattern: z.string().optional(),
+      defaultView: z.string().optional(),
+    }))
     .output(EntityTypeSchema)
     .mutation(async (opts) => {
       const prisma = requirePrisma();

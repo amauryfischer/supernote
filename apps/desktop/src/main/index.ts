@@ -3,10 +3,13 @@ import path from "path";
 import { createWindow } from "./window";
 import { acquireSingleInstanceLock } from "./single-instance";
 import { VaultManager } from "./services/vault-manager";
+import { FileWatcher } from "./services/file-watcher";
+import { setVaultManager, setFileWatcher } from "./services/service-registry";
 import { registerTrpcBridge } from "./trpc-bridge";
 import { logger } from "./logger";
 
 let vaultManager: VaultManager;
+let fileWatcher: FileWatcher;
 
 function main(): void {
   const hasLock = acquireSingleInstanceLock(focusMainWindow);
@@ -18,6 +21,10 @@ function main(): void {
   // Instantiate services as soon as the app module loads (before ready, so
   // userData path is available — app.getPath("userData") works before ready).
   vaultManager = new VaultManager();
+  fileWatcher = new FileWatcher();
+
+  setVaultManager(vaultManager);
+  setFileWatcher(fileWatcher);
 
   // Register the tRPC IPC bridge before creating windows so the renderer
   // can call procedures immediately on load.
@@ -35,6 +42,7 @@ function main(): void {
   });
 
   app.on("window-all-closed", () => {
+    fileWatcher.stop();
     void vaultManager.closeVault();
     if (process.platform !== "darwin") {
       app.quit();
