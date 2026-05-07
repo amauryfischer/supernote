@@ -22,50 +22,59 @@ import Link from "next/link";
 import { memo, useCallback, useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { NotificationBadge, NotificationCenter, useNotifications } from "@supernote/notifications/renderer";
+import { useTranslations } from "next-intl";
 
 interface NavItem {
-  label: string;
+  labelKey: string;
   icon: PhosphorIcon;
   href: string;
 }
 
 interface NavGroup {
-  label: string;
+  labelKey: string;
   items: NavItem[];
 }
 
 const NAV_GROUPS: NavGroup[] = [
   {
-    label: "Navigation",
+    labelKey: "nav.groups.navigation",
     items: [
-      { label: "Accueil", icon: House, href: "/" },
-      { label: "Recherche", icon: MagnifyingGlass, href: "/recherche" },
+      { labelKey: "nav.home", icon: House, href: "/" },
+      { labelKey: "nav.search", icon: MagnifyingGlass, href: "/recherche" },
     ],
   },
   {
-    label: "Knowledge",
+    labelKey: "nav.groups.knowledge",
     items: [
-      { label: "Notes", icon: FileText, href: "/notes" },
-      { label: "Journal", icon: Calendar, href: "/journal" },
-      { label: "Contacts", icon: Users, href: "/contacts" },
-      { label: "Projets", icon: Stack, href: "/projets" },
-      { label: "Finance", icon: Wallet, href: "/finance" },
-      { label: "Schémas", icon: Hash, href: "/schemas" },
-      { label: "Templates", icon: BookmarkSimple, href: "/templates" },
-      { label: "Vues", icon: BookOpen, href: "/vues" },
+      { labelKey: "nav.notes", icon: FileText, href: "/notes" },
+      { labelKey: "nav.journal", icon: Calendar, href: "/journal" },
+      { labelKey: "nav.contacts", icon: Users, href: "/contacts" },
+      { labelKey: "nav.projects", icon: Stack, href: "/projets" },
+      { labelKey: "nav.finance", icon: Wallet, href: "/finance" },
+      { labelKey: "nav.schemas", icon: Hash, href: "/schemas" },
+      { labelKey: "nav.templates", icon: BookmarkSimple, href: "/templates" },
+      { labelKey: "nav.views", icon: BookOpen, href: "/vues" },
     ],
   },
   {
-    label: "Tools",
+    labelKey: "nav.groups.tools",
     items: [
-      { label: "Canvas", icon: SquaresFour, href: "/canvas" },
-      { label: "Graph", icon: Graph, href: "/graph" },
-      { label: "Routines", icon: Lightning, href: "/routines" },
+      { labelKey: "nav.canvas", icon: SquaresFour, href: "/canvas" },
+      { labelKey: "nav.graph", icon: Graph, href: "/graph" },
+      { labelKey: "nav.routines", icon: Lightning, href: "/routines" },
     ],
   },
 ];
 
-const NavLink = memo(function NavLink({ item, active }: { item: NavItem; active: boolean }) {
+const NavLink = memo(function NavLink({
+  item,
+  active,
+  label,
+}: {
+  item: NavItem;
+  active: boolean;
+  label: string;
+}) {
   return (
     <Link
       href={item.href}
@@ -82,13 +91,14 @@ const NavLink = memo(function NavLink({ item, active }: { item: NavItem; active:
       }
     >
       <item.icon size={15} />
-      {item.label}
+      {label}
     </Link>
   );
 });
 
 export const Sidebar = memo(function Sidebar() {
   const pathname = usePathname();
+  const t = useTranslations();
   const [notifOpen, setNotifOpen] = useState(false);
   const { unreadCount } = useNotifications();
 
@@ -168,7 +178,7 @@ export const Sidebar = memo(function Sidebar() {
       {/* Navigation groups */}
       <nav data-tour="sidebar-nav" className="flex flex-1 flex-col overflow-y-auto p-2">
         {NAV_GROUPS.map((group, groupIndex) => (
-          <div key={group.label}>
+          <div key={group.labelKey}>
             {groupIndex > 0 && (
               <div
                 className="mx-3 my-1.5 border-t"
@@ -179,11 +189,16 @@ export const Sidebar = memo(function Sidebar() {
               className="mb-0.5 mt-1 px-3 text-[10px] font-semibold uppercase tracking-widest"
               style={{ color: "var(--text-muted)" }}
             >
-              {group.label}
+              {t(group.labelKey)}
             </p>
             <div className="flex flex-col gap-0.5">
               {group.items.map((item) => (
-                <NavLink key={item.href} item={item} active={isActive(item.href)} />
+                <NavLink
+                  key={item.href}
+                  item={item}
+                  active={isActive(item.href)}
+                  label={t(item.labelKey)}
+                />
               ))}
             </div>
           </div>
@@ -206,7 +221,7 @@ export const Sidebar = memo(function Sidebar() {
           }}
         >
           <Gear size={15} />
-          Paramètres
+          {t("nav.settings")}
         </Link>
       </div>
       </aside>

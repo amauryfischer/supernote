@@ -1,0 +1,235 @@
+{
+  "common": {
+    "cancel": "Annuler",
+    "save": "Enregistrer",
+    "saving": "Enregistrement…",
+    "delete": "Supprimer",
+    "edit": "Modifier",
+    "confirm": "Confirmer",
+    "loading": "Chargement…",
+    "error": "Erreur",
+    "success": "Succès",
+    "search": "Rechercher…",
+    "import": "Importer",
+    "export": "Exporter",
+    "close": "Fermer",
+    "back": "Retour",
+    "next": "Suivant",
+    "create": "Créer",
+    "add": "Ajouter",
+    "remove": "Supprimer",
+    "demo": "demo",
+    "degraded": "mode dégradé",
+    "noResults": "Aucun résultat",
+    "tryOtherSearch": "Essayez un autre terme de recherche",
+    "date": "Date",
+    "title": "Titre"
+  },
+  "nav": {
+    "home": "Accueil",
+    "search": "Recherche",
+    "notes": "Notes",
+    "journal": "Journal",
+    "contacts": "Contacts",
+    "projects": "Projets",
+    "finance": "Finance",
+    "schemas": "Schémas",
+    "templates": "Templates",
+    "views": "Vues",
+    "routines": "Routines",
+    "canvas": "Canvas",
+    "graph": "Graph",
+    "settings": "Paramètres",
+    "groups": {
+      "navigation": "Navigation",
+      "knowledge": "Knowledge",
+      "tools": "Tools"
+    }
+  },
+  "home": {
+    "startWriting": "Commencez à écrire…",
+    "inbox": "Inbox · {title}",
+    "newNote": "nouvelle note",
+    "quickAccess": "Accès rapide",
+    "saveHint": "enregistrer",
+    "quitHint": "quitter",
+    "savingHint": "enregistrement…",
+    "noteSaved": "Note enregistrée",
+    "descriptions": {
+      "notes": "Vos notes libres et documents",
+      "contacts": "Personnes et organisations",
+      "projects": "Projets et tâches actives",
+      "journal": "Notes quotidiennes",
+      "schemas": "Types d'entités et champs",
+      "views": "Requêtes et vues sauvegardées",
+      "routines": "Automations et rappels"
+    }
+  },
+  "notes": {
+    "selectNote": "Sélectionnez une note ou créez-en une",
+    "selectNoteHint": "Choisissez une note dans la liste, ou créez-en une nouvelle dans le dossier sélectionné.",
+    "newNote": "Nouvelle note",
+    "allNotes": "Toutes les notes",
+    "emptyFolder": "Dossier vide",
+    "emptyFolderHint": "Créez votre première note\nou importez depuis Notion / Obsidian",
+    "createFirstNote": "Créer ma première note",
+    "cannotLoad": "Impossible de charger les notes",
+    "loadError": "Une erreur est survenue",
+    "newFolder": "Nouveau dossier",
+    "vault": "Vault",
+    "deleteNote": "Supprimer la note",
+    "changeSort": "Changer le tri",
+    "count": "{count, plural, one {# note} other {# notes}}",
+    "relativeDate": {
+      "today": "Aujourd'hui",
+      "yesterday": "Hier",
+      "daysAgo": "Il y a {n} jours"
+    }
+  },
+  "contacts": {
+    "title": "Contacts",
+    "newContact": "Nouveau contact",
+    "noContacts": "Aucun contact.",
+    "importHint": "Importez depuis vCard / Google Contacts ou créez manuellement.",
+    "importLabel": "Importer",
+    "tableView": "Vue table",
+    "galleryView": "Vue galerie",
+    "clearFilter": "Tout",
+    "relationTypes": {
+      "ami": "Ami",
+      "collegue": "Collègue",
+      "client": "Client",
+      "famille": "Famille",
+      "mentor": "Mentor",
+      "investisseur": "Investisseur"
+    },
+    "fields": {
+      "email": "Email",
+      "phone": "Téléphone",
+      "birthday": "Anniversaire",
+      "relationType": "Type de relation",
+      "organization": "Organisation",
+      "notes": "Notes"
+    }
+  },
+  "finance": {
+    "title": "Patrimoine",
+    "overview": "Vue d'ensemble au {date}",
+    "degradedMode": "mode dégradé — données exemples",
+    "refreshPrices": "Refresh prix",
+    "takeSnapshot": "Prendre un snapshot",
+    "savingSnapshot": "Enregistrement…",
+    "metrics": {
+      "netWorth": "Net worth",
+      "totalCash": "Total liquide",
+      "totalAssets": "Total actifs",
+      "totalDebts": "Total dettes",
+      "remainingCapital": "Capital restant dû",
+      "last30days": "{percent} ({amount}) sur 30j"
+    },
+    "noData": "Pas encore de données financières",
+    "noDataHint": "Importer OFX/CSV ou ajouter un compte pour commencer à suivre votre patrimoine.",
+    "addAccount": "+ Ajouter un compte",
+    "importOFX": "Importer OFX/CSV",
+    "accounts": "Comptes",
+    "assets": "Actifs",
+    "goals": "Objectifs",
+    "loans": "Prêts"
+  },
+  "routines": {
+    "title": "Routines",
+    "newRoutine": "Nouvelle routine",
+    "noRoutines": "Aucune routine",
+    "noRoutinesHint": "Les routines automatisent les tâches récurrentes (rappels, emails, briefs LLM). Créez la vôtre ou partez d'un template.",
+    "newRoutineAction": "+ Nouvelle routine",
+    "viewTemplates": "Voir les templates",
+    "active": "{count, plural, one {# active} other {# actives}}",
+    "degradedMode": "mode dégradé",
+    "deleteConfirm": "Supprimer cette routine ?",
+    "triggerTypes": {
+      "cron": "Planifiée",
+      "event": "Événement",
+      "alarm": "Alarme",
+      "webhook": "Webhook"
+    },
+    "actionTypes": {
+      "send-email": "Envoyer un email",
+      "llm-brief": "Brief LLM",
+      "create-note": "Créer une note",
+      "notify": "Notification"
+    },
+    "templateLabels": {
+      "weekly-email": "Email hebdomadaire",
+      "birthday-reminder": "Rappel anniversaire",
+      "follow-up": "Relance",
+      "daily-brief": "Brief quotidien",
+      "blank": "Vide"
+    }
+  },
+  "settings": {
+    "title": "Paramètres",
+    "save": "Enregistrer",
+    "saving": "Enregistrement…",
+    "tabs": {
+      "general": "Général",
+      "appearance": "Apparence",
+      "iaOllama": "IA & Ollama",
+      "sync": "Sync",
+      "plugins": "Plugins",
+      "api": "API & Intégrations",
+      "shortcuts": "Raccourcis",
+      "notifications": "Notifications",
+      "backup": "Backup & Export",
+      "about": "À propos"
+    },
+    "general": {
+      "vault": "Vault",
+      "vaultDescription": "Emplacement de votre vault Supernote",
+      "vaultPath": "Chemin du vault",
+      "change": "Changer",
+      "localization": "Localisation",
+      "localizationDescription": "Langue, fuseau horaire et format de date",
+      "language": "Langue",
+      "timezone": "Fuseau horaire",
+      "dateFormat": "Format de date"
+    },
+    "appearance": {
+      "theme": "Thème",
+      "themeDescription": "Apparence globale de l'interface",
+      "displayMode": "Mode d'affichage",
+      "themeLight": "Clair",
+      "themeDark": "Sombre",
+      "themeSystem": "Système",
+      "accentColor": "Couleur d'accentuation",
+      "accentColorDescription": "Couleur principale de l'interface",
+      "palette": "Palette",
+      "density": "Densité",
+      "densityDescription": "Espacement des éléments dans l'interface",
+      "layout": "Disposition",
+      "densityCompact": "Compact",
+      "densityNormal": "Normal",
+      "densitySpacious": "Spacieux",
+      "font": "Police",
+      "fontDescription": "Fonte pour les blocs de code",
+      "codeFont": "Code font",
+      "fontSans": "Sans-serif",
+      "fontMono": "Monospace"
+    },
+    "languages": {
+      "fr": "Français",
+      "en": "English"
+    }
+  },
+  "journal": {
+    "title": "Journal",
+    "today": "Aujourd'hui",
+    "yesterday": "Hier",
+    "selectDate": "Sélectionnez une date"
+  },
+  "search": {
+    "title": "Recherche",
+    "placeholder": "Rechercher dans vos notes…",
+    "noResults": "Aucun résultat",
+    "noResultsHint": "Essayez un autre terme ou modifiez les filtres"
+  }
+}

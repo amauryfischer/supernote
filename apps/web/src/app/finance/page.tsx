@@ -4,6 +4,7 @@ import { useCallback } from "react";
 import dynamic from "next/dynamic";
 import { Camera, ArrowsClockwise, Wallet } from "@phosphor-icons/react";
 import { AppShell } from "@/components/shell";
+import { useTranslations } from "next-intl";
 import { EmptyState, SkeletonCard } from "@supernote/ui";
 import { MetricCard } from "@/components/finance/MetricCard";
 import { AccountsList, AssetsList, GoalsList } from "@/components/finance/QuickLists";
@@ -38,6 +39,7 @@ const CategoryDonut = dynamic(
 );
 
 export default function FinancePage() {
+  const t = useTranslations("finance");
   const { accounts, isLoading: loadingAccounts } = useFinanceAccounts();
   const { assets, isLoading: loadingAssets } = useFinanceAssets();
   const { loans, isLoading: loadingLoans } = useFinanceLoans();
@@ -68,6 +70,7 @@ export default function FinancePage() {
     month: "long",
     year: "numeric",
   }).format(today);
+
 
   const handleRefreshPrices = useCallback(async () => {
     if (!isElectron) return;
@@ -124,10 +127,10 @@ export default function FinancePage() {
         <div className="flex h-full items-center justify-center">
           <EmptyState
             icon={<Wallet size={28} />}
-            title="Pas encore de données financières"
-            description="Importer OFX/CSV ou ajouter un compte pour commencer à suivre votre patrimoine."
-            action={{ label: "+ Ajouter un compte", onClick: () => undefined }}
-            secondaryAction={{ label: "Importer OFX/CSV", onClick: () => undefined }}
+            title={t("noData")}
+            description={t("noDataHint")}
+            action={{ label: t("addAccount"), onClick: () => undefined }}
+            secondaryAction={{ label: t("importOFX"), onClick: () => undefined }}
           />
         </div>
       </AppShell>
@@ -141,10 +144,10 @@ export default function FinancePage() {
       <div className="flex items-start justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight" style={{ color: "var(--text-primary)" }}>
-            Patrimoine
+            {t("title")}
           </h1>
           <p className="mt-0.5 text-sm" style={{ color: "var(--text-muted)" }}>
-            Vue d&apos;ensemble au {todayLabel}
+            {t("overview", { date: todayLabel })}
             {!isElectron && (
               <span
                 className="ml-2 rounded-full px-2 py-0.5 text-xs"
@@ -163,7 +166,7 @@ export default function FinancePage() {
             style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
           >
             <ArrowsClockwise size={14} />
-            Refresh prix
+            {t("refreshPrices")}
           </button>
           <button
             onClick={() => void handleTakeSnapshot()}
@@ -172,7 +175,7 @@ export default function FinancePage() {
             style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
           >
             <Camera size={14} />
-            {createSnapshotMutation.isPending ? "Enregistrement..." : "Prendre un snapshot"}
+            {createSnapshotMutation.isPending ? t("savingSnapshot") : t("takeSnapshot")}
           </button>
         </div>
       </div>
@@ -180,7 +183,7 @@ export default function FinancePage() {
       {/* Row 1 — Metric cards */}
       <div className="grid grid-cols-4 gap-4">
         <MetricCard
-          label="Net worth"
+          label={t("metrics.netWorth")}
           value={formatCurrency(currentNetWorth)}
           delta={{
             value: `${formatPercent(variation.percent)} (${formatCurrency(Math.abs(variation.absolute))}) sur 30j`,
@@ -189,20 +192,20 @@ export default function FinancePage() {
           hero
         />
         <MetricCard
-          label="Total liquide"
+          label={t("metrics.totalCash")}
           value={formatCurrency(totalCash)}
           sub={`${accounts.length} compte${accounts.length > 1 ? "s" : ""}`}
         />
         <MetricCard
-          label="Total actifs"
+          label={t("metrics.totalAssets")}
           value={formatCurrency(totalAssets)}
           sub={`${assets.length} actif${assets.length > 1 ? "s" : ""}`}
         />
         <MetricCard
-          label="Total dettes"
+          label={t("metrics.totalDebts")}
           value={formatCurrency(totalLoansRemaining)}
           sub={`${loans.length} prêt${loans.length > 1 ? "s" : ""}`}
-          delta={{ value: "Capital restant dû", positive: false }}
+          delta={{ value: t("metrics.remainingCapital"), positive: false }}
         />
       </div>
 

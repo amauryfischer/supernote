@@ -30,24 +30,25 @@ import {
   AboutTab,
 } from "@/components/settings";
 import type { SettingsTab } from "@/components/settings";
+import { useTranslations } from "next-intl";
 
 interface NavItem {
   id: SettingsTab;
-  label: string;
+  labelKey: string;
   icon: React.ElementType;
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { id: "general", label: "Général", icon: Gear },
-  { id: "appearance", label: "Apparence", icon: Palette },
-  { id: "ia-ollama", label: "IA & Ollama", icon: Robot },
-  { id: "sync", label: "Sync", icon: GitBranch },
-  { id: "plugins", label: "Plugins", icon: PuzzlePiece },
-  { id: "api", label: "API & Intégrations", icon: Key },
-  { id: "shortcuts", label: "Raccourcis", icon: Keyboard },
-  { id: "notifications", label: "Notifications", icon: Bell },
-  { id: "backup", label: "Backup & Export", icon: Archive },
-  { id: "about", label: "À propos", icon: Info },
+  { id: "general", labelKey: "settings.tabs.general", icon: Gear },
+  { id: "appearance", labelKey: "settings.tabs.appearance", icon: Palette },
+  { id: "ia-ollama", labelKey: "settings.tabs.iaOllama", icon: Robot },
+  { id: "sync", labelKey: "settings.tabs.sync", icon: GitBranch },
+  { id: "plugins", labelKey: "settings.tabs.plugins", icon: PuzzlePiece },
+  { id: "api", labelKey: "settings.tabs.api", icon: Key },
+  { id: "shortcuts", labelKey: "settings.tabs.shortcuts", icon: Keyboard },
+  { id: "notifications", labelKey: "settings.tabs.notifications", icon: Bell },
+  { id: "backup", labelKey: "settings.tabs.backup", icon: Archive },
+  { id: "about", labelKey: "settings.tabs.about", icon: Info },
 ];
 
 function TabContent({ active }: { active: SettingsTab }) {
@@ -68,6 +69,7 @@ function TabContent({ active }: { active: SettingsTab }) {
 function SettingsContent() {
   const [activeTab, setActiveTab] = useState<SettingsTab>("general");
   const { saveSettings, isSaving } = useSettings();
+  const t = useTranslations();
 
   const activeItem = NAV_ITEMS.find((n) => n.id === activeTab)!;
   const ActiveIcon = activeItem.icon;
@@ -83,9 +85,9 @@ function SettingsContent() {
           className="mb-2 px-2 text-[10px] font-semibold uppercase tracking-widest"
           style={{ color: "var(--text-muted)" }}
         >
-          Paramètres
+          {t("settings.title")}
         </p>
-        {NAV_ITEMS.map(({ id, label, icon: Icon }) => {
+        {NAV_ITEMS.map(({ id, labelKey, icon: Icon }) => {
           const isActive = activeTab === id;
           return (
             <button
@@ -99,7 +101,7 @@ function SettingsContent() {
               }}
             >
               <Icon size={15} weight={isActive ? "fill" : "regular"} />
-              {label}
+              {t(labelKey)}
             </button>
           );
         })}
@@ -115,7 +117,7 @@ function SettingsContent() {
           <div className="flex items-center gap-2">
             <ActiveIcon size={18} style={{ color: "var(--accent)" }} />
             <h1 className="text-base font-semibold" style={{ color: "var(--text-primary)" }}>
-              {activeItem.label}
+              {t(activeItem.labelKey)}
             </h1>
           </div>
           {activeTab !== "about" && (
@@ -129,7 +131,7 @@ function SettingsContent() {
               }}
             >
               <FloppyDisk size={14} />
-              {isSaving ? "Enregistrement..." : "Enregistrer"}
+              {isSaving ? t("settings.saving") : t("settings.save")}
             </button>
           )}
         </div>

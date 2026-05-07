@@ -3,6 +3,7 @@
 import { CaretDown, CaretRight, Folder, FolderOpen, Plus } from "@phosphor-icons/react";
 import { useState } from "react";
 import type { Folder as FolderType } from "./fixtures";
+import { useTranslations } from "next-intl";
 
 interface FileTreeProps {
   folders: FolderType[];
@@ -19,6 +20,8 @@ export function FileTree({
   onNewFolder,
   onNewNote,
 }: FileTreeProps) {
+  const t = useTranslations("notes");
+
   return (
     <aside
       className="flex h-full flex-col border-r"
@@ -37,10 +40,10 @@ export function FileTree({
           className="text-xs font-semibold uppercase tracking-widest"
           style={{ color: "var(--text-muted)" }}
         >
-          Vault
+          {t("vault")}
         </span>
         <div className="flex items-center gap-1">
-          <ActionButton onClick={onNewNote} label="Nouvelle note" icon={<Plus size={13} />} />
+          <ActionButton onClick={onNewNote} label={t("newNote")} icon={<Plus size={13} />} />
         </div>
       </div>
 
@@ -66,7 +69,7 @@ export function FileTree({
           style={{ color: "var(--text-muted)" }}
         >
           <Plus size={12} />
-          Nouveau dossier
+          {t("newFolder")}
         </button>
       </div>
     </aside>

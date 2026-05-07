@@ -15,18 +15,21 @@ import { GridFour, List, Plus, MagnifyingGlass, X, UploadSimple } from "@phospho
 import Link from "next/link";
 import { useState, useMemo } from "react";
 import { SkeletonCard } from "@supernote/ui";
+import { useTranslations } from "next-intl";
 
 type ViewMode = "table" | "gallery";
 
 /** Empty state shown when there are truly no contacts at all. */
 function EmptyState() {
+  const t = useTranslations("contacts");
+
   return (
     <div className="flex h-full flex-col items-center justify-center gap-4 py-24 text-center">
       <p className="text-base font-medium" style={{ color: "var(--text-secondary)" }}>
-        Aucun contact.
+        {t("noContacts")}
       </p>
       <p className="text-sm" style={{ color: "var(--text-muted)" }}>
-        Importez depuis vCard / Google Contacts ou créez manuellement.
+        {t("importHint")}
       </p>
       <Link
         href="/contacts/nouveau"
@@ -34,13 +37,15 @@ function EmptyState() {
         style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
       >
         <Plus size={13} />
-        Nouveau contact
+        {t("newContact")}
       </Link>
     </div>
   );
 }
 
 export default function ContactsPage() {
+  const t = useTranslations("contacts");
+  const tCommon = useTranslations("common");
   const [view, setView] = useState<ViewMode>("table");
   const [query, setQuery] = useState("");
   const [activeTypes, setActiveTypes] = useState<RelationType[]>([]);
@@ -96,7 +101,7 @@ export default function ContactsPage() {
         >
           <div className="flex items-center gap-3">
             <h1 className="text-lg font-semibold" style={{ color: "var(--text-primary)" }}>
-              Contacts
+              {t("title")}
             </h1>
             <span
               className="rounded-full px-2 py-0.5 text-xs font-medium"
@@ -127,7 +132,7 @@ export default function ContactsPage() {
                   backgroundColor: view === "table" ? "var(--surface-3)" : "transparent",
                   color: view === "table" ? "var(--text-primary)" : "var(--text-muted)",
                 }}
-                aria-label="Vue table"
+                aria-label={t("tableView")}
               >
                 <List size={14} />
               </button>
@@ -138,7 +143,7 @@ export default function ContactsPage() {
                   backgroundColor: view === "gallery" ? "var(--surface-3)" : "transparent",
                   color: view === "gallery" ? "var(--text-primary)" : "var(--text-muted)",
                 }}
-                aria-label="Vue galerie"
+                aria-label={t("galleryView")}
               >
                 <GridFour size={14} />
               </button>
@@ -147,11 +152,11 @@ export default function ContactsPage() {
             <button
               className="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--surface-2)]"
               style={{ borderColor: "var(--border-subtle)", color: "var(--text-muted)" }}
-              title="Importer vCard / Google Contacts"
+              title={t("importHint")}
               onClick={() => alert("Import vCard/Google Contacts (à implémenter)")}
             >
               <UploadSimple size={13} />
-              Importer
+              {t("importLabel")}
             </button>
 
             <Link
@@ -160,7 +165,7 @@ export default function ContactsPage() {
               style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
             >
               <Plus size={13} />
-              Nouveau contact
+              {t("newContact")}
             </Link>
           </div>
         </div>
@@ -180,7 +185,7 @@ export default function ContactsPage() {
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Rechercher…"
+              placeholder={tCommon("search")}
               className="bg-transparent text-sm outline-none"
               style={{ color: "var(--text-primary)", width: 180 }}
             />
@@ -214,7 +219,7 @@ export default function ContactsPage() {
                 style={{ color: "var(--text-muted)" }}
               >
                 <X size={10} />
-                Tout
+                {t("clearFilter")}
               </button>
             )}
           </div>

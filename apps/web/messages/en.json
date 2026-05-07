@@ -1,0 +1,235 @@
+{
+  "common": {
+    "cancel": "Cancel",
+    "save": "Save",
+    "saving": "Saving…",
+    "delete": "Delete",
+    "edit": "Edit",
+    "confirm": "Confirm",
+    "loading": "Loading…",
+    "error": "Error",
+    "success": "Success",
+    "search": "Search…",
+    "import": "Import",
+    "export": "Export",
+    "close": "Close",
+    "back": "Back",
+    "next": "Next",
+    "create": "Create",
+    "add": "Add",
+    "remove": "Remove",
+    "demo": "demo",
+    "degraded": "degraded mode",
+    "noResults": "No results",
+    "tryOtherSearch": "Try a different search term",
+    "date": "Date",
+    "title": "Title"
+  },
+  "nav": {
+    "home": "Home",
+    "search": "Search",
+    "notes": "Notes",
+    "journal": "Journal",
+    "contacts": "Contacts",
+    "projects": "Projects",
+    "finance": "Finance",
+    "schemas": "Schemas",
+    "templates": "Templates",
+    "views": "Views",
+    "routines": "Routines",
+    "canvas": "Canvas",
+    "graph": "Graph",
+    "settings": "Settings",
+    "groups": {
+      "navigation": "Navigation",
+      "knowledge": "Knowledge",
+      "tools": "Tools"
+    }
+  },
+  "home": {
+    "startWriting": "Start writing…",
+    "inbox": "Inbox · {title}",
+    "newNote": "new note",
+    "quickAccess": "Quick access",
+    "saveHint": "save",
+    "quitHint": "quit",
+    "savingHint": "saving…",
+    "noteSaved": "Note saved",
+    "descriptions": {
+      "notes": "Your free notes and documents",
+      "contacts": "People and organizations",
+      "projects": "Active projects and tasks",
+      "journal": "Daily notes",
+      "schemas": "Entity types and fields",
+      "views": "Saved queries and views",
+      "routines": "Automations and reminders"
+    }
+  },
+  "notes": {
+    "selectNote": "Select a note or create one",
+    "selectNoteHint": "Choose a note from the list, or create a new one in the selected folder.",
+    "newNote": "New note",
+    "allNotes": "All notes",
+    "emptyFolder": "Empty folder",
+    "emptyFolderHint": "Create your first note\nor import from Notion / Obsidian",
+    "createFirstNote": "Create my first note",
+    "cannotLoad": "Unable to load notes",
+    "loadError": "An error occurred",
+    "newFolder": "New folder",
+    "vault": "Vault",
+    "deleteNote": "Delete note",
+    "changeSort": "Change sort",
+    "count": "{count, plural, one {# note} other {# notes}}",
+    "relativeDate": {
+      "today": "Today",
+      "yesterday": "Yesterday",
+      "daysAgo": "{n} days ago"
+    }
+  },
+  "contacts": {
+    "title": "Contacts",
+    "newContact": "New contact",
+    "noContacts": "No contacts.",
+    "importHint": "Import from vCard / Google Contacts or create manually.",
+    "importLabel": "Import",
+    "tableView": "Table view",
+    "galleryView": "Gallery view",
+    "clearFilter": "All",
+    "relationTypes": {
+      "ami": "Friend",
+      "collegue": "Colleague",
+      "client": "Client",
+      "famille": "Family",
+      "mentor": "Mentor",
+      "investisseur": "Investor"
+    },
+    "fields": {
+      "email": "Email",
+      "phone": "Phone",
+      "birthday": "Birthday",
+      "relationType": "Relation type",
+      "organization": "Organization",
+      "notes": "Notes"
+    }
+  },
+  "finance": {
+    "title": "Net Worth",
+    "overview": "Overview as of {date}",
+    "degradedMode": "degraded mode — sample data",
+    "refreshPrices": "Refresh prices",
+    "takeSnapshot": "Take snapshot",
+    "savingSnapshot": "Saving…",
+    "metrics": {
+      "netWorth": "Net worth",
+      "totalCash": "Total cash",
+      "totalAssets": "Total assets",
+      "totalDebts": "Total debts",
+      "remainingCapital": "Remaining capital",
+      "last30days": "{percent} ({amount}) over 30d"
+    },
+    "noData": "No financial data yet",
+    "noDataHint": "Import OFX/CSV or add an account to start tracking your net worth.",
+    "addAccount": "+ Add account",
+    "importOFX": "Import OFX/CSV",
+    "accounts": "Accounts",
+    "assets": "Assets",
+    "goals": "Goals",
+    "loans": "Loans"
+  },
+  "routines": {
+    "title": "Routines",
+    "newRoutine": "New routine",
+    "noRoutines": "No routines",
+    "noRoutinesHint": "Routines automate recurring tasks (reminders, emails, LLM briefs). Create your own or start from a template.",
+    "newRoutineAction": "+ New routine",
+    "viewTemplates": "View templates",
+    "active": "{count, plural, one {# active} other {# active}}",
+    "degradedMode": "degraded mode",
+    "deleteConfirm": "Delete this routine?",
+    "triggerTypes": {
+      "cron": "Scheduled",
+      "event": "Event",
+      "alarm": "Alarm",
+      "webhook": "Webhook"
+    },
+    "actionTypes": {
+      "send-email": "Send email",
+      "llm-brief": "LLM brief",
+      "create-note": "Create note",
+      "notify": "Notification"
+    },
+    "templateLabels": {
+      "weekly-email": "Weekly email",
+      "birthday-reminder": "Birthday reminder",
+      "follow-up": "Follow-up",
+      "daily-brief": "Daily brief",
+      "blank": "Blank"
+    }
+  },
+  "settings": {
+    "title": "Settings",
+    "save": "Save",
+    "saving": "Saving…",
+    "tabs": {
+      "general": "General",
+      "appearance": "Appearance",
+      "iaOllama": "AI & Ollama",
+      "sync": "Sync",
+      "plugins": "Plugins",
+      "api": "API & Integrations",
+      "shortcuts": "Shortcuts",
+      "notifications": "Notifications",
+      "backup": "Backup & Export",
+      "about": "About"
+    },
+    "general": {
+      "vault": "Vault",
+      "vaultDescription": "Location of your Supernote vault",
+      "vaultPath": "Vault path",
+      "change": "Change",
+      "localization": "Localization",
+      "localizationDescription": "Language, timezone and date format",
+      "language": "Language",
+      "timezone": "Timezone",
+      "dateFormat": "Date format"
+    },
+    "appearance": {
+      "theme": "Theme",
+      "themeDescription": "Global appearance of the interface",
+      "displayMode": "Display mode",
+      "themeLight": "Light",
+      "themeDark": "Dark",
+      "themeSystem": "System",
+      "accentColor": "Accent color",
+      "accentColorDescription": "Main color of the interface",
+      "palette": "Palette",
+      "density": "Density",
+      "densityDescription": "Spacing of elements in the interface",
+      "layout": "Layout",
+      "densityCompact": "Compact",
+      "densityNormal": "Normal",
+      "densitySpacious": "Spacious",
+      "font": "Font",
+      "fontDescription": "Font for code blocks",
+      "codeFont": "Code font",
+      "fontSans": "Sans-serif",
+      "fontMono": "Monospace"
+    },
+    "languages": {
+      "fr": "Français",
+      "en": "English"
+    }
+  },
+  "journal": {
+    "title": "Journal",
+    "today": "Today",
+    "yesterday": "Yesterday",
+    "selectDate": "Select a date"
+  },
+  "search": {
+    "title": "Search",
+    "placeholder": "Search your notes…",
+    "noResults": "No results",
+    "noResultsHint": "Try a different term or adjust the filters"
+  }
+}

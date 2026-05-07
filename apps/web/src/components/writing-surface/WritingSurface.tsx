@@ -17,6 +17,7 @@ import { useShellChrome } from "@/components/shell/shell-chrome-context";
 import { useCreateInboxNote } from "@/hooks/useCreateInboxNote";
 import type { SupernoteEditorProps, EntityRef } from "@supernote/editor";
 import { trpc, trpcVanillaClient } from "@/lib/trpc/client";
+import { useTranslations } from "next-intl";
 
 // Dynamic import: BlockNote uses browser-only APIs (ProseMirror, etc.)
 // SSR-safe, same pattern as NoteEditor.tsx
@@ -26,20 +27,20 @@ const SupernoteEditor = dynamic<SupernoteEditorProps>(
 );
 
 interface QuickAccessItem {
-  label: string;
-  description: string;
+  labelKey: string;
+  descriptionKey: string;
   icon: PhosphorIcon;
   href: string;
 }
 
 const QUICK_ACCESS: QuickAccessItem[] = [
-  { label: "Notes", description: "Vos notes libres et documents", icon: FileText, href: "/notes" },
-  { label: "Contacts", description: "Personnes et organisations", icon: Users, href: "/contacts" },
-  { label: "Projets", description: "Projets et tâches actives", icon: Stack, href: "/projets" },
-  { label: "Journal", description: "Notes quotidiennes", icon: Calendar, href: "/journal" },
-  { label: "Schémas", description: "Types d'entités et champs", icon: Hash, href: "/schemas" },
-  { label: "Vues", description: "Requêtes et vues sauvegardées", icon: BookOpen, href: "/vues" },
-  { label: "Routines", description: "Automations et rappels", icon: Lightning, href: "/routines" },
+  { labelKey: "nav.notes", descriptionKey: "home.descriptions.notes", icon: FileText, href: "/notes" },
+  { labelKey: "nav.contacts", descriptionKey: "home.descriptions.contacts", icon: Users, href: "/contacts" },
+  { labelKey: "nav.projects", descriptionKey: "home.descriptions.projects", icon: Stack, href: "/projets" },
+  { labelKey: "nav.journal", descriptionKey: "home.descriptions.journal", icon: Calendar, href: "/journal" },
+  { labelKey: "nav.schemas", descriptionKey: "home.descriptions.schemas", icon: Hash, href: "/schemas" },
+  { labelKey: "nav.views", descriptionKey: "home.descriptions.views", icon: BookOpen, href: "/vues" },
+  { labelKey: "nav.routines", descriptionKey: "home.descriptions.routines", icon: Lightning, href: "/routines" },
 ];
 
 /**
@@ -58,6 +59,7 @@ function entityDisplayName(entity: { fields: Record<string, unknown>; filePath: 
 }
 
 export function WritingSurface() {
+  const t = useTranslations();
   // markdown content as string (driven by BlockNote onChange)
   const [content, setContent] = useState("");
   const [isFocused, setIsFocused] = useState(false);
@@ -136,10 +138,10 @@ export function WritingSurface() {
   // Show success toast after save
   useEffect(() => {
     if (!lastSaved) return;
-    setSaveToast("Note enregistrée");
-    const t = setTimeout(() => setSaveToast(null), 2000);
-    return () => clearTimeout(t);
-  }, [lastSaved]);
+    setSaveToast(t("home.noteSaved"));
+    const timer = setTimeout(() => setSaveToast(null), 2000);
+    return () => clearTimeout(timer);
+  }, [lastSaved, t]);
 
   const handleEditorChange = useCallback(
     (markdown: string) => {
@@ -195,7 +197,7 @@ export function WritingSurface() {
               className="inline-block h-1.5 w-1.5 rounded-full"
               style={{ backgroundColor: "var(--accent)" }}
             />
-            Inbox · {truncatedTitle || "nouvelle note"}
+            {t("home.inbox", { title: truncatedTitle || t("home.newNote") })}
           </span>
         </div>
 
@@ -261,7 +263,7 @@ export function WritingSurface() {
             className="transition-colors hover:text-[var(--text-primary)]"
             disabled={isSaving}
           >
-            {isSaving ? "enregistrement…" : "enregistrer"}
+            {isSaving ? t("home.savingHint") : t("home.saveHint")}
           </button>
           <span style={{ color: "var(--border)" }}>·</span>
           <kbd
@@ -277,7 +279,7 @@ export function WritingSurface() {
             onClick={exitWriting}
             className="transition-colors hover:text-[var(--text-primary)]"
           >
-            quitter
+            {t("home.quitHint")}
           </button>
         </div>
       </div>
@@ -294,12 +296,12 @@ export function WritingSurface() {
           className="mb-4 text-[10px] font-medium uppercase tracking-widest"
           style={{ color: "var(--text-muted)" }}
         >
-          Accès rapide
+          {t("home.quickAccess")}
         </h2>
         <div className="grid grid-cols-2 gap-3 pb-12">
           {QUICK_ACCESS.map((item) => (
             <button
-              key={item.label}
+              key={item.labelKey}
               onClick={() => router.push(item.href)}
               className="group flex items-center gap-3 rounded-lg border p-4 text-left transition-colors hover:bg-[var(--surface-2)]"
               style={{
@@ -321,13 +323,13 @@ export function WritingSurface() {
                   className="text-sm font-medium"
                   style={{ color: "var(--text-primary)" }}
                 >
-                  {item.label}
+                  {t(item.labelKey)}
                 </p>
                 <p
                   className="truncate text-xs"
                   style={{ color: "var(--text-muted)" }}
                 >
-                  {item.description}
+                  {t(item.descriptionKey)}
                 </p>
               </div>
             </button>
@@ -366,6 +368,8 @@ export function WritingSurface() {
 // ── Sub-components ────────────────────────────────────────────
 
 function EditorPlaceholder() {
+  const t = useTranslations("home");
+
   return (
     <div
       style={{
@@ -376,7 +380,7 @@ function EditorPlaceholder() {
         opacity: 0.5,
       }}
     >
-      Commencez à écrire…
+      {t("startWriting")}
     </div>
   );
 }

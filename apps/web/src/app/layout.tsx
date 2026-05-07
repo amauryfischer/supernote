@@ -7,6 +7,9 @@ import { CommandSurface } from "@/components/command";
 import { OnboardingTour } from "@/components/onboarding/OnboardingTour";
 import { ThemeProvider } from "@supernote/ui";
 import { NotificationsProvider } from "@supernote/notifications/renderer";
+import { LocaleProvider } from "@/i18n/LocaleProvider";
+import frMessages from "../../messages/fr.json";
+import enMessages from "../../messages/en.json";
 
 export const metadata: Metadata = {
   title: "Supernote",
@@ -37,13 +40,15 @@ export default function RootLayout({
         <ThemeProvider defaultTheme="light" storageKey="supernote-theme">
           <NotificationsProvider>
             <TrpcProvider>
-              <ShortcutProvider>
-                {/* CommandSurface registers seed commands and handles Cmd+K globally */}
-                <CommandSurface />
-                <VaultInitBanner />
-                <OnboardingTour />
-                {children}
-              </ShortcutProvider>
+              <LocaleProvider frMessages={frMessages} enMessages={enMessages}>
+                <ShortcutProvider>
+                  {/* CommandSurface registers seed commands and handles Cmd+K globally */}
+                  <CommandSurface />
+                  <VaultInitBanner />
+                  <OnboardingTour />
+                  {children}
+                </ShortcutProvider>
+              </LocaleProvider>
             </TrpcProvider>
           </NotificationsProvider>
         </ThemeProvider>

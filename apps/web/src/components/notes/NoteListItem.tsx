@@ -3,6 +3,7 @@
 import { Trash } from "@phosphor-icons/react";
 import { useState } from "react";
 import { formatRelativeDate, type Note } from "./fixtures";
+import { useTranslations } from "next-intl";
 
 interface NoteListItemProps {
   note: Note;
@@ -13,6 +14,7 @@ interface NoteListItemProps {
 
 export function NoteListItem({ note, isActive, onClick, onDelete }: NoteListItemProps) {
   const [hovered, setHovered] = useState(false);
+  const t = useTranslations("notes");
   const preview = note.body.split("\n").slice(0, 2).join(" ").slice(0, 120);
 
   return (
@@ -87,7 +89,7 @@ export function NoteListItem({ note, isActive, onClick, onDelete }: NoteListItem
             e.stopPropagation();
             onDelete();
           }}
-          aria-label="Supprimer la note"
+          aria-label={t("deleteNote")}
           className="absolute right-3 top-3 flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-[var(--surface-3)]"
           style={{ color: "var(--text-muted)" }}
         >

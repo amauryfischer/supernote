@@ -13,6 +13,7 @@ import Link from "next/link";
 import { useState, useRef, useEffect, useCallback } from "react";
 import type { Routine } from "@supernote/ipc";
 import { EmptyState } from "@supernote/ui";
+import { useTranslations } from "next-intl";
 
 // ── IPC → fixture adapter ─────────────────────────────────────────────────
 
@@ -79,6 +80,7 @@ const TEMPLATE_KEYS: TemplateKey[] = [
 ];
 
 function NewRoutineDropdown() {
+  const t = useTranslations("routines");
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -98,7 +100,7 @@ function NewRoutineDropdown() {
         style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
       >
         <Plus size={13} />
-        Nouvelle routine
+        {t("newRoutine")}
         <CaretDown size={11} className={`transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
 
@@ -131,6 +133,7 @@ function NewRoutineDropdown() {
 // ── Page ──────────────────────────────────────────────────────────────────
 
 export default function RoutinesPage() {
+  const t = useTranslations("routines");
   const listQuery = trpc.routines.list.useQuery({});
   const updateMutation = trpc.routines.update.useMutation({
     onSuccess: () => { void listQuery.refetch(); },
@@ -167,7 +170,7 @@ export default function RoutinesPage() {
   }, [useFallback, updateMutation]);
 
   const handleDelete = useCallback((id: string) => {
-    if (!confirm("Supprimer cette routine ?")) return;
+    if (!confirm(t("deleteConfirm"))) return;
     if (useFallback) {
       setLocalRoutines((prev) => (prev ?? ROUTINES).filter((r) => r.id !== id));
       return;
@@ -203,7 +206,7 @@ export default function RoutinesPage() {
           <div className="flex items-center gap-3">
             <Lightning size={18} style={{ color: "var(--accent)" }} />
             <h1 className="text-lg font-semibold" style={{ color: "var(--text-primary)" }}>
-              Routines
+              {t("title")}
             </h1>
             <span
               className="rounded-full px-2 py-0.5 text-xs font-medium"
@@ -251,10 +254,10 @@ export default function RoutinesPage() {
           ) : routines.length === 0 ? (
             <EmptyState
               icon={<Lightning size={28} />}
-              title="Aucune routine"
-              description="Les routines automatisent les tâches récurrentes (rappels, emails, briefs LLM). Créez la vôtre ou partez d'un template."
-              action={{ label: "+ Nouvelle routine", onClick: () => { window.location.href = "/routines/nouveau"; } }}
-              secondaryAction={{ label: "Voir les templates", onClick: () => { window.location.href = "/routines/nouveau?template=blank"; } }}
+              title={t("noRoutines")}
+              description={t("noRoutinesHint")}
+              action={{ label: t("newRoutineAction"), onClick: () => { window.location.href = "/routines/nouveau"; } }}
+              secondaryAction={{ label: t("viewTemplates"), onClick: () => { window.location.href = "/routines/nouveau?template=blank"; } }}
               className="py-24"
             />
           ) : (

@@ -4,6 +4,7 @@ import { ArrowsDownUp, FileText, MagnifyingGlass, Plus, SortAscending, Warning }
 import { useMemo, useState } from "react";
 import type { Note } from "./fixtures";
 import { NoteListItem } from "./NoteListItem";
+import { useTranslations } from "next-intl";
 
 type SortKey = "updatedAt" | "title";
 
@@ -34,6 +35,8 @@ export function NoteList({
 }: NoteListProps) {
   const [query, setQuery] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("updatedAt");
+  const t = useTranslations("notes");
+  const tCommon = useTranslations("common");
 
   const filtered = useMemo(() => {
     const q = query.toLowerCase().trim();
@@ -75,7 +78,7 @@ export function NoteList({
             className="text-sm font-semibold"
             style={{ color: "var(--text-primary)" }}
           >
-            {folderName ?? "Toutes les notes"}
+            {folderName ?? t("allNotes")}
           </span>
           {isFallback && (
             <span
@@ -90,7 +93,7 @@ export function NoteList({
           {onNewNote && (
             <button
               onClick={onNewNote}
-              aria-label="Nouvelle note"
+              aria-label={t("newNote")}
               className="flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-[var(--surface-2)]"
               style={{ color: "var(--text-muted)" }}
             >
@@ -99,12 +102,12 @@ export function NoteList({
           )}
           <button
             onClick={toggleSort}
-            aria-label="Changer le tri"
+            aria-label={t("changeSort")}
             className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors hover:bg-[var(--surface-2)]"
             style={{ color: "var(--text-muted)" }}
           >
             {sortKey === "updatedAt" ? <ArrowsDownUp size={12} /> : <SortAscending size={12} />}
-            {sortKey === "updatedAt" ? "Date" : "Titre"}
+            {sortKey === "updatedAt" ? tCommon("date") : tCommon("title")}
           </button>
         </div>
       </div>
@@ -119,7 +122,7 @@ export function NoteList({
           />
           <input
             type="text"
-            placeholder="Rechercher…"
+            placeholder={tCommon("search")}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             className="w-full rounded-md py-1.5 pl-8 pr-3 text-xs outline-none"
@@ -159,7 +162,7 @@ export function NoteList({
         style={{ borderTop: "1px solid var(--border-subtle)" }}
       >
         <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>
-          {isLoading ? "Chargement…" : `${filtered.length} note${filtered.length !== 1 ? "s" : ""}`}
+          {isLoading ? tCommon("loading") : `${filtered.length} note${filtered.length !== 1 ? "s" : ""}`}
         </span>
       </div>
     </div>
@@ -184,15 +187,18 @@ function NoteListSkeleton() {
 }
 
 function NoteListError({ message }: { message: string | null }) {
+  const t = useTranslations("notes");
+  const tCommon = useTranslations("common");
+
   return (
     <div className="flex flex-col items-center justify-center gap-3 p-8 text-center">
       <Warning size={32} style={{ color: "var(--color-red-400, #f87171)" }} />
       <div>
         <p className="text-sm font-medium" style={{ color: "var(--text-secondary)" }}>
-          Impossible de charger les notes
+          {t("cannotLoad")}
         </p>
         <p className="mt-1 text-xs" style={{ color: "var(--text-muted)" }}>
-          {message ?? "Une erreur est survenue"}
+          {message ?? t("loadError")}
         </p>
       </div>
     </div>
@@ -206,16 +212,19 @@ function EmptyNoteList({
   hasQuery: boolean;
   onNewNote?: () => void;
 }) {
+  const t = useTranslations("notes");
+  const tCommon = useTranslations("common");
+
   if (hasQuery) {
     return (
       <div className="flex flex-col items-center justify-center gap-3 p-8 text-center">
         <FileText size={32} style={{ color: "var(--border)" }} />
         <div>
           <p className="text-sm font-medium" style={{ color: "var(--text-secondary)" }}>
-            Aucun résultat
+            {tCommon("noResults")}
           </p>
           <p className="mt-1 text-xs" style={{ color: "var(--text-muted)" }}>
-            Essayez un autre terme de recherche
+            {tCommon("tryOtherSearch")}
           </p>
         </div>
       </div>
@@ -232,10 +241,12 @@ function EmptyNoteList({
       </div>
       <div>
         <p className="text-sm font-medium" style={{ color: "var(--text-secondary)" }}>
-          Dossier vide
+          {t("emptyFolder")}
         </p>
         <p className="mt-1 text-xs leading-relaxed" style={{ color: "var(--text-muted)" }}>
-          Créez votre première note<br />ou importez depuis Notion / Obsidian
+          {t("emptyFolderHint").split("\n").map((line, i) => (
+            <span key={i}>{line}{i === 0 ? <br /> : null}</span>
+          ))}
         </p>
       </div>
       {onNewNote && (
@@ -245,7 +256,7 @@ function EmptyNoteList({
           style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
         >
           <Plus size={13} />
-          Créer ma première note
+          {t("createFirstNote")}
         </button>
       )}
     </div>

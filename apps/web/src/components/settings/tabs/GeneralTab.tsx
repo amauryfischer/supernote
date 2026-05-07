@@ -5,11 +5,9 @@ import { useSettings } from "../SettingsContext";
 import { SettingRow } from "../SettingRow";
 import { SettingSection } from "../SettingSection";
 import { NativeSelect } from "../NativeSelect";
-
-const LANGUAGES: Array<{ value: string; label: string }> = [
-  { value: "fr", label: "Français" },
-  { value: "en", label: "English" },
-];
+import { useTranslations } from "next-intl";
+import { useLocale } from "@/i18n/LocaleProvider";
+import type { Locale } from "@/i18n/config";
 
 const DATE_FORMATS: Array<{ value: string; label: string }> = [
   { value: "DD/MM/YYYY", label: "DD/MM/YYYY" },
@@ -27,11 +25,27 @@ const TIMEZONES: Array<{ value: string; label: string }> = [
 export function GeneralTab() {
   const { settings, updateSettings } = useSettings();
   const { general } = settings;
+  const t = useTranslations();
+  const { locale, setLocale } = useLocale();
+
+  const LANGUAGES: Array<{ value: string; label: string }> = [
+    { value: "fr", label: t("settings.languages.fr") },
+    { value: "en", label: t("settings.languages.en") },
+  ];
+
+  function handleLanguageChange(v: string) {
+    const next = v as Locale;
+    setLocale(next);
+    updateSettings("general", { ...general, language: next });
+  }
 
   return (
     <div className="space-y-6">
-      <SettingSection title="Vault" description="Emplacement de votre vault Supernote">
-        <SettingRow label="Chemin du vault">
+      <SettingSection
+        title={t("settings.general.vault")}
+        description={t("settings.general.vaultDescription")}
+      >
+        <SettingRow label={t("settings.general.vaultPath")}>
           <div className="flex items-center gap-2">
             <div
               className="flex flex-1 items-center gap-2 rounded-md border px-3 py-1.5 text-sm"
@@ -52,22 +66,25 @@ export function GeneralTab() {
                 backgroundColor: "var(--surface-1)",
               }}
             >
-              Changer
+              {t("settings.general.change")}
             </button>
           </div>
         </SettingRow>
       </SettingSection>
 
-      <SettingSection title="Localisation" description="Langue, fuseau horaire et format de date">
-        <SettingRow label="Langue">
+      <SettingSection
+        title={t("settings.general.localization")}
+        description={t("settings.general.localizationDescription")}
+      >
+        <SettingRow label={t("settings.general.language")}>
           <NativeSelect
-            value={general.language}
-            onChange={(v) => updateSettings("general", { ...general, language: v as "fr" | "en" })}
+            value={locale}
+            onChange={handleLanguageChange}
             options={LANGUAGES}
           />
         </SettingRow>
 
-        <SettingRow label="Fuseau horaire">
+        <SettingRow label={t("settings.general.timezone")}>
           <NativeSelect
             value={general.timezone}
             onChange={(v) => updateSettings("general", { ...general, timezone: v })}
@@ -75,7 +92,7 @@ export function GeneralTab() {
           />
         </SettingRow>
 
-        <SettingRow label="Format de date">
+        <SettingRow label={t("settings.general.dateFormat")}>
           <NativeSelect
             value={general.dateFormat}
             onChange={(v) => updateSettings("general", { ...general, dateFormat: v })}

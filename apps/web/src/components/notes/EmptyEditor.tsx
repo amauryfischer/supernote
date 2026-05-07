@@ -1,12 +1,15 @@
 "use client";
 
 import { FileText, Plus } from "@phosphor-icons/react";
+import { useTranslations } from "next-intl";
 
 interface EmptyEditorProps {
   onNewNote: () => void;
 }
 
 export function EmptyEditor({ onNewNote }: EmptyEditorProps) {
+  const t = useTranslations("notes");
+
   return (
     <div className="flex h-full flex-col items-center justify-center gap-6 p-8 text-center">
       <div
@@ -18,13 +21,13 @@ export function EmptyEditor({ onNewNote }: EmptyEditorProps) {
 
       <div className="flex flex-col gap-2">
         <h2 className="text-lg font-semibold" style={{ color: "var(--text-primary)" }}>
-          Sélectionnez une note ou créez-en une
+          {t("selectNote")}
         </h2>
         <p
           className="max-w-xs text-sm leading-relaxed"
           style={{ color: "var(--text-muted)" }}
         >
-          Choisissez une note dans la liste, ou créez-en une nouvelle dans le dossier sélectionné.
+          {t("selectNoteHint")}
         </p>
       </div>
 
@@ -37,7 +40,7 @@ export function EmptyEditor({ onNewNote }: EmptyEditorProps) {
         }}
       >
         <Plus size={15} />
-        Nouvelle note
+        {t("newNote")}
       </button>
     </div>
   );

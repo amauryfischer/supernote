@@ -1,21 +1,27 @@
 import type { NextConfig } from "next";
+import createNextIntlPlugin from "next-intl/plugin";
 // webpack is bundled as a peer of next; its types aren't typed externally,
 // so we require it dynamically to avoid type resolution errors at build time.
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const webpack = require("next/dist/compiled/webpack/webpack.js").webpack ?? require("webpack");
 
+const withNextIntl = createNextIntlPlugin("./src/i18n/request.ts");
+
 const isStaticExport = process.env["NEXT_BUILD_MODE"] === "export";
+const isStandalone = process.env["NEXT_BUILD_MODE"] === "production";
 
 const nextConfig: NextConfig = {
   ...(isStaticExport && { output: "export" }),
+  ...(isStandalone && { output: "standalone" }),
 
   // Disable React Strict Mode to eliminate double-render in dev.
   // Double-renders are intentional in StrictMode to catch side-effects,
   // but they inflate perceived latency noticeably in dev.
   reactStrictMode: false,
 
-  // @supernote/* packages are consumed via their pre-built dist/.
-  transpilePackages: [],
+  // @supernote/ui is transpiled so Next.js can enforce RSC boundaries correctly
+  // when used with next-intl's withNextIntl wrapper.
+  transpilePackages: ["@supernote/ui"],
 
   experimental: {
     // Tree-shake icon libraries and recharts so only used exports are bundled.
@@ -23,7 +29,7 @@ const nextConfig: NextConfig = {
   },
 
   images: {
-    unoptimized: isStaticExport,
+    unoptimized: isStaticExport || isStandalone,
   },
 
   eslint: {
@@ -78,4 +84,4 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+export default withNextIntl(nextConfig);
