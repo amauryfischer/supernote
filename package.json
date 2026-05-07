@@ -9,8 +9,15 @@
     "pnpm": ">=11.0.0"
   },
   "scripts": {
+    "setup": "pnpm install && pnpm build:packages",
+    "dev": "concurrently -n web,desktop -c blue,magenta \"pnpm dev:web\" \"pnpm dev:desktop\"",
+    "dev:web": "pnpm --filter @supernote/web dev",
+    "dev:desktop": "wait-on http://localhost:3000 && pnpm --filter @supernote/desktop dev",
     "build": "turbo run build",
-    "dev": "turbo run dev",
+    "build:packages": "pnpm -r --filter \"./packages/**\" build",
+    "build:web": "pnpm --filter @supernote/web build",
+    "build:desktop": "pnpm --filter @supernote/desktop build",
+    "build:installer": "pnpm build:packages && cross-env NEXT_BUILD_MODE=export pnpm build:web && pnpm --filter @supernote/desktop package",
     "lint": "turbo run lint",
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",
@@ -19,11 +26,14 @@
     "format:check": "prettier --check ."
   },
   "devDependencies": {
-    "turbo": "^2.3.0",
-    "typescript": "^5.7.2",
+    "@types/node": "^22.10.0",
+    "concurrently": "^9.2.1",
+    "cross-env": "^10.1.0",
     "prettier": "^3.4.0",
     "prettier-plugin-tailwindcss": "^0.6.9",
-    "@types/node": "^22.10.0"
+    "turbo": "^2.3.0",
+    "typescript": "^5.7.2",
+    "wait-on": "^9.0.5"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
