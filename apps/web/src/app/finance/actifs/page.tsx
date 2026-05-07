@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, Plus, TrendingUp, TrendingDown } from "lucide-react";
+import { ArrowLeft, Plus, TrendUp, TrendDown } from "@phosphor-icons/react";
 import Link from "next/link";
 import { AppShell } from "@/components/shell";
 import { ASSETS, ACCOUNTS, type Asset } from "@/components/finance/fixtures";
@@ -33,9 +33,9 @@ function AssetCard({ asset }: { asset: Asset }) {
           {asset.name}
         </p>
         {positive ? (
-          <TrendingUp size={14} style={{ color: "var(--success)", flexShrink: 0 }} />
+          <TrendUp size={14} style={{ color: "var(--success)", flexShrink: 0 }} />
         ) : (
-          <TrendingDown size={14} style={{ color: "var(--danger)", flexShrink: 0 }} />
+          <TrendDown size={14} style={{ color: "var(--danger)", flexShrink: 0 }} />
         )}
       </div>
       <p className="text-lg font-bold" style={{ color: "var(--text-primary)" }}>

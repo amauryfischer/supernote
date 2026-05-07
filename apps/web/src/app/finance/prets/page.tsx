@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowLeft, ChevronDown, ChevronRight, Plus } from "lucide-react";
+import { ArrowLeft, CaretDown, CaretRight, Plus } from "@phosphor-icons/react";
 import Link from "next/link";
 import { AppShell } from "@/components/shell";
 import { LOANS, type Loan } from "@/components/finance/fixtures";
@@ -114,7 +114,7 @@ function LoanRow({ loan }: { loan: Loan }) {
         onClick={() => setExpanded((v) => !v)}
       >
         <button className="flex-shrink-0" style={{ color: "var(--text-muted)" }}>
-          {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+          {expanded ? <CaretDown size={16} /> : <CaretRight size={16} />}
         </button>
         <div className="h-3 w-3 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
         <div className="flex-1">

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Plus, Database, Layers } from "lucide-react";
+import { Plus, Database, Stack } from "@phosphor-icons/react";
 import { AppShell } from "@/components/shell";
 import { TypeListItem } from "@/components/schemas/TypeListItem";
 import { TypePreview } from "@/components/schemas/TypePreview";
@@ -100,7 +100,7 @@ export default function SchemasPage() {
                 className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors hover:bg-[var(--surface-2)]"
                 style={{ color: "var(--text-secondary)" }}
               >
-                <Layers size={14} />
+                <Stack size={14} />
                 Graphe des relations
               </button>
             </Link>

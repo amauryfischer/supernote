@@ -11,7 +11,7 @@ import {
   RelationChip,
 } from "@/components/contacts";
 import type { RelationType } from "@/components/contacts";
-import { LayoutGrid, LayoutList, Plus, Search, X } from "lucide-react";
+import { GridFour, List, Plus, MagnifyingGlass, X } from "@phosphor-icons/react";
 import Link from "next/link";
 import { useState, useMemo } from "react";
 
@@ -87,7 +87,7 @@ export default function ContactsPage() {
                 }}
                 aria-label="Vue table"
               >
-                <LayoutList size={14} />
+                <List size={14} />
               </button>
               <button
                 onClick={() => setView("gallery")}
@@ -98,7 +98,7 @@ export default function ContactsPage() {
                 }}
                 aria-label="Vue galerie"
               >
-                <LayoutGrid size={14} />
+                <GridFour size={14} />
               </button>
             </div>
 
@@ -123,7 +123,7 @@ export default function ContactsPage() {
             className="flex items-center gap-2 rounded-md border px-2 py-1"
             style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-1)" }}
           >
-            <Search size={13} style={{ color: "var(--text-muted)" }} />
+            <MagnifyingGlass size={13} style={{ color: "var(--text-muted)" }} />
             <input
               type="text"
               value={query}

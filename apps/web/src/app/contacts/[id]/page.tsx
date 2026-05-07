@@ -13,15 +13,15 @@ import {
 } from "@/components/contacts";
 import {
   ArrowLeft,
-  Building2,
+  Buildings,
   Calendar,
-  ExternalLink,
-  Github,
-  Linkedin,
-  Mail,
+  ArrowSquareOut,
+  GithubLogo,
+  LinkedinLogo,
+  Envelope,
   Phone,
-  Twitter,
-} from "lucide-react";
+  TwitterLogo,
+} from "@phosphor-icons/react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
@@ -137,7 +137,7 @@ export default function ContactDetailPage() {
                   className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors hover:opacity-90"
                   style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
                 >
-                  <Mail size={12} />
+                  <Envelope size={12} />
                   Email
                 </a>
               )}
@@ -159,7 +159,7 @@ export default function ContactDetailPage() {
                   className="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--surface-2)]"
                   style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
                 >
-                  <Building2 size={12} />
+                  <Buildings size={12} />
                   Org
                 </a>
               )}
@@ -170,7 +170,7 @@ export default function ContactDetailPage() {
             {/* Info rows */}
             <div>
               {contact.emails.map((email) => (
-                <InfoRow key={email.value} icon={<Mail size={14} />}>
+                <InfoRow key={email.value} icon={<Envelope size={14} />}>
                   <a href={`mailto:${email.value}`} className="hover:underline">
                     {email.value}
                   </a>{" "}
@@ -184,11 +184,11 @@ export default function ContactDetailPage() {
                 </InfoRow>
               ))}
               {org && (
-                <InfoRow icon={<Building2 size={14} />}>
+                <InfoRow icon={<Buildings size={14} />}>
                   {org.website ? (
                     <a href={org.website} target="_blank" rel="noopener noreferrer" className="hover:underline flex items-center gap-1">
                       {org.name}
-                      <ExternalLink size={11} />
+                      <ArrowSquareOut size={11} />
                     </a>
                   ) : (
                     org.name
@@ -226,7 +226,7 @@ export default function ContactDetailPage() {
                       style={{ borderColor: "var(--border-subtle)", color: "var(--text-muted)" }}
                       aria-label="LinkedIn"
                     >
-                      <Linkedin size={15} />
+                      <LinkedinLogo size={15} />
                     </a>
                   )}
                   {contact.social.twitter && (
@@ -238,7 +238,7 @@ export default function ContactDetailPage() {
                       style={{ borderColor: "var(--border-subtle)", color: "var(--text-muted)" }}
                       aria-label="Twitter"
                     >
-                      <Twitter size={15} />
+                      <TwitterLogo size={15} />
                     </a>
                   )}
                   {contact.social.github && (
@@ -250,7 +250,7 @@ export default function ContactDetailPage() {
                       style={{ borderColor: "var(--border-subtle)", color: "var(--text-muted)" }}
                       aria-label="GitHub"
                     >
-                      <Github size={15} />
+                      <GithubLogo size={15} />
                     </a>
                   )}
                 </div>
@@ -393,7 +393,7 @@ export default function ContactDetailPage() {
                   >
                     {org && (
                       <div className="flex items-center gap-2 text-sm">
-                        <Building2 size={14} style={{ color: "var(--text-muted)" }} />
+                        <Buildings size={14} style={{ color: "var(--text-muted)" }} />
                         <span style={{ color: "var(--text-muted)" }}>Travaille chez</span>
                         <span className="font-medium" style={{ color: "var(--text-primary)" }}>{org.name}</span>
                       </div>

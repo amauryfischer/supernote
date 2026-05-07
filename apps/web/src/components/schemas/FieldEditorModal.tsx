@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { X, Plus, Trash2 } from "lucide-react";
+import { X, Plus, Trash } from "@phosphor-icons/react";
 import type { Field, FieldKind, SelectOption } from "@supernote/core";
 import { FIELD_KINDS, ENTITY_TYPES } from "./fixtures";
 
@@ -165,7 +165,7 @@ export function FieldEditorModal({ field, onClose, onSave }: FieldEditorModalPro
                       style={{ borderColor: "var(--border)", backgroundColor: "var(--surface-1)", color: "var(--text-primary)" }}
                     />
                     <button onClick={() => removeOption(i)} className="rounded p-1 hover:bg-red-50">
-                      <Trash2 size={12} style={{ color: "var(--danger)" }} />
+                      <Trash size={12} style={{ color: "var(--danger)" }} />
                     </button>
                   </div>
                 ))}

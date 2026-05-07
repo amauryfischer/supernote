@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Check } from "lucide-react";
+import { ArrowLeft, Check } from "@phosphor-icons/react";
 import { AppShell } from "@/components/shell";
 import { getIcon } from "@/components/schemas/icon-map";
 

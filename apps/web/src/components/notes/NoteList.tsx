@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUpDown, FileText, Search, SortAsc } from "lucide-react";
+import { ArrowsDownUp, FileText, MagnifyingGlass, SortAscending } from "@phosphor-icons/react";
 import { useMemo, useState } from "react";
 import type { Note } from "./fixtures";
 import { NoteListItem } from "./NoteListItem";
@@ -65,7 +65,7 @@ export function NoteList({ notes, selectedNoteId, folderName, onSelectNote }: No
           className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors hover:bg-[var(--surface-2)]"
           style={{ color: "var(--text-muted)" }}
         >
-          {sortKey === "updatedAt" ? <ArrowUpDown size={12} /> : <SortAsc size={12} />}
+          {sortKey === "updatedAt" ? <ArrowsDownUp size={12} /> : <SortAscending size={12} />}
           {sortKey === "updatedAt" ? "Date" : "Titre"}
         </button>
       </div>
@@ -73,7 +73,7 @@ export function NoteList({ notes, selectedNoteId, folderName, onSelectNote }: No
       {/* Search */}
       <div className="px-3 py-2" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
         <div className="relative">
-          <Search
+          <MagnifyingGlass
             size={13}
             className="absolute left-2.5 top-1/2 -translate-y-1/2"
             style={{ color: "var(--text-muted)" }}

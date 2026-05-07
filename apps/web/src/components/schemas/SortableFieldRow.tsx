@@ -2,7 +2,7 @@
 
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { GripVertical, Edit2, Trash2 } from "lucide-react";
+import { DotsSixVertical, PencilSimple, Trash } from "@phosphor-icons/react";
 import type { Field } from "@supernote/core";
 import { FieldKindBadge } from "./FieldKindBadge";
 
@@ -35,7 +35,7 @@ export function SortableFieldRow({ field, onEdit, onDelete }: SortableFieldRowPr
         {...listeners}
         className="cursor-grab rounded p-0.5 hover:bg-[var(--surface-2)] active:cursor-grabbing"
       >
-        <GripVertical size={14} style={{ color: "var(--text-muted)" }} />
+        <DotsSixVertical size={14} style={{ color: "var(--text-muted)" }} />
       </button>
       <FieldKindBadge kind={field.kind} />
       <span className="flex-1 text-sm font-medium" style={{ color: "var(--text-primary)" }}>
@@ -55,14 +55,14 @@ export function SortableFieldRow({ field, onEdit, onDelete }: SortableFieldRowPr
           className="rounded p-1 hover:bg-[var(--surface-2)]"
           title="Modifier"
         >
-          <Edit2 size={13} style={{ color: "var(--text-muted)" }} />
+          <PencilSimple size={13} style={{ color: "var(--text-muted)" }} />
         </button>
         <button
           onClick={onDelete}
           className="rounded p-1 hover:bg-red-50"
           title="Supprimer"
         >
-          <Trash2 size={13} style={{ color: "var(--danger)" }} />
+          <Trash size={13} style={{ color: "var(--danger)" }} />
         </button>
       </div>
     </div>

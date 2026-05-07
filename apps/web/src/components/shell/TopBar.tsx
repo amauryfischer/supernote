@@ -1,10 +1,21 @@
 "use client";
 
-import { Command, PanelRight, Plus } from "lucide-react";
+import { Command, SidebarSimple, Plus } from "@phosphor-icons/react";
+import { usePathname, useRouter } from "next/navigation";
 import { useShellChrome } from "./shell-chrome-context";
 
 export function TopBar() {
   const { toggleRightPanel, rightPanelVisible, requestNewNote } = useShellChrome();
+  const router = useRouter();
+  const pathname = usePathname();
+
+  const handleNewNote = () => {
+    if (pathname === "/") {
+      requestNewNote();
+    } else {
+      router.push("/?new=true");
+    }
+  };
 
   return (
     <header
@@ -15,10 +26,8 @@ export function TopBar() {
         backgroundColor: "var(--surface-1)",
       }}
     >
-      {/* Quick search hint */}
       <button
         onClick={() => {
-          // dispatched as event so the eventual command-palette can listen for it
           window.dispatchEvent(new CustomEvent("supernote:open-command-palette"));
         }}
         className="flex items-center gap-2 rounded-md px-3 py-1.5 text-xs transition-colors hover:bg-[var(--surface-2)]"
@@ -40,10 +49,9 @@ export function TopBar() {
         </kbd>
       </button>
 
-      {/* Actions */}
       <div className="flex items-center gap-1">
         <button
-          onClick={requestNewNote}
+          onClick={handleNewNote}
           className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-opacity hover:opacity-90"
           style={{
             backgroundColor: "var(--accent)",
@@ -61,7 +69,7 @@ export function TopBar() {
             color: rightPanelVisible ? "var(--text-secondary)" : "var(--text-muted)",
           }}
         >
-          <PanelRight size={15} />
+          <SidebarSimple size={15} />
         </button>
       </div>
     </header>

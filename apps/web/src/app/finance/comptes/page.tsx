@@ -10,7 +10,7 @@ import {
   type ColumnDef,
   type SortingState,
 } from "@tanstack/react-table";
-import { Plus, ArrowUpDown, ArrowLeft } from "lucide-react";
+import { Plus, ArrowsDownUp, ArrowLeft } from "@phosphor-icons/react";
 import Link from "next/link";
 import { ACCOUNTS, type Account } from "@/components/finance/fixtures";
 import { formatCurrency, formatDate } from "@/components/finance/utils";
@@ -149,7 +149,7 @@ export default function ComptesPage() {
                       onClick={header.column.getToggleSortingHandler()}
                     >
                       {flexRender(header.column.columnDef.header, header.getContext())}
-                      <ArrowUpDown size={10} />
+                      <ArrowsDownUp size={10} />
                     </button>
                   </th>
                 ))}

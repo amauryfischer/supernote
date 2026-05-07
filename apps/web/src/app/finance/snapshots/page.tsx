@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowLeft, Camera } from "lucide-react";
+import { ArrowLeft, Camera } from "@phosphor-icons/react";
 import Link from "next/link";
 import { AppShell } from "@/components/shell";
 import { SNAPSHOTS } from "@/components/finance/fixtures";

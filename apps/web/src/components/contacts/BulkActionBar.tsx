@@ -1,6 +1,6 @@
 "use client";
 
-import { Archive, Mail, Tag, X } from "lucide-react";
+import { Archive, Envelope, Tag, X } from "@phosphor-icons/react";
 
 interface BulkActionBarProps {
   selectedCount: number;
@@ -32,7 +32,7 @@ export function BulkActionBar({ selectedCount, onClear, onEmail, onArchive, onAd
           className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--surface-2)]"
           style={{ color: "var(--text-secondary)" }}
         >
-          <Mail size={13} />
+          <Envelope size={13} />
           Email
         </button>
         <button

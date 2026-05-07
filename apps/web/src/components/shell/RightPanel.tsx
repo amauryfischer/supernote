@@ -1,6 +1,6 @@
 "use client";
 
-import { Clock, GitBranch, Sparkles, X } from "lucide-react";
+import { Clock, GitBranch, Sparkle, X } from "@phosphor-icons/react";
 import { useShellChrome } from "./shell-chrome-context";
 
 interface RecentItem {
@@ -91,7 +91,7 @@ export function RightPanel() {
       {/* AI / Suggestions */}
       <div className="flex flex-col gap-1 p-3">
         <div className="flex items-center gap-1.5 px-1 pb-2">
-          <Sparkles size={12} className="text-[var(--accent)]" />
+          <Sparkle size={12} className="text-[var(--accent)]" />
           <span
             className="text-xs font-medium"
             style={{ color: "var(--text-muted)" }}

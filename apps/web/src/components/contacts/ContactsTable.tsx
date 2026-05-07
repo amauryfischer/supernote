@@ -10,7 +10,7 @@ import {
   type SortingState,
   type RowSelectionState,
 } from "@tanstack/react-table";
-import { ArrowUpDown, ChevronUp, ChevronDown } from "lucide-react";
+import { ArrowsDownUp, CaretUp, CaretDown } from "@phosphor-icons/react";
 import Link from "next/link";
 import { useState } from "react";
 import type { Contact } from "./fixtures";
@@ -204,11 +204,11 @@ export function ContactsTable({ contacts, onSelectionChange }: ContactsTableProp
                       {header.column.getCanSort() && (
                         <span className="opacity-40">
                           {header.column.getIsSorted() === "asc" ? (
-                            <ChevronUp size={12} />
+                            <CaretUp size={12} />
                           ) : header.column.getIsSorted() === "desc" ? (
-                            <ChevronDown size={12} />
+                            <CaretDown size={12} />
                           ) : (
-                            <ArrowUpDown size={12} />
+                            <ArrowsDownUp size={12} />
                           )}
                         </span>
                       )}

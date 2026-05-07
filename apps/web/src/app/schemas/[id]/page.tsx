@@ -2,7 +2,7 @@
 
 import { useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, Plus } from "lucide-react";
+import { ArrowLeft, Plus } from "@phosphor-icons/react";
 import {
   DndContext,
   closestCenter,

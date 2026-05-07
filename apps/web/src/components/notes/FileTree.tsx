@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, ChevronRight, Folder, FolderOpen, Plus } from "lucide-react";
+import { CaretDown, CaretRight, Folder, FolderOpen, Plus } from "@phosphor-icons/react";
 import { useState } from "react";
 import type { Folder as FolderType } from "./fixtures";
 
@@ -114,7 +114,7 @@ function FolderNode({ folder, selectedFolder, onSelectFolder, depth }: FolderNod
       >
         <span className="flex w-4 flex-shrink-0 items-center justify-center">
           {hasChildren ? (
-            expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />
+            expanded ? <CaretDown size={12} /> : <CaretRight size={12} />
           ) : null}
         </span>
         {isSelected ? <FolderOpen size={14} /> : <Folder size={14} />}

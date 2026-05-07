@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, Plus, Target } from "lucide-react";
+import { ArrowLeft, Plus, Target } from "@phosphor-icons/react";
 import Link from "next/link";
 import { AppShell } from "@/components/shell";
 import { GOALS } from "@/components/finance/fixtures";

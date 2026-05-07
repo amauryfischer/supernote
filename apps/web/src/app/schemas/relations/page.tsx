@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, X } from "lucide-react";
+import { ArrowLeft, X } from "@phosphor-icons/react";
 import { AppShell } from "@/components/shell";
 import { RelationsGraph } from "@/components/schemas/RelationsGraph";
 import { ENTITY_TYPES } from "@/components/schemas/fixtures";

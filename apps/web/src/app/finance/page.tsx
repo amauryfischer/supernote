@@ -1,6 +1,7 @@
 "use client";
 
-import { Camera, RefreshCw } from "lucide-react";
+import { Camera, ArrowsClockwise } from "@phosphor-icons/react";
+import { AppShell } from "@/components/shell";
 import { MetricCard } from "@/components/finance/MetricCard";
 import { NetWorthChart } from "@/components/finance/NetWorthChart";
 import { CategoryDonut } from "@/components/finance/CategoryDonut";
@@ -24,6 +25,7 @@ export default function FinancePage() {
   const variationPositive = variation.absolute >= 0;
 
   return (
+    <AppShell>
     <div className="flex flex-col gap-6 p-6">
       {/* Header */}
       <div className="flex items-start justify-between">
@@ -40,7 +42,7 @@ export default function FinancePage() {
             className="flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition-colors hover:bg-[var(--surface-2)]"
             style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
           >
-            <RefreshCw size={14} />
+            <ArrowsClockwise size={14} />
             Refresh prix
           </button>
           <button
@@ -101,5 +103,6 @@ export default function FinancePage() {
       {/* Row 5 — Loan timeline */}
       <LoanTimeline />
     </div>
+    </AppShell>
   );
 }

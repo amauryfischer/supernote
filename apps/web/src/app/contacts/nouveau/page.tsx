@@ -3,7 +3,7 @@
 import { AppShell } from "@/components/shell";
 import { ORGANISATIONS, ALL_RELATION_TYPES, RelationChip, ContactAvatar } from "@/components/contacts";
 import type { RelationType } from "@/components/contacts";
-import { ArrowLeft, Linkedin, Twitter, Github, Plus, X, Upload } from "lucide-react";
+import { ArrowLeft, LinkedinLogo, TwitterLogo, GithubLogo, Plus, X, UploadSimple } from "@phosphor-icons/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useRef } from "react";
@@ -134,7 +134,7 @@ export default function NouveauContactPage() {
                 className="flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs transition-colors hover:bg-[var(--surface-2)]"
                 style={{ borderColor: "var(--border-subtle)", color: "var(--text-muted)" }}
               >
-                <Upload size={11} />
+                <UploadSimple size={11} />
                 Photo
               </button>
               <input
@@ -329,15 +329,15 @@ export default function NouveauContactPage() {
             <FieldLabel>Réseaux sociaux</FieldLabel>
             <div className="flex flex-col gap-2">
               <div className="flex items-center gap-2">
-                <Linkedin size={15} style={{ color: "var(--text-muted)", flexShrink: 0 }} />
+                <LinkedinLogo size={15} style={{ color: "var(--text-muted)", flexShrink: 0 }} />
                 <TextInput value={linkedin} onChange={setLinkedin} placeholder="https://linkedin.com/in/…" />
               </div>
               <div className="flex items-center gap-2">
-                <Twitter size={15} style={{ color: "var(--text-muted)", flexShrink: 0 }} />
+                <TwitterLogo size={15} style={{ color: "var(--text-muted)", flexShrink: 0 }} />
                 <TextInput value={twitter} onChange={setTwitter} placeholder="https://twitter.com/…" />
               </div>
               <div className="flex items-center gap-2">
-                <Github size={15} style={{ color: "var(--text-muted)", flexShrink: 0 }} />
+                <GithubLogo size={15} style={{ color: "var(--text-muted)", flexShrink: 0 }} />
                 <TextInput value={github} onChange={setGithub} placeholder="https://github.com/…" />
               </div>
             </div>

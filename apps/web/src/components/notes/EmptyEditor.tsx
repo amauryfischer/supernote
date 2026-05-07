@@ -1,6 +1,6 @@
 "use client";
 
-import { FileText, Plus } from "lucide-react";
+import { FileText, Plus } from "@phosphor-icons/react";
 
 interface EmptyEditorProps {
   onNewNote: () => void;

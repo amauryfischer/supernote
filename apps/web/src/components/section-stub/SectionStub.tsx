@@ -1,10 +1,10 @@
 "use client";
 
 import { AppShell } from "@/components/shell";
-import type { LucideIcon } from "lucide-react";
+import type { Icon } from "@phosphor-icons/react";
 
 interface SectionStubProps {
-  icon: LucideIcon;
+  icon: Icon;
   title: string;
   description: string;
   hint?: string;

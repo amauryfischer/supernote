@@ -1,7 +1,7 @@
 "use client";
 
 import { SectionStub } from "@/components/section-stub";
-import { BookOpen } from "lucide-react";
+import { BookOpen } from "@phosphor-icons/react";
 
 export default function VuesPage() {
   return (

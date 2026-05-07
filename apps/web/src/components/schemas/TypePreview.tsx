@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Edit2, Copy, Trash2, Plus, ArrowRight } from "lucide-react";
+import { PencilSimple, Copy, Trash, Plus, ArrowRight } from "@phosphor-icons/react";
 import type { EntityType, Field } from "@supernote/core";
 import { RELATION_TYPES, ENTITY_TYPES, ENTITY_COUNTS } from "./fixtures";
 import { FieldKindBadge } from "./FieldKindBadge";
@@ -44,7 +44,7 @@ export function TypePreview({ type }: TypePreviewProps) {
               className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors"
               style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
             >
-              <Edit2 size={13} />
+              <PencilSimple size={13} />
               Modifier
             </button>
           </Link>
@@ -59,7 +59,7 @@ export function TypePreview({ type }: TypePreviewProps) {
             className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors hover:bg-red-50"
             style={{ borderColor: "var(--border)", color: "var(--danger)" }}
           >
-            <Trash2 size={13} />
+            <Trash size={13} />
           </button>
         </div>
       </div>

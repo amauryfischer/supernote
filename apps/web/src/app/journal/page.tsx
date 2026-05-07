@@ -1,7 +1,7 @@
 "use client";
 
 import { SectionStub } from "@/components/section-stub";
-import { Calendar } from "lucide-react";
+import { Calendar } from "@phosphor-icons/react";
 
 export default function JournalPage() {
   return (
