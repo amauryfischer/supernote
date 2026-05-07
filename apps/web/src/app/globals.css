@@ -4,6 +4,12 @@
 /* HeroUI v3 — design tokens & component styles */
 @import "@heroui/styles/css";
 
+/* BlockNote core styles */
+@import "@blocknote/react/style.css";
+
+/* Supernote editor overrides (inherits CSS vars from :root above) */
+@import "@supernote/editor/editor.css";
+
 /* ────────────────────────────────────────────────────────────────────────── */
 /* Root tokens — LIGHT theme by default, DARK overrides via [data-theme=dark] */
 /* ────────────────────────────────────────────────────────────────────────── */

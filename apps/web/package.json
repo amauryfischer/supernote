@@ -15,6 +15,7 @@
     "@heroui/react": "^3.0.0",
     "@heroui/styles": "^3.0.0",
     "@phosphor-icons/react": "^2.1.10",
+    "@supernote/editor": "workspace:*",
     "@supernote/finance": "workspace:*",
     "@supernote/ipc": "workspace:*",
     "@tanstack/react-query": "^5.100.9",
