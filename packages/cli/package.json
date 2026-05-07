@@ -1,0 +1,41 @@
+{
+  "name": "@supernote/cli",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Companion CLI for Supernote — create notes, search, manage vaults",
+  "type": "module",
+  "bin": {
+    "supernote": "./dist/index.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc --project tsconfig.build.json && node -e \"import('node:fs').then(fs => fs.chmodSync('dist/index.js', 0o755))\"",
+    "dev": "tsc --project tsconfig.build.json --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src --ext .ts",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@supernote/core": "workspace:*",
+    "chalk": "^5.4.1",
+    "commander": "^12.1.0",
+    "enquirer": "^2.4.1",
+    "ora": "^8.2.0",
+    "ulid": "^2.3.0"
+  },
+  "devDependencies": {
+    "@supernote/tsconfig": "workspace:*",
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.2",
+    "vitest": "^3.0.0"
+  }
+}
