@@ -1,0 +1,38 @@
+version: 2
+
+updates:
+  # npm / pnpm packages
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Europe/Paris
+    open-pull-requests-limit: 10
+    groups:
+      dev-tooling:
+        patterns:
+          - "turbo"
+          - "prettier*"
+          - "typescript"
+          - "@types/*"
+      github-actions-indirect:
+        patterns:
+          - "*"
+        update-types:
+          - patch
+    ignore:
+      # Electron major versions require manual testing
+      - dependency-name: electron
+        update-types: ["version-update:semver-major"]
+
+  # GitHub Actions
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Europe/Paris
+    open-pull-requests-limit: 5
