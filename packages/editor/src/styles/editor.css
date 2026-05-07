@@ -61,6 +61,23 @@
   margin-block: 0.25rem;
 }
 
+/* Disable focus rings on the editor itself — the global :focus-visible rule
+ * in apps/web/src/app/globals.css applies a violet outline that surrounds the
+ * whole writing canvas while typing. The editor doesn't need it (caret is
+ * sufficient feedback). */
+.sn-editor-wrapper,
+.sn-editor-wrapper *:focus,
+.sn-editor-wrapper *:focus-visible,
+.sn-editor-wrapper .ProseMirror,
+.sn-editor-wrapper .ProseMirror:focus,
+.sn-editor-wrapper .ProseMirror:focus-visible,
+.sn-editor-wrapper .bn-editor:focus,
+.sn-editor-wrapper .bn-editor:focus-visible,
+.sn-editor-wrapper .bn-container:focus,
+.sn-editor-wrapper .bn-container:focus-visible {
+  outline: none !important;
+}
+
 /* Selection highlight */
 .sn-editor-wrapper .ProseMirror ::selection {
   background: var(--accent-subtle, rgb(124 58 237 / 0.2));
