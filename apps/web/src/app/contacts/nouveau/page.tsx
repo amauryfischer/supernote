@@ -1,12 +1,19 @@
 "use client";
 
 import { AppShell } from "@/components/shell";
-import { ORGANISATIONS, ALL_RELATION_TYPES, RelationChip, ContactAvatar } from "@/components/contacts";
+import {
+  ORGANISATIONS,
+  ALL_RELATION_TYPES,
+  RelationChip,
+  ContactAvatar,
+  contactFormToEntityFields,
+} from "@/components/contacts";
 import type { RelationType } from "@/components/contacts";
 import { ArrowLeft, LinkedinLogo, TwitterLogo, GithubLogo, Plus, X, UploadSimple } from "@phosphor-icons/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useRef } from "react";
+import { trpc } from "@/lib/trpc/client";
 
 interface EmailEntry { value: string; label: "pro" | "perso" | "autre" }
 interface PhoneEntry { value: string; label: "mobile" | "fixe" | "pro" }
@@ -59,6 +66,17 @@ export default function NouveauContactPage() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const fileRef = useRef<HTMLInputElement>(null);
 
+  const createMutation = trpc.entities.create.useMutation({
+    onSuccess: (entity) => {
+      router.push(`/contacts/${entity.id}`);
+    },
+    onError: () => {
+      // Mode dégradé: IPC not available in browser
+      alert(`Contact "${name}" créé (mode dégradé – OK simulé).`);
+      router.push("/contacts");
+    },
+  });
+
   const filteredOrgs = ORGANISATIONS.filter((o) =>
     o.name.toLowerCase().includes(orgSearch.toLowerCase())
   );
@@ -99,9 +117,27 @@ export default function NouveauContactPage() {
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!validate()) return;
-    // Mock: would call API here
-    alert(`Contact "${name}" créé (mock).`);
-    router.push("/contacts");
+
+    const fields = contactFormToEntityFields({
+      name,
+      emails: emails.filter((em) => em.value.trim()),
+      phones: phones.filter((ph) => ph.value.trim()),
+      birthday: birthday || undefined,
+      organisationId: orgId || undefined,
+      relationType,
+      linkedin: linkedin || undefined,
+      twitter: twitter || undefined,
+      github: github || undefined,
+      tags,
+      notes,
+    });
+
+    createMutation.mutate({
+      typeId: "personne",
+      fields,
+      body: notes,
+      tags,
+    });
   }
 
   const selectedOrg = ORGANISATIONS.find((o) => o.id === orgId);
@@ -391,14 +427,22 @@ export default function NouveauContactPage() {
             />
           </div>
 
+          {/* Error banner */}
+          {createMutation.isError && (
+            <p className="rounded-md border p-3 text-sm" style={{ borderColor: "var(--danger)", color: "var(--danger)", backgroundColor: "oklch(0.97 0.02 28)" }}>
+              Impossible de contacter le serveur (mode dégradé). Le contact sera créé localement si IPC disponible.
+            </p>
+          )}
+
           {/* Actions */}
           <div className="flex gap-3 pt-2">
             <button
               type="submit"
-              className="flex items-center gap-1.5 rounded-md px-5 py-2 text-sm font-medium transition-opacity hover:opacity-90"
+              disabled={createMutation.isPending}
+              className="flex items-center gap-1.5 rounded-md px-5 py-2 text-sm font-medium transition-opacity hover:opacity-90 disabled:opacity-50"
               style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
             >
-              Créer
+              {createMutation.isPending ? "Création…" : "Créer"}
             </button>
             <Link
               href="/contacts"

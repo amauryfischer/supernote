@@ -22,14 +22,17 @@ import { formatDate, isBirthdaySoon, relativeBirthday } from "./utils";
 interface ContactsTableProps {
   contacts: Contact[];
   onSelectionChange?: (ids: string[]) => void;
+  /** Optional map of orgId → org name for live tRPC data (overrides fixture lookup). */
+  orgNames?: Map<string, string>;
 }
 
 const colHelper = createColumnHelper<Contact>();
 
-function OrgLink({ orgId }: { orgId: string | undefined }) {
-  const org = ORGANISATIONS.find((o) => o.id === orgId);
-  if (!org) return <span className="text-[var(--text-muted)]">—</span>;
-  return <span className="text-sm text-[var(--text-secondary)]">{org.name}</span>;
+function OrgLink({ orgId, orgNames }: { orgId: string | undefined; orgNames?: Map<string, string> }) {
+  if (!orgId) return <span className="text-[var(--text-muted)]">—</span>;
+  const name = orgNames?.get(orgId) ?? ORGANISATIONS.find((o) => o.id === orgId)?.name;
+  if (!name) return <span className="text-[var(--text-muted)]">—</span>;
+  return <span className="text-sm text-[var(--text-secondary)]">{name}</span>;
 }
 
 function BirthdayCell({ birthday }: { birthday: string | undefined }) {
@@ -116,7 +119,12 @@ const COLUMNS = [
   colHelper.display({
     id: "organisation",
     header: "Organisation",
-    cell: ({ row }) => <OrgLink orgId={row.original.organisationId} />,
+    cell: ({ row, table }) => (
+      <OrgLink
+        orgId={row.original.organisationId}
+        orgNames={(table.options.meta as { orgNames?: Map<string, string> } | undefined)?.orgNames}
+      />
+    ),
   }),
   colHelper.accessor("relationType", {
     header: "Relation",
@@ -161,7 +169,7 @@ const COLUMNS = [
   }),
 ];
 
-export function ContactsTable({ contacts, onSelectionChange }: ContactsTableProps) {
+export function ContactsTable({ contacts, onSelectionChange, orgNames }: ContactsTableProps) {
   const [sorting, setSorting] = useState<SortingState>([]);
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
 
@@ -169,6 +177,7 @@ export function ContactsTable({ contacts, onSelectionChange }: ContactsTableProp
     data: contacts,
     columns: COLUMNS,
     state: { sorting, rowSelection },
+    meta: { orgNames },
     getRowId: (row) => row.id,
     onSortingChange: setSorting,
     onRowSelectionChange: (updater) => {

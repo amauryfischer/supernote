@@ -11,13 +11,17 @@ interface ContactGalleryProps {
   contacts: Contact[];
   selectedIds: string[];
   onToggleSelect: (id: string) => void;
+  /** Optional map of orgId → org name for live tRPC data (overrides fixture lookup). */
+  orgNames?: Map<string, string>;
 }
 
-export function ContactGallery({ contacts, selectedIds, onToggleSelect }: ContactGalleryProps) {
+export function ContactGallery({ contacts, selectedIds, onToggleSelect, orgNames }: ContactGalleryProps) {
   return (
     <div className="grid gap-4 p-4" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))" }}>
       {contacts.map((contact) => {
-        const org = ORGANISATIONS.find((o) => o.id === contact.organisationId);
+        const orgName = contact.organisationId
+          ? (orgNames?.get(contact.organisationId) ?? ORGANISATIONS.find((o) => o.id === contact.organisationId)?.name)
+          : undefined;
         const soon = isBirthdaySoon(contact.birthday);
         const rel = relativeBirthday(contact.birthday);
         const selected = selectedIds.includes(contact.id);
@@ -50,9 +54,9 @@ export function ContactGallery({ contacts, selectedIds, onToggleSelect }: Contac
                 <p className="font-semibold text-sm" style={{ color: "var(--text-primary)" }}>
                   {contact.name}
                 </p>
-                {org && (
+                {orgName && (
                   <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-                    {org.name}
+                    {orgName}
                   </p>
                 )}
               </div>
