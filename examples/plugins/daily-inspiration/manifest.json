@@ -1,0 +1,21 @@
+{
+  "id": "com.supernote.dailyinspiration",
+  "name": "Inspiration du jour",
+  "version": "1.0.0",
+  "author": {
+    "name": "Supernote",
+    "url": "https://supernote.app"
+  },
+  "description": "Insere une citation inspirante (Zen, productivite, creativite) a la position du curseur via la palette de commandes.",
+  "entry": "index.js",
+  "permissions": ["commands:register", "entities:write"],
+  "contributes": {
+    "commands": [
+      {
+        "id": "daily-inspiration.insert",
+        "label": "Inspiration du jour",
+        "description": "Insere une citation inspirante a la position du curseur"
+      }
+    ]
+  }
+}

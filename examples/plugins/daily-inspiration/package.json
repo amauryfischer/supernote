@@ -1,0 +1,13 @@
+{
+  "name": "@supernote-plugins/daily-inspiration",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Insere des citations inspirantes dans Supernote",
+  "scripts": {
+    "build": "cp index.js dist/index.js",
+    "dev": "cp index.js dist/index.js && echo 'Done — copy dist/ into your vault'"
+  },
+  "devDependencies": {
+    "@supernote/plugin-sdk": "workspace:*"
+  }
+}

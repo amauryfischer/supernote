@@ -1,0 +1,22 @@
+{
+  "id": "com.supernote.wordcounter",
+  "name": "Word Counter",
+  "version": "1.0.0",
+  "author": {
+    "name": "Supernote",
+    "url": "https://supernote.app"
+  },
+  "description": "Affiche le nombre de mots de la note courante dans la barre de statut. Se met a jour apres chaque sauvegarde.",
+  "entry": "index.js",
+  "permissions": ["entities:read"],
+  "contributes": {
+    "commands": [
+      {
+        "id": "word-counter.refresh",
+        "label": "Compteur de mots : Actualiser",
+        "description": "Force le recomptage des mots de la note courante"
+      }
+    ]
+  },
+  "hooks": ["afterSave"]
+}

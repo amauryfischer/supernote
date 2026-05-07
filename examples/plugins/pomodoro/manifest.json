@@ -1,0 +1,22 @@
+{
+  "id": "com.supernote.pomodoro",
+  "name": "Pomodoro Timer",
+  "version": "1.0.0",
+  "author": {
+    "name": "Supernote",
+    "url": "https://supernote.app"
+  },
+  "description": "Timer Pomodoro accessible depuis le panneau lateral. Sessions de 25 minutes alternant avec des pauses de 5 minutes.",
+  "entry": "index.js",
+  "permissions": ["commands:register", "notifications:show"],
+  "contributes": {
+    "sidebarPanels": [
+      {
+        "id": "pomodoro",
+        "label": "Pomodoro",
+        "icon": "Timer",
+        "order": 10
+      }
+    ]
+  }
+}

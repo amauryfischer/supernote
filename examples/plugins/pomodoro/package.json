@@ -1,0 +1,13 @@
+{
+  "name": "@supernote-plugins/pomodoro",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Timer Pomodoro pour Supernote",
+  "scripts": {
+    "build": "cp index.js dist/index.js",
+    "dev": "cp index.js dist/index.js && echo 'Done — copy dist/ into your vault'"
+  },
+  "devDependencies": {
+    "@supernote/plugin-sdk": "workspace:*"
+  }
+}

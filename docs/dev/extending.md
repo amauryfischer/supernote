@@ -187,21 +187,141 @@ Voir [IPC](ipc.md) pour le guide complet. En bref :
 
 Voir [plugins](../user/plugins.md) pour la documentation utilisateur du plugin SDK.
 
-Pour développer un plugin :
+Des plugins d'exemple complets sont disponibles dans [`examples/plugins/`](../../examples/plugins/) :
 
-```bash
-# Clone le template
-git clone https://github.com/votre-org/supernote-plugin-template my-plugin
-cd my-plugin
-pnpm install
+| Plugin | Description |
+|---|---|
+| [`pomodoro`](../../examples/plugins/pomodoro/) | Timer 25/5 min dans le panneau lateral |
+| [`word-counter`](../../examples/plugins/word-counter/) | Compteur de mots via hook `afterSave` |
+| [`daily-inspiration`](../../examples/plugins/daily-inspiration/) | Citation aleatoire inseree via palette ⌘K |
 
-# Dev avec hot-reload
-pnpm dev
-# → génère dist/index.js
-# → copie dans ~/.../Supernote/.supernote/plugins/my-plugin/ automatiquement
+### Guide pas-a-pas : creer son propre plugin
+
+#### 1. Structure minimale
+
+```
+my-plugin/
+├── manifest.json   ← declaration du plugin (valide par Zod)
+├── index.js        ← point d'entree (ou index.ts compile vers dist/)
+├── package.json    ← dev uniquement (build, types)
+└── README.md
 ```
 
-Le template inclut les types TypeScript via `@supernote/plugin-sdk`.
+#### 2. Ecrire le manifest
+
+Le manifest est valide par le schema Zod de `@supernote/plugin-sdk`
+(`packages/plugin-sdk/src/manifest/schema.ts`).
+
+```json
+{
+  "id": "com.example.my-plugin",
+  "name": "Mon Plugin",
+  "version": "1.0.0",
+  "entry": "index.js",
+  "permissions": ["notifications:show"],
+  "contributes": {
+    "commands": [
+      { "id": "my-plugin.hello", "label": "Dire bonjour" }
+    ]
+  }
+}
+```
+
+Contraintes :
+- `id` : notation reverse-domain (`com.example.my-plugin`)
+- `version` : semver strict (`1.0.0`)
+- `permissions` : valeurs autorisees → `entities:read`, `entities:write`,
+  `fs:read`, `fs:write`, `network:fetch`, `notifications:show`, `commands:register`
+- `contributes.sidebarPanels[].label` (non `title`) — voir le schema pour les noms exacts
+
+#### 3. Ecrire le code (API)
+
+Le plugin recoit une instance `SupernoteAPI` via la fonction `activate` :
+
+```js
+function activate(api) {
+  // Enregistrer une commande
+  api.ui.registerCommand({ id: "my-plugin.hello", label: "Dire bonjour" });
+
+  // Afficher une notification
+  api.ui.showNotification({ title: "Hello", body: "Monde !", level: "info" });
+
+  // Lire des entites
+  api.entities.list({ limit: 10 }).then(entities => console.log(entities));
+
+  // Ecouter un hook
+  api.hooks.on("afterSave", (payload) => {
+    console.log("Note sauvegardee :", payload.entityId);
+  });
+
+  // Stockage persistant
+  api.storage.set("ma-cle", { valeur: 42 });
+}
+
+// Point d'entree attendu par le runtime
+window.activate = activate;
+```
+
+API disponible :
+
+| Namespace | Methodes |
+|---|---|
+| `api.entities` | `list()`, `get()`, `create()`, `update()`, `delete()` |
+| `api.schemas` | `list()`, `get()` |
+| `api.search` | `query()` |
+| `api.ui` | `registerCommand()`, `registerBlock()`, `registerSlashItem()`, `showNotification()`, `addSidebarPanel()` |
+| `api.storage` | `get()`, `set()` |
+| `api.hooks` | `on(event, handler)` |
+| `api.fetch` | Wrapper `fetch` natif (permission `network:fetch` requise) |
+
+Hooks disponibles : `beforeSave`, `afterSave`, `onCreate`, `onDelete`.
+
+#### 4. Sandbox et securite
+
+Chaque plugin s'execute dans un iframe isole. Les appels API passent par
+postMessage (protocole `@supernote/plugin-sdk`). Le host valide chaque
+requete contre les permissions declarees dans le manifest ; toute tentative
+d'acces non autorisee retourne une erreur `PERMISSION_DENIED`.
+
+#### 5. Build (TypeScript)
+
+Si vous utilisez TypeScript :
+
+```bash
+pnpm add -D typescript @supernote/plugin-sdk
+# tsconfig.json minimal
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "outDir": "dist",
+    "strict": true
+  },
+  "include": ["index.ts"]
+}
+pnpm tsc
+# → dist/index.js
+```
+
+#### 6. Installer un plugin local
+
+Copiez le dossier du plugin (contenant `manifest.json` et `index.js`) dans :
+
+```
+<vault>/.supernote/plugins/<plugin-id>/
+```
+
+Exemple :
+
+```bash
+cp -r examples/plugins/pomodoro/ \
+  ~/Documents/MonVault/.supernote/plugins/com.supernote.pomodoro/
+```
+
+Puis rechargez Supernote : **Settings > Plugins > Actualiser**.
+
+Le plugin apparait dans la liste avec son nom, sa version et ses permissions.
 
 ---
 
