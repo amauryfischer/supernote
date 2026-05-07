@@ -15,9 +15,12 @@
     "@heroui/react": "^3.0.0",
     "@heroui/styles": "^3.0.0",
     "@phosphor-icons/react": "^2.1.10",
+    "@supernote/canvas": "workspace:*",
     "@supernote/editor": "workspace:*",
+    "@supernote/templates": "workspace:*",
     "@supernote/finance": "workspace:*",
     "@supernote/ipc": "workspace:*",
+    "@supernote/views": "workspace:*",
     "@tanstack/react-query": "^5.100.9",
     "@tanstack/react-table": "^8.21.3",
     "@trpc/client": "^11.17.0",
@@ -28,6 +31,7 @@
     "next-themes": "^0.4.6",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
+    "react-force-graph-2d": "^1.29.1",
     "recharts": "^3.8.1"
   },
   "devDependencies": {

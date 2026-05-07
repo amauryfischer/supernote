@@ -1,0 +1,82 @@
+"use client";
+
+import { SquaresFour, Clock } from "@phosphor-icons/react";
+import type { CanvasMeta } from "./fixtures";
+
+interface CanvasCardProps {
+  canvas: CanvasMeta;
+  onClick: (id: string) => void;
+}
+
+function formatRelativeDate(isoDate: string): string {
+  const date = new Date(isoDate);
+  const now = new Date("2026-05-07T12:00:00Z");
+  const diffDays = Math.floor((now.getTime() - date.getTime()) / 86_400_000);
+  if (diffDays === 0) return "Aujourd'hui";
+  if (diffDays === 1) return "Hier";
+  if (diffDays < 7) return `Il y a ${diffDays}j`;
+  return date.toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
+}
+
+export function CanvasCard({ canvas, onClick }: CanvasCardProps) {
+  return (
+    <button
+      onClick={() => onClick(canvas.id)}
+      className="group flex flex-col rounded-xl border text-left transition-shadow hover:shadow-md"
+      style={{
+        borderColor: "var(--border-subtle)",
+        backgroundColor: "var(--surface-1)",
+      }}
+    >
+      {/* Thumbnail placeholder */}
+      <div
+        className="flex h-36 w-full items-center justify-center rounded-t-xl"
+        style={{ backgroundColor: "var(--surface-2)" }}
+      >
+        <SquaresFour
+          size={40}
+          style={{ color: "var(--text-muted)", opacity: 0.5 }}
+        />
+      </div>
+
+      {/* Card body */}
+      <div className="flex flex-col gap-2 p-3">
+        <p
+          className="truncate text-sm font-semibold"
+          style={{ color: "var(--text-primary)" }}
+        >
+          {canvas.title}
+        </p>
+
+        <div className="flex items-center justify-between">
+          <div className="flex flex-wrap gap-1">
+            {canvas.tags.slice(0, 2).map((tag) => (
+              <span
+                key={tag}
+                className="rounded-full px-2 py-0.5 text-xs"
+                style={{
+                  backgroundColor: "var(--surface-3)",
+                  color: "var(--text-muted)",
+                }}
+              >
+                {tag}
+              </span>
+            ))}
+          </div>
+
+          <div
+            className="flex items-center gap-1 text-xs"
+            style={{ color: "var(--text-muted)" }}
+          >
+            <Clock size={11} />
+            {formatRelativeDate(canvas.updatedAt)}
+          </div>
+        </div>
+
+        <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+          {canvas.nodeCount} noeuds · {canvas.edgeCount} liens
+        </p>
+      </div>
+    </button>
+  );
+}
