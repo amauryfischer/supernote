@@ -1,6 +1,7 @@
 export * from "./fixtures";
 export * from "./utils";
 export * from "./entityAdapter";
+export * from "./useContactsSource";
 export * from "./ContactAvatar";
 export * from "./RelationChip";
 export * from "./ContactsTable";

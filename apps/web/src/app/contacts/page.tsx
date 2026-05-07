@@ -5,17 +5,15 @@ import {
   BulkActionBar,
   ContactGallery,
   ContactsTable,
-  CONTACTS,
   ORGANISATIONS,
   ALL_RELATION_TYPES,
   RelationChip,
-  entitiesToContacts,
+  useContactsSource,
 } from "@/components/contacts";
 import type { RelationType, Contact } from "@/components/contacts";
 import { GridFour, List, Plus, MagnifyingGlass, X, UploadSimple } from "@phosphor-icons/react";
 import Link from "next/link";
 import { useState, useMemo } from "react";
-import { trpc } from "@/lib/trpc/client";
 import { SkeletonCard } from "@supernote/ui";
 
 type ViewMode = "table" | "gallery";
@@ -48,33 +46,25 @@ export default function ContactsPage() {
   const [activeTypes, setActiveTypes] = useState<RelationType[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
-  // tRPC query — falls back gracefully when IPC is unavailable (browser mode).
-  const { data: trpcData, isError, isLoading: isLoadingContacts } = trpc.entities.list.useQuery(
-    { typeId: "personne", limit: 500 },
-    { retry: false },
+  // Resolves contacts from tRPC (Electron) or fixtures (browser / mode dégradé).
+  // The query is only enabled when window.__supernoteIPC is available, which
+  // prevents the race where isError stays false while data is undefined.
+  const { contacts: allContacts, mode, isLoading } = useContactsSource();
+
+  // Org names map — fixtures are already embedded in components, this covers live data.
+  const orgNames = useMemo<Map<string, string>>(
+    () => new Map(ORGANISATIONS.map((o) => [o.id, o.name])),
+    [],
   );
 
-  // Live contacts from tRPC, or fixture fallback in browser / mode dégradé.
-  const allContacts: Contact[] = useMemo(() => {
-    if (!isError && trpcData?.items && trpcData.items.length > 0) {
-      return entitiesToContacts(trpcData.items);
-    }
-    return CONTACTS;
-  }, [trpcData, isError]);
-
-  // Org names map for live data (fixtures already embedded in components).
-  const orgNames = useMemo<Map<string, string>>(() => {
-    // When using fixtures, components look up ORGANISATIONS directly.
-    return new Map(ORGANISATIONS.map((o) => [o.id, o.name]));
-  }, []);
-
-  const filtered = useMemo(() => {
+  const filtered = useMemo<Contact[]>(() => {
+    const q = query.trim().toLowerCase();
     return allContacts.filter((c) => {
       const matchQ =
-        query.length === 0 ||
-        c.name.toLowerCase().includes(query.toLowerCase()) ||
-        c.emails.some((e) => e.value.toLowerCase().includes(query.toLowerCase())) ||
-        c.tags.some((t) => t.toLowerCase().includes(query.toLowerCase()));
+        q.length === 0 ||
+        c.name.toLowerCase().includes(q) ||
+        c.emails.some((e) => e.value.toLowerCase().includes(q)) ||
+        c.tags.some((t) => t.toLowerCase().includes(q));
 
       const matchType = activeTypes.length === 0 || activeTypes.includes(c.relationType);
 
@@ -94,7 +84,7 @@ export default function ContactsPage() {
     );
   }
 
-  const isEmpty = !isLoadingContacts && allContacts.length === 0;
+  const isEmpty = !isLoading && allContacts.length === 0;
 
   return (
     <AppShell>
@@ -114,6 +104,14 @@ export default function ContactsPage() {
             >
               {filtered.length}
             </span>
+            {mode === "fallback" && (
+              <span
+                className="rounded-full px-2 py-0.5 text-xs font-medium"
+                style={{ backgroundColor: "var(--surface-2)", color: "var(--text-muted)" }}
+              >
+                demo
+              </span>
+            )}
           </div>
 
           <div className="flex items-center gap-2">
@@ -224,7 +222,7 @@ export default function ContactsPage() {
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto">
-          {isLoadingContacts ? (
+          {isLoading ? (
             <div className="grid gap-4 p-6 sm:grid-cols-2 lg:grid-cols-3">
               {Array.from({ length: 6 }, (_, i) => <SkeletonCard key={i} />)}
             </div>

@@ -397,6 +397,19 @@ export const CONTACTS: Contact[] = [
     notes: "## Yannick Forestier\n\nFondateur de GreenTech, ancien partner chez un VC. Mentor pour les aspects levée de fonds.",
     lastInteractionDate: "2026-04-01",
   },
+  {
+    id: "c-026",
+    name: "Linh-Dan Tran",
+    emails: [{ value: "linh.tran@acme.example", label: "pro" }, { value: "linhdan.tran@gmail.com", label: "perso" }],
+    phones: [{ value: "+33 6 50 61 72 83", label: "mobile" }],
+    organisationId: "org-1",
+    relationType: "collègue",
+    birthday: "1994-03-12",
+    tags: ["product", "data", "vietnam"],
+    social: { linkedin: "https://linkedin.com/in/linh-dan-tran", github: "https://github.com/ldtran" },
+    notes: "## Linh-Dan Tran\n\nProduct analyst chez Acme. Spécialiste données produit et cohortes.",
+    lastInteractionDate: "2026-05-04",
+  },
 ];
 
 export const INTERACTIONS: Interaction[] = [
