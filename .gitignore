@@ -46,3 +46,11 @@ coverage/
 # Temporary
 *.tmp
 .cache/
+
+# Agent infra
+.claude-flow/
+ruvector.db
+ruvector.db-*
+
+# Local Claude Code
+.claude/settings.local.json

@@ -412,8 +412,11 @@ supernote/
 
 **Interaction** — `kind` (select: appel/réunion/email/café/visio/autre), `date` (datetime required), `duration_minutes` (number), `participants` (relation→Personne, n↔n required), `organization` (relation→Organisation, n↔1 optional), `project` (relation→Projet, n↔1 optional), `location` (text), `summary` (longtext), body.
 
+- **Code & commentaires** : **anglais partout** (identifiers, commentaires internes, messages d'erreur tech). UI en français (i18n séparée à venir).
+- **Auto-update** : **electron-updater + auto-check au lancement**. Endpoint = GitHub Releases (repo perso). Toggle dans settings.
+- **Chiffrement** : **pas de chiffrement applicatif**. Le vault est en filesystem clair, le chiffrement passe par l'OS si besoin (FileVault, BitLocker, LUKS).
+- **Timeline** : 2 ans en mode agile autonome — itérations IA × humain, vérification à chaque étape, qualité avant vitesse.
+
 ### Encore à trancher (à itérer)
 - Default vault path à la première ouverture (probablement OS picker).
 - Locale par défaut (FR) + i18n générique pour anglais.
-- Auto-update intégré dès le départ ?
-- Stratégie de chiffrement : passphrase par vault ou par dossier ?

@@ -10,3 +10,4 @@ allowBuilds:
   electron: true
   electron-winstaller: true
   sharp: true
+  unrs-resolver: set this to true or false

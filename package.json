@@ -24,5 +24,19 @@
     "prettier": "^3.4.0",
     "prettier-plugin-tailwindcss": "^0.6.9",
     "@types/node": "^22.10.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@prisma/client",
+      "@prisma/engines",
+      "better-sqlite3",
+      "esbuild",
+      "electron",
+      "electron-builder-squirrel-windows",
+      "electron-winstaller",
+      "prisma",
+      "sharp",
+      "unrs-resolver"
+    ]
   }
 }
