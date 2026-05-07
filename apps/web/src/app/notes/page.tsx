@@ -4,11 +4,9 @@ import { AppShell } from "@/components/shell";
 import {
   EmptyEditor,
   FileTree,
-  FOLDERS,
-  NOTES,
   NoteList,
-  getNotesForFolder,
 } from "@/components/notes";
+import { useNoteList, useFolderTree, useCreateNote } from "@/components/notes/hooks";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useState } from "react";
 
@@ -20,28 +18,21 @@ function NotesPageContent() {
   const [selectedFolder, setSelectedFolder] = useState<string | null>(
     folderParam ?? "Inbox",
   );
-  const [allNotes, setAllNotes] = useState(NOTES);
 
-  const notes = selectedFolder ? getNotesForFolder(selectedFolder) : allNotes;
+  const { notes, isLoading, isError, errorMessage, isFallback } = useNoteList(selectedFolder);
+  const { folders, isLoading: foldersLoading } = useFolderTree();
+  const { createNote } = useCreateNote();
 
   const handleSelectFolder = useCallback((path: string) => {
     setSelectedFolder(path);
     router.push(`/notes?folder=${encodeURIComponent(path)}`);
   }, [router]);
 
-  const handleNewNote = useCallback(() => {
+  const handleNewNote = useCallback(async () => {
     const folder = selectedFolder ?? "Inbox";
-    const newNote = {
-      id: `new-${Date.now()}`,
-      title: "Nouvelle note",
-      body: "",
-      folderPath: folder,
-      updatedAt: new Date().toISOString(),
-      tags: [],
-    };
-    setAllNotes((prev) => [newNote, ...prev]);
-    router.push(`/notes/${newNote.id}`);
-  }, [selectedFolder, router]);
+    const id = await createNote({ folder, title: "Nouvelle note" });
+    router.push(`/notes/${id}`);
+  }, [selectedFolder, createNote, router]);
 
   const handleNewFolder = useCallback(() => {
     // Placeholder — real implementation via tRPC later
@@ -58,7 +49,7 @@ function NotesPageContent() {
   return (
     <div className="flex h-full overflow-hidden">
       <FileTree
-        folders={FOLDERS}
+        folders={foldersLoading ? [] : folders}
         selectedFolder={selectedFolder}
         onSelectFolder={handleSelectFolder}
         onNewFolder={handleNewFolder}
@@ -70,6 +61,11 @@ function NotesPageContent() {
         selectedNoteId={null}
         folderName={folderName}
         onSelectNote={handleSelectNote}
+        isLoading={isLoading}
+        isError={isError}
+        errorMessage={errorMessage}
+        isFallback={isFallback}
+        onNewNote={handleNewNote}
       />
 
       <div

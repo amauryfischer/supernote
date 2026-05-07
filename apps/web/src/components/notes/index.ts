@@ -1,3 +1,4 @@
+export { DeleteNoteModal } from "./DeleteNoteModal";
 export { EmptyEditor } from "./EmptyEditor";
 export { FileTree } from "./FileTree";
 export { NewNoteButton } from "./NewNoteButton";

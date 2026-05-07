@@ -4,6 +4,7 @@ import { useCallback, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { Calendar, Hash, Tag, FloppyDisk } from "@phosphor-icons/react";
 import { formatRelativeDate, type Note } from "./fixtures";
+import { useUpdateNote } from "./hooks";
 import type { SupernoteEditorProps } from "@supernote/editor";
 
 // Dynamic import to avoid SSR issues — BlockNote uses browser-only APIs
@@ -16,7 +17,7 @@ interface NoteEditorProps {
   note: Note;
 }
 
-type SaveStatus = "idle" | "saving" | "saved";
+type SaveStatus = "idle" | "saving" | "saved" | "error";
 
 const DEBOUNCE_MS = 1000;
 
@@ -24,27 +25,31 @@ export function NoteEditor({ note }: NoteEditorProps) {
   const [title, setTitle] = useState(note.title);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const bodyRef = useRef<string>(note.body);
+
+  const { updateNote } = useUpdateNote();
 
   const triggerAutoSave = useCallback(
     (markdown: string, updatedTitle: string) => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
       setSaveStatus("saving");
-      debounceRef.current = setTimeout(() => {
-        // Placeholder: tRPC mutation will replace this
-        console.log("[auto-save] saved", {
-          id: note.id,
-          title: updatedTitle,
-          bodyLength: markdown.length,
-        });
-        setSaveStatus("saved");
-        setTimeout(() => setSaveStatus("idle"), 2000);
+      debounceRef.current = setTimeout(async () => {
+        try {
+          await updateNote(note.id, updatedTitle, markdown);
+          setSaveStatus("saved");
+          setTimeout(() => setSaveStatus("idle"), 2000);
+        } catch {
+          setSaveStatus("error");
+          setTimeout(() => setSaveStatus("idle"), 3000);
+        }
       }, DEBOUNCE_MS);
     },
-    [note.id],
+    [note.id, updateNote],
   );
 
   const handleEditorChange = useCallback(
     (markdown: string) => {
+      bodyRef.current = markdown;
       triggerAutoSave(markdown, title);
     },
     [triggerAutoSave, title],
@@ -54,18 +59,25 @@ export function NoteEditor({ note }: NoteEditorProps) {
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const next = e.target.value;
       setTitle(next);
-      triggerAutoSave("", next);
+      triggerAutoSave(bodyRef.current, next);
     },
     [triggerAutoSave],
   );
 
   const handleManualSave = useCallback(
-    (md: string) => {
-      console.log("[manual-save] Cmd+S triggered", { id: note.id, bodyLength: md.length });
-      setSaveStatus("saved");
-      setTimeout(() => setSaveStatus("idle"), 2000);
+    async (md: string) => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      setSaveStatus("saving");
+      try {
+        await updateNote(note.id, title, md);
+        setSaveStatus("saved");
+        setTimeout(() => setSaveStatus("idle"), 2000);
+      } catch {
+        setSaveStatus("error");
+        setTimeout(() => setSaveStatus("idle"), 3000);
+      }
     },
-    [note.id],
+    [note.id, title, updateNote],
   );
 
   const date = new Date(note.updatedAt).toLocaleDateString("fr-FR", {
@@ -145,7 +157,7 @@ export function NoteEditor({ note }: NoteEditorProps) {
   );
 }
 
-// ── Sub-components ────────────────────────────────────────────
+// ── Sub-components ────────────────────────────────────────────────────────────
 
 interface SaveIndicatorProps {
   status: SaveStatus;
@@ -153,12 +165,13 @@ interface SaveIndicatorProps {
 
 function SaveIndicator({ status }: SaveIndicatorProps) {
   if (status === "idle") return null;
+  const label =
+    status === "saving" ? "Sauvegarde…" : status === "saved" ? "Sauvegardé" : "Erreur";
+  const color = status === "error" ? "var(--color-red-500, #ef4444)" : "var(--text-muted)";
   return (
-    <div className="flex items-center gap-1" style={{ color: "var(--text-muted)" }}>
+    <div className="flex items-center gap-1" style={{ color }}>
       <FloppyDisk size={11} />
-      <span className="text-[10px]">
-        {status === "saving" ? "Sauvegarde…" : "Sauvegardé"}
-      </span>
+      <span className="text-[10px]">{label}</span>
     </div>
   );
 }

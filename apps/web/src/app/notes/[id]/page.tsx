@@ -4,15 +4,19 @@ import { AppShell } from "@/components/shell";
 import {
   EmptyEditor,
   FileTree,
-  FOLDERS,
-  NOTES,
   NoteEditor,
   NoteList,
-  getNoteById,
-  getNotesForFolder,
 } from "@/components/notes";
+import {
+  useNote,
+  useNoteList,
+  useFolderTree,
+  useCreateNote,
+  useDeleteNote,
+} from "@/components/notes/hooks";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useState } from "react";
+import { DeleteNoteModal } from "@/components/notes/DeleteNoteModal";
 
 function NoteDetailContent() {
   const router = useRouter();
@@ -20,46 +24,52 @@ function NoteDetailContent() {
   const searchParams = useSearchParams();
   const folderParam = searchParams.get("folder");
 
-  const note = getNoteById(params.id);
-  const defaultFolder = note?.folderPath ?? "Inbox";
+  const { note, isLoading: noteLoading } = useNote(params.id);
 
+  const defaultFolder = note?.folderPath ?? folderParam ?? "Inbox";
   const [selectedFolder, setSelectedFolder] = useState<string | null>(
     folderParam ?? defaultFolder,
   );
-  const [allNotes, setAllNotes] = useState(NOTES);
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
 
-  const notes = selectedFolder ? getNotesForFolder(selectedFolder) : allNotes;
+  const { notes, isLoading, isError, errorMessage, isFallback } = useNoteList(selectedFolder);
+  const { folders, isLoading: foldersLoading } = useFolderTree();
+  const { createNote } = useCreateNote();
+  const { deleteNote, isPending: isDeleting } = useDeleteNote();
 
   const handleSelectFolder = useCallback((path: string) => {
     setSelectedFolder(path);
     router.push(`/notes?folder=${encodeURIComponent(path)}`);
   }, [router]);
 
-  const handleNewNote = useCallback(() => {
+  const handleNewNote = useCallback(async () => {
     const folder = selectedFolder ?? "Inbox";
-    const newNote = {
-      id: `new-${Date.now()}`,
-      title: "Nouvelle note",
-      body: "",
-      folderPath: folder,
-      updatedAt: new Date().toISOString(),
-      tags: [],
-    };
-    setAllNotes((prev) => [newNote, ...prev]);
-    router.push(`/notes/${newNote.id}`);
-  }, [selectedFolder, router]);
+    const id = await createNote({ folder, title: "Nouvelle note" });
+    router.push(`/notes/${id}`);
+  }, [selectedFolder, createNote, router]);
 
   const handleNewFolder = useCallback(() => {
     // Placeholder — real implementation via tRPC later
   }, []);
 
   const handleSelectNote = useCallback((id: string) => {
-    const target = allNotes.find((n) => n.id === id);
+    const target = notes.find((n) => n.id === id);
     const q = target?.folderPath
       ? `?folder=${encodeURIComponent(target.folderPath)}`
       : "";
     router.push(`/notes/${id}${q}`);
-  }, [allNotes, router]);
+  }, [notes, router]);
+
+  const handleDeleteRequest = useCallback((id: string) => {
+    setDeleteTarget(id);
+  }, []);
+
+  const handleDeleteConfirm = useCallback(async () => {
+    if (!deleteTarget) return;
+    await deleteNote(deleteTarget);
+    setDeleteTarget(null);
+    router.push("/notes");
+  }, [deleteTarget, deleteNote, router]);
 
   const folderName = selectedFolder
     ? selectedFolder.split("/").pop() ?? selectedFolder
@@ -68,7 +78,7 @@ function NoteDetailContent() {
   return (
     <div className="flex h-full overflow-hidden">
       <FileTree
-        folders={FOLDERS}
+        folders={foldersLoading ? [] : folders}
         selectedFolder={selectedFolder}
         onSelectFolder={handleSelectFolder}
         onNewFolder={handleNewFolder}
@@ -80,18 +90,35 @@ function NoteDetailContent() {
         selectedNoteId={params.id}
         folderName={folderName}
         onSelectNote={handleSelectNote}
+        isLoading={isLoading}
+        isError={isError}
+        errorMessage={errorMessage}
+        isFallback={isFallback}
+        onNewNote={handleNewNote}
+        onDeleteNote={handleDeleteRequest}
       />
 
       <div
         className="flex flex-1 flex-col overflow-hidden"
         style={{ backgroundColor: "var(--surface-0)" }}
       >
-        {note ? (
+        {noteLoading ? (
+          <NoteLoadingSkeleton />
+        ) : note ? (
           <NoteEditor note={note} />
         ) : (
           <EmptyEditor onNewNote={handleNewNote} />
         )}
       </div>
+
+      {deleteTarget && (
+        <DeleteNoteModal
+          isOpen
+          isPending={isDeleting}
+          onConfirm={handleDeleteConfirm}
+          onCancel={() => setDeleteTarget(null)}
+        />
+      )}
     </div>
   );
 }
@@ -107,6 +134,26 @@ export default function NoteDetailPage(_props: NoteDetailPageProps) {
         <NoteDetailContent />
       </Suspense>
     </AppShell>
+  );
+}
+
+function NoteLoadingSkeleton() {
+  return (
+    <div className="flex h-full flex-col overflow-hidden px-10 py-6">
+      <div className="animate-pulse space-y-4">
+        <div className="h-8 w-3/4 rounded" style={{ backgroundColor: "var(--surface-2)" }} />
+        <div className="h-4 w-1/2 rounded" style={{ backgroundColor: "var(--surface-2)" }} />
+        <div className="mt-8 space-y-3">
+          {[100, 85, 90, 70].map((w, i) => (
+            <div
+              key={i}
+              className="h-4 rounded"
+              style={{ width: `${w}%`, backgroundColor: "var(--surface-2)" }}
+            />
+          ))}
+        </div>
+      </div>
+    </div>
   );
 }
 
