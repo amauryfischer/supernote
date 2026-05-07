@@ -1,0 +1,37 @@
+{
+  "name": "@supernote/templates",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Template engine for notes and entities — variable resolution, seeds",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./seeds": {
+      "types": "./dist/seeds/index.d.ts",
+      "import": "./dist/seeds/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc --project tsconfig.build.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src --ext .ts"
+  },
+  "dependencies": {
+    "@supernote/core": "workspace:*",
+    "ulid": "^2.3.0"
+  },
+  "devDependencies": {
+    "@supernote/tsconfig": "workspace:*",
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.2",
+    "vitest": "^3.0.0"
+  }
+}
