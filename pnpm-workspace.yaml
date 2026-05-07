@@ -14,3 +14,5 @@ allowBuilds:
   onnxruntime-node: true
   protobufjs: true
   tesseract.js: true
+  '@parcel/watcher': true
+  '@swc/core': true

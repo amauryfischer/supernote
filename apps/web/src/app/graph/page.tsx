@@ -1,10 +1,13 @@
 "use client";
 
 import { AppShell } from "@/components/shell";
-import { KnowledgeGraph } from "@/components/graph-page";
+import { KnowledgeGraph, GRAPH_NODES, GRAPH_EDGES } from "@/components/graph-page";
 import { Graph } from "@phosphor-icons/react";
+import { EmptyState } from "@supernote/ui";
 
 export default function GraphPage() {
+  const isEmpty = GRAPH_NODES.length === 0;
+
   return (
     <AppShell>
       <div className="flex h-full flex-col overflow-hidden">
@@ -20,29 +23,32 @@ export default function GraphPage() {
           <h1 className="text-lg font-semibold" style={{ color: "var(--text-primary)" }}>
             Graphe de connaissance
           </h1>
-          <span
-            className="rounded-full px-2 py-0.5 text-xs font-medium"
-            style={{
-              backgroundColor: "var(--surface-3)",
-              color: "var(--text-muted)",
-            }}
-          >
-            50 noeuds · 80 liens
-          </span>
-          <span
-            className="rounded-full px-2 py-0.5 text-[10px] font-medium"
-            style={{
-              backgroundColor: "oklch(0.93 0.05 200 / 0.20)",
-              color: "oklch(0.45 0.12 200)",
-            }}
-          >
-            Démo
-          </span>
+          {!isEmpty && (
+            <span
+              className="rounded-full px-2 py-0.5 text-xs font-medium"
+              style={{
+                backgroundColor: "var(--surface-3)",
+                color: "var(--text-muted)",
+              }}
+            >
+              {GRAPH_NODES.length} noeuds · {GRAPH_EDGES.length} liens
+            </span>
+          )}
         </div>
 
         {/* Graph fills remaining space */}
         <div className="flex-1 overflow-hidden">
-          <KnowledgeGraph />
+          {isEmpty ? (
+            <div className="flex h-full items-center justify-center">
+              <EmptyState
+                icon={<Graph size={28} />}
+                title="Le graphe s'enrichira dès tes premières entités"
+                description="Crée des notes, contacts ou projets et les liens apparaîtront automatiquement."
+              />
+            </div>
+          ) : (
+            <KnowledgeGraph />
+          )}
         </div>
       </div>
     </AppShell>

@@ -11,7 +11,7 @@ import { EmptyState, SkeletonCard } from "@supernote/ui";
 export default function CanvasListPage() {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(true);
-  const [canvases, setCanvases] = useState<CanvasMeta[]>(CANVAS_LIST);
+  const [canvases, setCanvases] = useState<CanvasMeta[]>(CANVAS_LIST); // CANVAS_LIST is [] by default
 
   useEffect(() => {
     const t = setTimeout(() => setIsLoading(false), 250);

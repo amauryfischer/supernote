@@ -85,7 +85,7 @@ export default function VuesPage() {
 
   const useFallback = listQuery.isError;
   const allViews: SavedView[] = useFallback
-    ? SAVED_VIEWS
+    ? SAVED_VIEWS // SAVED_VIEWS is [] by default
     : (listQuery.data ?? []).map(viewFromIpc);
 
   const filtered = useMemo(() => {

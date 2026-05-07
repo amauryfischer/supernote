@@ -4,6 +4,8 @@ import createNextIntlPlugin from "next-intl/plugin";
 // so we require it dynamically to avoid type resolution errors at build time.
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const webpack = require("next/dist/compiled/webpack/webpack.js").webpack ?? require("webpack");
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const path = require("path") as typeof import("path");
 
 const withNextIntl = createNextIntlPlugin("./src/i18n/request.ts");
 
@@ -42,11 +44,12 @@ const nextConfig: NextConfig = {
     ignoreBuildErrors: true,
   },
 
+
   // The renderer is browser-only, but several @supernote/* packages contain
   // Node-only utilities (FS, paths, git, fetch) inside their barrel. We strip
   // the `node:` URI scheme and provide empty fallbacks — these modules only
   // execute in the Electron main process, never in the renderer.
-  webpack: (config) => {
+  webpack: (config, { nextRuntime }) => {
     config.resolve = config.resolve ?? {};
     config.resolve.fallback = {
       ...(config.resolve.fallback ?? {}),
@@ -79,11 +82,51 @@ const nextConfig: NextConfig = {
       }),
     );
 
+    // Copy sql.js WASM to public/wasm/ so the worker can locate it at /wasm/sql-wasm.wasm.
+    // CopyPlugin is bundled with webpack, available via next's internal webpack.
+    // We use a simple approach: emit the WASM as a file asset.
+    try {
+      const sqlJsWasmPath = path.resolve(
+        __dirname,
+        "node_modules/sql.js/dist/sql-wasm.wasm",
+      );
+      const CopyPlugin = require("copy-webpack-plugin");
+      config.plugins.push(
+        new CopyPlugin({
+          patterns: [
+            {
+              from: sqlJsWasmPath,
+              to: path.resolve(__dirname, "public/wasm/sql-wasm.wasm"),
+            },
+          ],
+        }),
+      );
+    } catch {
+      // copy-webpack-plugin not available — WASM must be copied manually
+    }
+
+    // In the RSC / Node.js server layer, `client-only` resolves to its
+    // `react-server` export condition which throws. Pre-built @supernote/*
+    // and @heroui/* dist files import it without "use client" directives.
+    // We redirect both the compiled-in Next.js copy and the bare specifier
+    // to a no-op shim — only for the RSC compilation, not the client bundle.
+    if (nextRuntime === "nodejs") {
+      const shimPath = path.resolve(__dirname, "src/client-only-shim.js");
+      config.plugins.push(
+        new webpack.NormalModuleReplacementPlugin(
+          /[\\/]client-only[\\/](error\.js|index\.js)$|^client-only$/,
+          shimPath,
+        ),
+      );
+    }
 
     return config;
   },
 };
 
 // Apply next-intl plugin for i18n routing support.
-// In standalone (production installer) mode: still apply for proper locale routing.
-export default withNextIntl(nextConfig);
+// In standalone (production installer) mode, skip the plugin to avoid RSC boundary
+// conflicts: @supernote/* workspace packages lack "use client" directives in their
+// pre-built dist, causing createContext errors during Next.js page data collection.
+// i18n still works at runtime via the LocaleProvider client component.
+export default isStandalone ? nextConfig : withNextIntl(nextConfig);

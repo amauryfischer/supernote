@@ -1,9 +1,10 @@
 /**
  * tRPC client for the renderer process.
  *
- * In Electron, delegates to window.__supernoteIPC.invoke (IPC bridge).
- * In browser dev mode (no IPC available), uses a mock link that returns
- * a friendly "mode dégradé" error so the app stays usable without crashing.
+ * Priority order (runtime detection):
+ *   1. Electron  — window.__supernoteIPC is present → use IPC bridge
+ *   2. PWA/Chrome — 'showDirectoryPicker' in window → use vault Web Worker
+ *   3. Degraded   — Safari / Firefox without FSA → localStorage mode
  *
  * Custom link: we implement a minimal Observable-compatible shape inline
  * (the { subscribe } object tRPC links must return) to avoid importing from
@@ -13,6 +14,7 @@
 import { createTRPCReact } from "@trpc/react-query";
 import { createTRPCClient, type TRPCLink, type TRPCClientRuntime } from "@trpc/client";
 import type { AppRouter } from "@supernote/ipc";
+import { browserVaultLink } from "./browser-link";
 
 // ── Browser global type augmentation ─────────────────────────────────────────
 
@@ -109,6 +111,40 @@ function ipcLink(): TRPCLink<AppRouter> {
       }) as any;
 }
 
+// ── Runtime link detection ────────────────────────────────────────────────────
+
+/**
+ * Returns true when running in a Chromium browser with FSA support but
+ * without Electron's IPC bridge — the PWA mode.
+ */
+export function isBrowserPwaMode(): boolean {
+  if (typeof window === "undefined") return false;
+  if (window.__supernoteIPC) return false;
+  return "showDirectoryPicker" in window;
+}
+
+/**
+ * Returns true when running inside Electron (IPC bridge present).
+ */
+export function isElectronMode(): boolean {
+  return typeof window !== "undefined" && Boolean(window.__supernoteIPC);
+}
+
+function selectLink(): TRPCLink<AppRouter> {
+  if (typeof window === "undefined") {
+    // SSR — return a no-op link; procedures are never called server-side
+    return (_runtime: TRPCClientRuntime) =>
+      ({ op }) =>
+        makeObservable((observer) => {
+          observer.error(new Error("tRPC: SSR context, no link available"));
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        }) as any;
+  }
+  if (isElectronMode()) return ipcLink();
+  if (isBrowserPwaMode()) return browserVaultLink();
+  return ipcLink(); // degraded: will show the "mode dégradé" error
+}
+
 // ── React tRPC instance ────────────────────────────────────────────────────────
 
 export const trpc = createTRPCReact<AppRouter>();
@@ -116,11 +152,11 @@ export const trpc = createTRPCReact<AppRouter>();
 // ── Vanilla client (for use outside React) ─────────────────────────────────────
 
 export const trpcVanillaClient = createTRPCClient<AppRouter>({
-  links: [ipcLink()],
+  links: [selectLink()],
 });
 
 // ── Factory exported for Provider.tsx ─────────────────────────────────────────
 
 export function createTrpcReactClient() {
-  return trpc.createClient({ links: [ipcLink()] });
+  return trpc.createClient({ links: [selectLink()] });
 }

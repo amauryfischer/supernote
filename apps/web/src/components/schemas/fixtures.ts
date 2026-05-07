@@ -415,19 +415,20 @@ export const RELATION_TYPES: RelationType[] = [
 ];
 
 // ---- Mock entity counts ----
+// Starts at zero — real counts come from the vault/store.
 export const ENTITY_COUNTS: Record<string, number> = {
-  personne: 42,
-  organisation: 18,
-  projet: 12,
-  interaction: 87,
-  note: 156,
-  daily: 94,
-  tag: 23,
-  account: 7,
-  asset: 14,
-  loan: 3,
-  snapshot: 48,
-  goal: 5,
+  personne: 0,
+  organisation: 0,
+  projet: 0,
+  interaction: 0,
+  note: 0,
+  daily: 0,
+  tag: 0,
+  account: 0,
+  asset: 0,
+  loan: 0,
+  snapshot: 0,
+  goal: 0,
 };
 
 // ---- Field kind metadata ----

@@ -146,7 +146,7 @@ export function useFinanceAccounts(): UseFinanceAccountsResult {
     { typeId: "account", limit: 200, offset: 0 },
     { enabled: isElectron },
   );
-  if (!isElectron) return { accounts: ACCOUNTS, isLoading: false, isFallback: true };
+  if (!isElectron) return { accounts: ACCOUNTS, isLoading: false, isFallback: true }; // ACCOUNTS is [] by default
   if (query.isLoading) return { accounts: [], isLoading: true, isFallback: false };
   if (!query.data) return { accounts: ACCOUNTS, isLoading: false, isFallback: true };
   return {
@@ -168,7 +168,7 @@ export function useFinanceAssets(): UseFinanceAssetsResult {
     { typeId: "asset", limit: 500, offset: 0 },
     { enabled: isElectron },
   );
-  if (!isElectron) return { assets: ASSETS, isLoading: false, isFallback: true };
+  if (!isElectron) return { assets: ASSETS, isLoading: false, isFallback: true }; // ASSETS is [] by default
   if (query.isLoading) return { assets: [], isLoading: true, isFallback: false };
   if (!query.data) return { assets: ASSETS, isLoading: false, isFallback: true };
   return {
@@ -190,7 +190,7 @@ export function useFinanceLoans(): UseFinanceLoansResult {
     { typeId: "loan", limit: 100, offset: 0 },
     { enabled: isElectron },
   );
-  if (!isElectron) return { loans: LOANS, isLoading: false, isFallback: true };
+  if (!isElectron) return { loans: LOANS, isLoading: false, isFallback: true }; // LOANS is [] by default
   if (query.isLoading) return { loans: [], isLoading: true, isFallback: false };
   if (!query.data) return { loans: LOANS, isLoading: false, isFallback: true };
   return {
@@ -212,7 +212,7 @@ export function useFinanceSnapshots(): UseFinanceSnapshotsResult {
     { typeId: "snapshot", sortBy: "taken_at", sortOrder: "desc", limit: 100, offset: 0 },
     { enabled: isElectron },
   );
-  if (!isElectron) return { snapshots: SNAPSHOTS, isLoading: false, isFallback: true };
+  if (!isElectron) return { snapshots: SNAPSHOTS, isLoading: false, isFallback: true }; // SNAPSHOTS is [] by default
   if (query.isLoading) return { snapshots: [], isLoading: true, isFallback: false };
   if (!query.data) return { snapshots: SNAPSHOTS, isLoading: false, isFallback: true };
   const snaps = query.data.items.map(entityToSnapshot);
@@ -233,7 +233,7 @@ export function useFinanceGoals(): UseFinanceGoalsResult {
     { typeId: "goal", limit: 100, offset: 0 },
     { enabled: isElectron },
   );
-  if (!isElectron) return { goals: GOALS, isLoading: false, isFallback: true };
+  if (!isElectron) return { goals: GOALS, isLoading: false, isFallback: true }; // GOALS is [] by default
   if (query.isLoading) return { goals: [], isLoading: true, isFallback: false };
   if (!query.data) return { goals: GOALS, isLoading: false, isFallback: true };
   return {

@@ -48,7 +48,7 @@ export function useNoteList(folderPath: string | null): UseNoteListResult {
   );
 
   if (!isElectron) {
-    const notes = folderPath ? getNotesForFolder(folderPath) : NOTES;
+    const notes = folderPath ? getNotesForFolder(folderPath) : NOTES; // NOTES is [] by default
     return { notes, isLoading: false, isError: false, errorMessage: null, isFallback: true };
   }
 
@@ -88,7 +88,7 @@ export function useFolderTree(): UseFolderTreeResult {
   );
 
   if (!isElectron) {
-    return { folders: FOLDERS, isLoading: false, isFallback: true };
+    return { folders: FOLDERS, isLoading: false, isFallback: true }; // FOLDERS is [] by default
   }
 
   if (query.isLoading) {
@@ -96,7 +96,7 @@ export function useFolderTree(): UseFolderTreeResult {
   }
 
   if (!query.data) {
-    return { folders: FOLDERS, isLoading: false, isFallback: true };
+    return { folders: FOLDERS, isLoading: false, isFallback: true }; // FOLDERS is [] by default
   }
 
   const folderPaths = Array.from(

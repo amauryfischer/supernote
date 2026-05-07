@@ -1,10 +1,13 @@
 "use client";
 
-import { Archive, Upload, Download, FileZip, Clock, Trash } from "@phosphor-icons/react";
+import { Archive, Upload, Download, FileZip, Clock, Trash, Play } from "@phosphor-icons/react";
 import { useState } from "react";
 import { SettingRow } from "../SettingRow";
 import { SettingSection } from "../SettingSection";
 import { localStore } from "@/lib/local-store";
+import { DEMO_NOTES } from "@/components/notes/demo-fixtures";
+import { DEMO_CONTACTS, DEMO_ORGANISATIONS } from "@/components/contacts/demo-fixtures";
+import { DEMO_ACCOUNTS, DEMO_ASSETS, DEMO_LOANS, DEMO_GOALS } from "@/components/finance/demo-fixtures";
 
 interface ExportRecord {
   id: string;
@@ -13,14 +16,45 @@ interface ExportRecord {
   type: string;
 }
 
-const MOCK_EXPORTS: ExportRecord[] = [
-  { id: "1", date: "2026-05-06 14:32", size: "12.4 MB", type: "ZIP" },
-  { id: "2", date: "2026-04-29 09:15", size: "11.8 MB", type: "ZIP" },
-];
+const MOCK_EXPORTS: ExportRecord[] = [];
+
+/** Injects demo fixture data into localStorage so the user can explore the app. */
+function loadDemoData(): void {
+  // Notes
+  for (const note of DEMO_NOTES) {
+    localStore.create("note", { title: note.title, body: note.body, folderPath: note.folderPath }, { tags: note.tags });
+  }
+  // Contacts
+  for (const org of DEMO_ORGANISATIONS) {
+    localStore.create("organisation", { name: org.name, sector: org.industry, website: org.website ?? "" });
+  }
+  for (const contact of DEMO_CONTACTS) {
+    localStore.create("personne", {
+      name: contact.name,
+      email: contact.emails[0]?.value ?? "",
+      phone: contact.phones[0]?.value ?? "",
+      notes: contact.notes,
+    }, { tags: contact.tags });
+  }
+  // Finance
+  for (const acc of DEMO_ACCOUNTS) {
+    localStore.create("account", { name: acc.name, kind: acc.kind, current_balance: acc.balance, currency: acc.currency });
+  }
+  for (const asset of DEMO_ASSETS) {
+    localStore.create("asset", { name: asset.name, category: asset.category, current_value: asset.currentValue, acquisition_value: asset.acquisitionValue });
+  }
+  for (const loan of DEMO_LOANS) {
+    localStore.create("loan", { name: loan.name, amount: loan.principal, rate: loan.annualRate, start_date: loan.startDate });
+  }
+  for (const goal of DEMO_GOALS) {
+    localStore.create("goal", { name: goal.name, target_amount: goal.targetAmount, current_progress: goal.currentAmount, target_date: goal.targetDate });
+  }
+}
 
 export function BackupTab() {
   const [exporting, setExporting] = useState(false);
   const [resetDone, setResetDone] = useState(false);
+  const [demoLoaded, setDemoLoaded] = useState(false);
   const exports = MOCK_EXPORTS;
 
   const handleExport = async () => {
@@ -32,7 +66,15 @@ export function BackupTab() {
   const handleResetDemo = () => {
     localStore.clear();
     setResetDone(true);
+    setDemoLoaded(false);
     setTimeout(() => setResetDone(false), 3000);
+  };
+
+  const handleLoadDemo = () => {
+    localStore.clear();
+    loadDemoData();
+    setDemoLoaded(true);
+    setTimeout(() => setDemoLoaded(false), 4000);
   };
 
   return (
@@ -60,10 +102,37 @@ export function BackupTab() {
       </SettingSection>
 
       <SettingSection
-        title="Données démo locales"
-        description="Réinitialiser les entités créées en mode dégradé (browser)"
-        icon={<Trash size={16} />}
+        title="Données démo"
+        description="Charger ou vider des exemples de données pour explorer l'application"
+        icon={<Play size={16} />}
       >
+        <SettingRow label="Charger des exemples">
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={handleLoadDemo}
+                className="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm transition-all hover:opacity-80"
+                style={{
+                  borderColor: "var(--accent)",
+                  color: "var(--accent)",
+                  backgroundColor: "var(--accent-subtle)",
+                }}
+              >
+                <Play size={14} />
+                Charger des exemples (démo)
+              </button>
+              {demoLoaded && (
+                <span className="text-xs" style={{ color: "oklch(0.45 0.16 150)" }}>
+                  Exemples chargés — rechargez la page pour voir les données.
+                </span>
+              )}
+            </div>
+            <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+              Injecte des notes, contacts et données finance fictifs dans le store local. Vos données existantes sont effacées.
+            </p>
+          </div>
+        </SettingRow>
+
         <SettingRow label="Vider le store local">
           <div className="flex items-center gap-3">
             <button
@@ -76,11 +145,11 @@ export function BackupTab() {
               }}
             >
               <Trash size={14} />
-              Vider les données démo locales
+              Vider les données locales
             </button>
             {resetDone && (
               <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-                Données effacées — fixtures restaurées.
+                Données effacées.
               </span>
             )}
           </div>
@@ -117,33 +186,39 @@ export function BackupTab() {
         description="Vos exports récents"
         icon={<Clock size={16} />}
       >
-        <div className="space-y-2">
-          {exports.map((exp) => (
-            <div
-              key={exp.id}
-              className="flex items-center justify-between rounded-lg border p-3"
-              style={{ borderColor: "var(--border)", backgroundColor: "var(--surface-1)" }}
-            >
-              <div className="flex items-center gap-3">
-                <FileZip size={16} style={{ color: "var(--text-muted)" }} />
-                <div>
-                  <p className="text-sm" style={{ color: "var(--text-primary)" }}>
-                    vault_{exp.date.replace(/[: ]/g, "-")}.zip
-                  </p>
-                  <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-                    {exp.date} — {exp.size}
-                  </p>
-                </div>
-              </div>
-              <span
-                className="rounded-full px-2 py-0.5 text-xs"
-                style={{ backgroundColor: "var(--surface-2)", color: "var(--text-muted)" }}
+        {exports.length === 0 ? (
+          <p className="px-1 py-2 text-xs" style={{ color: "var(--text-muted)" }}>
+            Aucun export récent
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {exports.map((exp) => (
+              <div
+                key={exp.id}
+                className="flex items-center justify-between rounded-lg border p-3"
+                style={{ borderColor: "var(--border)", backgroundColor: "var(--surface-1)" }}
               >
-                {exp.type}
-              </span>
-            </div>
-          ))}
-        </div>
+                <div className="flex items-center gap-3">
+                  <FileZip size={16} style={{ color: "var(--text-muted)" }} />
+                  <div>
+                    <p className="text-sm" style={{ color: "var(--text-primary)" }}>
+                      vault_{exp.date.replace(/[: ]/g, "-")}.zip
+                    </p>
+                    <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+                      {exp.date} — {exp.size}
+                    </p>
+                  </div>
+                </div>
+                <span
+                  className="rounded-full px-2 py-0.5 text-xs"
+                  style={{ backgroundColor: "var(--surface-2)", color: "var(--text-muted)" }}
+                >
+                  {exp.type}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
       </SettingSection>
     </div>
   );

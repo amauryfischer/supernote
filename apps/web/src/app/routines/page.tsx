@@ -151,7 +151,7 @@ export default function RoutinesPage() {
   // Effective list: IPC data or fallback fixtures
   const ipcRoutines = (listQuery.data ?? []).map(routineFromIpc);
   const routines: RoutineFixture[] = useFallback
-    ? (localRoutines ?? ROUTINES)
+    ? (localRoutines ?? ROUTINES) // ROUTINES is [] by default
     : ipcRoutines;
 
   function showToast(msg: string, ok = true) {
@@ -162,7 +162,7 @@ export default function RoutinesPage() {
   const handleToggleEnabled = useCallback((id: string, enabled: boolean) => {
     if (useFallback) {
       setLocalRoutines((prev) =>
-        (prev ?? ROUTINES).map((r) => (r.id === id ? { ...r, enabled } : r))
+        (prev ?? ROUTINES).map((r) => (r.id === id ? { ...r, enabled } : r)) // ROUTINES is [] by default
       );
       return;
     }
@@ -172,7 +172,7 @@ export default function RoutinesPage() {
   const handleDelete = useCallback((id: string) => {
     if (!confirm(t("deleteConfirm"))) return;
     if (useFallback) {
-      setLocalRoutines((prev) => (prev ?? ROUTINES).filter((r) => r.id !== id));
+      setLocalRoutines((prev) => (prev ?? ROUTINES).filter((r) => r.id !== id)); // ROUTINES is [] by default
       return;
     }
     deleteMutation.mutate({ id });

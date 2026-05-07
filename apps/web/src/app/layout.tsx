@@ -8,6 +8,8 @@ import { OnboardingTour } from "@/components/onboarding/OnboardingTour";
 import { ThemeProvider } from "@supernote/ui";
 import { NotificationsProvider } from "@supernote/notifications/renderer";
 import { LocaleProvider } from "@/i18n/LocaleProvider";
+import { PwaBootstrap } from "@/lib/pwa/PwaBootstrap";
+import { PwaVaultSetup } from "@/lib/pwa/PwaVaultSetup";
 import frMessages from "../../messages/fr.json";
 import enMessages from "../../messages/en.json";
 
@@ -33,20 +35,31 @@ export default function RootLayout({
      * via CSS variables and next-themes class toggling.
      *
      * TrpcProvider wraps the entire app so tRPC hooks work everywhere.
-     * VaultInitBanner shows a discreet status message on first launch.
+     * VaultInitBanner shows a discreet status message on first launch (Electron).
+     * PwaBootstrap registers the Service Worker for offline PWA support.
+     * PwaVaultSetup wraps children with the FSA vault picker on first launch.
      */
     <html lang="fr" suppressHydrationWarning>
+      <head>
+        <link rel="manifest" href="/manifest.json" />
+        <meta name="theme-color" content="#7c3aed" />
+        <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+      </head>
       <body className="bg-[var(--surface-0)] text-[var(--text-primary)] antialiased">
         <ThemeProvider defaultTheme="light" storageKey="supernote-theme">
           <NotificationsProvider>
             <TrpcProvider>
               <LocaleProvider frMessages={frMessages} enMessages={enMessages}>
                 <ShortcutProvider>
+                  {/* PWA: register service worker (no-op in Electron) */}
+                  <PwaBootstrap />
                   {/* CommandSurface registers seed commands and handles Cmd+K globally */}
                   <CommandSurface />
+                  {/* Electron: auto-init vault banner */}
                   <VaultInitBanner />
                   <OnboardingTour />
-                  {children}
+                  {/* PWA: vault folder picker modal wraps children */}
+                  <PwaVaultSetup>{children}</PwaVaultSetup>
                 </ShortcutProvider>
               </LocaleProvider>
             </TrpcProvider>

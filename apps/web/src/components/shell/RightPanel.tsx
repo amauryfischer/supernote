@@ -15,11 +15,7 @@ interface FallbackItem {
   time: string;
 }
 
-const FALLBACK_ITEMS: FallbackItem[] = [
-  { id: "1", label: "Jean Dupont — Réunion Q2", href: "/contacts/1", time: "il y a 2 min" },
-  { id: "2", label: "Projet Falcon — Brief", href: "/notes/2", time: "il y a 1 h" },
-  { id: "3", label: "Daily 2026-05-07", href: "/notes/3", time: "ce matin" },
-];
+const FALLBACK_ITEMS: FallbackItem[] = [];
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -91,6 +87,13 @@ function RecentList() {
   }
 
   if (isError || !data) {
+    if (FALLBACK_ITEMS.length === 0) {
+      return (
+        <p className="px-3 py-2 text-xs" style={{ color: "var(--text-muted)" }}>
+          Aucun fichier récent
+        </p>
+      );
+    }
     return (
       <>
         {FALLBACK_ITEMS.map((item) => (
@@ -108,6 +111,14 @@ function RecentList() {
           </button>
         ))}
       </>
+    );
+  }
+
+  if (data.items.length === 0) {
+    return (
+      <p className="px-3 py-2 text-xs" style={{ color: "var(--text-muted)" }}>
+        Aucun fichier récent
+      </p>
     );
   }
 

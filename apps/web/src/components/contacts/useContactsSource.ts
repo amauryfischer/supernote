@@ -47,6 +47,7 @@ export function useContactsSource(): ContactsSource {
 
   const contacts = useMemo<Contact[]>(() => {
     if (!isElectron) {
+      // In browser/degraded mode: only local (user-created) entities + empty fixture (CONTACTS=[])
       const localContacts = localEntities.map((e) =>
         entityToContact({
           id: e.id,
@@ -61,11 +62,11 @@ export function useContactsSource(): ContactsSource {
         }),
       );
       const localIds = new Set(localContacts.map((c) => c.id));
-      const deduped = CONTACTS.filter((c) => !localIds.has(c.id));
+      const deduped = CONTACTS.filter((c) => !localIds.has(c.id)); // CONTACTS is [] by default
       return [...deduped, ...localContacts];
     }
     if (data?.items && data.items.length > 0) return entitiesToContacts(data.items);
-    return CONTACTS;
+    return CONTACTS; // [] by default
   }, [isElectron, data, localEntities]);
 
   return {
