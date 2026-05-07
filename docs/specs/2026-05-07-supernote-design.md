@@ -287,25 +287,80 @@ Configurables : colonnes, tri, groupement, filtres composés, formules. Persist�
 - Capture par email (alias local + IMAP poll optionnel, v2).
 - Type seed `Daily`, bouton "Aujourd'hui".
 
-### 7.13 Plugins
+### 7.13 Finance personnelle
+
+Module premier-class pour la gestion patrimoniale.
+
+**Entity types seed dédiés :**
+
+- **Account** (compte bancaire/courant/épargne)
+  - `name`, `kind` (select: courant/épargne/livret/PEA/CTO/assurance-vie/crypto/autre)
+  - `institution` (relation→Organisation), `currency` (select EUR/USD/CHF/...), `iban` (text), `current_balance` (currency)
+  - `last_synced_at` (datetime), tags, body
+
+- **Asset** (catégorie générique d'actif détenu)
+  - Discriminé par `category` : `real_estate | stock | crypto | bond | fund | cash | other`
+  - Champs communs : `name`, `category`, `acquisition_date`, `acquisition_value`, `current_value` (formula ou manuelle), `account` (relation→Account), tags, body
+  - **Conditionnels par catégorie** :
+    - `real_estate` : `address`, `surface_sqm`, `loan` (relation→Loan optional), `valuation_method` (select: manuelle/index/expert), `last_valuation_at`
+    - `stock` : `ticker` (text, ex AAPL), `shares` (number), `currency`, **prix live pulled** via lib gratuite Yahoo Finance (`yahoo-finance2` npm)
+    - `crypto` : `symbol` (BTC, ETH...), `quantity`, prix live via CoinGecko gratuit
+    - `bond` / `fund` : `isin`, `units`, prix manuel ou via Yahoo
+
+- **Loan** (prêt avec amortissement)
+  - `name`, `principal` (currency required), `rate_annual` (percent), `term_months` (number), `start_date` (date), `monthly_payment` (formula auto), `remaining_principal` (formula sur date courante), `end_date` (formula), `kind` (select: immobilier/conso/perso/auto/etudiant/autre), `lender` (relation→Organisation)
+  - **Calcul auto** : table d'amortissement générée par formule, exposée comme query block "voir l'amortissement" sur la fiche du loan
+
+- **Snapshot** (état patrimonial à un instant T)
+  - `name` (text), `taken_at` (datetime), `total_net_worth` (currency, calculé), `breakdown` (longtext JSON par catégorie), `notes`
+  - Action "Prendre un snapshot maintenant" qui freeze toutes les valeurs courantes
+  - Vue dashboard "Évolution" qui plot net worth dans le temps (chart) et compare aux **objectifs**
+
+- **Goal** (objectif financier)
+  - `name`, `target_amount` (currency), `target_date` (date), `category` (select: épargne/investissement/dette/patrimoine), `current_progress` (formula = somme actifs filtrés)
+  - Vue progress bar + ETA basée sur trend (régression linéaire sur snapshots)
+
+**Engine de pricing (`packages/finance` ou intégré dans `packages/automations`) :**
+
+- **Stocks** : `yahoo-finance2` (npm, MIT, gratuit, scrape Yahoo Finance API publique)
+- **Crypto** : `coingecko-api-v3` (free tier, no key) ou raw fetch CoinGecko
+- **Forex** : `currency.exchangerate-api.com` (free tier) pour conversion multi-devises
+- Tous les pulling sont **opt-in** (le user active dans settings, accepte d'aller chercher des prix sur internet — sinon valeurs manuelles)
+- Caché localement avec TTL 15min (cours intraday) à 24h (cours quotidien)
+- Routine seed "Refresh patrimoine" : cron 1×/jour à 18h, refresh tous les Asset avec ticker, recalcule current_value
+
+**Vues dédiées :**
+
+- Dashboard "Patrimoine" : metric cards (net worth, total cash, total assets, total debt) + chart évolution + table par catégorie
+- Vue "Comptes" — table de tous les Account avec totaux
+- Vue "Actifs" — kanban groupé par catégorie
+- Vue "Loans" — timeline des remboursements + chart amortissement
+- Vue "Snapshots" — timeline avec diff entre snapshots
+- Vue "Goals" — progress bars + ETA
+
+**Confidentialité** : module finance peut être placé dans un dossier vault dédié (`/Finance/`) si l'user veut isoler. Les prix pullés sont des cours publics, pas de credentials bancaires.
+
+**Pas de scraping bancaire** (Bridge / Powens / Plaid) — trop intrusif et payant. Mise à jour manuelle des soldes Account ou import OFX/CSV.
+
+### 7.14 Plugins
 - Manifest JSON, code JS sandboxé (iframe avec API postMessage typée).
 - API plugin : enregistrer block custom, action de slash menu, command palette, view, panneau sidebar, pré/post-hooks de save.
 - Permissions explicites (lecture/écriture entités, FS, réseau).
 - Marketplace local-first (registry git public à v2).
 
-### 7.14 API & CLI
+### 7.15 API & CLI
 - HTTP API locale sur `127.0.0.1:port` (port aléatoire, token par session).
 - Endpoints REST + WebSocket pour subscribe.
 - **MCP server intégré** pour permettre à un LLM externe de manipuler le vault.
 - CLI compagnon : `supernote new`, `supernote search`, `supernote query`, `supernote export`.
 
-### 7.15 Sécurité & vie privée
+### 7.16 Sécurité & vie privée
 - 100% local par défaut, zéro télémétrie.
 - Vault chiffré (age) optionnel par dossier.
 - Verrouillage app par mot de passe (vault chiffré).
 - Audit log local.
 
-### 7.16 Theming
+### 7.17 Theming
 - CSS variables propres pour tout.
 - Themes intégrés (light, dark, custom moods).
 - **Import Obsidian themes** (compat partielle, best-effort).
