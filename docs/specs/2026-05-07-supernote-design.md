@@ -51,7 +51,7 @@ Ambition : un seul outil pour ses notes, sa connaissance, ses relations, ses pro
 | IA générative locale | **Ollama** (intégration optionnelle, détection auto) | Résumés, suggestions, RAG. |
 | Voice / OCR | **whisper.cpp** WASM + **Tesseract.js** | Transcription voix + OCR images. |
 | Versioning | **isomorphic-git** | Historique auto, sync remote git. |
-| Sync collab | **Yjs** + **y-indexeddb** + **y-webrtc** (optionnel) | CRDT pour collab inter-appareils si activé. |
+| Sync inter-appareils | **git** (commits + remote) ou **Syncthing** (au choix de l'user) | Pas de CRDT/Yjs (YAGNI desktop-only). Sync passe par le filesystem. |
 | Crypto | **age** (via `age-encryption` npm) | Vaults chiffrés au repos (config par dossier). |
 | Plugins | **VM2 / iframe-sandbox** | Sandbox plugin tiers. |
 | Formules | **Lezer** + parser custom | Langage de formule type Coda. |
@@ -398,10 +398,22 @@ supernote/
   - Suivi "à relancer" (détecte personnes sans interaction depuis X jours)
   - Brief quotidien LLM (matin, via Ollama si dispo, fallback sur template statique)
 
+- **Window chrome** : titlebar custom Linear/Notion-style (logo + breadcrumb + boutons fenêtre custom). Hybride : `hiddenInset` sur macOS, drag-region full custom sur Win/Linux.
+- **Sync collab** : pas de Yjs/CRDT. Sync inter-appareils via git ou Syncthing au niveau du filesystem.
+- **Seed entity types** : Personne, Organisation, Projet, Interaction (les 4 types). Notes, Daily, Tag = aussi en seed (transverses).
+
+### Champs par défaut des seeds CRM
+
+**Personne** — `name` (text required), `photo` (image), `emails` (email[] multi), `phones` (phone[] multi), `birthday` (date), `organization` (relation→Organisation, n↔1), `role` (text), `relationship_type` (select: ami/famille/collègue/client/prospect/fournisseur/autre), `social_links` (longtext JSON ou champs URL spécialisés `linkedin`/`twitter`/`github`), `tags` (tag[]), body markdown libre.
+
+**Organisation** — `name` (text required), `logo` (image), `website` (url), `industry` (select), `address` (longtext), `members` (relation→Personne, 1↔n inverse de `organization`), `tags`, body.
+
+**Projet** — `name` (text required), `status` (workflow: idea/active/blocked/done/archived), `description` (longtext), `start_date` (date), `due_date` (date), `members` (relation→Personne, n↔n), `organizations` (relation→Organisation, n↔n), `tags`, body.
+
+**Interaction** — `kind` (select: appel/réunion/email/café/visio/autre), `date` (datetime required), `duration_minutes` (number), `participants` (relation→Personne, n↔n required), `organization` (relation→Organisation, n↔1 optional), `project` (relation→Projet, n↔1 optional), `location` (text), `summary` (longtext), body.
+
 ### Encore à trancher (à itérer)
 - Default vault path à la première ouverture (probablement OS picker).
-- Window chrome custom (titlebar Linear-style) vs natif.
-- Locale par défaut (FR).
+- Locale par défaut (FR) + i18n générique pour anglais.
 - Auto-update intégré dès le départ ?
-- Liste exacte des seed schemas et leurs fields (itération par usage).
 - Stratégie de chiffrement : passphrase par vault ou par dossier ?
