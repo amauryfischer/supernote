@@ -1,0 +1,62 @@
+{
+  "name": "@supernote/ai",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Ollama bridge + auto-tagging + classifier + action extractor for Supernote",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./ollama": {
+      "types": "./dist/ollama/index.d.ts",
+      "import": "./dist/ollama/index.js"
+    },
+    "./auto-tag": {
+      "types": "./dist/auto-tag/index.d.ts",
+      "import": "./dist/auto-tag/index.js"
+    },
+    "./classifier": {
+      "types": "./dist/classifier/index.d.ts",
+      "import": "./dist/classifier/index.js"
+    },
+    "./extract": {
+      "types": "./dist/extract/index.d.ts",
+      "import": "./dist/extract/index.js"
+    },
+    "./prompts": {
+      "types": "./dist/prompts/index.d.ts",
+      "import": "./dist/prompts/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc --project tsconfig.build.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src --ext .ts"
+  },
+  "dependencies": {
+    "@supernote/core": "workspace:*",
+    "pino": "^9.6.0",
+    "zod": "^3.24.0"
+  },
+  "peerDependencies": {
+    "@supernote/search": "workspace:*"
+  },
+  "peerDependenciesMeta": {
+    "@supernote/search": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@supernote/tsconfig": "workspace:*",
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.2",
+    "vitest": "^3.0.0"
+  }
+}
