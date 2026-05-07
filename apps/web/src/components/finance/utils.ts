@@ -1,4 +1,4 @@
-import { ACCOUNTS, ASSETS, LOANS, SNAPSHOTS } from "./fixtures";
+import type { Account, Asset, Loan, Snapshot } from "./fixtures";
 import { computeMonthlyPayment, computeRemainingPrincipal } from "@supernote/finance/amortization";
 
 export function formatCurrency(value: number): string {
@@ -23,29 +23,38 @@ export function formatShortDate(iso: string): string {
   return new Intl.DateTimeFormat("fr-FR", { month: "short", year: "2-digit" }).format(new Date(iso));
 }
 
-// Derived totals from mock data
-export const totalCash = ACCOUNTS.reduce((s, a) => s + a.balance, 0);
+// Derived totals — accept live data
 
-export const totalAssets = ASSETS.reduce((s, a) => s + a.currentValue, 0);
+export function computeTotalCash(accounts: Account[]): number {
+  return accounts.reduce((s, a) => s + a.balance, 0);
+}
 
-export const totalLoansRemaining = LOANS.reduce((s, loan) => {
-  const remaining = computeRemainingPrincipal(
-    {
-      principal: loan.principal,
-      annualRate: loan.annualRate,
-      termMonths: loan.termMonths,
-      startDate: new Date(loan.startDate),
-    },
-    new Date("2026-05-07")
-  );
-  return s + remaining;
-}, 0);
+export function computeTotalAssets(assets: Asset[]): number {
+  return assets.reduce((s, a) => s + a.currentValue, 0);
+}
 
-export const currentNetWorth = totalCash + totalAssets - totalLoansRemaining;
+export function computeTotalLoansRemaining(loans: Loan[], asOf = new Date()): number {
+  return loans.reduce((s, loan) => {
+    const remaining = computeRemainingPrincipal(
+      {
+        principal: loan.principal,
+        annualRate: loan.annualRate,
+        termMonths: loan.termMonths,
+        startDate: new Date(loan.startDate),
+      },
+      asOf
+    );
+    return s + remaining;
+  }, 0);
+}
 
-export function getNetWorthVariation(): { absolute: number; percent: number } {
-  const latest = SNAPSHOTS[SNAPSHOTS.length - 1];
-  const prev = SNAPSHOTS[SNAPSHOTS.length - 2];
+export function computeCurrentNetWorth(accounts: Account[], assets: Asset[], loans: Loan[], asOf = new Date()): number {
+  return computeTotalCash(accounts) + computeTotalAssets(assets) - computeTotalLoansRemaining(loans, asOf);
+}
+
+export function getNetWorthVariation(snapshots: Snapshot[]): { absolute: number; percent: number } {
+  const latest = snapshots[snapshots.length - 1];
+  const prev = snapshots[snapshots.length - 2];
   if (!latest || !prev) return { absolute: 0, percent: 0 };
   const absolute = latest.totalNetWorth - prev.totalNetWorth;
   const percent = (absolute / prev.totalNetWorth) * 100;
@@ -72,7 +81,7 @@ export const CATEGORY_LABELS: Record<string, string> = {
   other: "Autres",
 };
 
-export function getLoanMonthlyPayment(loan: (typeof LOANS)[0]): number {
+export function getLoanMonthlyPayment(loan: Loan): number {
   return computeMonthlyPayment({
     principal: loan.principal,
     annualRate: loan.annualRate,
@@ -81,7 +90,7 @@ export function getLoanMonthlyPayment(loan: (typeof LOANS)[0]): number {
   });
 }
 
-export function getLoanRemainingPrincipal(loan: (typeof LOANS)[0], asOf = new Date("2026-05-07")): number {
+export function getLoanRemainingPrincipal(loan: Loan, asOf = new Date()): number {
   return computeRemainingPrincipal(
     {
       principal: loan.principal,
@@ -93,14 +102,14 @@ export function getLoanRemainingPrincipal(loan: (typeof LOANS)[0], asOf = new Da
   );
 }
 
-export function getLoanEndDate(loan: (typeof LOANS)[0]): Date {
+export function getLoanEndDate(loan: Loan): Date {
   const d = new Date(loan.startDate);
   d.setMonth(d.getMonth() + loan.termMonths);
   return d;
 }
 
 export function getGoalETA(targetDate: string): string {
-  const now = new Date("2026-05-07");
+  const now = new Date();
   const target = new Date(targetDate);
   const months = (target.getFullYear() - now.getFullYear()) * 12 + (target.getMonth() - now.getMonth());
   if (months <= 0) return "Atteint";

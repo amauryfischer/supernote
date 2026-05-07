@@ -12,12 +12,13 @@ import {
 } from "@tanstack/react-table";
 import { Plus, ArrowsDownUp, ArrowLeft } from "@phosphor-icons/react";
 import Link from "next/link";
-import { ACCOUNTS, type Account } from "@/components/finance/fixtures";
+import { useFinanceAccounts } from "@/components/finance/hooks";
+import type { Account } from "@/components/finance/fixtures";
 import { formatCurrency, formatDate } from "@/components/finance/utils";
 
 const KIND_LABELS: Record<string, string> = {
   checking: "Courant",
-  savings: "Épargne",
+  savings: "Epargne",
   livret: "Livret",
   pea: "PEA",
   cto: "CTO",
@@ -38,6 +39,7 @@ const KIND_COLORS: Record<string, string> = {
 };
 
 export default function ComptesPage() {
+  const { accounts, isLoading, isFallback } = useFinanceAccounts();
   const [sorting, setSorting] = useState<SortingState>([]);
 
   const columns = useMemo<ColumnDef<Account>[]>(
@@ -84,10 +86,10 @@ export default function ComptesPage() {
       },
       {
         accessorKey: "lastSyncedAt",
-        header: "Dernière sync",
+        header: "Derniere sync",
         cell: ({ row }) => (
           <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-            {formatDate(row.original.lastSyncedAt)}
+            {row.original.lastSyncedAt ? formatDate(row.original.lastSyncedAt) : "—"}
           </span>
         ),
       },
@@ -96,7 +98,7 @@ export default function ComptesPage() {
   );
 
   const table = useReactTable({
-    data: ACCOUNTS,
+    data: accounts,
     columns,
     state: { sorting },
     onSortingChange: setSorting,
@@ -120,6 +122,11 @@ export default function ComptesPage() {
           <h1 className="text-xl font-bold" style={{ color: "var(--text-primary)" }}>
             Comptes
           </h1>
+          {isFallback && (
+            <span className="text-xs rounded-full px-2 py-0.5" style={{ backgroundColor: "var(--surface-2)", color: "var(--text-muted)" }}>
+              mode dégradé
+            </span>
+          )}
         </div>
         <button
           className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium"
@@ -129,58 +136,73 @@ export default function ComptesPage() {
         </button>
       </div>
 
-      <div className="overflow-hidden rounded-xl border" style={{ borderColor: "var(--border-subtle)" }}>
-        <table className="w-full">
-          <thead>
-            {table.getHeaderGroups().map((hg) => (
-              <tr
-                key={hg.id}
-                className="border-b"
-                style={{ backgroundColor: "var(--surface-2)", borderColor: "var(--border-subtle)" }}
-              >
-                {hg.headers.map((header) => (
-                  <th
-                    key={header.id}
-                    className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide"
-                    style={{ color: "var(--text-muted)" }}
+      {isLoading ? (
+        <p className="text-sm" style={{ color: "var(--text-muted)" }}>Chargement...</p>
+      ) : accounts.length === 0 ? (
+        <div
+          className="rounded-xl border border-dashed p-8 text-center"
+          style={{ borderColor: "var(--border)", backgroundColor: "var(--surface-0)" }}
+        >
+          <p className="text-sm" style={{ color: "var(--text-muted)" }}>
+            Pas encore de données financières. Importer OFX/CSV ou ajouter un compte.
+          </p>
+        </div>
+      ) : (
+        <>
+          <div className="overflow-hidden rounded-xl border" style={{ borderColor: "var(--border-subtle)" }}>
+            <table className="w-full">
+              <thead>
+                {table.getHeaderGroups().map((hg) => (
+                  <tr
+                    key={hg.id}
+                    className="border-b"
+                    style={{ backgroundColor: "var(--surface-2)", borderColor: "var(--border-subtle)" }}
                   >
-                    <button
-                      className="flex items-center gap-1"
-                      onClick={header.column.getToggleSortingHandler()}
-                    >
-                      {flexRender(header.column.columnDef.header, header.getContext())}
-                      <ArrowsDownUp size={10} />
-                    </button>
-                  </th>
+                    {hg.headers.map((header) => (
+                      <th
+                        key={header.id}
+                        className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide"
+                        style={{ color: "var(--text-muted)" }}
+                      >
+                        <button
+                          className="flex items-center gap-1"
+                          onClick={header.column.getToggleSortingHandler()}
+                        >
+                          {flexRender(header.column.columnDef.header, header.getContext())}
+                          <ArrowsDownUp size={10} />
+                        </button>
+                      </th>
+                    ))}
+                  </tr>
                 ))}
-              </tr>
-            ))}
-          </thead>
-          <tbody>
-            {table.getRowModel().rows.map((row, i) => (
-              <tr
-                key={row.id}
-                className="border-b transition-colors hover:bg-[var(--surface-2)]"
-                style={{
-                  backgroundColor: i % 2 === 0 ? "var(--surface-1)" : "var(--surface-0)",
-                  borderColor: "var(--border-subtle)",
-                }}
-              >
-                {row.getVisibleCells().map((cell) => (
-                  <td key={cell.id} className="px-4 py-3 text-sm">
-                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                  </td>
+              </thead>
+              <tbody>
+                {table.getRowModel().rows.map((row, i) => (
+                  <tr
+                    key={row.id}
+                    className="border-b cursor-pointer transition-colors hover:bg-[var(--surface-2)]"
+                    style={{
+                      backgroundColor: i % 2 === 0 ? "var(--surface-1)" : "var(--surface-0)",
+                      borderColor: "var(--border-subtle)",
+                    }}
+                  >
+                    {row.getVisibleCells().map((cell) => (
+                      <td key={cell.id} className="px-4 py-3 text-sm">
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      </td>
+                    ))}
+                  </tr>
                 ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+              </tbody>
+            </table>
+          </div>
 
-      <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-        {ACCOUNTS.length} compte{ACCOUNTS.length > 1 ? "s" : ""} · Total :{" "}
-        {formatCurrency(ACCOUNTS.reduce((s, a) => s + a.balance, 0))}
-      </p>
+          <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+            {accounts.length} compte{accounts.length > 1 ? "s" : ""} · Total :{" "}
+            {formatCurrency(accounts.reduce((s, a) => s + a.balance, 0))}
+          </p>
+        </>
+      )}
     </div>
     </AppShell>
   );

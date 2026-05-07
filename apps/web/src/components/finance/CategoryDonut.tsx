@@ -1,21 +1,39 @@
 "use client";
 
-import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from "recharts";
-import { SNAPSHOTS } from "./fixtures";
+import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
+import type { Snapshot } from "./fixtures";
 import { CATEGORY_COLORS, CATEGORY_LABELS, formatCurrency } from "./utils";
 
-const latest = SNAPSHOTS[SNAPSHOTS.length - 1]!;
-const total = Object.values(latest.breakdown).reduce((s, v) => s + v, 0);
+interface CategoryDonutProps {
+  snapshot: Snapshot | null;
+}
 
-const pieData = Object.entries(latest.breakdown).map(([key, value]) => ({
-  name: key,
-  label: CATEGORY_LABELS[key] ?? key,
-  value,
-  color: CATEGORY_COLORS[key] ?? "#94A3B8",
-  percent: total > 0 ? (value / total) * 100 : 0,
-}));
+export function CategoryDonut({ snapshot }: CategoryDonutProps) {
+  if (!snapshot) {
+    return (
+      <div
+        className="rounded-xl border p-4"
+        style={{ backgroundColor: "var(--surface-1)", borderColor: "var(--border-subtle)" }}
+      >
+        <h3 className="mb-3 text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+          Répartition par catégorie
+        </h3>
+        <p className="text-sm" style={{ color: "var(--text-muted)" }}>
+          Pas encore de snapshot pour afficher la répartition.
+        </p>
+      </div>
+    );
+  }
 
-export function CategoryDonut() {
+  const total = Object.values(snapshot.breakdown).reduce((s, v) => s + v, 0);
+  const pieData = Object.entries(snapshot.breakdown).map(([key, value]) => ({
+    name: key,
+    label: CATEGORY_LABELS[key] ?? key,
+    value,
+    color: CATEGORY_COLORS[key] ?? "#94A3B8",
+    percent: total > 0 ? (value / total) * 100 : 0,
+  }));
+
   return (
     <div
       className="rounded-xl border p-4"

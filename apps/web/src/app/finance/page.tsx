@@ -26,7 +26,7 @@ import {
   useFinanceGoals,
   useIsElectron,
 } from "@/components/finance/hooks";
-import { trpc } from "@/lib/trpc/client";
+import { trpc, trpcVanillaClient } from "@/lib/trpc/client";
 
 export default function FinancePage() {
   const { accounts, isLoading: loadingAccounts } = useFinanceAccounts();
@@ -65,7 +65,7 @@ export default function FinancePage() {
     const tickeredAssets = assets.filter((a) => a.ticker);
     await Promise.allSettled(
       tickeredAssets.map((asset) =>
-        trpc.system.fetchPrice
+        trpcVanillaClient.system.fetchPrice
           .query({ ticker: asset.ticker!, isCrypto: false })
           .then(() => utils.entities.list.invalidate({ typeId: "asset" }))
           .catch(() => undefined)

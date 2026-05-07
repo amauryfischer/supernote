@@ -13,19 +13,23 @@ import {
   AreaChart,
   Area,
 } from "recharts";
-import { SNAPSHOTS } from "./fixtures";
+import type { Snapshot } from "./fixtures";
 import { formatShortDate, CATEGORY_COLORS, CATEGORY_LABELS } from "./utils";
 
-const chartData = SNAPSHOTS.map((s) => ({
-  label: formatShortDate(s.takenAt),
-  total: s.totalNetWorth,
-  ...s.breakdown,
-}));
+interface NetWorthChartProps {
+  snapshots: Snapshot[];
+}
 
 const STACKED_KEYS = ["cash", "stock", "crypto", "real_estate", "bond", "other"] as const;
 
-export function NetWorthChart() {
+export function NetWorthChart({ snapshots }: NetWorthChartProps) {
   const [stacked, setStacked] = useState(false);
+
+  const chartData = snapshots.map((s) => ({
+    label: formatShortDate(s.takenAt),
+    total: s.totalNetWorth,
+    ...s.breakdown,
+  }));
 
   return (
     <div
@@ -54,65 +58,71 @@ export function NetWorthChart() {
         </div>
       </div>
 
-      <ResponsiveContainer width="100%" height={220}>
-        {stacked ? (
-          <AreaChart data={chartData}>
-            <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" />
-            <XAxis dataKey="label" tick={{ fontSize: 11, fill: "var(--text-muted)" }} />
-            <YAxis
-              tick={{ fontSize: 11, fill: "var(--text-muted)" }}
-              tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`}
-            />
-            <Tooltip
-              formatter={(value, name) => [
-                typeof value === "number"
-                  ? new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(value)
-                  : String(value),
-                CATEGORY_LABELS[String(name)] ?? String(name),
-              ]}
-              contentStyle={{ fontSize: 12 }}
-            />
-            <Legend formatter={(v) => CATEGORY_LABELS[v] ?? v} />
-            {STACKED_KEYS.map((key) => (
-              <Area
-                key={key}
-                type="monotone"
-                dataKey={key}
-                stackId="1"
-                stroke={CATEGORY_COLORS[key]}
-                fill={CATEGORY_COLORS[key]}
-                fillOpacity={0.6}
+      {chartData.length === 0 ? (
+        <div className="flex h-[220px] items-center justify-center text-sm" style={{ color: "var(--text-muted)" }}>
+          Pas encore de snapshots pour afficher l&apos;évolution.
+        </div>
+      ) : (
+        <ResponsiveContainer width="100%" height={220}>
+          {stacked ? (
+            <AreaChart data={chartData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" />
+              <XAxis dataKey="label" tick={{ fontSize: 11, fill: "var(--text-muted)" }} />
+              <YAxis
+                tick={{ fontSize: 11, fill: "var(--text-muted)" }}
+                tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`}
               />
-            ))}
-          </AreaChart>
-        ) : (
-          <LineChart data={chartData}>
-            <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" />
-            <XAxis dataKey="label" tick={{ fontSize: 11, fill: "var(--text-muted)" }} />
-            <YAxis
-              tick={{ fontSize: 11, fill: "var(--text-muted)" }}
-              tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`}
-            />
-            <Tooltip
-              formatter={(value) => [
-                typeof value === "number"
-                  ? new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(value)
-                  : String(value),
-                "Patrimoine net",
-              ]}
-              contentStyle={{ fontSize: 12 }}
-            />
-            <Line
-              type="monotone"
-              dataKey="total"
-              stroke="var(--accent)"
-              strokeWidth={2.5}
-              dot={{ fill: "var(--accent)", r: 4 }}
-              activeDot={{ r: 6 }}
-            />
-          </LineChart>
-        )}
-      </ResponsiveContainer>
+              <Tooltip
+                formatter={(value, name) => [
+                  typeof value === "number"
+                    ? new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(value)
+                    : String(value),
+                  CATEGORY_LABELS[String(name)] ?? String(name),
+                ]}
+                contentStyle={{ fontSize: 12 }}
+              />
+              <Legend formatter={(v) => CATEGORY_LABELS[v] ?? v} />
+              {STACKED_KEYS.map((key) => (
+                <Area
+                  key={key}
+                  type="monotone"
+                  dataKey={key}
+                  stackId="1"
+                  stroke={CATEGORY_COLORS[key]}
+                  fill={CATEGORY_COLORS[key]}
+                  fillOpacity={0.6}
+                />
+              ))}
+            </AreaChart>
+          ) : (
+            <LineChart data={chartData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" />
+              <XAxis dataKey="label" tick={{ fontSize: 11, fill: "var(--text-muted)" }} />
+              <YAxis
+                tick={{ fontSize: 11, fill: "var(--text-muted)" }}
+                tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`}
+              />
+              <Tooltip
+                formatter={(value) => [
+                  typeof value === "number"
+                    ? new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(value)
+                    : String(value),
+                  "Patrimoine net",
+                ]}
+                contentStyle={{ fontSize: 12 }}
+              />
+              <Line
+                type="monotone"
+                dataKey="total"
+                stroke="var(--accent)"
+                strokeWidth={2.5}
+                dot={{ fill: "var(--accent)", r: 4 }}
+                activeDot={{ r: 6 }}
+              />
+            </LineChart>
+          )}
+        </ResponsiveContainer>
+      )}
     </div>
   );
 }

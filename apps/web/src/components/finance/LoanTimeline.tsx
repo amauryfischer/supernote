@@ -1,7 +1,7 @@
 "use client";
 
-import { LOANS } from "./fixtures";
-import { formatCurrency, formatDate, getLoanMonthlyPayment, getLoanRemainingPrincipal, getLoanEndDate } from "./utils";
+import type { Loan } from "./fixtures";
+import { formatCurrency, formatDate, getLoanMonthlyPayment, getLoanRemainingPrincipal } from "./utils";
 
 const KIND_LABELS: Record<string, string> = {
   mortgage: "Immobilier",
@@ -21,9 +21,8 @@ const KIND_COLORS: Record<string, string> = {
   other: "#64748B",
 };
 
-// Next 3 payments per loan
-function getNextPayments(loan: (typeof LOANS)[0]) {
-  const today = new Date("2026-05-07");
+function getNextPayments(loan: Loan) {
+  const today = new Date();
   const payments: { date: Date; amount: number }[] = [];
   const monthly = getLoanMonthlyPayment(loan);
   let d = new Date(loan.startDate);
@@ -40,7 +39,27 @@ function getNextPayments(loan: (typeof LOANS)[0]) {
   return payments;
 }
 
-export function LoanTimeline() {
+interface LoanTimelineProps {
+  loans: Loan[];
+}
+
+export function LoanTimeline({ loans }: LoanTimelineProps) {
+  if (loans.length === 0) {
+    return (
+      <div
+        className="rounded-xl border p-4"
+        style={{ backgroundColor: "var(--surface-1)", borderColor: "var(--border-subtle)" }}
+      >
+        <h3 className="mb-4 text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+          Echéances de prêts — 3 prochains mois
+        </h3>
+        <p className="text-sm" style={{ color: "var(--text-muted)" }}>
+          Aucun prêt enregistré.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div
       className="rounded-xl border p-4"
@@ -50,7 +69,7 @@ export function LoanTimeline() {
         Echéances de prêts — 3 prochains mois
       </h3>
       <div className="flex flex-col gap-6">
-        {LOANS.map((loan) => {
+        {loans.map((loan) => {
           const payments = getNextPayments(loan);
           const remaining = getLoanRemainingPrincipal(loan);
           const color = KIND_COLORS[loan.kind] ?? "#64748B";
