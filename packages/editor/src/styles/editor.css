@@ -1,0 +1,233 @@
+/**
+ * Supernote Editor — CSS overrides
+ * Import this in your app alongside BlockNote's own style.css
+ *
+ * Usage:
+ *   import "@blocknote/core/style.css";
+ *   import "@supernote/editor/editor.css";
+ *
+ * CSS vars consumed from the host app:
+ *   --text-primary, --text-secondary, --text-muted
+ *   --accent, --accent-light
+ *   --bg-base, --bg-surface, --bg-elevated
+ *   --border, --border-light
+ *   --radius-sm, --radius-md
+ *   --callout-info, --callout-note, --callout-warning, --callout-danger, --callout-quote
+ */
+
+/* ── Wrapper ────────────────────────────────────────────────── */
+
+.sn-editor-wrapper {
+  font-family: var(--font-sans, system-ui, sans-serif);
+  color: var(--text-primary, #1a1a2e);
+  background: var(--bg-base, #fff);
+}
+
+/* BlockNote core overrides — inherit our tokens */
+.sn-editor-wrapper .bn-editor {
+  padding: 0;
+  caret-color: var(--accent, #7c3aed);
+}
+
+.sn-editor-wrapper .bn-block {
+  margin-block: 0.25rem;
+}
+
+/* ── Wikilink pill ──────────────────────────────────────────── */
+
+.sn-wikilink {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.1rem 0.45rem;
+  border-radius: var(--radius-sm, 4px);
+  background: var(--accent-light, #ede9fe);
+  color: var(--accent, #7c3aed);
+  font-size: 0.875em;
+  font-weight: 500;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s;
+  text-decoration: none;
+}
+
+.sn-wikilink:hover {
+  background: var(--accent, #7c3aed);
+  color: #fff;
+}
+
+/* ── Mention pill ───────────────────────────────────────────── */
+
+.sn-mention {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: var(--radius-sm, 4px);
+  background: var(--bg-surface, #f5f3ff);
+  color: var(--text-primary, #1a1a2e);
+  font-size: 0.875em;
+  font-weight: 500;
+  cursor: pointer;
+  user-select: none;
+  border: 1px solid var(--border-light, #ddd6fe);
+}
+
+.sn-mention:hover {
+  border-color: var(--accent, #7c3aed);
+}
+
+.sn-mention__icon {
+  font-size: 0.9em;
+  line-height: 1;
+}
+
+.sn-mention__label {
+  color: var(--accent, #7c3aed);
+}
+
+/* ── Tag pill ───────────────────────────────────────────────── */
+
+.sn-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.1rem 0.4rem;
+  border-radius: var(--radius-sm, 4px);
+  background: #f0fdf4;
+  color: #16a34a;
+  font-size: 0.8em;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+  letter-spacing: 0.01em;
+}
+
+.sn-tag:hover {
+  background: #dcfce7;
+}
+
+/* ── Callout block ──────────────────────────────────────────── */
+
+.sn-callout {
+  border-left: 4px solid var(--callout-info, #3b82f6);
+  border-radius: 0 var(--radius-md, 6px) var(--radius-md, 6px) 0;
+  background: color-mix(in srgb, currentColor 6%, var(--bg-base, #fff));
+  padding: 0.65rem 1rem 0.65rem 0.9rem;
+  margin-block: 0.5rem;
+}
+
+.sn-callout__header {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.3rem;
+  font-weight: 600;
+  font-size: 0.875rem;
+  text-transform: capitalize;
+}
+
+.sn-callout__icon {
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.sn-callout__title {
+  letter-spacing: 0.015em;
+}
+
+.sn-callout__content {
+  font-size: 0.9375rem;
+  color: var(--text-primary, #1a1a2e);
+}
+
+/* Variant-specific border colors applied via style attr */
+
+/* ── Code block with highlight ──────────────────────────────── */
+
+.sn-code-block {
+  border-radius: var(--radius-md, 6px);
+  overflow: hidden;
+  background: var(--bg-elevated, #f8f7ff);
+  border: 1px solid var(--border, #e5e7eb);
+  margin-block: 0.5rem;
+}
+
+.sn-code-block__header {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0.3rem 0.75rem;
+  background: var(--bg-surface, #f5f3ff);
+  border-bottom: 1px solid var(--border-light, #e9d5ff);
+}
+
+.sn-code-block__lang {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted, #6b7280);
+}
+
+.sn-code-block__pre {
+  margin: 0;
+  padding: 0.8rem 1rem;
+  overflow-x: auto;
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+
+/* Shiki overrides — let shiki handle its own colors */
+.sn-code-block__pre .shiki {
+  background: transparent !important;
+  padding: 0;
+  margin: 0;
+}
+
+/* ── Embed / Transclusion block ─────────────────────────────── */
+
+.sn-embed {
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: var(--radius-md, 6px);
+  overflow: hidden;
+  margin-block: 0.5rem;
+}
+
+.sn-embed__header {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.75rem;
+  background: var(--bg-surface, #f5f3ff);
+  border-bottom: 1px solid var(--border-light, #e9d5ff);
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--accent, #7c3aed);
+}
+
+.sn-embed__icon {
+  font-size: 0.9em;
+}
+
+.sn-embed__content {
+  padding: 0.65rem 0.9rem;
+  font-size: 0.9375rem;
+  color: var(--text-secondary, #4b5563);
+  min-height: 2rem;
+}
+
+.sn-embed__content--loading {
+  color: var(--text-muted, #9ca3af);
+  font-style: italic;
+}
+
+/* ── BlockNote UI component overrides ───────────────────────── */
+
+/* Use accent color for selection */
+.sn-editor-wrapper .ProseMirror .selectedCell::after {
+  background: color-mix(in srgb, var(--accent, #7c3aed) 20%, transparent);
+}
+
+/* Slash menu */
+.sn-editor-wrapper [data-radix-popper-content-wrapper] {
+  z-index: 100;
+}
