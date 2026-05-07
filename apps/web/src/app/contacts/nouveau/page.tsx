@@ -14,6 +14,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useRef } from "react";
 import { trpc } from "@/lib/trpc/client";
+import { localStore } from "@/lib/local-store";
 
 interface EmailEntry { value: string; label: "pro" | "perso" | "autre" }
 interface PhoneEntry { value: string; label: "mobile" | "fixe" | "pro" }
@@ -45,8 +46,14 @@ function TextInput({ value, onChange, placeholder, type = "text" }: {
   );
 }
 
+function useIsElectron(): boolean {
+  if (typeof window === "undefined") return false;
+  return typeof window.__supernoteIPC !== "undefined";
+}
+
 export default function NouveauContactPage() {
   const router = useRouter();
+  const isElectron = useIsElectron();
 
   const [name, setName] = useState("");
   const [photoPreview, setPhotoPreview] = useState<string | undefined>();
@@ -69,11 +76,6 @@ export default function NouveauContactPage() {
   const createMutation = trpc.entities.create.useMutation({
     onSuccess: (entity) => {
       router.push(`/contacts/${entity.id}`);
-    },
-    onError: () => {
-      // Mode dégradé: IPC not available in browser
-      alert(`Contact "${name}" créé (mode dégradé – OK simulé).`);
-      router.push("/contacts");
     },
   });
 
@@ -131,6 +133,12 @@ export default function NouveauContactPage() {
       tags,
       notes,
     });
+
+    if (!isElectron) {
+      const entity = localStore.create("personne", fields, { body: notes, tags });
+      router.push(`/contacts/${entity.id}`);
+      return;
+    }
 
     createMutation.mutate({
       typeId: "personne",

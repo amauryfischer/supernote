@@ -31,6 +31,8 @@ import { useParams } from "next/navigation";
 import { useState, useCallback } from "react";
 import { trpc } from "@/lib/trpc/client";
 import type { RelationEdge } from "@supernote/ipc";
+import { localStore } from "@/lib/local-store";
+import type { FieldValue } from "@supernote/ipc";
 
 type Tab = "notes" | "timeline" | "liens" | "finance" | "activite";
 
@@ -380,7 +382,23 @@ export default function ContactDetailPage() {
     if (!entityError && trpcEntity) {
       return entityToContact(trpcEntity);
     }
-    return CONTACTS.find((c) => c.id === id);
+    const fixture = CONTACTS.find((c) => c.id === id);
+    if (fixture) return fixture;
+    const local = localStore.get(id);
+    if (local) {
+      return entityToContact({
+        id: local.id,
+        typeId: local.typeId,
+        typeName: String(local.fields["name"] ?? ""),
+        fields: local.fields as Record<string, FieldValue>,
+        tags: local.tags ?? [],
+        body: local.body ?? "",
+        filePath: "",
+        createdAt: local.createdAt,
+        updatedAt: local.updatedAt,
+      });
+    }
+    return undefined;
   })();
 
   if (!contact) {

@@ -1,9 +1,10 @@
 "use client";
 
-import { Archive, Upload, Download, FileZip, Clock } from "@phosphor-icons/react";
+import { Archive, Upload, Download, FileZip, Clock, Trash } from "@phosphor-icons/react";
 import { useState } from "react";
 import { SettingRow } from "../SettingRow";
 import { SettingSection } from "../SettingSection";
+import { localStore } from "@/lib/local-store";
 
 interface ExportRecord {
   id: string;
@@ -19,12 +20,19 @@ const MOCK_EXPORTS: ExportRecord[] = [
 
 export function BackupTab() {
   const [exporting, setExporting] = useState(false);
+  const [resetDone, setResetDone] = useState(false);
   const exports = MOCK_EXPORTS;
 
   const handleExport = async () => {
     setExporting(true);
     await new Promise((r) => setTimeout(r, 1200));
     setExporting(false);
+  };
+
+  const handleResetDemo = () => {
+    localStore.clear();
+    setResetDone(true);
+    setTimeout(() => setResetDone(false), 3000);
   };
 
   return (
@@ -48,6 +56,34 @@ export function BackupTab() {
             <FileZip size={14} className={exporting ? "animate-pulse" : ""} />
             {exporting ? "Export en cours..." : "Exporter le vault en ZIP"}
           </button>
+        </SettingRow>
+      </SettingSection>
+
+      <SettingSection
+        title="Données démo locales"
+        description="Réinitialiser les entités créées en mode dégradé (browser)"
+        icon={<Trash size={16} />}
+      >
+        <SettingRow label="Vider le store local">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleResetDemo}
+              className="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm transition-all hover:opacity-80"
+              style={{
+                borderColor: "var(--danger)",
+                color: "var(--danger)",
+                backgroundColor: "transparent",
+              }}
+            >
+              <Trash size={14} />
+              Vider les données démo locales
+            </button>
+            {resetDone && (
+              <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+                Données effacées — fixtures restaurées.
+              </span>
+            )}
+          </div>
         </SettingRow>
       </SettingSection>
 
