@@ -1,0 +1,31 @@
+{
+  "name": "@supernote/web",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --port 3000",
+    "build": "next build",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@heroui/react": "^3.0.0",
+    "@heroui/styles": "^3.0.0",
+    "lucide-react": "^0.511.0",
+    "next": "^15.3.2",
+    "next-themes": "^0.4.6",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3.3.5",
+    "@supernote/tsconfig": "workspace:*",
+    "@types/node": "^22.10.0",
+    "@types/react": "^19.1.5",
+    "@types/react-dom": "^19.1.5",
+    "eslint": "^10.3.0",
+    "eslint-config-next": "^16.2.4",
+    "tailwindcss": "^4.1.7",
+    "typescript": "^5.7.2"
+  }
+}

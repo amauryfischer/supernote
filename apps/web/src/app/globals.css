@@ -1,0 +1,75 @@
+/* Tailwind v4: no config file needed, single import activates everything */
+@import "tailwindcss";
+
+/* HeroUI v3: CSS-first integration — imports component styles & design tokens */
+@import "@heroui/styles";
+
+/* ────────────────────────────────────────────────────────────────────────── */
+/* Root tokens — extends HeroUI's CSS variable system                        */
+/* ────────────────────────────────────────────────────────────────────────── */
+
+:root {
+  /* Typography */
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  /* Surface scale (dark-first) */
+  --surface-0: oklch(0.12 0.006 260);
+  --surface-1: oklch(0.16 0.008 260);
+  --surface-2: oklch(0.20 0.008 260);
+  --surface-3: oklch(0.25 0.010 260);
+
+  /* Brand accent — indigo/violet */
+  --accent: oklch(0.62 0.19 280);
+  --accent-subtle: oklch(0.62 0.19 280 / 0.15);
+  --accent-foreground: oklch(0.99 0 0);
+
+  /* Text */
+  --text-primary: oklch(0.97 0.005 260);
+  --text-secondary: oklch(0.72 0.010 260);
+  --text-muted: oklch(0.50 0.010 260);
+
+  /* Borders */
+  --border: oklch(0.28 0.010 260);
+  --border-subtle: oklch(0.22 0.008 260);
+
+  /* Layout dimensions */
+  --sidebar-width: 240px;
+  --panel-width: 280px;
+  --header-height: 48px;
+}
+
+/* ────────────────────────────────────────────────────────────────────────── */
+/* Global base styles                                                         */
+/* ────────────────────────────────────────────────────────────────────────── */
+
+html,
+body {
+  height: 100%;
+  background-color: var(--surface-0);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Electron-friendly: disable text selection on chrome/shell elements */
+.shell-chrome {
+  user-select: none;
+}
+
+/* Scrollbar styling (WebKit — Electron uses Chromium) */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}

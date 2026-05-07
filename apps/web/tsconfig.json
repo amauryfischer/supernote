@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "@supernote/tsconfig/next.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"],
+      "@supernote/ui": ["../../packages/ui/src/index.ts"],
+      "@supernote/core": ["../../packages/core/src/index.ts"],
+      "@supernote/ipc": ["../../packages/ipc/src/index.ts"],
+      "@supernote/editor": ["../../packages/editor/src/index.ts"],
+      "@supernote/canvas": ["../../packages/canvas/src/index.ts"],
+      "@supernote/search": ["../../packages/search/src/index.ts"],
+      "@supernote/formulas": ["../../packages/formulas/src/index.ts"],
+      "@supernote/automations": ["../../packages/automations/src/index.ts"],
+      "@supernote/git": ["../../packages/git/src/index.ts"],
+      "@supernote/plugin-sdk": ["../../packages/plugin-sdk/src/index.ts"]
+    }
+  },
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
+  "exclude": ["node_modules", ".next", "out"]
+}
