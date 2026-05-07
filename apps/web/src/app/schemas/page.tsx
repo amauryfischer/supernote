@@ -7,26 +7,69 @@ import { AppShell } from "@/components/shell";
 import { TypeListItem } from "@/components/schemas/TypeListItem";
 import { TypePreview } from "@/components/schemas/TypePreview";
 import { ENTITY_TYPES } from "@/components/schemas/fixtures";
+import { trpc } from "@/lib/trpc/client";
+import type { EntityType } from "@supernote/core";
+import { ipcEntityTypeToCore } from "@/components/schemas/adapters";
 
 const SEED_IDS = new Set([
   "personne", "organisation", "projet", "interaction", "note",
   "daily", "tag", "account", "asset", "loan", "snapshot", "goal",
 ]);
 
+const CUSTOM_TYPE_EXAMPLES = ["Livre", "Recette", "Voyage"];
+
+function EmptyCustomTypes() {
+  return (
+    <div
+      className="mx-3 mt-2 rounded-xl border p-4 text-center"
+      style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-2)" }}
+    >
+      <p className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
+        Aucun type personnalisé.
+      </p>
+      <p className="mt-1 text-xs" style={{ color: "var(--text-muted)" }}>
+        Les seeds (Personne, Note, etc.) sont disponibles.
+      </p>
+      <p className="mt-1 text-xs" style={{ color: "var(--text-muted)" }}>
+        Créer ton premier type custom :{" "}
+        {CUSTOM_TYPE_EXAMPLES.join(", ")}…
+      </p>
+      <Link href="/schemas/nouveau">
+        <button
+          className="mt-3 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors"
+          style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
+        >
+          Créer un type
+        </button>
+      </Link>
+    </div>
+  );
+}
+
 export default function SchemasPage() {
-  const [selectedId, setSelectedId] = useState<string>(ENTITY_TYPES[0]?.id ?? "personne");
+  const [selectedId, setSelectedId] = useState<string>("");
   const [filter, setFilter] = useState<"all" | "seeds">("all");
 
-  const displayed = filter === "seeds"
-    ? ENTITY_TYPES.filter((t) => SEED_IDS.has(t.id))
-    : ENTITY_TYPES;
+  const { data: ipcTypes, isLoading, isError } = trpc.schemas.list.useQuery({ search: undefined });
 
-  const selected = ENTITY_TYPES.find((t) => t.id === selectedId) ?? ENTITY_TYPES[0]!;
+  // Adapt IPC types to core types, fallback to fixtures on error
+  const coreTypes: EntityType[] = isError || !ipcTypes
+    ? ENTITY_TYPES
+    : ipcTypes.map(ipcEntityTypeToCore);
+
+  const displayed = filter === "seeds"
+    ? coreTypes.filter((t) => SEED_IDS.has(t.id))
+    : coreTypes;
+
+  const customTypes = coreTypes.filter((t) => !SEED_IDS.has(t.id));
+
+  const effectiveSelectedId = selectedId || displayed[0]?.id || "";
+  const selected = coreTypes.find((t) => t.id === effectiveSelectedId) ?? coreTypes[0];
 
   return (
     <AppShell>
       <div className="flex h-full">
-        {/* Left sidebar — 320px */}
+        {/* Left sidebar */}
         <aside
           className="flex shrink-0 flex-col border-r"
           style={{
@@ -43,7 +86,7 @@ export default function SchemasPage() {
             <div className="flex items-center gap-2">
               <Database size={15} style={{ color: "var(--accent)" }} />
               <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
-                Types d'entités
+                Types d&apos;entités
               </span>
             </div>
             <Link href="/schemas/nouveau">
@@ -80,11 +123,19 @@ export default function SchemasPage() {
 
           {/* List */}
           <div className="flex-1 overflow-y-auto p-2">
-            {displayed.map((type) => (
+            {isLoading && (
+              <p className="px-3 py-2 text-xs" style={{ color: "var(--text-muted)" }}>
+                Chargement…
+              </p>
+            )}
+            {!isLoading && filter === "all" && customTypes.length === 0 && (
+              <EmptyCustomTypes />
+            )}
+            {!isLoading && displayed.map((type) => (
               <TypeListItem
                 key={type.id}
                 type={type}
-                selected={type.id === selectedId}
+                selected={type.id === effectiveSelectedId}
                 onSelect={() => setSelectedId(type.id)}
               />
             ))}
@@ -109,7 +160,13 @@ export default function SchemasPage() {
 
         {/* Right — detail panel */}
         <main className="flex-1 overflow-y-auto" style={{ backgroundColor: "var(--surface-0)" }}>
-          <TypePreview type={selected} />
+          {selected ? (
+            <TypePreview type={selected} />
+          ) : (
+            <div className="flex h-full items-center justify-center">
+              <p style={{ color: "var(--text-muted)" }}>Sélectionnez un type</p>
+            </div>
+          )}
         </main>
       </div>
     </AppShell>

@@ -19,9 +19,9 @@ import {
   MarkerType,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { ENTITY_TYPES, RELATION_TYPES } from "./fixtures";
+import { RELATION_TYPES } from "./fixtures";
 import { getIcon } from "./icon-map";
-import type { RelationType } from "@supernote/core";
+import type { RelationType, EntityType } from "@supernote/core";
 
 // ---- Custom node ----
 interface EntityNodeData extends Record<string, unknown> {
@@ -61,8 +61,12 @@ function EntityNode({ data }: { data: EntityNodeData }) {
           <Icon size={14} />
         </span>
         <div>
-          <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: "#1e1e2e" }}>{data.label as string}</p>
-          <p style={{ margin: 0, fontSize: 11, color: "#64748B" }}>{data.fieldCount as number} champs</p>
+          <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: "#1e1e2e" }}>
+            {data.label as string}
+          </p>
+          <p style={{ margin: 0, fontSize: 11, color: "#64748B" }}>
+            {data.fieldCount as number} champs
+          </p>
         </div>
       </div>
     </div>
@@ -114,8 +118,8 @@ const COLS = 4;
 const H_GAP = 220;
 const V_GAP = 160;
 
-function buildNodes(): Node[] {
-  return ENTITY_TYPES.map((et, i) => ({
+function buildNodes(entityTypes: EntityType[]): Node[] {
+  return entityTypes.map((et, i) => ({
     id: et.id,
     type: "entityNode",
     position: {
@@ -146,11 +150,13 @@ function buildEdges(): Edge[] {
 
 // ---- Component ----
 interface RelationsGraphProps {
+  entityTypes?: EntityType[];
   onEdgeClick: (rel: RelationType) => void;
 }
 
-export function RelationsGraph({ onEdgeClick }: RelationsGraphProps) {
-  const [nodes, , onNodesChange] = useNodesState(buildNodes());
+export function RelationsGraph({ entityTypes, onEdgeClick }: RelationsGraphProps) {
+  const effectiveTypes = entityTypes ?? [];
+  const [nodes, , onNodesChange] = useNodesState(buildNodes(effectiveTypes));
   const [edges, , onEdgesChange] = useEdgesState(buildEdges());
 
   const handleEdgeClick = useCallback(
@@ -190,7 +196,7 @@ export function RelationsGraph({ onEdgeClick }: RelationsGraphProps) {
       <Controls />
       <MiniMap
         nodeColor={(n) => {
-          const et = ENTITY_TYPES.find((t) => t.id === n.id);
+          const et = effectiveTypes.find((t) => t.id === n.id);
           return et?.color ?? "#94A3B8";
         }}
         maskColor="rgba(255,255,255,0.7)"

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { ArrowLeft, Plus } from "@phosphor-icons/react";
 import {
@@ -24,27 +24,38 @@ import { SortableFieldRow } from "@/components/schemas/SortableFieldRow";
 import { FieldEditorModal } from "@/components/schemas/FieldEditorModal";
 import { FieldKindBadge } from "@/components/schemas/FieldKindBadge";
 import { getIcon } from "@/components/schemas/icon-map";
+import { ipcEntityTypeToCore, coreFieldToIpc } from "@/components/schemas/adapters";
+import { trpc } from "@/lib/trpc/client";
 import type { Field, EntityType } from "@supernote/core";
 
 export default function SchemaEditPage() {
   const params = useParams();
   const router = useRouter();
-  const id = typeof params.id === "string" ? params.id : params.id?.[0] ?? "";
+  const id = typeof params.id === "string" ? params.id : (params.id?.[0] ?? "");
 
-  const original = ENTITY_TYPES.find((t) => t.id === id);
-  const [type, setType] = useState<EntityType>(
-    original ?? {
-      id: id,
-      name: id,
-      plural: id,
-      fields: [],
-      defaultPath: "",
-      fileNamePattern: "{name}",
-    }
-  );
-  const [fields, setFields] = useState<Field[]>([...type.fields]);
+  // tRPC get — fallback to fixture on error
+  const { data: ipcType, isLoading, isError } = trpc.schemas.get.useQuery({ id });
+  const updateMutation = trpc.schemas.update.useMutation();
+
+  const fallbackType = ENTITY_TYPES.find((t) => t.id === id);
+
+  const resolvedType: EntityType | undefined = isError || !ipcType
+    ? fallbackType
+    : ipcEntityTypeToCore(ipcType);
+
+  const [fields, setFields] = useState<Field[]>([]);
   const [editingField, setEditingField] = useState<Field | null | "new">(null);
-  const [previewField, setPreviewField] = useState<Field | null>(fields[0] ?? null);
+  const [previewField, setPreviewField] = useState<Field | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+
+  // Sync fields when resolved type changes
+  useEffect(() => {
+    if (resolvedType) {
+      setFields([...resolvedType.fields]);
+      setPreviewField(resolvedType.fields[0] ?? null);
+    }
+  }, [resolvedType]);
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -78,17 +89,42 @@ export default function SchemaEditPage() {
     setFields((prev) => prev.filter((f) => f.id !== fieldId));
   }, []);
 
-  const Icon = getIcon(type.icon ?? "Box");
+  const handleSave = useCallback(async () => {
+    setSaveError(null);
+    setSaveSuccess(false);
+    try {
+      await updateMutation.mutateAsync({
+        id,
+        fields: fields.map(coreFieldToIpc),
+      });
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 2000);
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : "Erreur de sauvegarde");
+    }
+  }, [id, fields, updateMutation]);
 
-  if (!original) {
+  if (isLoading) {
     return (
       <AppShell>
         <div className="flex h-full items-center justify-center">
-          <p style={{ color: "var(--text-muted)" }}>Type introuvable: {id}</p>
+          <p style={{ color: "var(--text-muted)" }}>Chargement…</p>
         </div>
       </AppShell>
     );
   }
+
+  if (!resolvedType) {
+    return (
+      <AppShell>
+        <div className="flex h-full items-center justify-center">
+          <p style={{ color: "var(--text-muted)" }}>Type introuvable : {id}</p>
+        </div>
+      </AppShell>
+    );
+  }
+
+  const Icon = getIcon(resolvedType.icon ?? "Box");
 
   return (
     <AppShell>
@@ -110,20 +146,33 @@ export default function SchemaEditPage() {
           <div className="flex items-center gap-2">
             <span
               className="flex h-6 w-6 items-center justify-center rounded-md"
-              style={{ backgroundColor: (type.color ?? "#6366F1") + "22", color: type.color ?? "#6366F1" }}
+              style={{ backgroundColor: (resolvedType.color ?? "#6366F1") + "22", color: resolvedType.color ?? "#6366F1" }}
             >
               <Icon size={13} />
             </span>
             <span className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
-              {type.name}
+              {resolvedType.name}
             </span>
           </div>
-          <div className="ml-auto">
+          {isError && (
+            <span className="ml-2 text-xs" style={{ color: "var(--text-muted)" }}>
+              (mode hors-ligne)
+            </span>
+          )}
+          <div className="ml-auto flex items-center gap-2">
+            {saveError && (
+              <span className="text-xs text-red-500">{saveError}</span>
+            )}
+            {saveSuccess && (
+              <span className="text-xs" style={{ color: "var(--accent)" }}>Sauvegardé</span>
+            )}
             <button
-              className="rounded-lg px-4 py-1.5 text-sm font-medium transition-colors"
+              onClick={() => void handleSave()}
+              disabled={updateMutation.isPending}
+              className="rounded-lg px-4 py-1.5 text-sm font-medium transition-colors disabled:opacity-50"
               style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
             >
-              Sauvegarder
+              {updateMutation.isPending ? "…" : "Sauvegarder"}
             </button>
           </div>
         </div>
@@ -135,7 +184,10 @@ export default function SchemaEditPage() {
             className="flex w-80 shrink-0 flex-col border-r"
             style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-1)" }}
           >
-            <div className="flex items-center justify-between border-b px-4 py-3" style={{ borderColor: "var(--border-subtle)" }}>
+            <div
+              className="flex items-center justify-between border-b px-4 py-3"
+              style={{ borderColor: "var(--border-subtle)" }}
+            >
               <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
                 Champs ({fields.length})
               </span>
@@ -169,18 +221,13 @@ export default function SchemaEditPage() {
 
           {/* Right — live preview */}
           <main className="flex flex-1 flex-col overflow-hidden" style={{ backgroundColor: "var(--surface-0)" }}>
-            {/* Header */}
             <div className="border-b px-6 py-4" style={{ borderColor: "var(--border-subtle)" }}>
               <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
-                Aperçu live — {type.defaultView ?? "table"}
+                Aperçu live — {resolvedType.defaultView ?? "table"}
               </p>
             </div>
-            {/* Table preview */}
             <div className="overflow-auto p-6">
-              <div
-                className="rounded-xl border"
-                style={{ borderColor: "var(--border)" }}
-              >
+              <div className="rounded-xl border" style={{ borderColor: "var(--border)" }}>
                 {/* Table header */}
                 <div
                   className="flex items-center border-b px-3 py-2"
@@ -199,7 +246,7 @@ export default function SchemaEditPage() {
                     </div>
                   ))}
                 </div>
-                {/* Rows */}
+                {/* Mock rows */}
                 {[1, 2, 3].map((row) => (
                   <div
                     key={row}

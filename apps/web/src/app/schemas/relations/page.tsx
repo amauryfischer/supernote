@@ -5,15 +5,31 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft, X } from "@phosphor-icons/react";
 import { AppShell } from "@/components/shell";
 import { RelationsGraph } from "@/components/schemas/RelationsGraph";
-import { ENTITY_TYPES } from "@/components/schemas/fixtures";
-import type { RelationType } from "@supernote/core";
+import { ENTITY_TYPES, RELATION_TYPES } from "@/components/schemas/fixtures";
+import { trpc } from "@/lib/trpc/client";
+import { ipcEntityTypeToCore } from "@/components/schemas/adapters";
+import type { RelationType, EntityType } from "@supernote/core";
 
 export default function RelationsPage() {
   const router = useRouter();
   const [selectedRel, setSelectedRel] = useState<RelationType | null>(null);
 
-  const srcType = selectedRel ? ENTITY_TYPES.find((t) => t.id === selectedRel.sourceTypeId) : null;
-  const tgtType = selectedRel ? ENTITY_TYPES.find((t) => t.id === selectedRel.targetTypeId) : null;
+  // Load entity types from tRPC; fallback to fixtures on error
+  const { data: ipcTypes, isError: typesError } = trpc.schemas.list.useQuery({ search: undefined });
+  const entityTypes: EntityType[] = typesError || !ipcTypes
+    ? ENTITY_TYPES
+    : ipcTypes.map(ipcEntityTypeToCore);
+
+  // Load relation edges from tRPC (for counts / real data awareness)
+  const { data: relationEdges } = trpc.relations.listAll.useQuery({ limit: 1000 });
+  const edgeCount = relationEdges?.length ?? RELATION_TYPES.length;
+
+  const srcType = selectedRel
+    ? entityTypes.find((t) => t.id === selectedRel.sourceTypeId)
+    : null;
+  const tgtType = selectedRel
+    ? entityTypes.find((t) => t.id === selectedRel.targetTypeId)
+    : null;
 
   return (
     <AppShell>
@@ -35,14 +51,20 @@ export default function RelationsPage() {
           <span className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
             Graphe des relations
           </span>
-          <span className="ml-2 rounded-full px-2 py-0.5 text-xs" style={{ backgroundColor: "var(--accent-subtle)", color: "var(--accent)" }}>
-            {ENTITY_TYPES.length} types · {/* RELATION_TYPES.length */ 8} relations
+          <span
+            className="ml-2 rounded-full px-2 py-0.5 text-xs"
+            style={{ backgroundColor: "var(--accent-subtle)", color: "var(--accent)" }}
+          >
+            {entityTypes.length} types · {edgeCount} relations
           </span>
         </div>
 
         {/* Graph area */}
         <div className="relative flex-1">
-          <RelationsGraph onEdgeClick={setSelectedRel} />
+          <RelationsGraph
+            entityTypes={entityTypes}
+            onEdgeClick={setSelectedRel}
+          />
 
           {/* Edge detail panel */}
           {selectedRel && (
@@ -66,12 +88,18 @@ export default function RelationsPage() {
               <div className="flex items-center gap-2 text-sm">
                 <span
                   className="rounded-md px-2 py-1 font-medium"
-                  style={{ backgroundColor: (srcType?.color ?? "#6366F1") + "22", color: srcType?.color ?? "#6366F1" }}
+                  style={{
+                    backgroundColor: (srcType?.color ?? "#6366F1") + "22",
+                    color: srcType?.color ?? "#6366F1",
+                  }}
                 >
                   {srcType?.name ?? selectedRel.sourceTypeId}
                 </span>
                 <div className="flex flex-col items-center gap-0.5">
-                  <span className="rounded bg-[var(--accent-subtle)] px-2 py-0.5 text-xs" style={{ color: "var(--accent)" }}>
+                  <span
+                    className="rounded bg-[var(--accent-subtle)] px-2 py-0.5 text-xs"
+                    style={{ color: "var(--accent)" }}
+                  >
                     {selectedRel.forwardLabel}
                   </span>
                   <span className="text-xs" style={{ color: "var(--text-muted)" }}>
@@ -80,7 +108,10 @@ export default function RelationsPage() {
                 </div>
                 <span
                   className="rounded-md px-2 py-1 font-medium"
-                  style={{ backgroundColor: (tgtType?.color ?? "#0EA5E9") + "22", color: tgtType?.color ?? "#0EA5E9" }}
+                  style={{
+                    backgroundColor: (tgtType?.color ?? "#0EA5E9") + "22",
+                    color: tgtType?.color ?? "#0EA5E9",
+                  }}
                 >
                   {tgtType?.name ?? selectedRel.targetTypeId}
                 </span>
@@ -88,8 +119,8 @@ export default function RelationsPage() {
 
               {/* Cardinality */}
               <div className="grid grid-cols-2 gap-3">
-                <Field label="Cardinalité" value={selectedRel.cardinality.replace("_", ":")} />
-                <Field label="ID" value={selectedRel.id} mono />
+                <RelField label="Cardinalité" value={selectedRel.cardinality.replace(/_/g, ":")} />
+                <RelField label="ID" value={selectedRel.id} mono />
               </div>
 
               {/* Fields */}
@@ -99,12 +130,14 @@ export default function RelationsPage() {
                 </p>
                 {selectedRel.fields && selectedRel.fields.length > 0 ? (
                   <ul className="text-sm" style={{ color: "var(--text-secondary)" }}>
-                    {selectedRel.fields.map((f) => (
+                    {selectedRel.fields.map((f: { id: string; label: string }) => (
                       <li key={f.id}>{f.label}</li>
                     ))}
                   </ul>
                 ) : (
-                  <p className="text-xs" style={{ color: "var(--text-muted)" }}>Aucun champ de relation</p>
+                  <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+                    Aucun champ de relation
+                  </p>
                 )}
               </div>
 
@@ -131,11 +164,13 @@ export default function RelationsPage() {
   );
 }
 
-function Field({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+function RelField({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
     <div>
       <p className="mb-0.5 text-xs font-medium" style={{ color: "var(--text-muted)" }}>{label}</p>
-      <p className={`text-sm ${mono ? "font-mono" : ""}`} style={{ color: "var(--text-primary)" }}>{value}</p>
+      <p className={`text-sm ${mono ? "font-mono" : ""}`} style={{ color: "var(--text-primary)" }}>
+        {value}
+      </p>
     </div>
   );
 }

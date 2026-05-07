@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft, Check } from "@phosphor-icons/react";
 import { AppShell } from "@/components/shell";
 import { getIcon } from "@/components/schemas/icon-map";
+import { trpc } from "@/lib/trpc/client";
 
 const ICON_OPTIONS = [
   "User", "Building2", "Layers", "MessageCircle", "FileText",
@@ -38,13 +39,30 @@ export default function NouveauSchemaPage() {
     description: "",
     workflow: "none",
   });
+  const [createError, setCreateError] = useState<string | null>(null);
+
+  const createMutation = trpc.schemas.create.useMutation({
+    onSuccess: (created) => {
+      router.push(`/schemas/${created.id}`);
+    },
+    onError: (err) => {
+      // Fallback: still navigate to schemas list even if backend fails
+      setCreateError(err.message);
+    },
+  });
 
   const Icon = getIcon(form.icon);
   const slug = form.name.toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "");
 
   const handleCreate = () => {
-    // In a real app: create the entity type, redirect to /schemas/[id]
-    router.push("/schemas");
+    setCreateError(null);
+    if (!form.name || !form.plural) return;
+    createMutation.mutate({
+      name: form.name,
+      plural: form.plural,
+      icon: form.icon,
+      color: form.color,
+    });
   };
 
   const patch = (key: keyof FormState, value: string) =>
@@ -66,7 +84,7 @@ export default function NouveauSchemaPage() {
         {/* Title */}
         <div>
           <h1 className="text-2xl font-semibold" style={{ color: "var(--text-primary)" }}>
-            Nouveau type d'entité
+            Nouveau type d&apos;entité
           </h1>
           <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>
             Définissez un nouveau type de donnée structurée. Vous pourrez ajouter des champs ensuite.
@@ -89,7 +107,7 @@ export default function NouveauSchemaPage() {
               {form.name || "Nom du type"}
             </p>
             <p className="text-sm" style={{ color: "var(--text-muted)" }}>
-              {form.plural || "Pluriel"} · slug: <span className="font-mono">{slug || "..."}</span>
+              {form.plural || "Pluriel"} · slug : <span className="font-mono">{slug || "…"}</span>
             </p>
           </div>
         </div>
@@ -103,7 +121,6 @@ export default function NouveauSchemaPage() {
                 value={form.name}
                 onChange={(e) => patch("name", e.target.value)}
                 placeholder="Exemple : Livre"
-                className="form-input"
                 style={inputStyle}
               />
             </FormField>
@@ -112,7 +129,6 @@ export default function NouveauSchemaPage() {
                 value={form.plural}
                 onChange={(e) => patch("plural", e.target.value)}
                 placeholder="Exemple : Livres"
-                className="form-input"
                 style={inputStyle}
               />
             </FormField>
@@ -125,8 +141,8 @@ export default function NouveauSchemaPage() {
               onChange={(e) => patch("description", e.target.value)}
               placeholder="À quoi sert ce type d'entité ?"
               rows={2}
-              style={inputStyle}
-              className="w-full resize-none rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[var(--accent)]"
+              style={{ ...inputStyle, resize: "none" }}
+              className="w-full"
             />
           </FormField>
 
@@ -190,14 +206,14 @@ export default function NouveauSchemaPage() {
                   className="flex flex-1 flex-col rounded-xl border px-4 py-3 text-left transition-colors"
                   style={
                     form.workflow === opt.value
-                      ? {
-                          borderColor: "var(--accent)",
-                          backgroundColor: "var(--accent-subtle)",
-                        }
+                      ? { borderColor: "var(--accent)", backgroundColor: "var(--accent-subtle)" }
                       : { borderColor: "var(--border)" }
                   }
                 >
-                  <span className="text-sm font-semibold" style={{ color: form.workflow === opt.value ? "var(--accent)" : "var(--text-primary)" }}>
+                  <span
+                    className="text-sm font-semibold"
+                    style={{ color: form.workflow === opt.value ? "var(--accent)" : "var(--text-primary)" }}
+                  >
                     {opt.label}
                   </span>
                   <span className="text-xs" style={{ color: "var(--text-muted)" }}>{opt.desc}</span>
@@ -206,6 +222,11 @@ export default function NouveauSchemaPage() {
             </div>
           </FormField>
         </div>
+
+        {/* Error */}
+        {createError && (
+          <p className="text-sm text-red-500">{createError}</p>
+        )}
 
         {/* Submit */}
         <div className="flex items-center justify-end gap-3">
@@ -218,11 +239,11 @@ export default function NouveauSchemaPage() {
           </button>
           <button
             onClick={handleCreate}
-            disabled={!form.name || !form.plural}
+            disabled={!form.name || !form.plural || createMutation.isPending}
             className="rounded-lg px-5 py-2.5 text-sm font-medium transition-colors disabled:opacity-50"
             style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
           >
-            Créer le type
+            {createMutation.isPending ? "Création…" : "Créer le type"}
           </button>
         </div>
       </div>
