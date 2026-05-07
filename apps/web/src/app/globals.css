@@ -19,11 +19,25 @@
   --surface-2: oklch(0.965 0.003 260);        /* sidebar, hover */
   --surface-3: oklch(0.940 0.005 260);        /* active surfaces */
 
-  /* Brand accent — restrained indigo */
-  --accent: oklch(0.50 0.18 270);
-  --accent-hover: oklch(0.46 0.18 270);
-  --accent-subtle: oklch(0.50 0.18 270 / 0.10);
+  /* Brand accent — violet */
+  --accent: oklch(0.55 0.24 295);
+  --accent-hover: oklch(0.50 0.24 295);
+  --accent-subtle: oklch(0.55 0.24 295 / 0.12);
   --accent-foreground: oklch(0.995 0 0);
+
+  /* HeroUI v3 primary tokens (violet) */
+  --color-primary-50:  oklch(0.97 0.02 295);
+  --color-primary-100: oklch(0.93 0.05 295);
+  --color-primary-200: oklch(0.87 0.10 295);
+  --color-primary-300: oklch(0.79 0.15 295);
+  --color-primary-400: oklch(0.69 0.20 295);
+  --color-primary-500: oklch(0.60 0.23 295);
+  --color-primary-600: oklch(0.55 0.24 295);
+  --color-primary-700: oklch(0.46 0.22 295);
+  --color-primary-800: oklch(0.36 0.18 295);
+  --color-primary-900: oklch(0.28 0.14 295);
+  --color-primary: var(--color-primary-600);
+  --color-primary-foreground: oklch(0.995 0 0);
 
   /* Text */
   --text-primary: oklch(0.18 0.005 260);
@@ -56,8 +70,8 @@
   --surface-1: oklch(0.18 0.008 260);
   --surface-2: oklch(0.22 0.008 260);
   --surface-3: oklch(0.28 0.010 260);
-  --accent: oklch(0.65 0.18 270);
-  --accent-hover: oklch(0.70 0.18 270);
+  --accent: oklch(0.68 0.22 295);
+  --accent-hover: oklch(0.72 0.22 295);
   --text-primary: oklch(0.97 0.005 260);
   --text-secondary: oklch(0.72 0.010 260);
   --text-muted: oklch(0.55 0.010 260);
