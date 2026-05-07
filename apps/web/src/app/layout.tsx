@@ -5,6 +5,8 @@ import { VaultInitBanner } from "@/lib/vault/VaultInitBanner";
 import { ShortcutProvider } from "@/lib/keyboard/ShortcutProvider";
 import { CommandSurface } from "@/components/command";
 import { OnboardingTour } from "@/components/onboarding/OnboardingTour";
+import { ThemeProvider } from "@supernote/ui";
+import { NotificationsProvider } from "@supernote/notifications/renderer";
 
 export const metadata: Metadata = {
   title: "Supernote",
@@ -32,15 +34,19 @@ export default function RootLayout({
      */
     <html lang="fr" suppressHydrationWarning>
       <body className="bg-[var(--surface-0)] text-[var(--text-primary)] antialiased">
-        <TrpcProvider>
-          <ShortcutProvider>
-            {/* CommandSurface registers seed commands and handles Cmd+K globally */}
-            <CommandSurface />
-            <VaultInitBanner />
-            <OnboardingTour />
-            {children}
-          </ShortcutProvider>
-        </TrpcProvider>
+        <ThemeProvider defaultTheme="light" storageKey="supernote-theme">
+          <NotificationsProvider>
+            <TrpcProvider>
+              <ShortcutProvider>
+                {/* CommandSurface registers seed commands and handles Cmd+K globally */}
+                <CommandSurface />
+                <VaultInitBanner />
+                <OnboardingTour />
+                {children}
+              </ShortcutProvider>
+            </TrpcProvider>
+          </NotificationsProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

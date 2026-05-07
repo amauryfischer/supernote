@@ -1,10 +1,11 @@
 "use client";
 
-import { CaretRight, Command, Plus, SidebarSimple } from "@phosphor-icons/react";
+import { CaretRight, Command, Desktop, Moon, Plus, SidebarSimple, Sun } from "@phosphor-icons/react";
 import { memo, useCallback, useMemo } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { trpc } from "@/lib/trpc/client";
 import { useShellChrome } from "./shell-chrome-context";
+import { useAppTheme, type ThemeValue } from "@supernote/ui";
 
 // ── Route label map for static segments ──────────────────────────────────────
 
@@ -110,6 +111,36 @@ const Breadcrumb = memo(function Breadcrumb() {
   );
 });
 
+// ── Theme cycle order ─────────────────────────────────────────────────────────
+
+const THEME_CYCLE: ThemeValue[] = ["light", "dark", "system"];
+
+function ThemeToggleButton() {
+  const { theme, setTheme } = useAppTheme();
+
+  const next = useCallback(() => {
+    const current: ThemeValue = theme ?? "light";
+    const idx = THEME_CYCLE.indexOf(current);
+    const nextTheme = THEME_CYCLE[(idx + 1) % THEME_CYCLE.length] ?? "light";
+    setTheme(nextTheme);
+  }, [theme, setTheme]);
+
+  const Icon = theme === "dark" ? Moon : theme === "system" ? Desktop : Sun;
+  const label = theme === "dark" ? "Thème sombre" : theme === "system" ? "Thème système" : "Thème clair";
+
+  return (
+    <button
+      onClick={next}
+      aria-label={label}
+      title={label}
+      className="flex h-8 w-8 items-center justify-center rounded-full transition-colors hover:bg-[var(--surface-2)]"
+      style={{ color: "var(--text-muted)" }}
+    >
+      <Icon size={15} />
+    </button>
+  );
+}
+
 // ── TopBar ────────────────────────────────────────────────────────────────────
 
 export const TopBar = memo(function TopBar() {
@@ -166,6 +197,7 @@ export const TopBar = memo(function TopBar() {
 
       {/* Actions */}
       <div className="flex shrink-0 items-center gap-1">
+        <ThemeToggleButton />
         <button
           onClick={handleNewNote}
           data-tour="new-btn"

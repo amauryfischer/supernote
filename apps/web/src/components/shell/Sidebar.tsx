@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Bell,
   BookmarkSimple,
   BookOpen,
   Calendar,
@@ -18,8 +19,9 @@ import {
   type Icon as PhosphorIcon,
 } from "@phosphor-icons/react";
 import Link from "next/link";
-import { memo, useCallback } from "react";
+import { memo, useCallback, useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
+import { NotificationBadge, NotificationCenter, useNotifications } from "@supernote/notifications/renderer";
 
 interface NavItem {
   label: string;
@@ -87,44 +89,76 @@ const NavLink = memo(function NavLink({ item, active }: { item: NavItem; active:
 
 export const Sidebar = memo(function Sidebar() {
   const pathname = usePathname();
+  const [notifOpen, setNotifOpen] = useState(false);
+  const { unreadCount } = useNotifications();
 
   const isActive = useCallback(
     (href: string) => (href === "/" ? pathname === "/" : pathname.startsWith(href)),
     [pathname],
   );
 
+  // Keyboard shortcut: Cmd+Alt+N
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.altKey && e.key === "n") {
+        e.preventDefault();
+        setNotifOpen((v) => !v);
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
   return (
-    <aside
-      className="shell-chrome flex h-full flex-col border-r"
-      style={{
-        width: "var(--sidebar-width)",
-        borderColor: "var(--border-subtle)",
-        backgroundColor: "var(--surface-1)",
-      }}
-    >
-      {/* App brand */}
-      <Link
-        href="/"
-        prefetch={true}
-        className="flex items-center gap-2.5 px-4 transition-opacity hover:opacity-80 focus-visible:outline-none"
-        style={{ height: "var(--header-height)" }}
+    <>
+      <NotificationCenter open={notifOpen} onClose={() => setNotifOpen(false)} />
+      <aside
+        className="shell-chrome flex h-full flex-col border-r"
+        style={{
+          width: "var(--sidebar-width)",
+          borderColor: "var(--border-subtle)",
+          backgroundColor: "var(--surface-1)",
+        }}
       >
+        {/* App brand */}
         <div
-          className="flex h-6 w-6 items-center justify-center rounded-md text-xs font-bold"
-          style={{
-            backgroundColor: "var(--accent)",
-            color: "var(--accent-foreground)",
-          }}
+          className="flex items-center justify-between px-4"
+          style={{ height: "var(--header-height)" }}
         >
-          S
+          <Link
+            href="/"
+            prefetch={true}
+            className="flex items-center gap-2.5 transition-opacity hover:opacity-80 focus-visible:outline-none"
+          >
+            <div
+              className="flex h-6 w-6 items-center justify-center rounded-md text-xs font-bold"
+              style={{
+                backgroundColor: "var(--accent)",
+                color: "var(--accent-foreground)",
+              }}
+            >
+              S
+            </div>
+            <span
+              className="text-sm font-semibold tracking-tight"
+              style={{ color: "var(--text-primary)" }}
+            >
+              Supernote
+            </span>
+          </Link>
+          <button
+            onClick={() => setNotifOpen(true)}
+            aria-label="Ouvrir le centre de notifications"
+            className="relative flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-[var(--surface-2)]"
+            style={{ color: "var(--text-muted)" }}
+          >
+            <Bell size={15} />
+            <NotificationBadge
+              count={unreadCount}
+              className="absolute -right-1 -top-1"
+            />
+          </button>
         </div>
-        <span
-          className="text-sm font-semibold tracking-tight"
-          style={{ color: "var(--text-primary)" }}
-        >
-          Supernote
-        </span>
-      </Link>
 
       <div
         className="border-b"
@@ -175,6 +209,7 @@ export const Sidebar = memo(function Sidebar() {
           Paramètres
         </Link>
       </div>
-    </aside>
+      </aside>
+    </>
   );
 });

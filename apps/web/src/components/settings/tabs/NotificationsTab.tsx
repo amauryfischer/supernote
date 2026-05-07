@@ -6,13 +6,19 @@ import { SettingRow } from "../SettingRow";
 import { SettingSection } from "../SettingSection";
 import { ToggleSwitch } from "../ToggleSwitch";
 import { RangeSlider } from "../RangeSlider";
+import { useNotificationsContext, buildNotification } from "@supernote/notifications/renderer";
 
 export function NotificationsTab() {
   const { settings, updateSettings } = useSettings();
   const { notifications } = settings;
+  const { push } = useNotificationsContext();
 
   const update = (patch: Partial<typeof notifications>) =>
     updateSettings("notifications", { ...notifications, ...patch });
+
+  const sendTestNotification = () => {
+    push(buildNotification({ level: "info", title: "Test", body: "Ceci est un test" }));
+  };
 
   return (
     <div className="space-y-6">
@@ -59,6 +65,28 @@ export function NotificationsTab() {
             value={notifications.toastDuration}
             onChange={(v) => update({ toastDuration: v })}
           />
+        </SettingRow>
+      </SettingSection>
+
+      <SettingSection
+        title="Test"
+        description="Envoyez une notification de test pour vérifier le centre de notifications"
+        icon={<Bell size={16} />}
+      >
+        <SettingRow
+          label="Notification de test"
+          description="Pousse une notification info dans le centre"
+        >
+          <button
+            onClick={sendTestNotification}
+            className="rounded-md px-3 py-1.5 text-xs font-medium transition-colors hover:opacity-90"
+            style={{
+              backgroundColor: "var(--accent)",
+              color: "var(--accent-foreground)",
+            }}
+          >
+            Ajouter une notif test
+          </button>
         </SettingRow>
       </SettingSection>
     </div>
