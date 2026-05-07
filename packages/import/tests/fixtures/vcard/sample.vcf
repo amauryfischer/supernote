@@ -1,0 +1,37 @@
+BEGIN:VCARD
+VERSION:3.0
+FN:Jean Dupont
+N:Dupont;Jean;;;
+EMAIL;TYPE=INTERNET:jean.dupont@example.com
+EMAIL;TYPE=WORK:j.dupont@corp.fr
+TEL;TYPE=CELL:+33612345678
+TEL;TYPE=WORK:+33142345678
+ORG:ACME Corporation
+BDAY:19850312
+NOTE:Met at the Paris conference in 2023.
+END:VCARD
+BEGIN:VCARD
+VERSION:3.0
+FN:Marie Martin
+N:Martin;Marie;;;
+EMAIL;TYPE=INTERNET:marie.martin@example.com
+TEL;TYPE=CELL:+33698765432
+ORG:ACME Corporation
+END:VCARD
+BEGIN:VCARD
+VERSION:4.0
+FN:Alice Durand
+N:Durand;Alice;;;
+EMAIL:alice@startup.io
+TEL:+33611223344
+BDAY:19920705
+NOTE:Technical lead at startup.
+END:VCARD
+BEGIN:VCARD
+VERSION:3.0
+FN:Bob Smith
+N:Smith;Bob;;;
+EMAIL;TYPE=INTERNET:bob@example.com
+ORG:Tech Innovations
+TEL;TYPE=CELL:+14155550123
+END:VCARD

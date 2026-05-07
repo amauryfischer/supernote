@@ -1,0 +1,10 @@
+BEGIN:VCARD
+VERSION:3.0
+FN:Test Contact
+N:Contact;Test;;;
+EMAIL;TYPE=INTERNET:test@example.com
+TEL;TYPE=CELL:+33600000001
+ORG:Test Company
+BDAY:19900101
+NOTE:Single vCard test fixture.
+END:VCARD

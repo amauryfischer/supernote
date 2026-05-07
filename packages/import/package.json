@@ -1,0 +1,41 @@
+{
+  "name": "@supernote/import",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Importers for Notion ZIP, Obsidian vault, vCard, and OFX for Supernote",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc --project tsconfig.build.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src --ext .ts"
+  },
+  "dependencies": {
+    "@supernote/core": "workspace:*",
+    "gray-matter": "^4.0.3",
+    "pino": "^9.0.0",
+    "ulid": "^2.3.0",
+    "unified": "^11.0.5",
+    "remark": "^15.0.1",
+    "remark-parse": "^11.0.0",
+    "remark-frontmatter": "^5.0.0",
+    "yauzl": "^3.2.0"
+  },
+  "devDependencies": {
+    "@supernote/tsconfig": "workspace:*",
+    "@types/node": "^22.10.0",
+    "@types/yauzl": "^2.10.3",
+    "typescript": "^5.7.2",
+    "vitest": "^3.0.0"
+  }
+}

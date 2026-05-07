@@ -14,7 +14,12 @@
       "@supernote/formulas": ["../../packages/formulas/src/index.ts"],
       "@supernote/automations": ["../../packages/automations/src/index.ts"],
       "@supernote/git": ["../../packages/git/src/index.ts"],
-      "@supernote/plugin-sdk": ["../../packages/plugin-sdk/src/index.ts"]
+      "@supernote/plugin-sdk": ["../../packages/plugin-sdk/src/index.ts"],
+      "@supernote/finance": ["../../packages/finance/src/index.ts"],
+      "@supernote/finance/amortization": ["../../packages/finance/src/amortization/index.ts"],
+      "@supernote/finance/seeds": ["../../packages/finance/src/seeds/index.ts"],
+      "@supernote/finance/pricing": ["../../packages/finance/src/pricing/index.ts"],
+      "@supernote/finance/snapshots": ["../../packages/finance/src/snapshots/index.ts"]
     }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
