@@ -19,9 +19,8 @@ const nextConfig: NextConfig = {
   // but they inflate perceived latency noticeably in dev.
   reactStrictMode: false,
 
-  // @supernote/ui is transpiled so Next.js can enforce RSC boundaries correctly
-  // when used with next-intl's withNextIntl wrapper.
-  transpilePackages: ["@supernote/ui"],
+  // @supernote/* packages are consumed via their pre-built dist/.
+  transpilePackages: [],
 
   experimental: {
     // Tree-shake icon libraries and recharts so only used exports are bundled.
@@ -80,8 +79,11 @@ const nextConfig: NextConfig = {
       }),
     );
 
+
     return config;
   },
 };
 
+// Apply next-intl plugin for i18n routing support.
+// In standalone (production installer) mode: still apply for proper locale routing.
 export default withNextIntl(nextConfig);
