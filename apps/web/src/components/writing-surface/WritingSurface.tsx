@@ -11,9 +11,18 @@ import {
   type Icon as PhosphorIcon,
 } from "@phosphor-icons/react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { useShellChrome } from "@/components/shell/shell-chrome-context";
 import { useCreateInboxNote } from "@/hooks/useCreateInboxNote";
+import type { SupernoteEditorProps } from "@supernote/editor";
+
+// Dynamic import: BlockNote uses browser-only APIs (ProseMirror, etc.)
+// SSR-safe, same pattern as NoteEditor.tsx
+const SupernoteEditor = dynamic<SupernoteEditorProps>(
+  () => import("@supernote/editor").then((m) => ({ default: m.SupernoteEditor })),
+  { ssr: false, loading: () => <EditorPlaceholder /> }
+);
 
 interface QuickAccessItem {
   label: string;
@@ -36,12 +45,17 @@ const QUICK_ACCESS: QuickAccessItem[] = [
  * The writing surface IS the homepage. The user can start typing immediately.
  * As soon as they start writing, the other affordances fade out so the writing
  * flow is unobstructed. ESC restores the home view.
+ *
+ * Uses SupernoteEditor (BlockNote) so the home editor has the same slash menu,
+ * block types, and capabilities as /notes/[id].
  */
 export function WritingSurface() {
+  // markdown content as string (driven by BlockNote onChange)
   const [content, setContent] = useState("");
   const [isFocused, setIsFocused] = useState(false);
   const [saveToast, setSaveToast] = useState<string | null>(null);
-  const editorRef = useRef<HTMLDivElement>(null);
+  // editorKey lets us reset the BlockNote instance when exitWriting is called
+  const [editorKey, setEditorKey] = useState(0);
   const shellChrome = useShellChrome();
   const router = useRouter();
   const { saveNote, onContentChange, resetNote, isSaving, lastSaved, saveError } =
@@ -54,11 +68,11 @@ export function WritingSurface() {
     shellChrome.setFocusMode(isWriting);
   }, [isWriting, shellChrome]);
 
-  // Listen for "request new note" events from the topbar / shortcuts and focus
-  // the writing canvas — the homepage IS the note-creation surface.
+  // Listen for "request new note" events from the topbar / shortcuts
   useEffect(() => {
     return shellChrome.onRequestNewNote(() => {
-      editorRef.current?.focus();
+      // Trigger focus on the BlockNote editor via autoFocus — remount if needed
+      setEditorKey((k) => k + 1);
     });
   }, [shellChrome]);
 
@@ -67,7 +81,8 @@ export function WritingSurface() {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
     if (params.get("new") === "true") {
-      editorRef.current?.focus();
+      // Remount editor with autoFocus
+      setEditorKey((k) => k + 1);
       // Clean the param from URL without reloading
       const url = new URL(window.location.href);
       url.searchParams.delete("new");
@@ -83,41 +98,36 @@ export function WritingSurface() {
     return () => clearTimeout(t);
   }, [lastSaved]);
 
-  const handleInput = (e: React.FormEvent<HTMLDivElement>) => {
-    const text = e.currentTarget.innerText;
-    setContent(text);
-    onContentChange(text);
-  };
-
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLDivElement>) => {
-      if (e.key === "Escape" && content.trim().length === 0) {
-        editorRef.current?.blur();
-        return;
-      }
-      // Cmd+S or Ctrl+S — manual save
-      if (e.key === "s" && (e.metaKey || e.ctrlKey)) {
-        e.preventDefault();
-        if (content.trim()) saveNote(content);
-      }
+  const handleEditorChange = useCallback(
+    (markdown: string) => {
+      setContent(markdown);
+      onContentChange(markdown);
     },
-    [content, saveNote],
+    [onContentChange]
   );
 
-  const exitWriting = () => {
-    if (editorRef.current) {
-      editorRef.current.innerText = "";
-    }
+  const handleEditorSave = useCallback(
+    (markdown: string) => {
+      if (markdown.trim()) saveNote(markdown);
+    },
+    [saveNote]
+  );
+
+  const exitWriting = useCallback(() => {
     setContent("");
     setIsFocused(false);
     resetNote();
-  };
+    // Remount the editor to get a blank slate
+    setEditorKey((k) => k + 1);
+  }, [resetNote]);
 
-  // Derive the auto-title from the first non-empty line.
+  // Derive the auto-title from the first non-empty line of markdown.
   const titlePreview =
     content.split("\n").find((line) => line.trim().length > 0)?.trim() ?? "";
+  // Strip leading markdown heading markers for display
+  const titleClean = titlePreview.replace(/^#+\s*/, "");
   const truncatedTitle =
-    titlePreview.length > 60 ? titlePreview.slice(0, 60) + "…" : titlePreview;
+    titleClean.length > 60 ? titleClean.slice(0, 60) + "…" : titleClean;
 
   return (
     <div className="relative mx-auto flex h-full max-w-3xl flex-col px-8">
@@ -146,25 +156,19 @@ export function WritingSurface() {
           </span>
         </div>
 
-        {/* The actual writing area */}
+        {/* The actual writing area — BlockNote replaces the bare contentEditable div */}
         <div
-          ref={editorRef}
-          contentEditable
-          suppressContentEditableWarning
-          onInput={handleInput}
+          className="writing-surface-editor"
           onFocus={() => setIsFocused(true)}
           onBlur={() => setIsFocused(false)}
-          onKeyDown={handleKeyDown}
-          spellCheck
-          data-placeholder="Commencez à écrire…"
-          className="writing-canvas outline-none"
-          style={{
-            minHeight: "8rem",
-            fontSize: "1.0625rem",
-            lineHeight: "1.7",
-            color: "var(--text-primary)",
-          }}
-        />
+        >
+          <SupernoteEditor
+            key={editorKey}
+            onChange={handleEditorChange}
+            onSave={handleEditorSave}
+            className="min-h-[8rem] w-full"
+          />
+        </div>
       </div>
 
       {/* Toast notification for save success / error */}
@@ -207,7 +211,9 @@ export function WritingSurface() {
             ⌘ S
           </kbd>
           <button
-            onClick={() => { if (content.trim()) saveNote(content); }}
+            onClick={() => {
+              if (content.trim()) saveNote(content);
+            }}
             className="transition-colors hover:text-[var(--text-primary)]"
             disabled={isSaving}
           >
@@ -285,15 +291,48 @@ export function WritingSurface() {
         </div>
       </div>
 
-      {/* Placeholder behavior for contentEditable */}
+      {/* Placeholder styling for the BlockNote editor */}
       <style jsx global>{`
-        .writing-canvas:empty:before {
-          content: attr(data-placeholder);
+        .writing-surface-editor .sn-editor-wrapper {
+          background: transparent;
+        }
+        .writing-surface-editor .bn-editor {
+          font-size: 1.0625rem;
+          line-height: 1.7;
+          color: var(--text-primary);
+        }
+        /* Hide BlockNote's own border/shadow on the writing surface */
+        .writing-surface-editor .bn-root {
+          border: none !important;
+          box-shadow: none !important;
+        }
+        /* Placeholder via BlockNote's .bn-is-empty attribute */
+        .writing-surface-editor .bn-block-group .bn-block-outer:only-child .bn-block:only-child p.bn-is-empty::before {
+          content: "Commencez à écrire…";
           color: var(--text-muted);
           opacity: 0.5;
           pointer-events: none;
+          position: absolute;
         }
       `}</style>
+    </div>
+  );
+}
+
+// ── Sub-components ────────────────────────────────────────────
+
+function EditorPlaceholder() {
+  return (
+    <div
+      style={{
+        minHeight: "8rem",
+        fontSize: "1.0625rem",
+        lineHeight: "1.7",
+        color: "var(--text-muted)",
+        opacity: 0.5,
+      }}
+    >
+      Commencez à écrire…
     </div>
   );
 }

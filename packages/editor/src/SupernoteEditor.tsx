@@ -10,7 +10,10 @@ import {
 } from "@blocknote/react";
 import { supernoteSchema } from "./schema.js";
 import { markdownToBlocks, blocksToMarkdown } from "./serialization/index.js";
-import { getSupernoteSlashMenuItems } from "./extensions/slashMenu.js";
+import {
+  getSupernoteSlashMenuItems,
+  SupernoteSuggestionMenu,
+} from "./extensions/slashMenu.js";
 import { createSaveExtension } from "./extensions/saveShortcut.js";
 import type { SupernoteEditorProps } from "./types.js";
 
@@ -67,6 +70,10 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
       >
         <SuggestionMenuController
           triggerCharacter="/"
+          // Provide our own menu renderer so we never call useComponentsContext(),
+          // which returns undefined when no theme package (@blocknote/mantine, etc.)
+          // wraps the editor — the root cause of the "SuggestionMenu undefined" crash.
+          suggestionMenuComponent={SupernoteSuggestionMenu}
           getItems={async (query) => {
             const items = getSupernoteSlashMenuItems(editor);
             if (!query) return items;
