@@ -3,9 +3,10 @@
 import { AppShell } from "@/components/shell";
 import { JournalCalendar, JournalEditor } from "@/components/journal";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { CalendarBlank } from "@phosphor-icons/react";
 import { DAILY_JOURNAL } from "@supernote/templates";
+import { Skeleton, SkeletonText } from "@supernote/ui";
 
 function todayYMD(): string {
   const d = new Date();
@@ -39,6 +40,12 @@ function JournalPageContent() {
   const router = useRouter();
   const today = todayYMD();
   const [selectedDate, setSelectedDate] = useState<string>(today);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const t = setTimeout(() => setIsLoading(false), 250);
+    return () => clearTimeout(t);
+  }, []);
 
   const initialMarkdown = useMemo(() => buildInitialMarkdown(selectedDate), [selectedDate]);
 
@@ -51,6 +58,23 @@ function JournalPageContent() {
     setSelectedDate(today);
     router.push(`/journal/${today}`, { scroll: false });
   };
+
+  if (isLoading) {
+    return (
+      <div className="flex h-full overflow-hidden">
+        <div
+          className="flex flex-col border-r p-4 gap-3"
+          style={{ width: 240, minWidth: 240, backgroundColor: "var(--surface-1)", borderColor: "var(--border-subtle)" }}
+        >
+          <Skeleton className="h-6 w-3/4" />
+          <Skeleton className="h-40 w-full" />
+        </div>
+        <div className="flex-1 p-8">
+          <SkeletonText lines={8} />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-full overflow-hidden">

@@ -26,6 +26,9 @@ importers:
 
   apps/desktop:
     dependencies:
+      '@supernote/ai':
+        specifier: workspace:*
+        version: link:../../packages/ai
       '@supernote/automations':
         specifier: workspace:*
         version: link:../../packages/automations
@@ -35,6 +38,9 @@ importers:
       '@supernote/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@supernote/finance':
+        specifier: workspace:*
+        version: link:../../packages/finance
       '@supernote/git':
         specifier: workspace:*
         version: link:../../packages/git
@@ -44,9 +50,18 @@ importers:
       '@supernote/notifications':
         specifier: workspace:*
         version: link:../../packages/notifications
+      '@supernote/ocr':
+        specifier: workspace:*
+        version: link:../../packages/ocr
       '@supernote/search':
         specifier: workspace:*
         version: link:../../packages/search
+      '@supernote/templates':
+        specifier: workspace:*
+        version: link:../../packages/templates
+      '@supernote/voice':
+        specifier: workspace:*
+        version: link:../../packages/voice
       '@trpc/server':
         specifier: ^11.17.0
         version: 11.17.0(typescript@5.9.3)
@@ -132,6 +147,9 @@ importers:
       '@supernote/templates':
         specifier: workspace:*
         version: link:../../packages/templates
+      '@supernote/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
       '@supernote/views':
         specifier: workspace:*
         version: link:../../packages/views

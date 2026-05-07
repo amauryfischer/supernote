@@ -1,15 +1,22 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, SquaresFour } from "@phosphor-icons/react";
 import { AppShell } from "@/components/shell";
 import { CanvasGrid, CANVAS_LIST } from "@/components/canvas-page";
 import type { CanvasMeta } from "@/components/canvas-page";
+import { EmptyState, SkeletonCard } from "@supernote/ui";
 
 export default function CanvasListPage() {
   const router = useRouter();
+  const [isLoading, setIsLoading] = useState(true);
   const [canvases, setCanvases] = useState<CanvasMeta[]>(CANVAS_LIST);
+
+  useEffect(() => {
+    const t = setTimeout(() => setIsLoading(false), 250);
+    return () => clearTimeout(t);
+  }, []);
 
   function handleOpen(id: string) {
     router.push(`/canvas/${id}`);
@@ -70,7 +77,22 @@ export default function CanvasListPage() {
 
         {/* Grid */}
         <div className="flex-1 overflow-y-auto">
-          <CanvasGrid canvases={canvases} onOpen={handleOpen} />
+          {isLoading ? (
+            <div className="grid gap-4 p-6" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))" }}>
+              {Array.from({ length: 4 }, (_, i) => <SkeletonCard key={i} />)}
+            </div>
+          ) : canvases.length === 0 ? (
+            <div className="flex h-full items-center justify-center">
+              <EmptyState
+                icon={<SquaresFour size={28} />}
+                title="Aucun canvas"
+                description="Créez un canvas pour visualiser et connecter vos idées librement."
+                action={{ label: "+ Nouveau canvas", onClick: handleNewCanvas }}
+              />
+            </div>
+          ) : (
+            <CanvasGrid canvases={canvases} onOpen={handleOpen} />
+          )}
         </div>
       </div>
     </AppShell>

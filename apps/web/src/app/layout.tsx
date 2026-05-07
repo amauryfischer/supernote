@@ -4,6 +4,7 @@ import { TrpcProvider } from "@/lib/trpc/Provider";
 import { VaultInitBanner } from "@/lib/vault/VaultInitBanner";
 import { ShortcutProvider } from "@/lib/keyboard/ShortcutProvider";
 import { CommandSurface } from "@/components/command";
+import { OnboardingTour } from "@/components/onboarding/OnboardingTour";
 
 export const metadata: Metadata = {
   title: "Supernote",
@@ -36,6 +37,7 @@ export default function RootLayout({
             {/* CommandSurface registers seed commands and handles Cmd+K globally */}
             <CommandSurface />
             <VaultInitBanner />
+            <OnboardingTour />
             {children}
           </ShortcutProvider>
         </TrpcProvider>

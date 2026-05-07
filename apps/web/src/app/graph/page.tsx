@@ -29,6 +29,15 @@ export default function GraphPage() {
           >
             50 noeuds · 80 liens
           </span>
+          <span
+            className="rounded-full px-2 py-0.5 text-[10px] font-medium"
+            style={{
+              backgroundColor: "oklch(0.93 0.05 200 / 0.20)",
+              color: "oklch(0.45 0.12 200)",
+            }}
+          >
+            Démo
+          </span>
         </div>
 
         {/* Graph fills remaining space */}

@@ -1,15 +1,20 @@
 "use client";
 
-import { SectionStub } from "@/components/section-stub";
+import { AppShell } from "@/components/shell";
 import { Stack } from "@phosphor-icons/react";
+import { EmptyState } from "@supernote/ui";
 
 export default function ProjetsPage() {
   return (
-    <SectionStub
-      icon={Stack}
-      title="Projets"
-      description="Tous vos projets actifs. Vue kanban par défaut (par statut), avec timeline, dates de début/fin, membres, et notes associées."
-      hint="Le schéma Projet est seedé dans packages/db avec workflow idea/active/blocked/done/archived."
-    />
+    <AppShell>
+      <div className="flex h-full items-center justify-center">
+        <EmptyState
+          icon={<Stack size={28} />}
+          title="Aucun projet actif"
+          description="Créez votre premier projet pour organiser vos tâches, jalons et membres d'équipe."
+          action={{ label: "+ Nouveau projet", onClick: () => alert("Créer un projet (à implémenter)") }}
+        />
+      </div>
+    </AppShell>
   );
 }

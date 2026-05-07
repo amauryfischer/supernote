@@ -20,6 +20,7 @@
     "@supernote/templates": "workspace:*",
     "@supernote/finance": "workspace:*",
     "@supernote/ipc": "workspace:*",
+    "@supernote/ui": "workspace:*",
     "@supernote/views": "workspace:*",
     "@tanstack/react-query": "^5.100.9",
     "@tanstack/react-table": "^8.21.3",

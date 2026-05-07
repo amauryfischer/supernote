@@ -10,6 +10,7 @@ import { ENTITY_TYPES } from "@/components/schemas/fixtures";
 import { trpc } from "@/lib/trpc/client";
 import type { EntityType } from "@supernote/core";
 import { ipcEntityTypeToCore } from "@/components/schemas/adapters";
+import { Skeleton } from "@supernote/ui";
 
 const SEED_IDS = new Set([
   "personne", "organisation", "projet", "interaction", "note",
@@ -124,9 +125,11 @@ export default function SchemasPage() {
           {/* List */}
           <div className="flex-1 overflow-y-auto p-2">
             {isLoading && (
-              <p className="px-3 py-2 text-xs" style={{ color: "var(--text-muted)" }}>
-                Chargement…
-              </p>
+              <div className="flex flex-col gap-2 p-2">
+                {Array.from({ length: 5 }, (_, i) => (
+                  <Skeleton key={i} className="h-9 w-full" />
+                ))}
+              </div>
             )}
             {!isLoading && filter === "all" && customTypes.length === 0 && (
               <EmptyCustomTypes />

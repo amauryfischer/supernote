@@ -130,7 +130,7 @@ export function WritingSurface() {
     titleClean.length > 60 ? titleClean.slice(0, 60) + "…" : titleClean;
 
   return (
-    <div className="relative mx-auto flex h-full max-w-3xl flex-col px-8">
+    <div data-tour="writing-surface" className="relative mx-auto flex h-full max-w-3xl flex-col px-8">
       {/* Writing canvas */}
       <div
         className={`transition-all duration-300 ease-out ${
