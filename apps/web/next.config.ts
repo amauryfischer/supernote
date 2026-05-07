@@ -14,6 +14,11 @@ const nextConfig: NextConfig = {
   // @supernote/* packages are consumed via their pre-built dist/.
   transpilePackages: [],
 
+  experimental: {
+    // Tree-shake icon libraries and recharts so only used exports are bundled.
+    optimizePackageImports: ["@phosphor-icons/react", "lucide-react", "recharts"],
+  },
+
   images: {
     unoptimized: isStaticExport,
   },

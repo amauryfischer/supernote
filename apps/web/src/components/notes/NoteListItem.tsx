@@ -23,7 +23,7 @@ export function NoteListItem({ note, isActive, onClick, onDelete }: NoteListItem
     >
       <button
         onClick={onClick}
-        className="w-full text-left transition-colors"
+        className="w-full text-left transition-colors focus-visible:outline-none"
         style={{
           borderLeft: isActive ? "2px solid var(--accent)" : "2px solid transparent",
           backgroundColor: isActive

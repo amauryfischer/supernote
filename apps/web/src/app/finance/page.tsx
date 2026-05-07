@@ -1,12 +1,11 @@
 "use client";
 
 import { useCallback } from "react";
+import dynamic from "next/dynamic";
 import { Camera, ArrowsClockwise, Wallet } from "@phosphor-icons/react";
 import { AppShell } from "@/components/shell";
 import { EmptyState, SkeletonCard } from "@supernote/ui";
 import { MetricCard } from "@/components/finance/MetricCard";
-import { NetWorthChart } from "@/components/finance/NetWorthChart";
-import { CategoryDonut } from "@/components/finance/CategoryDonut";
 import { AccountsList, AssetsList, GoalsList } from "@/components/finance/QuickLists";
 import { LoanTimeline } from "@/components/finance/LoanTimeline";
 import {
@@ -27,6 +26,16 @@ import {
   useIsElectron,
 } from "@/components/finance/hooks";
 import { trpc, trpcVanillaClient } from "@/lib/trpc/client";
+
+// Dynamic imports: recharts is ~500 kB; defer it until the Finance page mounts.
+const NetWorthChart = dynamic(
+  () => import("@/components/finance/NetWorthChart").then((m) => m.NetWorthChart),
+  { ssr: false, loading: () => <SkeletonCard className="h-[260px]" /> }
+);
+const CategoryDonut = dynamic(
+  () => import("@/components/finance/CategoryDonut").then((m) => m.CategoryDonut),
+  { ssr: false, loading: () => <SkeletonCard className="h-[220px]" /> }
+);
 
 export default function FinancePage() {
   const { accounts, isLoading: loadingAccounts } = useFinanceAccounts();

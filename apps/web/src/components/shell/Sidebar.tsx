@@ -67,7 +67,8 @@ const NavLink = memo(function NavLink({ item, active }: { item: NavItem; active:
   return (
     <Link
       href={item.href}
-      className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm font-normal transition-colors"
+      prefetch={true}
+      className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm font-normal transition-colors focus-visible:outline-none"
       style={
         active
           ? {
@@ -104,7 +105,8 @@ export const Sidebar = memo(function Sidebar() {
       {/* App brand */}
       <Link
         href="/"
-        className="flex items-center gap-2.5 px-4 transition-opacity hover:opacity-80"
+        prefetch={true}
+        className="flex items-center gap-2.5 px-4 transition-opacity hover:opacity-80 focus-visible:outline-none"
         style={{ height: "var(--header-height)" }}
       >
         <div
@@ -161,8 +163,9 @@ export const Sidebar = memo(function Sidebar() {
       >
         <Link
           href="/parametres"
+          prefetch={true}
           data-tour="settings-link"
-          className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm font-normal transition-colors hover:bg-[var(--surface-2)]"
+          className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm font-normal transition-colors hover:bg-[var(--surface-2)] focus-visible:outline-none"
           style={{
             color: isActive("/parametres") ? "var(--accent)" : "var(--text-muted)",
             backgroundColor: isActive("/parametres") ? "var(--accent-subtle)" : undefined,
