@@ -48,6 +48,24 @@ async function initSqlite(handle: FileSystemDirectoryHandle): Promise<Database> 
   }
 
   const database = bytes ? new SQL.Database(bytes) : new SQL.Database();
+
+  // Migration : an earlier buggy schema created FTS5 virtual table + triggers
+  // even though sql.js standard build doesn't ship FTS5. Drop the triggers
+  // (which fire on every INSERT/UPDATE/DELETE) and silence any errors on the
+  // virtual table itself (it's harmless if no trigger calls into it).
+  try {
+    database.run(`
+      DROP TRIGGER IF EXISTS entity_fts_insert;
+      DROP TRIGGER IF EXISTS entity_fts_delete;
+      DROP TRIGGER IF EXISTS entity_fts_update;
+      DROP TRIGGER IF EXISTS entity_ai;
+      DROP TRIGGER IF EXISTS entity_ad;
+      DROP TRIGGER IF EXISTS entity_au;
+    `);
+  } catch (e) {
+    console.warn("[vault-worker] FTS5 migration drop-trigger failed (non-fatal)", e);
+  }
+
   database.run(SCHEMA_SQL_BASE);
   return database;
 }
