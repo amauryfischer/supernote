@@ -1,0 +1,40 @@
+{
+  "name": "@supernote/automations",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Triggers + actions engine for automations and routines",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./seeds": {
+      "types": "./dist/seeds/index.d.ts",
+      "import": "./dist/seeds/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc --project tsconfig.build.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@supernote/core": "workspace:*",
+    "@supernote/formulas": "workspace:*",
+    "cron-parser": "^4.9.0",
+    "nanoid": "^5.0.9",
+    "pino": "^9.6.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@supernote/tsconfig": "workspace:*",
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.2",
+    "vitest": "^3.0.0"
+  }
+}
