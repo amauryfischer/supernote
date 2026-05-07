@@ -1,6 +1,5 @@
 "use client";
 
-import { Button } from "@heroui/react";
 import {
   BookOpen,
   Calendar,
@@ -11,29 +10,37 @@ import {
   Search,
   Settings,
   Users,
+  Wallet,
   Zap,
 } from "lucide-react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 
 interface NavItem {
   label: string;
   icon: React.ComponentType<{ size?: number; className?: string }>;
   href: string;
-  active?: boolean;
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { label: "Accueil", icon: Home, href: "/", active: true },
-  { label: "Recherche", icon: Search, href: "/search" },
+  { label: "Accueil", icon: Home, href: "/" },
+  { label: "Recherche", icon: Search, href: "/recherche" },
   { label: "Notes", icon: FileText, href: "/notes" },
-  { label: "Journal", icon: Calendar, href: "/daily" },
+  { label: "Journal", icon: Calendar, href: "/journal" },
   { label: "Contacts", icon: Users, href: "/contacts" },
-  { label: "Projets", icon: Layers, href: "/projects" },
+  { label: "Projets", icon: Layers, href: "/projets" },
+  { label: "Finance", icon: Wallet, href: "/finance" },
   { label: "Schémas", icon: Hash, href: "/schemas" },
-  { label: "Vues", icon: BookOpen, href: "/views" },
+  { label: "Vues", icon: BookOpen, href: "/vues" },
   { label: "Routines", icon: Zap, href: "/routines" },
 ];
 
 export function Sidebar() {
+  const pathname = usePathname();
+
+  const isActive = (href: string) =>
+    href === "/" ? pathname === "/" : pathname.startsWith(href);
+
   return (
     <aside
       className="shell-chrome flex h-full flex-col border-r"
@@ -44,8 +51,9 @@ export function Sidebar() {
       }}
     >
       {/* App brand */}
-      <div
-        className="flex items-center gap-2.5 px-4"
+      <Link
+        href="/"
+        className="flex items-center gap-2.5 px-4 transition-opacity hover:opacity-80"
         style={{ height: "var(--header-height)" }}
       >
         <div
@@ -63,7 +71,7 @@ export function Sidebar() {
         >
           Supernote
         </span>
-      </div>
+      </Link>
 
       <div
         className="border-b"
@@ -72,24 +80,28 @@ export function Sidebar() {
 
       {/* Navigation */}
       <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto p-2">
-        {NAV_ITEMS.map((item) => (
-          <Button
-            key={item.href}
-            variant={item.active ? "secondary" : "ghost"}
-            className="w-full justify-start gap-2.5 px-3 py-2 text-sm font-normal"
-            style={
-              item.active
-                ? {
-                    backgroundColor: "var(--accent-subtle)",
-                    color: "var(--accent)",
-                  }
-                : { color: "var(--text-secondary)" }
-            }
-          >
-            <item.icon size={15} />
-            {item.label}
-          </Button>
-        ))}
+        {NAV_ITEMS.map((item) => {
+          const active = isActive(item.href);
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm font-normal transition-colors"
+              style={
+                active
+                  ? {
+                      backgroundColor: "var(--accent-subtle)",
+                      color: "var(--accent)",
+                      fontWeight: 500,
+                    }
+                  : { color: "var(--text-secondary)" }
+              }
+            >
+              <item.icon size={15} />
+              {item.label}
+            </Link>
+          );
+        })}
       </nav>
 
       {/* Bottom settings */}
@@ -97,14 +109,17 @@ export function Sidebar() {
         className="border-t p-2"
         style={{ borderColor: "var(--border-subtle)" }}
       >
-        <Button
-          variant="ghost"
-          className="w-full justify-start gap-2.5 px-3 py-2 text-sm font-normal"
-          style={{ color: "var(--text-muted)" }}
+        <Link
+          href="/parametres"
+          className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm font-normal transition-colors hover:bg-[var(--surface-2)]"
+          style={{
+            color: isActive("/parametres") ? "var(--accent)" : "var(--text-muted)",
+            backgroundColor: isActive("/parametres") ? "var(--accent-subtle)" : undefined,
+          }}
         >
           <Settings size={15} />
           Paramètres
-        </Button>
+        </Link>
       </div>
     </aside>
   );

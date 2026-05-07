@@ -275,13 +275,29 @@ Configurables : colonnes, tri, groupement, filtres composés, formules. Persist�
 - Restore par entité.
 - Sync optionnelle avec remote (HTTPS/SSH via signed URL ou key).
 
-### 7.11 IA
-- **Embeddings locaux** dès le départ (transformers.js worker).
-- **Pont Ollama** : détection auto du daemon local, modèles dispo listés.
-- Actions LLM contextuelles : "résumer", "extraire actions", "réécrire", "traduire", "tagger auto", "suggérer entités à mentionner".
-- "Ask my notes" RAG.
-- Voice notes → transcription whisper.cpp local → markdown.
-- OCR (Tesseract.js) sur images collées.
+### 7.11 IA — agent Ollama assistant
+
+L'agent Ollama est **actif dès le départ** (si daemon détecté) et fait du travail proactif **sans demander à l'utilisateur**, en background, à chaque sauvegarde de note.
+
+**Comportements proactifs (background)** :
+- **Auto-tagging** : à chaque save d'une note, l'agent reçoit (a) le contenu de la note, (b) la liste des tags existants dans le vault avec leurs descriptions/historique d'usage. Il propose 0 à 5 tags pertinents — d'abord parmi ceux qui existent (matching sémantique : tag "perso" → note qui parle de famille/loisirs → applique "perso"), créé un nouveau tag uniquement si gap évident. Les tags suggérés sont **appliqués automatiquement** mais marqués `source: ai-suggested` (visuels distincts en pill, l'utilisateur peut les retirer en 1 clic, ou les valider d'un toggle "garder cette suggestion").
+- **Auto-classification** : suggère le type d'entité ("ce note est en réalité une fiche de réunion → la transformer en `Interaction` ?") via une bannière non-intrusive.
+- **Détection de mentions implicites** : repère les noms de personnes/orgs dans le texte qui matchent des entités existantes du CRM, propose de les wrapper en mention `@X`.
+- **Extraction d'actions** : à la sauvegarde d'une note de réunion, scanne pour des phrases du type "je dois", "TODO", "à faire" et propose de créer des entrées dans une liste de tâches liée.
+- **Liaison automatique aux entités** : si la note mentionne "réunion avec Jean", propose de lier la note à la personne Jean.
+
+**Embeddings locaux** dès le départ (transformers.js worker, `Xenova/all-MiniLM-L6-v2`) — utilisés à la fois par la recherche sémantique ET par l'auto-tagging (similarité avec embeddings des tags existants).
+
+**Pont Ollama** : détection auto du daemon local, sélection de modèle dans settings. Si Ollama non disponible : fallback **silencieux** sur des heuristiques basiques (regex sur mots-clés, embeddings cosine pour les tags) — l'auto-tagging continue de marcher en mode dégradé.
+
+**Actions LLM contextuelles** (sur demande, dans le menu d'une note) : "résumer", "extraire actions", "réécrire", "traduire", "tagger auto" (re-trigger), "suggérer entités à mentionner".
+
+**Confidentialité** : tout est local, rien ne sort vers le cloud. L'utilisateur peut désactiver l'auto-tagging dans les settings (`settings.ai.autoTag = true|false`).
+
+**"Ask my notes" RAG** : recherche sémantique + injection des top-k chunks dans un prompt Ollama pour répondre.
+
+**Voice notes** → transcription whisper.cpp local → markdown.
+**OCR** (Tesseract.js) sur images collées.
 
 ### 7.12 Capture rapide / quotidien
 - Raccourci OS global (`globalShortcut`) → modale capture.

@@ -1,7 +1,7 @@
 "use client";
 
 import { Clock, GitBranch, Sparkles, X } from "lucide-react";
-import { Button } from "@heroui/react";
+import { useShellChrome } from "./shell-chrome-context";
 
 interface RecentItem {
   label: string;
@@ -15,6 +15,7 @@ const RECENT_ITEMS: RecentItem[] = [
 ];
 
 export function RightPanel() {
+  const { setRightPanelVisible } = useShellChrome();
   return (
     <aside
       className="flex h-full flex-col border-l"
@@ -35,15 +36,14 @@ export function RightPanel() {
         >
           Contexte
         </span>
-        <Button
-          isIconOnly
-          variant="ghost"
-          size="sm"
-          className="h-6 w-6"
+        <button
+          onClick={() => setRightPanelVisible(false)}
+          aria-label="Fermer le panneau"
+          className="flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-[var(--surface-2)]"
           style={{ color: "var(--text-muted)" }}
         >
           <X size={13} />
-        </Button>
+        </button>
       </div>
 
       <div

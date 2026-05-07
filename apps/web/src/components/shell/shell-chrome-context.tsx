@@ -13,12 +13,23 @@ interface ShellChromeContextValue {
   focusMode: boolean;
   setFocusMode: (next: boolean) => void;
   toggleFocusMode: () => void;
+
+  /** Right panel can be hidden by the user (via the X button or topbar toggle). */
+  rightPanelVisible: boolean;
+  toggleRightPanel: () => void;
+  setRightPanelVisible: (next: boolean) => void;
+
+  /** Bus to ask the home page to focus its writing canvas (e.g. from the topbar "Nouveau" button). */
+  requestNewNote: () => void;
+  onRequestNewNote: (handler: () => void) => () => void;
 }
 
 const ShellChromeContext = createContext<ShellChromeContextValue | null>(null);
 
 export function ShellChromeProvider({ children }: { children: React.ReactNode }) {
   const [focusMode, setFocusModeState] = useState(false);
+  const [rightPanelVisible, setRightPanelVisibleState] = useState(true);
+  const [newNoteHandlers] = useState(() => new Set<() => void>());
 
   const setFocusMode = useCallback((next: boolean) => {
     setFocusModeState(next);
@@ -28,9 +39,49 @@ export function ShellChromeProvider({ children }: { children: React.ReactNode })
     setFocusModeState((v) => !v);
   }, []);
 
+  const setRightPanelVisible = useCallback((next: boolean) => {
+    setRightPanelVisibleState(next);
+  }, []);
+
+  const toggleRightPanel = useCallback(() => {
+    setRightPanelVisibleState((v) => !v);
+  }, []);
+
+  const requestNewNote = useCallback(() => {
+    newNoteHandlers.forEach((h) => h());
+  }, [newNoteHandlers]);
+
+  const onRequestNewNote = useCallback(
+    (handler: () => void) => {
+      newNoteHandlers.add(handler);
+      return () => {
+        newNoteHandlers.delete(handler);
+      };
+    },
+    [newNoteHandlers],
+  );
+
   const value = useMemo<ShellChromeContextValue>(
-    () => ({ focusMode, setFocusMode, toggleFocusMode }),
-    [focusMode, setFocusMode, toggleFocusMode],
+    () => ({
+      focusMode,
+      setFocusMode,
+      toggleFocusMode,
+      rightPanelVisible,
+      toggleRightPanel,
+      setRightPanelVisible,
+      requestNewNote,
+      onRequestNewNote,
+    }),
+    [
+      focusMode,
+      setFocusMode,
+      toggleFocusMode,
+      rightPanelVisible,
+      toggleRightPanel,
+      setRightPanelVisible,
+      requestNewNote,
+      onRequestNewNote,
+    ],
   );
 
   return (

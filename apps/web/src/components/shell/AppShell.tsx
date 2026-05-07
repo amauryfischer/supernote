@@ -20,16 +20,16 @@ export function AppShell({ children }: AppShellProps) {
 /**
  * Three-column shell. When the writing surface enters focus mode, the side
  * panels dim and the topbar fades so the user keeps a writing flow.
+ * The user can also collapse the right panel manually.
  */
 function ShellLayout({ children }: AppShellProps) {
-  const { focusMode } = useShellChrome();
+  const { focusMode, rightPanelVisible } = useShellChrome();
 
   return (
     <div
       className="flex h-screen w-screen overflow-hidden"
       style={{ backgroundColor: "var(--surface-0)" }}
     >
-      {/* Left sidebar — fades to muted state in focus mode but stays clickable */}
       <div
         className={`transition-opacity duration-300 ${
           focusMode ? "opacity-30 hover:opacity-100" : "opacity-100"
@@ -38,7 +38,6 @@ function ShellLayout({ children }: AppShellProps) {
         <Sidebar />
       </div>
 
-      {/* Main area */}
       <div className="flex flex-1 flex-col overflow-hidden">
         <div
           className={`transition-opacity duration-300 ${
@@ -55,15 +54,15 @@ function ShellLayout({ children }: AppShellProps) {
         </main>
       </div>
 
-      {/* Right context panel — collapses in focus mode */}
       <div
         className={`transition-all duration-300 ease-out ${
-          focusMode
-            ? "pointer-events-none w-0 opacity-0"
+          focusMode || !rightPanelVisible
+            ? "pointer-events-none opacity-0"
             : "opacity-100"
         }`}
         style={{
-          width: focusMode ? 0 : "var(--panel-width)",
+          width: focusMode || !rightPanelVisible ? 0 : "var(--panel-width)",
+          overflow: "hidden",
         }}
       >
         <RightPanel />

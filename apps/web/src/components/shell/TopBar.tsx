@@ -1,9 +1,11 @@
 "use client";
 
-import { Button } from "@heroui/react";
 import { Command, PanelRight, Plus } from "lucide-react";
+import { useShellChrome } from "./shell-chrome-context";
 
 export function TopBar() {
+  const { toggleRightPanel, rightPanelVisible, requestNewNote } = useShellChrome();
+
   return (
     <header
       className="shell-chrome flex items-center justify-between border-b px-4"
@@ -15,6 +17,10 @@ export function TopBar() {
     >
       {/* Quick search hint */}
       <button
+        onClick={() => {
+          // dispatched as event so the eventual command-palette can listen for it
+          window.dispatchEvent(new CustomEvent("supernote:open-command-palette"));
+        }}
         className="flex items-center gap-2 rounded-md px-3 py-1.5 text-xs transition-colors hover:bg-[var(--surface-2)]"
         style={{
           color: "var(--text-muted)",
@@ -36,24 +42,27 @@ export function TopBar() {
 
       {/* Actions */}
       <div className="flex items-center gap-1">
-        <Button
-          size="sm"
-          variant="primary"
-          className="gap-1.5 text-xs"
-          style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
+        <button
+          onClick={requestNewNote}
+          className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-opacity hover:opacity-90"
+          style={{
+            backgroundColor: "var(--accent)",
+            color: "var(--accent-foreground)",
+          }}
         >
           <Plus size={13} />
           Nouveau
-        </Button>
-        <Button
-          isIconOnly
-          variant="ghost"
-          size="sm"
-          className="h-8 w-8"
-          style={{ color: "var(--text-muted)" }}
+        </button>
+        <button
+          onClick={toggleRightPanel}
+          aria-label={rightPanelVisible ? "Masquer le panneau" : "Afficher le panneau"}
+          className="flex h-8 w-8 items-center justify-center rounded-md transition-colors hover:bg-[var(--surface-2)]"
+          style={{
+            color: rightPanelVisible ? "var(--text-secondary)" : "var(--text-muted)",
+          }}
         >
           <PanelRight size={15} />
-        </Button>
+        </button>
       </div>
     </header>
   );

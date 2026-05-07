@@ -46,6 +46,14 @@ export function WritingSurface() {
     shellChrome.setFocusMode(isWriting);
   }, [isWriting, shellChrome]);
 
+  // Listen for "request new note" events from the topbar / shortcuts and focus
+  // the writing canvas — the homepage IS the note-creation surface.
+  useEffect(() => {
+    return shellChrome.onRequestNewNote(() => {
+      editorRef.current?.focus();
+    });
+  }, [shellChrome]);
+
   const handleInput = (e: React.FormEvent<HTMLDivElement>) => {
     setContent(e.currentTarget.innerText);
   };
