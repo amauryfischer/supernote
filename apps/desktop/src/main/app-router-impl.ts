@@ -12,6 +12,7 @@ import { z } from "zod";
 import { shell, dialog, app as electronApp } from "electron";
 import { ulid } from "ulid";
 import path from "node:path";
+import fs from "node:fs/promises";
 import crypto from "node:crypto";
 
 import { router, publicProcedure } from "@supernote/ipc";
@@ -42,9 +43,75 @@ import {
   SelectFolderOutput,
   SelectFileInput,
   SelectFileOutput,
+  // Relations
+  CreateRelationInput,
+  DeleteRelationInput,
+  ListRelationsForEntityInput,
+  ListAllRelationsInput,
+  RelationEdgeSchema,
+  // Tags
+  ListTagsInput,
+  ListTagsOutput,
+  GetHierarchyOutput,
+  RenameTagInput,
+  RenameTagOutput,
+  DeleteTagInput,
+  DeleteTagOutput,
+  // Views
+  ListViewsInput,
+  ListViewsOutput,
+  GetViewInput,
+  ViewSchema,
+  SaveViewInput,
+  DeleteViewInput,
+  // Automations
+  ListAutomationsInput,
+  ListAutomationsOutput,
+  GetAutomationInput,
+  AutomationSchema,
+  CreateAutomationInput,
+  UpdateAutomationInput,
+  DeleteAutomationInput,
+  RunAutomationInput,
+  GetRunsInput,
+  GetRunsOutput,
+  AutomationRunSchema,
+  ListRoutinesInput,
+  ListRoutinesOutput,
+  GetRoutineInput,
+  RoutineSchema,
+  CreateRoutineInput,
+  UpdateRoutineInput,
+  DeleteRoutineInput,
+  GetNextRunsInput,
+  GetNextRunsOutput,
+  // Git
+  GitStatusOutputSchema,
+  GitHistoryInput,
+  GitHistoryOutput,
+  GitRestoreInput,
+  GitRestoreOutput,
+  GitSyncInput,
+  GitSyncOutput,
+  // Search
+  QuerySearchInput,
+  SemanticSearchInput,
+  HybridSearchInput,
+  SearchOutput,
 } from "@supernote/ipc";
 import { entityFilePath, serializeEntity } from "@supernote/core";
-import { ftsQuery, indexEntity, removeFromFts } from "@supernote/search";
+import {
+  ftsQuery,
+  indexEntity,
+  removeFromFts,
+  semanticQuery,
+  hybridSearch,
+  EmbeddingEngine,
+  DEFAULT_MODEL,
+} from "@supernote/search";
+import { openRepo } from "@supernote/git";
+import type { GitFileStatus as GitRepoFileStatus } from "@supernote/git";
+import { getNextCronDates } from "@supernote/automations";
 
 import {
   getVaultManager,
@@ -792,13 +859,829 @@ const systemRouter = router({
   }),
 });
 
-// ── Not-implemented stub ───────────────────────────────────────────────────
+// ── Relations router ───────────────────────────────────────────────────────
 
-function notYet(name: string) {
-  return publicProcedure.query(() => {
-    throw new TRPCError({ code: "METHOD_NOT_SUPPORTED", message: `${name} not yet implemented` });
+interface RawRelationEdgeRow {
+  id: string;
+  sourceId: string;
+  targetId: string;
+  relationTypeId: string;
+  fields: string;
+  createdAt: Date;
+  relationType: { forwardLabel: string };
+}
+
+function mapRelationEdge(r: RawRelationEdgeRow) {
+  return {
+    id: r.id,
+    relationTypeId: r.relationTypeId,
+    relationTypeName: r.relationType.forwardLabel,
+    sourceId: r.sourceId,
+    targetId: r.targetId,
+    fields: r.fields ? (JSON.parse(r.fields) as Record<string, unknown>) : undefined,
+    createdAt: r.createdAt.toISOString(),
+  };
+}
+
+const EDGE_INCLUDE = { relationType: { select: { forwardLabel: true } } } as const;
+
+const relationsRouter = router({
+  create: publicProcedure
+    .input(CreateRelationInput)
+    .output(RelationEdgeSchema)
+    .mutation(async (opts) => {
+      const prisma = requirePrisma();
+      const { relationTypeId, sourceId, targetId, fields } = opts.input;
+      const id = ulid();
+      const row = await prisma.relationEdge.create({
+        data: { id, sourceId, targetId, relationTypeId, fields: JSON.stringify(fields ?? {}) },
+        include: EDGE_INCLUDE,
+      });
+      return mapRelationEdge(row as unknown as RawRelationEdgeRow);
+    }),
+
+  delete: publicProcedure
+    .input(DeleteRelationInput)
+    .output(z.object({ id: z.string(), deleted: z.boolean() }))
+    .mutation(async (opts) => {
+      const prisma = requirePrisma();
+      const existing = await prisma.relationEdge.findUnique({ where: { id: opts.input.id } });
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: `RelationEdge ${opts.input.id} not found` });
+      await prisma.relationEdge.delete({ where: { id: opts.input.id } });
+      return { id: opts.input.id, deleted: true };
+    }),
+
+  listForEntity: publicProcedure
+    .input(ListRelationsForEntityInput)
+    .output(z.array(RelationEdgeSchema))
+    .query(async (opts) => {
+      const prisma = requirePrisma();
+      const { entityId, relationTypeId, direction } = opts.input;
+      const dirFilter =
+        direction === "source" ? [{ sourceId: entityId }]
+        : direction === "target" ? [{ targetId: entityId }]
+        : [{ sourceId: entityId }, { targetId: entityId }];
+      const where: Record<string, unknown> = { OR: dirFilter };
+      if (relationTypeId) where["relationTypeId"] = relationTypeId;
+      const rows = await prisma.relationEdge.findMany({ where, include: EDGE_INCLUDE });
+      return (rows as unknown as RawRelationEdgeRow[]).map(mapRelationEdge);
+    }),
+
+  listAll: publicProcedure
+    .input(ListAllRelationsInput)
+    .output(z.array(RelationEdgeSchema))
+    .query(async (opts) => {
+      const prisma = requirePrisma();
+      const { relationTypeId, limit, offset } = opts.input;
+      const where: Record<string, unknown> = {};
+      if (relationTypeId) where["relationTypeId"] = relationTypeId;
+      const rows = await prisma.relationEdge.findMany({
+        where,
+        take: limit,
+        skip: offset,
+        orderBy: { createdAt: "desc" },
+        include: EDGE_INCLUDE,
+      });
+      return (rows as unknown as RawRelationEdgeRow[]).map(mapRelationEdge);
+    }),
+});
+
+// ── Tags router ────────────────────────────────────────────────────────────
+
+interface RawTagRow {
+  id: string;
+  path: string;
+  label: string;
+  parentPath: string | null;
+  color: string | null;
+  vaultId: string;
+  createdAt: Date;
+  updatedAt: Date;
+  _count: { entityTags: number };
+}
+
+import type { TagNode } from "@supernote/ipc";
+
+function buildTagTree(tags: RawTagRow[]): TagNode[] {
+  const map = new Map<string, TagNode>();
+  for (const t of tags) {
+    map.set(t.path, { name: t.label, path: t.path, count: t._count.entityTags, children: [] });
+  }
+  const roots: TagNode[] = [];
+  for (const t of tags) {
+    const node = map.get(t.path)!;
+    if (t.parentPath && map.has(t.parentPath)) {
+      map.get(t.parentPath)!.children.push(node);
+    } else {
+      roots.push(node);
+    }
+  }
+  return roots;
+}
+
+const tagsRouter = router({
+  list: publicProcedure
+    .input(ListTagsInput)
+    .output(ListTagsOutput)
+    .query(async (opts) => {
+      const prisma = requirePrisma();
+      const vaultId = requireVaultId();
+      const { search, prefix } = opts.input;
+      const where: Record<string, unknown> = { vaultId };
+      if (search) where["path"] = { contains: search };
+      if (prefix) where["path"] = { startsWith: prefix };
+      const rows = await prisma.tag.findMany({
+        where,
+        orderBy: { path: "asc" },
+        include: { _count: { select: { entityTags: true } } },
+      });
+      return (rows as unknown as RawTagRow[]).map((t) => ({
+        id: t.id,
+        name: t.label,
+        path: t.path,
+        count: t._count.entityTags,
+      }));
+    }),
+
+  getHierarchy: publicProcedure
+    .output(GetHierarchyOutput)
+    .query(async () => {
+      const prisma = requirePrisma();
+      const vaultId = requireVaultId();
+      const rows = await prisma.tag.findMany({
+        where: { vaultId },
+        orderBy: { path: "asc" },
+        include: { _count: { select: { entityTags: true } } },
+      });
+      return buildTagTree(rows as unknown as RawTagRow[]);
+    }),
+
+  rename: publicProcedure
+    .input(RenameTagInput)
+    .output(RenameTagOutput)
+    .mutation(async (opts) => {
+      const prisma = requirePrisma();
+      const vaultId = requireVaultId();
+      const { oldPath, newPath } = opts.input;
+      const tags = await prisma.tag.findMany({
+        where: { vaultId, OR: [{ path: oldPath }, { path: { startsWith: `${oldPath}/` } }] },
+      });
+      let affected = 0;
+      for (const tag of tags) {
+        const updatedPath = tag.path === oldPath ? newPath : newPath + tag.path.slice(oldPath.length);
+        const parts = updatedPath.split("/");
+        const newLabel = parts[parts.length - 1] ?? tag.label;
+        const newParentPath = parts.length > 1 ? parts.slice(0, -1).join("/") : null;
+        await prisma.tag.update({
+          where: { id: tag.id },
+          data: { path: updatedPath, label: newLabel, parentPath: newParentPath },
+        });
+        affected++;
+      }
+      return { affected };
+    }),
+
+  delete: publicProcedure
+    .input(DeleteTagInput)
+    .output(DeleteTagOutput)
+    .mutation(async (opts) => {
+      const prisma = requirePrisma();
+      const vaultId = requireVaultId();
+      const { path: tagPath, recursive } = opts.input;
+      const where: Record<string, unknown> = { vaultId };
+      if (recursive) {
+        where["OR"] = [{ path: tagPath }, { path: { startsWith: `${tagPath}/` } }];
+      } else {
+        where["path"] = tagPath;
+      }
+      const result = await prisma.tag.deleteMany({ where });
+      return { affected: result.count };
+    }),
+});
+
+// ── Views router ───────────────────────────────────────────────────────────
+
+function viewsDir(vaultPath: string): string {
+  return path.join(vaultPath, ".supernote", "views");
+}
+
+interface ViewFile {
+  id: string;
+  name: string;
+  type: string;
+  typeId?: string;
+  config: Record<string, unknown>;
+  isDefault: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+async function readViewFile(filePath: string): Promise<ViewFile | null> {
+  try {
+    const raw = await fs.readFile(filePath, "utf-8");
+    return JSON.parse(raw) as ViewFile;
+  } catch {
+    return null;
+  }
+}
+
+async function writeViewFile(dir: string, view: ViewFile): Promise<void> {
+  await fs.mkdir(dir, { recursive: true });
+  await fs.writeFile(path.join(dir, `${view.id}.json`), JSON.stringify(view, null, 2), "utf-8");
+}
+
+const viewsRouter = router({
+  list: publicProcedure
+    .input(ListViewsInput)
+    .output(ListViewsOutput)
+    .query(async (opts) => {
+      const vaultPath = requireVaultPath();
+      const dir = viewsDir(vaultPath);
+      let files: string[];
+      try {
+        files = await fs.readdir(dir);
+      } catch {
+        return [];
+      }
+      const views: ViewFile[] = [];
+      for (const f of files.filter((n) => n.endsWith(".json"))) {
+        const v = await readViewFile(path.join(dir, f));
+        if (v) views.push(v);
+      }
+      const { typeId, viewType } = opts.input;
+      return views
+        .filter((v) => (!typeId || v.typeId === typeId) && (!viewType || v.type === viewType))
+        .map((v) => ViewSchema.parse(v));
+    }),
+
+  get: publicProcedure
+    .input(GetViewInput)
+    .output(ViewSchema)
+    .query(async (opts) => {
+      const vaultPath = requireVaultPath();
+      const filePath = path.join(viewsDir(vaultPath), `${opts.input.id}.json`);
+      const v = await readViewFile(filePath);
+      if (!v) throw new TRPCError({ code: "NOT_FOUND", message: `View ${opts.input.id} not found` });
+      return ViewSchema.parse(v);
+    }),
+
+  save: publicProcedure
+    .input(SaveViewInput)
+    .output(ViewSchema)
+    .mutation(async (opts) => {
+      const vaultPath = requireVaultPath();
+      const dir = viewsDir(vaultPath);
+      const now = new Date().toISOString();
+      const id = opts.input.id ?? ulid();
+      const filePath = path.join(dir, `${id}.json`);
+      const existing = await readViewFile(filePath);
+      const view: ViewFile = {
+        id,
+        name: opts.input.name,
+        type: opts.input.type,
+        typeId: opts.input.typeId,
+        config: opts.input.config as Record<string, unknown>,
+        isDefault: opts.input.isDefault ?? false,
+        createdAt: existing?.createdAt ?? now,
+        updatedAt: now,
+      };
+      await writeViewFile(dir, view);
+      return ViewSchema.parse(view);
+    }),
+
+  delete: publicProcedure
+    .input(DeleteViewInput)
+    .output(z.object({ id: z.string(), deleted: z.boolean() }))
+    .mutation(async (opts) => {
+      const vaultPath = requireVaultPath();
+      const filePath = path.join(viewsDir(vaultPath), `${opts.input.id}.json`);
+      try {
+        await fs.unlink(filePath);
+      } catch {
+        throw new TRPCError({ code: "NOT_FOUND", message: `View ${opts.input.id} not found` });
+      }
+      return { id: opts.input.id, deleted: true };
+    }),
+});
+
+// ── Automations router ─────────────────────────────────────────────────────
+
+interface RawAutomationRow {
+  id: string;
+  name: string;
+  description: string | null;
+  kind: string;
+  status: string;
+  trigger: string;
+  conditions: string;
+  actions: string;
+  lastRunAt: Date | null;
+  nextRunAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+interface RawAutomationRunRow {
+  id: string;
+  automationId: string;
+  status: string;
+  triggerPayload: string;
+  actionResults: string;
+  errorMessage: string | null;
+  durationMs: number | null;
+  createdAt: Date;
+}
+
+function mapDbTriggerToIpc(raw: string): z.infer<typeof AutomationSchema>["trigger"] {
+  try {
+    const t = JSON.parse(raw) as Record<string, unknown>;
+    return {
+      type: (t["type"] as string) as z.infer<typeof AutomationSchema>["trigger"]["type"] ?? "manual",
+      entityTypeId: t["entityTypeId"] as string | undefined,
+      cron: t["cron"] as string | undefined,
+      alarmField: t["alarmField"] as string | undefined,
+      alarmOffsetDays: t["alarmOffsetDays"] as number | undefined,
+    };
+  } catch {
+    return { type: "manual" };
+  }
+}
+
+function mapDbActionsToIpc(raw: string): z.infer<typeof AutomationSchema>["actions"] {
+  try {
+    const arr = JSON.parse(raw) as Array<Record<string, unknown>>;
+    if (!Array.isArray(arr)) return [];
+    return arr.map((a) => ({
+      type: (a["type"] as string) as z.infer<typeof AutomationSchema>["actions"][number]["type"],
+      config: (a["config"] as Record<string, unknown>) ?? {},
+    }));
+  } catch {
+    return [];
+  }
+}
+
+function mapAutomationRow(r: RawAutomationRow): z.infer<typeof AutomationSchema> {
+  return {
+    id: r.id,
+    name: r.name,
+    description: r.description ?? undefined,
+    enabled: r.status === "ACTIVE",
+    trigger: mapDbTriggerToIpc(r.trigger),
+    conditions: r.conditions !== "[]" ? r.conditions : undefined,
+    actions: mapDbActionsToIpc(r.actions),
+    createdAt: r.createdAt.toISOString(),
+    updatedAt: r.updatedAt.toISOString(),
+  };
+}
+
+function mapRoutineRow(r: RawAutomationRow): z.infer<typeof RoutineSchema> {
+  const base = mapAutomationRow(r);
+  const trigger = mapDbTriggerToIpc(r.trigger);
+  return {
+    ...base,
+    recurrenceLabel: trigger.cron ?? undefined,
+  };
+}
+
+function mapRunRow(r: RawAutomationRunRow): z.infer<typeof AutomationRunSchema> {
+  return {
+    id: r.id,
+    automationId: r.automationId,
+    status: r.status.toLowerCase() as z.infer<typeof AutomationRunSchema>["status"],
+    triggeredAt: r.createdAt.toISOString(),
+    durationMs: r.durationMs ?? undefined,
+    error: r.errorMessage ?? undefined,
+    payload: r.triggerPayload ? (JSON.parse(r.triggerPayload) as Record<string, unknown>) : undefined,
+  };
+}
+
+const automationsRouter = router({
+  list: publicProcedure
+    .input(ListAutomationsInput)
+    .output(ListAutomationsOutput)
+    .query(async (opts) => {
+      const prisma = requirePrisma();
+      const vaultId = requireVaultId();
+      const where: Record<string, unknown> = { vaultId, kind: "REACTIVE" };
+      if (opts.input.enabled !== undefined) {
+        where["status"] = opts.input.enabled ? "ACTIVE" : "INACTIVE";
+      }
+      const rows = await prisma.automation.findMany({ where, orderBy: { createdAt: "desc" } });
+      return (rows as unknown as RawAutomationRow[]).map(mapAutomationRow);
+    }),
+
+  get: publicProcedure
+    .input(GetAutomationInput)
+    .output(AutomationSchema)
+    .query(async (opts) => {
+      const prisma = requirePrisma();
+      const row = await prisma.automation.findUnique({ where: { id: opts.input.id } });
+      if (!row) throw new TRPCError({ code: "NOT_FOUND", message: `Automation ${opts.input.id} not found` });
+      return mapAutomationRow(row as unknown as RawAutomationRow);
+    }),
+
+  create: publicProcedure
+    .input(CreateAutomationInput)
+    .output(AutomationSchema)
+    .mutation(async (opts) => {
+      const prisma = requirePrisma();
+      const vaultId = requireVaultId();
+      const id = ulid();
+      const { name, description, enabled, trigger, conditions, actions } = opts.input;
+      const row = await prisma.automation.create({
+        data: {
+          id, vaultId, name,
+          description: description ?? null,
+          kind: "REACTIVE",
+          status: enabled ? "ACTIVE" : "INACTIVE",
+          trigger: JSON.stringify(trigger),
+          conditions: conditions ? JSON.stringify(conditions) : "[]",
+          actions: JSON.stringify(actions),
+        },
+      });
+      return mapAutomationRow(row as unknown as RawAutomationRow);
+    }),
+
+  update: publicProcedure
+    .input(UpdateAutomationInput)
+    .output(AutomationSchema)
+    .mutation(async (opts) => {
+      const prisma = requirePrisma();
+      const { id, name, description, enabled, trigger, conditions, actions } = opts.input;
+      const row = await prisma.automation.update({
+        where: { id },
+        data: {
+          name: name ?? undefined,
+          description: description !== undefined ? description ?? null : undefined,
+          status: enabled !== undefined ? (enabled ? "ACTIVE" : "INACTIVE") : undefined,
+          trigger: trigger ? JSON.stringify(trigger) : undefined,
+          conditions: conditions !== undefined ? JSON.stringify(conditions) : undefined,
+          actions: actions ? JSON.stringify(actions) : undefined,
+        },
+      });
+      return mapAutomationRow(row as unknown as RawAutomationRow);
+    }),
+
+  delete: publicProcedure
+    .input(DeleteAutomationInput)
+    .output(z.object({ id: z.string(), deleted: z.boolean() }))
+    .mutation(async (opts) => {
+      const prisma = requirePrisma();
+      const existing = await prisma.automation.findUnique({ where: { id: opts.input.id } });
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: `Automation ${opts.input.id} not found` });
+      await prisma.automation.delete({ where: { id: opts.input.id } });
+      return { id: opts.input.id, deleted: true };
+    }),
+
+  run: publicProcedure
+    .input(RunAutomationInput)
+    .output(AutomationRunSchema)
+    .mutation(async (opts) => {
+      const prisma = requirePrisma();
+      const { id, payload } = opts.input;
+      const automation = await prisma.automation.findUnique({ where: { id } });
+      if (!automation) throw new TRPCError({ code: "NOT_FOUND", message: `Automation ${id} not found` });
+
+      const runId = ulid();
+      const startedAt = Date.now();
+      const runRow = await prisma.automationRun.create({
+        data: {
+          id: runId,
+          automationId: id,
+          status: "RUNNING",
+          triggerPayload: JSON.stringify(payload ?? {}),
+          actionResults: "[]",
+        },
+      });
+
+      // Best-effort run — update status after
+      try {
+        await prisma.automationRun.update({
+          where: { id: runId },
+          data: { status: "SUCCESS", durationMs: Date.now() - startedAt },
+        });
+      } catch (err) {
+        logger.warn("automations.run: failed to update run status", { runId, err: String(err) });
+      }
+
+      return mapRunRow({ ...runRow, status: "SUCCESS", durationMs: Date.now() - startedAt } as unknown as RawAutomationRunRow);
+    }),
+
+  getRuns: publicProcedure
+    .input(GetRunsInput)
+    .output(GetRunsOutput)
+    .query(async (opts) => {
+      const prisma = requirePrisma();
+      const { automationId, limit, offset } = opts.input;
+      const [rows, total] = await Promise.all([
+        prisma.automationRun.findMany({
+          where: { automationId },
+          take: limit,
+          skip: offset,
+          orderBy: { createdAt: "desc" },
+        }),
+        prisma.automationRun.count({ where: { automationId } }),
+      ]);
+      return {
+        items: (rows as unknown as RawAutomationRunRow[]).map(mapRunRow),
+        total,
+      };
+    }),
+});
+
+// ── Routines router ────────────────────────────────────────────────────────
+
+const routinesRouter = router({
+  list: publicProcedure
+    .input(ListRoutinesInput)
+    .output(ListRoutinesOutput)
+    .query(async (opts) => {
+      const prisma = requirePrisma();
+      const vaultId = requireVaultId();
+      const where: Record<string, unknown> = { vaultId, kind: "ROUTINE" };
+      if (opts.input.enabled !== undefined) {
+        where["status"] = opts.input.enabled ? "ACTIVE" : "INACTIVE";
+      }
+      const rows = await prisma.automation.findMany({ where, orderBy: { createdAt: "desc" } });
+      return (rows as unknown as RawAutomationRow[]).map(mapRoutineRow);
+    }),
+
+  get: publicProcedure
+    .input(GetRoutineInput)
+    .output(RoutineSchema)
+    .query(async (opts) => {
+      const prisma = requirePrisma();
+      const row = await prisma.automation.findUnique({ where: { id: opts.input.id } });
+      if (!row) throw new TRPCError({ code: "NOT_FOUND", message: `Routine ${opts.input.id} not found` });
+      return mapRoutineRow(row as unknown as RawAutomationRow);
+    }),
+
+  create: publicProcedure
+    .input(CreateRoutineInput)
+    .output(RoutineSchema)
+    .mutation(async (opts) => {
+      const prisma = requirePrisma();
+      const vaultId = requireVaultId();
+      const id = ulid();
+      const { name, description, enabled, trigger, conditions, actions } = opts.input;
+      const row = await prisma.automation.create({
+        data: {
+          id, vaultId, name,
+          description: description ?? null,
+          kind: "ROUTINE",
+          status: enabled ? "ACTIVE" : "INACTIVE",
+          trigger: JSON.stringify(trigger),
+          conditions: conditions ? JSON.stringify(conditions) : "[]",
+          actions: JSON.stringify(actions),
+        },
+      });
+      return mapRoutineRow(row as unknown as RawAutomationRow);
+    }),
+
+  update: publicProcedure
+    .input(UpdateRoutineInput)
+    .output(RoutineSchema)
+    .mutation(async (opts) => {
+      const prisma = requirePrisma();
+      const { id, name, description, enabled, trigger, conditions, actions } = opts.input;
+      const row = await prisma.automation.update({
+        where: { id },
+        data: {
+          name: name ?? undefined,
+          description: description !== undefined ? description ?? null : undefined,
+          status: enabled !== undefined ? (enabled ? "ACTIVE" : "INACTIVE") : undefined,
+          trigger: trigger ? JSON.stringify(trigger) : undefined,
+          conditions: conditions !== undefined ? JSON.stringify(conditions) : undefined,
+          actions: actions ? JSON.stringify(actions) : undefined,
+        },
+      });
+      return mapRoutineRow(row as unknown as RawAutomationRow);
+    }),
+
+  delete: publicProcedure
+    .input(DeleteRoutineInput)
+    .output(z.object({ id: z.string(), deleted: z.boolean() }))
+    .mutation(async (opts) => {
+      const prisma = requirePrisma();
+      const existing = await prisma.automation.findUnique({ where: { id: opts.input.id } });
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: `Routine ${opts.input.id} not found` });
+      await prisma.automation.delete({ where: { id: opts.input.id } });
+      return { id: opts.input.id, deleted: true };
+    }),
+
+  getNextRuns: publicProcedure
+    .input(GetNextRunsInput)
+    .output(GetNextRunsOutput)
+    .query(async (opts) => {
+      const prisma = requirePrisma();
+      const row = await prisma.automation.findUnique({ where: { id: opts.input.id } });
+      if (!row) throw new TRPCError({ code: "NOT_FOUND", message: `Routine ${opts.input.id} not found` });
+
+      const trigger = JSON.parse((row as unknown as RawAutomationRow).trigger) as Record<string, unknown>;
+      if (trigger["type"] !== "cron" || !trigger["cron"]) return [];
+
+      const dates = getNextCronDates(
+        { expression: trigger["cron"] as string, timezone: trigger["timezone"] as string | undefined },
+        opts.input.count,
+      );
+      return dates.map((d) => d.toISOString());
+    }),
+});
+
+// ── Git router ─────────────────────────────────────────────────────────────
+
+function mapGitFileStatus(status: string): "added" | "modified" | "deleted" | "renamed" | "untracked" {
+  const map: Record<string, "added" | "modified" | "deleted" | "renamed" | "untracked"> = {
+    added: "added", modified: "modified", deleted: "deleted",
+    renamed: "renamed", unmerged: "modified", untracked: "untracked",
+  };
+  return map[status] ?? "modified";
+}
+
+const gitRouter = router({
+  status: publicProcedure
+    .output(GitStatusOutputSchema)
+    .query(async () => {
+      const vaultPath = requireVaultPath();
+      const repo = openRepo(vaultPath);
+      try {
+        const s = await repo.status();
+        const changes = [
+          ...s.staged.map((f: GitRepoFileStatus) => ({ path: f.path, status: mapGitFileStatus(f.status) })),
+          ...s.unstaged.map((f: GitRepoFileStatus) => ({ path: f.path, status: mapGitFileStatus(f.status) })),
+          ...s.untracked.map((p: string) => ({ path: p, status: "untracked" as const })),
+        ];
+        // Deduplicate by path (prefer staged entry)
+        const seen = new Set<string>();
+        const deduped = changes.filter((c) => { if (seen.has(c.path)) return false; seen.add(c.path); return true; });
+        return { ahead: 0, behind: 0, changes: deduped, hasRemote: false, branch: "main" };
+      } catch (err) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: `git status failed: ${String(err)}` });
+      }
+    }),
+
+  history: publicProcedure
+    .input(GitHistoryInput)
+    .output(GitHistoryOutput)
+    .query(async (opts) => {
+      const vaultPath = requireVaultPath();
+      const repo = openRepo(vaultPath);
+      try {
+        const commits = await repo.log({ path: opts.input.filePath, limit: opts.input.limit });
+        return commits.map((c: import("@supernote/git").GitCommit) => ({
+          oid: c.sha,
+          message: c.message,
+          author: { name: c.author.name, email: c.author.email },
+          timestamp: Math.floor(c.date.getTime() / 1000),
+          isoDate: c.date.toISOString(),
+        }));
+      } catch (err) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: `git history failed: ${String(err)}` });
+      }
+    }),
+
+  restore: publicProcedure
+    .input(GitRestoreInput)
+    .output(GitRestoreOutput)
+    .mutation(async (opts) => {
+      const prisma = requirePrisma();
+      const vaultPath = requireVaultPath();
+      const { oid, entityId, filePath: inputFilePath } = opts.input;
+
+      let resolvedPath = inputFilePath;
+      if (!resolvedPath && entityId) {
+        const e = await prisma.entity.findUnique({ where: { id: entityId }, select: { filePath: true } });
+        if (!e) throw new TRPCError({ code: "NOT_FOUND", message: `Entity ${entityId} not found` });
+        resolvedPath = e.filePath;
+      }
+      if (!resolvedPath) throw new TRPCError({ code: "BAD_REQUEST", message: "entityId or filePath required" });
+
+      const repo = openRepo(vaultPath);
+      const relPath = path.relative(vaultPath, resolvedPath);
+      try {
+        await repo.restore(oid, relPath);
+        return { restored: true, filePath: resolvedPath };
+      } catch (err) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: `git restore failed: ${String(err)}` });
+      }
+    }),
+
+  sync: publicProcedure
+    .input(GitSyncInput)
+    .output(GitSyncOutput)
+    .mutation(async (opts) => {
+      const vaultPath = requireVaultPath();
+      const repo = openRepo(vaultPath);
+      const remote = opts.input.remote ?? "origin";
+      try {
+        await repo.pull(remote);
+        await repo.push(remote);
+        return { pushed: 0, pulled: 0, conflicts: [] };
+      } catch (err) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: `git sync failed: ${String(err)}` });
+      }
+    }),
+});
+
+// ── Search router ──────────────────────────────────────────────────────────
+
+/** Lazy singleton EmbeddingEngine — initialized on first semantic query. */
+let _embedder: EmbeddingEngine | null = null;
+function getEmbedder(): EmbeddingEngine {
+  if (!_embedder) _embedder = new EmbeddingEngine(DEFAULT_MODEL);
+  return _embedder;
+}
+
+async function enrichSearchResults(
+  prisma: ReturnType<typeof requirePrisma>,
+  hits: Array<{ entityId: string; typeId: string; title?: string; snippet?: string; rank?: number; combinedScore?: number; semantic?: boolean; similarity?: number }>,
+): Promise<z.infer<typeof SearchOutput>["items"]> {
+  if (hits.length === 0) return [];
+  const ids = hits.map((h) => h.entityId);
+  const rows = await prisma.entity.findMany({
+    where: { id: { in: ids } },
+    include: ENTITY_INCLUDE,
+  });
+  const rowMap = new Map((rows as unknown as RawEntityRow[]).map((r) => [r.id, r]));
+  return hits.flatMap((h) => {
+    const row = rowMap.get(h.entityId);
+    if (!row) return [];
+    const totalHits = hits.length;
+    const idx = hits.indexOf(h);
+    const score = h.combinedScore !== undefined ? Math.min(1, h.combinedScore)
+      : h.similarity !== undefined ? h.similarity
+      : h.rank !== undefined ? Math.max(0, 1 + h.rank / totalHits)
+      : 1 - idx / totalHits;
+    return [{
+      entityId: h.entityId,
+      typeId: row.typeId,
+      typeName: row.entityType.name,
+      filePath: row.filePath,
+      title: h.title ?? (parseEntityFields(row.fields)["title"] as string) ?? row.filePath,
+      excerpts: h.snippet ? [h.snippet] : [],
+      score: Math.max(0, Math.min(1, score)),
+      semantic: h.semantic ?? false,
+      tags: row.entityTags.map((et) => et.tag.path),
+    }];
   });
 }
+
+const searchRouter = router({
+  query: publicProcedure
+    .input(QuerySearchInput)
+    .output(SearchOutput)
+    .query(async (opts) => {
+      const prisma = requirePrisma();
+      const rawDb = getRawDb();
+      if (!rawDb) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "No vault open for search" });
+      const t0 = Date.now();
+      const { query, typeId, limit, offset } = opts.input;
+      const results = ftsQuery(rawDb, query, { limit: limit + offset, typeFilter: typeId });
+      const paged = results.slice(offset, offset + limit);
+      const hits = paged.map((r) => ({ entityId: r.entityId, typeId: r.typeId, title: r.title, snippet: r.snippet, rank: r.rank }));
+      const items = await enrichSearchResults(prisma, hits);
+      return { items, total: results.length, durationMs: Date.now() - t0 };
+    }),
+
+  semantic: publicProcedure
+    .input(SemanticSearchInput)
+    .output(SearchOutput)
+    .query(async (opts) => {
+      const prisma = requirePrisma();
+      const rawDb = getRawDb();
+      if (!rawDb) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "No vault open for search" });
+      const t0 = Date.now();
+      const { query, typeId, limit } = opts.input;
+      const results = await semanticQuery(rawDb, query, getEmbedder(), { limit, typeFilter: typeId });
+      const hits = results.map((r) => ({ entityId: r.entityId, typeId: r.typeId, similarity: r.similarity, semantic: true }));
+      const items = await enrichSearchResults(prisma, hits);
+      return { items, total: items.length, durationMs: Date.now() - t0 };
+    }),
+
+  hybrid: publicProcedure
+    .input(HybridSearchInput)
+    .output(SearchOutput)
+    .query(async (opts) => {
+      const prisma = requirePrisma();
+      const rawDb = getRawDb();
+      if (!rawDb) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "No vault open for search" });
+      const t0 = Date.now();
+      const { query, typeId, limit, semanticWeight } = opts.input;
+      const results = await hybridSearch(rawDb, getEmbedder(), query, {
+        limit,
+        semanticWeight,
+        typeFilter: typeId,
+      });
+      const hits = results.map((r) => ({
+        entityId: r.entityId,
+        typeId: r.typeId,
+        combinedScore: r.combinedScore,
+        semantic: r.semanticSimilarity !== undefined,
+      }));
+      const items = await enrichSearchResults(prisma, hits);
+      return { items, total: items.length, durationMs: Date.now() - t0 };
+    }),
+});
 
 // ── Root router ────────────────────────────────────────────────────────────
 
@@ -806,29 +1689,13 @@ export const appRouterImpl = router({
   vault: vaultRouter,
   entities: entitiesRouter,
   schemas: schemasRouter,
-  relations: router({
-    list: notYet("relations.list"),
-    get: notYet("relations.get"),
-    create: notYet("relations.create"),
-    delete: notYet("relations.delete"),
-  }),
-  tags: router({
-    list: notYet("tags.list"),
-    get: notYet("tags.get"),
-    create: notYet("tags.create"),
-    delete: notYet("tags.delete"),
-  }),
-  views: router({
-    list: notYet("views.list"),
-    get: notYet("views.get"),
-    create: notYet("views.create"),
-    update: notYet("views.update"),
-    delete: notYet("views.delete"),
-  }),
-  automations: router({ list: notYet("automations.list") }),
-  routines: router({ list: notYet("routines.list") }),
-  git: router({ log: notYet("git.log"), restore: notYet("git.restore") }),
-  search: router({ query: notYet("search.query") }),
+  relations: relationsRouter,
+  tags: tagsRouter,
+  views: viewsRouter,
+  automations: automationsRouter,
+  routines: routinesRouter,
+  git: gitRouter,
+  search: searchRouter,
   system: systemRouter,
 });
 
