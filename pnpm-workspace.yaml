@@ -13,3 +13,4 @@ allowBuilds:
   unrs-resolver: true
   onnxruntime-node: true
   protobufjs: true
+  tesseract.js: true
