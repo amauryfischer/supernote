@@ -10,23 +10,28 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
     },
     "./host": {
       "types": "./dist/host/index.d.ts",
-      "import": "./dist/host/index.js"
+      "import": "./dist/host/index.js",
+      "default": "./dist/host/index.js"
     },
     "./client": {
       "types": "./dist/client/index.d.ts",
-      "import": "./dist/client/index.js"
+      "import": "./dist/client/index.js",
+      "default": "./dist/client/index.js"
     },
     "./manifest": {
       "types": "./dist/manifest/index.d.ts",
-      "import": "./dist/manifest/index.js"
+      "import": "./dist/manifest/index.js",
+      "default": "./dist/manifest/index.js"
     },
     "./protocol": {
       "types": "./dist/protocol/index.d.ts",
-      "import": "./dist/protocol/index.js"
+      "import": "./dist/protocol/index.js",
+      "default": "./dist/protocol/index.js"
     }
   },
   "scripts": {

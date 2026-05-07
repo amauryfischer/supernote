@@ -10,31 +10,38 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
     },
     "./types": {
       "types": "./dist/types/index.d.ts",
-      "import": "./dist/types/index.js"
+      "import": "./dist/types/index.js",
+      "default": "./dist/types/index.js"
     },
     "./schema": {
       "types": "./dist/schema/index.d.ts",
-      "import": "./dist/schema/index.js"
+      "import": "./dist/schema/index.js",
+      "default": "./dist/schema/index.js"
     },
     "./markdown": {
       "types": "./dist/markdown/index.d.ts",
-      "import": "./dist/markdown/index.js"
+      "import": "./dist/markdown/index.js",
+      "default": "./dist/markdown/index.js"
     },
     "./ulid": {
       "types": "./dist/ulid/index.d.ts",
-      "import": "./dist/ulid/index.js"
+      "import": "./dist/ulid/index.js",
+      "default": "./dist/ulid/index.js"
     },
     "./result": {
       "types": "./dist/result/index.d.ts",
-      "import": "./dist/result/index.js"
+      "import": "./dist/result/index.js",
+      "default": "./dist/result/index.js"
     },
     "./paths": {
       "types": "./dist/paths/index.d.ts",
-      "import": "./dist/paths/index.js"
+      "import": "./dist/paths/index.js",
+      "default": "./dist/paths/index.js"
     }
   },
   "scripts": {

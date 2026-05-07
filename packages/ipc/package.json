@@ -10,59 +10,73 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
     },
     "./router": {
       "types": "./dist/router/index.d.ts",
-      "import": "./dist/router/index.js"
+      "import": "./dist/router/index.js",
+      "default": "./dist/router/index.js"
     },
     "./errors": {
       "types": "./dist/errors/index.d.ts",
-      "import": "./dist/errors/index.js"
+      "import": "./dist/errors/index.js",
+      "default": "./dist/errors/index.js"
     },
     "./result": {
       "types": "./dist/result/index.d.ts",
-      "import": "./dist/result/index.js"
+      "import": "./dist/result/index.js",
+      "default": "./dist/result/index.js"
     },
     "./schemas/vault": {
       "types": "./dist/schemas/vault.d.ts",
-      "import": "./dist/schemas/vault.js"
+      "import": "./dist/schemas/vault.js",
+      "default": "./dist/schemas/vault.js"
     },
     "./schemas/entities": {
       "types": "./dist/schemas/entities.d.ts",
-      "import": "./dist/schemas/entities.js"
+      "import": "./dist/schemas/entities.js",
+      "default": "./dist/schemas/entities.js"
     },
     "./schemas/schemas": {
       "types": "./dist/schemas/schemas.d.ts",
-      "import": "./dist/schemas/schemas.js"
+      "import": "./dist/schemas/schemas.js",
+      "default": "./dist/schemas/schemas.js"
     },
     "./schemas/relations": {
       "types": "./dist/schemas/relations.d.ts",
-      "import": "./dist/schemas/relations.js"
+      "import": "./dist/schemas/relations.js",
+      "default": "./dist/schemas/relations.js"
     },
     "./schemas/tags": {
       "types": "./dist/schemas/tags.d.ts",
-      "import": "./dist/schemas/tags.js"
+      "import": "./dist/schemas/tags.js",
+      "default": "./dist/schemas/tags.js"
     },
     "./schemas/views": {
       "types": "./dist/schemas/views.d.ts",
-      "import": "./dist/schemas/views.js"
+      "import": "./dist/schemas/views.js",
+      "default": "./dist/schemas/views.js"
     },
     "./schemas/automations": {
       "types": "./dist/schemas/automations.d.ts",
-      "import": "./dist/schemas/automations.js"
+      "import": "./dist/schemas/automations.js",
+      "default": "./dist/schemas/automations.js"
     },
     "./schemas/git": {
       "types": "./dist/schemas/git.d.ts",
-      "import": "./dist/schemas/git.js"
+      "import": "./dist/schemas/git.js",
+      "default": "./dist/schemas/git.js"
     },
     "./schemas/search": {
       "types": "./dist/schemas/search.d.ts",
-      "import": "./dist/schemas/search.js"
+      "import": "./dist/schemas/search.js",
+      "default": "./dist/schemas/search.js"
     },
     "./schemas/system": {
       "types": "./dist/schemas/system.d.ts",
-      "import": "./dist/schemas/system.js"
+      "import": "./dist/schemas/system.js",
+      "default": "./dist/schemas/system.js"
     }
   },
   "scripts": {

@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { AppShell } from "@/components/shell";
-import { parseQuery } from "@supernote/search";
+import { parseQuery } from "@supernote/search/query";
 import { isOk } from "@supernote/core";
 import {
   SearchBar,

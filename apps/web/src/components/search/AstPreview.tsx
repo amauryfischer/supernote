@@ -1,6 +1,6 @@
 "use client";
 
-import type { QueryAst } from "@supernote/search";
+import type { QueryAst } from "@supernote/search/query";
 
 interface AstPreviewProps {
   ast: QueryAst;

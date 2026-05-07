@@ -10,27 +10,33 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
     },
     "./ollama": {
       "types": "./dist/ollama/index.d.ts",
-      "import": "./dist/ollama/index.js"
+      "import": "./dist/ollama/index.js",
+      "default": "./dist/ollama/index.js"
     },
     "./auto-tag": {
       "types": "./dist/auto-tag/index.d.ts",
-      "import": "./dist/auto-tag/index.js"
+      "import": "./dist/auto-tag/index.js",
+      "default": "./dist/auto-tag/index.js"
     },
     "./classifier": {
       "types": "./dist/classifier/index.d.ts",
-      "import": "./dist/classifier/index.js"
+      "import": "./dist/classifier/index.js",
+      "default": "./dist/classifier/index.js"
     },
     "./extract": {
       "types": "./dist/extract/index.d.ts",
-      "import": "./dist/extract/index.js"
+      "import": "./dist/extract/index.js",
+      "default": "./dist/extract/index.js"
     },
     "./prompts": {
       "types": "./dist/prompts/index.d.ts",
-      "import": "./dist/prompts/index.js"
+      "import": "./dist/prompts/index.js",
+      "default": "./dist/prompts/index.js"
     }
   },
   "scripts": {

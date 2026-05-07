@@ -10,23 +10,28 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
     },
     "./pricing": {
       "types": "./dist/pricing/index.d.ts",
-      "import": "./dist/pricing/index.js"
+      "import": "./dist/pricing/index.js",
+      "default": "./dist/pricing/index.js"
     },
     "./amortization": {
       "types": "./dist/amortization/index.d.ts",
-      "import": "./dist/amortization/index.js"
+      "import": "./dist/amortization/index.js",
+      "default": "./dist/amortization/index.js"
     },
     "./snapshots": {
       "types": "./dist/snapshots/index.d.ts",
-      "import": "./dist/snapshots/index.js"
+      "import": "./dist/snapshots/index.js",
+      "default": "./dist/snapshots/index.js"
     },
     "./seeds": {
       "types": "./dist/seeds/index.d.ts",
-      "import": "./dist/seeds/index.js"
+      "import": "./dist/seeds/index.js",
+      "default": "./dist/seeds/index.js"
     }
   },
   "scripts": {
