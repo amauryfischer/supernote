@@ -386,13 +386,22 @@ supernote/
 └── pnpm-workspace.yaml
 ```
 
-## 12. Décisions ouvertes (à itérer pendant l'implémentation)
+## 12. Décisions itératives (validées 2026-05-07)
 
-- Nom officiel du produit (working : "Supernote").
-- Default vault path à la première ouverture.
-- Window chrome custom (titlebar custom Linear-style) vs natif.
+- **Nom** : Supernote.
+- **Esthétique** : **light élégant minimal** (Notion/Craft) par défaut, avec dark mode propre. Beaucoup d'espace blanc, typographie generous, look "document". Pas générique IA.
+- **Mobile** : repoussé, focus 100% desktop pour la version finale. Mobile = projet ultérieur.
+- **Emails (routines)** : **drafts uniquement** dans la version finale. Les routines créent des brouillons dans le client mail OS (via `mailto:` ou intégration `Apple Mail` / `Outlook` / `Thunderbird`) que l'utilisateur valide avant envoi. Pas de SMTP natif ni d'API tierce. Plus safe et zéro dépendance externe.
+- **Routines seed dès le départ** :
+  - Email hebdo à un contact (drafts paramétrables avec template + variables)
+  - Rappel d'anniversaire (notification OS la veille, suggestion de message)
+  - Suivi "à relancer" (détecte personnes sans interaction depuis X jours)
+  - Brief quotidien LLM (matin, via Ollama si dispo, fallback sur template statique)
+
+### Encore à trancher (à itérer)
+- Default vault path à la première ouverture (probablement OS picker).
+- Window chrome custom (titlebar Linear-style) vs natif.
 - Locale par défaut (FR).
-- Auto-update intégré.
-- Liste exacte des seed schemas et leurs fields (sera itérée par usage).
+- Auto-update intégré dès le départ ?
+- Liste exacte des seed schemas et leurs fields (itération par usage).
 - Stratégie de chiffrement : passphrase par vault ou par dossier ?
-- Mobile : PWA seule, ou companion natif Capacitor en parallèle ?
