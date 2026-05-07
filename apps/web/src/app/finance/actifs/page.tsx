@@ -2,6 +2,7 @@
 
 import { ArrowLeft, Plus, TrendingUp, TrendingDown } from "lucide-react";
 import Link from "next/link";
+import { AppShell } from "@/components/shell";
 import { ASSETS, ACCOUNTS, type Asset } from "@/components/finance/fixtures";
 import { formatCurrency, CATEGORY_COLORS, CATEGORY_LABELS } from "@/components/finance/utils";
 
@@ -76,6 +77,7 @@ export default function ActifsPage() {
   const categories = Object.entries(assetsByCategory);
 
   return (
+    <AppShell>
     <div className="flex flex-col gap-6 p-6">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -122,5 +124,6 @@ export default function ActifsPage() {
         );
       })}
     </div>
+    </AppShell>
   );
 }

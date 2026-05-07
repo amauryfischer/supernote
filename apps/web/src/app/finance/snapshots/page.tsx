@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { ArrowLeft, Camera } from "lucide-react";
 import Link from "next/link";
+import { AppShell } from "@/components/shell";
 import { SNAPSHOTS } from "@/components/finance/fixtures";
 import { formatCurrency, formatDate, CATEGORY_LABELS, CATEGORY_COLORS } from "@/components/finance/utils";
 
@@ -31,6 +32,7 @@ export default function SnapshotsPage() {
   const netWorthDiff = snapA && snapB ? snapB.totalNetWorth - snapA.totalNetWorth : null;
 
   return (
+    <AppShell>
     <div className="flex flex-col gap-6 p-6">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -196,5 +198,6 @@ export default function SnapshotsPage() {
         })}
       </div>
     </div>
+    </AppShell>
   );
 }

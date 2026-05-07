@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { ArrowLeft, ChevronDown, ChevronRight, Plus } from "lucide-react";
 import Link from "next/link";
+import { AppShell } from "@/components/shell";
 import { LOANS, type Loan } from "@/components/finance/fixtures";
 import {
   formatCurrency,
@@ -170,6 +171,7 @@ function LoanRow({ loan }: { loan: Loan }) {
 
 export default function PretsPage() {
   return (
+    <AppShell>
     <div className="flex flex-col gap-6 p-6">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -213,5 +215,6 @@ export default function PretsPage() {
         </p>
       </div>
     </div>
+    </AppShell>
   );
 }

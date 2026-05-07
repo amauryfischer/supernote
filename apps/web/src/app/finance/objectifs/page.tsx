@@ -2,6 +2,7 @@
 
 import { ArrowLeft, Plus, Target } from "lucide-react";
 import Link from "next/link";
+import { AppShell } from "@/components/shell";
 import { GOALS } from "@/components/finance/fixtures";
 import { formatCurrency, formatDate, getGoalETA } from "@/components/finance/utils";
 
@@ -14,6 +15,7 @@ const CATEGORY_STYLES: Record<string, { color: string; label: string; bg: string
 
 export default function ObjectifsPage() {
   return (
+    <AppShell>
     <div className="flex flex-col gap-6 p-6">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -153,5 +155,6 @@ export default function ObjectifsPage() {
         </div>
       </div>
     </div>
+    </AppShell>
   );
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { AppShell } from "@/components/shell";
 import {
   useReactTable,
   getCoreRowModel,
@@ -104,6 +105,7 @@ export default function ComptesPage() {
   });
 
   return (
+    <AppShell>
     <div className="flex flex-col gap-6 p-6">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -180,5 +182,6 @@ export default function ComptesPage() {
         {formatCurrency(ACCOUNTS.reduce((s, a) => s + a.balance, 0))}
       </p>
     </div>
+    </AppShell>
   );
 }
