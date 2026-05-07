@@ -1,15 +1,24 @@
-import { app, BrowserWindow, shell } from "electron";
+import { app, BrowserWindow, shell, globalShortcut } from "electron";
 import path from "path";
-import { createWindow } from "./window";
+import { createWindow, createCaptureWindow } from "./window";
 import { acquireSingleInstanceLock } from "./single-instance";
 import { VaultManager } from "./services/vault-manager";
 import { FileWatcher } from "./services/file-watcher";
-import { setVaultManager, setFileWatcher } from "./services/service-registry";
+import { AutomationsRuntime } from "./services/automations-runtime";
+import { NotificationsRuntime } from "./services/notifications-runtime";
+import {
+  setVaultManager,
+  setFileWatcher,
+  setAutomationsRuntime,
+  setNotificationsRuntime,
+} from "./services/service-registry";
 import { registerTrpcBridge } from "./trpc-bridge";
 import { logger } from "./logger";
 
 let vaultManager: VaultManager;
 let fileWatcher: FileWatcher;
+let automationsRuntime: AutomationsRuntime;
+let notificationsRuntime: NotificationsRuntime;
 
 function main(): void {
   const hasLock = acquireSingleInstanceLock(focusMainWindow);
@@ -22,9 +31,13 @@ function main(): void {
   // userData path is available — app.getPath("userData") works before ready).
   vaultManager = new VaultManager();
   fileWatcher = new FileWatcher();
+  automationsRuntime = new AutomationsRuntime();
+  notificationsRuntime = new NotificationsRuntime();
 
   setVaultManager(vaultManager);
   setFileWatcher(fileWatcher);
+  setAutomationsRuntime(automationsRuntime);
+  setNotificationsRuntime(notificationsRuntime);
 
   // Register the tRPC IPC bridge before creating windows so the renderer
   // can call procedures immediately on load.
@@ -34,6 +47,18 @@ function main(): void {
     createWindow();
     logger.info("Supernote desktop ready", { version: app.getVersion() });
 
+    // Register global shortcut for quick capture — silent on failure (e.g., key already taken)
+    try {
+      const registered = globalShortcut.register("CommandOrControl+Shift+N", () => {
+        createCaptureWindow();
+      });
+      if (!registered) {
+        logger.warn("Global shortcut CommandOrControl+Shift+N could not be registered");
+      }
+    } catch (err) {
+      logger.warn("Failed to register global shortcut", { err });
+    }
+
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) {
         createWindow();
@@ -42,6 +67,7 @@ function main(): void {
   });
 
   app.on("window-all-closed", () => {
+    globalShortcut.unregisterAll();
     fileWatcher.stop();
     void vaultManager.closeVault();
     if (process.platform !== "darwin") {

@@ -2,7 +2,7 @@
 
 import { AppShell } from "@/components/shell";
 import { JournalCalendar, JournalEditor } from "@/components/journal";
-import { useRouter } from "next/navigation";
+import { useRouter, useParams } from "next/navigation";
 import { useMemo, useState } from "react";
 import { CalendarBlank } from "@phosphor-icons/react";
 import { DAILY_JOURNAL } from "@supernote/templates";
@@ -15,7 +15,10 @@ function todayYMD(): string {
   return `${y}-${m}-${day}`;
 }
 
-/** Derive the initial markdown for the daily note using the daily journal template body. */
+function isValidDate(s: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) && !isNaN(Date.parse(s + "T12:00:00"));
+}
+
 function buildInitialMarkdown(date: string): string {
   const d = new Date(date + "T12:00:00");
   const formatted = d.toLocaleDateString("fr-FR", {
@@ -24,27 +27,22 @@ function buildInitialMarkdown(date: string): string {
     month: "long",
     year: "numeric",
   });
-  // Apply the date variable from the template body manually (simple substitution)
   return DAILY_JOURNAL.body
     .replace(/\{\{date:[^}]+\}\}/g, formatted)
     .replace(/\{\{cursor\}\}/g, "");
 }
 
-// Mock set of dates that have notes — replace with tRPC query later
-const MOCK_DATES_WITH_NOTE = new Set<string>([
-  todayYMD(),
-]);
+const MOCK_DATES_WITH_NOTE = new Set<string>([todayYMD()]);
 
-function JournalPageContent() {
+function DateJournalContent({ date }: { date: string }) {
   const router = useRouter();
   const today = todayYMD();
-  const [selectedDate, setSelectedDate] = useState<string>(today);
-
+  const [selectedDate, setSelectedDate] = useState<string>(date);
   const initialMarkdown = useMemo(() => buildInitialMarkdown(selectedDate), [selectedDate]);
 
-  const handleSelectDate = (date: string) => {
-    setSelectedDate(date);
-    router.push(`/journal/${date}`, { scroll: false });
+  const handleSelectDate = (d: string) => {
+    setSelectedDate(d);
+    router.push(`/journal/${d}`, { scroll: false });
   };
 
   const handleToday = () => {
@@ -54,7 +52,6 @@ function JournalPageContent() {
 
   return (
     <div className="flex h-full overflow-hidden">
-      {/* Sidebar: calendar */}
       <aside
         className="flex flex-col border-r"
         style={{
@@ -76,7 +73,7 @@ function JournalPageContent() {
           </div>
           <button
             onClick={handleToday}
-            className="rounded px-2 py-0.5 text-[11px] font-medium transition-colors hover:bg-[var(--surface-2)]"
+            className="rounded px-2 py-0.5 text-[11px] font-medium transition-colors"
             style={{
               backgroundColor: "var(--accent-subtle)",
               color: "var(--accent)",
@@ -85,7 +82,6 @@ function JournalPageContent() {
             Aujourd'hui
           </button>
         </div>
-
         <div className="mt-3">
           <JournalCalendar
             selectedDate={selectedDate}
@@ -94,22 +90,21 @@ function JournalPageContent() {
           />
         </div>
       </aside>
-
-      {/* Main editor area */}
-      <main
-        className="flex-1 overflow-hidden"
-        style={{ backgroundColor: "var(--surface-0)" }}
-      >
+      <main className="flex-1 overflow-hidden" style={{ backgroundColor: "var(--surface-0)" }}>
         <JournalEditor date={selectedDate} initialMarkdown={initialMarkdown} />
       </main>
     </div>
   );
 }
 
-export default function JournalPage() {
+export default function DateJournalPage() {
+  const params = useParams();
+  const rawDate = Array.isArray(params.date) ? params.date[0] : params.date;
+  const date = rawDate && isValidDate(rawDate) ? rawDate : todayYMD();
+
   return (
     <AppShell>
-      <JournalPageContent />
+      <DateJournalContent date={date} />
     </AppShell>
   );
 }

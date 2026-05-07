@@ -1,4 +1,4 @@
-import { BrowserWindow, app } from "electron";
+import { BrowserWindow, app, screen } from "electron";
 import path from "path";
 
 const WINDOW_WIDTH = 1400;
@@ -49,3 +49,57 @@ export function createWindow(): BrowserWindow {
 
   return win;
 }
+
+const CAPTURE_WIDTH = 600;
+const CAPTURE_HEIGHT = 180;
+
+/**
+ * Creates a frameless, transparent, always-on-top capture window positioned
+ * at the top-center of the primary display.
+ * The window loads the /capture route of the Next.js app.
+ */
+export function createCaptureWindow(): BrowserWindow {
+  const { width: screenWidth } = screen.getPrimaryDisplay().workAreaSize;
+  const x = Math.round((screenWidth - CAPTURE_WIDTH) / 2);
+  const y = 80; // top-center with some margin
+
+  const preloadPath = path.join(__dirname, "../preload/index.js");
+
+  const win = new BrowserWindow({
+    width: CAPTURE_WIDTH,
+    height: CAPTURE_HEIGHT,
+    x,
+    y,
+    frame: false,
+    transparent: true,
+    alwaysOnTop: true,
+    resizable: false,
+    skipTaskbar: true,
+    show: false,
+    webPreferences: {
+      preload: preloadPath,
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+
+  win.once("ready-to-show", () => {
+    win.show();
+    win.focus();
+  });
+
+  // Close if it loses focus (user clicks elsewhere)
+  win.on("blur", () => {
+    win.close();
+  });
+
+  if (IS_DEV) {
+    void win.loadURL(`${WEB_DEV_URL}/capture`);
+  } else {
+    void win.loadFile(WEB_PROD_PATH, { hash: "/capture" });
+  }
+
+  return win;
+}
+
