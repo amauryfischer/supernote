@@ -1,4 +1,4 @@
-# Amonote — Design Spec (version finale ambitieuse)
+# Supernote — Design Spec (version finale ambitieuse)
 
 **Statut :** approuvé (itération agile IA × humain)
 **Date :** 2026-05-07
@@ -91,7 +91,7 @@ Ambition : un seul outil pour ses notes, sa connaissance, ses relations, ses pro
 
 ```
 ~/Notes/                          # vault root configurable, multi-vault possible
-├── .amonote/
+├── .supernote/
 │   ├── schemas/                  # définitions de types (JSON)
 │   ├── relations/                # définitions des RelationTypes
 │   ├── views/                    # vues sauvegardées (sql-like JSON)
@@ -221,7 +221,7 @@ Sur tout type ou résultat de requête :
 - **Map** (champs géo / coordonnées extraites adresse)
 - **Dashboard** (composé de widgets : metric, chart, query block, list)
 
-Configurables : colonnes, tri, groupement, filtres composés, formules. Persistées dans `.amonote/views/`.
+Configurables : colonnes, tri, groupement, filtres composés, formules. Persistées dans `.supernote/views/`.
 
 ### 7.7 Recherche
 - `Cmd+K` quick switcher : entités, tags, types, vues, actions, commandes.
@@ -237,13 +237,34 @@ Configurables : colonnes, tri, groupement, filtres composés, formules. Persist�
 - Formules nommées globales (réutilisables).
 - Inline dans le markdown (`{{ formula:... }}`).
 
-### 7.9 Automations
-- DSL déclaratif YAML stocké dans `.amonote/automations/`.
-- **Triggers** : sur création/édition/suppression d'entité, sur transition workflow, à un cron, sur reception d'API call.
+### 7.9 Automations & Routines
+- DSL déclaratif YAML stocké dans `.supernote/automations/` et `.supernote/routines/`.
+- **Distinction** :
+  - **Automation** = règle réactive (déclenchée par un event entité/workflow).
+  - **Routine** = règle proactive nommée et gérée par l'utilisateur (cron, alarmes, envois récurrents). Routines = automations avec UI dédiée et concept "user-friendly".
+- **Triggers** :
+  - Évent : création/édition/suppression d'entité, transition workflow.
+  - **Cron** : crontab-like ("tous les lundi à 9h", "le 1er du mois", "tous les 14 jours"). UI builder pour exprimer la récurrence en langage naturel.
+  - **Alarme** : déclenchement à une date/heure absolue (extraite d'un champ d'entité, ex. `birthday`, `deadline`).
+  - Webhook / API local.
 - **Conditions** : expressions formula.
-- **Actions** : créer entité, mettre à jour champ, créer relation, appeler webhook, exécuter LLM prompt, envoyer notification, lancer un script JS sandboxé.
-- Logs d'exécution dans la table AutomationRun.
-- UI no-code de création (à la Notion/Make).
+- **Actions** :
+  - Créer / mettre à jour entité / créer relation
+  - **Envoyer email** (SMTP configuré dans settings, ou Resend/SendGrid si clé fournie) — destinataire = champ d'entité (ex. `email` d'une Personne du CRM), template avec variables, support pièces jointes (depuis `_assets/` ou exports d'entité)
+  - **Notification OS** (alarme, rappel)
+  - **Notification in-app** (toast persistant dans un centre de notifications)
+  - Appeler webhook
+  - Exécuter prompt LLM (Ollama)
+  - Lancer script JS sandboxé
+  - **Créer une note dans Inbox** ("rappel : voir avec Jean")
+- **Templates de routines** prêts à l'emploi :
+  - "Email hebdo à un contact" (cron weekly + action email)
+  - "Rappel anniversaire" (alarme sur champ `birthday` d'une Personne)
+  - "Suivi client à 30 jours" (cron + condition `lastInteraction < 30j`)
+  - "Brief du lundi matin" (cron + LLM + email à soi-même)
+- Logs d'exécution dans la table `AutomationRun` (succès/échec/payload/durée).
+- UI no-code (à la Notion/Make/Zapier) pour créer/éditer.
+- Tableau de bord "Routines" pour voir les prochaines exécutions.
 
 ### 7.10 Versioning
 - isomorphic-git initialise le vault.
@@ -262,7 +283,7 @@ Configurables : colonnes, tri, groupement, filtres composés, formules. Persist�
 
 ### 7.12 Capture rapide / quotidien
 - Raccourci OS global (`globalShortcut`) → modale capture.
-- Ligne de commande `amonote new "..."` (CLI bridge sur Unix socket).
+- Ligne de commande `supernote new "..."` (CLI bridge sur Unix socket).
 - Capture par email (alias local + IMAP poll optionnel, v2).
 - Type seed `Daily`, bouton "Aujourd'hui".
 
@@ -276,7 +297,7 @@ Configurables : colonnes, tri, groupement, filtres composés, formules. Persist�
 - HTTP API locale sur `127.0.0.1:port` (port aléatoire, token par session).
 - Endpoints REST + WebSocket pour subscribe.
 - **MCP server intégré** pour permettre à un LLM externe de manipuler le vault.
-- CLI compagnon : `amonote new`, `amonote search`, `amonote query`, `amonote export`.
+- CLI compagnon : `supernote new`, `supernote search`, `supernote query`, `supernote export`.
 
 ### 7.15 Sécurité & vie privée
 - 100% local par défaut, zéro télémétrie.
@@ -343,7 +364,7 @@ Event (entité.created) → matcher triggers → eval conditions
 Monorepo pnpm + Turborepo :
 
 ```
-amonote/
+supernote/
 ├── apps/
 │   ├── desktop/              # Electron main + preload
 │   └── web/                  # Next.js renderer
@@ -367,7 +388,7 @@ amonote/
 
 ## 12. Décisions ouvertes (à itérer pendant l'implémentation)
 
-- Nom officiel du produit (working : "Amonote").
+- Nom officiel du produit (working : "Supernote").
 - Default vault path à la première ouverture.
 - Window chrome custom (titlebar custom Linear-style) vs natif.
 - Locale par défaut (FR).
