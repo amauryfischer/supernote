@@ -119,6 +119,9 @@ import {
   getFileWatcher,
   getRawDb,
   setRawDb,
+  getAutomationsRuntime,
+  getNotificationsRuntime,
+  getAutomationEngine,
 } from "./services/service-registry.js";
 import { writeEntity, deleteEntity, hashFile } from "./services/file-io.js";
 import { openRawDb, closeRawDb } from "./services/raw-db.js";
@@ -245,6 +248,26 @@ function startWatcherForVault(vaultId: string, vaultPath: string): void {
   });
 }
 
+// ── Automation event emitters ───────────────────────────────────────────────
+
+import type { DomainEvent, DomainEventType } from "@supernote/automations";
+
+function emitAutomationEvent(type: DomainEventType, entity: CoreEntity, previous?: CoreEntity): void {
+  const engine = getAutomationEngine();
+  if (!engine) return;
+  const event: DomainEvent = {
+    type,
+    entityId: entity.id,
+    entityTypeId: entity.typeId,
+    entity,
+    previous,
+    timestamp: new Date(),
+  };
+  void engine.emitEvent(event).catch((err: unknown) => {
+    logger.warn("AutomationEngine.emitEvent failed", { type, entityId: entity.id, err: String(err) });
+  });
+}
+
 // ── Build CoreEntity from DB row for use with @supernote/core serializers ──
 
 function buildCoreEntity(
@@ -304,6 +327,18 @@ const vaultRouter = router({
         await reindexVault(prisma, vault.id, vault.path);
         startWatcherForVault(vault.id, vault.path);
 
+        // Start notifications runtime — must be ready before automations (which may notify)
+        const notifRuntime = getNotificationsRuntime();
+        const notifService = notifRuntime?.startForVault(vault.path) ?? null;
+
+        // Start automations runtime
+        const automationsRt = getAutomationsRuntime();
+        if (automationsRt) {
+          void automationsRt.startForVault(vault, prisma, notifService).catch((err: unknown) => {
+            logger.error("automations runtime start failed", { err: String(err) });
+          });
+        }
+
         return vault;
       } catch (err) {
         logger.error("vault.open failed", { err: String(err) });
@@ -320,6 +355,15 @@ const vaultRouter = router({
 
       // Stop watcher before closing vault
       getFileWatcher()?.stop();
+
+      // Stop automations and notifications runtimes
+      const automationsRt = getAutomationsRuntime();
+      if (automationsRt) {
+        await automationsRt.stopForVault().catch((err: unknown) => {
+          logger.warn("automations runtime stop failed", { err: String(err) });
+        });
+      }
+      getNotificationsRuntime()?.stopForVault();
 
       // Close raw DB
       const rawDb = getRawDb();
@@ -492,6 +536,9 @@ const entitiesRouter = router({
         }
       }
 
+      // Emit automation domain event (fire-and-forget, non-fatal)
+      emitAutomationEvent("entity.created", buildCoreEntity(row, []));
+
       return mapEntityRow(row);
     }),
 
@@ -561,6 +608,13 @@ const entitiesRouter = router({
         }
       }
 
+      // Emit automation domain event (fire-and-forget, non-fatal)
+      emitAutomationEvent(
+        "entity.updated",
+        buildCoreEntity(updatedRow, updatedRow.entityTags.map((et) => et.tag.path)),
+        buildCoreEntity(existingRow, existingRow.entityTags.map((et) => et.tag.path)),
+      );
+
       return mapEntityRow(updatedRow);
     }),
 
@@ -591,6 +645,9 @@ const entitiesRouter = router({
           logger.warn("entities.delete: FTS remove failed (non-fatal)", { id, err: String(err) });
         }
       }
+
+      // Emit automation domain event (fire-and-forget, non-fatal)
+      emitAutomationEvent("entity.deleted", buildCoreEntity(existing as unknown as { id: string; typeId: string; filePath: string; fields: string; body: string | null; createdAt: Date; updatedAt: Date }, []));
 
       logger.info("entities.delete", { id, filePath });
       return { id, deleted: true };
@@ -897,7 +954,18 @@ const relationsRouter = router({
         data: { id, sourceId, targetId, relationTypeId, fields: JSON.stringify(fields ?? {}) },
         include: EDGE_INCLUDE,
       });
-      return mapRelationEdge(row as unknown as RawRelationEdgeRow);
+      const mapped = mapRelationEdge(row as unknown as RawRelationEdgeRow);
+
+      // Emit relation.created event to AutomationEngine (fire-and-forget)
+      const engine = getAutomationEngine();
+      if (engine) {
+        const relation = { id, sourceId, targetId, relationTypeId, fields: fields as import("@supernote/core").RelationEdge["fields"], createdAt: new Date() };
+        void engine.emitEvent({ type: "relation.created", relation, timestamp: new Date() }).catch((err: unknown) => {
+          logger.warn("AutomationEngine.emitEvent(relation.created) failed", { id, err: String(err) });
+        });
+      }
+
+      return mapped;
     }),
 
   delete: publicProcedure

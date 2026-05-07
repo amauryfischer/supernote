@@ -2,9 +2,9 @@
  * Service registry — module-level singleton container.
  *
  * Provides access to VaultManager, the current PrismaClient, the FileWatcher,
- * and the raw better-sqlite3 Database (for FTS operations that need direct
- * SQL access beyond Prisma's ORM) without needing to thread services through
- * tRPC context.
+ * the raw better-sqlite3 Database (for FTS operations that need direct
+ * SQL access beyond Prisma's ORM), the AutomationsRuntime and the
+ * NotificationsRuntime without needing to thread services through tRPC context.
  *
  * Initialized once in index.ts before the tRPC bridge is registered.
  */
@@ -13,10 +13,15 @@ import type { VaultManager } from "./vault-manager.js";
 import type { PrismaClient } from "@supernote/db";
 import type { FileWatcher } from "./file-watcher.js";
 import type Database from "better-sqlite3";
+import type { AutomationsRuntime } from "./automations-runtime.js";
+import type { NotificationsRuntime } from "./notifications-runtime.js";
+import type { AutomationEngine } from "@supernote/automations";
 
 let _vaultManager: VaultManager | null = null;
 let _fileWatcher: FileWatcher | null = null;
 let _rawDb: Database.Database | null = null;
+let _automationsRuntime: AutomationsRuntime | null = null;
+let _notificationsRuntime: NotificationsRuntime | null = null;
 
 export function setVaultManager(vm: VaultManager): void {
   _vaultManager = vm;
@@ -45,4 +50,24 @@ export function setRawDb(db: Database.Database | null): void {
 
 export function getRawDb(): Database.Database | null {
   return _rawDb;
+}
+
+export function setAutomationsRuntime(r: AutomationsRuntime): void {
+  _automationsRuntime = r;
+}
+
+export function getAutomationsRuntime(): AutomationsRuntime | null {
+  return _automationsRuntime;
+}
+
+export function getAutomationEngine(): AutomationEngine | null {
+  return _automationsRuntime?.getEngine() ?? null;
+}
+
+export function setNotificationsRuntime(r: NotificationsRuntime): void {
+  _notificationsRuntime = r;
+}
+
+export function getNotificationsRuntime(): NotificationsRuntime | null {
+  return _notificationsRuntime;
 }
