@@ -16,10 +16,12 @@
     "@heroui/styles": "^3.0.0",
     "@phosphor-icons/react": "^2.1.10",
     "@supernote/canvas": "workspace:*",
+    "@supernote/core": "workspace:*",
     "@supernote/editor": "workspace:*",
     "@supernote/finance": "workspace:*",
     "@supernote/ipc": "workspace:*",
     "@supernote/notifications": "workspace:*",
+    "@supernote/search": "workspace:*",
     "@supernote/templates": "workspace:*",
     "@supernote/ui": "workspace:*",
     "@supernote/views": "workspace:*",
@@ -35,7 +37,8 @@
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-force-graph-2d": "^1.29.1",
-    "recharts": "^3.8.1"
+    "recharts": "^3.8.1",
+    "sql.js": "^1.14.1"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.5",

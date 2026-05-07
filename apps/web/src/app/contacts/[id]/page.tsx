@@ -11,9 +11,9 @@ import {
   isBirthdaySoon,
   relativeBirthday,
   entityToContact,
-  entitiesToContacts,
 } from "@/components/contacts";
 import type { Contact, Interaction } from "@/components/contacts";
+import type { EntitySummary } from "@supernote/ipc";
 import {
   ArrowLeft,
   Buildings,
@@ -139,19 +139,23 @@ function TimelineTab({ contactId, fixtureInteractions }: TimelineTabProps) {
 
   const interactions: Interaction[] = (() => {
     if (!isError && trpcData?.items && trpcData.items.length > 0) {
-      return entitiesToContacts(trpcData.items)
-        .filter((e) => {
-          const f = trpcData.items.find((i) => i.id === e.id)?.fields;
-          return f?.["participants"] === contactId || f?.["contactId"] === contactId;
+      return trpcData.items
+        .filter((e: EntitySummary) => {
+          const f = e.fields;
+          return f["participants"] === contactId || f["contactId"] === contactId;
         })
-        .map((e) => ({
-          id: e.id,
-          contactId,
-          date: e.lastInteractionDate ?? e.notes ?? "",
-          kind: "note" as const,
-          title: e.name,
-          notes: e.notes,
-        }));
+        .map((e: EntitySummary) => {
+          const f = e.fields;
+          const titleVal = f["title"] ?? f["name"] ?? f["subject"];
+          return {
+            id: e.id,
+            contactId,
+            date: typeof f["date"] === "string" ? f["date"] : e.updatedAt,
+            kind: (typeof f["kind"] === "string" ? f["kind"] : "note") as Interaction["kind"],
+            title: typeof titleVal === "string" ? titleVal : e.typeName,
+            notes: typeof f["notes"] === "string" ? f["notes"] : undefined,
+          };
+        });
     }
     return fixtureInteractions;
   })();
