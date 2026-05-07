@@ -5,8 +5,13 @@
  * vault.*, entities.*, schemas.*, tags.*, views.*, search.*
  *
  * Uses sql.js Database directly (no Prisma) and FSA for file I/O.
+ *
+ * Browser mode uses MiniSearch in-memory FTS instead of SQLite FTS5
+ * (sql.js standard build doesn't include FTS5).
+ * Trade-off acceptable for vaults < 5k entités.
  */
 
+import MiniSearch from "minisearch";
 import type { Database } from "sql.js";
 import {
   parseFrontmatter,
@@ -20,6 +25,14 @@ import {
 
 type SqlValue = string | number | null | Uint8Array;
 type SqlRow = Record<string, SqlValue>;
+
+interface EntityDoc {
+  id: string;
+  typeId: string;
+  title: string;
+  body: string;
+  tags: string;
+}
 
 function row(res: ReturnType<Database["exec"]>): SqlRow | null {
   if (!res.length || !res[0]) return null;
@@ -38,6 +51,73 @@ function now(): string {
   return new Date().toISOString();
 }
 
+// ── MiniSearch index ──────────────────────────────────────────────────────────
+
+let miniSearch: MiniSearch<EntityDoc> | null = null;
+
+function createMiniSearch(): MiniSearch<EntityDoc> {
+  return new MiniSearch<EntityDoc>({
+    fields: ["title", "body", "tags"],
+    storeFields: ["id", "typeId"],
+    searchOptions: { prefix: true, fuzzy: 0.2, boost: { title: 2 } },
+  });
+}
+
+function initMiniSearch(db: Database, vaultId: string): void {
+  const allEntities = rows(
+    db.exec(
+      `SELECT e.id, e.typeId, e.filePath, e.body,
+              GROUP_CONCAT(t.path, ' ') as tagPaths
+       FROM entity e
+       LEFT JOIN entity_tag et ON et.entityId = e.id
+       LEFT JOIN tag t ON t.id = et.tagId
+       WHERE e.vaultId = ?
+       GROUP BY e.id`,
+      [vaultId],
+    ),
+  );
+
+  const ms = createMiniSearch();
+  const docs: EntityDoc[] = allEntities.map((r) => ({
+    id: r["id"] as string,
+    typeId: r["typeId"] as string,
+    title: ((r["filePath"] as string) ?? "").split("/").pop()?.replace(".md", "") ?? "",
+    body: (r["body"] as string) ?? "",
+    tags: (r["tagPaths"] as string) ?? "",
+  }));
+  ms.addAll(docs);
+  miniSearch = ms;
+}
+
+function miniSearchAdd(entity: EntityDoc): void {
+  if (!miniSearch) return;
+  try {
+    miniSearch.remove({ id: entity.id } as EntityDoc);
+  } catch {
+    // Not in index yet, that's fine
+  }
+  miniSearch.add(entity);
+}
+
+function miniSearchRemove(id: string): void {
+  if (!miniSearch) return;
+  try {
+    miniSearch.remove({ id } as EntityDoc);
+  } catch {
+    // Not found, ignore
+  }
+}
+
+function entityToDoc(r: SqlRow): EntityDoc {
+  return {
+    id: r["id"] as string,
+    typeId: r["typeId"] as string,
+    title: ((r["filePath"] as string) ?? "").split("/").pop()?.replace(".md", "") ?? "",
+    body: (r["body"] as string) ?? "",
+    tags: (r["tags"] as string) ?? "",
+  };
+}
+
 // ── Router implementation ─────────────────────────────────────────────────────
 
 export type RouteHandler = (input: unknown) => Promise<unknown>;
@@ -47,6 +127,9 @@ export function buildRouter(
   vaultHandle: FileSystemDirectoryHandle,
   vaultId: string,
 ): Record<string, RouteHandler> {
+  // Populate MiniSearch index on router creation (after DB is ready)
+  initMiniSearch(db, vaultId);
+
   // ── vault.* ────────────────────────────────────────────────────────────────
 
   const vaultGetCurrent = async (): Promise<unknown> => {
@@ -139,6 +222,15 @@ export function buildRouter(
       await applyEntityTags(db, vaultId, id, tags, ts);
     }
 
+    // Update MiniSearch index
+    miniSearchAdd({
+      id,
+      typeId,
+      title: relativePath.split("/").pop()?.replace(".md", "") ?? "",
+      body: body ?? "",
+      tags: (tags ?? []).join(" "),
+    });
+
     return entitiesGet({ id });
   };
 
@@ -182,6 +274,15 @@ export function buildRouter(
       await applyEntityTags(db, vaultId, id, tags, ts);
     }
 
+    // Update MiniSearch index
+    miniSearchAdd({
+      id,
+      typeId: existing["typeId"] as string,
+      title: (existing["filePath"] as string).split("/").pop()?.replace(".md", "") ?? "",
+      body: newBody,
+      tags: (tags ?? []).join(" "),
+    });
+
     return entitiesGet({ id });
   };
 
@@ -195,6 +296,7 @@ export function buildRouter(
         // File may already be gone
       }
       db.run(`DELETE FROM entity WHERE id = ?`, [id]);
+      miniSearchRemove(id);
     }
     return { id, deleted: true };
   };
@@ -372,33 +474,52 @@ export function buildRouter(
     const lim = limit ?? 20;
     const off = offset ?? 0;
 
-    let sql = `
-      SELECT e.id as entityId, e.typeId, et.name as typeName, e.filePath,
-             snippet(entity_fts, 1, '<mark>', '</mark>', '...', 32) as excerpt,
-             rank as score
-      FROM entity_fts
-      JOIN entity e ON e.id = entity_fts.id
-      JOIN entity_type et ON et.id = e.typeId
-      WHERE entity_fts MATCH ? AND e.vaultId = ?
-    `;
-    const params: SqlValue[] = [query, vaultId];
-    if (typeId) { sql += ` AND e.typeId = ?`; params.push(typeId); }
-    sql += ` ORDER BY rank LIMIT ? OFFSET ?`;
-    params.push(lim, off);
+    if (!miniSearch || !query.trim()) {
+      return { items: [], total: 0, durationMs: 0 };
+    }
 
-    const resultRows = rows(db.exec(sql, params));
-    const items = resultRows.map((r) => ({
-      entityId: r["entityId"],
-      typeId: r["typeId"],
-      typeName: r["typeName"],
-      filePath: r["filePath"],
-      title: (r["filePath"] as string).split("/").pop()?.replace(".md", "") ?? "",
-      excerpts: [r["excerpt"] ?? ""].filter(Boolean),
-      score: Math.max(0, Math.min(1, 1 - (r["score"] as number ?? 0) * -0.1)),
-      semantic: false,
-      tags: [],
-    }));
-    return { items, total: items.length, durationMs: 0 };
+    const t0 = Date.now();
+    const matches = miniSearch.search(query, { prefix: true, fuzzy: 0.2 });
+
+    // Filter by typeId if requested, then page
+    const filtered = typeId ? matches.filter((m) => m["typeId"] === typeId) : matches;
+    const paged = filtered.slice(off, off + lim);
+
+    if (!paged.length) {
+      return { items: [], total: filtered.length, durationMs: Date.now() - t0 };
+    }
+
+    // Fetch full entity rows for the matched IDs
+    const ids = paged.map((m) => `'${(m["id"] as string).replace(/'/g, "''")}'`).join(",");
+    const entityRows = rows(db.exec(
+      `SELECT e.id, e.typeId, et.name as typeName, e.filePath, e.fields, e.body, e.createdAt, e.updatedAt
+       FROM entity e
+       JOIN entity_type et ON et.id = e.typeId
+       WHERE e.id IN (${ids})`,
+    ));
+
+    const entityById = new Map(entityRows.map((r) => [r["id"] as string, r]));
+    const items = paged
+      .map((m) => {
+        const r = entityById.get(m["id"] as string);
+        if (!r) return null;
+        const body = (r["body"] as string) ?? "";
+        const excerpt = body.length > 120 ? body.slice(0, 120) + "..." : body;
+        return {
+          entityId: r["id"],
+          typeId: r["typeId"],
+          typeName: r["typeName"],
+          filePath: r["filePath"],
+          title: (r["filePath"] as string).split("/").pop()?.replace(".md", "") ?? "",
+          excerpts: excerpt ? [excerpt] : [],
+          score: Math.min(1, (m.score as number) / 10),
+          semantic: false,
+          tags: [],
+        };
+      })
+      .filter(Boolean);
+
+    return { items, total: filtered.length, durationMs: Date.now() - t0 };
   };
 
   // ── reindex ───────────────────────────────────────────────────────────────
@@ -429,11 +550,22 @@ export function buildRouter(
              body = excluded.body, fileHash = excluded.fileHash, updatedAt = excluded.updatedAt`,
           [entityId, vaultId, typeId, file.relativePath, JSON.stringify(fields), body, hash, ts, ts],
         );
+
+        // Update MiniSearch
+        const r = row(db.exec(`SELECT id, typeId, filePath, body FROM entity WHERE id = ?`, [entityId]));
+        if (r) miniSearchAdd(entityToDoc(r));
+
         indexed++;
       } catch {
         // Skip unparseable files
       }
     }
+
+    // Rebuild full index after reindex to stay in sync
+    if (indexed > 0) {
+      initMiniSearch(db, vaultId);
+    }
+
     return { indexed };
   };
 

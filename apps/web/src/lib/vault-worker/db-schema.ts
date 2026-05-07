@@ -5,9 +5,16 @@
  * adapted for direct sql.js execution (no Prisma runtime needed in browser).
  *
  * All CREATE statements use IF NOT EXISTS to be idempotent.
+ *
+ * Browser mode uses MiniSearch in-memory FTS instead of SQLite FTS5
+ * (sql.js standard build doesn't include FTS5).
+ * Trade-off acceptable for vaults < 5k entités.
+ *
+ * SCHEMA_SQL_BASE  — tables + indexes (no FTS5, safe in all environments)
+ * SCHEMA_SQL_FTS5  — virtual table + triggers (Electron-only, requires FTS5)
  */
 
-export const SCHEMA_SQL = `
+export const SCHEMA_SQL_BASE = `
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
 
@@ -171,6 +178,22 @@ CREATE TABLE IF NOT EXISTS "setting" (
     FOREIGN KEY ("vaultId") REFERENCES "vault" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
+-- Indexes
+CREATE UNIQUE INDEX IF NOT EXISTS "vault_rootPath_key" ON "vault"("rootPath");
+CREATE INDEX IF NOT EXISTS "entity_type_vaultId_idx" ON "entity_type"("vaultId");
+CREATE UNIQUE INDEX IF NOT EXISTS "entity_type_vaultId_name_key" ON "entity_type"("vaultId", "name");
+CREATE INDEX IF NOT EXISTS "entity_vaultId_typeId_idx" ON "entity"("vaultId", "typeId");
+CREATE INDEX IF NOT EXISTS "entity_vaultId_idx" ON "entity"("vaultId");
+CREATE UNIQUE INDEX IF NOT EXISTS "entity_vaultId_filePath_key" ON "entity"("vaultId", "filePath");
+CREATE INDEX IF NOT EXISTS "tag_vaultId_idx" ON "tag"("vaultId");
+CREATE UNIQUE INDEX IF NOT EXISTS "tag_vaultId_path_key" ON "tag"("vaultId", "path");
+`;
+
+/**
+ * FTS5 schema — Electron-only (sql.js standard build doesn't include FTS5).
+ * Apply this AFTER SCHEMA_SQL_BASE in environments that support FTS5.
+ */
+export const SCHEMA_SQL_FTS5 = `
 -- FTS5 virtual table for full-text search
 CREATE VIRTUAL TABLE IF NOT EXISTS "entity_fts" USING fts5(
     id UNINDEXED,
@@ -192,14 +215,9 @@ CREATE TRIGGER IF NOT EXISTS entity_fts_au AFTER UPDATE ON "entity" BEGIN
     INSERT INTO entity_fts(entity_fts, rowid, id, body) VALUES('delete', old.rowid, old.id, old.body);
     INSERT INTO entity_fts(rowid, id, body) VALUES (new.rowid, new.id, new.body);
 END;
-
--- Indexes
-CREATE UNIQUE INDEX IF NOT EXISTS "vault_rootPath_key" ON "vault"("rootPath");
-CREATE INDEX IF NOT EXISTS "entity_type_vaultId_idx" ON "entity_type"("vaultId");
-CREATE UNIQUE INDEX IF NOT EXISTS "entity_type_vaultId_name_key" ON "entity_type"("vaultId", "name");
-CREATE INDEX IF NOT EXISTS "entity_vaultId_typeId_idx" ON "entity"("vaultId", "typeId");
-CREATE INDEX IF NOT EXISTS "entity_vaultId_idx" ON "entity"("vaultId");
-CREATE UNIQUE INDEX IF NOT EXISTS "entity_vaultId_filePath_key" ON "entity"("vaultId", "filePath");
-CREATE INDEX IF NOT EXISTS "tag_vaultId_idx" ON "tag"("vaultId");
-CREATE UNIQUE INDEX IF NOT EXISTS "tag_vaultId_path_key" ON "tag"("vaultId", "path");
 `;
+
+/**
+ * Full schema (base + FTS5) — kept for backward compatibility in Electron context.
+ */
+export const SCHEMA_SQL = SCHEMA_SQL_BASE + SCHEMA_SQL_FTS5;

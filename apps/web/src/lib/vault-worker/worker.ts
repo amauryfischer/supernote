@@ -14,7 +14,7 @@
 
 import initSqlJs from "sql.js";
 import type { Database } from "sql.js";
-import { SCHEMA_SQL } from "./db-schema";
+import { SCHEMA_SQL_BASE } from "./db-schema";
 import { loadDbFromFsa, saveDbToFsa, loadDbFromOpfs, saveDbToOpfs } from "./db-persistence";
 import { buildRouter, RouteHandler } from "./worker-router";
 import type {
@@ -48,7 +48,7 @@ async function initSqlite(handle: FileSystemDirectoryHandle): Promise<Database> 
   }
 
   const database = bytes ? new SQL.Database(bytes) : new SQL.Database();
-  database.run(SCHEMA_SQL);
+  database.run(SCHEMA_SQL_BASE);
   return database;
 }
 
