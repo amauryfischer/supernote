@@ -19,7 +19,7 @@ Ambition : un seul outil pour ses notes, sa connaissance, ses relations, ses pro
 ## 2. Principes architecturants
 
 1. **Local-first absolu.** Aucun serveur, aucune télémétrie, aucun cloud requis.
-2. **Filesystem = source de vérité.** SQLite = index reconstructible.
+2. **Filesystem = source de vérité.** SQLite = index reconstructible **dans le vault** (`.supernote/index.db`). Le vault entier est portable (Drive, Dropbox, USB) — sur une autre machine, on ouvre le dossier et tout est là (notes, contacts, schémas, vues, embeddings, historique git). Si la DB corrompt → reindex auto depuis les `.md`. Lock multi-machine pour prévenir l'édition concurrente.
 3. **Markdown interopérable.** Lisible/éditable depuis VS Code, Obsidian, n'importe quel éditeur. Format `.canvas` Obsidian-compatible.
 4. **Tout est entité typée.** Notes incluses. Schéma 100% utilisateur, seeds modifiables.
 5. **Tout est requêtable.** Langage de requête riche, formules Coda-like, vues sauvegardables.
@@ -101,7 +101,9 @@ Ambition : un seul outil pour ses notes, sa connaissance, ses relations, ses pro
 │   ├── plugins/                  # plugins installés
 │   ├── themes/                   # thèmes CSS custom
 │   ├── settings.json
-│   └── index.db                  # SQLite (peut être hors vault)
+│   ├── index.db                  # SQLite — TOUJOURS dans le vault (portable Drive)
+│   ├── lock.json                 # lock multi-machine (pid/host/timestamp)
+│   └── .git/                     # historique git auto (isomorphic-git)
 ├── _assets/                      # images, fichiers binaires liés
 ├── Inbox/                        # capture rapide
 ├── Daily/YYYY/MM-DD.md           # journal quotidien

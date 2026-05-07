@@ -1,6 +1,7 @@
 "use client";
 
 import { RightPanel } from "./RightPanel";
+import { ShellChromeProvider, useShellChrome } from "./shell-chrome-context";
 import { Sidebar } from "./Sidebar";
 import { TopBar } from "./TopBar";
 
@@ -8,27 +9,44 @@ interface AppShellProps {
   children: React.ReactNode;
 }
 
-/**
- * Three-column application shell:
- *   [Sidebar (240px)] | [TopBar + Content (flex-1)] | [RightPanel (280px)]
- *
- * The outer container fills the viewport height. In Electron dev, Next.js
- * serves on localhost:3000 so the full-viewport approach works natively.
- * In prod static export, the same layout applies since Electron sizes the
- * BrowserWindow to fill the screen.
- */
 export function AppShell({ children }: AppShellProps) {
+  return (
+    <ShellChromeProvider>
+      <ShellLayout>{children}</ShellLayout>
+    </ShellChromeProvider>
+  );
+}
+
+/**
+ * Three-column shell. When the writing surface enters focus mode, the side
+ * panels dim and the topbar fades so the user keeps a writing flow.
+ */
+function ShellLayout({ children }: AppShellProps) {
+  const { focusMode } = useShellChrome();
+
   return (
     <div
       className="flex h-screen w-screen overflow-hidden"
       style={{ backgroundColor: "var(--surface-0)" }}
     >
-      {/* Left sidebar */}
-      <Sidebar />
+      {/* Left sidebar — fades to muted state in focus mode but stays clickable */}
+      <div
+        className={`transition-opacity duration-300 ${
+          focusMode ? "opacity-30 hover:opacity-100" : "opacity-100"
+        }`}
+      >
+        <Sidebar />
+      </div>
 
-      {/* Main area: topbar + scrollable content */}
+      {/* Main area */}
       <div className="flex flex-1 flex-col overflow-hidden">
-        <TopBar />
+        <div
+          className={`transition-opacity duration-300 ${
+            focusMode ? "opacity-0 hover:opacity-100" : "opacity-100"
+          }`}
+        >
+          <TopBar />
+        </div>
         <main
           className="flex-1 overflow-y-auto"
           style={{ backgroundColor: "var(--surface-0)" }}
@@ -37,8 +55,19 @@ export function AppShell({ children }: AppShellProps) {
         </main>
       </div>
 
-      {/* Right context panel */}
-      <RightPanel />
+      {/* Right context panel — collapses in focus mode */}
+      <div
+        className={`transition-all duration-300 ease-out ${
+          focusMode
+            ? "pointer-events-none w-0 opacity-0"
+            : "opacity-100"
+        }`}
+        style={{
+          width: focusMode ? 0 : "var(--panel-width)",
+        }}
+      >
+        <RightPanel />
+      </div>
     </div>
   );
 }
