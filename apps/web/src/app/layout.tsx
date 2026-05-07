@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { TrpcProvider } from "@/lib/trpc/Provider";
 import { VaultInitBanner } from "@/lib/vault/VaultInitBanner";
+import { ShortcutProvider } from "@/lib/keyboard/ShortcutProvider";
+import { CommandSurface } from "@/components/command";
 
 export const metadata: Metadata = {
   title: "Supernote",
@@ -30,8 +32,12 @@ export default function RootLayout({
     <html lang="fr" suppressHydrationWarning>
       <body className="bg-[var(--surface-0)] text-[var(--text-primary)] antialiased">
         <TrpcProvider>
-          <VaultInitBanner />
-          {children}
+          <ShortcutProvider>
+            {/* CommandSurface registers seed commands and handles Cmd+K globally */}
+            <CommandSurface />
+            <VaultInitBanner />
+            {children}
+          </ShortcutProvider>
         </TrpcProvider>
       </body>
     </html>

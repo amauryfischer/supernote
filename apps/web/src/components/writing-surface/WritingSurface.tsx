@@ -5,28 +5,31 @@ import {
   Calendar,
   FileText,
   Hash,
-  Layers,
+  Stack,
   Users,
-  Zap,
-} from "lucide-react";
+  Lightning,
+  type Icon as PhosphorIcon,
+} from "@phosphor-icons/react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useShellChrome } from "@/components/shell/shell-chrome-context";
 import { useCreateInboxNote } from "@/hooks/useCreateInboxNote";
 
 interface QuickAccessItem {
   label: string;
   description: string;
-  icon: React.ComponentType<{ size?: number; className?: string }>;
+  icon: PhosphorIcon;
+  href: string;
 }
 
 const QUICK_ACCESS: QuickAccessItem[] = [
-  { label: "Notes", description: "Vos notes libres et documents", icon: FileText },
-  { label: "Contacts", description: "Personnes et organisations", icon: Users },
-  { label: "Projets", description: "Projets et tâches actives", icon: Layers },
-  { label: "Journal", description: "Notes quotidiennes", icon: Calendar },
-  { label: "Schémas", description: "Types d'entités et champs", icon: Hash },
-  { label: "Vues", description: "Requêtes et vues sauvegardées", icon: BookOpen },
-  { label: "Routines", description: "Automations et rappels", icon: Zap },
+  { label: "Notes", description: "Vos notes libres et documents", icon: FileText, href: "/notes" },
+  { label: "Contacts", description: "Personnes et organisations", icon: Users, href: "/contacts" },
+  { label: "Projets", description: "Projets et tâches actives", icon: Stack, href: "/projets" },
+  { label: "Journal", description: "Notes quotidiennes", icon: Calendar, href: "/journal" },
+  { label: "Schémas", description: "Types d'entités et champs", icon: Hash, href: "/schemas" },
+  { label: "Vues", description: "Requêtes et vues sauvegardées", icon: BookOpen, href: "/vues" },
+  { label: "Routines", description: "Automations et rappels", icon: Lightning, href: "/routines" },
 ];
 
 /**
@@ -40,6 +43,7 @@ export function WritingSurface() {
   const [saveToast, setSaveToast] = useState<string | null>(null);
   const editorRef = useRef<HTMLDivElement>(null);
   const shellChrome = useShellChrome();
+  const router = useRouter();
   const { saveNote, onContentChange, resetNote, isSaving, lastSaved, saveError } =
     useCreateInboxNote();
 
@@ -57,6 +61,19 @@ export function WritingSurface() {
       editorRef.current?.focus();
     });
   }, [shellChrome]);
+
+  // Auto-focus when navigated to "/?new=true" (from topbar "Nouveau" on other pages)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("new") === "true") {
+      editorRef.current?.focus();
+      // Clean the param from URL without reloading
+      const url = new URL(window.location.href);
+      url.searchParams.delete("new");
+      window.history.replaceState({}, "", url.toString());
+    }
+  }, []);
 
   // Show success toast after save
   useEffect(() => {
@@ -233,6 +250,7 @@ export function WritingSurface() {
           {QUICK_ACCESS.map((item) => (
             <button
               key={item.label}
+              onClick={() => router.push(item.href)}
               className="group flex items-center gap-3 rounded-lg border p-4 text-left transition-colors hover:bg-[var(--surface-2)]"
               style={{
                 backgroundColor: "var(--surface-1)",

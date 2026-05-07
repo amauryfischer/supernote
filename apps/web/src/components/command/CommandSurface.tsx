@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { useShortcut } from "@/lib/keyboard/hooks";
 import { useRegisterCommands } from "@/lib/commands/hooks";
@@ -23,6 +23,13 @@ export function CommandSurface() {
 
   const openPalette = useCallback(() => setPaletteOpen(true), []);
   const closePalette = useCallback(() => setPaletteOpen(false), []);
+
+  // Listen for the TopBar button's custom event ("Recherche rapide" click)
+  useEffect(() => {
+    const handler = () => setPaletteOpen(true);
+    window.addEventListener("supernote:open-command-palette", handler);
+    return () => window.removeEventListener("supernote:open-command-palette", handler);
+  }, []);
 
   // Cmd+K / Ctrl+K — open command palette
   useShortcut({

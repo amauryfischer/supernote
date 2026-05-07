@@ -6,16 +6,16 @@ import {
   Calendar,
   FileText,
   Hash,
-  Layers,
-  PanelLeft,
-  PanelRight,
+  Stack,
+  SidebarSimple,
   Plus,
-  Search,
-  Settings,
+  MagnifyingGlass,
+  Gear,
   Sun,
   Users,
-  Zap,
-} from "lucide-react";
+  Lightning,
+  type Icon as PhosphorIcon,
+} from "@phosphor-icons/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { registry } from "@/lib/commands/registry";
@@ -25,19 +25,19 @@ import type { Command as AppCommand } from "@/lib/commands/types";
 // Icon resolver — maps seed icon names to Lucide components
 // ---------------------------------------------------------------------------
 
-const ICON_MAP: Record<string, React.ComponentType<{ size?: number; className?: string }>> = {
+const ICON_MAP: Record<string, PhosphorIcon> = {
   "file-plus": Plus,
   "file-text": FileText,
   "calendar": Calendar,
-  "search": Search,
+  "search": MagnifyingGlass,
   "users": Users,
-  "layers": Layers,
+  "layers": Stack,
   "hash": Hash,
-  "settings": Settings,
-  "panel-left": PanelLeft,
-  "panel-right": PanelRight,
+  "settings": Gear,
+  "panel-left": SidebarSimple,
+  "panel-right": SidebarSimple,
   "sun": Sun,
-  "zap": Zap,
+  "zap": Lightning,
   "book-open": BookOpen,
 };
 
@@ -175,7 +175,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
               height: "52px",
             }}
           >
-            <Search
+            <MagnifyingGlass
               size={16}
               style={{ color: "var(--text-muted)", flexShrink: 0 }}
             />

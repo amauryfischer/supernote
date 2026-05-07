@@ -1,10 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Command } from "lucide-react";
+import { Command } from "@phosphor-icons/react";
 
-import { ShortcutProvider } from "@/lib/keyboard/ShortcutProvider";
-import { CommandSurface } from "@/components/command";
 import { SEED_COMMANDS } from "@/lib/commands/seed";
 
 /**
@@ -21,11 +19,7 @@ export default function CommandDemoPage() {
   const [lastEvent, setLastEvent] = useState<string>("");
 
   return (
-    <ShortcutProvider>
-      {/* CommandSurface registers seed commands + keyboard shortcuts */}
-      <CommandSurface />
-
-      <div
+    <div
         className="flex min-h-screen flex-col items-center justify-center gap-8 p-8"
         style={{ backgroundColor: "var(--surface-0)", color: "var(--text-primary)" }}
       >
@@ -123,7 +117,6 @@ export default function CommandDemoPage() {
           </p>
         )}
       </div>
-    </ShortcutProvider>
   );
 }
 

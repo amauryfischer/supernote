@@ -5,34 +5,35 @@ import {
   Calendar,
   FileText,
   Hash,
-  Home,
-  Layers,
-  Search,
-  Settings,
+  House,
+  MagnifyingGlass,
+  Gear,
+  Stack,
   Users,
   Wallet,
-  Zap,
-} from "lucide-react";
+  Lightning,
+  type Icon as PhosphorIcon,
+} from "@phosphor-icons/react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 interface NavItem {
   label: string;
-  icon: React.ComponentType<{ size?: number; className?: string }>;
+  icon: PhosphorIcon;
   href: string;
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { label: "Accueil", icon: Home, href: "/" },
-  { label: "Recherche", icon: Search, href: "/recherche" },
+  { label: "Accueil", icon: House, href: "/" },
+  { label: "Recherche", icon: MagnifyingGlass, href: "/recherche" },
   { label: "Notes", icon: FileText, href: "/notes" },
   { label: "Journal", icon: Calendar, href: "/journal" },
   { label: "Contacts", icon: Users, href: "/contacts" },
-  { label: "Projets", icon: Layers, href: "/projets" },
+  { label: "Projets", icon: Stack, href: "/projets" },
   { label: "Finance", icon: Wallet, href: "/finance" },
   { label: "Schémas", icon: Hash, href: "/schemas" },
   { label: "Vues", icon: BookOpen, href: "/vues" },
-  { label: "Routines", icon: Zap, href: "/routines" },
+  { label: "Routines", icon: Lightning, href: "/routines" },
 ];
 
 export function Sidebar() {
@@ -117,7 +118,7 @@ export function Sidebar() {
             backgroundColor: isActive("/parametres") ? "var(--accent-subtle)" : undefined,
           }}
         >
-          <Settings size={15} />
+          <Gear size={15} />
           Paramètres
         </Link>
       </div>
