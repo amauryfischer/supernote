@@ -11,9 +11,11 @@ import {
 import { supernoteSchema } from "./schema.js";
 import { markdownToBlocks, blocksToMarkdown } from "./serialization/index.js";
 import {
-  getSupernoteSlashMenuItems,
   SupernoteSuggestionMenu,
+  getSupernoteSlashMenuItems,
+  useEntityPickerState,
 } from "./extensions/slashMenu.js";
+import type { EntityLinkItemConfig } from "./extensions/slashMenu.js";
 import { createSaveExtension } from "./extensions/saveShortcut.js";
 import type { SupernoteEditorProps } from "./types.js";
 
@@ -25,6 +27,7 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
     onSave,
     readOnly = false,
     className,
+    resolvers,
   } = props;
 
   const onSaveRef = useRef(onSave);
@@ -58,6 +61,25 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
     });
   }, [editor]);
 
+  const { openPicker, pickerElement } = useEntityPickerState(editor, resolvers);
+
+  const getItems = useCallback(
+    async (query: string) => {
+      const items = getSupernoteSlashMenuItems(editor, openPicker);
+      if (!query) return items;
+      const q = query.toLowerCase();
+      return items.filter((item) => {
+        if (item.title.toLowerCase().includes(q)) return true;
+        if (item.group?.toLowerCase().includes(q)) return true;
+        // aliases hold the keyword strings for entity-link items
+        const aliases = (item as any).aliases as string[] | undefined;
+        if (aliases?.some((a) => a.toLowerCase().includes(q))) return true;
+        return false;
+      });
+    },
+    [editor, openPicker]
+  );
+
   return (
     <div
       className={`sn-editor-wrapper${className ? ` ${className}` : ""}`}
@@ -74,18 +96,14 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
           // which returns undefined when no theme package (@blocknote/mantine, etc.)
           // wraps the editor — the root cause of the "SuggestionMenu undefined" crash.
           suggestionMenuComponent={SupernoteSuggestionMenu}
-          getItems={async (query) => {
-            const items = getSupernoteSlashMenuItems(editor);
-            if (!query) return items;
-            const q = query.toLowerCase();
-            return items.filter(
-              (item) =>
-                item.title.toLowerCase().includes(q) ||
-                (item.group?.toLowerCase().includes(q) ?? false)
-            );
-          }}
+          getItems={getItems}
         />
       </BlockNoteViewRaw>
+
+      {/* Entity picker rendered as overlay; null when no item is being picked */}
+      {pickerElement && (
+        <div className="sn-entity-picker-overlay">{pickerElement}</div>
+      )}
     </div>
   );
 }

@@ -349,3 +349,115 @@
   color: var(--text-muted, #9ca3af);
   font-size: 0.8rem;
 }
+
+/* ── Entity picker overlay ──────────────────────────────────── */
+
+.sn-entity-picker-overlay {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 200;
+}
+
+.sn-entity-picker {
+  background: var(--surface-1, #fff);
+  border: 1px solid var(--border-subtle, #e5e7eb);
+  border-radius: 10px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.16);
+  min-width: 300px;
+  max-width: 400px;
+  overflow: hidden;
+  font-family: var(--font-sans, system-ui, sans-serif);
+  font-size: 0.875rem;
+}
+
+.sn-entity-picker__input {
+  width: 100%;
+  border: none;
+  border-bottom: 1px solid var(--border-subtle, #e5e7eb);
+  background: transparent;
+  padding: 10px 14px;
+  font-size: 0.9rem;
+  color: var(--text-primary, #111827);
+  outline: none;
+  font-family: inherit;
+}
+
+.sn-entity-picker__input::placeholder {
+  color: var(--text-muted, #9ca3af);
+}
+
+.sn-entity-picker__list {
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.sn-entity-picker__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--text-primary, #111827);
+  transition: background 0.1s;
+  user-select: none;
+}
+
+.sn-entity-picker__item:hover,
+.sn-entity-picker__item--selected {
+  background: var(--surface-2, #f3f4f6);
+}
+
+.sn-entity-picker__item-icon {
+  font-size: 1rem;
+  flex-shrink: 0;
+  width: 20px;
+  text-align: center;
+}
+
+.sn-entity-picker__item-name {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sn-entity-picker__loader,
+.sn-entity-picker__empty {
+  padding: 12px;
+  text-align: center;
+  color: var(--text-muted, #9ca3af);
+  font-size: 0.8rem;
+}
+
+.sn-entity-picker__create {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 14px;
+  border: none;
+  border-top: 1px solid var(--border-subtle, #e5e7eb);
+  background: transparent;
+  color: var(--accent, #7c3aed);
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.1s;
+}
+
+.sn-entity-picker__create:hover {
+  background: var(--accent-subtle, rgba(124, 58, 237, 0.06));
+}
+
+.sn-entity-picker__fallback {
+  padding: 16px 14px;
+  color: var(--text-muted, #9ca3af);
+  font-size: 0.8rem;
+  text-align: center;
+}

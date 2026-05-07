@@ -16,7 +16,7 @@ import { useRouter } from "next/navigation";
 import { useShellChrome } from "@/components/shell/shell-chrome-context";
 import { useCreateInboxNote } from "@/hooks/useCreateInboxNote";
 import type { SupernoteEditorProps, EntityRef } from "@supernote/editor";
-import { trpc } from "@/lib/trpc/client";
+import { trpc, trpcVanillaClient } from "@/lib/trpc/client";
 
 // Dynamic import: BlockNote uses browser-only APIs (ProseMirror, etc.)
 // SSR-safe, same pattern as NoteEditor.tsx
@@ -86,7 +86,10 @@ export function WritingSurface() {
         }
       },
       createEntity: async (typeId: string, name: string): Promise<EntityRef> => {
-        const e = await utils.entities.create.mutate({ typeId, fields: { name } });
+        const e = await trpcVanillaClient.entities.create.mutate({
+          typeId,
+          fields: { name },
+        });
         return { id: e.id, name: entityDisplayName(e), type: e.typeId };
       },
       getEntity: async (id: string): Promise<EntityRef | null> => {

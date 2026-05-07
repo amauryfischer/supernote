@@ -1,18 +1,28 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { Calendar, Hash, Tag, FloppyDisk, Microphone, Image } from "@phosphor-icons/react";
 import { formatRelativeDate, type Note } from "./fixtures";
 import { useUpdateNote } from "./hooks";
-import type { SupernoteEditorProps } from "@supernote/editor";
-import { trpc } from "@/lib/trpc/client";
+import type { SupernoteEditorProps, EntityRef } from "@supernote/editor";
+import { trpc, trpcVanillaClient } from "@/lib/trpc/client";
 
 // Dynamic import to avoid SSR issues — BlockNote uses browser-only APIs
 const SupernoteEditor = dynamic<SupernoteEditorProps>(
   () => import("@supernote/editor").then((m) => ({ default: m.SupernoteEditor })),
   { ssr: false, loading: () => <EditorSkeleton /> },
 );
+
+// ── Entity helpers ─────────────────────────────────────────────────────────────
+
+/** Derive a human-readable display name from an entity summary */
+function entityDisplayName(entity: { fields: Record<string, unknown>; filePath: string }): string {
+  const name = entity.fields["name"] ?? entity.fields["titre"] ?? entity.fields["title"];
+  if (typeof name === "string" && name.length > 0) return name;
+  // Fall back to filename without extension
+  return entity.filePath.split("/").pop()?.replace(/\.[^.]+$/, "") ?? entity.filePath;
+}
 
 interface NoteEditorProps {
   note: Note;
@@ -59,6 +69,43 @@ export function NoteEditor({ note }: NoteEditorProps) {
 
   const transcribeAudio = trpc.system.transcribeAudio.useMutation();
   const ocrImage = trpc.system.ocrImage.useMutation();
+
+  // tRPC utils for entity resolvers (imperatively fetched, not subscribed)
+  const utils = trpc.useUtils();
+
+  const resolvers = useMemo(
+    () => ({
+      searchEntities: async (query: string, typeId?: string): Promise<EntityRef[]> => {
+        try {
+          const res = await utils.entities.search.fetch({ query, typeId, limit: 8 });
+          return res.items.map((e) => ({
+            id: e.id,
+            name: entityDisplayName(e),
+            type: e.typeId,
+          }));
+        } catch {
+          // Mode degrade: return empty list instead of crashing
+          return [];
+        }
+      },
+      createEntity: async (typeId: string, name: string): Promise<EntityRef> => {
+        const e = await trpcVanillaClient.entities.create.mutate({
+          typeId,
+          fields: { name },
+        });
+        return { id: e.id, name: entityDisplayName(e), type: e.typeId };
+      },
+      getEntity: async (id: string): Promise<EntityRef | null> => {
+        try {
+          const e = await utils.entities.get.fetch({ id });
+          return { id: e.id, name: entityDisplayName(e), type: e.typeId };
+        } catch {
+          return null;
+        }
+      },
+    }),
+    [utils]
+  );
 
   function showToast(msg: string, durationMs = 3000) {
     setToastMsg(msg);
@@ -289,6 +336,7 @@ export function NoteEditor({ note }: NoteEditorProps) {
           initialMarkdown={note.body}
           onChange={handleEditorChange}
           onSave={handleManualSave}
+          resolvers={resolvers}
           className="min-h-[60vh] w-full"
         />
       </div>

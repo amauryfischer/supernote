@@ -17,6 +17,16 @@ export interface EntityRef {
 /** Callout variants matching Obsidian callout syntax */
 export type CalloutVariant = "info" | "note" | "warning" | "danger" | "quote";
 
+/** Resolver callbacks for entity search/create/get */
+export interface EntityResolvers {
+  /** Full-text search across entities, optionally filtered by typeId */
+  searchEntities: (query: string, typeId?: string) => Promise<EntityRef[]>;
+  /** Create a new entity of the given type with a name */
+  createEntity?: (typeId: string, name: string) => Promise<EntityRef>;
+  /** Fetch a single entity by id */
+  getEntity?: (id: string) => Promise<EntityRef | null>;
+}
+
 /** Props for the main SupernoteEditor component */
 export interface SupernoteEditorProps {
   /** Initial markdown content */
@@ -29,9 +39,11 @@ export interface SupernoteEditorProps {
   placeholder?: string;
   /** Whether the editor is read-only */
   readOnly?: boolean;
-  /** Resolve a single entity by id or name */
+  /** Entity resolver callbacks (search, create, get) */
+  resolvers?: EntityResolvers;
+  /** @deprecated Use resolvers.searchEntities instead */
   resolveEntity?: (idOrName: string) => Promise<EntityRef | null>;
-  /** Search entities for autocomplete */
+  /** @deprecated Use resolvers.searchEntities instead */
   searchEntities?: (query: string, types?: string[]) => Promise<EntityRef[]>;
   /** Search tags for autocomplete */
   searchTags?: (query: string) => Promise<string[]>;
