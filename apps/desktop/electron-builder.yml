@@ -1,0 +1,65 @@
+appId: fr.numerisk.supernote
+productName: Supernote
+copyright: Copyright © 2026 Numerisk
+
+# The compiled entry point produced by electron-vite build
+main: dist/main/index.js
+
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - dist/**
+  - "!dist/preload/**/*.map"
+  - "!dist/main/**/*.map"
+
+# Static export from Next.js (apps/web/out) is bundled into the app
+extraResources:
+  - from: "../../apps/web/out"
+    to: "app/web"
+    filter:
+      - "**/*"
+
+# macOS
+mac:
+  target:
+    - target: dmg
+      arch:
+        - arm64
+        - x64
+  category: public.app-category.productivity
+  entitlementsInherit: build/entitlements.mac.plist
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  icon: build/icon.icns
+
+dmg:
+  writeUpdateInfo: false
+
+# Windows
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: build/icon.ico
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  installerIcon: build/installer.ico
+  uninstallerIcon: build/installer.ico
+
+# Linux
+linux:
+  target:
+    - target: AppImage
+      arch:
+        - x64
+  icon: build/icon.png
+  category: Office
+
+publish:
+  provider: generic
+  url: https://releases.supernote.app
