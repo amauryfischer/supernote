@@ -1,42 +1,103 @@
-/* Tailwind v4: no config file needed, single import activates everything */
+/* Tailwind v4: single import activates everything */
 @import "tailwindcss";
 
-/* HeroUI v3: CSS-first integration — imports component styles & design tokens */
-@import "@heroui/styles";
+/* HeroUI v3 — design tokens & component styles */
+@import "@heroui/styles/css";
 
 /* ────────────────────────────────────────────────────────────────────────── */
-/* Root tokens — extends HeroUI's CSS variable system                        */
+/* Root tokens — LIGHT theme by default, DARK overrides via [data-theme=dark] */
 /* ────────────────────────────────────────────────────────────────────────── */
 
 :root {
   /* Typography */
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", monospace;
 
-  /* Surface scale (dark-first) */
-  --surface-0: oklch(0.12 0.006 260);
-  --surface-1: oklch(0.16 0.008 260);
-  --surface-2: oklch(0.20 0.008 260);
-  --surface-3: oklch(0.25 0.010 260);
+  /* Surface scale (light, generous whitespace, document-feel) */
+  --surface-0: oklch(0.995 0 0);              /* page background, almost white */
+  --surface-1: oklch(0.985 0.002 260);        /* cards, panels */
+  --surface-2: oklch(0.965 0.003 260);        /* sidebar, hover */
+  --surface-3: oklch(0.940 0.005 260);        /* active surfaces */
 
-  /* Brand accent — indigo/violet */
-  --accent: oklch(0.62 0.19 280);
-  --accent-subtle: oklch(0.62 0.19 280 / 0.15);
-  --accent-foreground: oklch(0.99 0 0);
+  /* Brand accent — restrained indigo */
+  --accent: oklch(0.50 0.18 270);
+  --accent-hover: oklch(0.46 0.18 270);
+  --accent-subtle: oklch(0.50 0.18 270 / 0.10);
+  --accent-foreground: oklch(0.995 0 0);
 
   /* Text */
-  --text-primary: oklch(0.97 0.005 260);
-  --text-secondary: oklch(0.72 0.010 260);
-  --text-muted: oklch(0.50 0.010 260);
+  --text-primary: oklch(0.18 0.005 260);
+  --text-secondary: oklch(0.40 0.008 260);
+  --text-muted: oklch(0.60 0.008 260);
 
   /* Borders */
-  --border: oklch(0.28 0.010 260);
-  --border-subtle: oklch(0.22 0.008 260);
+  --border: oklch(0.90 0.005 260);
+  --border-subtle: oklch(0.94 0.003 260);
+
+  /* Semantic */
+  --success: oklch(0.65 0.16 150);
+  --warning: oklch(0.75 0.15 80);
+  --danger: oklch(0.58 0.22 28);
 
   /* Layout dimensions */
   --sidebar-width: 240px;
-  --panel-width: 280px;
+  --panel-width: 300px;
   --header-height: 48px;
+
+  /* Radii */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
+}
+
+[data-theme="dark"] {
+  --surface-0: oklch(0.14 0.006 260);
+  --surface-1: oklch(0.18 0.008 260);
+  --surface-2: oklch(0.22 0.008 260);
+  --surface-3: oklch(0.28 0.010 260);
+  --accent: oklch(0.65 0.18 270);
+  --accent-hover: oklch(0.70 0.18 270);
+  --text-primary: oklch(0.97 0.005 260);
+  --text-secondary: oklch(0.72 0.010 260);
+  --text-muted: oklch(0.55 0.010 260);
+  --border: oklch(0.30 0.010 260);
+  --border-subtle: oklch(0.24 0.008 260);
+}
+
+/* ────────────────────────────────────────────────────────────────────────── */
+/* Theme tokens for Tailwind v4 utilities                                     */
+/* ────────────────────────────────────────────────────────────────────────── */
+
+@theme {
+  --color-surface-0: var(--surface-0);
+  --color-surface-1: var(--surface-1);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-subtle: var(--accent-subtle);
+  --color-accent-fg: var(--accent-foreground);
+
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-muted: var(--text-muted);
+
+  --color-border: var(--border);
+  --color-border-subtle: var(--border-subtle);
+
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+  --radius-xl: var(--radius-xl);
 }
 
 /* ────────────────────────────────────────────────────────────────────────── */
@@ -51,25 +112,43 @@ body {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+}
+
+* {
+  box-sizing: border-box;
 }
 
 /* Electron-friendly: disable text selection on chrome/shell elements */
 .shell-chrome {
   user-select: none;
+  -webkit-app-region: drag;
+}
+.shell-chrome button,
+.shell-chrome input,
+.shell-chrome a {
+  -webkit-app-region: no-drag;
 }
 
 /* Scrollbar styling (WebKit — Electron uses Chromium) */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
   background: var(--border);
-  border-radius: 3px;
+  border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
   background: var(--text-muted);
+}
+
+/* Focus rings — use accent */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
 }

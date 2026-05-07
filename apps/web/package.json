@@ -20,6 +20,7 @@
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.5",
     "@supernote/tsconfig": "workspace:*",
+    "@tailwindcss/postcss": "^4.2.4",
     "@types/node": "^22.10.0",
     "@types/react": "^19.1.5",
     "@types/react-dom": "^19.1.5",
