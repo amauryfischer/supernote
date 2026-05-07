@@ -30,8 +30,8 @@ function viewFromIpc(v: View): SavedView {
     entityTypeId: v.typeId ?? "entity",
     filters: (v.config.filters ?? []).map((f) => ({
       fieldId: f.field,
-      operator: f.operator as SavedView["filters"][0]["operator"],
-      value: f.value,
+      operator: f.operator as import("@supernote/views").FilterClause["operator"],
+      value: f.value as import("@supernote/views").FilterClause["value"],
     })),
     sort: (v.config.sorts ?? []).map((s) => ({
       fieldId: s.field,

@@ -3,48 +3,95 @@
 import { AppShell } from "@/components/shell";
 import { TemplatePickerStep, RoutineEditor, getTemplateRoutine } from "@/components/routines";
 import type { RoutineFixture, TemplateKey } from "@/components/routines";
+import { trpc } from "@/lib/trpc/client";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useState, Suspense } from "react";
+import { useState, useCallback, Suspense } from "react";
 import { ArrowLeft } from "@phosphor-icons/react";
 import Link from "next/link";
+import type { CreateRoutineInput } from "@supernote/ipc";
+
+// ── fixture → create input adapter ───────────────────────────────────────
+
+function fixtureToCreateInput(f: RoutineFixture): CreateRoutineInput {
+  const trigType = f.trigger.type === "event"
+    ? ("entity.created" as const)
+    : f.trigger.type === "alarm"
+    ? ("alarm" as const)
+    : f.trigger.type === "webhook"
+    ? ("webhook" as const)
+    : ("cron" as const);
+
+  return {
+    name: f.name,
+    description: f.description || undefined,
+    enabled: f.enabled,
+    templateKey: f.templateKey,
+    conditions: f.condition,
+    trigger: {
+      type: trigType,
+      cron: f.trigger.expression,
+      entityTypeId: f.trigger.entityTypeId,
+      alarmField: f.trigger.dateField,
+      alarmOffsetDays: f.trigger.offset
+        ? parseInt(f.trigger.offset.replace("d", ""), 10)
+        : undefined,
+    },
+    actions: f.actions.map((a) => {
+      const { type, ...config } = a;
+      return {
+        type: type as import("@supernote/ipc").ActionType,
+        config: config as Record<string, unknown>,
+      };
+    }),
+  };
+}
+
+// ── Inner content (needs Suspense for useSearchParams) ────────────────────
 
 function NouveauContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const templateParam = searchParams.get("template") as TemplateKey | null;
 
-  const [step, setStep] = useState<"pick" | "edit">(templateParam ? "edit" : "pick");
-  const [routine, setRoutine] = useState<RoutineFixture | null>(() => {
-    if (templateParam) {
-      return getTemplateRoutine(templateParam, `routine-new-${Date.now()}`);
-    }
-    return null;
+  const createMutation = trpc.routines.create.useMutation({
+    onSuccess: (r) => router.push(`/routines/${r.id}`),
+    onError: (err) => setError(err.message),
   });
 
-  function handleSelectTemplate(key: TemplateKey) {
-    const newRoutine = getTemplateRoutine(key, `routine-new-${Date.now()}`);
-    setRoutine(newRoutine);
+  const [step, setStep] = useState<"pick" | "edit">(templateParam ? "edit" : "pick");
+  const [routine, setRoutine] = useState<RoutineFixture | null>(() =>
+    templateParam ? getTemplateRoutine(templateParam, `routine-new-${Date.now()}`) : null,
+  );
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSelectTemplate = useCallback((key: TemplateKey) => {
+    setRoutine(getTemplateRoutine(key, `routine-new-${Date.now()}`));
     setStep("edit");
-  }
+  }, []);
 
-  function handleSave(saved: RoutineFixture) {
-    // In production: tRPC create mutation
-    // For now, navigate back with a success state
-    router.push("/routines");
-  }
+  const handleSave = useCallback((saved: RoutineFixture) => {
+    setError(null);
+    if (createMutation.isPending) return;
+    // Best-effort: try tRPC create; on error fall back to navigate back
+    try {
+      createMutation.mutate(fixtureToCreateInput(saved));
+    } catch {
+      // Fallback: just navigate back if IPC unavailable
+      router.push("/routines");
+    }
+  }, [createMutation, router]);
 
-  function handleCancel() {
+  const handleCancel = useCallback(() => {
     if (step === "edit" && !templateParam) {
       setStep("pick");
     } else {
       router.push("/routines");
     }
-  }
+  }, [step, templateParam, router]);
 
   if (step === "pick") {
     return (
       <div className="flex h-full flex-col">
-        {/* Header */}
         <div
           className="flex items-center gap-3 border-b px-6 py-3"
           style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-0)" }}
@@ -63,7 +110,6 @@ function NouveauContent() {
           </span>
         </div>
 
-        {/* Step 1 content */}
         <div className="flex-1 overflow-y-auto px-6 py-8">
           <div className="mx-auto max-w-xl">
             <TemplatePickerStep onSelect={handleSelectTemplate} />
@@ -75,16 +121,28 @@ function NouveauContent() {
 
   if (step === "edit" && routine) {
     return (
-      <RoutineEditor
-        routine={routine}
-        onSave={handleSave}
-        onCancel={handleCancel}
-      />
+      <div className="flex h-full flex-col">
+        {error && (
+          <div
+            className="mx-6 mt-3 rounded-md px-4 py-2 text-sm"
+            style={{ backgroundColor: "oklch(0.93 0.10 28 / 0.15)", color: "var(--danger)" }}
+          >
+            {error}
+          </div>
+        )}
+        <RoutineEditor
+          routine={routine}
+          onSave={handleSave}
+          onCancel={handleCancel}
+        />
+      </div>
     );
   }
 
   return null;
 }
+
+// ── Page ──────────────────────────────────────────────────────────────────
 
 export default function NouveauRoutinePage() {
   return (

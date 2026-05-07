@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import { RightPanel } from "./RightPanel";
 import { ShellChromeProvider, useShellChrome } from "./shell-chrome-context";
 import { Sidebar } from "./Sidebar";
@@ -18,6 +19,59 @@ export function AppShell({ children }: AppShellProps) {
 }
 
 /**
+ * Stable wrappers: these are memoized so that when focusMode or
+ * rightPanelVisible changes, only the wrapper divs re-render — not
+ * the Sidebar/TopBar/RightPanel internals (which are also memo'd).
+ */
+const SidebarWrapper = memo(function SidebarWrapper({ focusMode }: { focusMode: boolean }) {
+  return (
+    <div
+      className={`transition-opacity duration-300 ${
+        focusMode ? "opacity-30 hover:opacity-100" : "opacity-100"
+      }`}
+    >
+      <Sidebar />
+    </div>
+  );
+});
+
+const TopBarWrapper = memo(function TopBarWrapper({ focusMode }: { focusMode: boolean }) {
+  return (
+    <div
+      className={`transition-opacity duration-300 ${
+        focusMode ? "opacity-0 hover:opacity-100" : "opacity-100"
+      }`}
+    >
+      <TopBar />
+    </div>
+  );
+});
+
+const RightPanelWrapper = memo(function RightPanelWrapper({
+  focusMode,
+  rightPanelVisible,
+}: {
+  focusMode: boolean;
+  rightPanelVisible: boolean;
+}) {
+  return (
+    <div
+      className={`transition-all duration-300 ease-out ${
+        focusMode || !rightPanelVisible
+          ? "pointer-events-none opacity-0"
+          : "opacity-100"
+      }`}
+      style={{
+        width: focusMode || !rightPanelVisible ? 0 : "var(--panel-width)",
+        overflow: "hidden",
+      }}
+    >
+      <RightPanel />
+    </div>
+  );
+});
+
+/**
  * Three-column shell. When the writing surface enters focus mode, the side
  * panels dim and the topbar fades so the user keeps a writing flow.
  * The user can also collapse the right panel manually.
@@ -30,22 +84,10 @@ function ShellLayout({ children }: AppShellProps) {
       className="flex h-screen w-screen overflow-hidden"
       style={{ backgroundColor: "var(--surface-0)" }}
     >
-      <div
-        className={`transition-opacity duration-300 ${
-          focusMode ? "opacity-30 hover:opacity-100" : "opacity-100"
-        }`}
-      >
-        <Sidebar />
-      </div>
+      <SidebarWrapper focusMode={focusMode} />
 
       <div className="flex flex-1 flex-col overflow-hidden">
-        <div
-          className={`transition-opacity duration-300 ${
-            focusMode ? "opacity-0 hover:opacity-100" : "opacity-100"
-          }`}
-        >
-          <TopBar />
-        </div>
+        <TopBarWrapper focusMode={focusMode} />
         <main
           className="flex-1 overflow-y-auto"
           style={{ backgroundColor: "var(--surface-0)" }}
@@ -54,19 +96,7 @@ function ShellLayout({ children }: AppShellProps) {
         </main>
       </div>
 
-      <div
-        className={`transition-all duration-300 ease-out ${
-          focusMode || !rightPanelVisible
-            ? "pointer-events-none opacity-0"
-            : "opacity-100"
-        }`}
-        style={{
-          width: focusMode || !rightPanelVisible ? 0 : "var(--panel-width)",
-          overflow: "hidden",
-        }}
-      >
-        <RightPanel />
-      </div>
+      <RightPanelWrapper focusMode={focusMode} rightPanelVisible={rightPanelVisible} />
     </div>
   );
 }

@@ -1,17 +1,22 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { listVariables } from "@supernote/templates";
-import { renderTemplate } from "@supernote/templates";
+import { listVariables, renderTemplate } from "@supernote/templates";
 import type { Template, TemplateResolvers } from "@supernote/templates";
 import { Play, Tag } from "@phosphor-icons/react";
 
 interface TemplateEditorProps {
   template: Template;
   onSave: (updated: Template) => void;
+  /**
+   * Optional override for the "Tester" action.
+   * Receives the current body and returns { rendered, error? }.
+   * When not provided, a local mock renderer is used.
+   */
+  onTest?: (body: string) => Promise<{ rendered: string; error?: string }>;
 }
 
-/** Minimal mock resolvers for the "Test" preview feature. */
+/** Minimal mock resolvers for the local "Test" preview feature. */
 function buildMockResolvers(): TemplateResolvers {
   return {
     promptUser: async (q, def) => def ?? `[${q}]`,
@@ -25,7 +30,7 @@ function buildMockResolvers(): TemplateResolvers {
   };
 }
 
-export function TemplateEditor({ template, onSave }: TemplateEditorProps) {
+export function TemplateEditor({ template, onSave, onTest }: TemplateEditorProps) {
   const [name, setName] = useState(template.name);
   const [entityType, setEntityType] = useState(template.entityType ?? "");
   const [body, setBody] = useState(template.body);
@@ -43,23 +48,38 @@ export function TemplateEditor({ template, onSave }: TemplateEditorProps) {
     setIsRendering(true);
     setPreviewError(null);
     try {
-      const result = await renderTemplate(
-        { ...template, body },
-        { resolvers: buildMockResolvers(), now: new Date() },
-      );
-      setPreview(result.body);
+      if (onTest) {
+        // Use tRPC backend renderer
+        const result = await onTest(body);
+        if (result.error) {
+          setPreviewError(result.error);
+          setPreview(null);
+        } else {
+          setPreview(result.rendered);
+        }
+      } else {
+        // Local mock renderer fallback
+        const result = await renderTemplate(
+          { ...template, body },
+          { resolvers: buildMockResolvers(), now: new Date() },
+        );
+        setPreview(result.body);
+      }
     } catch (e) {
       setPreviewError(e instanceof Error ? e.message : String(e));
       setPreview(null);
     } finally {
       setIsRendering(false);
     }
-  }, [template, body]);
+  }, [onTest, template, body]);
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
+      <div
+        className="flex items-center justify-between px-6 py-4"
+        style={{ borderBottom: "1px solid var(--border-subtle)" }}
+      >
         <input
           type="text"
           value={name}
@@ -91,11 +111,14 @@ export function TemplateEditor({ template, onSave }: TemplateEditorProps) {
 
       <div className="flex flex-1 overflow-hidden">
         {/* Left: form */}
-        <div className="flex flex-col gap-4 overflow-y-auto p-6" style={{ width: 320, borderRight: "1px solid var(--border-subtle)" }}>
+        <div
+          className="flex flex-col gap-4 overflow-y-auto p-6"
+          style={{ width: 320, borderRight: "1px solid var(--border-subtle)" }}
+        >
           {/* Entity type */}
           <div>
             <label className="mb-1 block text-xs font-medium" style={{ color: "var(--text-muted)" }}>
-              Type d'entité cible
+              Type d&apos;entité cible
             </label>
             <input
               type="text"
@@ -152,7 +175,10 @@ export function TemplateEditor({ template, onSave }: TemplateEditorProps) {
             style={{
               backgroundColor: "var(--surface-0)",
               color: "var(--text-primary)",
-              borderBottom: preview !== null || previewError !== null ? "1px solid var(--border-subtle)" : undefined,
+              borderBottom:
+                preview !== null || previewError !== null
+                  ? "1px solid var(--border-subtle)"
+                  : undefined,
             }}
             aria-label="Corps du template"
             spellCheck={false}
@@ -163,9 +189,15 @@ export function TemplateEditor({ template, onSave }: TemplateEditorProps) {
             </div>
           )}
           {preview !== null && !previewError && (
-            <div className="overflow-y-auto p-6" style={{ maxHeight: "40%", backgroundColor: "var(--surface-1)" }}>
-              <p className="mb-2 text-[10px] font-medium uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>
-                Apercu rendu
+            <div
+              className="overflow-y-auto p-6"
+              style={{ maxHeight: "40%", backgroundColor: "var(--surface-1)" }}
+            >
+              <p
+                className="mb-2 text-[10px] font-medium uppercase tracking-wider"
+                style={{ color: "var(--text-muted)" }}
+              >
+                Aperçu rendu
               </p>
               <pre className="whitespace-pre-wrap font-mono text-xs" style={{ color: "var(--text-primary)" }}>
                 {preview}

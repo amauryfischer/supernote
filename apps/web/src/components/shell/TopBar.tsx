@@ -1,6 +1,7 @@
 "use client";
 
 import { CaretRight, Command, Plus, SidebarSimple } from "@phosphor-icons/react";
+import { memo, useCallback, useMemo } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { trpc } from "@/lib/trpc/client";
 import { useShellChrome } from "./shell-chrome-context";
@@ -49,24 +50,32 @@ function useEntityName(id: string | null): string | null {
 
 function usePathSegments(): BreadcrumbSegment[] {
   const pathname = usePathname();
-  const parts = pathname.split("/").filter(Boolean);
-  if (parts.length === 0) return [{ label: "Accueil" }];
+  return useMemo(() => {
+    const parts = pathname.split("/").filter(Boolean);
+    if (parts.length === 0) return [{ label: "Accueil" }];
 
-  const segments: BreadcrumbSegment[] = [];
-  let accumulated = "";
+    const segments: BreadcrumbSegment[] = [];
+    let accumulated = "";
 
-  for (const part of parts) {
-    accumulated += `/${part}`;
-    const label = ROUTE_LABELS[part];
-    segments.push({ label: label ?? part, href: accumulated });
-  }
+    for (const part of parts) {
+      accumulated += `/${part}`;
+      const label = ROUTE_LABELS[part];
+      segments.push({ label: label ?? part, href: accumulated });
+    }
 
-  return segments;
+    return segments;
+  }, [pathname]);
 }
 
 // ── Single segment — resolves entity name for ID-like labels ─────────────────
 
-function BreadcrumbSegmentItem({ segment, isLast }: { segment: BreadcrumbSegment; isLast: boolean }) {
+const BreadcrumbSegmentItem = memo(function BreadcrumbSegmentItem({
+  segment,
+  isLast,
+}: {
+  segment: BreadcrumbSegment;
+  isLast: boolean;
+}) {
   const isId = !(segment.label in ROUTE_LABELS) && segment.label.length > 8 && !/\s/.test(segment.label);
   const resolvedName = useEntityName(isId ? segment.label : null);
   const label = resolvedName ?? segment.label;
@@ -79,11 +88,11 @@ function BreadcrumbSegmentItem({ segment, isLast }: { segment: BreadcrumbSegment
       {label}
     </span>
   );
-}
+});
 
 // ── Breadcrumb bar ────────────────────────────────────────────────────────────
 
-function Breadcrumb() {
+const Breadcrumb = memo(function Breadcrumb() {
   const segments = usePathSegments();
   if (segments.length === 0) return null;
 
@@ -99,22 +108,22 @@ function Breadcrumb() {
       ))}
     </nav>
   );
-}
+});
 
 // ── TopBar ────────────────────────────────────────────────────────────────────
 
-export function TopBar() {
+export const TopBar = memo(function TopBar() {
   const { toggleRightPanel, rightPanelVisible, requestNewNote } = useShellChrome();
   const router = useRouter();
   const pathname = usePathname();
 
-  const handleNewNote = () => {
+  const handleNewNote = useCallback(() => {
     if (pathname === "/") {
       requestNewNote();
     } else {
       router.push("/?new=true");
     }
-  };
+  }, [pathname, requestNewNote, router]);
 
   return (
     <header
@@ -182,4 +191,4 @@ export function TopBar() {
       </div>
     </header>
   );
-}
+});

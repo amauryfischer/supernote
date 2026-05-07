@@ -18,6 +18,7 @@ import {
   type Icon as PhosphorIcon,
 } from "@phosphor-icons/react";
 import Link from "next/link";
+import { memo, useCallback } from "react";
 import { usePathname } from "next/navigation";
 
 interface NavItem {
@@ -62,7 +63,7 @@ const NAV_GROUPS: NavGroup[] = [
   },
 ];
 
-function NavLink({ item, active }: { item: NavItem; active: boolean }) {
+const NavLink = memo(function NavLink({ item, active }: { item: NavItem; active: boolean }) {
   return (
     <Link
       href={item.href}
@@ -81,13 +82,15 @@ function NavLink({ item, active }: { item: NavItem; active: boolean }) {
       {item.label}
     </Link>
   );
-}
+});
 
-export function Sidebar() {
+export const Sidebar = memo(function Sidebar() {
   const pathname = usePathname();
 
-  const isActive = (href: string) =>
-    href === "/" ? pathname === "/" : pathname.startsWith(href);
+  const isActive = useCallback(
+    (href: string) => (href === "/" ? pathname === "/" : pathname.startsWith(href)),
+    [pathname],
+  );
 
   return (
     <aside
@@ -171,4 +174,4 @@ export function Sidebar() {
       </div>
     </aside>
   );
-}
+});

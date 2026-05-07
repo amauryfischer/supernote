@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft, Plus } from "@phosphor-icons/react";
 import { AppShell } from "@/components/shell";
 import { ViewKindPicker, ENTITY_TYPES } from "@/components/views";
+import { trpc } from "@/lib/trpc/client";
 import type { ViewKind } from "@supernote/views";
 
 export default function NouvelleVuePage() {
@@ -14,15 +15,31 @@ export default function NouvelleVuePage() {
   const [entityTypeId, setEntityTypeId] = useState<string>(Object.keys(ENTITY_TYPES)[0] ?? "contact");
   const [error, setError] = useState<string | null>(null);
 
+  const saveMutation = trpc.views.save.useMutation({
+    onSuccess: (v) => router.push(`/vues/${v.id}`),
+    onError: (err) => {
+      // Fallback: if IPC unavailable, navigate to a mock page
+      if (err.message.includes("mode dégradé") || err.message.includes("non disponible")) {
+        const newId = `view-new-${Date.now()}`;
+        router.push(`/vues/${newId}`);
+      } else {
+        setError(err.message);
+      }
+    },
+  });
+
   const handleCreate = () => {
     if (!name.trim()) {
       setError("Le nom de la vue est requis.");
       return;
     }
-    // In production, this would call tRPC to persist the view.
-    // For now, redirect to a mock edit page.
-    const newId = `view-new-${Date.now()}`;
-    router.push(`/vues/${newId}`);
+    setError(null);
+    saveMutation.mutate({
+      name: name.trim(),
+      type: kind as "table" | "kanban" | "gallery" | "calendar" | "timeline" | "graph" | "map" | "dashboard",
+      typeId: entityTypeId,
+      config: {},
+    });
   };
 
   return (
@@ -90,7 +107,7 @@ export default function NouvelleVuePage() {
                 className="text-sm font-medium"
                 style={{ color: "var(--text-secondary)" }}
               >
-                Type d&apos;entite cible
+                Type d&apos;entité cible
               </label>
               <select
                 id="entity-type"
@@ -111,10 +128,7 @@ export default function NouvelleVuePage() {
 
             {/* Kind picker */}
             <div className="flex flex-col gap-1.5">
-              <span
-                className="text-sm font-medium"
-                style={{ color: "var(--text-secondary)" }}
-              >
+              <span className="text-sm font-medium" style={{ color: "var(--text-secondary)" }}>
                 Type de vue
               </span>
               <ViewKindPicker value={kind} onChange={setKind} />
@@ -123,11 +137,12 @@ export default function NouvelleVuePage() {
             {/* Submit */}
             <button
               onClick={handleCreate}
-              className="flex items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-semibold transition-opacity hover:opacity-80"
+              disabled={saveMutation.isPending}
+              className="flex items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-semibold transition-opacity hover:opacity-80 disabled:opacity-50"
               style={{ backgroundColor: "var(--accent)", color: "white" }}
             >
               <Plus size={15} weight="bold" />
-              Creer la vue
+              {saveMutation.isPending ? "Création…" : "Créer la vue"}
             </button>
           </div>
         </div>

@@ -22,8 +22,10 @@ export function TrpcProvider({ children }: TrpcProviderProps) {
       new QueryClient({
         defaultOptions: {
           queries: {
-            staleTime: 10_000,
+            staleTime: 30_000,
+            gcTime: 5 * 60_000,
             retry: false,
+            refetchOnWindowFocus: false,
           },
         },
       }),

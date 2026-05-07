@@ -6,6 +6,7 @@ import { relationsRouter } from "./relations.router.js";
 import { tagsRouter } from "./tags.router.js";
 import { viewsRouter } from "./views.router.js";
 import { automationsRouter, routinesRouter } from "./automations.router.js";
+import { templatesRouter } from "./templates.router.js";
 import { gitRouter } from "./git.router.js";
 import { searchRouter } from "./search.router.js";
 import { systemRouter } from "./system.router.js";
@@ -26,6 +27,7 @@ export const appRouter = router({
   views: viewsRouter,
   automations: automationsRouter,
   routines: routinesRouter,
+  templates: templatesRouter,
   git: gitRouter,
   search: searchRouter,
   system: systemRouter,
@@ -41,6 +43,7 @@ export { relationsRouter, type RelationsRouter } from "./relations.router.js";
 export { tagsRouter, type TagsRouter } from "./tags.router.js";
 export { viewsRouter, type ViewsRouter } from "./views.router.js";
 export { automationsRouter, routinesRouter, type AutomationsRouter, type RoutinesRouter } from "./automations.router.js";
+export { templatesRouter, type TemplatesRouter } from "./templates.router.js";
 export { gitRouter, type GitRouter } from "./git.router.js";
 export { searchRouter, type SearchRouter } from "./search.router.js";
 export { systemRouter, type SystemRouter } from "./system.router.js";

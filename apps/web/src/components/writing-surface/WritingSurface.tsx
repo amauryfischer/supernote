@@ -10,12 +10,13 @@ import {
   Lightning,
   type Icon as PhosphorIcon,
 } from "@phosphor-icons/react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { useShellChrome } from "@/components/shell/shell-chrome-context";
 import { useCreateInboxNote } from "@/hooks/useCreateInboxNote";
-import type { SupernoteEditorProps } from "@supernote/editor";
+import type { SupernoteEditorProps, EntityRef } from "@supernote/editor";
+import { trpc } from "@/lib/trpc/client";
 
 // Dynamic import: BlockNote uses browser-only APIs (ProseMirror, etc.)
 // SSR-safe, same pattern as NoteEditor.tsx
@@ -49,6 +50,13 @@ const QUICK_ACCESS: QuickAccessItem[] = [
  * Uses SupernoteEditor (BlockNote) so the home editor has the same slash menu,
  * block types, and capabilities as /notes/[id].
  */
+/** Derive a display name from entity fields / filePath */
+function entityDisplayName(entity: { fields: Record<string, unknown>; filePath: string }): string {
+  const name = entity.fields["name"] ?? entity.fields["titre"] ?? entity.fields["title"];
+  if (typeof name === "string" && name.length > 0) return name;
+  return entity.filePath.split("/").pop()?.replace(/\.[^.]+$/, "") ?? entity.filePath;
+}
+
 export function WritingSurface() {
   // markdown content as string (driven by BlockNote onChange)
   const [content, setContent] = useState("");
@@ -56,25 +64,57 @@ export function WritingSurface() {
   const [saveToast, setSaveToast] = useState<string | null>(null);
   // editorKey lets us reset the BlockNote instance when exitWriting is called
   const [editorKey, setEditorKey] = useState(0);
-  const shellChrome = useShellChrome();
+  const { setFocusMode, onRequestNewNote } = useShellChrome();
   const router = useRouter();
   const { saveNote, onContentChange, resetNote, isSaving, lastSaved, saveError } =
     useCreateInboxNote();
+
+  // tRPC entity resolvers for slash-menu entity pickers
+  const utils = trpc.useUtils();
+  const resolvers = useMemo(
+    () => ({
+      searchEntities: async (query: string, typeId?: string): Promise<EntityRef[]> => {
+        try {
+          const res = await utils.entities.search.fetch({ query, typeId, limit: 8 });
+          return res.items.map((e) => ({
+            id: e.id,
+            name: entityDisplayName(e),
+            type: e.typeId,
+          }));
+        } catch {
+          return [];
+        }
+      },
+      createEntity: async (typeId: string, name: string): Promise<EntityRef> => {
+        const e = await utils.entities.create.mutate({ typeId, fields: { name } });
+        return { id: e.id, name: entityDisplayName(e), type: e.typeId };
+      },
+      getEntity: async (id: string): Promise<EntityRef | null> => {
+        try {
+          const e = await utils.entities.get.fetch({ id });
+          return { id: e.id, name: entityDisplayName(e), type: e.typeId };
+        } catch {
+          return null;
+        }
+      },
+    }),
+    [utils]
+  );
 
   const isWriting = isFocused || content.length > 0;
 
   // Tell the shell to dim its non-essential UI while the user writes.
   useEffect(() => {
-    shellChrome.setFocusMode(isWriting);
-  }, [isWriting, shellChrome]);
+    setFocusMode(isWriting);
+  }, [isWriting, setFocusMode]);
 
   // Listen for "request new note" events from the topbar / shortcuts
   useEffect(() => {
-    return shellChrome.onRequestNewNote(() => {
+    return onRequestNewNote(() => {
       // Trigger focus on the BlockNote editor via autoFocus — remount if needed
       setEditorKey((k) => k + 1);
     });
-  }, [shellChrome]);
+  }, [onRequestNewNote]);
 
   // Auto-focus when navigated to "/?new=true" (from topbar "Nouveau" on other pages)
   useEffect(() => {
@@ -166,6 +206,7 @@ export function WritingSurface() {
             key={editorKey}
             onChange={handleEditorChange}
             onSave={handleEditorSave}
+            resolvers={resolvers}
             className="min-h-[8rem] w-full"
           />
         </div>

@@ -1,6 +1,7 @@
 "use client";
 
 import { Clock, GitBranch, Sparkle, X } from "@phosphor-icons/react";
+import { memo } from "react";
 import { useRouter } from "next/navigation";
 import { trpc } from "@/lib/trpc/client";
 import { useShellChrome } from "./shell-chrome-context";
@@ -51,7 +52,8 @@ function entityHref(entity: { id: string; typeName: string }): string {
 function GitStatusFooter() {
   const { data, isError } = trpc.git.status.useQuery(undefined, {
     retry: false,
-    staleTime: 30_000,
+    staleTime: 60_000,
+    gcTime: 5 * 60_000,
   });
 
   const text =
@@ -77,7 +79,7 @@ function RecentList() {
   const router = useRouter();
   const { data, isError, isLoading } = trpc.entities.list.useQuery(
     { limit: 5, sortBy: "updatedAt", sortOrder: "desc" },
-    { retry: false, staleTime: 60_000 },
+    { retry: false, staleTime: 120_000, gcTime: 10 * 60_000 },
   );
 
   if (isLoading) {
@@ -131,7 +133,7 @@ function RecentList() {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function RightPanel() {
+export const RightPanel = memo(function RightPanel() {
   const { setRightPanelVisible } = useShellChrome();
 
   return (
@@ -205,4 +207,4 @@ export function RightPanel() {
       </div>
     </aside>
   );
-}
+});

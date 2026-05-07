@@ -3,10 +3,46 @@
 import { AppShell } from "@/components/shell";
 import { TemplateEditor, TemplateList } from "@/components/templates";
 import { SEED_TEMPLATES } from "@supernote/templates";
+import { trpc } from "@/lib/trpc/client";
 import type { Template } from "@supernote/templates";
-import { useState, useEffect } from "react";
-import { EmptyState, SkeletonText } from "@supernote/ui";
-import { BookmarkSimple } from "@phosphor-icons/react";
+import type { TemplateIpc } from "@supernote/ipc";
+import { useState, useCallback } from "react";
+
+// ── IPC adapter ───────────────────────────────────────────────────────────
+
+function templateFromIpc(t: TemplateIpc): Template {
+  return {
+    id: t.id,
+    name: t.name,
+    description: t.description,
+    icon: t.icon,
+    entityType: t.entityType,
+    body: t.body,
+    frontmatter: t.frontmatter,
+  };
+}
+
+// ── Loading skeleton ──────────────────────────────────────────────────────
+
+function TemplateSidebarSkeleton() {
+  return (
+    <aside
+      className="flex flex-col border-r animate-pulse"
+      style={{ width: 260, minWidth: 260, backgroundColor: "var(--surface-1)", borderColor: "var(--border-subtle)" }}
+    >
+      <div className="px-4 py-3 border-b" style={{ borderColor: "var(--border-subtle)" }}>
+        <div className="h-4 w-24 rounded" style={{ backgroundColor: "var(--surface-3)" }} />
+      </div>
+      <div className="flex-1 p-2 space-y-1">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="h-10 rounded-md" style={{ backgroundColor: "var(--surface-3)" }} />
+        ))}
+      </div>
+    </aside>
+  );
+}
+
+// ── Page ──────────────────────────────────────────────────────────────────
 
 let customIdCounter = 0;
 
@@ -22,76 +58,113 @@ function newCustomTemplate(): Template {
 }
 
 function TemplatesPageContent() {
-  const [isLoading, setIsLoading] = useState(true);
-  const [templates, setTemplates] = useState<Template[]>([...SEED_TEMPLATES]);
+  const listQuery = trpc.templates.list.useQuery({ source: "all" });
+  const saveMutation = trpc.templates.save.useMutation({
+    onSuccess: () => { void listQuery.refetch(); },
+  });
+  const deleteMutation = trpc.templates.delete.useMutation({
+    onSuccess: () => { void listQuery.refetch(); },
+  });
+  const testMutation = trpc.templates.test.useMutation();
+
+  // Fallback: use local state when IPC unavailable
+  const useFallback = listQuery.isError;
+  const [localTemplates, setLocalTemplates] = useState<Template[]>([...SEED_TEMPLATES]);
   const [selectedId, setSelectedId] = useState<string | null>(SEED_TEMPLATES[0]?.id ?? null);
 
-  useEffect(() => {
-    const t = setTimeout(() => setIsLoading(false), 250);
-    return () => clearTimeout(t);
-  }, []);
+  const ipcTemplates: Template[] = (listQuery.data ?? []).map(templateFromIpc);
+  const templates: Template[] = useFallback ? localTemplates : ipcTemplates;
 
   const selected = templates.find((t) => t.id === selectedId) ?? null;
 
-  const handleSave = (updated: Template) => {
-    setTemplates((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
-  };
+  const handleSave = useCallback((updated: Template) => {
+    if (useFallback) {
+      setLocalTemplates((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
+      return;
+    }
+    saveMutation.mutate({
+      id: updated.id,
+      name: updated.name,
+      description: updated.description,
+      icon: updated.icon,
+      entityType: updated.entityType,
+      body: updated.body,
+      frontmatter: updated.frontmatter,
+    });
+  }, [useFallback, saveMutation]);
 
-  const handleNew = () => {
+  const handleNew = useCallback(() => {
     const t = newCustomTemplate();
-    setTemplates((prev) => [...prev, t]);
-    setSelectedId(t.id);
-  };
-
-  if (isLoading) {
-    return (
-      <div className="flex h-full overflow-hidden">
-        <div
-          className="flex w-64 shrink-0 flex-col gap-3 border-r p-4"
-          style={{ backgroundColor: "var(--surface-1)", borderColor: "var(--border-subtle)" }}
-        >
-          {Array.from({ length: 5 }, (_, i) => <SkeletonText key={i} lines={2} />)}
-        </div>
-        <div className="flex-1 p-8">
-          <SkeletonText lines={6} />
-        </div>
-      </div>
+    if (useFallback) {
+      setLocalTemplates((prev) => [...prev, t]);
+      setSelectedId(t.id);
+      return;
+    }
+    // Optimistically add to local then save
+    saveMutation.mutate(
+      { name: t.name, description: t.description, body: t.body },
+      {
+        onSuccess: (saved) => {
+          void listQuery.refetch();
+          setSelectedId(saved.id);
+        },
+      },
     );
-  }
+  }, [useFallback, saveMutation, listQuery]);
 
-  const customTemplates = templates.filter((t) => !SEED_TEMPLATES.some((s) => s.id === t.id));
+  const handleDelete = useCallback((id: string) => {
+    if (!confirm("Supprimer ce template ?")) return;
+    if (useFallback) {
+      setLocalTemplates((prev) => {
+        const next = prev.filter((t) => t.id !== id);
+        if (selectedId === id) setSelectedId(next[0]?.id ?? null);
+        return next;
+      });
+      return;
+    }
+    // Seed templates can't be deleted via IPC
+    deleteMutation.mutate(
+      { id },
+      {
+        onSuccess: () => {
+          void listQuery.refetch();
+          if (selectedId === id) setSelectedId(ipcTemplates[0]?.id ?? null);
+        },
+      },
+    );
+  }, [useFallback, deleteMutation, listQuery, selectedId, ipcTemplates]);
 
   return (
     <div className="flex h-full overflow-hidden">
-      <TemplateList
-        templates={templates}
-        selectedId={selectedId}
-        onSelect={setSelectedId}
-        onNew={handleNew}
-      />
+      {listQuery.isLoading ? (
+        <TemplateSidebarSkeleton />
+      ) : (
+        <TemplateList
+          templates={templates}
+          selectedId={selectedId}
+          onSelect={setSelectedId}
+          onNew={handleNew}
+          onDelete={handleDelete}
+        />
+      )}
 
       <main className="flex-1 overflow-hidden" style={{ backgroundColor: "var(--surface-0)" }}>
         {selected ? (
-          <TemplateEditor key={selected.id} template={selected} onSave={handleSave} />
-        ) : templates.length === 0 ? (
-          <div className="flex h-full items-center justify-center">
-            <EmptyState
-              icon={<BookmarkSimple size={28} />}
-              title="Aucun template"
-              description="Créez vos propres templates pour standardiser vos notes et documents."
-              action={{ label: "+ Nouveau template", onClick: handleNew }}
-            />
-          </div>
-        ) : customTemplates.length === 0 ? (
-          <div className="flex h-full items-center justify-center">
-            <EmptyState
-              icon={<BookmarkSimple size={28} />}
-              title="Crée tes propres templates"
-              description="Les templates seeds sont prêts. Crée un template personnalisé pour aller plus loin."
-              action={{ label: "+ Nouveau template", onClick: handleNew }}
-            />
-          </div>
-        ) : (
+          <TemplateEditor
+            key={selected.id}
+            template={selected}
+            onSave={handleSave}
+            onTest={
+              useFallback
+                ? undefined
+                : (body) =>
+                    testMutation.mutateAsync({ id: selected.id, body }).then((r) => ({
+                      rendered: r.rendered,
+                      error: r.error,
+                    }))
+            }
+          />
+        ) : listQuery.isLoading ? null : (
           <div className="flex h-full items-center justify-center">
             <p className="text-sm" style={{ color: "var(--text-muted)" }}>
               Sélectionnez ou créez un template

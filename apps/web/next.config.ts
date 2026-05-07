@@ -6,6 +6,11 @@ const isStaticExport = process.env["NEXT_BUILD_MODE"] === "export";
 const nextConfig: NextConfig = {
   ...(isStaticExport && { output: "export" }),
 
+  // Disable React Strict Mode to eliminate double-render in dev.
+  // Double-renders are intentional in StrictMode to catch side-effects,
+  // but they inflate perceived latency noticeably in dev.
+  reactStrictMode: false,
+
   // @supernote/* packages are consumed via their pre-built dist/.
   transpilePackages: [],
 
