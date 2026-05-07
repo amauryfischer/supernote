@@ -1,14 +1,13 @@
 "use client";
 
 import { AppShell } from "@/components/shell";
-import { Card } from "@heroui/react";
 import {
-  ArrowRight,
   BookOpen,
   Calendar,
   FileText,
   Hash,
   Layers,
+  PenLine,
   Users,
   Zap,
 } from "lucide-react";
@@ -69,53 +68,50 @@ export default function HomePage() {
           >
             Supernote
           </h1>
-          <p className="mt-2 text-sm" style={{ color: "var(--text-muted)" }}>
-            Votre système de connaissance et CRM personnel · local-first
-          </p>
         </div>
 
-        {/* Empty vault onboarding */}
-        <Card
-          className="mb-8 border p-6"
+        {/* Primary CTA — create a note directly */}
+        <button
+          className="mb-8 flex w-full items-center gap-4 rounded-xl border p-5 text-left transition-colors hover:bg-[var(--surface-2)]"
           style={{
             backgroundColor: "var(--surface-1)",
             borderColor: "var(--border-subtle)",
           }}
         >
-          <Card.Content>
-            <div className="flex items-start gap-4">
-              <div
-                className="mt-0.5 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg"
-                style={{ backgroundColor: "var(--accent-subtle)" }}
-              >
-                <FileText size={18} className="text-[var(--accent)]" />
-              </div>
-              <div>
-                <h2
-                  className="text-sm font-semibold"
-                  style={{ color: "var(--text-primary)" }}
-                >
-                  Vault vide
-                </h2>
-                <p
-                  className="mt-1 text-xs leading-relaxed"
-                  style={{ color: "var(--text-muted)" }}
-                >
-                  Ouvrez un dossier existant ou créez un nouveau vault pour
-                  commencer. Toutes vos données resteront sur votre disque,
-                  au format Markdown.
-                </p>
-                <button
-                  className="mt-3 flex items-center gap-1.5 text-xs font-medium transition-opacity hover:opacity-80"
-                  style={{ color: "var(--accent)" }}
-                >
-                  Ouvrir un vault
-                  <ArrowRight size={12} />
-                </button>
-              </div>
-            </div>
-          </Card.Content>
-        </Card>
+          <div
+            className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg"
+            style={{
+              backgroundColor: "var(--accent)",
+              color: "var(--accent-foreground)",
+            }}
+          >
+            <PenLine size={18} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <h2
+              className="text-sm font-semibold"
+              style={{ color: "var(--text-primary)" }}
+            >
+              Nouvelle note
+            </h2>
+            <p
+              className="mt-0.5 text-xs"
+              style={{ color: "var(--text-muted)" }}
+            >
+              Commencez à écrire — la note sera classée dans Inbox.
+            </p>
+          </div>
+          <kbd
+            className="hidden rounded border px-1.5 py-0.5 text-[10px] font-medium tracking-wide sm:inline-block"
+            style={{
+              borderColor: "var(--border)",
+              color: "var(--text-muted)",
+              backgroundColor: "var(--surface-2)",
+            }}
+          >
+            ⌘ N
+          </kbd>
+        </button>
 
         {/* Quick access grid */}
         <div>

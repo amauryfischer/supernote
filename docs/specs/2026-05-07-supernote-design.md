@@ -472,6 +472,7 @@ supernote/
 - **Chiffrement** : **pas de chiffrement applicatif**. Le vault est en filesystem clair, le chiffrement passe par l'OS si besoin (FileVault, BitLocker, LUKS).
 - **Timeline** : 2 ans en mode agile autonome — itérations IA × humain, vérification à chaque étape, qualité avant vitesse.
 
+- **Onboarding vault** : **pas d'OS picker au premier lancement**. Supernote crée automatiquement un vault par défaut dans `~/Documents/Supernote/` (ou équivalent OS). Le dossier `Inbox/` est le **fourre-tout** par défaut où atterrissent toutes les nouvelles notes créées sans contexte. L'utilisateur peut déplacer le vault ou en ajouter d'autres dans les settings, mais il n'a pas à choisir au premier lancement. **CTA principale homepage = "Nouvelle note"** (pas "Ouvrir un vault").
+
 ### Encore à trancher (à itérer)
-- Default vault path à la première ouverture (probablement OS picker).
 - Locale par défaut (FR) + i18n générique pour anglais.
