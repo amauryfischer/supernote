@@ -1,6 +1,6 @@
 import { app, BrowserWindow, shell, globalShortcut } from "electron";
 import path from "path";
-import { createWindow, createCaptureWindow } from "./window";
+import { createWindow, createCaptureWindow, stopStandaloneServer } from "./window";
 import { acquireSingleInstanceLock } from "./single-instance";
 import { VaultManager } from "./services/vault-manager";
 import { FileWatcher } from "./services/file-watcher";
@@ -14,6 +14,7 @@ import {
 } from "./services/service-registry";
 import { registerTrpcBridge } from "./trpc-bridge";
 import { logger } from "./logger";
+import { setupAutoUpdater } from "./services/auto-updater";
 
 let vaultManager: VaultManager;
 let fileWatcher: FileWatcher;
@@ -43,14 +44,19 @@ function main(): void {
   // can call procedures immediately on load.
   registerTrpcBridge(vaultManager);
 
-  app.whenReady().then(() => {
-    createWindow();
+  app.whenReady().then(async () => {
+    const win = await createWindow();
     logger.info("Supernote desktop ready", { version: app.getVersion() });
+
+    // Wire auto-updater — only in production (packaged) builds.
+    if (app.isPackaged) {
+      setupAutoUpdater(win);
+    }
 
     // Register global shortcut for quick capture — silent on failure (e.g., key already taken)
     try {
       const registered = globalShortcut.register("CommandOrControl+Shift+N", () => {
-        createCaptureWindow();
+        void createCaptureWindow();
       });
       if (!registered) {
         logger.warn("Global shortcut CommandOrControl+Shift+N could not be registered");
@@ -61,7 +67,7 @@ function main(): void {
 
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) {
-        createWindow();
+        void createWindow();
       }
     });
   });
@@ -69,6 +75,7 @@ function main(): void {
   app.on("window-all-closed", () => {
     globalShortcut.unregisterAll();
     fileWatcher.stop();
+    stopStandaloneServer();
     void vaultManager.closeVault();
     if (process.platform !== "darwin") {
       app.quit();

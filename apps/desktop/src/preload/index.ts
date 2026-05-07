@@ -8,7 +8,7 @@
  * Only the explicit API surface below is reachable from the renderer.
  */
 
-import { contextBridge, ipcRenderer } from "electron";
+import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
 
 export interface SupernoteIPC {
   /**
@@ -43,6 +43,36 @@ const supernoteIPC: SupernoteIPC = {
 };
 
 contextBridge.exposeInMainWorld("__supernoteIPC", supernoteIPC);
+
+// ── Auto-updater bridge ────────────────────────────────────────────────────
+
+export interface UpdaterAPI {
+  /** Register a listener called when an update is available. */
+  onUpdateAvailable: (cb: (info: unknown) => void) => () => void;
+  /** Register a listener called when an update has been downloaded. */
+  onUpdateDownloaded: (cb: (info: unknown) => void) => () => void;
+  /** Trigger immediate download of an available update. */
+  downloadUpdate: () => Promise<void>;
+  /** Quit and install a downloaded update immediately. */
+  quitAndInstall: () => void;
+}
+
+const updaterAPI: UpdaterAPI = {
+  onUpdateAvailable: (cb) => {
+    const handler = (_event: IpcRendererEvent, info: unknown) => cb(info);
+    ipcRenderer.on("update-available", handler);
+    return () => ipcRenderer.removeListener("update-available", handler);
+  },
+  onUpdateDownloaded: (cb) => {
+    const handler = (_event: IpcRendererEvent, info: unknown) => cb(info);
+    ipcRenderer.on("update-downloaded", handler);
+    return () => ipcRenderer.removeListener("update-downloaded", handler);
+  },
+  downloadUpdate: () => ipcRenderer.invoke("updater:download") as Promise<void>,
+  quitAndInstall: () => ipcRenderer.send("updater:quit-and-install"),
+};
+
+contextBridge.exposeInMainWorld("__supernoteUpdater", updaterAPI);
 
 // ── Global type augmentation (used by the renderer) ───────────────────────
 // Declare the type in global.d.ts next to this file.

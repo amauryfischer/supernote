@@ -148,3 +148,76 @@ Si une release est défectueuse :
 3. Supernote ouvre un vault avec `PRAGMA user_version` supérieur à `EXPECTED_DB_VERSION` → affiche un warning et refuse d'ouvrir pour éviter la corruption
 
 C'est pourquoi les migrations DB sont toujours additives : elles n'empêchent pas une version antérieure de lire les données (les nouvelles colonnes sont ignorées par les vieilles versions).
+
+---
+
+## Code signing & notarization
+
+### Certificat macOS — Apple Developer Program
+
+1. Rejoindre l'**Apple Developer Program** sur https://developer.apple.com/programs/ (~99 $/an).
+2. Dans Xcode → Preferences → Accounts : ajouter ton Apple ID et télécharger le certificat
+   **Developer ID Application** (valable 5 ans, pour distribuer hors Mac App Store).
+3. Exporter le certificat depuis Keychain Access → `.p12` (avec un mot de passe fort).
+4. Pour CI/CD, encoder en base64 : `base64 -i cert.p12 | pbcopy` puis coller dans GitHub Secrets.
+
+Variables d'environnement attendues dans la CI :
+- `MAC_CSC_LINK` — chemin local ou base64 du `.p12` (electron-builder le détecte automatiquement)
+- `MAC_CSC_KEY_PASSWORD` — mot de passe du `.p12`
+- `APPLE_ID` — ton Apple ID (ex. `amaury.fischer@numerisk.fr`)
+- `APPLE_APP_SPECIFIC_PASSWORD` — mot de passe spécifique à l'app généré sur https://appleid.apple.com
+- `APPLE_TEAM_ID` — identifiant d'équipe à 10 caractères (visible sur developer.apple.com → Membership)
+
+Dans `electron-builder.yml` (section `mac`), décommenter et remplir :
+```yaml
+identity: "Developer ID Application: Numerisk (<TeamID>)"
+notarize: false   # passer à true
+afterSign: scripts/notarize.js
+```
+
+### Certificat Windows — Code Signing
+
+1. Obtenir un certificat **Extended Validation (EV)** ou **OV** auprès d'une autorité de certification reconnue :
+   - **Sectigo / Comodo** — ~300 $/an (OV), ~500 $/an (EV recommandé pour éviter SmartScreen)
+   - **DigiCert**, **GlobalSign** — alternatives similaires
+2. Recevoir le `.pfx` (certificat + clé privée) et le protéger avec un mot de passe fort.
+3. Pour CI/CD, encoder en base64 : `base64 -w 0 cert.pfx` puis coller dans GitHub Secrets.
+
+Variables d'environnement attendues :
+- `WIN_CSC_LINK` — chemin local ou base64 du `.pfx`
+- `WIN_CSC_KEY_PASSWORD` — mot de passe du `.pfx`
+
+Dans `electron-builder.yml` (section `win`), décommenter :
+```yaml
+certificateFile: ${env.WIN_CSC_LINK}
+certificatePassword: ${env.WIN_CSC_KEY_PASSWORD}
+signingHashAlgorithms: [sha256]
+```
+
+### Configuration des GitHub Secrets
+
+Dans les paramètres du repo GitHub → **Settings → Secrets and variables → Actions**, ajouter :
+
+| Secret | Description |
+|--------|-------------|
+| `MAC_CSC_LINK` | Certificat macOS (.p12) encodé en base64 |
+| `MAC_CSC_KEY_PASSWORD` | Mot de passe du .p12 macOS |
+| `WIN_CSC_LINK` | Certificat Windows (.pfx) encodé en base64 |
+| `WIN_CSC_KEY_PASSWORD` | Mot de passe du .pfx Windows |
+| `APPLE_ID` | Apple ID pour la notarisation |
+| `APPLE_APP_SPECIFIC_PASSWORD` | Mot de passe spécifique app Apple |
+| `APPLE_TEAM_ID` | Team ID Apple (10 caractères) |
+| `GH_TOKEN` | GitHub token avec permission `write:packages` pour publier les releases |
+
+### Script de notarization macOS
+
+Le fichier `scripts/notarize.js` est appelé automatiquement par electron-builder après la signature
+(via `afterSign` dans `electron-builder.yml`). Il requiert `@electron/notarize` :
+
+```bash
+pnpm --filter @supernote/desktop add -D @electron/notarize
+```
+
+Le script est non-bloquant : si les variables d'env ne sont pas définies ou si la notarisation
+échoue, il logue un avertissement sans faire échouer le build. Cela permet de faire des builds
+de développement non-signés sans modifier la config.

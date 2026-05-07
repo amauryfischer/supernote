@@ -2,9 +2,6 @@ appId: fr.numerisk.supernote
 productName: Supernote
 copyright: Copyright © 2026 Numerisk
 
-# The compiled entry point produced by electron-vite build
-main: dist/main/index.js
-
 directories:
   output: release
   buildResources: build
@@ -14,10 +11,18 @@ files:
   - "!dist/preload/**/*.map"
   - "!dist/main/**/*.map"
 
-# Static export from Next.js (apps/web/out) is bundled into the app
+# Next.js standalone server bundle (monorepo layout):
+# - standalone/  → app/web-server/          (contains apps/web/server.js)
+# - .next/static → app/web-server/apps/web/.next/static  (client assets)
 extraResources:
-  - from: "../../apps/web/out"
-    to: "app/web"
+  - from: "../../apps/web/.next/standalone-resolved"
+    to: "app/web-server"
+    filter:
+      - "**/*"
+      - "**/.*"
+      - "**/.*/**"
+  - from: "../../apps/web/.next/static"
+    to: "app/web-server/apps/web/.next/static"
     filter:
       - "**/*"
 
@@ -33,6 +38,10 @@ mac:
   hardenedRuntime: true
   gatekeeperAssess: false
   icon: build/icon.icns
+  # Code signing — uncomment and fill in when Developer ID certificate is available.
+  # identity: "Developer ID Application: <Your Name / Org> (<TeamID>)"
+  # notarize: false  # set to true once APPLE_ID + APPLE_APP_SPECIFIC_PASSWORD + APPLE_TEAM_ID are configured
+  # afterSign: scripts/notarize.js
 
 dmg:
   writeUpdateInfo: false
@@ -44,12 +53,21 @@ win:
       arch:
         - x64
   icon: build/icon.ico
+  # Skip PE resource editing (sets version/icon via rcedit which needs wine on Linux).
+  # The default Electron icon and version strings are used. Safe to disable when cross-compiling.
+  signAndEditExecutable: false
+  # Code signing — uncomment when a .pfx certificate is available.
+  # certificateFile: ${env.WIN_CSC_LINK}          # path or base64 of .pfx
+  # certificatePassword: ${env.WIN_CSC_KEY_PASSWORD}
+  # signingHashAlgorithms: [sha256]
 
 nsis:
-  oneClick: false
-  allowToChangeInstallationDirectory: true
+  oneClick: true
+  allowToChangeInstallationDirectory: false
   installerIcon: build/installer.ico
   uninstallerIcon: build/installer.ico
+  # perMachine allows install without UAC prompt for oneClick mode
+  perMachine: false
 
 # Linux
 linux:
@@ -61,5 +79,7 @@ linux:
   category: Office
 
 publish:
-  provider: generic
-  url: https://releases.supernote.app
+  provider: github
+  owner: numerisk
+  repo: supernote
+  releaseType: release
