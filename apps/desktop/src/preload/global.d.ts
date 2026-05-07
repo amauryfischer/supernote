@@ -1,7 +1,15 @@
-import type { ElectronAPI } from "./index";
+/**
+ * Type declarations for the contextBridge-exposed API.
+ * Referenced in the renderer's tsconfig "include" or via triple-slash reference.
+ */
+
+import type { SupernoteIPC } from "./index.js";
 
 declare global {
   interface Window {
-    electronAPI: ElectronAPI;
+    /** tRPC-over-IPC bridge exposed by the preload script. */
+    __supernoteIPC: SupernoteIPC;
   }
 }
+
+export {};

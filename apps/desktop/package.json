@@ -11,6 +11,16 @@
     "lint": "eslint src --ext .ts",
     "typecheck": "tsc --noEmit"
   },
+  "dependencies": {
+    "@supernote/core": "workspace:*",
+    "@supernote/db": "workspace:*",
+    "@supernote/ipc": "workspace:*",
+    "@trpc/server": "^11.17.0",
+    "chokidar": "^4.0.3",
+    "gray-matter": "^4.0.3",
+    "ulid": "^2.3.0",
+    "zod": "^4.4.3"
+  },
   "devDependencies": {
     "@supernote/tsconfig": "workspace:*",
     "@types/node": "^22.10.0",
