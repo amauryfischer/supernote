@@ -12,13 +12,18 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@supernote/ai": "workspace:*",
     "@supernote/automations": "workspace:*",
     "@supernote/core": "workspace:*",
     "@supernote/db": "workspace:*",
+    "@supernote/finance": "workspace:*",
     "@supernote/git": "workspace:*",
     "@supernote/ipc": "workspace:*",
     "@supernote/notifications": "workspace:*",
+    "@supernote/ocr": "workspace:*",
     "@supernote/search": "workspace:*",
+    "@supernote/templates": "workspace:*",
+    "@supernote/voice": "workspace:*",
     "@trpc/server": "^11.17.0",
     "better-sqlite3": "^11.10.0",
     "chokidar": "^4.0.3",

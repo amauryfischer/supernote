@@ -15,6 +15,10 @@ import path from "node:path";
 import fs from "node:fs/promises";
 import crypto from "node:crypto";
 
+import { createTranscriber } from "@supernote/voice";
+import { createOcrEngine } from "@supernote/ocr";
+import { createOllamaClient, createAutoTagger } from "@supernote/ai";
+
 import { router, publicProcedure } from "@supernote/ipc";
 import {
   OpenVaultInput,
@@ -64,6 +68,15 @@ import {
   ViewSchema,
   SaveViewInput,
   DeleteViewInput,
+  // Templates
+  ListTemplatesInput,
+  ListTemplatesOutput,
+  GetTemplateInput,
+  TemplateSchema as TemplateIpcSchema,
+  SaveTemplateInput,
+  DeleteTemplateInput,
+  TestTemplateInput,
+  TestTemplateOutput,
   // Automations
   ListAutomationsInput,
   ListAutomationsOutput,
@@ -98,8 +111,23 @@ import {
   SemanticSearchInput,
   HybridSearchInput,
   SearchOutput,
+  // System — pricing
+  FetchPriceInput,
+  FetchPriceOutput,
+  // System — new integrations
+  TranscribeAudioInput,
+  TranscribeAudioOutput,
+  OcrImageInput,
+  OcrImageOutput,
+  FetchStockPriceInput,
+  FetchCryptoPriceInput,
+  FetchForexRateInput,
+  LivePriceOutput,
+  OllamaStatusOutput,
 } from "@supernote/ipc";
 import { entityFilePath, serializeEntity } from "@supernote/core";
+import { SEED_TEMPLATES, renderTemplate } from "@supernote/templates";
+import type { Template as CoreTemplate, TemplateResolvers } from "@supernote/templates";
 import {
   ftsQuery,
   indexEntity,
@@ -109,6 +137,8 @@ import {
   EmbeddingEngine,
   DEFAULT_MODEL,
 } from "@supernote/search";
+// @ts-ignore — subpath export resolved at build time by electron-vite (moduleResolution:Node doesn't support it)
+import { createPricingEngine } from "@supernote/finance/pricing";
 import { openRepo } from "@supernote/git";
 import type { GitFileStatus as GitRepoFileStatus } from "@supernote/git";
 import { getNextCronDates } from "@supernote/automations";
@@ -140,6 +170,83 @@ function requirePrisma(): PrismaClient {
   const p = getCurrentPrisma();
   if (!p) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "No vault is currently open" });
   return p;
+}
+
+// Singleton pricing engine (lazy-initialised, uses app userData as cache dir).
+let _pricingEngine: ReturnType<typeof createPricingEngine> | null = null;
+function getPricingEngine(): ReturnType<typeof createPricingEngine> {
+  if (!_pricingEngine) {
+    const cacheDir = path.join(electronApp.getPath("userData"), "price-cache");
+    _pricingEngine = createPricingEngine({ cacheDir, logger });
+  }
+  return _pricingEngine;
+}
+
+// Singleton Ollama client (lazy).
+let _ollamaClient: ReturnType<typeof createOllamaClient> | null = null;
+function getOllamaClient(): ReturnType<typeof createOllamaClient> {
+  if (!_ollamaClient) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    _ollamaClient = createOllamaClient({ logger: logger as any });
+  }
+  return _ollamaClient;
+}
+
+// Singleton Voice transcriber (lazy).
+let _transcriber: ReturnType<typeof createTranscriber> | null = null;
+function getTranscriber(): ReturnType<typeof createTranscriber> {
+  if (!_transcriber) {
+    const modelDir = path.join(electronApp.getPath("userData"), "whisper-models");
+    _transcriber = createTranscriber({ modelDir });
+  }
+  return _transcriber;
+}
+
+// Singleton OCR engine (lazy).
+let _ocrEngine: ReturnType<typeof createOcrEngine> | null = null;
+function getOcrEngine(): ReturnType<typeof createOcrEngine> {
+  if (!_ocrEngine) {
+    const langDir = path.join(electronApp.getPath("userData"), "tessdata");
+    _ocrEngine = createOcrEngine({ langDir });
+  }
+  return _ocrEngine;
+}
+
+/** Copy a source file into a vault asset directory, returning the new path. */
+async function copyToAssets(
+  vaultPath: string,
+  subDir: string,
+  srcPath: string,
+): Promise<string> {
+  const ext = path.extname(srcPath);
+  const id = ulid();
+  const destDir = path.join(vaultPath, "_assets", subDir);
+  await fs.mkdir(destDir, { recursive: true });
+  const destPath = path.join(destDir, `${id}${ext}`);
+  await fs.copyFile(srcPath, destPath);
+  return destPath;
+}
+
+/** Quote a PriceQuote to the LivePriceOutput wire shape. */
+function quoteToLivePrice(q: {
+  ticker: string;
+  symbol: string;
+  price: number;
+  currency: string;
+  asOf: Date | string;
+  source: "yahoo" | "coingecko" | "forex" | "manual" | "cache";
+  metadata?: { name?: string; change24h?: number };
+}) {
+  return {
+    ticker: q.ticker,
+    symbol: q.symbol,
+    price: q.price,
+    currency: q.currency,
+    asOf: q.asOf instanceof Date ? q.asOf.toISOString() : String(q.asOf),
+    source: q.source,
+    name: q.metadata?.name,
+    change24h: q.metadata?.change24h,
+  };
 }
 
 function requireVaultId(): string {
@@ -266,6 +373,73 @@ function emitAutomationEvent(type: DomainEventType, entity: CoreEntity, previous
   void engine.emitEvent(event).catch((err: unknown) => {
     logger.warn("AutomationEngine.emitEvent failed", { type, entityId: entity.id, err: String(err) });
   });
+}
+
+// ── Auto-tagging helper ────────────────────────────────────────────────────
+
+/** Settings key for AI auto-tag toggle (stored in vault .supernote/settings.json). */
+const AUTO_TAG_SETTINGS_KEY = "ai.autoTag";
+
+async function readAutoTagEnabled(vaultPath: string): Promise<boolean> {
+  try {
+    const settingsPath = path.join(vaultPath, ".supernote", "settings.json");
+    const raw = await fs.readFile(settingsPath, "utf-8");
+    const settings = JSON.parse(raw) as Record<string, unknown>;
+    const ai = settings["ai"] as Record<string, unknown> | undefined;
+    return ai?.[AUTO_TAG_SETTINGS_KEY.split(".")[1]!] !== false;
+  } catch {
+    return true; // default to enabled
+  }
+}
+
+async function runAutoTag(
+  prisma: PrismaClient,
+  vaultId: string,
+  row: RawEntityRow,
+  noteContent: string,
+): Promise<void> {
+  const vault = getVaultManager().getCurrentVault();
+  if (!vault) return;
+
+  const autoTagEnabled = await readAutoTagEnabled(vault.path);
+  if (!autoTagEnabled) return;
+
+  const ollama = getOllamaClient();
+  const isAvailable = await ollama.isAvailable();
+  if (!isAvailable) return;
+
+  const existingTagRows = await prisma.tag.findMany({ where: { vaultId }, select: { path: true } });
+  const existingTags = existingTagRows.map((t: { path: string }) => ({ path: t.path, usageCount: 0 }));
+
+  const tagger = createAutoTagger({ ollama, minConfidence: 0.5, preferExisting: true });
+  const suggestions = await tagger.suggest({ noteContent, existingTags });
+
+  const highConfidence = suggestions.filter((s) => s.confidence > 0.5);
+  if (highConfidence.length === 0) return;
+
+  // Upsert tags and link to entity
+  for (const suggestion of highConfidence) {
+    const tagPath = suggestion.tag;
+    const label = tagPath.split("/").pop() ?? tagPath;
+    const tagId = ulid();
+
+    // Ensure tag exists (upsert by vaultId+path unique constraint)
+    const tag = await prisma.tag.upsert({
+      where: { vaultId_path: { vaultId, path: tagPath } },
+      create: { id: tagId, vaultId, path: tagPath, label, parentPath: null },
+      update: {},
+    });
+
+    // Link entity to tag (ignore if already linked)
+    await prisma.entityTag.upsert({
+      where: { entityId_tagId: { entityId: row.id, tagId: tag.id } },
+      create: { entityId: row.id, tagId: tag.id },
+      update: {},
+    }).catch(() => { /* already linked, non-fatal */ });
+  }
+
+  const tagNames = highConfidence.map((s) => `#${s.tag}`).join(", ");
+  logger.info("auto-tag: applied suggestions", { entityId: row.id, tags: tagNames });
 }
 
 // ── Build CoreEntity from DB row for use with @supernote/core serializers ──
@@ -615,6 +789,13 @@ const entitiesRouter = router({
         buildCoreEntity(existingRow, existingRow.entityTags.map((et) => et.tag.path)),
       );
 
+      // Auto-tag via Ollama if body was updated and feature is enabled (fire-and-forget)
+      if (body !== undefined) {
+        void runAutoTag(prisma, requireVaultId(), updatedRow, updatedBody).catch((err: unknown) => {
+          logger.warn("entities.update: auto-tag failed (non-fatal)", { id, err: String(err) });
+        });
+      }
+
       return mapEntityRow(updatedRow);
     }),
 
@@ -857,6 +1038,12 @@ const schemasRouter = router({
 // ── System router ──────────────────────────────────────────────────────────
 
 const systemRouter = router({
+  getDefaultVaultPath: publicProcedure
+    .output(z.object({ path: z.string() }))
+    .query(() => ({
+      path: path.join(electronApp.getPath("documents"), "Supernote"),
+    })),
+
   getAppInfo: publicProcedure
     .output(AppInfoSchema)
     .query(() => ({
@@ -914,6 +1101,116 @@ const systemRouter = router({
         return { paths: result.canceled ? [] : result.filePaths };
       }),
   }),
+
+  /** Fetch live market price for a stock ticker or crypto coin id. */
+  fetchPrice: publicProcedure
+    .input(FetchPriceInput)
+    .output(FetchPriceOutput)
+    .query(async (opts) => {
+      const engine = getPricingEngine();
+      const { ticker, isCrypto, vsCurrency } = opts.input;
+      const result = isCrypto
+        ? await engine.fetchCrypto(ticker, vsCurrency)
+        : await engine.fetchStock(ticker);
+      if (!result.ok) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: result.error.message,
+        });
+      }
+      const q = result.value;
+      return {
+        ticker: q.ticker,
+        symbol: q.symbol,
+        price: q.price,
+        currency: q.currency,
+        asOf: q.asOf instanceof Date ? q.asOf.toISOString() : String(q.asOf),
+        source: q.source,
+        name: q.metadata?.name,
+        change24h: q.metadata?.change24h,
+      };
+    }),
+
+  /** Transcribe an audio file via Whisper. Copies it to _assets/audio/ first. */
+  transcribeAudio: publicProcedure
+    .input(TranscribeAudioInput)
+    .output(TranscribeAudioOutput)
+    .mutation(async (opts) => {
+      const vaultPath = requireVaultPath();
+      const { filePath, language } = opts.input;
+      const assetPath = await copyToAssets(vaultPath, "audio", filePath);
+      const transcriber = getTranscriber();
+      const result = await transcriber.transcribe(assetPath, { language });
+      return {
+        text: result.text,
+        language: result.language,
+        segments: result.segments,
+        duration: result.duration,
+        assetPath,
+      };
+    }),
+
+  /** Run OCR on an image. Copies it to _assets/images/ first. */
+  ocrImage: publicProcedure
+    .input(OcrImageInput)
+    .output(OcrImageOutput)
+    .mutation(async (opts) => {
+      const vaultPath = requireVaultPath();
+      const assetPath = await copyToAssets(vaultPath, "images", opts.input.filePath);
+      const engine = getOcrEngine();
+      const result = await engine.recognize(assetPath);
+      return { text: result.text, confidence: result.confidence, assetPath };
+    }),
+
+  /** Fetch live stock price via Yahoo Finance (10 s timeout). */
+  fetchStockPrice: publicProcedure
+    .input(FetchStockPriceInput)
+    .output(LivePriceOutput)
+    .mutation(async (opts) => {
+      const result = await getPricingEngine().fetchStock(opts.input.ticker);
+      if (!result.ok) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: result.error.message });
+      }
+      return quoteToLivePrice(result.value);
+    }),
+
+  /** Fetch live crypto price via CoinGecko (10 s timeout). */
+  fetchCryptoPrice: publicProcedure
+    .input(FetchCryptoPriceInput)
+    .output(LivePriceOutput)
+    .mutation(async (opts) => {
+      const result = await getPricingEngine().fetchCrypto(opts.input.symbol, opts.input.vsCurrency);
+      if (!result.ok) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: result.error.message });
+      }
+      return quoteToLivePrice(result.value);
+    }),
+
+  /** Fetch live forex rate via Frankfurter (10 s timeout). */
+  fetchForexRate: publicProcedure
+    .input(FetchForexRateInput)
+    .output(LivePriceOutput)
+    .mutation(async (opts) => {
+      const result = await getPricingEngine().fetchForex(opts.input.from, opts.input.to);
+      if (!result.ok) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: result.error.message });
+      }
+      return quoteToLivePrice(result.value);
+    }),
+
+  /** Check Ollama availability and list installed models. */
+  ollamaStatus: publicProcedure
+    .output(OllamaStatusOutput)
+    .query(async () => {
+      const ollama = getOllamaClient();
+      const available = await ollama.isAvailable();
+      if (!available) return { available: false, models: [] };
+      const models = await ollama.listModels().catch(() => []);
+      return {
+        available: true,
+        models: models.map((m) => ({ name: m.name, size: m.size, digest: m.digest })),
+      };
+    }),
 });
 
 // ── Relations router ───────────────────────────────────────────────────────
@@ -1751,6 +2048,136 @@ const searchRouter = router({
     }),
 });
 
+// ── Templates router ───────────────────────────────────────────────────────
+
+function templatesDir(vaultPath: string): string {
+  return path.join(vaultPath, ".supernote", "templates");
+}
+
+async function readTemplateFile(filePath: string): Promise<CoreTemplate | null> {
+  try {
+    const raw = await fs.readFile(filePath, "utf-8");
+    return JSON.parse(raw) as CoreTemplate;
+  } catch {
+    return null;
+  }
+}
+
+async function writeTemplateFile(dir: string, tpl: CoreTemplate): Promise<void> {
+  await fs.mkdir(dir, { recursive: true });
+  await fs.writeFile(path.join(dir, `${tpl.id}.json`), JSON.stringify(tpl, null, 2), "utf-8");
+}
+
+function buildMockResolvers(): TemplateResolvers {
+  return {
+    promptUser: async (_q, def) => def ?? "[réponse]",
+    selectOption: async (opts) => opts[0] ?? "",
+    pickEntity: async () => ({ id: "mock", label: "Entité mock" }),
+    incrementCounter: async () => 1,
+    runJS: () => "mock",
+    getTemplate: () => null,
+    getVaultInfo: () => ({ name: "Vault", path: "/vault" }),
+    getUserInfo: () => ({ name: "Utilisateur", email: "user@example.com" }),
+  };
+}
+
+const templatesRouter = router({
+  list: publicProcedure
+    .input(ListTemplatesInput)
+    .output(ListTemplatesOutput)
+    .query(async (opts) => {
+      const { source } = opts.input;
+      const seeds = source !== "user"
+        ? SEED_TEMPLATES.map((t) => ({ ...t, source: "seed" as const }))
+        : [];
+      if (source === "seed") return seeds.map((t) => TemplateIpcSchema.parse(t));
+
+      let userTemplates: Array<CoreTemplate & { source: "user" }> = [];
+      try {
+        const vaultPath = requireVaultPath();
+        const dir = templatesDir(vaultPath);
+        const files = await fs.readdir(dir).catch(() => [] as string[]);
+        for (const f of files.filter((n) => n.endsWith(".json"))) {
+          const t = await readTemplateFile(path.join(dir, f));
+          if (t) userTemplates.push({ ...t, source: "user" as const });
+        }
+      } catch {
+        // No vault open — return only seeds
+      }
+
+      return [...seeds, ...userTemplates].map((t) => TemplateIpcSchema.parse(t));
+    }),
+
+  get: publicProcedure
+    .input(GetTemplateInput)
+    .output(TemplateIpcSchema)
+    .query(async (opts) => {
+      const seed = SEED_TEMPLATES.find((t) => t.id === opts.input.id);
+      if (seed) return TemplateIpcSchema.parse({ ...seed, source: "seed" });
+
+      const vaultPath = requireVaultPath();
+      const filePath = path.join(templatesDir(vaultPath), `${opts.input.id}.json`);
+      const t = await readTemplateFile(filePath);
+      if (!t) throw new TRPCError({ code: "NOT_FOUND", message: `Template ${opts.input.id} not found` });
+      return TemplateIpcSchema.parse({ ...t, source: "user" });
+    }),
+
+  save: publicProcedure
+    .input(SaveTemplateInput)
+    .output(TemplateIpcSchema)
+    .mutation(async (opts) => {
+      const vaultPath = requireVaultPath();
+      const dir = templatesDir(vaultPath);
+      const id = opts.input.id ?? ulid();
+      const tpl: CoreTemplate = {
+        id,
+        name: opts.input.name,
+        description: opts.input.description,
+        icon: opts.input.icon,
+        entityType: opts.input.entityType,
+        body: opts.input.body,
+        frontmatter: opts.input.frontmatter,
+      };
+      await writeTemplateFile(dir, tpl);
+      return TemplateIpcSchema.parse({ ...tpl, source: "user" });
+    }),
+
+  delete: publicProcedure
+    .input(DeleteTemplateInput)
+    .output(z.object({ id: z.string(), deleted: z.boolean() }))
+    .mutation(async (opts) => {
+      const vaultPath = requireVaultPath();
+      const filePath = path.join(templatesDir(vaultPath), `${opts.input.id}.json`);
+      try {
+        await fs.unlink(filePath);
+      } catch {
+        throw new TRPCError({ code: "NOT_FOUND", message: `Template ${opts.input.id} not found` });
+      }
+      return { id: opts.input.id, deleted: true };
+    }),
+
+  test: publicProcedure
+    .input(TestTemplateInput)
+    .output(TestTemplateOutput)
+    .mutation(async (opts) => {
+      try {
+        const tpl: CoreTemplate = {
+          id: opts.input.id ?? "preview",
+          name: "Preview",
+          body: opts.input.body,
+          frontmatter: opts.input.frontmatter,
+        };
+        const result = await renderTemplate(tpl, {
+          resolvers: buildMockResolvers(),
+          now: new Date(),
+        });
+        return { rendered: result.body };
+      } catch (e) {
+        return { rendered: "", error: e instanceof Error ? e.message : String(e) };
+      }
+    }),
+});
+
 // ── Root router ────────────────────────────────────────────────────────────
 
 export const appRouterImpl = router({
@@ -1762,6 +2189,7 @@ export const appRouterImpl = router({
   views: viewsRouter,
   automations: automationsRouter,
   routines: routinesRouter,
+  templates: templatesRouter,
   git: gitRouter,
   search: searchRouter,
   system: systemRouter,

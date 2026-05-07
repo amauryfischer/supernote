@@ -53,9 +53,12 @@ function resolveMigrationsDir(): string {
   const candidates = [
     // Production: bundled alongside app resources
     path.join(process.resourcesPath ?? "", "prisma", "migrations"),
-    // Dev / monorepo: relative to this file's location (5 levels up to repo root)
-    path.resolve(__dirname, "..", "..", "..", "..", "..", "packages", "db", "prisma", "migrations"),
-    // Alternative dev path
+    // Dev / monorepo: __dirname is dist/main at runtime, 4 levels up reaches repo root
+    // dist/main -> dist -> desktop -> apps -> amonote (repo root)
+    path.resolve(__dirname, "..", "..", "..", "..", "packages", "db", "prisma", "migrations"),
+    // Fallback: dev launched from apps/desktop (electron-vite dev mode cwd)
+    path.resolve(process.cwd(), "..", "..", "packages", "db", "prisma", "migrations"),
+    // Fallback: launched from repo root
     path.resolve(process.cwd(), "packages", "db", "prisma", "migrations"),
   ];
 

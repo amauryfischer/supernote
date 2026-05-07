@@ -7,6 +7,7 @@
  */
 
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { app } from "electron";
 import { ulid } from "ulid";
@@ -121,11 +122,21 @@ export class VaultManager {
    * - Checks DB integrity (logs warning but does not abort on mild issues).
    * - Creates a Prisma client connected to the vault's own index.db.
    */
-  async openVault(rootPath: string): Promise<VaultRecord> {
-    const absPath = path.resolve(rootPath);
+  /** Expand a leading `~` to the OS home directory. */
+  private static expandTilde(p: string): string {
+    if (p === "~" || p.startsWith("~/") || p.startsWith("~\\")) {
+      return path.join(os.homedir(), p.slice(1));
+    }
+    return p;
+  }
 
+  async openVault(rootPath: string): Promise<VaultRecord> {
+    const absPath = path.resolve(VaultManager.expandTilde(rootPath));
+
+    // Create the vault root directory if it doesn't exist yet (auto-init flow)
     if (!fs.existsSync(absPath)) {
-      throw new Error(`Vault path does not exist: ${absPath}`);
+      fs.mkdirSync(absPath, { recursive: true });
+      logger.info("VaultManager: created vault directory", { absPath });
     }
 
     // Close current vault first (releases existing lock)

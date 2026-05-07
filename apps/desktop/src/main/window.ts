@@ -6,7 +6,8 @@ const WINDOW_HEIGHT = 900;
 
 const IS_DEV = process.env["NODE_ENV"] === "development" || !app.isPackaged;
 const WEB_DEV_URL = "http://localhost:3000";
-const WEB_PROD_PATH = path.join(__dirname, "../../apps/web/out/index.html");
+// __dirname is dist/main at runtime; go up 3 levels to reach apps/, then into web/out/
+const WEB_PROD_PATH = path.join(__dirname, "../../../web/out/index.html");
 
 function getTitleBarOptions(): Partial<Electron.BrowserWindowConstructorOptions> {
   if (process.platform === "darwin") {

@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import webpack from "webpack";
 
 const isStaticExport = process.env["NEXT_BUILD_MODE"] === "export";
 
@@ -17,25 +18,11 @@ const nextConfig: NextConfig = {
   },
 
   // The renderer is browser-only, but several @supernote/* packages contain
-  // Node-only utilities (FS, paths, git, fetch) inside their barrel. We resolve
-  // the `node:*` URI imports to empty modules — the modules that actually use
-  // them only run in the Electron main process, never in the renderer.
+  // Node-only utilities (FS, paths, git, fetch) inside their barrel. We strip
+  // the `node:` URI scheme and provide empty fallbacks — these modules only
+  // execute in the Electron main process, never in the renderer.
   webpack: (config) => {
     config.resolve = config.resolve ?? {};
-    config.resolve.alias = {
-      ...(config.resolve.alias ?? {}),
-      "node:path": false,
-      "node:fs": false,
-      "node:fs/promises": false,
-      "node:os": false,
-      "node:crypto": false,
-      "node:url": false,
-      "node:child_process": false,
-      "node:vm": false,
-      "node:stream": false,
-      "node:zlib": false,
-      "node:util": false,
-    };
     config.resolve.fallback = {
       ...(config.resolve.fallback ?? {}),
       path: false,
@@ -49,7 +36,24 @@ const nextConfig: NextConfig = {
       stream: false,
       zlib: false,
       util: false,
+      buffer: false,
+      assert: false,
+      events: false,
+      net: false,
+      tls: false,
+      http: false,
+      https: false,
+      dns: false,
     };
+
+    config.plugins = config.plugins ?? [];
+    // Rewrite `node:foo` → `foo` so the fallback above can resolve them to empty.
+    config.plugins.push(
+      new webpack.NormalModuleReplacementPlugin(/^node:/, (resource) => {
+        resource.request = resource.request.replace(/^node:/, "");
+      }),
+    );
+
     return config;
   },
 };

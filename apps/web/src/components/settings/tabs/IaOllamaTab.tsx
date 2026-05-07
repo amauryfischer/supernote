@@ -1,6 +1,6 @@
 "use client";
 
-import { Robot, CircleNotch } from "@phosphor-icons/react";
+import { Robot, CircleNotch, CheckCircle, XCircle } from "@phosphor-icons/react";
 import { useState } from "react";
 import { useSettings } from "../SettingsContext";
 import { SettingRow } from "../SettingRow";
@@ -9,8 +9,9 @@ import { NativeSelect } from "../NativeSelect";
 import { ToggleSwitch } from "../ToggleSwitch";
 import { RangeSlider } from "../RangeSlider";
 import type { IaSettings } from "../types";
+import { trpc } from "@/lib/trpc/client";
 
-const OLLAMA_MODELS = [
+const FALLBACK_MODELS = [
   "llama3.2",
   "llama3.2:1b",
   "llama3.1",
@@ -27,28 +28,33 @@ const AI_FEATURES: Array<{
   description: string;
 }> = [
   {
+    key: "autoTagging",
+    label: "Auto-tagging",
+    description: "Tagge automatiquement les notes sauvegardees via Ollama",
+  },
+  {
     key: "autoClassify",
     label: "Auto-classification",
     description: "Classe automatiquement les nouvelles notes par type",
   },
   {
     key: "mentionDetection",
-    label: "Détection de mentions",
-    description: "Détecte @personnes et #lieux dans le texte",
+    label: "Detection de mentions",
+    description: "Detecte @personnes et #lieux dans le texte",
   },
   {
     key: "actionExtraction",
     label: "Extraction d'actions",
-    description: "Identifie les tâches et actions à faire",
+    description: "Identifie les taches et actions a faire",
   },
   {
     key: "dailyBrief",
     label: "Daily brief",
-    description: "Résumé quotidien de votre activité",
+    description: "Resume quotidien de votre activite",
   },
   {
     key: "rag",
-    label: "Recherche sémantique (RAG)",
+    label: "Recherche semantique (RAG)",
     description: "Recherche par sens dans vos notes",
   },
 ];
@@ -61,9 +67,22 @@ export function IaOllamaTab() {
   const updateIa = (patch: Partial<IaSettings>) =>
     updateSettings("ia", { ...ia, ...patch });
 
+  // Live Ollama status query (runs once on mount)
+  const statusQuery = trpc.system.ollamaStatus.useQuery(undefined, {
+    retry: false,
+    staleTime: 30_000,
+  });
+
+  const isAvailable = statusQuery.data?.available ?? false;
+  const liveModels = statusQuery.data?.models.map((m) => m.name) ?? [];
+  const modelOptions = (liveModels.length > 0 ? liveModels : FALLBACK_MODELS).map((m) => ({
+    value: m,
+    label: m,
+  }));
+
   const detectOllama = async () => {
     setDetecting(true);
-    await new Promise((r) => setTimeout(r, 800));
+    await statusQuery.refetch();
     setDetecting(false);
   };
 
@@ -74,29 +93,53 @@ export function IaOllamaTab() {
         description="Configuration de l'intelligence artificielle locale"
         icon={<Robot size={16} />}
       >
-        <SettingRow label="Auto-tagging" description="Activer le tagging automatique des notes">
+        {/* Ollama status banner */}
+        <div
+          className="flex items-center gap-2 rounded-lg border px-3 py-2 text-xs"
+          style={{
+            borderColor: isAvailable ? "var(--success-border, #86efac)" : "var(--border)",
+            backgroundColor: isAvailable ? "var(--success-subtle, #f0fdf4)" : "var(--surface-2)",
+            color: isAvailable ? "var(--success, #16a34a)" : "var(--text-muted)",
+          }}
+        >
+          {statusQuery.isLoading ? (
+            <CircleNotch size={13} className="animate-spin" />
+          ) : isAvailable ? (
+            <CheckCircle size={13} weight="fill" />
+          ) : (
+            <XCircle size={13} weight="fill" />
+          )}
+          <span>
+            {statusQuery.isLoading
+              ? "Verification Ollama..."
+              : isAvailable
+              ? `Ollama actif — ${liveModels.length} modele${liveModels.length !== 1 ? "s" : ""} disponible${liveModels.length !== 1 ? "s" : ""}`
+              : "Ollama non detecte (lancez 'ollama serve')"}
+          </span>
+          <button
+            onClick={detectOllama}
+            disabled={detecting || statusQuery.isLoading}
+            className="ml-auto flex items-center gap-1 rounded border px-2 py-0.5 transition-all hover:opacity-80 disabled:opacity-50"
+            style={{ borderColor: "var(--border)", color: "var(--text-secondary)", backgroundColor: "var(--surface-1)" }}
+          >
+            {detecting && <CircleNotch size={11} className="animate-spin" />}
+            Rafraichir
+          </button>
+        </div>
+
+        <SettingRow label="Activer l'IA" description="Active ou desactive tous les modules IA">
           <ToggleSwitch
-            checked={ia.autoTagging}
-            onChange={(v) => updateIa({ autoTagging: v })}
+            checked={ia.autoTagging || ia.autoClassify}
+            onChange={(v) => updateIa({ autoTagging: v, autoClassify: v })}
           />
         </SettingRow>
 
-        <SettingRow label="Modèle Ollama">
-          <div className="flex items-center gap-2">
-            <NativeSelect
-              value={ia.ollamaModel}
-              onChange={(v) => updateIa({ ollamaModel: v })}
-              options={OLLAMA_MODELS.map((m) => ({ value: m, label: m }))}
-            />
-            <button
-              onClick={detectOllama}
-              className="flex items-center gap-1 rounded-md border px-3 py-1.5 text-xs transition-all hover:opacity-80"
-              style={{ borderColor: "var(--border)", color: "var(--text-secondary)", backgroundColor: "var(--surface-1)" }}
-            >
-              {detecting && <CircleNotch size={12} className="animate-spin" />}
-              Détecter
-            </button>
-          </div>
+        <SettingRow label="Modele Ollama">
+          <NativeSelect
+            value={ia.ollamaModel}
+            onChange={(v) => updateIa({ ollamaModel: v })}
+            options={modelOptions}
+          />
         </SettingRow>
 
         <SettingRow
@@ -114,8 +157,8 @@ export function IaOllamaTab() {
       </SettingSection>
 
       <SettingSection
-        title="Fonctionnalités IA"
-        description="Activez ou désactivez chaque module"
+        title="Fonctionnalites IA"
+        description="Activez ou desactivez chaque module"
       >
         {AI_FEATURES.map(({ key, label, description }) => (
           <SettingRow key={key} label={label} description={description}>
