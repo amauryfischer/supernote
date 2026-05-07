@@ -1,0 +1,492 @@
+// Supernote — Prisma 6 schema
+// datasource: SQLite via @prisma/adapter-better-sqlite3
+// IDs: ULID strings, generated from app code (not via Prisma @default)
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// VAULT
+// ---------------------------------------------------------------------------
+
+model Vault {
+  id          String   @id
+  name        String
+  rootPath    String   @unique
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  entityTypes    EntityType[]
+  relationTypes  RelationType[]
+  entities       Entity[]
+  tags           Tag[]
+  views          View[]
+  templates      Template[]
+  automations    Automation[]
+  formulas       Formula[]
+  workflows      Workflow[]
+  plugins        Plugin[]
+  settings       Setting[]
+  gitCommits     GitCommit[]
+
+  @@map("vault")
+}
+
+// ---------------------------------------------------------------------------
+// SCHEMA LAYER
+// ---------------------------------------------------------------------------
+
+model EntityType {
+  id               String   @id
+  vaultId          String
+  name             String
+  plural           String
+  icon             String?
+  color            String?
+  /// JSON: FieldDefinition[]
+  fields           String   @default("[]")
+  defaultPath      String?
+  fileNamePattern  String?
+  defaultView      String?
+  /// JSON: ValidationRule[]
+  validations      String   @default("[]")
+  /// JSON: string[] — workflow IDs
+  workflowIds      String   @default("[]")
+  isSystem         Boolean  @default(false)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  vault           Vault          @relation(fields: [vaultId], references: [id], onDelete: Cascade)
+  entities        Entity[]
+  sourceRelations RelationType[] @relation("SourceRelationType")
+  targetRelations RelationType[] @relation("TargetRelationType")
+  workflows       Workflow[]
+
+  @@unique([vaultId, name])
+  @@index([vaultId])
+  @@map("entity_type")
+}
+
+model RelationType {
+  id             String      @id
+  vaultId        String
+  forwardLabel   String
+  inverseLabel   String?
+  sourceTypeId   String?
+  targetTypeId   String?
+  /// "ONE_TO_ONE" | "ONE_TO_MANY" | "MANY_TO_MANY"
+  cardinality    String      @default("MANY_TO_MANY")
+  /// JSON: FieldDefinition[] — fields carried on the edge
+  fields         String      @default("[]")
+  isSystem       Boolean     @default(false)
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  vault      Vault           @relation(fields: [vaultId], references: [id], onDelete: Cascade)
+  sourceType EntityType?     @relation("SourceRelationType", fields: [sourceTypeId], references: [id])
+  targetType EntityType?     @relation("TargetRelationType", fields: [targetTypeId], references: [id])
+  edges      RelationEdge[]
+
+  @@index([vaultId])
+  @@index([sourceTypeId])
+  @@index([targetTypeId])
+  @@map("relation_type")
+}
+
+// ---------------------------------------------------------------------------
+// ENTITY & RELATION EDGES
+// ---------------------------------------------------------------------------
+
+model Entity {
+  id           String   @id
+  vaultId      String
+  typeId       String
+  filePath     String
+  /// JSON: Record<string, unknown> — field values
+  fields       String   @default("{}")
+  body         String?
+  fileHash     String?
+  /// JSON: serialized BlockNote/ProseMirror AST
+  astCache     String?
+  /// Semantic embedding stored as JSON array of floats
+  /// Will be migrated to sqlite-vec when available
+  embedding    String?
+  lastEditedBy String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  vault           Vault          @relation(fields: [vaultId], references: [id], onDelete: Cascade)
+  entityType      EntityType     @relation(fields: [typeId], references: [id])
+  sourceEdges     RelationEdge[] @relation("SourceEdge")
+  targetEdges     RelationEdge[] @relation("TargetEdge")
+  entityTags      EntityTag[]
+  mentions        Mention[]      @relation("MentionSource")
+  mentionedIn     Mention[]      @relation("MentionTarget")
+  gitCommits      GitCommit[]
+
+  @@unique([vaultId, filePath])
+  @@index([vaultId, typeId])
+  @@index([vaultId])
+  @@index([typeId])
+  @@map("entity")
+}
+
+model RelationEdge {
+  id             String   @id
+  sourceId       String
+  targetId       String
+  relationTypeId String
+  /// JSON: Record<string, unknown> — values for edge-carried fields
+  fields         String   @default("{}")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  source       Entity       @relation("SourceEdge", fields: [sourceId], references: [id], onDelete: Cascade)
+  target       Entity       @relation("TargetEdge", fields: [targetId], references: [id], onDelete: Cascade)
+  relationType RelationType @relation(fields: [relationTypeId], references: [id], onDelete: Cascade)
+
+  @@index([sourceId])
+  @@index([targetId])
+  @@index([relationTypeId])
+  @@index([sourceId, targetId])
+  @@map("relation_edge")
+}
+
+// ---------------------------------------------------------------------------
+// TAGS
+// ---------------------------------------------------------------------------
+
+model Tag {
+  id        String   @id
+  vaultId   String
+  /// Full hierarchical path, e.g. "client/important"
+  path      String
+  /// Leaf label, e.g. "important"
+  label     String
+  /// Parent path, e.g. "client" (null for root tags)
+  parentPath String?
+  color     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  vault      Vault       @relation(fields: [vaultId], references: [id], onDelete: Cascade)
+  entityTags EntityTag[]
+
+  @@unique([vaultId, path])
+  @@index([vaultId])
+  @@index([vaultId, parentPath])
+  @@map("tag")
+}
+
+model EntityTag {
+  entityId  String
+  tagId     String
+  createdAt DateTime @default(now())
+
+  entity Entity @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  tag    Tag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([entityId, tagId])
+  @@index([tagId])
+  @@map("entity_tag")
+}
+
+// ---------------------------------------------------------------------------
+// MENTIONS (wikilinks, embeds, @-mentions, #tags in body)
+// ---------------------------------------------------------------------------
+
+enum MentionType {
+  WIKILINK
+  EMBED
+  MENTION
+  TAG_REF
+
+  @@map("mention_type")
+}
+
+model Mention {
+  id           String      @id
+  /// Entity that contains the mention
+  sourceId     String
+  /// Entity being referenced (null if target not yet resolved)
+  targetId     String?
+  /// Raw mention text, e.g. "[[Jean Dupont]]"
+  rawText      String
+  mentionType  MentionType
+  /// Character offset in body where mention starts
+  offset       Int?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  source  Entity  @relation("MentionSource", fields: [sourceId], references: [id], onDelete: Cascade)
+  target  Entity? @relation("MentionTarget", fields: [targetId], references: [id])
+
+  @@index([sourceId])
+  @@index([targetId])
+  @@map("mention")
+}
+
+// ---------------------------------------------------------------------------
+// VIEWS & TEMPLATES
+// ---------------------------------------------------------------------------
+
+model View {
+  id          String   @id
+  vaultId     String
+  name        String
+  /// "TABLE" | "KANBAN" | "GALLERY" | "CALENDAR" | "TIMELINE" | "GRAPH" | "MAP" | "DASHBOARD"
+  kind        String
+  /// Entity type this view targets (null = cross-type / custom query)
+  entityTypeId String?
+  /// JSON: ViewConfig — filters, sorts, groupBy, columns, etc.
+  config      String   @default("{}")
+  isDefault   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  vault Vault @relation(fields: [vaultId], references: [id], onDelete: Cascade)
+
+  @@index([vaultId])
+  @@index([vaultId, entityTypeId])
+  @@map("view")
+}
+
+model Template {
+  id           String   @id
+  vaultId      String
+  name         String
+  entityTypeId String?
+  /// JSON: Record<string, unknown> — default field values
+  defaultFields String  @default("{}")
+  /// Markdown body template (may contain {{variable}} placeholders)
+  bodyTemplate  String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  vault Vault @relation(fields: [vaultId], references: [id], onDelete: Cascade)
+
+  @@index([vaultId])
+  @@map("template")
+}
+
+// ---------------------------------------------------------------------------
+// AUTOMATIONS & ROUTINES
+// ---------------------------------------------------------------------------
+
+/// REACTIVE = triggered by entity events
+/// ROUTINE  = user-defined scheduled / alarm-based automation
+enum AutomationKind {
+  REACTIVE
+  ROUTINE
+
+  @@map("automation_kind")
+}
+
+enum AutomationStatus {
+  ACTIVE
+  INACTIVE
+  ERROR
+
+  @@map("automation_status")
+}
+
+model Automation {
+  id          String           @id
+  vaultId     String
+  name        String
+  description String?
+  kind        AutomationKind   @default(REACTIVE)
+  status      AutomationStatus @default(ACTIVE)
+  /// JSON: TriggerConfig — event | cron | alarm | webhook
+  trigger     String           @default("{}")
+  /// JSON: ConditionExpr[]
+  conditions  String           @default("[]")
+  /// JSON: ActionConfig[]
+  actions     String           @default("[]")
+  lastRunAt   DateTime?
+  nextRunAt   DateTime?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  vault Vault          @relation(fields: [vaultId], references: [id], onDelete: Cascade)
+  runs  AutomationRun[]
+
+  @@index([vaultId])
+  @@index([vaultId, kind])
+  @@index([status, nextRunAt])
+  @@map("automation")
+}
+
+enum AutomationRunStatus {
+  RUNNING
+  SUCCESS
+  FAILURE
+  SKIPPED
+
+  @@map("automation_run_status")
+}
+
+model AutomationRun {
+  id           String              @id
+  automationId String
+  status       AutomationRunStatus
+  /// JSON: Record<string, unknown> — triggering event payload
+  triggerPayload String            @default("{}")
+  /// JSON: ActionResult[] — per-action results
+  actionResults  String            @default("[]")
+  errorMessage   String?
+  durationMs     Int?
+  createdAt      DateTime          @default(now())
+
+  automation Automation @relation(fields: [automationId], references: [id], onDelete: Cascade)
+
+  @@index([automationId])
+  @@index([automationId, createdAt])
+  @@map("automation_run")
+}
+
+// ---------------------------------------------------------------------------
+// FORMULA
+// ---------------------------------------------------------------------------
+
+model Formula {
+  id          String   @id
+  vaultId     String
+  name        String
+  description String?
+  /// The formula expression source
+  expression  String
+  /// JSON: string[] — entity type IDs this formula applies to
+  typeScope   String   @default("[]")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  vault Vault @relation(fields: [vaultId], references: [id], onDelete: Cascade)
+
+  @@unique([vaultId, name])
+  @@index([vaultId])
+  @@map("formula")
+}
+
+// ---------------------------------------------------------------------------
+// WORKFLOW (states + transitions per EntityType)
+// ---------------------------------------------------------------------------
+
+model Workflow {
+  id           String   @id
+  vaultId      String
+  entityTypeId String
+  name         String
+  /// JSON: WorkflowState[] — {id, label, color, isFinal}
+  states       String   @default("[]")
+  /// JSON: WorkflowTransition[] — {from, to, label, conditions[], actions[]}
+  transitions  String   @default("[]")
+  isDefault    Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  vault      Vault      @relation(fields: [vaultId], references: [id], onDelete: Cascade)
+  entityType EntityType @relation(fields: [entityTypeId], references: [id])
+
+  @@index([vaultId])
+  @@index([entityTypeId])
+  @@map("workflow")
+}
+
+// ---------------------------------------------------------------------------
+// GIT COMMIT SNAPSHOT
+// ---------------------------------------------------------------------------
+
+model GitCommit {
+  id        String   @id
+  vaultId   String
+  entityId  String?
+  sha       String
+  message   String?
+  author    String?
+  /// ISO8601
+  commitAt  DateTime
+  createdAt DateTime @default(now())
+
+  vault  Vault   @relation(fields: [vaultId], references: [id], onDelete: Cascade)
+  entity Entity? @relation(fields: [entityId], references: [id])
+
+  @@index([vaultId])
+  @@index([entityId])
+  @@index([sha])
+  @@map("git_commit")
+}
+
+// ---------------------------------------------------------------------------
+// PLUGIN
+// ---------------------------------------------------------------------------
+
+model Plugin {
+  id          String   @id
+  vaultId     String
+  slug        String
+  version     String
+  /// JSON: PluginManifest
+  manifest    String   @default("{}")
+  /// JSON: string[] — granted permissions
+  permissions String   @default("[]")
+  isEnabled   Boolean  @default(true)
+  installedAt DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  vault Vault @relation(fields: [vaultId], references: [id], onDelete: Cascade)
+
+  @@unique([vaultId, slug])
+  @@index([vaultId])
+  @@map("plugin")
+}
+
+// ---------------------------------------------------------------------------
+// SETTING (key-value, scoped to vault or global via vaultId=null)
+// ---------------------------------------------------------------------------
+
+model Setting {
+  id        String   @id
+  vaultId   String?
+  key       String
+  /// JSON-encoded value
+  value     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  vault Vault? @relation(fields: [vaultId], references: [id], onDelete: Cascade)
+
+  @@unique([vaultId, key])
+  @@index([vaultId])
+  @@map("setting")
+}
+
+// ---------------------------------------------------------------------------
+// EMBEDDING — semantic vector index
+// Stored as JSON blob of float[] for now; column is ready for sqlite-vec
+// (which expects BLOB with F32 format). When migrating to sqlite-vec, replace
+// the `vector` String with `vector Bytes` and load the extension.
+// ---------------------------------------------------------------------------
+
+model Embedding {
+  id        String   @id
+  entityId  String   @unique
+  model     String
+  /// JSON: number[] — float32 embedding vector
+  vector    String
+  dim       Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([entityId])
+  @@map("embedding")
+}

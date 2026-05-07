@@ -1,0 +1,9 @@
+dist/
+node_modules/
+# Dev database (regenerated via db:migrate)
+prisma/dev.db
+prisma/dev.db-journal
+# Turbo cache
+.turbo/
+# Generated Prisma client (rebuilt by db:generate / postinstall)
+src/generated/
