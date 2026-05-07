@@ -15,6 +15,7 @@ import type { PrismaClient } from "@supernote/db";
 import { createPrismaForVault, disconnectPrisma } from "./prisma-client.js";
 import { VaultLock, isVaultLockedError } from "./vault-lock.js";
 import { applyMigrations, checkIntegrity } from "./vault-migrator.js";
+import { getEncryptedFoldersManager } from "./encrypted-folders.js";
 import { logger } from "../logger.js";
 
 export interface VaultRecord {
@@ -171,6 +172,9 @@ export class VaultManager {
 
     this.currentPrisma = createPrismaForVault(dbPath);
     this.currentVaultId = vault.id;
+
+    // Inform EncryptedFoldersManager about the active vault's .supernote dir
+    getEncryptedFoldersManager().setVaultRoot(supernoteDir);
 
     // Upsert the Vault row in its own SQLite database
     const now = new Date().toISOString();

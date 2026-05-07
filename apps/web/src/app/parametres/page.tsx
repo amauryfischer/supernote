@@ -13,6 +13,7 @@ import {
   Archive,
   Info,
   FloppyDisk,
+  ShieldCheck,
 } from "@phosphor-icons/react";
 import { AppShell } from "@/components/shell";
 import {
@@ -28,6 +29,7 @@ import {
   NotificationsTab,
   BackupTab,
   AboutTab,
+  SecurityTab,
 } from "@/components/settings";
 import type { SettingsTab } from "@/components/settings";
 import { useTranslations } from "next-intl";
@@ -48,6 +50,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: "shortcuts", labelKey: "settings.tabs.shortcuts", icon: Keyboard },
   { id: "notifications", labelKey: "settings.tabs.notifications", icon: Bell },
   { id: "backup", labelKey: "settings.tabs.backup", icon: Archive },
+  { id: "securite", labelKey: "settings.tabs.securite", icon: ShieldCheck },
   { id: "about", labelKey: "settings.tabs.about", icon: Info },
 ];
 
@@ -62,6 +65,7 @@ function TabContent({ active }: { active: SettingsTab }) {
     case "shortcuts": return <ShortcutsTab />;
     case "notifications": return <NotificationsTab />;
     case "backup": return <BackupTab />;
+    case "securite": return <SecurityTab />;
     case "about": return <AboutTab />;
   }
 }
@@ -120,7 +124,7 @@ function SettingsContent() {
               {t(activeItem.labelKey)}
             </h1>
           </div>
-          {activeTab !== "about" && (
+          {activeTab !== "about" && activeTab !== "securite" && (
             <button
               onClick={saveSettings}
               disabled={isSaving}

@@ -16,6 +16,7 @@
     "@supernote/ai": "workspace:*",
     "@supernote/automations": "workspace:*",
     "@supernote/core": "workspace:*",
+    "@supernote/crypto": "workspace:*",
     "@supernote/db": "workspace:*",
     "@supernote/finance": "workspace:*",
     "@supernote/git": "workspace:*",

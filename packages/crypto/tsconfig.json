@@ -1,0 +1,9 @@
+{
+  "extends": "@supernote/tsconfig/node.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": "./dist",
+    "paths": {}
+  },
+  "include": ["src/**/*", "tests/**/*"]
+}

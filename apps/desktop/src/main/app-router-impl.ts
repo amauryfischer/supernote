@@ -124,6 +124,11 @@ import {
   FetchForexRateInput,
   LivePriceOutput,
   OllamaStatusOutput,
+  // System — encryption
+  EncryptFolderInput,
+  DecryptFolderInput,
+  UnlockInput,
+  EncryptionStatusOutput,
 } from "@supernote/ipc";
 import { entityFilePath, serializeEntity } from "@supernote/core";
 import { SEED_TEMPLATES, renderTemplate } from "@supernote/templates";
@@ -154,6 +159,7 @@ import {
   getAutomationEngine,
 } from "./services/service-registry.js";
 import { writeEntity, deleteEntity, hashFile } from "./services/file-io.js";
+import { getEncryptedFoldersManager } from "./services/encrypted-folders.js";
 import { openRawDb, closeRawDb } from "./services/raw-db.js";
 import { reindexVault, reindexFile } from "./services/indexer.js";
 import { logger } from "./logger.js";
@@ -1211,6 +1217,61 @@ const systemRouter = router({
         models: models.map((m) => ({ name: m.name, size: m.size, digest: m.digest })),
       };
     }),
+
+  /** Encryption procedures for designated vault folders (age-based). */
+  encryption: router({
+    listEncryptedFolders: publicProcedure
+      .output(EncryptionStatusOutput.shape.encryptedFolders)
+      .query(() => {
+        return getEncryptedFoldersManager().listEncryptedFolders();
+      }),
+
+    encryptFolder: publicProcedure
+      .input(EncryptFolderInput)
+      .output(z.object({ success: z.boolean() }))
+      .mutation(async ({ input }) => {
+        const efm = getEncryptedFoldersManager();
+        await efm.addFolder(input.folderPath);
+        await efm.encryptExistingFiles(input.folderPath, input.passphrase);
+        await efm.unlock(input.passphrase);
+        return { success: true };
+      }),
+
+    decryptFolder: publicProcedure
+      .input(DecryptFolderInput)
+      .output(z.object({ success: z.boolean() }))
+      .mutation(async ({ input }) => {
+        const efm = getEncryptedFoldersManager();
+        await efm.decryptExistingFiles(input.folderPath, input.passphrase);
+        await efm.removeFolder(input.folderPath);
+        return { success: true };
+      }),
+
+    unlock: publicProcedure
+      .input(UnlockInput)
+      .output(z.object({ success: z.boolean() }))
+      .mutation(async ({ input }) => {
+        const success = await getEncryptedFoldersManager().unlock(input.passphrase);
+        return { success };
+      }),
+
+    lock: publicProcedure
+      .output(z.object({ success: z.boolean() }))
+      .mutation(() => {
+        getEncryptedFoldersManager().lock();
+        return { success: true };
+      }),
+
+    status: publicProcedure
+      .output(EncryptionStatusOutput)
+      .query(() => {
+        const efm = getEncryptedFoldersManager();
+        return {
+          unlocked: efm.isUnlocked,
+          encryptedFolders: efm.listEncryptedFolders(),
+        };
+      }),
+  }),
 });
 
 // ── Relations router ───────────────────────────────────────────────────────

@@ -19,6 +19,10 @@ import {
   FetchForexRateInput,
   LivePriceOutput,
   OllamaStatusOutput,
+  EncryptFolderInput,
+  DecryptFolderInput,
+  UnlockInput,
+  EncryptionStatusOutput,
 } from "../schemas/system.js";
 import { z } from "zod";
 
@@ -134,6 +138,54 @@ export const systemRouter = router({
     .query(() => {
       throw notImplemented("system.ollamaStatus");
     }),
+
+  /** Encryption procedures for designated vault folders (age-based). */
+  encryption: router({
+    /** List absolute paths of all encrypted folders. */
+    listEncryptedFolders: publicProcedure
+      .output(z.array(z.string()))
+      .query(() => {
+        throw notImplemented("system.encryption.listEncryptedFolders");
+      }),
+
+    /** Mark a folder as encrypted and cipher all existing files in it. */
+    encryptFolder: publicProcedure
+      .input(EncryptFolderInput)
+      .output(z.object({ success: z.boolean() }))
+      .mutation(() => {
+        throw notImplemented("system.encryption.encryptFolder");
+      }),
+
+    /** Remove the encrypted marker and decipher all files in the folder. */
+    decryptFolder: publicProcedure
+      .input(DecryptFolderInput)
+      .output(z.object({ success: z.boolean() }))
+      .mutation(() => {
+        throw notImplemented("system.encryption.decryptFolder");
+      }),
+
+    /** Unlock the encryption session for the current vault. */
+    unlock: publicProcedure
+      .input(UnlockInput)
+      .output(z.object({ success: z.boolean() }))
+      .mutation(() => {
+        throw notImplemented("system.encryption.unlock");
+      }),
+
+    /** Lock the encryption session (forget cached passphrase). */
+    lock: publicProcedure
+      .output(z.object({ success: z.boolean() }))
+      .mutation(() => {
+        throw notImplemented("system.encryption.lock");
+      }),
+
+    /** Return current encryption session status. */
+    status: publicProcedure
+      .output(EncryptionStatusOutput)
+      .query(() => {
+        throw notImplemented("system.encryption.status");
+      }),
+  }),
 });
 
 export type SystemRouter = typeof systemRouter;

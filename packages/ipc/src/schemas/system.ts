@@ -163,3 +163,28 @@ export const OllamaStatusOutput = z.object({
   })),
 });
 export type OllamaStatusOutput = z.infer<typeof OllamaStatusOutput>;
+
+// ── encryption ───────────────────────────────────────────────────────────────
+
+export const EncryptFolderInput = z.object({
+  folderPath: z.string().min(1),
+  passphrase: z.string().min(1),
+});
+export type EncryptFolderInput = z.infer<typeof EncryptFolderInput>;
+
+export const DecryptFolderInput = z.object({
+  folderPath: z.string().min(1),
+  passphrase: z.string().min(1),
+});
+export type DecryptFolderInput = z.infer<typeof DecryptFolderInput>;
+
+export const UnlockInput = z.object({
+  passphrase: z.string().min(1),
+});
+export type UnlockInput = z.infer<typeof UnlockInput>;
+
+export const EncryptionStatusOutput = z.object({
+  unlocked: z.boolean(),
+  encryptedFolders: z.array(z.string()),
+});
+export type EncryptionStatusOutput = z.infer<typeof EncryptionStatusOutput>;

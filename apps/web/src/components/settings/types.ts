@@ -8,6 +8,7 @@ export type SettingsTab =
   | "shortcuts"
   | "notifications"
   | "backup"
+  | "securite"
   | "about";
 
 export interface GeneralSettings {

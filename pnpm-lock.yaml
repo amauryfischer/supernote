@@ -50,6 +50,9 @@ importers:
       '@supernote/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@supernote/crypto':
+        specifier: workspace:*
+        version: link:../../packages/crypto
       '@supernote/db':
         specifier: workspace:*
         version: link:../../packages/db

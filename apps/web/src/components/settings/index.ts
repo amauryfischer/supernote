@@ -27,3 +27,4 @@ export { ShortcutsTab } from "./tabs/ShortcutsTab";
 export { NotificationsTab } from "./tabs/NotificationsTab";
 export { BackupTab } from "./tabs/BackupTab";
 export { AboutTab } from "./tabs/AboutTab";
+export { SecurityTab } from "./tabs/SecurityTab";

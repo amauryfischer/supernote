@@ -12,6 +12,7 @@ import crypto from "node:crypto";
 import { shell } from "electron";
 import matter from "gray-matter";
 import { logger } from "../logger.js";
+import { getEncryptedFoldersManager } from "./encrypted-folders.js";
 
 type Lock = Promise<void>;
 
@@ -46,14 +47,19 @@ export function hashFile(content: string): string {
   return crypto.createHash("sha256").update(content, "utf-8").digest("hex");
 }
 
-/** Parse a markdown file into frontmatter + body. */
+/** Parse a markdown file into frontmatter + body.
+ *  If the file lives in an encrypted folder, the content is decrypted first. */
 export async function readEntity(absPath: string): Promise<ParsedEntity> {
-  const raw = await fs.promises.readFile(absPath, "utf-8");
+  const efm = getEncryptedFoldersManager();
+  const raw = efm.isEncryptedPath(absPath)
+    ? await efm.readDecrypted(absPath)
+    : await fs.promises.readFile(absPath, "utf-8");
   const { data, content } = matter(raw);
   return { frontmatter: data as Record<string, unknown>, body: content };
 }
 
-/** Atomically write a markdown entity file. */
+/** Atomically write a markdown entity file.
+ *  If the file lives in an encrypted folder, the content is encrypted before write. */
 export async function writeEntity(
   absPath: string,
   frontmatter: Record<string, unknown>,
@@ -61,9 +67,14 @@ export async function writeEntity(
 ): Promise<void> {
   return withLock(absPath, async () => {
     const content = matter.stringify(body, frontmatter);
-    const tmpPath = `${absPath}.${process.pid}.tmp`;
-    await fs.promises.writeFile(tmpPath, content, "utf-8");
-    await fs.promises.rename(tmpPath, absPath);
+    const efm = getEncryptedFoldersManager();
+    if (efm.isEncryptedPath(absPath)) {
+      await efm.writeEncrypted(absPath, content);
+    } else {
+      const tmpPath = `${absPath}.${process.pid}.tmp`;
+      await fs.promises.writeFile(tmpPath, content, "utf-8");
+      await fs.promises.rename(tmpPath, absPath);
+    }
     logger.debug("writeEntity", { absPath });
   });
 }
