@@ -6,19 +6,25 @@ import {
   FileTree,
   FOLDERS,
   NOTES,
+  NoteEditor,
   NoteList,
+  getNoteById,
   getNotesForFolder,
 } from "@/components/notes";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useState } from "react";
 
-function NotesPageContent() {
+function NoteDetailContent() {
   const router = useRouter();
+  const params = useParams<{ id: string }>();
   const searchParams = useSearchParams();
   const folderParam = searchParams.get("folder");
 
+  const note = getNoteById(params.id);
+  const defaultFolder = note?.folderPath ?? "Inbox";
+
   const [selectedFolder, setSelectedFolder] = useState<string | null>(
-    folderParam ?? "Inbox",
+    folderParam ?? defaultFolder,
   );
   const [allNotes, setAllNotes] = useState(NOTES);
 
@@ -48,8 +54,12 @@ function NotesPageContent() {
   }, []);
 
   const handleSelectNote = useCallback((id: string) => {
-    router.push(`/notes/${id}`);
-  }, [router]);
+    const target = allNotes.find((n) => n.id === id);
+    const q = target?.folderPath
+      ? `?folder=${encodeURIComponent(target.folderPath)}`
+      : "";
+    router.push(`/notes/${id}${q}`);
+  }, [allNotes, router]);
 
   const folderName = selectedFolder
     ? selectedFolder.split("/").pop() ?? selectedFolder
@@ -67,7 +77,7 @@ function NotesPageContent() {
 
       <NoteList
         notes={notes}
-        selectedNoteId={null}
+        selectedNoteId={params.id}
         folderName={folderName}
         onSelectNote={handleSelectNote}
       />
@@ -76,23 +86,31 @@ function NotesPageContent() {
         className="flex flex-1 flex-col overflow-hidden"
         style={{ backgroundColor: "var(--surface-0)" }}
       >
-        <EmptyEditor onNewNote={handleNewNote} />
+        {note ? (
+          <NoteEditor note={note} />
+        ) : (
+          <EmptyEditor onNewNote={handleNewNote} />
+        )}
       </div>
     </div>
   );
 }
 
-export default function NotesPage() {
+interface NoteDetailPageProps {
+  params: Promise<{ id: string }>;
+}
+
+export default function NoteDetailPage(_props: NoteDetailPageProps) {
   return (
     <AppShell>
-      <Suspense fallback={<NotesPageSkeleton />}>
-        <NotesPageContent />
+      <Suspense fallback={<NoteDetailSkeleton />}>
+        <NoteDetailContent />
       </Suspense>
     </AppShell>
   );
 }
 
-function NotesPageSkeleton() {
+function NoteDetailSkeleton() {
   return (
     <div className="flex h-full overflow-hidden">
       <div

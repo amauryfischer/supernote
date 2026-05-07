@@ -1,0 +1,141 @@
+"use client";
+
+import { ArrowUpDown, FileText, Search, SortAsc } from "lucide-react";
+import { useMemo, useState } from "react";
+import type { Note } from "./fixtures";
+import { NoteListItem } from "./NoteListItem";
+
+type SortKey = "updatedAt" | "title";
+
+interface NoteListProps {
+  notes: Note[];
+  selectedNoteId: string | null;
+  folderName: string | null;
+  onSelectNote: (id: string) => void;
+}
+
+export function NoteList({ notes, selectedNoteId, folderName, onSelectNote }: NoteListProps) {
+  const [query, setQuery] = useState("");
+  const [sortKey, setSortKey] = useState<SortKey>("updatedAt");
+
+  const filtered = useMemo(() => {
+    const q = query.toLowerCase().trim();
+    const matched = q
+      ? notes.filter(
+          (n) =>
+            n.title.toLowerCase().includes(q) ||
+            n.body.toLowerCase().includes(q) ||
+            n.tags.some((t) => t.toLowerCase().includes(q)),
+        )
+      : notes;
+
+    return [...matched].sort((a, b) => {
+      if (sortKey === "title") return a.title.localeCompare(b.title, "fr");
+      return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+    });
+  }, [notes, query, sortKey]);
+
+  const toggleSort = () =>
+    setSortKey((k) => (k === "updatedAt" ? "title" : "updatedAt"));
+
+  return (
+    <div
+      className="flex h-full flex-col border-r"
+      style={{
+        width: 320,
+        minWidth: 320,
+        borderColor: "var(--border-subtle)",
+        backgroundColor: "var(--surface-0)",
+      }}
+    >
+      {/* Header */}
+      <div
+        className="flex items-center justify-between px-4 py-3"
+        style={{ borderBottom: "1px solid var(--border-subtle)" }}
+      >
+        <span
+          className="text-sm font-semibold"
+          style={{ color: "var(--text-primary)" }}
+        >
+          {folderName ?? "Toutes les notes"}
+        </span>
+        <button
+          onClick={toggleSort}
+          aria-label="Changer le tri"
+          className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors hover:bg-[var(--surface-2)]"
+          style={{ color: "var(--text-muted)" }}
+        >
+          {sortKey === "updatedAt" ? <ArrowUpDown size={12} /> : <SortAsc size={12} />}
+          {sortKey === "updatedAt" ? "Date" : "Titre"}
+        </button>
+      </div>
+
+      {/* Search */}
+      <div className="px-3 py-2" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
+        <div className="relative">
+          <Search
+            size={13}
+            className="absolute left-2.5 top-1/2 -translate-y-1/2"
+            style={{ color: "var(--text-muted)" }}
+          />
+          <input
+            type="text"
+            placeholder="Rechercher…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            className="w-full rounded-md py-1.5 pl-8 pr-3 text-xs outline-none"
+            style={{
+              backgroundColor: "var(--surface-2)",
+              color: "var(--text-primary)",
+              border: "1px solid var(--border-subtle)",
+            }}
+          />
+        </div>
+      </div>
+
+      {/* List */}
+      <div className="flex-1 overflow-y-auto">
+        {filtered.length === 0 ? (
+          <EmptyNoteList hasQuery={query.length > 0} />
+        ) : (
+          filtered.map((note) => (
+            <NoteListItem
+              key={note.id}
+              note={note}
+              isActive={note.id === selectedNoteId}
+              onClick={() => onSelectNote(note.id)}
+            />
+          ))
+        )}
+      </div>
+
+      {/* Footer */}
+      <div
+        className="px-4 py-2"
+        style={{ borderTop: "1px solid var(--border-subtle)" }}
+      >
+        <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>
+          {filtered.length} note{filtered.length !== 1 ? "s" : ""}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function EmptyNoteList({ hasQuery }: { hasQuery: boolean }) {
+  return (
+    <div className="flex flex-col items-center justify-center gap-3 p-8 text-center">
+      <FileText size={32} style={{ color: "var(--border)" }} />
+      <div>
+        <p className="text-sm font-medium" style={{ color: "var(--text-secondary)" }}>
+          {hasQuery ? "Aucun résultat" : "Dossier vide"}
+        </p>
+        <p className="mt-1 text-xs" style={{ color: "var(--text-muted)" }}>
+          {hasQuery
+            ? "Essayez un autre terme de recherche"
+            : "Créez votre première note dans ce dossier"}
+        </p>
+      </div>
+    </div>
+  );
+}
