@@ -20,10 +20,38 @@
 .sn-editor-wrapper {
   font-family: var(--font-sans, system-ui, sans-serif);
   color: var(--text-primary, #1a1a2e);
-  background: var(--bg-base, #fff);
+  background: transparent;
 }
 
-/* BlockNote core overrides — inherit our tokens */
+/* Force the BlockNote container/editor to use our light tokens — its default
+ * style.css ships dark-mode background colors that bleed through. We override
+ * with high specificity (no !important needed — selector wins). */
+.sn-editor-wrapper .bn-container,
+.sn-editor-wrapper .bn-default-styles,
+.sn-editor-wrapper .ProseMirror,
+.sn-editor-wrapper .bn-editor {
+  background: var(--surface-0, #fff) !important;
+  background-color: var(--surface-0, #fff) !important;
+  color: var(--text-primary, #1a1a2e) !important;
+  --bn-colors-editor-background: var(--surface-0, #fff);
+  --bn-colors-editor-text: var(--text-primary, #1a1a2e);
+  --bn-colors-menu-background: var(--surface-1, #f8f7ff);
+  --bn-colors-menu-text: var(--text-primary, #1a1a2e);
+  --bn-colors-tooltip-background: var(--surface-2, #f3f0ff);
+  --bn-colors-tooltip-text: var(--text-primary, #1a1a2e);
+  --bn-colors-hovered-background: var(--surface-2, #f3f0ff);
+  --bn-colors-hovered-text: var(--text-primary, #1a1a2e);
+  --bn-colors-selected-background: var(--accent-subtle, rgb(124 58 237 / 0.1));
+  --bn-colors-selected-text: var(--accent, #7c3aed);
+  --bn-colors-disabled-background: var(--surface-2, #f3f0ff);
+  --bn-colors-disabled-text: var(--text-muted, #6b7280);
+  --bn-colors-shadow: rgb(0 0 0 / 0.06);
+  --bn-colors-border: var(--border, #e5e5e8);
+  --bn-colors-side-menu: var(--text-muted, #6b7280);
+  --bn-colors-highlights-gray-text: var(--text-secondary, #4b5563);
+  --bn-colors-highlights-gray-background: var(--surface-2, #f3f0ff);
+}
+
 .sn-editor-wrapper .bn-editor {
   padding: 0;
   caret-color: var(--accent, #7c3aed);
@@ -31,6 +59,11 @@
 
 .sn-editor-wrapper .bn-block {
   margin-block: 0.25rem;
+}
+
+/* Selection highlight */
+.sn-editor-wrapper .ProseMirror ::selection {
+  background: var(--accent-subtle, rgb(124 58 237 / 0.2));
 }
 
 /* ── Wikilink pill ──────────────────────────────────────────── */
