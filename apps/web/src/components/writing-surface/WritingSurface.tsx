@@ -9,8 +9,9 @@ import {
   Users,
   Zap,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useShellChrome } from "@/components/shell/shell-chrome-context";
+import { useCreateInboxNote } from "@/hooks/useCreateInboxNote";
 
 interface QuickAccessItem {
   label: string;
@@ -36,8 +37,11 @@ const QUICK_ACCESS: QuickAccessItem[] = [
 export function WritingSurface() {
   const [content, setContent] = useState("");
   const [isFocused, setIsFocused] = useState(false);
+  const [saveToast, setSaveToast] = useState<string | null>(null);
   const editorRef = useRef<HTMLDivElement>(null);
   const shellChrome = useShellChrome();
+  const { saveNote, onContentChange, resetNote, isSaving, lastSaved, saveError } =
+    useCreateInboxNote();
 
   const isWriting = isFocused || content.length > 0;
 
@@ -54,15 +58,34 @@ export function WritingSurface() {
     });
   }, [shellChrome]);
 
+  // Show success toast after save
+  useEffect(() => {
+    if (!lastSaved) return;
+    setSaveToast("Note enregistrée");
+    const t = setTimeout(() => setSaveToast(null), 2000);
+    return () => clearTimeout(t);
+  }, [lastSaved]);
+
   const handleInput = (e: React.FormEvent<HTMLDivElement>) => {
-    setContent(e.currentTarget.innerText);
+    const text = e.currentTarget.innerText;
+    setContent(text);
+    onContentChange(text);
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    if (e.key === "Escape" && content.trim().length === 0) {
-      editorRef.current?.blur();
-    }
-  };
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
+      if (e.key === "Escape" && content.trim().length === 0) {
+        editorRef.current?.blur();
+        return;
+      }
+      // Cmd+S or Ctrl+S — manual save
+      if (e.key === "s" && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        if (content.trim()) saveNote(content);
+      }
+    },
+    [content, saveNote],
+  );
 
   const exitWriting = () => {
     if (editorRef.current) {
@@ -70,6 +93,7 @@ export function WritingSurface() {
     }
     setContent("");
     setIsFocused(false);
+    resetNote();
   };
 
   // Derive the auto-title from the first non-empty line.
@@ -126,6 +150,20 @@ export function WritingSurface() {
         />
       </div>
 
+      {/* Toast notification for save success / error */}
+      {(saveToast ?? saveError) && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="pointer-events-none fixed bottom-16 left-1/2 z-30 -translate-x-1/2 rounded-full px-4 py-1.5 text-[11px] text-white shadow-md"
+          style={{
+            backgroundColor: saveError ? "#ef4444" : "var(--accent, #6366f1)",
+          }}
+        >
+          {saveError ?? saveToast}
+        </div>
+      )}
+
       {/* Footer hint when writing */}
       <div
         className={`pointer-events-none fixed bottom-6 left-1/2 z-20 -translate-x-1/2 transition-all duration-200 ${
@@ -151,7 +189,13 @@ export function WritingSurface() {
           >
             ⌘ S
           </kbd>
-          <span>enregistrer</span>
+          <button
+            onClick={() => { if (content.trim()) saveNote(content); }}
+            className="transition-colors hover:text-[var(--text-primary)]"
+            disabled={isSaving}
+          >
+            {isSaving ? "enregistrement…" : "enregistrer"}
+          </button>
           <span style={{ color: "var(--border)" }}>·</span>
           <kbd
             className="rounded border px-1.5 py-0.5 text-[10px] font-medium"
