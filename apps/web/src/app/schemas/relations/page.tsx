@@ -1,11 +1,23 @@
 "use client";
 
 import { useState } from "react";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, X } from "@phosphor-icons/react";
 import { AppShell } from "@/components/shell";
-import { RelationsGraph } from "@/components/schemas/RelationsGraph";
 import { ENTITY_TYPES, RELATION_TYPES } from "@/components/schemas/fixtures";
+
+// RelationsGraph pulls in @xyflow/react and its CSS — that's >100KB of JS plus
+// canvas tooling that nothing else in the app uses. Keeping it as a client-only
+// dynamic import means the rest of the schemas surface (and any other route
+// that ever transitively touches this module) skips the cost.
+const RelationsGraph = dynamic(
+  () =>
+    import("@/components/schemas/RelationsGraph").then((m) => ({
+      default: m.RelationsGraph,
+    })),
+  { ssr: false },
+);
 import { trpc } from "@/lib/trpc/client";
 import { ipcEntityTypeToCore } from "@/components/schemas/adapters";
 import type { RelationType, EntityType } from "@supernote/core";

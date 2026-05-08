@@ -4,9 +4,36 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useState,
 } from "react";
+
+/**
+ * localStorage key for the user's right-panel visibility preference.
+ * Persisted so that closing the panel survives a refresh / navigation.
+ */
+const RIGHT_PANEL_STORAGE_KEY = "supernote.shell.rightPanel";
+
+function readRightPanelPreference(): boolean {
+  if (typeof window === "undefined") return true;
+  try {
+    const raw = window.localStorage.getItem(RIGHT_PANEL_STORAGE_KEY);
+    if (raw === null) return true;
+    return raw === "true";
+  } catch {
+    return true;
+  }
+}
+
+function writeRightPanelPreference(next: boolean): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(RIGHT_PANEL_STORAGE_KEY, next ? "true" : "false");
+  } catch {
+    // ignore quota / disabled-storage errors
+  }
+}
 
 interface ShellChromeContextValue {
   /** When true, sidebar and right panel dim/collapse so the user can focus on writing. */
@@ -28,8 +55,18 @@ const ShellChromeContext = createContext<ShellChromeContextValue | null>(null);
 
 export function ShellChromeProvider({ children }: { children: React.ReactNode }) {
   const [focusMode, setFocusModeState] = useState(false);
+  // Default to true on the server / first paint to avoid a flash of "panel
+  // hidden" before we can read localStorage. The effect below reconciles
+  // with the persisted user preference on mount.
   const [rightPanelVisible, setRightPanelVisibleState] = useState(true);
   const [newNoteHandlers] = useState(() => new Set<() => void>());
+
+  // Hydrate from localStorage once on mount so a refresh does not reopen
+  // a panel the user previously closed.
+  useEffect(() => {
+    const stored = readRightPanelPreference();
+    setRightPanelVisibleState(stored);
+  }, []);
 
   const setFocusMode = useCallback((next: boolean) => {
     setFocusModeState(next);
@@ -41,10 +78,15 @@ export function ShellChromeProvider({ children }: { children: React.ReactNode })
 
   const setRightPanelVisible = useCallback((next: boolean) => {
     setRightPanelVisibleState(next);
+    writeRightPanelPreference(next);
   }, []);
 
   const toggleRightPanel = useCallback(() => {
-    setRightPanelVisibleState((v) => !v);
+    setRightPanelVisibleState((v) => {
+      const next = !v;
+      writeRightPanelPreference(next);
+      return next;
+    });
   }, []);
 
   const requestNewNote = useCallback(() => {

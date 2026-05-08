@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowsDownUp, FileText, MagnifyingGlass, Plus, SortAscending, Warning } from "@phosphor-icons/react";
+import { ArrowsDownUp, CaretDoubleLeft, FileText, MagnifyingGlass, Plus, SortAscending, Warning } from "@phosphor-icons/react";
 import { useMemo, useState } from "react";
 import type { Note } from "./fixtures";
 import { NoteListItem } from "./NoteListItem";
@@ -12,6 +12,13 @@ interface NoteListProps {
   notes: Note[];
   selectedNoteId: string | null;
   folderName: string | null;
+  /**
+   * Absolute path of the folder currently selected in the FileTree, e.g.
+   * "Inbox/Projects". Used to compute relative sub-folder headers when
+   * grouping recursively-fetched notes. `null` means "all notes" (no
+   * grouping; everything appears under a single flat list).
+   */
+  selectedFolder: string | null;
   onSelectNote: (id: string) => void;
   isLoading?: boolean;
   isError?: boolean;
@@ -19,12 +26,19 @@ interface NoteListProps {
   isFallback?: boolean;
   onNewNote?: () => void;
   onDeleteNote?: (id: string) => void;
+  /**
+   * Optional collapse handler — when provided, a small chevron button is
+   * rendered in the header that hides the NoteList column. State is owned
+   * by the parent (persisted in localStorage at the page level).
+   */
+  onCollapse?: () => void;
 }
 
 export function NoteList({
   notes,
   selectedNoteId,
   folderName,
+  selectedFolder,
   onSelectNote,
   isLoading = false,
   isError = false,
@@ -32,6 +46,7 @@ export function NoteList({
   isFallback = false,
   onNewNote,
   onDeleteNote,
+  onCollapse,
 }: NoteListProps) {
   const [query, setQuery] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("updatedAt");
@@ -54,6 +69,48 @@ export function NoteList({
       return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
     });
   }, [notes, query, sortKey]);
+
+  /**
+   * Bucket the (already filtered + sorted) notes by their location relative
+   * to `selectedFolder`:
+   *   - the "" key holds notes that live directly in the selected folder
+   *   - every other key is a relative sub-path ("Sub1", "Sub1/Deep", …)
+   *
+   * When no folder is selected (All notes) we skip grouping and return a
+   * single anonymous bucket so the existing flat render is preserved.
+   */
+  const groups = useMemo(() => {
+    if (!selectedFolder) {
+      return [{ key: "", label: null as string | null, notes: filtered }];
+    }
+    const prefix = `${selectedFolder}/`;
+    const buckets = new Map<string, Note[]>();
+    for (const n of filtered) {
+      let rel = "";
+      if (n.folderPath === selectedFolder) {
+        rel = "";
+      } else if (n.folderPath.startsWith(prefix)) {
+        rel = n.folderPath.slice(prefix.length);
+      } else {
+        // Defensive: a note that doesn't belong to the subtree shouldn't
+        // reach us, but if it does we keep it under the root bucket rather
+        // than dropping it silently.
+        rel = "";
+      }
+      const bucket = buckets.get(rel);
+      if (bucket) bucket.push(n);
+      else buckets.set(rel, [n]);
+    }
+    const root = buckets.get("") ?? [];
+    buckets.delete("");
+    const subs = [...buckets.entries()]
+      .sort(([a], [b]) => a.localeCompare(b, "fr"))
+      .map(([key, ns]) => ({ key, label: key, notes: ns }));
+    const result: { key: string; label: string | null; notes: Note[] }[] = [];
+    if (root.length > 0) result.push({ key: "", label: t("thisFolder"), notes: root });
+    result.push(...subs);
+    return result;
+  }, [filtered, selectedFolder, t]);
 
   const toggleSort = () =>
     setSortKey((k) => (k === "updatedAt" ? "title" : "updatedAt"));
@@ -80,6 +137,18 @@ export function NoteList({
           >
             {folderName ?? t("allNotes")}
           </span>
+          {/* Recursive count badge — `notes` is already the recursive set
+              (useNoteList includes descendants), so this number reflects
+              everything visible in the grouped list below. Hidden during
+              load + when there's nothing to count to avoid flashing "0". */}
+          {!isLoading && !isError && notes.length > 0 && (
+            <span
+              className="rounded px-1.5 py-0.5 text-[10px] font-medium tabular-nums"
+              style={{ backgroundColor: "var(--surface-2)", color: "var(--text-muted)" }}
+            >
+              {notes.length}
+            </span>
+          )}
           {isFallback && (
             <span
               className="rounded px-1.5 py-0.5 text-[10px] font-medium"
@@ -109,6 +178,17 @@ export function NoteList({
             {sortKey === "updatedAt" ? <ArrowsDownUp size={12} /> : <SortAscending size={12} />}
             {sortKey === "updatedAt" ? tCommon("date") : tCommon("title")}
           </button>
+          {onCollapse && (
+            <button
+              onClick={onCollapse}
+              aria-label="Réduire la liste"
+              title="Réduire la liste"
+              className="flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-[var(--surface-2)]"
+              style={{ color: "var(--text-muted)" }}
+            >
+              <CaretDoubleLeft size={13} />
+            </button>
+          )}
         </div>
       </div>
 
@@ -144,14 +224,35 @@ export function NoteList({
         ) : filtered.length === 0 ? (
           <EmptyNoteList hasQuery={query.length > 0} onNewNote={onNewNote} />
         ) : (
-          filtered.map((note) => (
-            <NoteListItem
-              key={note.id}
-              note={note}
-              isActive={note.id === selectedNoteId}
-              onClick={() => onSelectNote(note.id)}
-              onDelete={onDeleteNote ? () => onDeleteNote(note.id) : undefined}
-            />
+          // Render bucketed groups. When `selectedFolder` is null we only
+          // produce one group with `label: null` — same flat layout as
+          // before. When a folder is selected we render a small sticky-ish
+          // section header per sub-path so it's obvious which sub-folder a
+          // note belongs to.
+          groups.map((group) => (
+            <section key={group.key || "__root__"}>
+              {group.label && (
+                <div
+                  className="px-4 py-1.5 text-[10px] font-semibold uppercase tracking-wide"
+                  style={{
+                    backgroundColor: "var(--surface-1)",
+                    color: "var(--text-muted)",
+                    borderBottom: "1px solid var(--border-subtle)",
+                  }}
+                >
+                  {group.label}
+                </div>
+              )}
+              {group.notes.map((note) => (
+                <NoteListItem
+                  key={note.id}
+                  note={note}
+                  isActive={note.id === selectedNoteId}
+                  onClick={() => onSelectNote(note.id)}
+                  onDelete={onDeleteNote ? () => onDeleteNote(note.id) : undefined}
+                />
+              ))}
+            </section>
           ))
         )}
       </div>

@@ -5,6 +5,7 @@ import { memo } from "react";
 import { useRouter } from "next/navigation";
 import { trpc } from "@/lib/trpc/client";
 import { useShellChrome } from "./shell-chrome-context";
+import { PrioritiesWidget } from "@/components/todos/PrioritiesWidget";
 
 // ── Fixtures used when tRPC is unavailable (browser without IPC) ─────────────
 
@@ -189,6 +190,14 @@ export const RightPanel = memo(function RightPanel() {
         </div>
         <RecentList />
       </div>
+
+      <div className="border-b" style={{ borderColor: "var(--border-subtle)" }} />
+
+      {/* Top urgent todos — sourced from the same `todo` entities the /todos
+          page reads, so the widget reflects the user's current priorities
+          without any extra plumbing. Hidden silently when the worker isn't
+          available (e.g. fresh PWA before a vault is loaded). */}
+      <PrioritiesWidget />
 
       <div className="border-b" style={{ borderColor: "var(--border-subtle)" }} />
 

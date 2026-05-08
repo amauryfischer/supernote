@@ -7,7 +7,7 @@ import { AppShell } from "@/components/shell";
 import { useFinanceAssets, useFinanceAccounts } from "@/components/finance/hooks";
 import type { Asset } from "@/components/finance/fixtures";
 import { formatCurrency, CATEGORY_COLORS, CATEGORY_LABELS } from "@/components/finance/utils";
-import { trpcVanillaClient } from "@/lib/trpc/client";
+import { trpc, trpcVanillaClient } from "@/lib/trpc/client";
 
 interface LivePrice {
   price: number;
@@ -76,6 +76,23 @@ export default function ActifsPage() {
   const [livePrices, setLivePrices] = useState<Map<string, LivePrice>>(new Map());
   const [refreshing, setRefreshing] = useState(false);
 
+  const utils = trpc.useUtils();
+  const createMutation = trpc.entities.create.useMutation({
+    onSuccess: () => {
+      void utils.entities.list.invalidate({ typeId: "asset" });
+    },
+  });
+  const handleNewAsset = useCallback(async () => {
+    try {
+      await createMutation.mutateAsync({
+        typeId: "asset",
+        fields: { name: "Nouvel actif", current_value: 0, category: "action" },
+      });
+    } catch (err) {
+      console.error("[finance/actifs] create failed", err);
+    }
+  }, [createMutation]);
+
   const accountNameMap = Object.fromEntries(accounts.map((a) => [a.id, a.name]));
 
   const byCategory = assets.reduce<Record<string, Asset[]>>((acc, asset) => {
@@ -134,7 +151,9 @@ export default function ActifsPage() {
             {refreshing ? "Actualisation..." : "Refresh prix"}
           </button>
           <button
-            className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium"
+            onClick={() => void handleNewAsset()}
+            disabled={createMutation.isPending}
+            className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-opacity disabled:opacity-50"
             style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
           >
             <Plus size={14} /> Actif
@@ -173,12 +192,17 @@ export default function ActifsPage() {
               </div>
               <div className="grid grid-cols-3 gap-3">
                 {catAssets.map((asset) => (
-                  <AssetCard
+                  <Link
                     key={asset.id}
-                    asset={asset}
-                    accountName={asset.accountId ? (accountNameMap[asset.accountId] ?? "—") : ""}
-                    livePrice={livePrices.get(asset.id)}
-                  />
+                    href={`/finance/actifs/${asset.id}`}
+                    className="block transition-transform hover:-translate-y-0.5"
+                  >
+                    <AssetCard
+                      asset={asset}
+                      accountName={asset.accountId ? (accountNameMap[asset.accountId] ?? "—") : ""}
+                      livePrice={livePrices.get(asset.id)}
+                    />
+                  </Link>
                 ))}
               </div>
             </div>

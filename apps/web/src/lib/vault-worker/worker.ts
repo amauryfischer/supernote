@@ -2,11 +2,15 @@
  * vault-worker — Web Worker entry point for PWA mode.
  *
  * Responsibilities:
- * - Accept INIT_VAULT message with FSA handle
+ * - Accept INIT_VAULT message with FSA handle (idempotent — repeat calls
+ *   for the same handle just re-emit VAULT_READY)
  * - Initialize sql.js SQLite in OPFS or FSA
  * - Apply schema (idempotent)
  * - Expose tRPC-like router via postMessage
- * - Persist DB on every mutation (debounced)
+ * - Persist DB before acknowledging every mutation (no debounce) and serialize
+ *   concurrent persists through `persistChain` so FSA writable streams don't race
+ * - Accept FLUSH bootstrap message to force a synchronous persist on
+ *   navigation / page-hide
  * - Poll for file changes every 30s (fallback for FileSystemObserver)
  */
 
@@ -16,6 +20,7 @@ import initSqlJs from "sql.js";
 import type { Database } from "sql.js";
 import { SCHEMA_SQL_BASE } from "./db-schema";
 import { loadDbFromFsa, saveDbToFsa, loadDbFromOpfs, saveDbToOpfs } from "./db-persistence";
+import { seedDefaults } from "./seed-default-types";
 import { buildRouter, RouteHandler } from "./worker-router";
 import type {
   WorkerInboundMessage,
@@ -28,17 +33,30 @@ import type {
 let db: Database | null = null;
 let vaultHandle: FileSystemDirectoryHandle | null = null;
 let vaultId: string | null = null;
+let vaultName: string | null = null;
+let rootPath: string | null = null;
 let router: Record<string, RouteHandler> = {};
-let persistTimer: ReturnType<typeof setTimeout> | null = null;
 let pollTimer: ReturnType<typeof setInterval> | null = null;
+// Tracks the currently in-flight persist so concurrent mutations queue up
+// behind it instead of racing the FSA writable. Initial value is a resolved
+// promise so the first awaiter just falls through.
+let persistChain: Promise<void> = Promise.resolve();
 
 // ── DB init ───────────────────────────────────────────────────────────────────
 
 async function initSqlite(handle: FileSystemDirectoryHandle): Promise<Database> {
-  const SQL = await initSqlJs({
-    // sql.js WASM file — served from public/ via Next.js copy-webpack-plugin
-    locateFile: (file: string) => `/wasm/${file}`,
-  });
+  // Fetch the WASM ourselves and pass the buffer directly. This bypasses
+  // emscripten's `locateFile` + XHR fallback chain, which is fragile inside
+  // a Web Worker bundle (Turbopack chunk URL ≠ origin root). The fetch is
+  // an absolute origin path so it works in worker context too.
+  const wasmResponse = await fetch(`${self.location.origin}/wasm/sql-wasm.wasm`);
+  if (!wasmResponse.ok) {
+    throw new Error(`WASM fetch failed: ${wasmResponse.status} ${wasmResponse.statusText}`);
+  }
+  const wasmBinary = new Uint8Array(await wasmResponse.arrayBuffer());
+
+  // wasmBinary is supported at runtime but missing from @types/sql.js
+  const SQL = await initSqlJs({ wasmBinary } as Parameters<typeof initSqlJs>[0]);
 
   // Try loading from FSA first (vault's own .supernote/index.db)
   let bytes = await loadDbFromFsa(handle);
@@ -75,45 +93,135 @@ async function initSqlite(handle: FileSystemDirectoryHandle): Promise<Database> 
 }
 
 async function persistDb(): Promise<void> {
-  if (!db || !vaultHandle) return;
+  if (!db || !vaultHandle) {
+    console.warn(
+      `[persist] persistDb skipped — db=${!!db} vaultHandle=${!!vaultHandle}. Bytes NOT written.`,
+    );
+    return;
+  }
   try {
+    const exported = db.export();
     await saveDbToFsa(db, vaultHandle);
     await saveDbToOpfs(db);
+    console.info(`[persist] saved ${exported.byteLength} bytes to FSA + OPFS`);
   } catch (err) {
-    console.warn("[vault-worker] persist failed", err);
+    console.error("[vault-worker] persist failed — DATA WILL BE LOST ON RELOAD", err);
   }
 }
 
-function schedulePersist(): void {
-  if (persistTimer) clearTimeout(persistTimer);
-  persistTimer = setTimeout(() => void persistDb(), 500);
+/**
+ * Persist immediately (no debounce) and serialize through `persistChain`
+ * so back-to-back mutations don't race the FSA writable stream. We deliberately
+ * do NOT debounce: a 500ms window meant a navigation right after an entity
+ * create could re-INIT the worker and reload an empty DB before the write
+ * landed. FSA writes are async + small, so the cost of writing on every
+ * mutation is negligible compared to losing data.
+ */
+function schedulePersist(): Promise<void> {
+  const next = persistChain.then(() => persistDb());
+  // Swallow rejection so the chain doesn't poison subsequent persists.
+  persistChain = next.catch(() => undefined);
+  return next;
+}
+
+/** Force-flush any pending persist and wait for it to complete. */
+async function flushPersist(): Promise<void> {
+  await schedulePersist();
 }
 
 // ── Vault init ────────────────────────────────────────────────────────────────
 
+async function isSameVaultHandle(
+  current: FileSystemDirectoryHandle | null,
+  next: FileSystemDirectoryHandle,
+): Promise<boolean> {
+  if (!current) return false;
+  // Cheap pre-check first: name must match.
+  if (current.name !== next.name) return false;
+  // FSA exposes isSameEntry — preferred when available.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const fn = (current as any).isSameEntry;
+  if (typeof fn === "function") {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return await (current as any).isSameEntry(next);
+    } catch {
+      return false;
+    }
+  }
+  // Fallback: identity / name equality already passed.
+  return current === next;
+}
+
 async function handleInitVault(handle: FileSystemDirectoryHandle): Promise<void> {
   try {
+    // Idempotency: if the same vault is already initialized, just re-emit
+    // VAULT_READY and bail. Without this, every navigation re-fires INIT
+    // which reloads the DB from FSA — a debounced persist that hadn't
+    // flushed yet would be silently dropped, making freshly created
+    // entities disappear.
+    if (db && vaultId && (await isSameVaultHandle(vaultHandle, handle))) {
+      console.info("[init] reusing existing vault", handle.name, "vaultId=", vaultId);
+      self.postMessage({
+        type: "VAULT_READY",
+        vaultId,
+        vaultName: vaultName ?? handle.name,
+        rootPath: rootPath ?? handle.name,
+      });
+      return;
+    }
+
+    console.info("[init] full re-init from FSA, handle.name=", handle.name);
     vaultHandle = handle;
     db = await initSqlite(handle);
+    // Sanity: how many rows are in `entity` right after load? If this is 0
+    // after a previous create+reload cycle, persistence is broken.
+    try {
+      const sanity = db.exec(`SELECT COUNT(*) as c FROM entity`);
+      const total =
+        sanity.length && sanity[0]?.values?.[0]?.[0] != null
+          ? Number(sanity[0]!.values[0]![0])
+          : 0;
+      console.info(`[init] sanity: entity table has ${total} row(s) total after initSqlite`);
+    } catch (err) {
+      console.warn("[init] sanity check failed", err);
+    }
+    console.info("[vault-worker] sqlite ready");
 
     // Get or create vault record
-    const vaultName = handle.name;
-    const rootPath = handle.name; // FSA doesn't expose full path
+    vaultName = handle.name;
+    rootPath = handle.name; // FSA doesn't expose full path
 
     const existingVault = db.exec(`SELECT id FROM vault LIMIT 1`);
+    const ts = new Date().toISOString();
     if (existingVault.length && existingVault[0]?.values.length) {
       vaultId = existingVault[0].values[0]![0] as string;
     } else {
       // Create a unique vault ID using timestamp + random
       vaultId = `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`.toUpperCase();
-      const ts = new Date().toISOString();
       db.run(
         `INSERT INTO vault (id, name, rootPath, isActive, createdAt, updatedAt) VALUES (?, ?, ?, 1, ?, ?)`,
         [vaultId, vaultName, rootPath, ts, ts],
       );
     }
 
+    // Seed default entity types + relation types (idempotent — INSERT OR IGNORE).
+    // This guarantees `note`, `personne`, `projet`, … exist out of the box.
+    seedDefaults(db, vaultId, ts);
+
     router = buildRouter(db, handle, vaultId);
+
+    // Diagnostic: how many entities did we just load from disk?
+    try {
+      const countRes = db.exec(`SELECT COUNT(*) as c FROM entity WHERE vaultId = ?`, [vaultId]);
+      const loadedCount =
+        countRes.length && countRes[0]?.values?.[0]?.[0] != null
+          ? Number(countRes[0]!.values[0]![0])
+          : 0;
+      console.info("[init] loaded", loadedCount, "entities from FSA for vault", vaultId);
+    } catch {
+      // Diagnostic only — never fail init for this
+    }
 
     // Persist initial state
     await persistDb();
@@ -122,6 +230,7 @@ async function handleInitVault(handle: FileSystemDirectoryHandle): Promise<void>
     if (pollTimer) clearInterval(pollTimer);
     pollTimer = setInterval(() => void reindexIfNeeded(), 30_000);
 
+    console.info("[vault-worker] VAULT_READY about to post", { vaultId, vaultName });
     self.postMessage({
       type: "VAULT_READY",
       vaultId,
@@ -129,9 +238,10 @@ async function handleInitVault(handle: FileSystemDirectoryHandle): Promise<void>
       rootPath,
     });
   } catch (err) {
+    console.error("[vault-worker] init failed", err);
     self.postMessage({
       type: "VAULT_ERROR",
-      error: err instanceof Error ? err.message : String(err),
+      error: err instanceof Error ? `${err.message}\n${err.stack ?? ""}` : String(err),
     });
   }
 }
@@ -144,7 +254,7 @@ async function reindexIfNeeded(): Promise<void> {
     const result = await router["vault.reindex"]!(undefined);
     const { indexed } = result as { indexed: number };
     if (indexed > 0) {
-      schedulePersist();
+      void schedulePersist();
       self.postMessage({ type: "INDEX_PROGRESS", indexed, total: indexed });
     }
   } catch {
@@ -170,9 +280,35 @@ async function handleRpcRequest(msg: WorkerRequest): Promise<void> {
 
   try {
     const result = await handler(input);
+    // For mutations, persist BEFORE acknowledging the response. This guarantees
+    // the caller can safely navigate away the moment they receive `ok: true`
+    // — the bytes are already on disk (FSA + OPFS).
+    //
+    // Defensive: also persist for any route name that *looks* like a write
+    // (create/add/update/delete/set/remove/rename) regardless of the
+    // declared msg.type. This protects against tRPC misconfigurations
+    // (e.g. a write surfaced as `.query()` upstream) silently dropping
+    // user data on navigation.
+    const looksLikeMutation = /\.(create|add|update|delete|set|remove|rename|reindex)(\.|$)/i.test(
+      `.${path}.`,
+    );
+    if (msg.type === "mutation" || looksLikeMutation) {
+      await schedulePersist();
+    }
     self.postMessage({ id, ok: true, result });
-    // Persist after mutations
-    if (msg.type === "mutation") schedulePersist();
+  } catch (err) {
+    self.postMessage({
+      id,
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
+async function handleFlush(id: string): Promise<void> {
+  try {
+    await flushPersist();
+    self.postMessage({ id, ok: true, result: null });
   } catch (err) {
     self.postMessage({
       id,
@@ -190,7 +326,11 @@ self.addEventListener("message", (event: MessageEvent<WorkerInboundMessage>) => 
 
   if ("type" in msg && msg.type === "INIT_VAULT") {
     void handleInitVault((msg as InitVaultMessage).handle);
-  } else {
-    void handleRpcRequest(msg as WorkerRequest);
+    return;
   }
+  if ("type" in msg && msg.type === "FLUSH") {
+    void handleFlush((msg as { id: string }).id);
+    return;
+  }
+  void handleRpcRequest(msg as WorkerRequest);
 });

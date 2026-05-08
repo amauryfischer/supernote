@@ -2,11 +2,15 @@
   "name": "@supernote/canvas",
   "version": "0.0.0",
   "private": true,
-  "description": "Dual-mode canvas: Excalidraw (free drawing) + React Flow (typed nodes) for Supernote",
+  "description": "Excalidraw-based canvas for Supernote with first-class entity references",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "sideEffects": [
+    "**/*.css",
+    "./dist/components/DrawLayer.js"
+  ],
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",

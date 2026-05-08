@@ -2,10 +2,12 @@
   "name": "@supernote/web",
   "version": "0.0.0",
   "private": true,
+  "type": "module",
   "scripts": {
-    "dev": "next dev --port 3000",
-    "build": "next build",
-    "lint": "next lint",
+    "dev": "vite --port 3100 --host",
+    "build": "vite build",
+    "preview": "vite preview --port 3100",
+    "lint": "echo 'lint disabled (Next.js removed)'",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -32,25 +34,26 @@
     "@xyflow/react": "^12.10.2",
     "cmdk": "^1.1.1",
     "minisearch": "^7.2.0",
-    "next": "^15.3.2",
-    "next-intl": "^4.11.0",
     "next-themes": "^0.4.6",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-force-graph-2d": "^1.29.1",
+    "react-router-dom": "^6.30.0",
     "recharts": "^3.8.1",
     "sql.js": "^1.14.1"
   },
   "devDependencies": {
-    "@eslint/eslintrc": "^3.3.5",
     "@supernote/tsconfig": "workspace:*",
     "@tailwindcss/postcss": "^4.2.4",
+    "@tailwindcss/vite": "^4.2.4",
     "@types/node": "^22.10.0",
     "@types/react": "^19.1.5",
     "@types/react-dom": "^19.1.5",
-    "eslint": "^10.3.0",
-    "eslint-config-next": "^16.2.4",
+    "@vitejs/plugin-react": "^4.3.4",
     "tailwindcss": "^4.1.7",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "vite": "^6.4.2",
+    "vite-plugin-pwa": "^0.21.1",
+    "vite-tsconfig-paths": "^5.1.4"
   }
 }

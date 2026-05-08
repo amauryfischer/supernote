@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { ArrowLeft, CaretDown, CaretRight, Plus } from "@phosphor-icons/react";
 import Link from "next/link";
 import { AppShell } from "@/components/shell";
@@ -14,6 +14,7 @@ import {
   getLoanEndDate,
 } from "@/components/finance/utils";
 import { computeAmortizationSchedule } from "@supernote/finance/amortization";
+import { trpc } from "@/lib/trpc/client";
 
 const KIND_LABELS: Record<string, string> = {
   mortgage: "Immobilier",
@@ -90,12 +91,17 @@ function LoanRow({ loan }: { loan: Loan }) {
 
   return (
     <div className="overflow-hidden rounded-xl border" style={{ borderColor: "var(--border-subtle)" }}>
-      <div
+      <Link
+        href={`/finance/prets/${loan.id}`}
         className="flex cursor-pointer items-center gap-4 p-4 transition-colors hover:bg-[var(--surface-2)]"
         style={{ backgroundColor: "var(--surface-1)" }}
-        onClick={() => setExpanded((v) => !v)}
       >
-        <button className="flex-shrink-0" style={{ color: "var(--text-muted)" }}>
+        <button
+          className="flex-shrink-0"
+          style={{ color: "var(--text-muted)" }}
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); setExpanded((v) => !v); }}
+          aria-label={expanded ? "Réduire" : "Développer"}
+        >
           {expanded ? <CaretDown size={16} /> : <CaretRight size={16} />}
         </button>
         <div className="h-3 w-3 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
@@ -122,7 +128,7 @@ function LoanRow({ loan }: { loan: Loan }) {
             <div className="h-full rounded-full" style={{ width: `${paidPct}%`, backgroundColor: color }} />
           </div>
         </div>
-      </div>
+      </Link>
       {expanded && (
         <div className="border-t px-4 pb-4 pt-3" style={{ borderColor: "var(--border-subtle)" }}>
           <p className="mb-2 text-xs font-semibold" style={{ color: "var(--text-secondary)" }}>
@@ -137,6 +143,23 @@ function LoanRow({ loan }: { loan: Loan }) {
 
 export default function PretsPage() {
   const { loans, isLoading, isFallback } = useFinanceLoans();
+
+  const utils = trpc.useUtils();
+  const createMutation = trpc.entities.create.useMutation({
+    onSuccess: () => {
+      void utils.entities.list.invalidate({ typeId: "loan" });
+    },
+  });
+  const handleNewLoan = useCallback(async () => {
+    try {
+      await createMutation.mutateAsync({
+        typeId: "loan",
+        fields: { name: "Nouveau prêt", amount: 0, rate: 0 },
+      });
+    } catch (err) {
+      console.error("[finance/prets] create failed", err);
+    }
+  }, [createMutation]);
 
   return (
     <AppShell>
@@ -155,7 +178,9 @@ export default function PretsPage() {
           )}
         </div>
         <button
-          className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium"
+          onClick={() => void handleNewLoan()}
+          disabled={createMutation.isPending}
+          className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-opacity disabled:opacity-50"
           style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
         >
           <Plus size={14} /> Prêt

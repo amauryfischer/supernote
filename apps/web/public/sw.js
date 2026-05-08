@@ -10,7 +10,7 @@
  * It must NOT be transpiled by webpack (hence not in src/).
  */
 
-const CACHE_VERSION = "supernote-v3-purge-fts5";
+const CACHE_VERSION = "supernote-v5-wasm-binary";
 
 const APP_SHELL = [
   "/",

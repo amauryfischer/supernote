@@ -95,6 +95,28 @@ export function EntityPicker({
     }
   }, [resolvers, typeId, query, confirm]);
 
+  // Always offer "+ Creer" when:
+  //  - the user has typed something
+  //  - createEntity is available
+  //  - no result already matches the query exactly (case-insensitive),
+  //    so we don't push the user to create a duplicate of an entity
+  //    they could just pick.
+  const trimmedQuery = query.trim();
+  const queryLower = trimmedQuery.toLowerCase();
+  const exactMatchExists = results.some(
+    (r) => r.name.toLowerCase() === queryLower,
+  );
+  const showCreate =
+    trimmedQuery.length > 0 &&
+    resolvers?.createEntity !== undefined &&
+    !exactMatchExists &&
+    !loading;
+
+  // The create row sits at index === results.length, making it keyboard-
+  // navigable as a virtual entry below the regular results.
+  const createIndex = showCreate ? results.length : -1;
+  const totalIndices = results.length + (showCreate ? 1 : 0);
+
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLInputElement>) => {
       if (e.key === "Escape") {
@@ -104,7 +126,7 @@ export function EntityPicker({
       }
       if (e.key === "ArrowDown") {
         e.preventDefault();
-        setSelectedIndex((i) => Math.min(i + 1, results.length - 1));
+        setSelectedIndex((i) => Math.min(i + 1, Math.max(totalIndices - 1, 0)));
         return;
       }
       if (e.key === "ArrowUp") {
@@ -114,20 +136,27 @@ export function EntityPicker({
       }
       if (e.key === "Enter") {
         e.preventDefault();
+        if (showCreate && selectedIndex === createIndex) {
+          handleCreateNew();
+          return;
+        }
         const selected = results[selectedIndex];
         if (selected) confirm(selected);
-        else if (query.trim() && resolvers?.createEntity) handleCreateNew();
+        else if (showCreate) handleCreateNew();
         return;
       }
     },
-    [results, selectedIndex, query, resolvers, confirm, handleCreateNew, onClose]
+    [
+      results,
+      selectedIndex,
+      totalIndices,
+      showCreate,
+      createIndex,
+      confirm,
+      handleCreateNew,
+      onClose,
+    ],
   );
-
-  const showCreate =
-    query.trim().length > 0 &&
-    resolvers?.createEntity !== undefined &&
-    results.length === 0 &&
-    !loading;
 
   return (
     <div
@@ -192,20 +221,31 @@ export function EntityPicker({
                 <span className="sn-entity-picker__item-name">{entity.name}</span>
               </li>
             ))}
+            {showCreate && (
+              <li
+                key="__create__"
+                role="option"
+                aria-selected={selectedIndex === createIndex}
+                className={`sn-entity-picker__item sn-entity-picker__item--create${
+                  selectedIndex === createIndex
+                    ? " sn-entity-picker__item--selected"
+                    : ""
+                }`}
+                onMouseEnter={() => setSelectedIndex(createIndex)}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  void handleCreateNew();
+                }}
+              >
+                <span className="sn-entity-picker__item-icon" aria-hidden="true">
+                  +
+                </span>
+                <span className="sn-entity-picker__item-name">
+                  Creer {typeLabel} &quot;{trimmedQuery}&quot;
+                </span>
+              </li>
+            )}
           </ul>
-
-          {showCreate && (
-            <button
-              className="sn-entity-picker__create"
-              onMouseDown={(e) => {
-                e.preventDefault();
-                void handleCreateNew();
-              }}
-              type="button"
-            >
-              + Creer {typeLabel} &quot;{query.trim()}&quot;
-            </button>
-          )}
         </>
       )}
     </div>

@@ -1,16 +1,20 @@
 "use client";
 
-import { Archive, Envelope, Tag, X } from "@phosphor-icons/react";
+import { Archive, Envelope, Tag, Trash, X } from "@phosphor-icons/react";
 
 interface BulkActionBarProps {
   selectedCount: number;
   onClear: () => void;
   onEmail?: () => void;
   onArchive?: () => void;
+  /** Override the "Archiver" button label. If "Supprimer" is passed, a trash icon is shown. */
+  archiveLabel?: string;
   onAddTag?: () => void;
 }
 
-export function BulkActionBar({ selectedCount, onClear, onEmail, onArchive, onAddTag }: BulkActionBarProps) {
+export function BulkActionBar({ selectedCount, onClear, onEmail, onArchive, archiveLabel, onAddTag }: BulkActionBarProps) {
+  const archiveText = archiveLabel ?? "Archiver";
+  const ArchiveIcon = archiveLabel === "Supprimer" ? Trash : Archive;
   if (selectedCount === 0) return null;
 
   return (
@@ -48,8 +52,8 @@ export function BulkActionBar({ selectedCount, onClear, onEmail, onArchive, onAd
           className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--surface-2)]"
           style={{ color: "var(--text-secondary)" }}
         >
-          <Archive size={13} />
-          Archiver
+          <ArchiveIcon size={13} />
+          {archiveText}
         </button>
       </div>
 

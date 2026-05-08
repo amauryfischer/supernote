@@ -1,19 +1,18 @@
 "use client";
 
 /**
- * VaultInitBanner — discreet top-of-page status banner shown while the
- * default vault is being created on first launch.
+ * VaultInitBanner — formerly displayed during Electron vault auto-init.
  *
- * Appears only in Electron when no vault is open yet.
- * Fades out automatically once initialization completes.
+ * In PWA mode, vault initialization is a user-gesture-driven flow handled
+ * elsewhere; there is no background "creating default vault" phase to
+ * announce. Kept as a no-op render so the layout doesn't need editing.
  */
 
 import { useAutoInitVault } from "@/hooks/useAutoInitVault";
 
 export function VaultInitBanner() {
-  const { isInitializing, error, isElectron } = useAutoInitVault();
+  const { isInitializing, error } = useAutoInitVault();
 
-  if (!isElectron) return null;
   if (!isInitializing && !error) return null;
 
   return (
@@ -34,9 +33,7 @@ export function VaultInitBanner() {
         opacity: 0.92,
       }}
     >
-      {error
-        ? `Erreur vault : ${error}`
-        : "Création du vault par défaut…"}
+      {error ? `Erreur vault : ${error}` : "Initialisation du vault…"}
     </div>
   );
 }

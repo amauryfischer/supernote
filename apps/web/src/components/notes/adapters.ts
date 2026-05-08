@@ -18,6 +18,7 @@ export function entitySummaryToNote(e: EntitySummary): Note {
     folderPath: folderFromFilePath(e.filePath),
     updatedAt: e.updatedAt,
     tags: e.tags,
+    fields: e.fields,
   };
 }
 
@@ -33,6 +34,7 @@ export function entityToNote(e: Entity): Note {
     folderPath: folderFromFilePath(e.filePath),
     updatedAt: e.updatedAt,
     tags: e.tags,
+    fields: e.fields,
   };
 }
 
@@ -60,27 +62,61 @@ export function noteFilePath(folderPath: string, title: string): string {
 }
 
 /**
- * Derive a Folder hierarchy from a flat list of folder paths.
- * Paths use "/" as separator (e.g. "Notes/Projets").
+ * Per-folder presentation metadata persisted server-side and threaded
+ * through the FileTree. Mirrors `FolderSchema` from @supernote/ipc but
+ * defined locally so this module stays free of an IPC import (called
+ * from fallback/demo paths too).
  */
-export function foldersFromPaths(paths: string[]): Folder[] {
-  const unique = Array.from(new Set(paths)).sort();
-  const root: Folder[] = [];
+export interface FolderMeta {
+  path: string;
+  color?: string;
+  icon?: string;
+}
 
-  for (const path of unique) {
-    insertPath(root, path.split("/"), path);
+/**
+ * Derive a Folder hierarchy from a flat list of folder entries. Accepts
+ * either bare paths (legacy callers / fallback fixtures) or full
+ * `{path, color?, icon?}` entries from the IPC layer. Per-folder color
+ * and icon are attached to the matching node so the FileTree can pick
+ * them up without a second lookup.
+ *
+ * Paths use "/" as separator (e.g. "Notes/Projets"); intermediate
+ * ancestor nodes are auto-created without metadata.
+ */
+export function foldersFromPaths(entries: Array<string | FolderMeta>): Folder[] {
+  // Normalize → object form, dedupe by path (last write wins so an
+  // explicit metadata entry overrides a bare-path one), then sort for
+  // a stable render order.
+  const byPath = new Map<string, FolderMeta>();
+  for (const e of entries) {
+    if (typeof e === "string") {
+      if (!byPath.has(e)) byPath.set(e, { path: e });
+    } else if (e && typeof e.path === "string") {
+      byPath.set(e.path, e);
+    }
+  }
+  const sorted = Array.from(byPath.values()).sort((a, b) =>
+    a.path.localeCompare(b.path),
+  );
+  const root: Folder[] = [];
+  for (const entry of sorted) {
+    insertPath(root, entry.path.split("/"), entry);
   }
   return root;
 }
 
-function insertPath(nodes: Folder[], segments: string[], fullPath: string): void {
+function insertPath(
+  nodes: Folder[],
+  segments: string[],
+  entry: FolderMeta,
+): void {
   if (segments.length === 0) return;
   const [head, ...rest] = segments;
   if (!head) return;
 
   let node = nodes.find((n) => n.name === head);
   if (!node) {
-    const pathParts = fullPath.split("/");
+    const pathParts = entry.path.split("/");
     const depth = pathParts.length - rest.length;
     const nodePath = pathParts.slice(0, depth).join("/");
     const newNode: Folder = { name: head, path: nodePath };
@@ -88,8 +124,17 @@ function insertPath(nodes: Folder[], segments: string[], fullPath: string): void
     node = newNode;
   }
 
+  // Attach color/icon only to the leaf node (the one whose full path
+  // matches the entry). Intermediate ancestors stay un-themed unless
+  // they have their own entry — otherwise customizing "a/b" would also
+  // tint "a", which is surprising.
+  if (rest.length === 0) {
+    if (entry.color !== undefined) node.color = entry.color;
+    if (entry.icon !== undefined) node.icon = entry.icon;
+  }
+
   if (rest.length > 0) {
     if (!node.children) node.children = [];
-    insertPath(node.children, rest, fullPath);
+    insertPath(node.children, rest, entry);
   }
 }

@@ -2,7 +2,7 @@
   "name": "supernote",
   "private": true,
   "version": "0.0.0",
-  "description": "Système de connaissance + CRM personnel local-first",
+  "description": "Système de connaissance + CRM personnel local-first (PWA)",
   "packageManager": "pnpm@11.0.8",
   "engines": {
     "node": ">=22.0.0",
@@ -10,16 +10,11 @@
   },
   "scripts": {
     "setup": "pnpm install && pnpm build:packages",
-    "dev": "concurrently -n web,desktop -c blue,magenta \"pnpm dev:web\" \"pnpm dev:desktop\"",
+    "dev": "pnpm dev:web",
     "dev:web": "pnpm --filter @supernote/web dev",
-    "dev:desktop": "wait-on http://localhost:3000 && pnpm --filter @supernote/desktop dev",
     "build": "turbo run build",
     "build:packages": "pnpm -r --filter \"./packages/**\" build",
     "build:web": "pnpm --filter @supernote/web build",
-    "build:desktop": "pnpm --filter @supernote/desktop build",
-    "build:installer": "pnpm build:packages && node scripts/patch-ui-dist.mjs && cross-env NEXT_BUILD_MODE=production pnpm build:web && node scripts/resolve-standalone.mjs && pnpm --filter @supernote/desktop package",
-    "build:installer:win": "pnpm build:packages && node scripts/patch-ui-dist.mjs && cross-env NEXT_BUILD_MODE=production pnpm build:web && node scripts/resolve-standalone.mjs && pnpm --filter @supernote/desktop package:win",
-    "build:installer:legacy": "pnpm build:packages && cross-env NEXT_BUILD_MODE=export pnpm build:web && pnpm --filter @supernote/desktop package",
     "lint": "turbo run lint",
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",
@@ -39,8 +34,7 @@
     "prettier": "^3.4.0",
     "prettier-plugin-tailwindcss": "^0.6.9",
     "turbo": "^2.3.0",
-    "typescript": "^5.7.2",
-    "wait-on": "^9.0.5"
+    "typescript": "^5.7.2"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
@@ -48,9 +42,6 @@
       "@prisma/engines",
       "better-sqlite3",
       "esbuild",
-      "electron",
-      "electron-builder-squirrel-windows",
-      "electron-winstaller",
       "prisma",
       "sharp",
       "unrs-resolver"

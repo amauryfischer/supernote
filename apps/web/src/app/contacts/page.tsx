@@ -5,7 +5,6 @@ import {
   BulkActionBar,
   ContactGallery,
   ContactsTable,
-  ORGANISATIONS,
   ALL_RELATION_TYPES,
   RelationChip,
   useContactsSource,
@@ -13,11 +12,71 @@ import {
 import type { RelationType, Contact } from "@/components/contacts";
 import { GridFour, List, Plus, MagnifyingGlass, X, UploadSimple } from "@phosphor-icons/react";
 import Link from "next/link";
-import { useState, useMemo } from "react";
+import { useRouter } from "next/navigation";
+import { useRef, useState, useMemo, useEffect } from "react";
 import { SkeletonCard } from "@supernote/ui";
 import { useTranslations } from "next-intl";
+import { trpc } from "@/lib/trpc/client";
+import { usePrompt, useConfirm } from "@/hooks/usePrompt";
 
 type ViewMode = "table" | "gallery";
+
+// ── Inline parsers (no deps) ────────────────────────────────────────────────
+
+interface ParsedContact {
+  name: string;
+  email?: string;
+  phone?: string;
+  notes?: string;
+}
+
+/** Minimal vCard 2.1/3.0/4.0 parser: extracts FN, EMAIL, TEL, NOTE per VCARD block. */
+function parseVCard(text: string): ParsedContact[] {
+  const out: ParsedContact[] = [];
+  const blocks = text.split(/BEGIN:VCARD/i).slice(1);
+  for (const raw of blocks) {
+    const block = raw.split(/END:VCARD/i)[0] ?? "";
+    const lines = block.replace(/\r\n[ \t]/g, "").split(/\r?\n/);
+    const c: ParsedContact = { name: "" };
+    for (const line of lines) {
+      const m = /^([A-Z0-9-]+)(;[^:]*)?:(.*)$/i.exec(line.trim());
+      if (!m) continue;
+      const key = m[1]!.toUpperCase();
+      const val = m[3]!;
+      if (key === "FN" && !c.name) c.name = val;
+      else if (key === "N" && !c.name) c.name = val.split(";").filter(Boolean).reverse().join(" ").trim();
+      else if (key === "EMAIL" && !c.email) c.email = val;
+      else if (key === "TEL" && !c.phone) c.phone = val;
+      else if (key === "NOTE" && !c.notes) c.notes = val;
+    }
+    if (c.name) out.push(c);
+  }
+  return out;
+}
+
+/** Minimal CSV parser: comma-separated, header row. Recognized columns: name, email, phone, note(s). */
+function parseCsv(text: string): ParsedContact[] {
+  const rows = text.split(/\r?\n/).filter((r) => r.trim().length > 0);
+  if (rows.length < 2) return [];
+  const split = (line: string): string[] =>
+    line.match(/(".*?"|[^,]+)/g)?.map((c) => c.replace(/^"|"$/g, "").trim()) ?? [];
+  const headers = split(rows[0]!).map((h) => h.toLowerCase());
+  const idx = (k: string) => headers.findIndex((h) => h === k || h.includes(k));
+  const ni = idx("name"), ei = idx("email"), pi = idx("phone"), no = idx("note");
+  const out: ParsedContact[] = [];
+  for (let i = 1; i < rows.length; i++) {
+    const cells = split(rows[i]!);
+    const name = ni >= 0 ? cells[ni] ?? "" : cells[0] ?? "";
+    if (!name) continue;
+    out.push({
+      name,
+      email: ei >= 0 ? cells[ei] : undefined,
+      phone: pi >= 0 ? cells[pi] : undefined,
+      notes: no >= 0 ? cells[no] : undefined,
+    });
+  }
+  return out;
+}
 
 /** Empty state shown when there are truly no contacts at all. */
 function EmptyState() {
@@ -33,6 +92,7 @@ function EmptyState() {
       </p>
       <Link
         href="/contacts/nouveau"
+        prefetch={true}
         className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-opacity hover:opacity-90"
         style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
       >
@@ -44,6 +104,7 @@ function EmptyState() {
 }
 
 export default function ContactsPage() {
+  const router = useRouter();
   const t = useTranslations("contacts");
   const tCommon = useTranslations("common");
   const [view, setView] = useState<ViewMode>("table");
@@ -51,16 +112,114 @@ export default function ContactsPage() {
   const [activeTypes, setActiveTypes] = useState<RelationType[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
-  // Resolves contacts from tRPC (Electron) or fixtures (browser / mode dégradé).
-  // The query is only enabled when window.__supernoteIPC is available, which
-  // prevents the race where isError stays false while data is undefined.
+  // Resolves contacts from tRPC (vault Web Worker in PWA mode).
   const { contacts: allContacts, mode, isLoading } = useContactsSource();
+  const prompt = usePrompt();
+  const confirm = useConfirm();
 
-  // Org names map — fixtures are already embedded in components, this covers live data.
-  const orgNames = useMemo<Map<string, string>>(
-    () => new Map(ORGANISATIONS.map((o) => [o.id, o.name])),
-    [],
+  // Hidden file input + tRPC mutations for import / bulk actions.
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const utils = trpc.useUtils();
+  const createMutation = trpc.entities.create.useMutation({
+    onSuccess: () => {
+      void utils.entities.list.invalidate({ typeId: "personne" });
+    },
+  });
+  const updateMutation = trpc.entities.update.useMutation({
+    onSuccess: () => {
+      void utils.entities.list.invalidate({ typeId: "personne" });
+    },
+  });
+  const deleteMutation = trpc.entities.delete.useMutation({
+    onSuccess: () => {
+      void utils.entities.list.invalidate({ typeId: "personne" });
+    },
+  });
+
+  const handleImportClick = () => fileInputRef.current?.click();
+
+  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-selecting same file
+    if (!file) return;
+    const text = await file.text();
+    const isVcf = /\.vcf$/i.test(file.name) || /BEGIN:VCARD/i.test(text);
+    const isCsv = /\.csv$/i.test(file.name) || /[,;]/.test(text.split(/\r?\n/)[0] ?? "");
+    let parsed: ParsedContact[] = [];
+    if (isVcf) parsed = parseVCard(text);
+    else if (isCsv) parsed = parseCsv(text);
+    if (parsed.length === 0) {
+      console.warn("[contacts.import] Format de fichier non reconnu ou aucun contact trouvé");
+      return;
+    }
+    for (const p of parsed) {
+      const fields: Record<string, unknown> = {
+        name: p.name,
+        emails: p.email ? JSON.stringify([{ value: p.email, label: "perso" }]) : "[]",
+        phones: p.phone ? JSON.stringify([{ value: p.phone, label: "mobile" }]) : "[]",
+        relationType: "connaissance",
+        notes: p.notes ?? "",
+      };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      try { await createMutation.mutateAsync({ typeId: "personne", fields: fields as any }); } catch { /* no-op */ }
+    }
+  };
+
+  const handleBulkAddTag = async () => {
+    const tag = await prompt("Nom du tag à ajouter aux contacts sélectionnés ?", {
+      placeholder: "ami, collègue, …",
+    });
+    if (!tag || !tag.trim()) return;
+    const newTag = tag.trim();
+    for (const id of selectedIds) {
+      const c = allContacts.find((x) => x.id === id);
+      if (!c) continue;
+      const tags = Array.from(new Set([...(c.tags ?? []), newTag]));
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      try { await updateMutation.mutateAsync({ id, tags } as any); } catch { /* no-op */ }
+    }
+    setSelectedIds([]);
+  };
+
+  const handleBulkDelete = async () => {
+    const ok = await confirm({
+      title: `Supprimer ${selectedIds.length} contact(s) ?`,
+      description: "Cette action déplace les contacts sélectionnés dans la corbeille.",
+      destructive: true,
+      confirmLabel: "Supprimer",
+    });
+    if (!ok) return;
+    for (const id of selectedIds) {
+      try { await deleteMutation.mutateAsync({ id }); } catch { /* no-op */ }
+    }
+    setSelectedIds([]);
+  };
+
+  // Warm the route bundle so the "Nouveau contact" CTA navigates instantly,
+  // even when Next.js dev hasn't compiled /contacts/nouveau yet (Link prefetch
+  // is best-effort in dev).
+  useEffect(() => {
+    router.prefetch("/contacts/nouveau");
+  }, [router]);
+
+  // Org names map — built from real `organisation` entities so the table /
+  // gallery columns display the org's name instead of its raw ULID. Legacy
+  // contacts that still reference a fixture-shaped id (e.g. "org-1") simply
+  // miss the lookup and the column renders the placeholder dash.
+  const organisationListQuery = trpc.entities.list.useQuery(
+    { typeId: "organisation", limit: 500 },
+    { staleTime: 30_000 },
   );
+  const orgNames = useMemo<Map<string, string>>(() => {
+    const m = new Map<string, string>();
+    const items = organisationListQuery.data?.items ?? [];
+    for (const e of items) {
+      const raw = e.fields["name"];
+      const name = typeof raw === "string" && raw.trim().length > 0 ? raw.trim() : "Sans nom";
+      m.set(e.id, name);
+    }
+    return m;
+  }, [organisationListQuery.data]);
 
   const filtered = useMemo<Contact[]>(() => {
     const q = query.trim().toLowerCase();
@@ -149,11 +308,18 @@ export default function ContactsPage() {
               </button>
             </div>
 
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".vcf,.csv,text/vcard,text/csv"
+              className="hidden"
+              onChange={handleImportFile}
+            />
             <button
               className="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--surface-2)]"
               style={{ borderColor: "var(--border-subtle)", color: "var(--text-muted)" }}
               title={t("importHint")}
-              onClick={() => alert("Import vCard/Google Contacts (à implémenter)")}
+              onClick={handleImportClick}
             >
               <UploadSimple size={13} />
               {t("importLabel")}
@@ -161,6 +327,7 @@ export default function ContactsPage() {
 
             <Link
               href="/contacts/nouveau"
+              prefetch={true}
               className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-opacity hover:opacity-90"
               style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
             >
@@ -260,8 +427,9 @@ export default function ContactsPage() {
             .join(",");
           window.open(`mailto:${emails}`);
         }}
-        onArchive={() => setSelectedIds([])}
-        onAddTag={() => alert("Ajout de tag (à implémenter)")}
+        onArchive={handleBulkDelete}
+        archiveLabel="Supprimer"
+        onAddTag={handleBulkAddTag}
       />
     </AppShell>
   );

@@ -58,6 +58,8 @@ export function BackupTab() {
   const exports = MOCK_EXPORTS;
 
   const handleExport = async () => {
+    // ZIP export via worker is not yet implemented. Keep the spinner UX so
+    // users see something happen; the button is disabled below until then.
     setExporting(true);
     await new Promise((r) => setTimeout(r, 1200));
     setExporting(false);
@@ -85,19 +87,25 @@ export function BackupTab() {
         icon={<Archive size={16} />}
       >
         <SettingRow label="Vault complet">
-          <button
-            onClick={handleExport}
-            disabled={exporting}
-            className="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm transition-all hover:opacity-80 disabled:opacity-50"
-            style={{
-              borderColor: "var(--accent)",
-              color: "var(--accent)",
-              backgroundColor: "var(--accent-subtle)",
-            }}
-          >
-            <FileZip size={14} className={exporting ? "animate-pulse" : ""} />
-            {exporting ? "Export en cours..." : "Exporter le vault en ZIP"}
-          </button>
+          <div className="flex flex-col gap-1.5">
+            <button
+              onClick={handleExport}
+              disabled
+              title="À implémenter — export via worker"
+              className="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm transition-all hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-50"
+              style={{
+                borderColor: "var(--accent)",
+                color: "var(--accent)",
+                backgroundColor: "var(--accent-subtle)",
+              }}
+            >
+              <FileZip size={14} className={exporting ? "animate-pulse" : ""} />
+              {exporting ? "Export en cours..." : "Exporter le vault en ZIP"}
+            </button>
+            <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+              À implémenter — export via worker
+            </span>
+          </div>
         </SettingRow>
       </SettingSection>
 
@@ -166,7 +174,9 @@ export function BackupTab() {
             {["Notion", "Obsidian", "vCard"].map((source) => (
               <button
                 key={source}
-                className="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm transition-all hover:opacity-80"
+                disabled
+                title="À implémenter — import via worker"
+                className="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm transition-all hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-50"
                 style={{
                   borderColor: "var(--border)",
                   color: "var(--text-secondary)",
@@ -178,6 +188,9 @@ export function BackupTab() {
               </button>
             ))}
           </div>
+          <p className="mt-1.5 text-xs" style={{ color: "var(--text-muted)" }}>
+            À implémenter — import via worker
+          </p>
         </SettingRow>
       </SettingSection>
 

@@ -1,49 +1,41 @@
 // ============================================================
 // SupernoteCanvas — main canvas component
 //
-// Architecture: Option B (Toggle mode)
+// HISTORY: Started as a dual-mode toggle (Excalidraw "draw" vs React Flow
+// "nodes"). In May 2026 we unified onto Excalidraw because the toggle
+// fragmented the user experience: drawings and entity links lived in two
+// disjoint surfaces, and switching modes hid one set of content from the
+// other. Entity references are now first-class Excalidraw elements (see
+// DrawLayer.tsx for the customData/link encoding).
 //
-// DESIGN DECISION: We chose a mode-toggle approach over a true overlay:
+// The legacy "nodes" mode (React Flow) was removed entirely — entity refs
+// are now native Excalidraw rectangles. Loading a legacy CanvasDocument
+// (with a populated `nodes` array) triggers a one-shot migration that
+// transforms each typed node into an equivalent Excalidraw element so
+// users don't lose their content. After migration `doc.nodes` and
+// `doc.edges` are wiped so subsequent saves are pure-Excalidraw.
 //
-// Option A (overlay) problems we avoided:
-//   1. EVENT ROUTING: Excalidraw captures all pointer events at the window
-//      level. Making React Flow interactive underneath would require
-//      intercepting and re-dispatching pointer events — fragile and
-//      version-sensitive.
-//   2. VIEWPORT SYNC: Excalidraw uses its own canvas-based coordinate system
-//      (scrollX/scrollY + zoom). React Flow uses CSS transforms on a
-//      positioned div. Keeping both in sync requires a `requestAnimationFrame`
-//      loop that introduces 1-frame lag and potential drift.
-//   3. Z-ORDER: Deciding which layer receives a click (empty space = draw
-//      layer; node area = React Flow layer) requires hit-testing that
-//      duplicates both libraries' internal hit-testing logic.
-//   4. DOUBLE RENDER: Two full-screen GPU-accelerated canvases consume 2×
-//      the GPU memory and trigger 2× paint on every frame.
-//
-// Option B benefits:
-//   - Clean separation of concerns: one active canvas at a time.
-//   - Node positions are kept in CanvasDocument world coordinates, identical
-//     for both layers, so switching modes preserves positions perfectly.
-//   - Excalidraw elements (free drawings) are stored in a parallel structure
-//     inside the document metadata (`excalidrawElements`), not mixed with
-//     typed nodes. This mirrors how Obsidian handles canvas vs. other data.
-//   - Simple mental model for users: "Draw mode" for sketching, "Nodes mode"
-//     for structured data.
-//
+// Persistence: the CanvasDocument shape is unchanged on the wire — `nodes`
+// and `edges` arrays still exist (empty for new docs) so the field type
+// stays compatible.
 // ============================================================
 
-import React, { useCallback, useEffect, useRef, useState } from "react";
-import type { Node as FlowNode } from "@xyflow/react";
-import type { ExcalidrawElementLike } from "./DrawLayer.js";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type {
+  ExcalidrawElementLike,
+  DrawLayerHandle,
+  EntityRefCustomData,
+} from "./DrawLayer.js";
 
 import { createCanvasStore } from "../store/index.js";
-import { useFlowAdapter, flowNodeToCanvasCoords } from "../hooks/useFlowAdapter.js";
-import { ModeToggle } from "./ModeToggle.js";
-import { RelationDialog } from "./RelationDialog.js";
 import { DrawLayer } from "./DrawLayer.js";
-import { NodesLayer } from "./NodesLayer.js";
+import { entityRefLink } from "./DrawLayer.js";
 import type { SupernoteCanvasProps } from "../types/props.js";
-import type { CanvasNode } from "../types/canvas.js";
+import type {
+  CanvasDocument,
+  CanvasExcalidrawElement,
+  CanvasNode,
+} from "../types/canvas.js";
 
 const CONTAINER_STYLE: React.CSSProperties = {
   position: "relative",
@@ -53,43 +45,368 @@ const CONTAINER_STYLE: React.CSSProperties = {
   background: "var(--canvas-bg, #f8fafc)",
 };
 
-/** Main dual-mode canvas component */
+// ----- Legacy nodes migration ---------------------------------------------
+//
+// Loading a CanvasDocument that still has typed nodes (from before the
+// unification) needs to feel seamless: we transform each node into an
+// equivalent Excalidraw element placed at the original coordinates so the
+// user doesn't see content jump or vanish. CRM nodes become entity-ref
+// rectangles (same encoding DrawLayer uses for live insertion); other types
+// become a labelled rectangle so they remain visible and editable.
+//
+// We hand-write the Excalidraw element JSON instead of calling
+// `convertToExcalidrawElements` because that helper is async-only via the
+// dynamic import and we want migration to be synchronous on mount. The
+// minimal shape (`id` + `type` + geometry + style fields) is restored by
+// Excalidraw with sensible defaults for everything else (seed, version,
+// versionNonce, index, …).
+
+const ENTITY_FILL = "#ede9fe";
+const ENTITY_STROKE = "#7c3aed";
+const TEXT_STROKE = "#1e293b";
+const GROUP_FILL = "rgba(200,200,200,0.10)";
+const GROUP_STROKE = "#cbd5e1";
+
+interface MigratedElement {
+  readonly id: string;
+  readonly type: string;
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+  readonly [key: string]: unknown;
+}
+
+function legacyNodeToExcalidrawElements(node: CanvasNode): MigratedElement[] {
+  const baseRect = {
+    id: `migrated-${node.id}`,
+    type: "rectangle",
+    x: node.x,
+    y: node.y,
+    width: node.width,
+    height: node.height,
+    angle: 0,
+    strokeColor: TEXT_STROKE,
+    backgroundColor: "transparent",
+    fillStyle: "solid",
+    strokeWidth: 1,
+    strokeStyle: "solid",
+    roughness: 1,
+    opacity: 100,
+    roundness: { type: 3 },
+  };
+
+  switch (node.type) {
+    case "crm": {
+      const customData: EntityRefCustomData = {
+        kind: "entity-ref",
+        entityId: node.entityId,
+        entityName: node.entityId,
+        entityType: "",
+      };
+      return [
+        {
+          ...baseRect,
+          backgroundColor: ENTITY_FILL,
+          strokeColor: ENTITY_STROKE,
+          link: entityRefLink(node.entityId, ""),
+          customData,
+        },
+        {
+          id: `migrated-${node.id}-label`,
+          type: "text",
+          x: node.x + 8,
+          y: node.y + node.height / 2 - 12,
+          width: Math.max(0, node.width - 16),
+          height: 24,
+          angle: 0,
+          strokeColor: TEXT_STROKE,
+          backgroundColor: "transparent",
+          fillStyle: "solid",
+          strokeWidth: 1,
+          strokeStyle: "solid",
+          roughness: 1,
+          opacity: 100,
+          text: node.entityId,
+          fontSize: 16,
+          fontFamily: 5,
+          textAlign: "center",
+          verticalAlign: "middle",
+        },
+      ];
+    }
+
+    case "text":
+      return [
+        {
+          id: `migrated-${node.id}`,
+          type: "text",
+          x: node.x,
+          y: node.y,
+          width: node.width,
+          height: node.height,
+          angle: 0,
+          strokeColor: TEXT_STROKE,
+          backgroundColor: "transparent",
+          fillStyle: "solid",
+          strokeWidth: 1,
+          strokeStyle: "solid",
+          roughness: 1,
+          opacity: 100,
+          text: node.text,
+          fontSize: 16,
+          fontFamily: 5,
+          textAlign: "left",
+          verticalAlign: "top",
+        },
+      ];
+
+    case "link":
+      return [
+        {
+          ...baseRect,
+          backgroundColor: "#eff6ff",
+          strokeColor: "#2563eb",
+          link: node.url,
+        },
+        {
+          id: `migrated-${node.id}-label`,
+          type: "text",
+          x: node.x + 8,
+          y: node.y + node.height / 2 - 12,
+          width: Math.max(0, node.width - 16),
+          height: 24,
+          angle: 0,
+          strokeColor: "#2563eb",
+          backgroundColor: "transparent",
+          fillStyle: "solid",
+          strokeWidth: 1,
+          strokeStyle: "solid",
+          roughness: 1,
+          opacity: 100,
+          text: node.url,
+          fontSize: 14,
+          fontFamily: 5,
+          textAlign: "center",
+          verticalAlign: "middle",
+        },
+      ];
+
+    case "file":
+      return [
+        {
+          ...baseRect,
+          backgroundColor: "#f1f5f9",
+        },
+        {
+          id: `migrated-${node.id}-label`,
+          type: "text",
+          x: node.x + 8,
+          y: node.y + node.height / 2 - 12,
+          width: Math.max(0, node.width - 16),
+          height: 24,
+          angle: 0,
+          strokeColor: TEXT_STROKE,
+          backgroundColor: "transparent",
+          fillStyle: "solid",
+          strokeWidth: 1,
+          strokeStyle: "solid",
+          roughness: 1,
+          opacity: 100,
+          text: node.subpath ? `${node.file}${node.subpath}` : node.file,
+          fontSize: 14,
+          fontFamily: 5,
+          textAlign: "center",
+          verticalAlign: "middle",
+        },
+      ];
+
+    case "group":
+      return [
+        {
+          ...baseRect,
+          backgroundColor: node.background ?? GROUP_FILL,
+          strokeColor: GROUP_STROKE,
+          strokeStyle: "dashed",
+          ...(node.label
+            ? {}
+            : {}),
+        },
+        ...(node.label
+          ? [
+              {
+                id: `migrated-${node.id}-label`,
+                type: "text",
+                x: node.x + 8,
+                y: node.y + 6,
+                width: Math.max(0, node.width - 16),
+                height: 20,
+                angle: 0,
+                strokeColor: TEXT_STROKE,
+                backgroundColor: "transparent",
+                fillStyle: "solid",
+                strokeWidth: 1,
+                strokeStyle: "solid",
+                roughness: 1,
+                opacity: 100,
+                text: node.label,
+                fontSize: 14,
+                fontFamily: 5,
+                textAlign: "left",
+                verticalAlign: "top",
+              } satisfies MigratedElement,
+            ]
+          : []),
+      ];
+
+    case "query":
+      return [
+        {
+          ...baseRect,
+          backgroundColor: "#fef3c7",
+          strokeColor: "#d97706",
+        },
+        {
+          id: `migrated-${node.id}-label`,
+          type: "text",
+          x: node.x + 8,
+          y: node.y + 6,
+          width: Math.max(0, node.width - 16),
+          height: 20,
+          angle: 0,
+          strokeColor: TEXT_STROKE,
+          backgroundColor: "transparent",
+          fillStyle: "solid",
+          strokeWidth: 1,
+          strokeStyle: "solid",
+          roughness: 1,
+          opacity: 100,
+          text: `Query: ${node.query}`,
+          fontSize: 13,
+          fontFamily: 5,
+          textAlign: "left",
+          verticalAlign: "top",
+        },
+      ];
+
+    default: {
+      // Exhaustiveness fallback — if a future CanvasNode variant is added we
+      // still produce *something* visible rather than dropping silently.
+      const _unhandled: never = node;
+      void _unhandled;
+      return [];
+    }
+  }
+}
+
+/**
+ * Migrate a legacy CanvasDocument that still has typed nodes onto pure
+ * Excalidraw elements. Returns the migrated `excalidrawElements` array
+ * (existing draw elements first, then converted nodes).
+ *
+ * The legacy `edges` array is dropped: edges only made sense between typed
+ * React Flow nodes. We could in theory render them as Excalidraw arrows,
+ * but doing so reliably (with correct binding to migrated rectangles)
+ * isn't worth the complexity given how rarely typed-node graphs were used
+ * in practice.
+ */
+function migrateLegacyDoc(doc: CanvasDocument): {
+  excalidrawElements: CanvasExcalidrawElement[];
+  migrated: boolean;
+} {
+  if (!doc.nodes || doc.nodes.length === 0) {
+    return {
+      excalidrawElements: (doc.excalidrawElements ?? []) as CanvasExcalidrawElement[],
+      migrated: false,
+    };
+  }
+  const existing = (doc.excalidrawElements ?? []) as CanvasExcalidrawElement[];
+  const migratedFromNodes: CanvasExcalidrawElement[] = doc.nodes.flatMap(
+    (n) => legacyNodeToExcalidrawElements(n) as unknown as CanvasExcalidrawElement[]
+  );
+  return {
+    excalidrawElements: [...existing, ...migratedFromNodes],
+    migrated: true,
+  };
+}
+
+/** Main unified canvas component */
 export function SupernoteCanvas({
   initialData,
   onChange,
   onSave,
   resolveEntity,
-  onCreateRelation,
+  onLinkEntity,
+  onEntityNavigate,
   readOnly = false,
   className,
 }: SupernoteCanvasProps) {
+  // One-shot legacy migration. Any typed nodes in the incoming doc are
+  // converted to Excalidraw elements before the store is created, then the
+  // store starts life with `nodes` + `edges` already wiped. The next
+  // `onChange` will therefore propagate the migrated, pure-Excalidraw doc.
+  const initialMigrated = useMemo(() => {
+    if (!initialData) {
+      return {
+        document: { nodes: [], edges: [] } as CanvasDocument,
+        excalidrawElements: [] as CanvasExcalidrawElement[],
+        wasMigrated: false,
+      };
+    }
+    const { excalidrawElements, migrated } = migrateLegacyDoc(initialData);
+    const cleanedDoc: CanvasDocument = {
+      ...initialData,
+      nodes: [],
+      edges: [],
+      excalidrawElements,
+    };
+    return {
+      document: cleanedDoc,
+      excalidrawElements,
+      wasMigrated: migrated,
+    };
+    // We intentionally only compute this on the first render — re-running on
+    // every `initialData` change would re-migrate already-migrated content.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Store is created once per mount; we use a ref to avoid re-creation
-  const storeRef = useRef(createCanvasStore(initialData));
+  const storeRef = useRef(createCanvasStore(initialMigrated.document));
   const store = storeRef.current;
 
-  const [mode, setMode] = useState(store.getState().mode);
   const [doc, setDoc] = useState(store.getState().document);
-  const [pendingSource, setPendingSource] = useState<string | null>(null);
-  const [pendingTarget, setPendingTarget] = useState<string | null>(null);
 
-  // Excalidraw elements live outside the typed canvas document
-  const [excalidrawElements, setExcalidrawElements] = useState<readonly ExcalidrawElementLike[]>([]);
+  // Excalidraw elements live alongside the typed canvas document; they are
+  // serialized into `doc.excalidrawElements` whenever the parent is notified
+  // so a single `onChange` payload round-trips BOTH layers through the same
+  // persistence path. Without this the user's drawings vanish on reload.
+  const [excalidrawElements, setExcalidrawElements] = useState<
+    readonly ExcalidrawElementLike[]
+  >(() => initialMigrated.excalidrawElements as ExcalidrawElementLike[]);
+
+  // Imperative handle from the DrawLayer so we can insert entity-ref elements
+  // without round-tripping through React state (which would lose the user's
+  // viewport during the same render cycle).
+  const drawLayerRef = useRef<DrawLayerHandle | null>(null);
 
   // Subscribe to store changes
   useEffect(() => {
     const unsub = store.subscribe((state) => {
       setDoc(state.document);
-      setMode(state.mode);
-      setPendingSource(state.pendingRelationSource);
-      setPendingTarget(state.pendingRelationTarget);
     });
     return unsub;
   }, [store]);
 
-  // Fire onChange when document changes
+  // Fire onChange when document OR excalidraw elements change. We merge the
+  // free-drawing layer into the document at the boundary so consumers only
+  // ever see a single CanvasDocument and don't need to know about the split.
   useEffect(() => {
-    onChange?.(doc);
-  }, [doc, onChange]);
+    if (!onChange) return;
+    onChange({
+      ...doc,
+      excalidrawElements: excalidrawElements as CanvasExcalidrawElement[],
+    });
+  }, [doc, excalidrawElements, onChange]);
 
   // Keyboard shortcut: Cmd/Ctrl+S → onSave
   useEffect(() => {
@@ -103,76 +420,6 @@ export function SupernoteCanvas({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [store, onSave]);
 
-  const { flowNodes, flowEdges } = useFlowAdapter(doc, resolveEntity);
-
-  // React Flow → CanvasDocument: when nodes are moved/resized
-  const handleFlowNodesChange = useCallback(
-    (updatedFlowNodes: FlowNode[]) => {
-      updatedFlowNodes.forEach((flowNode) => {
-        const original = doc.nodes.find((n) => n.id === flowNode.id);
-        if (original) {
-          const updated = flowNodeToCanvasCoords(flowNode, original);
-          store.getState().updateNode(flowNode.id, updated as Partial<CanvasNode>);
-        }
-      });
-    },
-    [doc.nodes, store]
-  );
-
-  // React Flow connect: check if both nodes are CRM, open relation dialog
-  const handleFlowConnect = useCallback(
-    (connection: { source: string; target: string }) => {
-      const sourceNode = doc.nodes.find((n) => n.id === connection.source);
-      const targetNode = doc.nodes.find((n) => n.id === connection.target);
-
-      if (sourceNode?.type === "crm" && targetNode?.type === "crm") {
-        store.getState().setPendingRelation(connection.source, connection.target);
-      } else {
-        // For non-CRM connections, add a plain edge
-        const newEdge = {
-          id: `edge-${Date.now()}`,
-          fromNode: connection.source,
-          toNode: connection.target,
-        };
-        store.getState().addEdge(newEdge);
-      }
-    },
-    [doc.nodes, store]
-  );
-
-  // Relation dialog confirm
-  const handleRelationConfirm = useCallback(
-    async (sourceId: string, targetId: string) => {
-      if (!onCreateRelation) {
-        store.getState().clearPendingRelation();
-        return { success: true };
-      }
-      const result = await onCreateRelation(sourceId, targetId);
-      if (result.success) {
-        store.getState().addEdge({
-          id: `edge-${Date.now()}`,
-          fromNode: sourceId,
-          toNode: targetId,
-          relationTypeId: result.relationTypeId,
-        });
-        store.getState().clearPendingRelation();
-      }
-      return result;
-    },
-    [onCreateRelation, store]
-  );
-
-  const handleRelationCancel = useCallback(() => {
-    store.getState().clearPendingRelation();
-  }, [store]);
-
-  const handleModeToggle = useCallback(
-    (newMode: typeof mode) => {
-      store.getState().setMode(newMode);
-    },
-    [store]
-  );
-
   const handleExcalidrawChange = useCallback(
     (elements: readonly ExcalidrawElementLike[]) => {
       setExcalidrawElements(elements);
@@ -180,44 +427,50 @@ export function SupernoteCanvas({
     []
   );
 
+  // The DrawLayer's own toolbar wires the entity picker directly so the
+  // typed "Lier ..." buttons are always visible inside the unified canvas.
+  // When the user clicks a typed button, DrawLayer passes its `typeFilter`
+  // through to us — we forward it to the host so its picker can pre-filter
+  // the search by entity type.
+  const drawLayerOnLinkEntity = useMemo(() => {
+    if (!onLinkEntity) return undefined;
+    return (
+      insert: (data: EntityRefCustomData) => void,
+      typeFilter?: string,
+    ) => {
+      onLinkEntity((entityId) => {
+        void (async () => {
+          let entityName = entityId;
+          let entityType = "";
+          if (resolveEntity) {
+            try {
+              const ref = await resolveEntity(entityId);
+              if (ref) {
+                entityName = ref.name;
+                entityType = ref.typeName;
+              }
+            } catch {
+              /* keep defaults */
+            }
+          }
+          insert({ kind: "entity-ref", entityId, entityName, entityType });
+        })();
+      }, typeFilter);
+    };
+  }, [onLinkEntity, resolveEntity]);
+
   return (
     <div style={CONTAINER_STYLE} className={className}>
-      {/* Mode toggle button — top right corner */}
-      <ModeToggle mode={mode} onToggle={handleModeToggle} readOnly={readOnly} />
-
-      {/* Draw mode: Excalidraw fills the full area */}
-      {mode === "draw" && (
-        <div style={{ position: "absolute", inset: 0, zIndex: 1 }}>
-          <DrawLayer
-            initialElements={excalidrawElements}
-            onChange={handleExcalidrawChange}
-            readOnly={readOnly}
-          />
-        </div>
-      )}
-
-      {/* Nodes mode: React Flow fills the full area */}
-      {mode === "nodes" && (
-        <div style={{ position: "absolute", inset: 0, zIndex: 1 }}>
-          <NodesLayer
-            initialNodes={flowNodes}
-            initialEdges={flowEdges}
-            onNodesChange={handleFlowNodesChange}
-            onConnect={handleFlowConnect}
-            readOnly={readOnly}
-          />
-        </div>
-      )}
-
-      {/* Relation creation dialog */}
-      {pendingSource && pendingTarget && (
-        <RelationDialog
-          sourceId={pendingSource}
-          targetId={pendingTarget}
-          onConfirm={handleRelationConfirm}
-          onCancel={handleRelationCancel}
+      <div style={{ position: "absolute", inset: 0, zIndex: 1 }}>
+        <DrawLayer
+          ref={drawLayerRef}
+          initialElements={excalidrawElements}
+          onChange={handleExcalidrawChange}
+          onLinkEntity={drawLayerOnLinkEntity}
+          onEntityNavigate={onEntityNavigate}
+          readOnly={readOnly}
         />
-      )}
+      </div>
     </div>
   );
 }

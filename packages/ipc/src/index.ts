@@ -30,6 +30,7 @@ export { router, publicProcedure, type IpcContext } from "./router/trpc.js";
 
 // ── Sub-routers ───────────────────────────────────────────────────────────────
 export { vaultRouter, type VaultRouter } from "./router/vault.router.js";
+export { foldersRouter, type FoldersRouter } from "./router/folders.router.js";
 export { entitiesRouter, type EntitiesRouter } from "./router/entities.router.js";
 export { schemasRouter, type SchemasRouter } from "./router/schemas.router.js";
 export { relationsRouter, type RelationsRouter } from "./router/relations.router.js";
@@ -69,6 +70,7 @@ export {
 
 // ── Zod schemas & inferred types ──────────────────────────────────────────────
 export * from "./schemas/vault.js";
+export * from "./schemas/folders.js";
 export * from "./schemas/entities.js";
 export * from "./schemas/schemas.js";
 export * from "./schemas/relations.js";

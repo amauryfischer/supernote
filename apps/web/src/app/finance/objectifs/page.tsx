@@ -1,5 +1,6 @@
 "use client";
 
+import { useCallback } from "react";
 import { ArrowLeft, Plus, Target } from "@phosphor-icons/react";
 import Link from "next/link";
 import { AppShell } from "@/components/shell";
@@ -8,6 +9,7 @@ import { formatCurrency, formatDate, getGoalETA } from "@/components/finance/uti
 import { projectETA } from "@supernote/finance/snapshots";
 import type { SnapshotEntity } from "@supernote/finance/snapshots";
 import type { Snapshot } from "@/components/finance/fixtures";
+import { trpc } from "@/lib/trpc/client";
 
 const CATEGORY_STYLES: Record<string, { color: string; label: string; bg: string }> = {
   savings: { color: "#16A34A", bg: "#16A34A20", label: "Epargne" },
@@ -40,6 +42,28 @@ export default function ObjectifsPage() {
 
   const snapshotEntities = snapshots.map(snapshotToEntity);
 
+  const utils = trpc.useUtils();
+  const createMutation = trpc.entities.create.useMutation({
+    onSuccess: () => {
+      void utils.entities.list.invalidate({ typeId: "goal" });
+    },
+  });
+  const handleNewGoal = useCallback(async () => {
+    try {
+      await createMutation.mutateAsync({
+        typeId: "goal",
+        fields: {
+          name: "Nouvel objectif",
+          target_amount: 0,
+          current_amount: 0,
+          status: "en_cours",
+        },
+      });
+    } catch (err) {
+      console.error("[finance/objectifs] create failed", err);
+    }
+  }, [createMutation]);
+
   return (
     <AppShell>
     <div className="flex flex-col gap-6 p-6">
@@ -57,7 +81,9 @@ export default function ObjectifsPage() {
           )}
         </div>
         <button
-          className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium"
+          onClick={() => void handleNewGoal()}
+          disabled={createMutation.isPending}
+          className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-opacity disabled:opacity-50"
           style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
         >
           <Plus size={14} /> Objectif
@@ -89,9 +115,10 @@ export default function ObjectifsPage() {
               const remaining = goal.targetAmount - goal.currentAmount;
 
               return (
-                <div
+                <Link
                   key={goal.id}
-                  className="flex flex-col gap-4 rounded-xl border p-5"
+                  href={`/finance/objectifs/${goal.id}`}
+                  className="flex flex-col gap-4 rounded-xl border p-5 transition-colors hover:bg-[var(--surface-2)]"
                   style={{ backgroundColor: "var(--surface-1)", borderColor: "var(--border-subtle)" }}
                 >
                   <div className="flex items-start justify-between">
@@ -149,7 +176,7 @@ export default function ObjectifsPage() {
                       <p className="mt-1 text-xs italic" style={{ color: "var(--text-muted)" }}>{goal.description}</p>
                     )}
                   </div>
-                </div>
+                </Link>
               );
             })}
           </div>

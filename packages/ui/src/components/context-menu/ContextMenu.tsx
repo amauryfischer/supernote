@@ -58,16 +58,35 @@ export function ContextMenu({ state, onClose }: ContextMenuProps) {
     <div
       ref={ref}
       role="menu"
-      style={{ top: state.y, left: state.x, zIndex: "var(--z-dropdown)" } as React.CSSProperties}
-      className="fixed min-w-[180px] rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--surface-1)] p-1 [box-shadow:var(--shadow-lg)]"
+      // Inline styles instead of Tailwind arbitrary classes so the menu still
+      // renders with a real solid background when the host app's Tailwind JIT
+      // didn't see the `bg-[var(--surface-1)]` class (it lives inside the
+      // pre-built @supernote/ui dist that isn't scanned by the consumer's
+      // Tailwind config).
+      style={{
+        position: "fixed",
+        top: state.y,
+        left: state.x,
+        zIndex: 1000,
+        minWidth: 200,
+        padding: 4,
+        borderRadius: 8,
+        border: "1px solid var(--border-subtle, #e5e7eb)",
+        backgroundColor: "var(--surface-1, #ffffff)",
+        boxShadow: "var(--shadow-lg, 0 10px 30px rgba(0,0,0,.18))",
+      }}
     >
       {state.items.map((item) => {
         if (item.separator) {
           return (
             <div
               key={item.key}
-              className="my-1 h-px bg-[var(--border-subtle)]"
               role="separator"
+              style={{
+                margin: "4px 0",
+                height: 1,
+                backgroundColor: "var(--border-subtle, #e5e7eb)",
+              }}
             />
           );
         }
@@ -80,11 +99,32 @@ export function ContextMenu({ state, onClose }: ContextMenuProps) {
               item.onPress?.();
               onClose();
             }}
+            onMouseEnter={(e) => {
+              if (item.isDisabled) return;
+              (e.currentTarget as HTMLButtonElement).style.backgroundColor = item.isDanger
+                ? "var(--color-danger-50, #fee2e2)"
+                : "var(--surface-2, #f3f4f6)";
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.backgroundColor = "transparent";
+            }}
+            style={{
+              display: "flex",
+              width: "100%",
+              alignItems: "center",
+              gap: 10,
+              padding: "6px 12px",
+              borderRadius: 6,
+              textAlign: "left",
+              fontSize: 14,
+              transition: "background-color 120ms",
+              backgroundColor: "transparent",
+              color: item.isDanger ? "var(--color-danger, #ef4444)" : "var(--text-primary, #111)",
+              opacity: item.isDisabled ? 0.5 : 1,
+              cursor: item.isDisabled ? "not-allowed" : "pointer",
+              border: "none",
+            }}
             className={cn(
-              "flex w-full items-center gap-2.5 rounded-[var(--radius-md)] px-3 py-1.5 text-left text-sm transition-colors",
-              item.isDanger
-                ? "text-[var(--color-danger)] hover:bg-[var(--color-danger-50)]"
-                : "text-[var(--text-primary)] hover:bg-[var(--surface-2)]",
               item.isDisabled && "cursor-not-allowed opacity-50"
             )}
           >

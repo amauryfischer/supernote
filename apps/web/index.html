@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Supernote</title>
+    <meta name="description" content="Système de connaissance + CRM personnel local-first" />
+
+    <!-- PWA -->
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#7c3aed" />
+    <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+
+    <!-- Pre-paint theme: read the persisted next-themes value before React
+         mounts so we don't flash the wrong palette. Mirrors what next-themes
+         does via the (now removed) suppressHydrationWarning + script. -->
+    <script>
+      (function () {
+        try {
+          var stored = localStorage.getItem("supernote-theme");
+          var theme = stored || "light";
+          if (theme === "system") {
+            theme = window.matchMedia("(prefers-color-scheme: dark)").matches
+              ? "dark"
+              : "light";
+          }
+          if (theme === "dark") {
+            document.documentElement.classList.add("dark");
+            document.documentElement.setAttribute("data-theme", "dark");
+          } else {
+            document.documentElement.classList.add("light");
+            document.documentElement.setAttribute("data-theme", "light");
+          }
+        } catch (_e) {
+          /* localStorage unavailable — first-paint stays light */
+        }
+      })();
+    </script>
+  </head>
+  <body class="bg-[var(--surface-0)] text-[var(--text-primary)] antialiased">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

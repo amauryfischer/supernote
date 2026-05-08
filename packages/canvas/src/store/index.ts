@@ -1,52 +1,43 @@
 // ============================================================
 // Unified canvas store (Zustand)
 //
-// Single source of truth for the CanvasDocument. Both the Excalidraw
-// layer (draw mode) and the React Flow layer (nodes mode) write into
-// this store. The consumer's `onChange` callback is fired on every
-// meaningful mutation.
+// Single source of truth for the CanvasDocument. The Excalidraw layer
+// writes free-drawing elements through `setDocument`; the consumer's
+// `onChange` callback is fired on every meaningful mutation by the
+// SupernoteCanvas component itself.
+//
+// The legacy "nodes" mode (React Flow) was removed — entity references
+// are now Excalidraw rectangles with `customData.kind === "entity-ref"`.
+// The CanvasNode/CanvasEdge mutators are kept for documents that still
+// carry typed-node payloads on disk; they're not exercised by the UI but
+// remain part of the store API so external callers (tests, future
+// migrations, headless tooling) can manipulate documents the same way.
 // ============================================================
 
 import { create } from "zustand";
 import { subscribeWithSelector } from "zustand/middleware";
 import type { CanvasDocument, CanvasEdge, CanvasNode } from "../types/canvas.js";
-import type { CanvasMode } from "../types/props.js";
 
 export interface CanvasState {
   // Document
   document: CanvasDocument;
 
-  // UI state
-  mode: CanvasMode;
-
-  // Relation creation dialog
-  pendingRelationSource: string | null;
-  pendingRelationTarget: string | null;
-
   // Actions
   setDocument: (doc: CanvasDocument) => void;
-  setMode: (mode: CanvasMode) => void;
   addNode: (node: CanvasNode) => void;
   updateNode: (id: string, patch: Partial<CanvasNode>) => void;
   removeNode: (id: string) => void;
   addEdge: (edge: CanvasEdge) => void;
   updateEdge: (id: string, patch: Partial<CanvasEdge>) => void;
   removeEdge: (id: string) => void;
-  setPendingRelation: (sourceId: string | null, targetId: string | null) => void;
-  clearPendingRelation: () => void;
 }
 
 export const createCanvasStore = (initial?: CanvasDocument) =>
   create<CanvasState>()(
     subscribeWithSelector((set) => ({
       document: initial ?? { nodes: [], edges: [] },
-      mode: "nodes" as CanvasMode,
-      pendingRelationSource: null,
-      pendingRelationTarget: null,
 
       setDocument: (doc) => set({ document: doc }),
-
-      setMode: (mode) => set({ mode }),
 
       addNode: (node) =>
         set((s) => ({
@@ -97,12 +88,6 @@ export const createCanvasStore = (initial?: CanvasDocument) =>
             edges: s.document.edges.filter((e) => e.id !== id),
           },
         })),
-
-      setPendingRelation: (sourceId, targetId) =>
-        set({ pendingRelationSource: sourceId, pendingRelationTarget: targetId }),
-
-      clearPendingRelation: () =>
-        set({ pendingRelationSource: null, pendingRelationTarget: null }),
     }))
   );
 

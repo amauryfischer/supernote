@@ -2,6 +2,7 @@
 
 import { useCallback } from "react";
 import dynamic from "next/dynamic";
+import { useRouter } from "next/navigation";
 import { Camera, ArrowsClockwise, Wallet } from "@phosphor-icons/react";
 import { AppShell } from "@/components/shell";
 import { useTranslations } from "next-intl";
@@ -24,9 +25,8 @@ import {
   useFinanceLoans,
   useFinanceSnapshots,
   useFinanceGoals,
-  useIsElectron,
 } from "@/components/finance/hooks";
-import { trpc, trpcVanillaClient } from "@/lib/trpc/client";
+import { trpc } from "@/lib/trpc/client";
 
 // Dynamic imports: recharts is ~500 kB; defer it until the Finance page mounts.
 const NetWorthChart = dynamic(
@@ -40,12 +40,12 @@ const CategoryDonut = dynamic(
 
 export default function FinancePage() {
   const t = useTranslations("finance");
+  const router = useRouter();
   const { accounts, isLoading: loadingAccounts } = useFinanceAccounts();
   const { assets, isLoading: loadingAssets } = useFinanceAssets();
   const { loans, isLoading: loadingLoans } = useFinanceLoans();
   const { snapshots, isLoading: loadingSnapshots } = useFinanceSnapshots();
   const { goals, isLoading: loadingGoals } = useFinanceGoals();
-  const isElectron = useIsElectron();
 
   const utils = trpc.useUtils();
   const createSnapshotMutation = trpc.entities.create.useMutation({
@@ -71,37 +71,16 @@ export default function FinancePage() {
     year: "numeric",
   }).format(today);
 
-
+  // Refresh prices and take-snapshot are disabled in PWA mode: live price
+  // fetching needs a CORS proxy (out of scope) and snapshot capture should
+  // be wired through the worker. Handlers are no-ops until then.
   const handleRefreshPrices = useCallback(async () => {
-    if (!isElectron) return;
-    const tickeredAssets = assets.filter((a) => a.ticker);
-    await Promise.allSettled(
-      tickeredAssets.map((asset) =>
-        trpcVanillaClient.system.fetchPrice
-          .query({ ticker: asset.ticker!, isCrypto: false })
-          .then(() => utils.entities.list.invalidate({ typeId: "asset" }))
-          .catch(() => undefined)
-      )
-    );
-  }, [assets, isElectron, utils]);
+    /* À venir — proxy CORS requis pour récupérer les cours */
+  }, []);
 
   const handleTakeSnapshot = useCallback(async () => {
-    if (!isElectron) return;
-    const breakdown = assets.reduce<Record<string, number>>((acc, asset) => {
-      const key = asset.category === "fund" ? "stock" : asset.category;
-      acc[key] = (acc[key] ?? 0) + asset.currentValue;
-      return acc;
-    }, {});
-    breakdown["cash"] = (breakdown["cash"] ?? 0) + totalCash;
-    await createSnapshotMutation.mutateAsync({
-      typeId: "snapshot",
-      fields: {
-        taken_at: today.toISOString(),
-        total_net_worth: currentNetWorth,
-        breakdown: JSON.stringify(breakdown),
-      },
-    });
-  }, [assets, totalCash, currentNetWorth, today, isElectron, createSnapshotMutation]);
+    /* À venir — pipeline snapshot via worker */
+  }, []);
 
   if (isLoading) {
     return (
@@ -121,7 +100,7 @@ export default function FinancePage() {
 
   const hasData = accounts.length > 0 || assets.length > 0;
 
-  if (!hasData && isElectron) {
+  if (!hasData) {
     return (
       <AppShell>
         <div className="flex h-full items-center justify-center">
@@ -129,8 +108,7 @@ export default function FinancePage() {
             icon={<Wallet size={28} />}
             title={t("noData")}
             description={t("noDataHint")}
-            action={{ label: t("addAccount"), onClick: () => undefined }}
-            secondaryAction={{ label: t("importOFX"), onClick: () => undefined }}
+            action={{ label: t("addAccount"), onClick: () => router.push("/finance/comptes") }}
           />
         </div>
       </AppShell>
@@ -148,20 +126,13 @@ export default function FinancePage() {
           </h1>
           <p className="mt-0.5 text-sm" style={{ color: "var(--text-muted)" }}>
             {t("overview", { date: todayLabel })}
-            {!isElectron && (
-              <span
-                className="ml-2 rounded-full px-2 py-0.5 text-xs"
-                style={{ backgroundColor: "var(--surface-2)", color: "var(--text-muted)" }}
-              >
-                mode dégradé — données exemples
-              </span>
-            )}
           </p>
         </div>
         <div className="flex items-center gap-2">
           <button
             onClick={() => void handleRefreshPrices()}
-            disabled={!isElectron}
+            disabled
+            title="À venir (proxy CORS)"
             className="flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition-colors hover:bg-[var(--surface-2)] disabled:opacity-50"
             style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
           >
@@ -170,7 +141,8 @@ export default function FinancePage() {
           </button>
           <button
             onClick={() => void handleTakeSnapshot()}
-            disabled={!isElectron || createSnapshotMutation.isPending}
+            disabled
+            title="À venir (proxy CORS)"
             className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors disabled:opacity-50"
             style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
           >

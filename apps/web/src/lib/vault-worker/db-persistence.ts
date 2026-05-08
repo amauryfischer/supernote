@@ -79,12 +79,22 @@ export async function loadDbFromFsa(
   vaultHandle: FileSystemDirectoryHandle,
 ): Promise<Uint8Array | null> {
   const handle = await getVaultDbHandle(vaultHandle, false);
-  if (!handle) return null;
+  if (!handle) {
+    console.info(
+      `[persist] loadDbFromFsa: no existing ${VAULT_META_DIR}/${VAULT_DB_FILE} under ${vaultHandle.name} (first launch?)`,
+    );
+    return null;
+  }
   try {
     const file = await handle.getFile();
     const buf = await file.arrayBuffer();
-    return new Uint8Array(buf);
-  } catch {
+    const bytes = new Uint8Array(buf);
+    console.info(
+      `[persist] loadDbFromFsa: read ${bytes.byteLength} bytes from ${vaultHandle.name}/${VAULT_META_DIR}/${VAULT_DB_FILE}`,
+    );
+    return bytes;
+  } catch (err) {
+    console.warn("[persist] loadDbFromFsa: read failed", err);
     return null;
   }
 }
@@ -94,9 +104,17 @@ export async function saveDbToFsa(
   vaultHandle: FileSystemDirectoryHandle,
 ): Promise<void> {
   const handle = await getVaultDbHandle(vaultHandle, true);
-  if (!handle) return;
+  if (!handle) {
+    console.warn(
+      `[persist] saveDbToFsa: could not open ${VAULT_META_DIR}/${VAULT_DB_FILE} (no permission?). Bytes NOT written to FSA.`,
+    );
+    return;
+  }
   const data = db.export();
   const writable = await handle.createWritable();
   await writable.write(data as unknown as Uint8Array<ArrayBuffer>);
   await writable.close();
+  console.info(
+    `[persist] wrote ${data.byteLength} bytes to FSA at ${vaultHandle.name}/${VAULT_META_DIR}/${VAULT_DB_FILE}`,
+  );
 }

@@ -14,6 +14,8 @@ import {
   Info,
   FloppyDisk,
   ShieldCheck,
+  BookmarkSimple,
+  Database,
 } from "@phosphor-icons/react";
 import { AppShell } from "@/components/shell";
 import {
@@ -30,6 +32,8 @@ import {
   BackupTab,
   AboutTab,
   SecurityTab,
+  TemplatesTab,
+  SchemasTab,
 } from "@/components/settings";
 import type { SettingsTab } from "@/components/settings";
 import { useTranslations } from "next-intl";
@@ -51,6 +55,8 @@ const NAV_ITEMS: NavItem[] = [
   { id: "notifications", labelKey: "settings.tabs.notifications", icon: Bell },
   { id: "backup", labelKey: "settings.tabs.backup", icon: Archive },
   { id: "securite", labelKey: "settings.tabs.securite", icon: ShieldCheck },
+  { id: "templates", labelKey: "settings.tabs.templates", icon: BookmarkSimple },
+  { id: "schemas", labelKey: "settings.tabs.schemas", icon: Database },
   { id: "about", labelKey: "settings.tabs.about", icon: Info },
 ];
 
@@ -66,6 +72,8 @@ function TabContent({ active }: { active: SettingsTab }) {
     case "notifications": return <NotificationsTab />;
     case "backup": return <BackupTab />;
     case "securite": return <SecurityTab />;
+    case "templates": return <TemplatesTab />;
+    case "schemas": return <SchemasTab />;
     case "about": return <AboutTab />;
   }
 }
@@ -124,7 +132,7 @@ function SettingsContent() {
               {t(activeItem.labelKey)}
             </h1>
           </div>
-          {activeTab !== "about" && activeTab !== "securite" && (
+          {activeTab !== "about" && activeTab !== "securite" && activeTab !== "templates" && activeTab !== "schemas" && (
             <button
               onClick={saveSettings}
               disabled={isSaving}

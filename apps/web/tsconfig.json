@@ -1,12 +1,26 @@
 {
   "$schema": "https://json.schemastore.org/tsconfig",
-  "extends": "@supernote/tsconfig/next.json",
+  "extends": "@supernote/tsconfig/react-library.json",
   "compilerOptions": {
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"]
-    }
+      "@/*": ["./src/*"],
+      "next/link": ["./src/lib/next-shims/link.tsx"],
+      "next/navigation": ["./src/lib/next-shims/navigation.ts"],
+      "next/dynamic": ["./src/lib/next-shims/dynamic.tsx"],
+      "next/image": ["./src/lib/next-shims/image.tsx"],
+      "next-intl": ["./src/lib/next-shims/intl.tsx"]
+    },
+    "noEmit": true,
+    "allowJs": true,
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "lib": ["ES2023", "DOM", "DOM.Iterable", "WebWorker"],
+    "types": ["vite/client"],
+    "incremental": true,
+    "tsBuildInfoFile": ".tsbuildinfo"
   },
-  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
-  "exclude": ["node_modules", ".next", "out"]
+  "include": ["**/*.ts", "**/*.tsx", "vite.config.ts"],
+  "exclude": ["node_modules", "dist", ".turbo"]
 }

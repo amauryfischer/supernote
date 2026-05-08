@@ -37,6 +37,7 @@ export type AppRouter = typeof appRouter;
 
 export { router, type IpcContext } from "./trpc.js";
 export { vaultRouter, type VaultRouter } from "./vault.router.js";
+export { foldersRouter, type FoldersRouter } from "./folders.router.js";
 export { entitiesRouter, type EntitiesRouter } from "./entities.router.js";
 export { schemasRouter, type SchemasRouter } from "./schemas.router.js";
 export { relationsRouter, type RelationsRouter } from "./relations.router.js";

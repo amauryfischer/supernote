@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { trpc } from "@/lib/trpc/client";
 
 /**
  * Minimal capture-rapide page — loaded by the Electron BrowserWindow.
@@ -12,6 +13,14 @@ export default function CapturePage() {
   const [content, setContent] = useState("");
   const [status, setStatus] = useState<"idle" | "saving" | "done" | "error">("idle");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const utils = trpc.useUtils();
+  const createMutation = trpc.entities.create.useMutation({
+    onSuccess: () => {
+      void utils.entities.list.invalidate({ typeId: "note" });
+      void utils.entities.search.invalidate();
+    },
+  });
 
   // Auto-focus on mount
   useEffect(() => {
@@ -32,16 +41,18 @@ export default function CapturePage() {
     }
     setStatus("saving");
     try {
-      // Placeholder: tRPC mutation via IPC will replace this console.log
-      console.log("[capture] create inbox note", { body: trimmed });
-      // Simulate async save
-      await new Promise<void>((resolve) => setTimeout(resolve, 200));
+      const title = trimmed.split("\n").find((l) => l.trim().length > 0)?.trim() ?? "";
+      await createMutation.mutateAsync({
+        typeId: "note",
+        fields: { title },
+        body: trimmed,
+      });
       setStatus("done");
       setTimeout(closeWindow, 400);
     } catch {
       setStatus("error");
     }
-  }, [content, closeWindow]);
+  }, [content, closeWindow, createMutation]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {

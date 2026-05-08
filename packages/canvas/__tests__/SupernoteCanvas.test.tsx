@@ -8,23 +8,14 @@ import { render, screen } from "@testing-library/react";
 import { SupernoteCanvas } from "../src/components/SupernoteCanvas.js";
 import type { CanvasDocument } from "../src/types/canvas.js";
 
-// React Flow and Excalidraw require DOM APIs — mock them for unit tests
-vi.mock("@xyflow/react", () => ({
-  ReactFlow: ({ children }: { children?: React.ReactNode }) => (
-    <div data-testid="react-flow">{children}</div>
-  ),
-  Background: () => <div />,
-  Controls: () => <div />,
-  MiniMap: () => <div />,
-  useNodesState: (initial: unknown[]) => [initial, vi.fn(), vi.fn()],
-  useEdgesState: (initial: unknown[]) => [initial, vi.fn(), vi.fn()],
-}));
-
+// Excalidraw requires DOM APIs and ships its own stylesheet — mock both for
+// unit tests so the canvas renders without pulling the heavy editor.
 vi.mock("@excalidraw/excalidraw", () => ({
   Excalidraw: () => <div data-testid="excalidraw" />,
+  convertToExcalidrawElements: (xs: unknown) => xs,
 }));
 
-vi.mock("@xyflow/react/dist/style.css", () => ({}));
+vi.mock("@excalidraw/excalidraw/index.css", () => ({}));
 
 const SAMPLE_DOC: CanvasDocument = {
   nodes: [
@@ -53,47 +44,73 @@ const SAMPLE_DOC: CanvasDocument = {
 
 describe("SupernoteCanvas", () => {
   it("renders without crashing with no props", () => {
-    const { container } = render(
-      <SupernoteCanvas />
-    );
+    const { container } = render(<SupernoteCanvas />);
     expect(container.firstChild).toBeTruthy();
   });
 
   it("renders with initial data", () => {
-    const { container } = render(
-      <SupernoteCanvas initialData={SAMPLE_DOC} />
-    );
+    const { container } = render(<SupernoteCanvas initialData={SAMPLE_DOC} />);
     expect(container.firstChild).toBeTruthy();
   });
 
-  it("renders mode toggle buttons", () => {
-    render(<SupernoteCanvas />);
-    expect(screen.getByText("Nodes")).toBeTruthy();
-    expect(screen.getByText("Draw")).toBeTruthy();
-  });
-
-  it("does not render mode toggle in readOnly mode", () => {
-    render(<SupernoteCanvas readOnly />);
+  it("renders the Excalidraw layer (no mode toggle)", () => {
+    render(<SupernoteCanvas initialData={SAMPLE_DOC} />);
+    // The legacy Nodes/Draw toggle has been removed entirely.
     expect(screen.queryByText("Nodes")).toBeNull();
     expect(screen.queryByText("Draw")).toBeNull();
+    expect(screen.getByTestId("excalidraw")).toBeTruthy();
   });
 
-  it("calls onChange when document changes", () => {
+  it("calls onChange with a migrated, pure-Excalidraw document", () => {
     const onChange = vi.fn();
     render(<SupernoteCanvas initialData={SAMPLE_DOC} onChange={onChange} />);
-    // onChange is called on mount with the initial document
-    expect(onChange).toHaveBeenCalledWith(SAMPLE_DOC);
+    // After legacy migration, `nodes`/`edges` are wiped and the typed nodes
+    // are converted into Excalidraw elements appended to `excalidrawElements`.
+    expect(onChange).toHaveBeenCalled();
+    const lastCall = onChange.mock.calls[onChange.mock.calls.length - 1]?.[0] as
+      | CanvasDocument
+      | undefined;
+    expect(lastCall).toBeTruthy();
+    expect(lastCall?.nodes).toEqual([]);
+    expect(lastCall?.edges).toEqual([]);
+    // At least one element migrated from the original CRM + text nodes.
+    expect((lastCall?.excalidrawElements ?? []).length).toBeGreaterThan(0);
+  });
+
+  it("preserves an empty doc with no migration", () => {
+    const onChange = vi.fn();
+    render(<SupernoteCanvas onChange={onChange} />);
+    expect(onChange).toHaveBeenCalledWith({
+      nodes: [],
+      edges: [],
+      excalidrawElements: [],
+    });
   });
 
   it("applies className prop to container", () => {
-    const { container } = render(
-      <SupernoteCanvas className="my-canvas" />
+    const { container } = render(<SupernoteCanvas className="my-canvas" />);
+    expect((container.firstChild as HTMLElement).className).toContain(
+      "my-canvas"
     );
-    expect((container.firstChild as HTMLElement).className).toContain("my-canvas");
   });
 
-  it("renders React Flow layer in nodes mode (default)", () => {
-    render(<SupernoteCanvas initialData={SAMPLE_DOC} />);
-    expect(screen.getByTestId("react-flow")).toBeTruthy();
+  it("renders the Excalidraw layer by default for new canvases", () => {
+    render(<SupernoteCanvas />);
+    expect(screen.getByTestId("excalidraw")).toBeTruthy();
+  });
+
+  it("preserves existing excalidrawElements when migrating legacy nodes", () => {
+    const onChange = vi.fn();
+    const docWithBoth: CanvasDocument = {
+      ...SAMPLE_DOC,
+      excalidrawElements: [
+        { id: "draw-1", type: "rectangle", x: 100, y: 100 },
+      ],
+    };
+    render(<SupernoteCanvas initialData={docWithBoth} onChange={onChange} />);
+    const lastCall = onChange.mock.calls[onChange.mock.calls.length - 1]?.[0] as
+      | CanvasDocument
+      | undefined;
+    expect(lastCall?.excalidrawElements?.[0]?.id).toBe("draw-1");
   });
 });

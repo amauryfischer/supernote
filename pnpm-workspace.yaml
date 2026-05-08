@@ -7,8 +7,6 @@ allowBuilds:
   better-sqlite3: true
   esbuild: true
   prisma: true
-  electron: true
-  electron-winstaller: true
   sharp: true
   unrs-resolver: true
   onnxruntime-node: true
@@ -16,3 +14,5 @@ allowBuilds:
   tesseract.js: true
   '@parcel/watcher': true
   '@swc/core': true
+  electron: set this to true or false
+  electron-winstaller: set this to true or false

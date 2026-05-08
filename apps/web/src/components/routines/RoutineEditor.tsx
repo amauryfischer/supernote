@@ -1,13 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, FloppyDisk, X, Play, ArrowLeft } from "@phosphor-icons/react";
+import { Plus, FloppyDisk, X, Play, ArrowLeft, Question } from "@phosphor-icons/react";
 import Link from "next/link";
 import type { RoutineFixture, ActionConfig, ActionType } from "./fixtures";
 import { TriggerBuilder } from "./TriggerBuilder";
 import { ActionCard } from "./ActionCard";
 import { ActionPickerModal } from "./ActionPickerModal";
 import { RunsHistoryTable } from "./RunsHistoryTable";
+import { ConditionDocsPanel } from "./ConditionDocsPanel";
 
 interface RoutineEditorProps {
   routine: RoutineFixture;
@@ -67,6 +68,7 @@ export function RoutineEditor({ routine, onSave, onCancel, onRunNow }: RoutineEd
   const [pickerOpen, setPickerOpen] = useState(false);
   const [activeSection, setActiveSection] = useState<Section>("trigger");
   const [saved, setSaved] = useState(false);
+  const [docsOpen, setDocsOpen] = useState(false);
 
   function update(patch: Partial<RoutineFixture>) {
     setData((prev) => ({ ...prev, ...patch }));
@@ -240,9 +242,21 @@ export function RoutineEditor({ routine, onSave, onCancel, onRunNow }: RoutineEd
                     label="Si (Condition)"
                     sublabel="Optionnel — la routine ne s'exécute que si cette condition est vraie"
                   />
-                  <label className="mb-1 block text-xs font-medium" style={{ color: "var(--text-muted)" }}>
-                    Formule de condition
-                  </label>
+                  <div className="mb-1 flex items-center justify-between gap-2">
+                    <label className="block text-xs font-medium" style={{ color: "var(--text-muted)" }}>
+                      Formule de condition
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setDocsOpen(true)}
+                      className="flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-medium transition-colors hover:bg-[var(--surface-3)]"
+                      style={{ color: "var(--accent)" }}
+                      aria-label="Voir la documentation des formules de condition"
+                    >
+                      <Question size={12} weight="bold" />
+                      Voir la doc
+                    </button>
+                  </div>
                   <textarea
                     className="w-full resize-y rounded-md border px-3 py-2 font-mono text-sm outline-none focus:border-[var(--accent)]"
                     style={{
@@ -253,11 +267,12 @@ export function RoutineEditor({ routine, onSave, onCancel, onRunNow }: RoutineEd
                     rows={3}
                     value={data.condition ?? ""}
                     onChange={(e) => update({ condition: e.target.value || undefined })}
-                    placeholder="person.lastInteraction.daysAgo > 30"
+                    placeholder="DateDiff(Now(), entity.lastInteraction, 'day') > 30"
                   />
                   <p className="mt-1 text-xs" style={{ color: "var(--text-muted)" }}>
-                    Exemples : <code className="rounded px-1" style={{ backgroundColor: "var(--surface-3)" }}>entity.fields.status === &apos;active&apos;</code>{" "}
-                    <code className="rounded px-1" style={{ backgroundColor: "var(--surface-3)" }}>daysAgo(now, entity.fields.lastInteraction) &gt; 30</code>
+                    Exemples :{" "}
+                    <code className="rounded px-1" style={{ backgroundColor: "var(--surface-3)" }}>entity.status == &apos;active&apos;</code>{" "}
+                    <code className="rounded px-1" style={{ backgroundColor: "var(--surface-3)" }}>DateDiff(Now(), entity.lastInteraction, &apos;day&apos;) &gt; 30</code>
                   </p>
                 </div>
               </>
@@ -327,6 +342,8 @@ export function RoutineEditor({ routine, onSave, onCancel, onRunNow }: RoutineEd
         onClose={() => setPickerOpen(false)}
         onSelect={addAction}
       />
+
+      <ConditionDocsPanel open={docsOpen} onClose={() => setDocsOpen(false)} />
     </div>
   );
 }

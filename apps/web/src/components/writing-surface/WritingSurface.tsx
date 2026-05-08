@@ -66,6 +66,10 @@ export function WritingSurface() {
   const [saveToast, setSaveToast] = useState<string | null>(null);
   // editorKey lets us reset the BlockNote instance when exitWriting is called
   const [editorKey, setEditorKey] = useState(0);
+  // Drives a brief border flash on the surface when the editor is reset,
+  // so the user has a visual confirmation that "Nouveau" did something
+  // even before BlockNote's contenteditable has mounted.
+  const [justReset, setJustReset] = useState(false);
   const { setFocusMode, onRequestNewNote } = useShellChrome();
   const router = useRouter();
   const { saveNote, onContentChange, resetNote, isSaving, lastSaved, saveError } =
@@ -116,24 +120,83 @@ export function WritingSurface() {
   // Listen for "request new note" events from the topbar / shortcuts
   useEffect(() => {
     return onRequestNewNote(() => {
-      // Trigger focus on the BlockNote editor via autoFocus — remount if needed
+      // Reset content and remount the BlockNote editor for a blank slate
+      setContent("");
+      resetNote();
       setEditorKey((k) => k + 1);
     });
-  }, [onRequestNewNote]);
+  }, [onRequestNewNote, resetNote]);
 
   // Auto-focus when navigated to "/?new=true" (from topbar "Nouveau" on other pages)
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
     if (params.get("new") === "true") {
-      // Remount editor with autoFocus
+      // Reset and remount editor
+      setContent("");
+      resetNote();
       setEditorKey((k) => k + 1);
       // Clean the param from URL without reloading
       const url = new URL(window.location.href);
       url.searchParams.delete("new");
       window.history.replaceState({}, "", url.toString());
     }
-  }, []);
+  }, [resetNote]);
+
+  // After the editor remounts (editorKey changed), focus the contenteditable
+  // so the user can start typing immediately. SupernoteEditor doesn't expose
+  // an autoFocus prop, so we focus via DOM as a minimal cross-cutting fix.
+  //
+  // BlockNote is dynamically imported and ProseMirror takes more than a single
+  // animation frame to mount its [contenteditable=true] node, so the previous
+  // single-rAF attempt silently no-op'd. We watch the surface subtree with a
+  // MutationObserver, focus as soon as the node appears, and use a 2 s timeout
+  // as a safety net so we never leak the observer.
+  const surfaceRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (editorKey === 0) return;
+    const surface = surfaceRef.current;
+    if (!surface) return;
+
+    // Trigger the visual flash so the user gets feedback even if BlockNote is
+    // still mounting and focus hasn't landed yet.
+    setJustReset(true);
+    const flashTimer = window.setTimeout(() => setJustReset(false), 220);
+
+    let done = false;
+    const tryFocus = (): boolean => {
+      const el = surface.querySelector<HTMLElement>(
+        ".bn-editor [contenteditable=\"true\"]",
+      );
+      if (!el) return false;
+      el.focus();
+      setIsFocused(true);
+      done = true;
+      return true;
+    };
+
+    // It might already be there (cached dynamic import) — try synchronously.
+    if (tryFocus()) {
+      return () => {
+        window.clearTimeout(flashTimer);
+      };
+    }
+
+    const observer = new MutationObserver(() => {
+      if (tryFocus()) observer.disconnect();
+    });
+    observer.observe(surface, { childList: true, subtree: true });
+
+    const safetyTimer = window.setTimeout(() => {
+      if (!done) observer.disconnect();
+    }, 2000);
+
+    return () => {
+      observer.disconnect();
+      window.clearTimeout(safetyTimer);
+      window.clearTimeout(flashTimer);
+    };
+  }, [editorKey]);
 
   // Show success toast after save
   useEffect(() => {
@@ -175,7 +238,12 @@ export function WritingSurface() {
     titleClean.length > 60 ? titleClean.slice(0, 60) + "…" : titleClean;
 
   return (
-    <div data-tour="writing-surface" className="relative mx-auto flex h-full max-w-3xl flex-col px-8">
+    <div
+      ref={surfaceRef}
+      data-tour="writing-surface"
+      data-just-reset={justReset ? "true" : undefined}
+      className="writing-surface-root relative mx-auto flex h-full max-w-3xl flex-col px-8"
+    >
       {/* Writing canvas */}
       <div
         className={`transition-all duration-300 ease-out ${
@@ -337,8 +405,34 @@ export function WritingSurface() {
         </div>
       </div>
 
-      {/* Placeholder styling for the BlockNote editor */}
-      <style jsx global>{`
+      {/* Placeholder styling for the BlockNote editor.
+          Was `<style jsx global>` under Next + styled-jsx; on Vite we just
+          inline a plain <style> tag — modern browsers scope rules globally
+          when there's no `scoped` attribute, which matches the previous
+          intent (these selectors target BlockNote DOM owned elsewhere). */}
+      <style>{`
+        /* Brief border flash when the editor is reset (e.g. "Nouveau" from
+           another page) — gives the user instant feedback even before BlockNote's
+           dynamic chunk has mounted. */
+        .writing-surface-root {
+          border-radius: 0.75rem;
+          box-shadow: 0 0 0 0 transparent;
+          transition: box-shadow 200ms ease-out;
+        }
+        .writing-surface-root[data-just-reset="true"] {
+          animation: writing-surface-flash 220ms ease-out;
+        }
+        @keyframes writing-surface-flash {
+          0% {
+            box-shadow: 0 0 0 0 transparent;
+          }
+          40% {
+            box-shadow: 0 0 0 2px var(--accent, #6366f1);
+          }
+          100% {
+            box-shadow: 0 0 0 0 transparent;
+          }
+        }
         .writing-surface-editor .sn-editor-wrapper {
           background: transparent;
         }

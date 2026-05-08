@@ -10,14 +10,26 @@
  *
  * Flow:
  *   "Choisir un dossier" → showDirectoryPicker() → save handle → init worker
- *   "Continuer sans dossier" → degraded localStorage mode
+ *   "Continuer sans dossier" → degraded localStorage mode (persisted in localStorage)
+ *
+ * The hook state is also exposed via VaultContext so the rest of the chrome
+ * (sidebar header, settings, etc.) can read the active vault name and
+ * trigger a re-pick without duplicating worker bootstrap logic.
+ *
+ * IMPORTANT: This component ALWAYS returns the same React tree shape
+ * (`<>{children}{showOverlay && <PwaOverlay/>}</>`) so children never
+ * unmount/remount on state transitions. Without this, every navigation
+ * would re-fire the init effect and trigger a worker re-INIT, which
+ * could lose unflushed mutations.
  */
 
-import React, { useEffect, useState, useCallback } from "react";
+import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from "react";
 import { saveVaultHandle, loadVaultHandle, verifyHandlePermission } from "@/lib/vault-worker/vault-handle-storage";
-import { initWorkerVault, onWorkerMessage, setWorkerReady } from "@/lib/trpc/browser-link";
+import { initWorkerVault, onWorkerMessage, setWorkerReady, flushVaultWorker } from "@/lib/trpc/browser-link";
 import { isBrowserPwaMode } from "@/lib/trpc/client";
 import type { VaultReadyMessage, VaultErrorMessage } from "@/lib/vault-worker/worker-protocol";
+
+const DEGRADED_STORAGE_KEY = "supernote.degraded";
 
 type SetupState =
   | "idle"        // Checking for existing handle
@@ -29,7 +41,30 @@ type SetupState =
   | "error"       // Init failed
   | "degraded";   // User chose localStorage mode
 
-export function usePwaVaultSetup() {
+interface VaultContextValue {
+  state: SetupState;
+  errorMsg: string | null;
+  vaultName: string | null;
+  /** Open the FSA folder picker and re-initialise the worker with the chosen folder. */
+  pickFolder: () => Promise<void>;
+  /** Continue without a vault folder (localStorage degraded mode). */
+  skipToDegraded: () => void;
+  /** True only in PWA mode (FSA available, no Electron bridge). */
+  isPwa: boolean;
+}
+
+const VaultContext = createContext<VaultContextValue | null>(null);
+
+/**
+ * Read the current vault state from anywhere in the tree.
+ * Returns null when called outside the PwaVaultSetup provider (e.g. SSR or
+ * Electron-only paths) so callers can render a graceful fallback.
+ */
+export function useVault(): VaultContextValue | null {
+  return useContext(VaultContext);
+}
+
+export function usePwaVaultSetup(): VaultContextValue {
   const [state, setState] = useState<SetupState>("idle");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [vaultName, setVaultName] = useState<string | null>(null);
@@ -37,8 +72,24 @@ export function usePwaVaultSetup() {
   // Only runs in PWA mode (FSA available, no Electron)
   const isPwa = isBrowserPwaMode();
 
+  // Guard so the bootstrap effect runs at most once per page load.
+  // Without this, the effect would re-fire on every navigation that
+  // happens to remount this component (e.g. a parent boundary changing
+  // its tree shape), re-sending INIT_VAULT and racing with the in-flight
+  // mutation persistence.
+  const initStartedRef = useRef(false);
+
   useEffect(() => {
     if (!isPwa) { setState("ready"); return; }
+    if (initStartedRef.current) return;
+    initStartedRef.current = true;
+
+    // If the user previously chose degraded mode, honour that decision
+    // immediately and skip the picker entirely on every subsequent visit.
+    if (typeof window !== "undefined" && window.localStorage.getItem(DEGRADED_STORAGE_KEY) === "1") {
+      setState("degraded");
+      return;
+    }
 
     setState("checking");
     void (async () => {
@@ -73,6 +124,35 @@ export function usePwaVaultSetup() {
     return cleanup;
   }, [state]);
 
+  // Flush any pending worker writes when the page is hidden / unloaded
+  // so a navigation away (or tab close) does not lose the in-flight
+  // debounced persist. Registered once.
+  //
+  // We bind to:
+  //   - `beforeunload` + `pagehide` (tab close / hard nav)
+  //   - `freeze` (mobile / Chromium tab discards)
+  //   - `visibilitychange` (tab backgrounded — fires earlier than pagehide
+  //     on mobile, where pagehide may never fire if the OS kills the tab)
+  // All listeners are removed in the cleanup so we don't leak handlers
+  // when this component remounts in dev/HMR.
+  useEffect(() => {
+    if (!isPwa) return;
+    const flush = () => { void flushVaultWorker(); };
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") flush();
+    };
+    window.addEventListener("beforeunload", flush);
+    window.addEventListener("pagehide", flush);
+    window.addEventListener("freeze", flush);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("beforeunload", flush);
+      window.removeEventListener("pagehide", flush);
+      window.removeEventListener("freeze", flush);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [isPwa]);
+
   const pickFolder = useCallback(async () => {
     setState("picking");
     try {
@@ -83,12 +163,16 @@ export function usePwaVaultSetup() {
         startIn: "documents",
       }) as FileSystemDirectoryHandle;
       await saveVaultHandle(handle);
+      // Picking a folder explicitly opts out of degraded mode.
+      if (typeof window !== "undefined") window.localStorage.removeItem(DEGRADED_STORAGE_KEY);
+      setWorkerReady(false);
+      setVaultName(null);
       setState("loading");
       startWorker(handle);
     } catch (err) {
       // User cancelled
       if ((err as Error).name === "AbortError") {
-        setState("prompt");
+        setState((prev) => (prev === "picking" ? "prompt" : prev));
       } else {
         setErrorMsg(String(err));
         setState("error");
@@ -97,6 +181,7 @@ export function usePwaVaultSetup() {
   }, []);
 
   const skipToDegraded = useCallback(() => {
+    if (typeof window !== "undefined") window.localStorage.setItem(DEGRADED_STORAGE_KEY, "1");
     setState("degraded");
   }, []);
 
@@ -110,36 +195,30 @@ function startWorker(handle: FileSystemDirectoryHandle): void {
 // ── UI Component ──────────────────────────────────────────────────────────────
 
 export function PwaVaultSetup({ children }: { children: React.ReactNode }) {
-  const { state, errorMsg, vaultName, pickFolder, skipToDegraded, isPwa } = usePwaVaultSetup();
+  const value = usePwaVaultSetup();
+  const { state, errorMsg, pickFolder, skipToDegraded, isPwa } = value;
 
-  // Not PWA mode, or already ready/degraded — render children directly
-  if (!isPwa || state === "ready" || state === "degraded" || state === "idle") {
-    return <>{children}</>;
-  }
+  // Decide whether an overlay is currently visible. Critically, we ALWAYS
+  // render `<>{children}{overlay}</>` so the React tree shape is stable
+  // between transitions. Children never unmount when the overlay toggles.
+  const showOverlay =
+    isPwa &&
+    state !== "ready" &&
+    state !== "degraded" &&
+    state !== "idle" &&
+    state !== "checking";
 
-  // While checking stored handle, show children (avoids flash)
-  if (state === "checking") {
-    return <>{children}</>;
-  }
-
-  // Worker is loading
-  if (state === "loading") {
-    return (
-      <>
-        {children}
+  let overlay: React.ReactNode = null;
+  if (showOverlay) {
+    if (state === "loading") {
+      overlay = (
         <PwaOverlay>
           <LoadingSpinner />
           <p style={styles.subtitle}>Ouverture du vault...</p>
         </PwaOverlay>
-      </>
-    );
-  }
-
-  // Error state
-  if (state === "error") {
-    return (
-      <>
-        {children}
+      );
+    } else if (state === "error") {
+      overlay = (
         <PwaOverlay>
           <p style={styles.title}>Erreur</p>
           <p style={styles.error}>{errorMsg}</p>
@@ -150,38 +229,42 @@ export function PwaVaultSetup({ children }: { children: React.ReactNode }) {
             Continuer sans dossier
           </button>
         </PwaOverlay>
-      </>
-    );
+      );
+    } else {
+      // "prompt" or "picking" — welcome modal
+      overlay = (
+        <PwaOverlay>
+          <div style={styles.logo}>S</div>
+          <h1 style={styles.title}>Bienvenue sur Supernote</h1>
+          <p style={styles.subtitle}>
+            Pour stocker vos notes localement et les retrouver à chaque visite,
+            choisissez un dossier sur votre disque.
+          </p>
+          <ul style={styles.featureList}>
+            <li>Fichiers <code>.md</code> dans votre dossier — pas de lock-in</li>
+            <li>SQLite local — aucune donnée n&apos;est envoyée sur un serveur</li>
+            <li>Fonctionne hors-ligne une fois installé</li>
+          </ul>
+          <button
+            style={styles.btnPrimary}
+            onClick={() => void pickFolder()}
+            disabled={state === "picking"}
+          >
+            {state === "picking" ? "Sélection..." : "Choisir un dossier"}
+          </button>
+          <button style={styles.btnSecondary} onClick={skipToDegraded}>
+            Continuer sans dossier (mode limité)
+          </button>
+        </PwaOverlay>
+      );
+    }
   }
 
-  // Welcome prompt (first launch or permission revoked)
   return (
-    <>
+    <VaultContext.Provider value={value}>
       {children}
-      <PwaOverlay>
-        <div style={styles.logo}>S</div>
-        <h1 style={styles.title}>Bienvenue sur Supernote</h1>
-        <p style={styles.subtitle}>
-          Pour stocker vos notes localement et les retrouver à chaque visite,
-          choisissez un dossier sur votre disque.
-        </p>
-        <ul style={styles.featureList}>
-          <li>Fichiers <code>.md</code> dans votre dossier — pas de lock-in</li>
-          <li>SQLite local — aucune donnée n'est envoyée sur un serveur</li>
-          <li>Fonctionne hors-ligne une fois installé</li>
-        </ul>
-        <button
-          style={styles.btnPrimary}
-          onClick={() => void pickFolder()}
-          disabled={state === "picking"}
-        >
-          {state === "picking" ? "Sélection..." : "Choisir un dossier"}
-        </button>
-        <button style={styles.btnSecondary} onClick={skipToDegraded}>
-          Continuer sans dossier (mode limité)
-        </button>
-      </PwaOverlay>
-    </>
+      {overlay}
+    </VaultContext.Provider>
   );
 }
 

@@ -28,3 +28,5 @@ export { NotificationsTab } from "./tabs/NotificationsTab";
 export { BackupTab } from "./tabs/BackupTab";
 export { AboutTab } from "./tabs/AboutTab";
 export { SecurityTab } from "./tabs/SecurityTab";
+export { TemplatesTab } from "./tabs/TemplatesTab";
+export { SchemasTab } from "./tabs/SchemasTab";

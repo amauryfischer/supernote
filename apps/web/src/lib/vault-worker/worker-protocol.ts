@@ -37,6 +37,18 @@ export interface InitVaultMessage {
   handle: FileSystemDirectoryHandle;
 }
 
+/**
+ * Force the worker to synchronously flush any pending DB writes.
+ * Sent on navigation / page-hide so an in-flight debounced persist
+ * doesn't get dropped before the next INIT_VAULT.
+ *
+ * Carries an `id` so the UI can await the resulting WorkerResponse.
+ */
+export interface FlushMessage {
+  type: "FLUSH";
+  id: string;
+}
+
 export interface VaultReadyMessage {
   type: "VAULT_READY";
   vaultId: string;
@@ -55,5 +67,5 @@ export interface IndexProgressMessage {
   total: number;
 }
 
-export type WorkerInboundMessage = WorkerRequest | InitVaultMessage;
+export type WorkerInboundMessage = WorkerRequest | InitVaultMessage | FlushMessage;
 export type WorkerOutboundMessage = WorkerResponse | VaultReadyMessage | VaultErrorMessage | IndexProgressMessage;

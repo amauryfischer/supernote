@@ -97,8 +97,26 @@ export interface CanvasMetadata {
   readonly updatedAt: string;
 }
 
+/**
+ * Excalidraw element. We don't import Excalidraw's internal type here because
+ * it would couple the type module to the heavy `@excalidraw/excalidraw`
+ * package. The shape we depend on is a plain object with `id` + `type` and an
+ * arbitrary bag of additional fields, which is what Excalidraw stores.
+ */
+export interface CanvasExcalidrawElement {
+  readonly id: string;
+  readonly type: string;
+  readonly [key: string]: unknown;
+}
+
 export interface CanvasDocument {
   readonly nodes: CanvasNode[];
   readonly edges: CanvasEdge[];
+  /**
+   * Free-hand drawings produced in "draw" mode. Stored alongside the typed
+   * nodes so a single CanvasDocument round-trips both layers through one
+   * persistence path.
+   */
+  readonly excalidrawElements?: CanvasExcalidrawElement[];
   readonly metadata?: CanvasMetadata;
 }

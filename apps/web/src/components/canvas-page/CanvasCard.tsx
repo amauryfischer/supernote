@@ -10,8 +10,10 @@ interface CanvasCardProps {
 
 function formatRelativeDate(isoDate: string): string {
   const date = new Date(isoDate);
-  const now = new Date("2026-05-07T12:00:00Z");
-  const diffDays = Math.floor((now.getTime() - date.getTime()) / 86_400_000);
+  const now = new Date();
+  // Floor at 0: a freshly written timestamp slightly in the future
+  // (clock skew) would otherwise render "Il y a -1j".
+  const diffDays = Math.max(0, Math.floor((now.getTime() - date.getTime()) / 86_400_000));
   if (diffDays === 0) return "Aujourd'hui";
   if (diffDays === 1) return "Hier";
   if (diffDays < 7) return `Il y a ${diffDays}j`;

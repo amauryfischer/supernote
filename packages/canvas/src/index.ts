@@ -1,35 +1,36 @@
 // ============================================================
 // @supernote/canvas — public API
+//
+// The canvas is now Excalidraw-only: entity references are first-class
+// Excalidraw elements (see `DrawLayer.ts` for the customData/link encoding).
+// Legacy CanvasNode / CanvasEdge types are still exported because the
+// CanvasDocument shape must round-trip docs that were saved before the
+// nodes/edges UI was removed. Existing typed-node content is migrated to
+// Excalidraw elements on first load (see SupernoteCanvas.tsx).
 // ============================================================
 
 // Main component
 export { SupernoteCanvas } from "./components/SupernoteCanvas.js";
 
 // Sub-components (for advanced consumers)
-export { DrawLayer } from "./components/DrawLayer.js";
-export { NodesLayer } from "./components/NodesLayer.js";
-export { ModeToggle } from "./components/ModeToggle.js";
-export { RelationDialog } from "./components/RelationDialog.js";
-
-// Node components
 export {
-  EntityCardNode,
-  NoteEmbedNode,
-  QueryNode,
-  TextNode,
-} from "./nodes/index.js";
-
+  DrawLayer,
+  ENTITY_LINK_SCHEME,
+  entityRefLink,
+  parseEntityRefLink,
+} from "./components/DrawLayer.js";
 export type {
-  EntityCardNodeData,
-  NoteEmbedNodeData,
-  QueryNodeData,
-  TextNodeData,
-} from "./nodes/index.js";
+  DrawLayerHandle,
+  DrawLayerProps,
+  EntityRefCustomData,
+  ExcalidrawElementLike,
+} from "./components/DrawLayer.js";
 
 // Serializer
 export { parseCanvas, serializeCanvas } from "./serializer/index.js";
 
-// Types
+// Types — CanvasNode/Edge are kept so on-disk documents remain typed even
+// though the UI no longer renders them directly.
 export type {
   CanvasDocument,
   CanvasNode,
@@ -42,13 +43,13 @@ export type {
   CanvasEdge,
   CanvasMetadata,
   CanvasNodeSide,
+  CanvasExcalidrawElement,
 } from "./types/canvas.js";
 
 export type {
   SupernoteCanvasProps,
   EntityRef,
   RelationCreationResult,
-  CanvasMode,
 } from "./types/props.js";
 
 // Store (for testing / advanced usage)

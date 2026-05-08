@@ -283,7 +283,9 @@ export function SupernoteSuggestionMenu(
     const isSelected = i === selectedIndex;
     rows.push(
       <div
-        key={item.title}
+        // Use the index in the keyspace so items with identical titles
+        // (e.g. several entities named "Nouvelle note") don't collide.
+        key={`item-${i}-${item.title}`}
         id={`bn-suggestion-menu-item-${i}`}
         role="option"
         aria-selected={isSelected}
@@ -378,6 +380,163 @@ export function useSlashMenuItems(
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [editor, onPickerOpen]
   );
+}
+
+// ── @-mention suggestion menu ─────────────────────────────────────────────────
+
+const MENTION_TYPE_ICONS: Record<string, string> = {
+  personne: "👤",
+  contact: "👤",
+  organisation: "🏢",
+  projet: "📋",
+  note: "📝",
+  actif: "💰",
+  tag: "#",
+  vue: "👁",
+};
+
+function mentionIconFor(entityType: string): string {
+  return MENTION_TYPE_ICONS[entityType.toLowerCase()] ?? "@";
+}
+
+/**
+ * Build suggestion-menu items for the `@` trigger.
+ *
+ * Differs from the slash-menu in that:
+ *  - the items come from a live entity search (resolvers.searchEntities) rather
+ *    than a static list,
+ *  - selecting an item inserts an inline `mention` chip directly (no second
+ *    picker step),
+ *  - if there is no exact match, a virtual "Creer comme contact" row is
+ *    appended that calls resolvers.createEntity("personne", query).
+ *
+ * BlockNote's SuggestionMenuController automatically deletes the trigger
+ * character + query before invoking onItemClick, so we just need to call
+ * insertInlineContent.
+ */
+export async function getMentionMenuItems(
+  editor: BlockNoteEditor<any, any, any>,
+  resolvers: EntityResolvers | undefined,
+  query: string
+): Promise<DefaultReactSuggestionItem[]> {
+  if (!resolvers) {
+    return [
+      {
+        title: "Connecte un vault pour mentionner une entite",
+        subtext: "",
+        group: "Mentions",
+        icon: <span aria-hidden="true">@</span>,
+        onItemClick() {
+          /* no-op */
+        },
+      },
+    ];
+  }
+
+  let entities: EntityRef[] = [];
+  try {
+    // typeId undefined => search across all entity types
+    entities = await resolvers.searchEntities(query, undefined);
+  } catch {
+    entities = [];
+  }
+
+  // Worker `deriveTitle` falls back to the file basename when fields.name is
+  // empty, so create-on-fly entities arrive here with their ULID as `name`.
+  // Substitute "Sans nom" for ULID-shaped names so the popover never shows a
+  // raw entity id as a human-readable label.
+  const ULID_RE = /^[0-9A-Z]{26}$/;
+  const displayName = (entity: EntityRef): string => {
+    const n = (entity.name ?? "").trim();
+    if (!n) return "Sans nom";
+    if (ULID_RE.test(n)) return "Sans nom";
+    return n;
+  };
+
+  const items: DefaultReactSuggestionItem[] = entities.slice(0, 8).map(
+    (entity): DefaultReactSuggestionItem => {
+      const label = displayName(entity);
+      return {
+        title: label,
+        subtext: entity.type,
+        group: "Mentions",
+        icon: (
+          <span aria-hidden="true">
+            {entity.icon ?? mentionIconFor(entity.type)}
+          </span>
+        ),
+        onItemClick() {
+          editor.insertInlineContent([
+            {
+              type: "mention" as any,
+              props: {
+                id: entity.id,
+                name: label,
+                entityType: entity.type,
+              },
+            },
+            " ",
+          ]);
+        },
+      };
+    }
+  );
+
+  const trimmed = query.trim();
+  const queryLower = trimmed.toLowerCase();
+  const exactMatch = entities.some(
+    (e) => e.name.toLowerCase() === queryLower
+  );
+  if (
+    trimmed.length > 0 &&
+    !exactMatch &&
+    resolvers.createEntity !== undefined
+  ) {
+    items.push({
+      title: `Creer @${trimmed} comme contact`,
+      subtext: "Nouvelle personne",
+      group: "Mentions",
+      icon: <span aria-hidden="true">+</span>,
+      async onItemClick() {
+        try {
+          const entity = await resolvers.createEntity!("personne", trimmed);
+          editor.insertInlineContent([
+            {
+              type: "mention" as any,
+              props: {
+                id: entity.id,
+                name: entity.name,
+                entityType: entity.type || "personne",
+              },
+            },
+            " ",
+          ]);
+        } catch {
+          /* swallow */
+        }
+      },
+    });
+  }
+
+  // Always provide at least one row so the popup is visibly "alive" even
+  // when the vault is empty. Without this the menu opens but renders only
+  // "No results", which the user perceives as @ not working at all.
+  if (items.length === 0) {
+    items.push({
+      title:
+        trimmed.length === 0
+          ? "Tape un nom pour mentionner une entite"
+          : `Aucune entite ne correspond a "${trimmed}"`,
+      subtext: "Astuce: continue a taper pour pouvoir creer une nouvelle personne",
+      group: "Mentions",
+      icon: <span aria-hidden="true">@</span>,
+      onItemClick() {
+        /* no-op — purely informational */
+      },
+    });
+  }
+
+  return items;
 }
 
 /**

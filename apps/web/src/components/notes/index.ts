@@ -3,6 +3,7 @@ export { EmptyEditor } from "./EmptyEditor";
 export { FileTree } from "./FileTree";
 export { NewNoteButton } from "./NewNoteButton";
 export { NoteEditor } from "./NoteEditor";
+export { NoteCanvasView } from "./NoteCanvasView";
 export { NoteList } from "./NoteList";
 export { NoteListItem } from "./NoteListItem";
 export type { Folder, Note } from "./fixtures";

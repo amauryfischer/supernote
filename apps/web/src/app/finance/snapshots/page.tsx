@@ -4,7 +4,7 @@ import { useState } from "react";
 import { ArrowLeft, Camera } from "@phosphor-icons/react";
 import Link from "next/link";
 import { AppShell } from "@/components/shell";
-import { useFinanceSnapshots, useIsElectron } from "@/components/finance/hooks";
+import { useFinanceSnapshots } from "@/components/finance/hooks";
 import { trpc } from "@/lib/trpc/client";
 import { formatCurrency, formatDate, CATEGORY_LABELS, CATEGORY_COLORS } from "@/components/finance/utils";
 import type { Snapshot } from "@/components/finance/fixtures";
@@ -26,7 +26,6 @@ function DiffBadge({ value }: { value: number }) {
 
 export default function SnapshotsPage() {
   const { snapshots, isLoading, isFallback } = useFinanceSnapshots();
-  const isElectron = useIsElectron();
   const utils = trpc.useUtils();
 
   const createMutation = trpc.entities.create.useMutation({
@@ -44,7 +43,6 @@ export default function SnapshotsPage() {
   const netWorthDiff = snapA && snapB ? snapB.totalNetWorth - snapA.totalNetWorth : null;
 
   const handleTakeSnapshot = async () => {
-    if (!isElectron) return;
     await createMutation.mutateAsync({
       typeId: "snapshot",
       fields: { taken_at: new Date().toISOString() },
@@ -72,7 +70,7 @@ export default function SnapshotsPage() {
         </div>
         <button
           onClick={() => void handleTakeSnapshot()}
-          disabled={!isElectron || createMutation.isPending}
+          disabled={createMutation.isPending}
           className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium disabled:opacity-50"
           style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
         >
@@ -181,8 +179,9 @@ export default function SnapshotsPage() {
                       <div className="flex-1 w-0.5 mt-1" style={{ backgroundColor: "var(--border-subtle)" }} />
                     )}
                   </div>
-                  <div
-                    className="mb-4 flex-1 rounded-xl border p-4"
+                  <Link
+                    href={`/finance/snapshots/${snap.id}`}
+                    className="mb-4 flex-1 rounded-xl border p-4 transition-colors hover:bg-[var(--surface-2)]"
                     style={{ backgroundColor: "var(--surface-1)", borderColor: "var(--border-subtle)" }}
                   >
                     <div className="flex items-start justify-between">
@@ -214,7 +213,7 @@ export default function SnapshotsPage() {
                         </div>
                       ))}
                     </div>
-                  </div>
+                  </Link>
                 </div>
               );
             })}

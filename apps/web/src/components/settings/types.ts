@@ -9,6 +9,8 @@ export type SettingsTab =
   | "notifications"
   | "backup"
   | "securite"
+  | "templates"
+  | "schemas"
   | "about";
 
 export interface GeneralSettings {

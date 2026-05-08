@@ -3,16 +3,16 @@
 /**
  * useContactsSource — resolves the canonical contacts list.
  *
- * In Electron (window.__supernoteIPC defined): queries tRPC and adapts entities.
- * In browser / mode dégradé: skips tRPC entirely and returns fixture data.
+ * In PWA mode (FSA-capable browser): queries tRPC (vault Web Worker) and
+ * adapts entities. Otherwise: skips tRPC and returns localStore + fixtures.
  *
- * The tRPC query is only fired when IPC is available, which avoids the race
- * condition where observer.error() fires synchronously before React Query has
- * fully initialised the query state — leaving isError: false but data: undefined.
+ * The tRPC query is only fired when the worker is available, which avoids
+ * the race where observer.error() fires synchronously before React Query
+ * has initialised — leaving isError:false but data:undefined.
  */
 
 import { useMemo } from "react";
-import { trpc } from "@/lib/trpc/client";
+import { trpc, isBrowserPwaMode } from "@/lib/trpc/client";
 import { CONTACTS } from "./fixtures";
 import { entitiesToContacts, entityToContact } from "./entityAdapter";
 import type { Contact } from "./fixtures";
@@ -27,27 +27,26 @@ export interface ContactsSource {
   isLoading: boolean;
 }
 
-function useIsElectron(): boolean {
-  if (typeof window === "undefined") return false;
-  return typeof window.__supernoteIPC !== "undefined";
+function useHasBackend(): boolean {
+  return isBrowserPwaMode();
 }
 
-/** Hook: returns contacts from tRPC when in Electron, fixtures + local otherwise. */
+/** Hook: returns contacts from tRPC (vault worker) when available, fixtures + local otherwise. */
 export function useContactsSource(): ContactsSource {
-  const isElectron = useIsElectron();
+  const hasBackend = useHasBackend();
   const localEntities = useLocalEntities("personne");
 
   const { data, isLoading } = trpc.entities.list.useQuery(
     { typeId: "personne", limit: 500 },
     {
-      enabled: isElectron,
+      enabled: hasBackend,
       retry: false,
     },
   );
 
   const contacts = useMemo<Contact[]>(() => {
-    if (!isElectron) {
-      // In browser/degraded mode: only local (user-created) entities + empty fixture (CONTACTS=[])
+    if (!hasBackend) {
+      // In degraded mode: only local (user-created) entities + empty fixture (CONTACTS=[])
       const localContacts = localEntities.map((e) =>
         entityToContact({
           id: e.id,
@@ -67,11 +66,11 @@ export function useContactsSource(): ContactsSource {
     }
     if (data?.items && data.items.length > 0) return entitiesToContacts(data.items);
     return CONTACTS; // [] by default
-  }, [isElectron, data, localEntities]);
+  }, [hasBackend, data, localEntities]);
 
   return {
     contacts,
-    mode: isElectron ? "live" : "fallback",
-    isLoading: isElectron && isLoading,
+    mode: hasBackend ? "live" : "fallback",
+    isLoading: hasBackend && isLoading,
   };
 }

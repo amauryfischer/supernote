@@ -9,8 +9,12 @@ import {
   ListVaultsOutput,
   GetCurrentVaultOutput,
 } from "../schemas/vault.js";
+import { foldersRouter } from "./folders.router.js";
 
 export const vaultRouter = router({
+  /** Persistent, nestable folders for the Notes module. */
+  folders: foldersRouter,
+
   /** Open a vault at the given path, creating it if it doesn't exist. */
   open: publicProcedure
     .input(OpenVaultInput)

@@ -29,11 +29,13 @@
     "home": "Accueil",
     "search": "Recherche",
     "notes": "Notes",
+    "todos": "Todos",
     "journal": "Journal",
     "contacts": "Contacts",
     "projects": "Projets",
     "finance": "Finance",
     "schemas": "Schémas",
+    "tags": "Tags",
     "templates": "Templates",
     "views": "Vues",
     "routines": "Routines",
@@ -78,6 +80,7 @@
     "newFolder": "Nouveau dossier",
     "vault": "Vault",
     "deleteNote": "Supprimer la note",
+    "thisFolder": "Ce dossier",
     "changeSort": "Changer le tri",
     "count": "{count, plural, one {# note} other {# notes}}",
     "relativeDate": {
@@ -181,6 +184,8 @@
       "notifications": "Notifications",
       "backup": "Backup & Export",
       "securite": "Sécurité",
+      "templates": "Templates",
+      "schemas": "Schémas",
       "about": "À propos"
     },
     "general": {

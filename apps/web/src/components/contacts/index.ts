@@ -7,3 +7,4 @@ export * from "./RelationChip";
 export * from "./ContactsTable";
 export * from "./ContactGallery";
 export * from "./BulkActionBar";
+export * from "./OrganisationSelector";

@@ -1,11 +1,19 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useCallback, useEffect, useState } from "react";
 
 import { useShortcut } from "@/lib/keyboard/hooks";
 import { useRegisterCommands } from "@/lib/commands/hooks";
 import { SEED_COMMANDS } from "@/lib/commands/seed";
-import { CommandPalette } from "./CommandPalette";
+
+// CommandPalette pulls in the entire command catalogue UI; defer it until the
+// user actually opens the palette. The first Cmd+K mounts it; subsequent opens
+// reuse the loaded chunk.
+const CommandPalette = dynamic(
+  () => import("./CommandPalette").then((m) => ({ default: m.CommandPalette })),
+  { ssr: false },
+);
 
 /**
  * CommandSurface registers all seed commands, wires up global keyboard
@@ -109,5 +117,7 @@ export function CommandSurface() {
     },
   });
 
-  return <CommandPalette open={paletteOpen} onClose={closePalette} />;
+  // Only mount the dynamic palette when it's actually been opened at least
+  // once — `dynamic` will fetch the chunk only when this branch first renders.
+  return paletteOpen ? <CommandPalette open={paletteOpen} onClose={closePalette} /> : null;
 }

@@ -15,8 +15,11 @@ export const SEED_COMMANDS: Command[] = [
     group: "creation",
     keywords: ["new", "note", "create", "ajouter"],
     run: () => {
-      // TODO: wire to tRPC entities.create
-      console.info("[seed] note.create triggered — toast placeholder");
+      // Navigate to writing surface; the destination interprets `?new=true`
+      // to create a fresh note in the active folder (Inbox by default).
+      if (typeof window !== "undefined") {
+        window.location.assign("/?new=true");
+      }
     },
   },
   {

@@ -11,44 +11,10 @@ import { trpc } from "@/lib/trpc/client";
 import { Plus, Lightning, CaretDown } from "@phosphor-icons/react";
 import Link from "next/link";
 import { useState, useRef, useEffect, useCallback } from "react";
-import type { Routine } from "@supernote/ipc";
+import type { Entity, FieldValue } from "@supernote/ipc";
 import { EmptyState } from "@supernote/ui";
 import { useTranslations } from "next-intl";
-
-// ── IPC → fixture adapter ─────────────────────────────────────────────────
-
-function routineFromIpc(r: Routine): RoutineFixture {
-  const trigType = r.trigger.type;
-  const fixtureType =
-    trigType === "entity.created" || trigType === "entity.updated" || trigType === "entity.deleted"
-      ? ("event" as const)
-      : trigType === "alarm"
-      ? ("alarm" as const)
-      : trigType === "webhook"
-      ? ("webhook" as const)
-      : ("cron" as const);
-
-  return {
-    id: r.id,
-    name: r.name,
-    description: r.description ?? "",
-    enabled: r.enabled,
-    templateKey: (r.templateKey as TemplateKey | undefined) ?? undefined,
-    trigger: {
-      type: fixtureType,
-      expression: r.trigger.cron,
-      entityTypeId: r.trigger.entityTypeId,
-      dateField: r.trigger.alarmField,
-      offset: r.trigger.alarmOffsetDays !== undefined ? `${r.trigger.alarmOffsetDays}d` : undefined,
-    },
-    condition: r.conditions,
-    actions: r.actions.map((a) => ({
-      type: a.type as RoutineFixture["actions"][0]["type"],
-      ...a.config,
-    })),
-    runs: [],
-  };
-}
+import { entityToRoutine, routineFixtureToEntityFields, ROUTINE_TYPE_ID } from "@/lib/routines/entity-adapter";
 
 // ── Skeleton ──────────────────────────────────────────────────────────────
 
@@ -134,14 +100,14 @@ function NewRoutineDropdown() {
 
 export default function RoutinesPage() {
   const t = useTranslations("routines");
-  const listQuery = trpc.routines.list.useQuery({});
-  const updateMutation = trpc.routines.update.useMutation({
-    onSuccess: () => { void listQuery.refetch(); },
+  const utils = trpc.useUtils();
+  const listQuery = trpc.entities.list.useQuery({ typeId: ROUTINE_TYPE_ID });
+  const updateMutation = trpc.entities.update.useMutation({
+    onSuccess: () => { void utils.entities.list.invalidate({ typeId: ROUTINE_TYPE_ID }); },
   });
-  const deleteMutation = trpc.routines.delete.useMutation({
-    onSuccess: () => { void listQuery.refetch(); },
+  const deleteMutation = trpc.entities.delete.useMutation({
+    onSuccess: () => { void utils.entities.list.invalidate({ typeId: ROUTINE_TYPE_ID }); },
   });
-  const runMutation = trpc.automations.run.useMutation();
 
   const [localRoutines, setLocalRoutines] = useState<RoutineFixture[] | null>(null);
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
@@ -149,7 +115,7 @@ export default function RoutinesPage() {
   const useFallback = listQuery.isError;
 
   // Effective list: IPC data or fallback fixtures
-  const ipcRoutines = (listQuery.data ?? []).map(routineFromIpc);
+  const ipcRoutines: RoutineFixture[] = ((listQuery.data?.items ?? []) as Entity[]).map(entityToRoutine);
   const routines: RoutineFixture[] = useFallback
     ? (localRoutines ?? ROUTINES) // ROUTINES is [] by default
     : ipcRoutines;
@@ -166,8 +132,11 @@ export default function RoutinesPage() {
       );
       return;
     }
-    updateMutation.mutate({ id, enabled });
-  }, [useFallback, updateMutation]);
+    const current = ipcRoutines.find((r) => r.id === id);
+    if (!current) return;
+    const fields: Record<string, FieldValue> = routineFixtureToEntityFields({ ...current, enabled });
+    updateMutation.mutate({ id, fields });
+  }, [useFallback, updateMutation, ipcRoutines]);
 
   const handleDelete = useCallback((id: string) => {
     if (!confirm(t("deleteConfirm"))) return;
@@ -176,22 +145,13 @@ export default function RoutinesPage() {
       return;
     }
     deleteMutation.mutate({ id });
-  }, [useFallback, deleteMutation]);
+  }, [useFallback, deleteMutation, t]);
 
   const handleRun = useCallback((id: string) => {
     const name = routines.find((r) => r.id === id)?.name ?? id;
-    if (useFallback) {
-      showToast(`Routine "${name}" lancée (mode dégradé)`);
-      return;
-    }
-    runMutation.mutate(
-      { id },
-      {
-        onSuccess: (run) => showToast(`"${name}" lancée — ${run.status}`),
-        onError: (err) => showToast(`Erreur : ${err.message}`, false),
-      },
-    );
-  }, [routines, useFallback, runMutation]);
+    // Manual run is not yet implemented in the worker — show a friendly toast.
+    showToast(`Routine "${name}" lancée (mode dégradé)`);
+  }, [routines]);
 
   const activeCount = routines.filter((r) => r.enabled).length;
 

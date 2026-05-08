@@ -1,10 +1,11 @@
 "use client";
 
 /**
- * Finance tRPC hooks — bridge between live IPC data and the finance pages.
- * Falls back to fixture data when window.__supernoteIPC is not available.
+ * Finance tRPC hooks — bridge between the vault Web Worker and finance pages.
+ * Falls back to fixture data when no PWA backend is available (SSR, or browser
+ * without File System Access API).
  *
- * Entity field conventions (as stored by desktop impl):
+ * Entity field conventions (as stored by the vault worker):
  *   Account  : name, kind, institution, current_balance, currency, last_synced_at, iban
  *   Asset    : name, category, acquisition_date, acquisition_value, current_value,
  *              account_id, ticker, symbol
@@ -13,7 +14,7 @@
  *   Goal     : name, category, target_amount, current_progress, target_date, description
  */
 
-import { trpc } from "@/lib/trpc/client";
+import { trpc, isBrowserPwaMode } from "@/lib/trpc/client";
 import {
   ACCOUNTS,
   ASSETS,
@@ -29,12 +30,11 @@ import {
 import type { EntitySummary } from "@supernote/ipc";
 
 // ---------------------------------------------------------------------------
-// Electron detection
+// Backend availability detection
 // ---------------------------------------------------------------------------
 
-export function useIsElectron(): boolean {
-  if (typeof window === "undefined") return false;
-  return !!window.__supernoteIPC;
+function useHasBackend(): boolean {
+  return isBrowserPwaMode();
 }
 
 // ---------------------------------------------------------------------------
@@ -141,12 +141,12 @@ export interface UseFinanceAccountsResult {
 }
 
 export function useFinanceAccounts(): UseFinanceAccountsResult {
-  const isElectron = useIsElectron();
+  const hasBackend = useHasBackend();
   const query = trpc.entities.list.useQuery(
     { typeId: "account", limit: 200, offset: 0 },
-    { enabled: isElectron },
+    { enabled: hasBackend },
   );
-  if (!isElectron) return { accounts: ACCOUNTS, isLoading: false, isFallback: true }; // ACCOUNTS is [] by default
+  if (!hasBackend) return { accounts: ACCOUNTS, isLoading: false, isFallback: true }; // ACCOUNTS is [] by default
   if (query.isLoading) return { accounts: [], isLoading: true, isFallback: false };
   if (!query.data) return { accounts: ACCOUNTS, isLoading: false, isFallback: true };
   return {
@@ -163,12 +163,12 @@ export interface UseFinanceAssetsResult {
 }
 
 export function useFinanceAssets(): UseFinanceAssetsResult {
-  const isElectron = useIsElectron();
+  const hasBackend = useHasBackend();
   const query = trpc.entities.list.useQuery(
     { typeId: "asset", limit: 500, offset: 0 },
-    { enabled: isElectron },
+    { enabled: hasBackend },
   );
-  if (!isElectron) return { assets: ASSETS, isLoading: false, isFallback: true }; // ASSETS is [] by default
+  if (!hasBackend) return { assets: ASSETS, isLoading: false, isFallback: true }; // ASSETS is [] by default
   if (query.isLoading) return { assets: [], isLoading: true, isFallback: false };
   if (!query.data) return { assets: ASSETS, isLoading: false, isFallback: true };
   return {
@@ -185,12 +185,12 @@ export interface UseFinanceLoansResult {
 }
 
 export function useFinanceLoans(): UseFinanceLoansResult {
-  const isElectron = useIsElectron();
+  const hasBackend = useHasBackend();
   const query = trpc.entities.list.useQuery(
     { typeId: "loan", limit: 100, offset: 0 },
-    { enabled: isElectron },
+    { enabled: hasBackend },
   );
-  if (!isElectron) return { loans: LOANS, isLoading: false, isFallback: true }; // LOANS is [] by default
+  if (!hasBackend) return { loans: LOANS, isLoading: false, isFallback: true }; // LOANS is [] by default
   if (query.isLoading) return { loans: [], isLoading: true, isFallback: false };
   if (!query.data) return { loans: LOANS, isLoading: false, isFallback: true };
   return {
@@ -207,12 +207,12 @@ export interface UseFinanceSnapshotsResult {
 }
 
 export function useFinanceSnapshots(): UseFinanceSnapshotsResult {
-  const isElectron = useIsElectron();
+  const hasBackend = useHasBackend();
   const query = trpc.entities.list.useQuery(
     { typeId: "snapshot", sortBy: "taken_at", sortOrder: "desc", limit: 100, offset: 0 },
-    { enabled: isElectron },
+    { enabled: hasBackend },
   );
-  if (!isElectron) return { snapshots: SNAPSHOTS, isLoading: false, isFallback: true }; // SNAPSHOTS is [] by default
+  if (!hasBackend) return { snapshots: SNAPSHOTS, isLoading: false, isFallback: true }; // SNAPSHOTS is [] by default
   if (query.isLoading) return { snapshots: [], isLoading: true, isFallback: false };
   if (!query.data) return { snapshots: SNAPSHOTS, isLoading: false, isFallback: true };
   const snaps = query.data.items.map(entityToSnapshot);
@@ -228,12 +228,12 @@ export interface UseFinanceGoalsResult {
 }
 
 export function useFinanceGoals(): UseFinanceGoalsResult {
-  const isElectron = useIsElectron();
+  const hasBackend = useHasBackend();
   const query = trpc.entities.list.useQuery(
     { typeId: "goal", limit: 100, offset: 0 },
-    { enabled: isElectron },
+    { enabled: hasBackend },
   );
-  if (!isElectron) return { goals: GOALS, isLoading: false, isFallback: true }; // GOALS is [] by default
+  if (!hasBackend) return { goals: GOALS, isLoading: false, isFallback: true }; // GOALS is [] by default
   if (query.isLoading) return { goals: [], isLoading: true, isFallback: false };
   if (!query.data) return { goals: GOALS, isLoading: false, isFallback: true };
   return {

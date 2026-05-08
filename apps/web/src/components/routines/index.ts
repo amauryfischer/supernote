@@ -8,3 +8,4 @@ export * from "./ActionPickerModal";
 export * from "./RunsHistoryTable";
 export * from "./RoutineEditor";
 export * from "./TemplatePickerStep";
+export * from "./ConditionDocsPanel";

@@ -2,19 +2,19 @@
 
 import { AppShell } from "@/components/shell";
 import {
-  ORGANISATIONS,
   ALL_RELATION_TYPES,
   RelationChip,
   ContactAvatar,
+  OrganisationSelector,
   contactFormToEntityFields,
 } from "@/components/contacts";
 import type { RelationType } from "@/components/contacts";
 import { ArrowLeft, LinkedinLogo, TwitterLogo, GithubLogo, Plus, X, UploadSimple } from "@phosphor-icons/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { trpc } from "@/lib/trpc/client";
-import { localStore } from "@/lib/local-store";
+import { TagSelector } from "@/components/tags/TagSelector";
 
 interface EmailEntry { value: string; label: "pro" | "perso" | "autre" }
 interface PhoneEntry { value: string; label: "mobile" | "fixe" | "pro" }
@@ -46,42 +46,40 @@ function TextInput({ value, onChange, placeholder, type = "text" }: {
   );
 }
 
-function useIsElectron(): boolean {
-  if (typeof window === "undefined") return false;
-  return typeof window.__supernoteIPC !== "undefined";
-}
-
 export default function NouveauContactPage() {
   const router = useRouter();
-  const isElectron = useIsElectron();
 
   const [name, setName] = useState("");
   const [photoPreview, setPhotoPreview] = useState<string | undefined>();
   const [emails, setEmails] = useState<EmailEntry[]>([{ value: "", label: "perso" }]);
   const [phones, setPhones] = useState<PhoneEntry[]>([{ value: "", label: "mobile" }]);
   const [birthday, setBirthday] = useState("");
-  const [orgId, setOrgId] = useState("");
-  const [orgSearch, setOrgSearch] = useState("");
-  const [showOrgDropdown, setShowOrgDropdown] = useState(false);
-  const [relationType, setRelationType] = useState<RelationType>("connaissance");
+  const [orgId, setOrgId] = useState<string | undefined>(undefined);
+  // Default to no preselected relation. Auto-selecting "connaissance" looked
+  // like the user had already made a choice and confused QA. Only highlight
+  // a chip when the user explicitly clicks one.
+  const [relationType, setRelationType] = useState<RelationType | "">("");
   const [linkedin, setLinkedin] = useState("");
   const [twitter, setTwitter] = useState("");
   const [github, setGithub] = useState("");
   const [tags, setTags] = useState<string[]>([]);
-  const [tagInput, setTagInput] = useState("");
   const [notes, setNotes] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const fileRef = useRef<HTMLInputElement>(null);
 
+  const utils = trpc.useUtils();
   const createMutation = trpc.entities.create.useMutation({
-    onSuccess: (entity) => {
+    onSuccess: async (entity) => {
+      // Force the contacts list query to re-execute so the new entry shows
+      // up immediately when the user navigates back to /contacts (without
+      // requiring a hard reload). `invalidate` only marks the cache stale —
+      // if `refetchOnMount: false` or staleTime is set, the consumer keeps
+      // showing the old cached value. `refetch` runs the query right now.
+      await utils.entities.list.refetch({ typeId: "personne", limit: 500 });
+      await utils.entities.search.invalidate();
       router.push(`/contacts/${entity.id}`);
     },
   });
-
-  const filteredOrgs = ORGANISATIONS.filter((o) =>
-    o.name.toLowerCase().includes(orgSearch.toLowerCase())
-  );
 
   function handlePhotoChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -102,11 +100,6 @@ export default function NouveauContactPage() {
     setPhones((prev) => prev.map((p, idx) => idx === i ? { ...p, [field]: val } : p));
   }
 
-  function addTag() {
-    const t = tagInput.trim();
-    if (t && !tags.includes(t)) { setTags((prev) => [...prev, t]); }
-    setTagInput("");
-  }
   function removeTag(t: string) { setTags((prev) => prev.filter((x) => x !== t)); }
 
   function validate(): boolean {
@@ -115,6 +108,24 @@ export default function NouveauContactPage() {
     setErrors(errs);
     return Object.keys(errs).length === 0;
   }
+
+  // Ctrl+Enter / Cmd+Enter submits the form from anywhere on the page,
+  // EXCEPT inside a textarea where the user may legitimately want to
+  // insert a newline (notes field). The listener is bound to `document`
+  // so it fires regardless of which input is focused.
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key !== "Enter" || (!e.metaKey && !e.ctrlKey)) return;
+      const target = e.target as HTMLElement | null;
+      if (target?.tagName === "TEXTAREA") return;
+      if (createMutation.isPending) return;
+      e.preventDefault();
+      // Synthesize a minimal FormEvent — handleSubmit only uses preventDefault.
+      handleSubmit({ preventDefault: () => {} } as React.FormEvent);
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  });
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -125,20 +136,15 @@ export default function NouveauContactPage() {
       emails: emails.filter((em) => em.value.trim()),
       phones: phones.filter((ph) => ph.value.trim()),
       birthday: birthday || undefined,
-      organisationId: orgId || undefined,
-      relationType,
+      organisationId: orgId,
+      // Persist a sensible default if the user never picked a chip.
+      relationType: (relationType || "connaissance") as RelationType,
       linkedin: linkedin || undefined,
       twitter: twitter || undefined,
       github: github || undefined,
       tags,
       notes,
     });
-
-    if (!isElectron) {
-      const entity = localStore.create("personne", fields, { body: notes, tags });
-      router.push(`/contacts/${entity.id}`);
-      return;
-    }
 
     createMutation.mutate({
       typeId: "personne",
@@ -148,14 +154,37 @@ export default function NouveauContactPage() {
     });
   }
 
-  const selectedOrg = ORGANISATIONS.find((o) => o.id === orgId);
-
   return (
     <AppShell>
+      {/* Full-screen feedback overlay while the create mutation is in flight.
+          Without this, the user sees a frozen "Créer" button for the worker
+          round-trip and assumes nothing happened. */}
+      {createMutation.isPending && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center"
+          style={{ backgroundColor: "color-mix(in oklch, var(--surface-0) 70%, transparent)" }}
+          aria-live="polite"
+          aria-busy="true"
+        >
+          <div
+            className="flex items-center gap-3 rounded-lg border px-5 py-3 shadow-lg"
+            style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-1)" }}
+          >
+            <div
+              className="h-4 w-4 animate-spin rounded-full border-2 border-transparent"
+              style={{ borderTopColor: "var(--accent)", borderRightColor: "var(--accent)" }}
+            />
+            <span className="text-sm" style={{ color: "var(--text-secondary)" }}>
+              Création en cours…
+            </span>
+          </div>
+        </div>
+      )}
       <div className="mx-auto max-w-2xl px-6 py-8">
         {/* Back */}
         <Link
           href="/contacts"
+          prefetch={true}
           className="mb-6 flex items-center gap-1.5 text-sm transition-colors hover:underline"
           style={{ color: "var(--text-muted)" }}
         >
@@ -207,7 +236,7 @@ export default function NouveauContactPage() {
                   key={type}
                   type="button"
                   onClick={() => setRelationType(type)}
-                  className="transition-opacity"
+                  className="transition-opacity focus:outline-none focus-visible:outline-none"
                   style={{ opacity: relationType === type ? 1 : 0.45, outline: relationType === type ? "2px solid var(--accent)" : "none", borderRadius: 99, outlineOffset: 2 }}
                 >
                   <RelationChip type={type} />
@@ -320,52 +349,10 @@ export default function NouveauContactPage() {
             />
           </div>
 
-          {/* Organisation combobox */}
-          <div className="relative">
+          {/* Organisation — picker over real `organisation` entities. */}
+          <div>
             <FieldLabel>Organisation</FieldLabel>
-            <div className="relative">
-              <input
-                type="text"
-                value={selectedOrg ? selectedOrg.name : orgSearch}
-                onChange={(e) => {
-                  setOrgSearch(e.target.value);
-                  setOrgId("");
-                  setShowOrgDropdown(true);
-                }}
-                onFocus={() => setShowOrgDropdown(true)}
-                onBlur={() => setTimeout(() => setShowOrgDropdown(false), 150)}
-                placeholder="Rechercher une organisation…"
-                className="w-full rounded-md border px-3 py-2 text-sm outline-none transition-colors focus:border-[var(--accent)]"
-                style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-1)", color: "var(--text-primary)" }}
-              />
-              {orgId && (
-                <button
-                  type="button"
-                  onClick={() => { setOrgId(""); setOrgSearch(""); }}
-                  className="absolute right-2 top-1/2 -translate-y-1/2"
-                >
-                  <X size={13} style={{ color: "var(--text-muted)" }} />
-                </button>
-              )}
-            </div>
-            {showOrgDropdown && filteredOrgs.length > 0 && (
-              <div
-                className="absolute z-20 mt-1 w-full rounded-md border shadow-lg"
-                style={{ borderColor: "var(--border)", backgroundColor: "var(--surface-1)" }}
-              >
-                {filteredOrgs.map((org) => (
-                  <button
-                    key={org.id}
-                    type="button"
-                    onMouseDown={() => { setOrgId(org.id); setOrgSearch(""); setShowOrgDropdown(false); }}
-                    className="flex w-full flex-col px-3 py-2 text-left text-sm transition-colors hover:bg-[var(--surface-2)]"
-                  >
-                    <span style={{ color: "var(--text-primary)" }}>{org.name}</span>
-                    <span className="text-xs" style={{ color: "var(--text-muted)" }}>{org.industry}</span>
-                  </button>
-                ))}
-              </div>
-            )}
+            <OrganisationSelector value={orgId} onChange={setOrgId} />
           </div>
 
           {/* Social links */}
@@ -390,7 +377,7 @@ export default function NouveauContactPage() {
           {/* Tags */}
           <div>
             <FieldLabel>Tags</FieldLabel>
-            <div className="flex flex-wrap gap-1.5 mb-2">
+            <div className="flex flex-wrap items-center gap-1.5">
               {tags.map((tag) => (
                 <span
                   key={tag}
@@ -398,27 +385,17 @@ export default function NouveauContactPage() {
                   style={{ backgroundColor: "var(--surface-3)", color: "var(--text-muted)" }}
                 >
                   {tag}
-                  <button type="button" onClick={() => removeTag(tag)} aria-label={`Supprimer ${tag}`}>
+                  <button
+                    type="button"
+                    onClick={() => removeTag(tag)}
+                    aria-label={`Supprimer ${tag}`}
+                    className="outline-none focus:outline-none focus-visible:outline-none"
+                  >
                     <X size={10} />
                   </button>
                 </span>
               ))}
-            </div>
-            <div className="flex gap-2">
-              <TextInput
-                value={tagInput}
-                onChange={setTagInput}
-                placeholder="Ajouter un tag…"
-              />
-              <button
-                type="button"
-                onClick={addTag}
-                className="flex items-center gap-1 rounded-md border px-3 py-2 text-xs transition-colors hover:bg-[var(--surface-2)]"
-                style={{ borderColor: "var(--border-subtle)", color: "var(--text-muted)" }}
-              >
-                <Plus size={11} />
-                Ajouter
-              </button>
+              <TagSelector value={tags} onChange={setTags} />
             </div>
           </div>
 
@@ -438,12 +415,21 @@ export default function NouveauContactPage() {
           {/* Error banner */}
           {createMutation.isError && (
             <p className="rounded-md border p-3 text-sm" style={{ borderColor: "var(--danger)", color: "var(--danger)", backgroundColor: "oklch(0.97 0.02 28)" }}>
-              Impossible de contacter le serveur (mode dégradé). Le contact sera créé localement si IPC disponible.
+              Impossible de créer le contact. Vérifie que le vault est bien ouvert.
             </p>
           )}
 
-          {/* Actions */}
-          <div className="flex gap-3 pt-2">
+          {/* Actions — sticky bottom bar so the primary CTA stays in view
+              while the user scrolls a long form. The negative margin /
+              padding pair makes the bar span the full width of the
+              container while keeping the buttons aligned with the form. */}
+          <div
+            className="sticky bottom-0 -mx-6 flex items-center gap-3 border-t px-6 py-3 backdrop-blur"
+            style={{
+              borderColor: "var(--border-subtle)",
+              backgroundColor: "color-mix(in srgb, var(--surface-1) 90%, transparent)",
+            }}
+          >
             <button
               type="submit"
               disabled={createMutation.isPending}
@@ -459,6 +445,9 @@ export default function NouveauContactPage() {
             >
               Annuler
             </Link>
+            <span className="ml-auto text-xs" style={{ color: "var(--text-muted)" }}>
+              ⌘+Enter pour valider
+            </span>
           </div>
         </form>
       </div>

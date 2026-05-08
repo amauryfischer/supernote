@@ -13,6 +13,7 @@ import { markdownToBlocks, blocksToMarkdown } from "./serialization/index.js";
 import {
   SupernoteSuggestionMenu,
   getSupernoteSlashMenuItems,
+  getMentionMenuItems,
   useEntityPickerState,
 } from "./extensions/slashMenu.js";
 import type { EntityLinkItemConfig } from "./extensions/slashMenu.js";
@@ -40,12 +41,25 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
     onSaveRef.current?.(editor.document ? blocksToMarkdown(editor.document as Block[]) : "");
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Guard initialContent: BlockNote throws "Error creating document from
+  // blocks passed as 'initialContent'" when the array is empty or the
+  // blocks fail validation against the schema. Pass `undefined` to let
+  // BlockNote create its own default empty document instead.
+  const initialBlocks = (() => {
+    if (!initialMarkdown) return undefined;
+    try {
+      const blocks = markdownToBlocks(initialMarkdown) as any[];
+      return blocks.length > 0 ? blocks : undefined;
+    } catch (err) {
+      console.warn("[SupernoteEditor] markdownToBlocks failed, falling back to empty document", err);
+      return undefined;
+    }
+  })();
+
   const editor = useCreateBlockNote(
     {
       schema: supernoteSchema,
-      initialContent: initialMarkdown
-        ? (markdownToBlocks(initialMarkdown) as any[])
-        : undefined,
+      initialContent: initialBlocks,
       _tiptapOptions: {
         extensions: [createSaveExtension(handleSave)],
       },
@@ -80,6 +94,16 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
     [editor, openPicker]
   );
 
+  // The `@` trigger opens an inline picker that searches across ALL entity
+  // types and inserts a `mention` inline chip directly. Distinct from the
+  // slash menu's "Mentionner un contact" item (which opens EntityPicker).
+  const getMentionItems = useCallback(
+    async (query: string) => {
+      return getMentionMenuItems(editor, resolvers, query);
+    },
+    [editor, resolvers]
+  );
+
   return (
     <div
       className={`sn-editor-wrapper${className ? ` ${className}` : ""}`}
@@ -97,6 +121,11 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
           // wraps the editor — the root cause of the "SuggestionMenu undefined" crash.
           suggestionMenuComponent={SupernoteSuggestionMenu}
           getItems={getItems}
+        />
+        <SuggestionMenuController
+          triggerCharacter="@"
+          suggestionMenuComponent={SupernoteSuggestionMenu}
+          getItems={getMentionItems}
         />
       </BlockNoteViewRaw>
 

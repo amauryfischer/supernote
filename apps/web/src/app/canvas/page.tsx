@@ -1,39 +1,109 @@
 "use client";
 
-import { useState, useEffect } from "react";
+/**
+ * /canvas — gallery of every NOTE that has a non-empty canvas view.
+ *
+ * Architectural shift: canvas is no longer a standalone entity type.
+ * It's the spatial *view* of a note, persisted on `note.fields.canvas`.
+ * This page surfaces the subset of notes that have actually been laid
+ * out on a canvas, so the user can jump back into them at a glance.
+ *
+ * Each row deep-links into `/notes/{id}?view=canvas` so the toggle in
+ * the note detail page opens straight onto the canvas.
+ */
+
+import { useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, SquaresFour } from "@phosphor-icons/react";
+import { SquaresFour } from "@phosphor-icons/react";
 import { AppShell } from "@/components/shell";
-import { CanvasGrid, CANVAS_LIST } from "@/components/canvas-page";
+import { CanvasGrid } from "@/components/canvas-page";
 import type { CanvasMeta } from "@/components/canvas-page";
 import { EmptyState, SkeletonCard } from "@supernote/ui";
+import { trpc } from "@/lib/trpc/client";
+
+interface NoteEntityRow {
+  id: string;
+  typeId: string;
+  fields?: Record<string, unknown>;
+  updatedAt?: string;
+  filePath?: string;
+}
+
+/**
+ * Heuristic: a note has a "canvas" only if `fields.canvas` parses to a
+ * CanvasDocument with at least one node. We treat the auto-generated
+ * default doc (a single block holding the note body) the same as a real
+ * canvas — once the user toggles to canvas mode and we serialize
+ * something, the note belongs in this gallery.
+ *
+ * Returns `null` when the note shouldn't appear here.
+ */
+function canvasMetaFromNote(row: NoteEntityRow): CanvasMeta | null {
+  const fields = row.fields ?? {};
+  const raw = fields["canvas"];
+  if (typeof raw !== "string" || raw.length === 0) return null;
+  let nodeCount = 0;
+  let edgeCount = 0;
+  try {
+    const parsed = JSON.parse(raw) as { nodes?: unknown[]; edges?: unknown[] };
+    nodeCount = Array.isArray(parsed.nodes) ? parsed.nodes.length : 0;
+    edgeCount = Array.isArray(parsed.edges) ? parsed.edges.length : 0;
+  } catch {
+    return null;
+  }
+  if (nodeCount === 0) return null;
+
+  const titleField = fields["title"];
+  const title =
+    (typeof titleField === "string" && titleField.length > 0
+      ? titleField
+      : row.filePath?.split("/").pop()?.replace(/\.md$/, "")) ?? "Sans titre";
+
+  return {
+    id: row.id,
+    title,
+    updatedAt: row.updatedAt ?? new Date().toISOString(),
+    nodeCount,
+    edgeCount,
+    tags: [],
+  };
+}
 
 export default function CanvasListPage() {
   const router = useRouter();
-  const [isLoading, setIsLoading] = useState(true);
-  const [canvases, setCanvases] = useState<CanvasMeta[]>(CANVAS_LIST); // CANVAS_LIST is [] by default
 
-  useEffect(() => {
-    const t = setTimeout(() => setIsLoading(false), 250);
-    return () => clearTimeout(t);
-  }, []);
+  // List notes — we filter client-side to those that have a non-empty
+  // canvas payload. 500 is the same cap the notes list uses.
+  const listQuery = trpc.entities.list.useQuery(
+    { typeId: "note", limit: 500 },
+    { retry: false },
+  );
 
-  function handleOpen(id: string) {
-    router.push(`/canvas/${id}`);
-  }
+  const canvases: CanvasMeta[] = useMemo(() => {
+    const items = (listQuery.data?.items ?? []) as NoteEntityRow[];
+    return items
+      .map(canvasMetaFromNote)
+      .filter((c): c is CanvasMeta => c !== null);
+  }, [listQuery.data]);
 
-  function handleNewCanvas() {
-    const newCanvas: CanvasMeta = {
-      id: `c-${Date.now()}`,
-      title: "Nouveau canvas",
-      updatedAt: new Date().toISOString(),
-      nodeCount: 0,
-      edgeCount: 0,
-      tags: [],
-    };
-    setCanvases((prev) => [newCanvas, ...prev]);
-    router.push(`/canvas/${newCanvas.id}`);
-  }
+  const isLoading = listQuery.isLoading;
+
+  // Open a note's canvas view directly — preserves the URL contract that
+  // the note detail page expects (`?view=canvas`).
+  const handleOpen = useCallback(
+    (id: string) => {
+      router.push(`/notes/${id}?view=canvas`);
+    },
+    [router],
+  );
+
+  // Creating a "new canvas" doesn't make sense as a top-level action
+  // anymore — the canvas only exists alongside a note. We send the user
+  // to the notes list so they can pick / create a note and toggle its
+  // canvas view.
+  const handleNewCanvas = useCallback(() => {
+    router.push("/notes");
+  }, [router]);
 
   return (
     <AppShell>
@@ -61,18 +131,6 @@ export default function CanvasListPage() {
               {canvases.length}
             </span>
           </div>
-
-          <button
-            onClick={handleNewCanvas}
-            className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-opacity hover:opacity-90"
-            style={{
-              backgroundColor: "var(--accent)",
-              color: "var(--accent-foreground)",
-            }}
-          >
-            <Plus size={13} />
-            Nouveau canvas
-          </button>
         </div>
 
         {/* Grid */}
@@ -86,8 +144,8 @@ export default function CanvasListPage() {
               <EmptyState
                 icon={<SquaresFour size={28} />}
                 title="Aucun canvas"
-                description="Créez un canvas pour visualiser et connecter vos idées librement."
-                action={{ label: "+ Nouveau canvas", onClick: handleNewCanvas }}
+                description="Ouvrez une note et basculez sur la vue Canvas pour la disposer spatialement."
+                action={{ label: "Voir mes notes", onClick: handleNewCanvas }}
               />
             </div>
           ) : (

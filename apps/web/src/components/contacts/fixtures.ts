@@ -62,6 +62,12 @@ export interface Contact {
   relationType: RelationType;
   birthday?: string;
   tags: string[];
+  /**
+   * Short alternative names ("LD", "Linhdan", etc.) used by the @-mention
+   * picker to resolve to this contact. Persisted as a JSON-encoded string
+   * array under `fields.aliases`.
+   */
+  aliases: string[];
   social: SocialLinks;
   notes: string;
   lastInteractionDate?: string;

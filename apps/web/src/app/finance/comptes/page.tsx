@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { AppShell } from "@/components/shell";
 import {
   useReactTable,
@@ -12,9 +12,11 @@ import {
 } from "@tanstack/react-table";
 import { Plus, ArrowsDownUp, ArrowLeft } from "@phosphor-icons/react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useFinanceAccounts } from "@/components/finance/hooks";
 import type { Account } from "@/components/finance/fixtures";
 import { formatCurrency, formatDate } from "@/components/finance/utils";
+import { trpc } from "@/lib/trpc/client";
 
 const KIND_LABELS: Record<string, string> = {
   checking: "Courant",
@@ -39,8 +41,26 @@ const KIND_COLORS: Record<string, string> = {
 };
 
 export default function ComptesPage() {
+  const router = useRouter();
   const { accounts, isLoading, isFallback } = useFinanceAccounts();
   const [sorting, setSorting] = useState<SortingState>([]);
+
+  const utils = trpc.useUtils();
+  const createMutation = trpc.entities.create.useMutation({
+    onSuccess: () => {
+      void utils.entities.list.invalidate({ typeId: "account" });
+    },
+  });
+  const handleNewAccount = useCallback(async () => {
+    try {
+      await createMutation.mutateAsync({
+        typeId: "account",
+        fields: { name: "Nouveau compte", current_balance: 0, kind: "checking" },
+      });
+    } catch (err) {
+      console.error("[finance/comptes] create failed", err);
+    }
+  }, [createMutation]);
 
   const columns = useMemo<ColumnDef<Account>[]>(
     () => [
@@ -129,7 +149,9 @@ export default function ComptesPage() {
           )}
         </div>
         <button
-          className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium"
+          onClick={() => void handleNewAccount()}
+          disabled={createMutation.isPending}
+          className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-opacity disabled:opacity-50"
           style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
         >
           <Plus size={14} /> Compte
@@ -180,6 +202,7 @@ export default function ComptesPage() {
                 {table.getRowModel().rows.map((row, i) => (
                   <tr
                     key={row.id}
+                    onClick={() => router.push(`/finance/comptes/${row.original.id}`)}
                     className="border-b cursor-pointer transition-colors hover:bg-[var(--surface-2)]"
                     style={{
                       backgroundColor: i % 2 === 0 ? "var(--surface-1)" : "var(--surface-0)",

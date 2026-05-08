@@ -15,6 +15,5 @@ export type {
 export type {
   EntityRef,
   RelationCreationResult,
-  CanvasMode,
   SupernoteCanvasProps,
 } from "./props.js";

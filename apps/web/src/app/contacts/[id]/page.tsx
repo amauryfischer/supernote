@@ -4,48 +4,28 @@ import { AppShell } from "@/components/shell";
 import {
   CONTACTS,
   INTERACTIONS,
-  ORGANISATIONS,
-  ContactAvatar,
-  RelationChip,
   formatDate,
-  isBirthdaySoon,
-  relativeBirthday,
   entityToContact,
 } from "@/components/contacts";
 import type { Contact, Interaction } from "@/components/contacts";
+import { EditableSidebar } from "@/components/contacts/EditableSidebar";
 import type { EntitySummary } from "@supernote/ipc";
 import {
   ArrowLeft,
   Buildings,
-  Calendar,
   ArrowSquareOut,
-  GithubLogo,
-  LinkedinLogo,
-  Envelope,
-  Phone,
-  TwitterLogo,
   Link as LinkIcon,
 } from "@phosphor-icons/react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState, useCallback } from "react";
 import { trpc } from "@/lib/trpc/client";
-import type { RelationEdge } from "@supernote/ipc";
+import type { RelationEdge, FieldValue } from "@supernote/ipc";
 import { localStore } from "@/lib/local-store";
-import type { FieldValue } from "@supernote/ipc";
 
 type Tab = "notes" | "timeline" | "liens" | "finance" | "activite";
 
 // ── Small UI helpers ──────────────────────────────────────────────────────────
-
-function InfoRow({ icon, children }: { icon: React.ReactNode; children: React.ReactNode }) {
-  return (
-    <div className="flex items-start gap-2.5 py-1.5">
-      <span style={{ color: "var(--text-muted)", marginTop: 2, flexShrink: 0 }}>{icon}</span>
-      <span className="text-sm" style={{ color: "var(--text-secondary)" }}>{children}</span>
-    </div>
-  );
-}
 
 function InteractionKindBadge({ kind }: { kind: string }) {
   const map: Record<string, string> = {
@@ -376,11 +356,13 @@ export default function ContactDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [tab, setTab] = useState<Tab>("notes");
 
-  // Try to load via tRPC first; fall back to fixture.
+  // Try to load via tRPC first; fall back to fixture / localStore.
   const { data: trpcEntity, isError: entityError } = trpc.entities.get.useQuery(
     { id },
     { retry: false },
   );
+
+  const hasLiveBackend = !entityError && Boolean(trpcEntity);
 
   const contact: Contact | undefined = (() => {
     if (!entityError && trpcEntity) {
@@ -405,6 +387,16 @@ export default function ContactDetailPage() {
     return undefined;
   })();
 
+  // Resolve the linked organisation entity (real worker data — replaces
+  // the previous fixture lookup). The query is enabled only when the
+  // contact carries a real id; legacy fixture-shaped ids (e.g. `org-1`)
+  // produce a benign 404 and the Liens tab shows nothing for that row.
+  const orgIdField = contact?.organisationId;
+  const { data: orgEntity } = trpc.entities.get.useQuery(
+    { id: orgIdField ?? "" },
+    { enabled: !!orgIdField, retry: false },
+  );
+
   if (!contact) {
     return (
       <AppShell>
@@ -420,10 +412,16 @@ export default function ContactDetailPage() {
     );
   }
 
-  const org = ORGANISATIONS.find((o) => o.id === contact.organisationId);
+  const orgName = (() => {
+    if (!orgEntity) return undefined;
+    const raw = orgEntity.fields["name"];
+    return typeof raw === "string" && raw.trim().length > 0 ? raw.trim() : undefined;
+  })();
+  const orgWebsite =
+    typeof orgEntity?.fields["website"] === "string"
+      ? (orgEntity.fields["website"] as string)
+      : undefined;
   const fixtureInteractions = INTERACTIONS.filter((i) => i.contactId === id);
-  const soon = isBirthdaySoon(contact.birthday);
-  const relBirthday = relativeBirthday(contact.birthday);
   const filePath = trpcEntity?.filePath;
 
   const TABS: { id: Tab; label: string }[] = [
@@ -434,14 +432,12 @@ export default function ContactDetailPage() {
     { id: "activite", label: "Activité" },
   ];
 
-  const primaryEmail = contact.emails[0];
-
   return (
     <AppShell>
       <div className="flex h-full flex-col overflow-hidden">
-        {/* Back */}
+        {/* Back + name + aliases breadcrumb */}
         <div
-          className="flex items-center gap-2 border-b px-6 py-3"
+          className="flex items-center gap-3 border-b px-6 py-3"
           style={{ borderColor: "var(--border-subtle)" }}
         >
           <Link
@@ -452,173 +448,39 @@ export default function ContactDetailPage() {
             <ArrowLeft size={14} />
             Contacts
           </Link>
+          {contact.aliases.length > 0 && (
+            <div className="flex items-center gap-1.5 overflow-hidden">
+              <span className="text-sm" style={{ color: "var(--text-muted)" }}>·</span>
+              <span
+                className="truncate text-sm font-medium"
+                style={{ color: "var(--text-primary)" }}
+              >
+                {contact.name}
+              </span>
+              <span className="text-sm" style={{ color: "var(--text-muted)" }}>·</span>
+              <div className="flex flex-wrap gap-1">
+                {contact.aliases.map((alias) => (
+                  <span
+                    key={alias}
+                    className="rounded-full px-2 py-0.5 text-[10px] font-medium"
+                    style={{
+                      backgroundColor:
+                        "color-mix(in oklch, var(--accent) 14%, var(--surface-3))",
+                      color: "var(--text-secondary)",
+                    }}
+                    title={`Alias: ${alias}`}
+                  >
+                    {alias}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="flex flex-1 overflow-hidden">
-          {/* Left column */}
-          <aside
-            className="flex flex-col gap-4 overflow-y-auto border-r p-6"
-            style={{ width: 320, minWidth: 320, borderColor: "var(--border-subtle)" }}
-          >
-            {/* Avatar + name */}
-            <div className="flex flex-col items-center gap-3 text-center">
-              <ContactAvatar name={contact.name} photoUrl={contact.photoUrl} size={88} />
-              <div>
-                <h1 className="text-xl font-semibold" style={{ color: "var(--text-primary)" }}>
-                  {contact.name}
-                </h1>
-                <div className="mt-1.5 flex justify-center">
-                  <RelationChip type={contact.relationType} />
-                </div>
-              </div>
-            </div>
-
-            {/* Action buttons */}
-            <div className="flex gap-2 justify-center flex-wrap">
-              {primaryEmail && (
-                <a
-                  href={`mailto:${primaryEmail.value}`}
-                  className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors hover:opacity-90"
-                  style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
-                >
-                  <Envelope size={12} />
-                  Email
-                </a>
-              )}
-              {contact.phones[0] && (
-                <a
-                  href={`tel:${contact.phones[0].value}`}
-                  className="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--surface-2)]"
-                  style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
-                >
-                  <Phone size={12} />
-                  Appeler
-                </a>
-              )}
-              {org && (
-                <a
-                  href={org.website}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--surface-2)]"
-                  style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
-                >
-                  <Buildings size={12} />
-                  Org
-                </a>
-              )}
-            </div>
-
-            <div className="border-t" style={{ borderColor: "var(--border-subtle)" }} />
-
-            {/* Info rows */}
-            <div>
-              {contact.emails.map((email) => (
-                <InfoRow key={email.value} icon={<Envelope size={14} />}>
-                  <a href={`mailto:${email.value}`} className="hover:underline">
-                    {email.value}
-                  </a>{" "}
-                  <span className="text-xs" style={{ color: "var(--text-muted)" }}>({email.label})</span>
-                </InfoRow>
-              ))}
-              {contact.phones.map((phone) => (
-                <InfoRow key={phone.value} icon={<Phone size={14} />}>
-                  {phone.value}{" "}
-                  <span className="text-xs" style={{ color: "var(--text-muted)" }}>({phone.label})</span>
-                </InfoRow>
-              ))}
-              {org && (
-                <InfoRow icon={<Buildings size={14} />}>
-                  {org.website ? (
-                    <a href={org.website} target="_blank" rel="noopener noreferrer" className="hover:underline flex items-center gap-1">
-                      {org.name}
-                      <ArrowSquareOut size={11} />
-                    </a>
-                  ) : (
-                    org.name
-                  )}
-                  <span className="text-xs" style={{ color: "var(--text-muted)" }}> — {org.industry}</span>
-                </InfoRow>
-              )}
-              {contact.birthday && (
-                <InfoRow icon={<Calendar size={14} />}>
-                  <span
-                    style={soon ? { color: "oklch(0.55 0.20 28)", fontWeight: 600 } : undefined}
-                  >
-                    {formatDate(contact.birthday)}
-                    {relBirthday && (
-                      <span className="ml-1.5 text-xs" style={{ color: soon ? "oklch(0.55 0.20 28)" : "var(--text-muted)" }}>
-                        ({relBirthday})
-                      </span>
-                    )}
-                  </span>
-                </InfoRow>
-              )}
-            </div>
-
-            {/* Social */}
-            {(contact.social.linkedin || contact.social.twitter || contact.social.github) && (
-              <>
-                <div className="border-t" style={{ borderColor: "var(--border-subtle)" }} />
-                <div className="flex gap-2">
-                  {contact.social.linkedin && (
-                    <a
-                      href={contact.social.linkedin}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex h-8 w-8 items-center justify-center rounded-md border transition-colors hover:bg-[var(--surface-2)]"
-                      style={{ borderColor: "var(--border-subtle)", color: "var(--text-muted)" }}
-                      aria-label="LinkedIn"
-                    >
-                      <LinkedinLogo size={15} />
-                    </a>
-                  )}
-                  {contact.social.twitter && (
-                    <a
-                      href={contact.social.twitter}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex h-8 w-8 items-center justify-center rounded-md border transition-colors hover:bg-[var(--surface-2)]"
-                      style={{ borderColor: "var(--border-subtle)", color: "var(--text-muted)" }}
-                      aria-label="Twitter"
-                    >
-                      <TwitterLogo size={15} />
-                    </a>
-                  )}
-                  {contact.social.github && (
-                    <a
-                      href={contact.social.github}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex h-8 w-8 items-center justify-center rounded-md border transition-colors hover:bg-[var(--surface-2)]"
-                      style={{ borderColor: "var(--border-subtle)", color: "var(--text-muted)" }}
-                      aria-label="GitHub"
-                    >
-                      <GithubLogo size={15} />
-                    </a>
-                  )}
-                </div>
-              </>
-            )}
-
-            {/* Tags */}
-            {contact.tags.length > 0 && (
-              <>
-                <div className="border-t" style={{ borderColor: "var(--border-subtle)" }} />
-                <div className="flex flex-wrap gap-1.5">
-                  {contact.tags.map((tag) => (
-                    <span
-                      key={tag}
-                      className="rounded-full px-2.5 py-1 text-xs"
-                      style={{ backgroundColor: "var(--surface-3)", color: "var(--text-muted)" }}
-                    >
-                      {tag}
-                    </span>
-                  ))}
-                </div>
-              </>
-            )}
-          </aside>
+          {/* Left column — editable sidebar */}
+          <EditableSidebar contact={contact} hasLiveBackend={hasLiveBackend} />
 
           {/* Right column */}
           <div className="flex flex-1 flex-col overflow-hidden">
@@ -656,8 +518,8 @@ export default function ContactDetailPage() {
               {tab === "liens" && (
                 <LiensTab
                   contactId={id}
-                  orgName={org?.name}
-                  orgWebsite={org?.website}
+                  orgName={orgName}
+                  orgWebsite={orgWebsite}
                 />
               )}
 

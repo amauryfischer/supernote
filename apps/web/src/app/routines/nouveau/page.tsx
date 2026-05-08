@@ -8,43 +8,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useState, useCallback, Suspense } from "react";
 import { ArrowLeft } from "@phosphor-icons/react";
 import Link from "next/link";
-import type { CreateRoutineInput } from "@supernote/ipc";
-
-// ── fixture → create input adapter ───────────────────────────────────────
-
-function fixtureToCreateInput(f: RoutineFixture): CreateRoutineInput {
-  const trigType = f.trigger.type === "event"
-    ? ("entity.created" as const)
-    : f.trigger.type === "alarm"
-    ? ("alarm" as const)
-    : f.trigger.type === "webhook"
-    ? ("webhook" as const)
-    : ("cron" as const);
-
-  return {
-    name: f.name,
-    description: f.description || undefined,
-    enabled: f.enabled,
-    templateKey: f.templateKey,
-    conditions: f.condition,
-    trigger: {
-      type: trigType,
-      cron: f.trigger.expression,
-      entityTypeId: f.trigger.entityTypeId,
-      alarmField: f.trigger.dateField,
-      alarmOffsetDays: f.trigger.offset
-        ? parseInt(f.trigger.offset.replace("d", ""), 10)
-        : undefined,
-    },
-    actions: f.actions.map((a) => {
-      const { type, ...config } = a;
-      return {
-        type: type as import("@supernote/ipc").ActionType,
-        config: config as Record<string, unknown>,
-      };
-    }),
-  };
-}
+import { routineFixtureToEntityFields, ROUTINE_TYPE_ID } from "@/lib/routines/entity-adapter";
 
 // ── Inner content (needs Suspense for useSearchParams) ────────────────────
 
@@ -53,8 +17,12 @@ function NouveauContent() {
   const searchParams = useSearchParams();
   const templateParam = searchParams.get("template") as TemplateKey | null;
 
-  const createMutation = trpc.routines.create.useMutation({
-    onSuccess: (r) => router.push(`/routines/${r.id}`),
+  const utils = trpc.useUtils();
+  const createMutation = trpc.entities.create.useMutation({
+    onSuccess: (entity) => {
+      void utils.entities.list.invalidate({ typeId: ROUTINE_TYPE_ID });
+      router.push(`/routines/${entity.id}`);
+    },
     onError: (err) => setError(err.message),
   });
 
@@ -72,9 +40,11 @@ function NouveauContent() {
   const handleSave = useCallback((saved: RoutineFixture) => {
     setError(null);
     if (createMutation.isPending) return;
-    // Best-effort: try tRPC create; on error fall back to navigate back
     try {
-      createMutation.mutate(fixtureToCreateInput(saved));
+      createMutation.mutate({
+        typeId: ROUTINE_TYPE_ID,
+        fields: routineFixtureToEntityFields(saved),
+      });
     } catch {
       // Fallback: just navigate back if IPC unavailable
       router.push("/routines");

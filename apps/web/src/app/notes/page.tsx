@@ -6,9 +6,17 @@ import {
   FileTree,
   NoteList,
 } from "@/components/notes";
-import { useNoteList, useFolderTree, useCreateNote } from "@/components/notes/hooks";
+import {
+  useNoteList,
+  useFolderTree,
+  useCreateNote,
+  useCreateFolder,
+  useDeleteFolder,
+  useRenameFolder,
+} from "@/components/notes/hooks";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useCallback, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { useConfirm, usePrompt } from "@/hooks/usePrompt";
 
 function NotesPageContent() {
   const router = useRouter();
@@ -19,28 +27,148 @@ function NotesPageContent() {
     folderParam ?? "Inbox",
   );
 
+  // Mirror selectedFolder into a ref so the create-folder / create-note
+  // callbacks always read the LATEST value, never a stale closure capture.
+  // Without this, the user could select "Travail" and immediately click the
+  // header "+ Nouveau dossier" before React re-rendered the callback, and
+  // the new folder would land at root instead of nested under "Travail".
+  const selectedFolderRef = useRef(selectedFolder);
+  useEffect(() => {
+    selectedFolderRef.current = selectedFolder;
+  }, [selectedFolder]);
+
   const { notes, isLoading, isError, errorMessage, isFallback } = useNoteList(selectedFolder);
+  // Full unfiltered note list — used purely to compute the per-folder note
+  // counts in the FileTree. Shares the same tRPC cache key as the filtered
+  // call above (both queries are `entities.list` with identical args), so
+  // this does NOT trigger an extra network round-trip.
+  const { notes: allNotes } = useNoteList(null);
   const { folders, isLoading: foldersLoading } = useFolderTree();
   const { createNote } = useCreateNote();
+  const { createFolder } = useCreateFolder();
+  const { renameFolder } = useRenameFolder();
+  const { deleteFolder } = useDeleteFolder();
+  const prompt = usePrompt();
+  const confirm = useConfirm();
 
   const handleSelectFolder = useCallback((path: string) => {
     setSelectedFolder(path);
+    selectedFolderRef.current = path;
     router.push(`/notes?folder=${encodeURIComponent(path)}`);
   }, [router]);
 
-  const handleNewNote = useCallback(async () => {
-    const folder = selectedFolder ?? "Inbox";
-    const id = await createNote({ folder, title: "Nouvelle note" });
-    router.push(`/notes/${id}`);
-  }, [selectedFolder, createNote, router]);
+  const handleNewNote = useCallback(async (parentPath?: string | null) => {
+    // `parentPath` is forwarded from FileTree's per-folder "+" button.
+    // Some buttons bind `onClick={onNewNote}` directly, which makes React
+    // pass a MouseEvent as the first arg — guard against that.
+    const safeParent = typeof parentPath === "string" ? parentPath : null;
+    const folder = safeParent ?? selectedFolderRef.current ?? "Inbox";
+    console.info("[handleNewNote] start", { folder, parentPath });
+    try {
+      const id = await createNote({ folder, title: "Nouvelle note" });
+      console.info("[handleNewNote] got id", id);
+      // Defensive: if the worker ever returned a falsy id (race during
+      // re-init, malformed payload, …), keep the user on /notes instead
+      // of routing them to /notes/undefined which is what previously made
+      // the "+" button look silently broken.
+      if (!id) {
+        console.warn("[handleNewNote] createNote resolved with empty id, aborting navigation");
+        return;
+      }
+      // Switch the middle list to the folder where the note actually landed
+      // so the user sees their freshly created note instead of an unrelated
+      // "Dossier vide" state.
+      setSelectedFolder(folder);
+      selectedFolderRef.current = folder;
+      router.push(`/notes/${id}?folder=${encodeURIComponent(folder)}`);
+    } catch (err) {
+      // The previous version awaited createNote without a try/catch, so
+      // any rejection from the worker (e.g. quota error, vault not
+      // mounted) bubbled up as an unhandled promise rejection and the
+      // user just saw the URL stay at /notes with no feedback.
+      console.error("[handleNewNote] createNote failed", err);
+    }
+  }, [createNote, router]);
 
-  const handleNewFolder = useCallback(() => {
-    // Placeholder — real implementation via tRPC later
-  }, []);
+  const handleNewFolder = useCallback(async (parentPath?: string | null) => {
+    const safeParent = typeof parentPath === "string" ? parentPath : null;
+    const raw = await prompt("Nom du dossier ?", { placeholder: "Mon dossier" });
+    const name = raw?.trim();
+    if (!name) return;
+    // Sanitize: no leading/trailing slashes, no ".." segments.
+    const cleaned = name.replace(/^\/+|\/+$/g, "").replace(/\.\./g, "");
+    if (!cleaned) return;
+    // Header "+ Nouveau dossier" button passes null → create at root.
+    // Per-folder "+" button passes the folder path → nest underneath.
+    // We deliberately do NOT fall back to `selectedFolderRef.current` for the
+    // header case; the user expects "+" next to VAULT to create a root folder.
+    const fullPath = safeParent ? `${safeParent}/${cleaned}` : cleaned;
+    await createFolder(fullPath);
+    setSelectedFolder(fullPath);
+    selectedFolderRef.current = fullPath;
+    router.push(`/notes?folder=${encodeURIComponent(fullPath)}`);
+  }, [createFolder, router, prompt]);
 
   const handleSelectNote = useCallback((id: string) => {
-    router.push(`/notes/${id}`);
+    // ALWAYS forward the user's currently selected folder to the [id] page.
+    // If we omit `?folder=`, the [id] page falls back to Inbox while the
+    // note is still loading — visibly snapping the FileTree selection away
+    // from the folder the user was just browsing. Mirroring it via the URL
+    // keeps the selection stable across the navigation.
+    const folder = selectedFolderRef.current ?? "Inbox";
+    router.push(`/notes/${id}?folder=${encodeURIComponent(folder)}`);
   }, [router]);
+
+  const handleRenameFolder = useCallback(async (oldPath: string) => {
+    const currentName = oldPath.split("/").pop() ?? oldPath;
+    const raw = await prompt(`Renommer "${currentName}"`, {
+      defaultValue: currentName,
+      placeholder: "Nouveau nom",
+      confirmLabel: "Renommer",
+    });
+    const name = raw?.trim().replace(/^\/+|\/+$/g, "").replace(/\.\./g, "");
+    if (!name || name === currentName) return;
+    // Replace just the leaf segment so the parent path is preserved.
+    const parts = oldPath.split("/");
+    parts[parts.length - 1] = name;
+    const newPath = parts.join("/");
+    try {
+      await renameFolder(oldPath, newPath);
+      // Follow the rename so the user lands on the same folder under its
+      // new name — otherwise the selection silently jumps to "Inbox".
+      if (selectedFolderRef.current === oldPath || selectedFolderRef.current?.startsWith(`${oldPath}/`)) {
+        const nextSelected = newPath + (selectedFolderRef.current!.slice(oldPath.length));
+        setSelectedFolder(nextSelected);
+        selectedFolderRef.current = nextSelected;
+        router.push(`/notes?folder=${encodeURIComponent(nextSelected)}`);
+      }
+    } catch (err) {
+      console.error("[handleRenameFolder] failed", err);
+    }
+  }, [prompt, renameFolder, router]);
+
+  const handleDeleteFolder = useCallback(async (path: string) => {
+    const ok = await confirm({
+      title: `Supprimer "${path}" ?`,
+      description:
+        "Toutes les notes de ce dossier (et de ses sous-dossiers) seront supprimées. Cette action est irréversible.",
+      confirmLabel: "Supprimer",
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      await deleteFolder(path);
+      // If the deleted folder (or one of its descendants) was selected,
+      // fall back to Inbox so the middle pane doesn't render a phantom.
+      if (selectedFolderRef.current === path || selectedFolderRef.current?.startsWith(`${path}/`)) {
+        setSelectedFolder("Inbox");
+        selectedFolderRef.current = "Inbox";
+        router.push(`/notes?folder=${encodeURIComponent("Inbox")}`);
+      }
+    } catch (err) {
+      console.error("[handleDeleteFolder] failed", err);
+    }
+  }, [confirm, deleteFolder, router]);
 
   const folderName = selectedFolder
     ? selectedFolder.split("/").pop() ?? selectedFolder
@@ -54,12 +182,16 @@ function NotesPageContent() {
         onSelectFolder={handleSelectFolder}
         onNewFolder={handleNewFolder}
         onNewNote={handleNewNote}
+        onRenameFolder={handleRenameFolder}
+        onDeleteFolder={handleDeleteFolder}
+        notes={allNotes}
       />
 
       <NoteList
         notes={notes}
         selectedNoteId={null}
         folderName={folderName}
+        selectedFolder={selectedFolder}
         onSelectNote={handleSelectNote}
         isLoading={isLoading}
         isError={isError}
