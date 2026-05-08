@@ -28,7 +28,7 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@tanstack/react-table": "^8.21.3",
     "@tanstack/react-virtual": "^3.13.4",
-    "date-fns": "^3.6.0",
+    "date-fns": "^4.1.0",
     "react-big-calendar": "^1.17.1",
     "react-calendar-timeline": "^0.28.0",
     "react-force-graph-2d": "^1.27.2"
