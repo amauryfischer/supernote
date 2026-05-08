@@ -42,7 +42,7 @@
   },
   "dependencies": {
     "@supernote/core": "workspace:*",
-    "pino": "^9.5.0",
+    "pino": "^10.3.1",
     "yahoo-finance2": "^2.13.3"
   },
   "devDependencies": {

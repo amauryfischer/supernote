@@ -38,7 +38,7 @@
   },
   "dependencies": {
     "@supernote/core": "workspace:*",
-    "pino": "^9.6.0"
+    "pino": "^10.3.1"
   },
   "peerDependencies": {
     "better-sqlite3": "^11.0.0",
