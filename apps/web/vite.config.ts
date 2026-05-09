@@ -28,22 +28,19 @@ export default defineConfig({
     tsconfigPaths(),
     tailwindcss(),
     VitePWA({
-      // We already ship a hand-written `public/sw.js` that was used by the
-      // previous Next.js setup. The plugin's `injectManifest` strategy lets
-      // us keep our own SW while still emitting a manifest hook if we ever
-      // need precaching. For now, register: false — `PwaBootstrap` calls
-      // navigator.serviceWorker.register("/sw.js") explicitly so we control
-      // the lifecycle. We just want the plugin's manifest helpers + dev SW
-      // off so it doesn't fight ours.
       registerType: "prompt",
       injectRegister: false,
       strategies: "injectManifest",
       srcDir: "public",
       filename: "sw.js",
-      manifest: false, // we already ship public/manifest.json
+      manifest: false,
       injectManifest: {
-        // Don't inject a precache manifest into our hand-written SW.
-        injectionPoint: undefined,
+        // Precache every hashed bundle, font, image and wasm produced by the
+        // build. The hand-written SW reads `self.__WB_MANIFEST` and adds the
+        // listed URLs to its install-time cache, so the PWA boots fully
+        // offline on first launch — no warm-up navigation required.
+        globPatterns: ["**/*.{js,css,html,png,svg,ico,webp,woff2,wasm,json}"],
+        maximumFileSizeToCacheInBytes: 12 * 1024 * 1024,
       },
       devOptions: { enabled: false },
     }),
@@ -135,10 +132,12 @@ export default defineConfig({
       "@tanstack/react-query",
       "@trpc/client",
       "@trpc/react-query",
+      // sql.js is UMD/CJS — must go through esbuild's interop so the worker's
+      // `import initSqlJs from "sql.js"` resolves to a proper ES default export.
+      // Without pre-bundling, Vite serves the raw UMD file and the worker
+      // throws: "does not provide an export named 'default'".
+      "sql.js",
     ],
-    // sql.js ships with a WASM binary it loads at runtime — Vite shouldn't
-    // try to crawl it during pre-bundle.
-    exclude: ["sql.js"],
   },
   define: {
     // Compatibility shim: some libs (and our own code) historically read
