@@ -13,6 +13,7 @@ import { useParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { trpc } from "@/lib/trpc/client";
 import { flushVaultWorker } from "@/lib/trpc/browser-link";
+import { parseDecimal } from "@/components/finance/utils";
 
 const KIND_OPTIONS = [
   { value: "checking", label: "Courant" },
@@ -65,9 +66,8 @@ export default function CompteDetailPage() {
   // Hydrate local state from server only on the first successful load (or
   // when the entity id changes). Without this guard, every mutation success
   // re-fires invalidation → refetch → effect, which can clobber a value the
-  // user is actively typing into a `type="number"` input — surfacing as
-  // "the amount won't change". After hydration, server state and local state
-  // stay in sync via onBlur persists.
+  // user is actively typing — surfacing as "the amount won't change". After
+  // hydration, server state and local state stay in sync via onBlur persists.
   const hydratedFor = useRef<string | null>(null);
   useEffect(() => {
     if (!query.data) return;
@@ -188,11 +188,11 @@ export default function CompteDetailPage() {
               <div>
                 <FieldLabel>Solde actuel (EUR)</FieldLabel>
                 <input
-                  type="number"
-                  step="0.01"
+                  type="text"
+                  inputMode="decimal"
                   value={balance}
                   onChange={(e) => setBalance(e.target.value)}
-                  onBlur={() => persist({ current_balance: parseFloat(balance) || 0 })}
+                  onBlur={() => persist({ current_balance: parseDecimal(balance) })}
                   className={inputClass}
                   style={inputStyle}
                 />

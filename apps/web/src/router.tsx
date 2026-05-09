@@ -22,11 +22,53 @@ import { RootLayout } from "./RootLayout";
 // react-router hooks), so the type mismatch is purely cosmetic.
 type AnyPage = React.ComponentType<Record<string, never>>;
 
+// Module-level guard so we don't reload-loop if chunks really are broken.
+let didChunkReload = false;
+
+/**
+ * Wrap a route's dynamic import so a stale-chunk failure (Vite re-optimised
+ * deps, dev server bounced, SW served an outdated index.html, etc.) doesn't
+ * leave the user on the framework's "Unexpected Application Error" page.
+ *
+ * Symptom we want to absorb:
+ *   `TypeError: Failed to fetch dynamically imported module: …/page.tsx`
+ *
+ * Strategy: detect that exact failure mode and force a single hard reload —
+ * the fresh `index.html` carries up-to-date chunk URLs. We gate the reload
+ * with a sessionStorage flag so an actually-broken build can't pin the user
+ * in an infinite refresh loop.
+ */
 const lazyPage =
   (loader: () => Promise<{ default: React.ComponentType<never> | React.ComponentType<unknown> | React.ComponentType<Record<string, unknown>> }>) =>
   async () => {
-    const mod = await loader();
-    return { Component: mod.default as AnyPage };
+    try {
+      const mod = await loader();
+      return { Component: mod.default as AnyPage };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const isStaleChunk =
+        /Failed to fetch dynamically imported module/i.test(msg) ||
+        /Importing a module script failed/i.test(msg) ||
+        /error loading dynamically imported module/i.test(msg);
+      if (isStaleChunk && typeof window !== "undefined" && !didChunkReload) {
+        try {
+          const KEY = "supernote.chunkReloadAt";
+          const last = Number(sessionStorage.getItem(KEY) || 0);
+          // Throttle: never reload more than once per 10 s — protects against
+          // a genuinely broken build that would otherwise loop forever.
+          if (Date.now() - last > 10_000) {
+            sessionStorage.setItem(KEY, String(Date.now()));
+            didChunkReload = true;
+            window.location.reload();
+            // Block the route from rendering its error UI while the reload kicks in.
+            return { Component: (() => null) as AnyPage };
+          }
+        } catch {
+          /* sessionStorage may be unavailable in privacy mode — fall through */
+        }
+      }
+      throw err;
+    }
   };
 
 // `ReturnType<typeof createBrowserRouter>` references @remix-run/router

@@ -10,6 +10,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { trpc } from "@/lib/trpc/client";
+import { parseDecimal } from "@/components/finance/utils";
 
 const CATEGORY_OPTIONS = [
   { value: "immo", label: "Immobilier" },
@@ -116,11 +117,11 @@ export default function ActifDetailPage() {
               <div>
                 <FieldLabel>Valeur actuelle (EUR)</FieldLabel>
                 <input
-                  type="number"
-                  step="0.01"
+                  type="text"
+                  inputMode="decimal"
                   value={currentValue}
                   onChange={(e) => setCurrentValue(e.target.value)}
-                  onBlur={() => persist({ current_value: parseFloat(currentValue) || 0 })}
+                  onBlur={() => persist({ current_value: parseDecimal(currentValue) })}
                   className={inputClass}
                   style={inputStyle}
                 />
@@ -129,11 +130,11 @@ export default function ActifDetailPage() {
               <div>
                 <FieldLabel>Valeur d'acquisition (EUR)</FieldLabel>
                 <input
-                  type="number"
-                  step="0.01"
+                  type="text"
+                  inputMode="decimal"
                   value={acquisitionValue}
                   onChange={(e) => setAcquisitionValue(e.target.value)}
-                  onBlur={() => persist({ acquisition_value: parseFloat(acquisitionValue) || 0 })}
+                  onBlur={() => persist({ acquisition_value: parseDecimal(acquisitionValue) })}
                   className={inputClass}
                   style={inputStyle}
                 />

@@ -12,6 +12,7 @@
  * low information density.
  */
 
+import * as React from "react";
 import Link from "next/link";
 import { FileText, Envelope } from "@phosphor-icons/react";
 
@@ -36,6 +37,7 @@ interface TodoRowProps {
   onToggle: () => void;
   onEdit?: () => void;
   onEmail?: () => void;
+  onContextMenu?: (e: React.MouseEvent) => void;
 }
 
 const IMPORTANCE_COLOR: Record<TodoImportance, string> = {
@@ -60,13 +62,14 @@ export function importanceLabel(level: TodoImportance | null): string {
   return level ? IMPORTANCE_LABEL[level] : IMPORTANCE_LABEL.medium;
 }
 
-export function TodoRow({ row, onToggle, onEdit, onEmail }: TodoRowProps) {
+export function TodoRow({ row, onToggle, onEdit, onEmail, onContextMenu }: TodoRowProps) {
   const isCritical = row.importance === "critical";
   const dotColor = importanceColor(row.importance);
   const priority = row.priority ?? 5;
 
   return (
     <li
+      onContextMenu={onContextMenu}
       className="group relative flex items-start gap-2 rounded-md px-2 py-1.5 transition-colors hover:bg-[var(--surface-2)]"
       style={{
         borderLeft: isCritical ? "3px solid #EF4444" : "3px solid transparent",

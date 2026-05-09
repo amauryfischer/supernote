@@ -1,6 +1,24 @@
 import type { Account, Asset, Loan, Snapshot } from "./fixtures";
 import { computeMonthlyPayment, computeRemainingPrincipal } from "@supernote/finance/amortization";
 
+/**
+ * Parse a user-typed decimal string supporting both English (`1234.56`) and
+ * French (`1234,56`) notation. Stripped of spaces and thousands separators.
+ * Returns `0` for empty / unparseable input — finance forms persist `0`
+ * rather than `NaN` so the field never lands in a weird state.
+ *
+ * Why this exists: HTML5 `type="number"` rejects comma as decimal under all
+ * locales, so an FR user typing `1234,56` saw the input clear out and the
+ * blur persisted `0`. We therefore use `type="text" inputMode="decimal"`
+ * across finance forms and route every value through this parser.
+ */
+export function parseDecimal(s: string): number {
+  if (!s) return 0;
+  const cleaned = s.replace(/\s+/g, "").replace(/,/g, ".");
+  const n = parseFloat(cleaned);
+  return Number.isFinite(n) ? n : 0;
+}
+
 export function formatCurrency(value: number): string {
   return new Intl.NumberFormat("fr-FR", {
     style: "currency",

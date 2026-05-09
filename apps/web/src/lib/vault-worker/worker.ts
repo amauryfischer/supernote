@@ -212,9 +212,10 @@ async function handleInitVault(handle: FileSystemDirectoryHandle): Promise<void>
     router = buildRouter(db, handle, vaultId);
 
     // Diagnostic: how many entities did we just load from disk?
+    let loadedCount = 0;
     try {
       const countRes = db.exec(`SELECT COUNT(*) as c FROM entity WHERE vaultId = ?`, [vaultId]);
-      const loadedCount =
+      loadedCount =
         countRes.length && countRes[0]?.values?.[0]?.[0] != null
           ? Number(countRes[0]!.values[0]![0])
           : 0;
@@ -223,7 +224,12 @@ async function handleInitVault(handle: FileSystemDirectoryHandle): Promise<void>
       // Diagnostic only — never fail init for this
     }
 
-    // Persist initial state
+    // Persist initial state — saves the (possibly empty) DB so a second
+    // tab / reload doesn't see "uninitialised" if the user navigates fast.
+    // We DON'T do the recovery reindex here synchronously: a vault with
+    // hundreds of .md files would take several seconds, freezing the
+    // "Ouverture du vault…" overlay. We post VAULT_READY now and rebuild
+    // in the background below.
     await persistDb();
 
     // Start polling for file changes (30s interval)
@@ -237,6 +243,35 @@ async function handleInitVault(handle: FileSystemDirectoryHandle): Promise<void>
       vaultName,
       rootPath,
     });
+
+    // Background recovery — if the DB came back empty (fresh profile,
+    // corrupted index.db, …) but the vault folder still holds .md files,
+    // rebuild the entity table from those files. Runs OUT-OF-BAND so it
+    // can't block VAULT_READY, and emits INDEX_PROGRESS so the UI sees
+    // entities populate live. Skipped silently when the DB already had
+    // rows on load (loadedCount > 0).
+    if (loadedCount === 0) {
+      void (async () => {
+        try {
+          const reindex = router["vault.reindex"];
+          if (!reindex) return;
+          const result = (await reindex(undefined)) as { indexed?: number };
+          const indexed = result?.indexed ?? 0;
+          if (indexed > 0) {
+            console.info(
+              `[init] empty DB recovered from disk: reindexed ${indexed} entit(y/ies) from .md files`,
+            );
+            // Persist the recovered state immediately so a refresh after
+            // recovery sees the rebuilt entities without waiting for the
+            // 30 s poll cycle.
+            await schedulePersist();
+            self.postMessage({ type: "INDEX_PROGRESS", indexed, total: indexed });
+          }
+        } catch (err) {
+          console.warn("[init] background reindex failed (non-fatal)", err);
+        }
+      })();
+    }
   } catch (err) {
     console.error("[vault-worker] init failed", err);
     self.postMessage({

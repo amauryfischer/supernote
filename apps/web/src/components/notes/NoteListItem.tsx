@@ -90,8 +90,8 @@ export function NoteListItem({ note, isActive, onClick, onDelete }: NoteListItem
             onDelete();
           }}
           aria-label={t("deleteNote")}
-          className="absolute right-3 top-3 flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-[var(--surface-3)]"
-          style={{ color: "var(--text-muted)" }}
+          className="absolute right-3 top-3 flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-[var(--color-danger-100)]"
+          style={{ color: "var(--color-danger)" }}
         >
           <Trash size={13} />
         </button>

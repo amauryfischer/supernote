@@ -101,6 +101,42 @@ function readPreferredModel(): string {
   }
 }
 
+/**
+ * Resolve the model to use for a generate call. If the user-configured model
+ * isn't actually installed on the Ollama host, fall back to the first model
+ * the host returns from `/api/tags`. Avoids the common "modèle non installé"
+ * error when the user has Ollama running but no `llama3.2:1b` pulled.
+ *
+ * Returns null when Ollama is unreachable or has no models at all — caller
+ * should treat that as "skip the suggestion".
+ */
+export async function resolveModel(host: string): Promise<string | null> {
+  const stored = readPreferredModel();
+  try {
+    const res = await fetchWithTimeout(
+      `${host}/api/tags`,
+      { method: "GET" },
+      PROBE_TIMEOUT_MS,
+    );
+    if (!res.ok) return stored;
+    const data = (await res.json()) as { models?: Array<{ name?: string }> };
+    const installed = (data.models ?? [])
+      .map((m) => (typeof m.name === "string" ? m.name : ""))
+      .filter(Boolean);
+    if (installed.length === 0) return null;
+    if (installed.includes(stored)) return stored;
+    // Persist the auto-pick so the settings UI reflects what's actually used.
+    try {
+      window.localStorage.setItem(DEFAULT_MODEL_KEY, installed[0]!);
+    } catch {
+      /* ignore */
+    }
+    return installed[0]!;
+  } catch {
+    return stored;
+  }
+}
+
 /** True if the current title looks like a placeholder the user hasn't edited. */
 export function isDefaultTitle(title: string | undefined | null): boolean {
   const t = (title ?? "").trim().toLowerCase();
@@ -189,7 +225,7 @@ function cacheSet(key: string, value: string): void {
   }
 }
 
-async function fetchWithTimeout(
+export async function fetchWithTimeout(
   url: string,
   init: RequestInit,
   timeoutMs: number,
@@ -393,7 +429,9 @@ export function useAutoTitle(): UseAutoTitleResult {
       // Don't overwrite a user-chosen title.
       if (currentTitle !== undefined && !isDefaultTitle(currentTitle)) return null;
 
-      const model = readPreferredModel();
+      const host = readOllamaHost();
+      const model = await resolveModel(host);
+      if (!model) return null;
       const key = hashBody(trimmed, model);
       const hit = cacheGet(key);
       if (hit !== undefined) return hit || null;
@@ -424,7 +462,6 @@ export function useAutoTitle(): UseAutoTitleResult {
         truncatedBody,
       ].join("\n");
 
-      const host = readOllamaHost();
       const callOllama = async (): Promise<string | null> => {
         const res = await fetchWithTimeout(
           `${host}/api/generate`,

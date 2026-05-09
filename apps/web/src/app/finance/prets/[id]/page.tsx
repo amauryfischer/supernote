@@ -10,6 +10,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { trpc } from "@/lib/trpc/client";
+import { parseDecimal } from "@/components/finance/utils";
 
 const inputClass =
   "w-full rounded-md border px-3 py-2 text-sm outline-none transition-colors focus:border-[var(--accent)]";
@@ -95,11 +96,11 @@ export default function PretDetailPage() {
               <div>
                 <FieldLabel>Montant (EUR)</FieldLabel>
                 <input
-                  type="number"
-                  step="0.01"
+                  type="text"
+                  inputMode="decimal"
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
-                  onBlur={() => persist({ amount: parseFloat(amount) || 0 })}
+                  onBlur={() => persist({ amount: parseDecimal(amount) })}
                   className={inputClass}
                   style={inputStyle}
                 />
@@ -108,11 +109,11 @@ export default function PretDetailPage() {
               <div>
                 <FieldLabel>Taux (%)</FieldLabel>
                 <input
-                  type="number"
-                  step="0.01"
+                  type="text"
+                  inputMode="decimal"
                   value={rate}
                   onChange={(e) => setRate(e.target.value)}
-                  onBlur={() => persist({ rate: parseFloat(rate) || 0 })}
+                  onBlur={() => persist({ rate: parseDecimal(rate) })}
                   className={inputClass}
                   style={inputStyle}
                 />

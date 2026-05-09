@@ -129,7 +129,16 @@ export function ContextMenu({ state, onClose }: ContextMenuProps) {
             )}
           >
             {item.icon && (
-              <span className="shrink-0 text-[var(--text-muted)]">{item.icon}</span>
+              <span
+                className="shrink-0"
+                style={{
+                  color: item.isDanger
+                    ? "var(--color-danger, #ef4444)"
+                    : "var(--text-muted)",
+                }}
+              >
+                {item.icon}
+              </span>
             )}
             <span className="flex-1">{item.label}</span>
             {item.shortcut && (

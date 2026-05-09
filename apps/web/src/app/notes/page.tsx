@@ -17,6 +17,8 @@ import {
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useConfirm, usePrompt } from "@/hooks/usePrompt";
+import { folderAccentVars, folderColorFromTree } from "@/lib/folderAccent";
+import { useShellChrome } from "@/components/shell/shell-chrome-context";
 
 function NotesPageContent() {
   const router = useRouter();
@@ -173,6 +175,17 @@ function NotesPageContent() {
   const folderName = selectedFolder
     ? selectedFolder.split("/").pop() ?? selectedFolder
     : null;
+
+  // Publish folder accent override to the shell so the entire app (sidebar,
+  // topbar, right panel) tints when the user is browsing a colored folder —
+  // not just the FileTree. Cleared on unmount / when no folder color matches.
+  const folderColor = folderColorFromTree(selectedFolder, foldersLoading ? [] : folders);
+  const { setAccentOverride } = useShellChrome();
+  useEffect(() => {
+    const vars = folderAccentVars(folderColor);
+    setAccentOverride(vars ? (vars as unknown as Record<string, string>) : null);
+    return () => setAccentOverride(null);
+  }, [folderColor, setAccentOverride]);
 
   return (
     <div className="flex h-full overflow-hidden">

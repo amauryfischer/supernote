@@ -112,10 +112,14 @@ export function WritingSurface() {
 
   const isWriting = isFocused || content.length > 0;
 
-  // Tell the shell to dim its non-essential UI while the user writes.
+  // Previously the home surface dimmed the sidebar / TopBar / RightPanel as
+  // soon as the user typed, which made the page feel transparent and
+  // disconnected from the rest of the app. Keep the shell intact on the home
+  // route; focus mode is still available on the standalone /notes editor.
   useEffect(() => {
-    setFocusMode(isWriting);
-  }, [isWriting, setFocusMode]);
+    setFocusMode(false);
+    return () => setFocusMode(false);
+  }, [setFocusMode]);
 
   // Listen for "request new note" events from the topbar / shortcuts
   useEffect(() => {
@@ -280,6 +284,7 @@ export function WritingSurface() {
             onChange={handleEditorChange}
             onSave={handleEditorSave}
             resolvers={resolvers}
+            placeholder="Commencez à écrire ou tapez « / » pour les commandes…"
             className="min-h-[8rem] w-full"
           />
         </div>
@@ -370,25 +375,18 @@ export function WritingSurface() {
           {QUICK_ACCESS.map((item) => (
             <button
               key={item.labelKey}
+              type="button"
               onClick={() => router.push(item.href)}
-              className="group flex items-center gap-3 rounded-lg border p-4 text-left transition-colors hover:bg-[var(--surface-2)]"
-              style={{
-                backgroundColor: "var(--surface-1)",
-                borderColor: "var(--border-subtle)",
-              }}
+              className="quick-access-card group flex items-center gap-3 rounded-xl border p-4 text-left"
             >
               <div
-                className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md"
-                style={{ backgroundColor: "var(--surface-2)" }}
+                className="quick-access-icon flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md"
               >
-                <item.icon
-                  size={15}
-                  className="text-[var(--text-secondary)]"
-                />
+                <item.icon size={16} weight="duotone" />
               </div>
               <div className="min-w-0">
                 <p
-                  className="text-sm font-medium"
+                  className="text-sm font-semibold"
                   style={{ color: "var(--text-primary)" }}
                 >
                   {t(item.labelKey)}
@@ -446,13 +444,53 @@ export function WritingSurface() {
           border: none !important;
           box-shadow: none !important;
         }
-        /* Placeholder via BlockNote's .bn-is-empty attribute */
+        /* Placeholder via BlockNote's .bn-is-empty attribute. The selector
+           also targets BlockNote's own English placeholder which it injects
+           with the ProseMirror placeholder plugin — we override the visible
+           string by hiding the original (.bn-inline-content[data-placeholder])
+           and synthesizing our own. */
+        .writing-surface-editor .bn-editor [data-placeholder]::before,
         .writing-surface-editor .bn-block-group .bn-block-outer:only-child .bn-block:only-child p.bn-is-empty::before {
-          content: "Commencez à écrire…";
+          content: "Commencez à écrire ou tapez « / » pour les commandes…";
           color: var(--text-muted);
-          opacity: 0.5;
+          opacity: 0.45;
           pointer-events: none;
           position: absolute;
+        }
+
+        /* Quick-access cards — clearer affordance + tactile feedback so the
+           grid feels like a real menu, not a faint set of placeholders. */
+        .quick-access-card {
+          background-color: var(--surface-1);
+          border-color: var(--border-subtle);
+          color: var(--text-primary);
+          transition: transform 120ms ease-out, box-shadow 160ms ease-out,
+            border-color 160ms ease-out, background-color 160ms ease-out;
+          cursor: pointer;
+          will-change: transform;
+        }
+        .quick-access-card:hover {
+          background-color: var(--surface-2);
+          border-color: color-mix(in oklch, var(--accent) 35%, var(--border-subtle));
+          box-shadow:
+            0 1px 2px rgba(0, 0, 0, 0.04),
+            0 0 0 1px color-mix(in oklch, var(--accent) 18%, transparent);
+        }
+        .quick-access-card:active {
+          transform: translateY(1px) scale(0.99);
+          background-color: color-mix(in oklch, var(--accent) 8%, var(--surface-2));
+        }
+        .quick-access-card:focus-visible {
+          outline: 2px solid var(--accent);
+          outline-offset: 2px;
+        }
+        .quick-access-icon {
+          background-color: color-mix(in oklch, var(--accent) 12%, var(--surface-2));
+          color: var(--accent);
+          transition: background-color 160ms ease-out;
+        }
+        .quick-access-card:hover .quick-access-icon {
+          background-color: color-mix(in oklch, var(--accent) 22%, var(--surface-2));
         }
       `}</style>
     </div>

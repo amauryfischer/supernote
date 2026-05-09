@@ -10,6 +10,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { trpc } from "@/lib/trpc/client";
+import { parseDecimal } from "@/components/finance/utils";
 
 const STATUS_OPTIONS = [
   { value: "en_cours", label: "En cours" },
@@ -101,11 +102,11 @@ export default function ObjectifDetailPage() {
               <div>
                 <FieldLabel>Montant cible (EUR)</FieldLabel>
                 <input
-                  type="number"
-                  step="0.01"
+                  type="text"
+                  inputMode="decimal"
                   value={targetAmount}
                   onChange={(e) => setTargetAmount(e.target.value)}
-                  onBlur={() => persist({ target_amount: parseFloat(targetAmount) || 0 })}
+                  onBlur={() => persist({ target_amount: parseDecimal(targetAmount) })}
                   className={inputClass}
                   style={inputStyle}
                 />
@@ -114,11 +115,11 @@ export default function ObjectifDetailPage() {
               <div>
                 <FieldLabel>Montant actuel (EUR)</FieldLabel>
                 <input
-                  type="number"
-                  step="0.01"
+                  type="text"
+                  inputMode="decimal"
                   value={currentAmount}
                   onChange={(e) => setCurrentAmount(e.target.value)}
-                  onBlur={() => persist({ current_amount: parseFloat(currentAmount) || 0 })}
+                  onBlur={() => persist({ current_amount: parseDecimal(currentAmount) })}
                   className={inputClass}
                   style={inputStyle}
                 />

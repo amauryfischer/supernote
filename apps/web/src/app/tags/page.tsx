@@ -20,6 +20,7 @@
  */
 
 import { useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { Plus, Tag as TagIcon } from "@phosphor-icons/react";
 import {
   AppShell,
@@ -29,7 +30,18 @@ import {
 } from "@/components/shell";
 import { TagTree } from "@/components/tags/TagTree";
 import { trpc } from "@/lib/trpc/client";
-import type { Tag } from "@supernote/ipc/schemas/tags";
+import type { Tag, TagEntity } from "@supernote/ipc/schemas/tags";
+
+/**
+ * Resolve the in-app route for a tagged entity. Notes and contacts have
+ * dedicated detail pages; other entity types fall back to a non-link span
+ * (returning null) since the PWA doesn't render them individually yet.
+ */
+function entityHref(e: TagEntity): string | null {
+  if (e.typeId === "note") return `/notes/${e.id}`;
+  if (e.typeId === "personne" || e.typeId === "contact") return `/contacts/${e.id}`;
+  return null;
+}
 
 // Default color for newly-created tags — first preset (slate).
 const DEFAULT_TAG_COLOR = COLOR_PRESETS[0]!.hex;
@@ -361,18 +373,46 @@ export default function TagsPage() {
                     Aucune entité ne porte ce tag (ni ses sous-tags).
                   </li>
                 )}
-                {entitiesQuery.data?.map((e) => (
-                  <li
-                    key={e.id}
-                    className="flex items-center justify-between rounded-md px-3 py-2 text-sm"
-                    style={{ backgroundColor: "var(--surface-1)" }}
-                  >
-                    <span style={{ color: "var(--text-primary)" }}>{e.title || e.id}</span>
-                    <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-                      {e.typeName}
-                    </span>
-                  </li>
-                ))}
+                {entitiesQuery.data?.map((e) => {
+                  const href = entityHref(e);
+                  const rowClass =
+                    "flex items-center justify-between rounded-md px-3 py-2 text-sm transition-colors";
+                  const rowStyle = {
+                    backgroundColor: "var(--surface-1)",
+                  } as const;
+                  const inner = (
+                    <>
+                      <span style={{ color: "var(--text-primary)" }}>
+                        {e.title || e.id}
+                      </span>
+                      <span
+                        className="text-xs"
+                        style={{ color: "var(--text-muted)" }}
+                      >
+                        {e.typeName}
+                      </span>
+                    </>
+                  );
+                  return (
+                    <li key={e.id}>
+                      {href ? (
+                        <Link
+                          href={href}
+                          prefetch={false}
+                          className={`${rowClass} hover:bg-[var(--surface-2)]`}
+                          style={rowStyle}
+                          title={`Ouvrir « ${e.title || e.id} »`}
+                        >
+                          {inner}
+                        </Link>
+                      ) : (
+                        <div className={rowClass} style={rowStyle}>
+                          {inner}
+                        </div>
+                      )}
+                    </li>
+                  );
+                })}
               </ul>
             </div>
           )}

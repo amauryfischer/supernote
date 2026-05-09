@@ -236,6 +236,30 @@ export function buildRouter(
 
   const FOLDERS_SETTING_KEY = "notes.folders";
 
+  // Top-level paths owned by typed entities (todos, contacts, finance, …).
+  // Renaming or deleting one cascades into every row whose filePath sits
+  // under it, so the user could lose all their todos by clicking "delete"
+  // on what looked like a stray "Todos" folder. Keep in sync with
+  // `apps/web/src/lib/system-folders.ts` and `seed-default-types.ts`
+  // (DEFAULT_ENTITY_TYPES[].defaultPath, minus "Notes").
+  const SYSTEM_FOLDER_ROOTS: readonly string[] = [
+    "Contacts",
+    "Projets",
+    "Interactions",
+    "Daily",
+    "Tags",
+    "Finance",
+    "Canvas",
+    "Routines",
+    "Todos",
+  ];
+
+  function isSystemFolder(p: string): boolean {
+    return SYSTEM_FOLDER_ROOTS.some(
+      (root) => p === root || p.startsWith(`${root}/`),
+    );
+  }
+
   type FolderEntry = { path: string; color?: string; icon?: string };
 
   function readExplicitFolders(): FolderEntry[] {
@@ -414,6 +438,9 @@ export function buildRouter(
     const newCleaned = sanitizeFolderPath(newPath ?? "");
     if (!oldCleaned || !newCleaned) throw new Error("Invalid folder path");
     if (oldCleaned === newCleaned) return foldersList();
+    if (isSystemFolder(oldCleaned) || isSystemFolder(newCleaned)) {
+      throw new Error(`Cannot rename system folder: ${oldCleaned}`);
+    }
 
     // 1. Move every affected .md file to its new location. We re-read the
     //    raw entity row so we can write the same body+frontmatter at the
@@ -493,6 +520,9 @@ export function buildRouter(
     const { path } = (input ?? {}) as { path?: string };
     const cleaned = sanitizeFolderPath(path ?? "");
     if (!cleaned) throw new Error("Invalid folder path");
+    if (isSystemFolder(cleaned)) {
+      throw new Error(`Cannot delete system folder: ${cleaned}`);
+    }
 
     // 1. Find every note inside the folder (including all sub-folders).
     const affected = rows(db.exec(
@@ -543,9 +573,19 @@ export function buildRouter(
     const limit = inp.limit ?? 50;
     const offset = inp.offset ?? 0;
 
+    // The correlated sub-select pulls every tag path attached to the entity
+    // (via entity_tag) and concatenates them with ASCII US (\x1F) so we can
+    // safely re-split client-side without colliding with `/`-separated tag
+    // paths or any user-typed punctuation. Without this column entityRowToApi
+    // returned `tags: []`, so newly added tags vanished after the first
+    // navigation away — even though the writes had succeeded.
     let sql = `
       SELECT e.id, e.typeId, et.name as typeName, e.filePath, e.fields, e.body,
-             e.createdAt, e.updatedAt
+             e.createdAt, e.updatedAt,
+             (SELECT GROUP_CONCAT(t.path, char(31))
+                FROM entity_tag etag
+                JOIN tag t ON t.id = etag.tagId
+               WHERE etag.entityId = e.id) AS tagPaths
       FROM entity e
       JOIN entity_type et ON et.id = e.typeId
       WHERE e.vaultId = ?
@@ -565,7 +605,11 @@ export function buildRouter(
   const entitiesGet = async (input: unknown): Promise<unknown> => {
     const { id } = input as { id: string };
     const r = row(db.exec(
-      `SELECT e.id, e.typeId, et.name as typeName, e.filePath, e.fields, e.body, e.createdAt, e.updatedAt
+      `SELECT e.id, e.typeId, et.name as typeName, e.filePath, e.fields, e.body, e.createdAt, e.updatedAt,
+              (SELECT GROUP_CONCAT(t.path, char(31))
+                 FROM entity_tag etag
+                 JOIN tag t ON t.id = etag.tagId
+                WHERE etag.entityId = e.id) AS tagPaths
        FROM entity e JOIN entity_type et ON et.id = e.typeId WHERE e.id = ?`,
       [id],
     ));
@@ -1584,6 +1628,13 @@ function safeParseFieldsBlob(raw: string): Record<string, unknown> {
 
 function entityRowToApi(r: SqlRow): unknown {
   const fields = safeParseFieldsBlob((r["fields"] as string) || "{}");
+  // tagPaths is GROUP_CONCAT of `tag.path` with US (\x1F) separator. NULL
+  // when the entity has no tags (correlated sub-select returned no rows).
+  // Splitting on a non-printable separator is safe even when paths contain
+  // commas, quotes, or other punctuation users might type into a tag.
+  const rawTags = r["tagPaths"];
+  const tags =
+    typeof rawTags === "string" && rawTags.length > 0 ? rawTags.split("\x1F") : [];
   return {
     id: r["id"],
     typeId: r["typeId"],
@@ -1591,7 +1642,7 @@ function entityRowToApi(r: SqlRow): unknown {
     filePath: r["filePath"] ?? "",
     fields,
     body: r["body"] ?? "",
-    tags: [],
+    tags,
     createdAt: r["createdAt"] ?? now(),
     updatedAt: r["updatedAt"] ?? now(),
   };

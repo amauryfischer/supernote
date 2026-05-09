@@ -89,6 +89,7 @@ function entityDisplayName(entity: {
 function defaultCanvasFromNote(note: Note): CanvasDocument {
   const entityName = note.title || "Sans titre";
   const seedId = `entity-seed-${note.id}`;
+  const seedTextId = `entity-seed-text-${note.id}`;
   // Position centered around (0,0): the canvas opens scrollToContent so the
   // user lands on the seed regardless of viewport size.
   const x = -150;
@@ -114,7 +115,9 @@ function defaultCanvasFromNote(note: Note): CanvasDocument {
     groupIds: [],
     frameId: null,
     roundness: { type: 3 },
-    boundElements: null,
+    // Bind a text child so Excalidraw renders the note title centered inside
+    // the rectangle. Without this the seed shows as an empty purple block.
+    boundElements: [{ id: seedTextId, type: "text" }],
     updated: 1,
     locked: false,
     link,
@@ -125,10 +128,43 @@ function defaultCanvasFromNote(note: Note): CanvasDocument {
       entityType: "note",
     },
   };
+  // Bound-text element. Excalidraw's restoreElements fills the leftover
+  // defaults (seed/version/baseline/etc.); we provide just enough to drive
+  // the visible label.
+  const seedText: CanvasExcalidrawElement = {
+    id: seedTextId,
+    type: "text",
+    x,
+    y,
+    width,
+    height,
+    angle: 0,
+    strokeColor: "#1a1a2e",
+    backgroundColor: "transparent",
+    fillStyle: "solid",
+    strokeWidth: 1,
+    strokeStyle: "solid",
+    roughness: 1,
+    opacity: 100,
+    groupIds: [],
+    frameId: null,
+    roundness: null,
+    boundElements: null,
+    updated: 1,
+    locked: false,
+    text: entityName,
+    fontSize: 18,
+    fontFamily: 2, // Helvetica — most legible at small sizes
+    textAlign: "center",
+    verticalAlign: "middle",
+    containerId: seedId,
+    originalText: entityName,
+    lineHeight: 1.25,
+  };
   return {
     nodes: [],
     edges: [],
-    excalidrawElements: [seed],
+    excalidrawElements: [seed, seedText],
   };
 }
 
@@ -250,20 +286,29 @@ export function NoteCanvasView({ note }: NoteCanvasViewProps) {
       if (!userHasModifiedRef.current) {
         const seedId = seedElementIdRef.current;
         const ex = doc.excalidrawElements ?? [];
+        // The seed is a rectangle + a bound text element (so the block
+        // shows the note title). "Still seed-only" → at most these two
+        // elements, all carrying our `entity-seed-*` id prefix, with the
+        // rectangle's customData still flagged entity-ref. We deliberately
+        // skip the position/size equality check Excalidraw can normalise
+        // those fields slightly during restore (font metric reflow on
+        // bound-text containers, etc.) and we'd otherwise persist the seed
+        // by accident, inflating the /canvas gallery.
+        const rect = ex.find((e) => e.id === seedId);
+        const allFromSeed =
+          ex.length > 0 &&
+          ex.length <= 2 &&
+          ex.every(
+            (e) =>
+              typeof e.id === "string" && e.id.startsWith("entity-seed-"),
+          );
         const isSeedOnly =
           seedId !== null &&
           (doc.nodes?.length ?? 0) === 0 &&
-          ex.length === 1 &&
-          ex[0]?.id === seedId &&
-          (ex[0]?.["customData"] as { kind?: string } | undefined)?.kind ===
-            "entity-ref" &&
-          // Position/size unchanged → user hasn't touched it yet. Excalidraw
-          // restore preserves x/y/width/height, so any drift here is the
-          // user dragging or resizing.
-          ex[0]?.["x"] === -150 &&
-          ex[0]?.["y"] === -40 &&
-          ex[0]?.["width"] === 300 &&
-          ex[0]?.["height"] === 80;
+          allFromSeed &&
+          rect !== undefined &&
+          (rect["customData"] as { kind?: string } | undefined)?.kind ===
+            "entity-ref";
         if (isSeedOnly) {
           lastSerializedRef.current = serialized;
           return;

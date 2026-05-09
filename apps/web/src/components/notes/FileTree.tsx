@@ -87,6 +87,7 @@ import type { Folder as FolderType } from "./fixtures";
 import { useTranslations } from "next-intl";
 import { ContextMenu, useContextMenu } from "@supernote/ui";
 import { useUpdateFolder } from "./hooks";
+import { folderAccentVars } from "@/lib/folderAccent";
 
 // ── Persisted expanded-folder state ───────────────────────────────────────────
 //
@@ -707,6 +708,16 @@ function FolderNode({
   const iconColor =
     folder.color ?? (isSelected ? "var(--accent)" : "var(--text-secondary)");
 
+  // When the selected row has a custom color, derive per-row accent vars so
+  // the highlight uses the folder's own color instead of the global accent.
+  const selectedAccent = isSelected ? folderAccentVars(folder.color) : null;
+  const selectedBg = selectedAccent
+    ? selectedAccent["--accent-subtle"]
+    : isSelected ? "var(--accent-subtle)" : undefined;
+  const selectedFg = selectedAccent
+    ? selectedAccent["--accent"]
+    : isSelected ? "var(--accent)" : "var(--text-secondary)";
+
   return (
     <div>
       <div
@@ -718,8 +729,8 @@ function FolderNode({
           className="flex flex-1 items-center gap-1.5 rounded-md px-2 py-1.5 text-sm transition-colors"
           style={{
             paddingLeft: `${8 + depth * 16}px`,
-            backgroundColor: isSelected ? "var(--accent-subtle)" : undefined,
-            color: isSelected ? "var(--accent)" : "var(--text-secondary)",
+            backgroundColor: selectedBg,
+            color: selectedFg,
             fontWeight: isSelected ? 500 : 400,
           }}
           onMouseEnter={(e) => {

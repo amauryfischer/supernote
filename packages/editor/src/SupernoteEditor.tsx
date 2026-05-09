@@ -3,6 +3,7 @@
 
 import React, { useCallback, useEffect, useRef } from "react";
 import type { Block } from "@blocknote/core";
+import { fr as blocknoteFr } from "@blocknote/core/locales";
 import { useCreateBlockNote } from "@blocknote/react";
 import {
   BlockNoteViewRaw,
@@ -18,6 +19,7 @@ import {
 } from "./extensions/slashMenu.js";
 import type { EntityLinkItemConfig } from "./extensions/slashMenu.js";
 import { createSaveExtension } from "./extensions/saveShortcut.js";
+import { attachCheckShortcut } from "./extensions/checkShortcut.js";
 import type { SupernoteEditorProps } from "./types.js";
 
 /** Main Supernote rich-text editor */
@@ -29,6 +31,9 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
     readOnly = false,
     className,
     resolvers,
+    onAskAi,
+    onEditorReady,
+    placeholder,
   } = props;
 
   const onSaveRef = useRef(onSave);
@@ -36,6 +41,12 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
 
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
+
+  const onAskAiRef = useRef(onAskAi);
+  onAskAiRef.current = onAskAi;
+
+  const onEditorReadyRef = useRef(onEditorReady);
+  onEditorReadyRef.current = onEditorReady;
 
   const handleSave = useCallback(() => {
     onSaveRef.current?.(editor.document ? blocksToMarkdown(editor.document as Block[]) : "");
@@ -56,16 +67,41 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
     }
   })();
 
+  // BlockNote 0.50 ships per-locale dictionaries for every UI string,
+  // including the empty-document placeholder. We default to French (the host
+  // app's primary language) and swap the `default` placeholder when the
+  // caller passes a custom one — that's how the home WritingSurface gets
+  // "Commencez à écrire…" while a regular note keeps the verbose default.
+  const dictionary = (() => {
+    if (!placeholder) return blocknoteFr;
+    return {
+      ...blocknoteFr,
+      placeholders: {
+        ...blocknoteFr.placeholders,
+        default: placeholder,
+      },
+    };
+  })();
+
   const editor = useCreateBlockNote(
     {
       schema: supernoteSchema,
       initialContent: initialBlocks,
+      dictionary,
       _tiptapOptions: {
         extensions: [createSaveExtension(handleSave)],
       },
     },
     []
   );
+
+  // `x ` → checkListItem shortcut. Implemented as a post-commit watcher on
+  // BlockNote's onChange (rather than a Tiptap input rule) because the
+  // input rule's transaction races with BlockNote's own block-update
+  // commands, leaving the type swap as a silent no-op.
+  useEffect(() => {
+    return attachCheckShortcut(editor as unknown as Parameters<typeof attachCheckShortcut>[0]);
+  }, [editor]);
 
   // Wire up onChange
   useEffect(() => {
@@ -75,11 +111,34 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
     });
   }, [editor]);
 
+  // Expose an imperative insert function to the host once the editor mounts.
+  useEffect(() => {
+    if (!onEditorReadyRef.current) return;
+    const insertAtCursor = (md: string) => {
+      const paragraphs = md.split(/\n\n+/).map((s) => s.trim()).filter(Boolean);
+      const blocks = paragraphs.map((text) => {
+        try {
+          const parsed = markdownToBlocks(text) as Block[];
+          return parsed.length > 0 ? parsed[0]! : ({ type: "paragraph", content: [{ type: "text", text, styles: {} }] } as unknown as Block);
+        } catch {
+          return { type: "paragraph", content: [{ type: "text", text, styles: {} }] } as unknown as Block;
+        }
+      });
+      if (blocks.length === 0) return;
+      editor.insertBlocks(
+        blocks as any[],
+        editor.getTextCursorPosition().block,
+        "after"
+      );
+    };
+    onEditorReadyRef.current(insertAtCursor);
+  }, [editor]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const { openPicker, pickerElement } = useEntityPickerState(editor, resolvers);
 
   const getItems = useCallback(
     async (query: string) => {
-      const items = getSupernoteSlashMenuItems(editor, openPicker);
+      const items = getSupernoteSlashMenuItems(editor, openPicker, onAskAiRef.current);
       if (!query) return items;
       const q = query.toLowerCase();
       return items.filter((item) => {

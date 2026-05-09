@@ -315,8 +315,7 @@ export function EditableSidebar({ contact, hasLiveBackend }: EditableSidebarProp
                 className="transition-opacity focus:outline-none focus-visible:outline-none"
                 style={{
                   opacity: relationType === type ? 1 : 0.4,
-                  outline: relationType === type ? "2px solid var(--accent)" : "none",
-                  outlineOffset: 1,
+                  outline: "none",
                   borderRadius: 99,
                 }}
                 aria-pressed={relationType === type}

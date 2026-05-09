@@ -46,6 +46,15 @@ interface ShellChromeContextValue {
   toggleRightPanel: () => void;
   setRightPanelVisible: (next: boolean) => void;
 
+  /**
+   * Accent CSS-variable overrides published by deep child routes (e.g. the
+   * notes detail page when the selected folder has a custom color). The
+   * AppShell merges them into its outermost element style, so sidebar /
+   * topbar / right panel inherit the tint along with the editor pane.
+   */
+  accentOverride: Record<string, string> | null;
+  setAccentOverride: (next: Record<string, string> | null) => void;
+
   /** Bus to ask the home page to focus its writing canvas (e.g. from the topbar "Nouveau" button). */
   requestNewNote: () => void;
   onRequestNewNote: (handler: () => void) => () => void;
@@ -59,6 +68,7 @@ export function ShellChromeProvider({ children }: { children: React.ReactNode })
   // hidden" before we can read localStorage. The effect below reconciles
   // with the persisted user preference on mount.
   const [rightPanelVisible, setRightPanelVisibleState] = useState(true);
+  const [accentOverride, setAccentOverrideState] = useState<Record<string, string> | null>(null);
   const [newNoteHandlers] = useState(() => new Set<() => void>());
 
   // Hydrate from localStorage once on mount so a refresh does not reopen
@@ -66,6 +76,23 @@ export function ShellChromeProvider({ children }: { children: React.ReactNode })
   useEffect(() => {
     const stored = readRightPanelPreference();
     setRightPanelVisibleState(stored);
+  }, []);
+
+  // Global keyboard shortcut: Ctrl/Cmd + . toggles focus mode. We pick "."
+  // because it's free in every page (Cmd+K is search, Cmd+S save, Cmd+Z
+  // undo, …) and visually maps to "more / fewer chrome" affordances. The
+  // listener runs at the document level so it works regardless of which
+  // editor / input has focus.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      if (e.key !== "." && e.code !== "Period") return;
+      e.preventDefault();
+      setFocusModeState((v) => !v);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, []);
 
   const setFocusMode = useCallback((next: boolean) => {
@@ -89,6 +116,25 @@ export function ShellChromeProvider({ children }: { children: React.ReactNode })
     });
   }, []);
 
+  // Stable identity per (vars-shape) so AppShell's `style={...}` doesn't
+  // get a fresh object on every parent render — keeps the merge cheap.
+  const setAccentOverride = useCallback(
+    (next: Record<string, string> | null) => {
+      setAccentOverrideState((prev) => {
+        if (prev === next) return prev;
+        if (!prev || !next) return next;
+        const a = Object.entries(prev).sort();
+        const b = Object.entries(next).sort();
+        if (a.length !== b.length) return next;
+        for (let i = 0; i < a.length; i++) {
+          if (a[i]![0] !== b[i]![0] || a[i]![1] !== b[i]![1]) return next;
+        }
+        return prev;
+      });
+    },
+    [],
+  );
+
   const requestNewNote = useCallback(() => {
     newNoteHandlers.forEach((h) => h());
   }, [newNoteHandlers]);
@@ -111,6 +157,8 @@ export function ShellChromeProvider({ children }: { children: React.ReactNode })
       rightPanelVisible,
       toggleRightPanel,
       setRightPanelVisible,
+      accentOverride,
+      setAccentOverride,
       requestNewNote,
       onRequestNewNote,
     }),
@@ -121,6 +169,8 @@ export function ShellChromeProvider({ children }: { children: React.ReactNode })
       rightPanelVisible,
       toggleRightPanel,
       setRightPanelVisible,
+      accentOverride,
+      setAccentOverride,
       requestNewNote,
       onRequestNewNote,
     ],

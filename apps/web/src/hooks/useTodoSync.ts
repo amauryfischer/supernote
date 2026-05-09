@@ -6,11 +6,12 @@
  * Pipeline (runs on note save / debounce):
  *   1. Parse the body for `- [ ]` / `- [x]` checklist items.
  *   2. Compare the body hash against `note.fields.todoCache.processedBodyHash`.
- *      If unchanged → reuse the cached AI verdicts, skip the LLM call.
- *   3. Otherwise call Ollama (`aiVerifyTodos`) to filter out rhetorical
- *      checkboxes; on any failure, fall back to "every checkbox is a todo".
+ *      If unchanged AND the cache covers every detected blockId → skip the
+ *      reconciliation step (entities are already in sync).
+ *   3. Apply the deterministic heuristic filter (see `heuristicFilter.ts`)
+ *      to drop reference-style sections and too-short items.
  *   4. Reconcile against existing `todo` entities for this note:
- *      - upsert each verified todo (keyed by `blockId`)
+ *      - upsert each kept item (keyed by `blockId`)
  *      - delete todos whose source line vanished
  *      - flip `done` if the markdown checkbox state changed
  *   5. Persist the new cache blob into the note's `todoCache` field via a
@@ -20,10 +21,7 @@
  * a todo from the /todos panel, `toggleTodoDone` flips the box in the note
  * markdown and updates both the note and the todo entity.
  *
- * Opt-in via the localStorage flag `supernote.ai.autoTodos` (set from
- * Settings → IA & Ollama). When disabled the hook is an inert no-op.
- *
- * No npm deps. Browser-only.
+ * No external services. Browser-only, deterministic.
  */
 
 import { useCallback, useEffect, useRef } from "react";
@@ -32,11 +30,9 @@ import {
   extractChecklists,
   hashBody,
   toggleChecklistLine,
-  type ChecklistItem,
 } from "@/lib/todos/extractChecklists";
-import { aiVerifyTodos } from "@/lib/todos/aiVerify";
+import { filterChecklistsHeuristic } from "@/lib/todos/heuristicFilter";
 
-export const AUTO_TODOS_ENABLED_KEY = "supernote.ai.autoTodos";
 export const TODO_TYPE_ID = "todo";
 const SYNC_DEBOUNCE_MS = 1500;
 
@@ -44,26 +40,17 @@ const SYNC_DEBOUNCE_MS = 1500;
 export interface TodoCacheEntry {
   processedAt: string; // ISO datetime
   processedBodyHash: string;
-  /** Snapshot of the LLM verdicts so we can re-render without re-asking. */
   todos: Array<{
     blockId: string;
     line: number;
     text: string;
+    /** True if the heuristic kept this line as a real todo. */
     isTodo: boolean;
     /** Last-seen done state in the source markdown. */
     done: boolean;
     /** Resolved entity id once the todo has been persisted. */
     todoId?: string;
   }>;
-}
-
-export function isAutoTodosEnabled(): boolean {
-  if (typeof window === "undefined") return false;
-  try {
-    return window.localStorage.getItem(AUTO_TODOS_ENABLED_KEY) === "1";
-  } catch {
-    return false;
-  }
 }
 
 /** Best-effort parse of the persisted cache. Returns null if absent or invalid. */
@@ -89,8 +76,8 @@ interface SyncContext {
 }
 
 interface SyncOutcome {
-  /** True if the AI was actually called this run. */
-  aiCalled: boolean;
+  /** True if reconciliation actually wrote anything this run. */
+  reconciled: boolean;
   todosCreated: number;
   todosUpdated: number;
   todosDeleted: number;
@@ -103,7 +90,7 @@ interface SyncOutcome {
  */
 export async function syncNoteTodos(ctx: SyncContext): Promise<SyncOutcome> {
   const outcome: SyncOutcome = {
-    aiCalled: false,
+    reconciled: false,
     todosCreated: 0,
     todosUpdated: 0,
     todosDeleted: 0,
@@ -142,6 +129,7 @@ export async function syncNoteTodos(ctx: SyncContext): Promise<SyncOutcome> {
       try {
         await trpcVanillaClient.entities.delete.mutate({ id: e.id });
         outcome.todosDeleted++;
+        outcome.reconciled = true;
       } catch {
         /* ignore — best effort */
       }
@@ -159,51 +147,34 @@ export async function syncNoteTodos(ctx: SyncContext): Promise<SyncOutcome> {
     return outcome;
   }
 
-  // Decide whether to hit the LLM. We can reuse the cache when:
-  //   - the body hash matches, AND
-  //   - the cache covers every detected blockId (so a freshly-added line
-  //     forces a re-verify even if the rest is unchanged).
-  let verdicts: Array<{ blockId: string; line: number; text: string; isTodo: boolean; done: boolean }> = [];
+  // The cache lets us skip the reconciliation when nothing changed: same
+  // body hash AND every detected blockId is already in the cache.
   const cacheCoversAll =
     !!cache &&
     cache.processedBodyHash === bodyHash &&
-    items.every((it) =>
-      cache.todos.some((c) => c.blockId === it.blockId),
-    );
+    items.every((it) => cache.todos.some((c) => c.blockId === it.blockId));
+
+  // Apply the heuristic filter on every run — it's pure & cheap. The cache
+  // helps us skip the network round-trips below, not the filter itself.
+  const kept = filterChecklistsHeuristic(ctx.body, items);
+  const keptByBlock = new Map(kept.map((it) => [it.blockId, it]));
+
+  const verdicts = items.map((it) => ({
+    blockId: it.blockId,
+    line: it.line,
+    text: it.text,
+    isTodo: keptByBlock.has(it.blockId),
+    done: it.done,
+  }));
 
   if (cacheCoversAll && cache) {
-    // Reuse cache; refresh `done` state from the freshly-parsed items so a
-    // "user manually flipped a box" round-trips into the todo entity.
-    verdicts = items.map((it) => {
-      const hit = cache.todos.find((c) => c.blockId === it.blockId);
-      return {
-        blockId: it.blockId,
-        line: it.line,
-        text: it.text,
-        isTodo: hit?.isTodo ?? true,
-        done: it.done,
-      };
-    });
-  } else {
-    outcome.aiCalled = true;
-    const aiResults = await aiVerifyTodos(
-      items.map((it) => ({ line: it.line, text: it.text })),
-    );
-    // Re-pair AI verdicts with our items by line+text. aiVerifyTodos
-    // guarantees one result per input in input order, so a positional zip
-    // is safe — but we double-check to be defensive.
-    verdicts = items.map((it, idx) => {
-      const r = aiResults[idx];
-      const isTodo =
-        r && r.line === it.line && r.text === it.text ? r.isTodo : true;
-      return {
-        blockId: it.blockId,
-        line: it.line,
-        text: it.text,
-        isTodo,
-        done: it.done,
-      };
-    });
+    // Refresh the in-memory `done` state from the freshly-parsed items so a
+    // "user manually flipped a box" round-trips into the todo entity even
+    // when the cache fast-path triggers.
+    for (const v of verdicts) {
+      const cached = cache.todos.find((c) => c.blockId === v.blockId);
+      if (cached) cached.done = v.done;
+    }
   }
 
   // ── Reconcile entities ───────────────────────────────────────────────────
@@ -234,6 +205,7 @@ export async function syncNoteTodos(ctx: SyncContext): Promise<SyncOutcome> {
           fields: fieldsPatch,
         });
         outcome.todosUpdated++;
+        outcome.reconciled = true;
         todoIdByBlock[v.blockId] = existing.id;
       } catch {
         /* ignore — single-item failures shouldn't tank the batch */
@@ -258,6 +230,7 @@ export async function syncNoteTodos(ctx: SyncContext): Promise<SyncOutcome> {
           },
         });
         outcome.todosCreated++;
+        outcome.reconciled = true;
         todoIdByBlock[v.blockId] = created.id;
       } catch {
         /* ignore */
@@ -271,6 +244,7 @@ export async function syncNoteTodos(ctx: SyncContext): Promise<SyncOutcome> {
     try {
       await trpcVanillaClient.entities.delete.mutate({ id: ent.id });
       outcome.todosDeleted++;
+      outcome.reconciled = true;
     } catch {
       /* ignore */
     }
@@ -304,12 +278,12 @@ export async function syncNoteTodos(ctx: SyncContext): Promise<SyncOutcome> {
 export interface UseTodoSyncResult {
   /**
    * Schedule a todo-sync run for this note. Debounced to avoid hammering
-   * Ollama during continuous typing. No-op when the feature toggle is off.
+   * the worker during continuous typing.
    */
   scheduleSync: (body: string) => void;
   /**
    * Force-flush any pending sync (e.g. on manual save). Returns the outcome
-   * of the run, or null when the feature is disabled / no work was scheduled.
+   * of the run, or null if nothing was pending.
    */
   flushSync: () => Promise<SyncOutcome | null>;
 }
@@ -336,7 +310,6 @@ export function useTodoSync(note: {
   }, []);
 
   const runNow = useCallback(async (): Promise<SyncOutcome | null> => {
-    if (!isAutoTodosEnabled()) return null;
     const body = pendingBodyRef.current;
     if (body === null) return null;
     pendingBodyRef.current = null;
@@ -354,7 +327,6 @@ export function useTodoSync(note: {
 
   const scheduleSync = useCallback(
     (body: string): void => {
-      if (!isAutoTodosEnabled()) return;
       pendingBodyRef.current = body;
       if (timerRef.current) clearTimeout(timerRef.current);
       timerRef.current = setTimeout(() => {

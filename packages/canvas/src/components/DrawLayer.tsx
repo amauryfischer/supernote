@@ -135,18 +135,22 @@ export interface DrawLayerProps {
 
 const TOOLBAR_STYLE: React.CSSProperties = {
   position: "absolute",
+  // Sit on the SAME row as Excalidraw's native shape toolbar, parked at
+  // top-left. The toolbar renders icon-only (no labels — see
+  // `iconOnly` in the render below), so its compact width never reaches
+  // Excalidraw's centered toolbar even on narrow panes.
   top: 12,
-  left: 12,
-  // Cap the toolbar width to the viewport so it can never punch off-screen
-  // when the canvas pane is narrow. The Excalidraw side controls live at the
-  // top-right (~120px); leaving 140px of breathing room avoids overlap.
-  right: 140,
-  maxWidth: "calc(100% - 24px)",
+  left: 52,
+  width: "max-content",
+  // Hard ceiling so even with all primary buttons visible we never push
+  // past the rough left half of the canvas (Excalidraw's toolbar is
+  // centered around 50%).
+  maxWidth: "calc(50% - 12px)",
   zIndex: 20,
   display: "flex",
-  flexWrap: "wrap",
+  flexWrap: "nowrap",
   alignItems: "center",
-  gap: 4,
+  gap: 2,
   padding: 4,
   background: "var(--surface, #fff)",
   border: "1px solid var(--border-subtle, #e2e8f0)",
@@ -405,7 +409,10 @@ export const DrawLayer = forwardRef<DrawLayerHandle, DrawLayerProps>(function Dr
     return () => ro.disconnect();
   }, []);
 
-  const compact = toolbarWidth < TOOLBAR_COMPACT_BREAKPOINT;
+  // Always render icon-only — the toolbar lives on the canvas's top-left,
+  // beside Excalidraw's centered shape toolbar, and labels would push it
+  // wide enough to collide with the native row.
+  const compact = true;
   const minimal = toolbarWidth < TOOLBAR_MINIMAL_BREAKPOINT;
 
   const handleChange = useCallback(

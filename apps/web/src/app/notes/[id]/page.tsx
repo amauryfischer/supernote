@@ -29,6 +29,8 @@ import {
   FolderSimple,
   ListBullets,
 } from "@phosphor-icons/react";
+import { folderAccentVars, folderColorFromTree } from "@/lib/folderAccent";
+import { useShellChrome } from "@/components/shell/shell-chrome-context";
 
 type NoteViewMode = "note" | "canvas";
 
@@ -259,8 +261,22 @@ function NoteDetailContent() {
 
   const handleSelectFolder = useCallback((path: string) => {
     setSelectedFolder(path);
-    router.push(`/notes?folder=${encodeURIComponent(path)}`);
-  }, [router]);
+    // Auto-open the most recently updated note inside this folder (or its
+    // descendants). Saves a click — and matches the user's mental model
+    // that the folder *is* its top note. Fall back to the bare folder URL
+    // when the folder is empty so they land on the empty-state.
+    const inFolder = allNotes.filter(
+      (n) => n.folderPath === path || n.folderPath.startsWith(`${path}/`),
+    );
+    if (inFolder.length === 0) {
+      router.push(`/notes?folder=${encodeURIComponent(path)}`);
+      return;
+    }
+    const mostRecent = inFolder.reduce((acc, n) =>
+      n.updatedAt > acc.updatedAt ? n : acc,
+    );
+    router.push(`/notes/${mostRecent.id}?folder=${encodeURIComponent(path)}`);
+  }, [allNotes, router]);
 
   const handleNewNote = useCallback(async (parentPath?: string | null) => {
     const safeParent = typeof parentPath === "string" ? parentPath : null;
@@ -369,6 +385,19 @@ function NoteDetailContent() {
     ? selectedFolder.split("/").pop() ?? selectedFolder
     : null;
 
+  const editorAccentColor = folderColorFromTree(selectedFolder, foldersLoading ? [] : folders);
+  const editorAccentStyle = folderAccentVars(editorAccentColor) ?? {};
+
+  // Publish the folder accent override to the shell so the sidebar / topbar /
+  // right panel inherit the tint while the user is in this folder. Cleared
+  // on unmount so /tags, /todos, etc. fall back to the default purple accent.
+  const { setAccentOverride } = useShellChrome();
+  useEffect(() => {
+    const vars = folderAccentVars(editorAccentColor);
+    setAccentOverride(vars ? (vars as unknown as Record<string, string>) : null);
+    return () => setAccentOverride(null);
+  }, [editorAccentColor, setAccentOverride]);
+
   // Effective visibility — focus mode short-circuits both individual collapse
   // toggles. Computing this once keeps the JSX flat and the rules in one place.
   const showFileTree = !focusMode && !fileTreeCollapsed;
@@ -424,7 +453,7 @@ function NoteDetailContent() {
 
       <div
         className="flex flex-1 flex-col overflow-hidden"
-        style={{ backgroundColor: "var(--surface-0)" }}
+        style={{ backgroundColor: "var(--surface-0)", ...editorAccentStyle }}
       >
         {noteLoading ? (
           <NoteLoadingSkeleton />

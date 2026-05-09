@@ -18,7 +18,6 @@ import {
   type OllamaProbeResult,
 } from "@/hooks/useAutoTitle";
 import { AUTO_TAG_ENABLED_KEY } from "@/hooks/useAutoTag";
-import { AUTO_TODOS_ENABLED_KEY } from "@/hooks/useTodoSync";
 
 const FALLBACK_MODELS = [
   "llama3.2",
@@ -118,28 +117,6 @@ export function IaOllamaTab() {
     if (typeof window === "undefined") return;
     try {
       window.localStorage.setItem(AUTO_TAG_ENABLED_KEY, v ? "1" : "0");
-    } catch {
-      /* ignore */
-    }
-  };
-
-  // Smart-todos toggle — opt-in. When OFF the editor pipeline is inert
-  // (no LLM probes, no entity writes). The cache on existing notes is
-  // left intact so re-enabling later picks up where it stopped.
-  const [autoTodos, setAutoTodos] = useState(false);
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      setAutoTodos(window.localStorage.getItem(AUTO_TODOS_ENABLED_KEY) === "1");
-    } catch {
-      /* localStorage unavailable */
-    }
-  }, []);
-  const toggleAutoTodos = (v: boolean) => {
-    setAutoTodos(v);
-    if (typeof window === "undefined") return;
-    try {
-      window.localStorage.setItem(AUTO_TODOS_ENABLED_KEY, v ? "1" : "0");
     } catch {
       /* ignore */
     }
@@ -557,12 +534,6 @@ export function IaOllamaTab() {
           description="Quand la note n'a aucun tag, Ollama propose 3 à 5 tags après 5s d'inactivité"
         >
           <ToggleSwitch checked={autoTag} onChange={toggleAutoTag} />
-        </SettingRow>
-        <SettingRow
-          label="Extraire les todos automatiquement"
-          description="Détecte les cases à cocher dans les notes, demande à Ollama de filtrer les vraies todos, et synchronise avec la page Todos. Désactivé par défaut."
-        >
-          <ToggleSwitch checked={autoTodos} onChange={toggleAutoTodos} />
         </SettingRow>
       </SettingSection>
     </div>

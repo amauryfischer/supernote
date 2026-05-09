@@ -8,6 +8,10 @@
 export async function registerServiceWorker(): Promise<void> {
   if (typeof window === "undefined") return;
   if (!("serviceWorker" in navigator)) return;
+  // Never register in dev: the SW would pre-cache an HTML shell that imports
+  // Vite-only virtual modules (/src/main.tsx, /@vite/client, /@react-refresh),
+  // leaving an installed PWA permanently broken once the dev server stops.
+  if (import.meta.env.DEV) return;
 
   try {
     const registration = await navigator.serviceWorker.register("/sw.js", {

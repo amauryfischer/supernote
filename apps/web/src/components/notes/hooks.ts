@@ -23,6 +23,7 @@ import {
   foldersFromPaths,
   noteFilePath,
 } from "./adapters";
+import { isSystemFolder } from "@/lib/system-folders";
 
 // ── Backend availability detection ────────────────────────────────────────────
 // True when the PWA vault Web Worker is available (Chromium-based browsers
@@ -158,7 +159,11 @@ export function useFolderTree(): UseFolderTreeResult {
 
   // Show cached data even while a background refetch is in-flight.
   if (query.data) {
-    const entries = query.data.length > 0 ? query.data : [{ path: "Inbox" }];
+    // Strip system folders (Contacts, Todos, Finance, …) — they're managed
+    // by their own pages and showing them in /notes lets the user wipe out
+    // their typed entities by deleting what looks like a stray folder.
+    const visible = query.data.filter((e) => !isSystemFolder(e.path));
+    const entries = visible.length > 0 ? visible : [{ path: "Inbox" }];
     const folders = foldersFromPaths(entries);
     return { folders, isLoading: false, isFallback: false };
   }

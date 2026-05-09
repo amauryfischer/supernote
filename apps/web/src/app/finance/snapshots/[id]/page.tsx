@@ -10,6 +10,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { trpc } from "@/lib/trpc/client";
+import { parseDecimal } from "@/components/finance/utils";
 
 const inputClass =
   "w-full rounded-md border px-3 py-2 text-sm outline-none transition-colors focus:border-[var(--accent)]";
@@ -105,11 +106,11 @@ export default function SnapshotDetailPage() {
               <div>
                 <FieldLabel>Patrimoine net (EUR)</FieldLabel>
                 <input
-                  type="number"
-                  step="0.01"
+                  type="text"
+                  inputMode="decimal"
                   value={netWorth}
                   onChange={(e) => setNetWorth(e.target.value)}
-                  onBlur={() => persist({ net_worth: parseFloat(netWorth) || 0 })}
+                  onBlur={() => persist({ net_worth: parseDecimal(netWorth) })}
                   className={inputClass}
                   style={inputStyle}
                 />
@@ -118,11 +119,11 @@ export default function SnapshotDetailPage() {
               <div>
                 <FieldLabel>Total actifs (EUR)</FieldLabel>
                 <input
-                  type="number"
-                  step="0.01"
+                  type="text"
+                  inputMode="decimal"
                   value={totalAssets}
                   onChange={(e) => setTotalAssets(e.target.value)}
-                  onBlur={() => persist({ total_assets: parseFloat(totalAssets) || 0 })}
+                  onBlur={() => persist({ total_assets: parseDecimal(totalAssets) })}
                   className={inputClass}
                   style={inputStyle}
                 />
@@ -131,11 +132,11 @@ export default function SnapshotDetailPage() {
               <div>
                 <FieldLabel>Total dettes (EUR)</FieldLabel>
                 <input
-                  type="number"
-                  step="0.01"
+                  type="text"
+                  inputMode="decimal"
                   value={totalDebts}
                   onChange={(e) => setTotalDebts(e.target.value)}
-                  onBlur={() => persist({ total_debts: parseFloat(totalDebts) || 0 })}
+                  onBlur={() => persist({ total_debts: parseDecimal(totalDebts) })}
                   className={inputClass}
                   style={inputStyle}
                 />

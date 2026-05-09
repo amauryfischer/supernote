@@ -77,13 +77,20 @@ const RightPanelWrapper = memo(function RightPanelWrapper({
  * The user can also collapse the right panel manually.
  */
 function ShellLayout({ children }: AppShellProps) {
-  const { focusMode, rightPanelVisible } = useShellChrome();
+  const { focusMode, rightPanelVisible, accentOverride } = useShellChrome();
+
+  // Folder-scoped accent override propagates through CSS-variable inheritance.
+  // Setting `--accent` / `--accent-subtle` / … on the outermost shell element
+  // means the sidebar, topbar, right panel AND content all pick it up — not
+  // just the editor pane like before. Cleared back to defaults when the
+  // current route doesn't publish an override (e.g. /tags, /todos).
+  const rootStyle: React.CSSProperties = {
+    backgroundColor: "var(--surface-0)",
+    ...(accentOverride ?? {}),
+  };
 
   return (
-    <div
-      className="flex h-screen w-screen overflow-hidden"
-      style={{ backgroundColor: "var(--surface-0)" }}
-    >
+    <div className="flex h-screen w-screen overflow-hidden" style={rootStyle}>
       <SidebarWrapper focusMode={focusMode} />
 
       <div className="flex flex-1 flex-col overflow-hidden">

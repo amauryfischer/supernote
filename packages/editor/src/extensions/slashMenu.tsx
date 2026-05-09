@@ -201,10 +201,24 @@ function makeEntityLinkItem(
   };
 }
 
+function makeAskAiItem(onAskAi: () => void): DefaultReactSuggestionItem {
+  return {
+    title: "Demander à l'IA",
+    subtext: "Envoyer un prompt à Ollama et insérer la réponse",
+    group: "IA",
+    aliases: ["ai", "ia", "ollama", "demander", "prompt"],
+    icon: <span aria-hidden="true">✦</span>,
+    onItemClick() {
+      onAskAi();
+    },
+  };
+}
+
 /** Get default slash menu items extended with Supernote custom blocks */
 export function getSupernoteSlashMenuItems(
   editor: BlockNoteEditor<any, any, any>,
-  openPicker: (cfg: EntityLinkItemConfig) => void
+  openPicker: (cfg: EntityLinkItemConfig) => void,
+  onAskAi?: () => void
 ): DefaultReactSuggestionItem[] {
   const defaults = getDefaultReactSlashMenuItems(editor);
 
@@ -244,7 +258,9 @@ export function getSupernoteSlashMenuItems(
     makeEntityLinkItem(editor, cfg, openPicker)
   );
 
-  return [...defaults, ...calloutItems, codeItem, embedItem, ...entityLinkItems];
+  const aiItems: DefaultReactSuggestionItem[] = onAskAi ? [makeAskAiItem(onAskAi)] : [];
+
+  return [...defaults, ...calloutItems, codeItem, embedItem, ...entityLinkItems, ...aiItems];
 }
 
 // ── Suggestion menu renderer ──────────────────────────────────────────────────

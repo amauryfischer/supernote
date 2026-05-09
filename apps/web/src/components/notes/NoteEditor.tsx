@@ -12,7 +12,11 @@ import {
   isAutoTitleEnabled,
   isDefaultTitle,
   useAutoTitle,
+  resolveModel,
+  fetchWithTimeout,
+  readOllamaHost,
 } from "@/hooks/useAutoTitle";
+import { PromptModal } from "@/components/shell/PromptModal";
 import { isAutoTagEnabled, useAutoTag } from "@/hooks/useAutoTag";
 import { useTodoSync } from "@/hooks/useTodoSync";
 import { AssociatedTodos } from "@/components/todos/AssociatedTodos";
@@ -78,12 +82,25 @@ export function NoteEditor({ note }: NoteEditorProps) {
   const [titleAiBadge, setTitleAiBadge] = useState(false);
   const [tagsAiBadge, setTagsAiBadge] = useState(false);
   const [isSuggesting, setIsSuggesting] = useState(false);
+  const [aiModalOpen, setAiModalOpen] = useState(false);
+  const [aiLoading, setAiLoading] = useState(false);
+  // Bumped when the note's body changes externally (e.g. another tab or the
+  // /todos page rewriting a checkbox state). Used as part of the editor's
+  // `key` so the BlockNote instance fully remounts with the new content —
+  // BlockNote's `initialContent` is captured once at mount and never
+  // reactively syncs to subsequent prop changes.
+  const [externalBodyVersion, setExternalBodyVersion] = useState(0);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoTitleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoTagTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const bodyRef = useRef<string>(note.body);
   const titleRef = useRef<string>(note.title);
   const tagsRef = useRef<string[]>(note.tags);
+  // Last body string we successfully sent to the server. The
+  // external-change useEffect below uses it to silence its own save echo:
+  // without this, typing during a save round-trip would race the refetched
+  // body and force a BlockNote remount that drops the in-flight keystrokes.
+  const lastSavedBodyRef = useRef<string | null>(note.body);
   const editorInsertRef = useRef<((md: string) => void) | null>(null);
 
   const { updateNote } = useUpdateNote();
@@ -129,6 +146,7 @@ export function NoteEditor({ note }: NoteEditorProps) {
     titleRef.current = note.title;
     bodyRef.current = note.body;
     tagsRef.current = note.tags;
+    lastSavedBodyRef.current = note.body;
     setTitle(note.title);
     setTags(note.tags);
     setTitleAiBadge(false);
@@ -136,14 +154,42 @@ export function NoteEditor({ note }: NoteEditorProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [note.id]);
 
-  // Cleanup timers on unmount
+  // Detect *external* body rewrites — e.g. /todos toggling a `- [ ]` to
+  // `- [x]` in this note. We compare the latest fetched body against what
+  // the editor's onChange last reported via `bodyRef.current`. If they
+  // diverge it means someone outside the editor mutated the body, and we
+  // bump `externalBodyVersion` to force BlockNote to remount with the new
+  // content (BlockNote's `initialContent` is read only at mount).
+  useEffect(() => {
+    // Echo of our own save — the user may have kept typing meanwhile, so
+    // bodyRef can legitimately diverge from note.body. Don't remount.
+    if (note.body === lastSavedBodyRef.current) return;
+    if (note.body !== bodyRef.current) {
+      bodyRef.current = note.body;
+      setExternalBodyVersion((v) => v + 1);
+    }
+  }, [note.body]);
+
+  // Cleanup timers on unmount + flush any pending body save AND todo sync so
+  // navigating away from the note (e.g. straight to /todos) doesn't drop the
+  // latest checkbox toggle on the floor.
   useEffect(() => {
     return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
       if (autoTitleTimer.current) clearTimeout(autoTitleTimer.current);
       if (autoTagTimer.current) clearTimeout(autoTagTimer.current);
+      // Body autosave: if the debounce hasn't fired yet, flush it now so
+      // the markdown change is persisted before we leave.
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+        debounceRef.current = null;
+        void updateNote(note.id, titleRef.current, bodyRef.current);
+      }
+      // Todo reconcile pass — runs on the in-memory body even if the
+      // server-side save above is still inflight (the todo entity's `done`
+      // field is independent from the note's body column).
+      void flushTodoSync();
     };
-  }, []);
+  }, [flushTodoSync, updateNote, note.id]);
 
   const transcribeAudio = trpc.system.transcribeAudio.useMutation();
   const ocrImage = trpc.system.ocrImage.useMutation();
@@ -197,6 +243,7 @@ export function NoteEditor({ note }: NoteEditorProps) {
       debounceRef.current = setTimeout(async () => {
         try {
           await updateNote(note.id, updatedTitle, markdown);
+          lastSavedBodyRef.current = markdown;
           setSaveStatus("saved");
           setTimeout(() => setSaveStatus("idle"), 2000);
         } catch {
@@ -319,8 +366,8 @@ export function NoteEditor({ note }: NoteEditorProps) {
       triggerAutoSave(markdown, title);
       scheduleAutoTitle(markdown);
       scheduleAutoTag(markdown);
-      // Todo extraction runs on its own debounce (1.5s) and is gated by the
-      // `supernote.ai.autoTodos` flag. The hook short-circuits when off.
+      // Todo extraction runs on its own debounce (1.5s). Pure scrape +
+      // heuristic filter — no LLM call, no opt-in toggle.
       scheduleTodoSync(markdown);
     },
     [triggerAutoSave, title, scheduleAutoTitle, scheduleAutoTag, scheduleTodoSync],
@@ -346,6 +393,7 @@ export function NoteEditor({ note }: NoteEditorProps) {
       setSaveStatus("saving");
       try {
         await updateNote(note.id, title, md);
+        lastSavedBodyRef.current = md;
         setSaveStatus("saved");
         setTimeout(() => setSaveStatus("idle"), 2000);
         // Run todo extraction *after* the body has been persisted, otherwise
@@ -369,6 +417,57 @@ export function NoteEditor({ note }: NoteEditorProps) {
       triggerAutoSave(updated, title);
     }
   }, [triggerAutoSave, title]);
+
+  const handleAskAi = useCallback(() => {
+    setAiModalOpen(true);
+  }, []);
+
+  const handleAiSubmit = useCallback(async (userPrompt: string) => {
+    const trimmed = userPrompt.trim();
+    if (!trimmed) {
+      setAiModalOpen(false);
+      return;
+    }
+    setAiModalOpen(false);
+    setAiLoading(true);
+    try {
+      const host = readOllamaHost();
+      const model = await resolveModel(host);
+      if (!model) {
+        showToast("Ollama indisponible ou aucun modèle installé");
+        return;
+      }
+      const contextSnippet = bodyRef.current.trim().slice(0, 1500);
+      const prompt = contextSnippet
+        ? `Tu es un assistant. Réponds en français.\n\nContexte de la note (titre: "${titleRef.current}"):\n${contextSnippet}\n\nQuestion ou instruction:\n${trimmed}`
+        : `Tu es un assistant. Réponds en français.\n\nQuestion ou instruction:\n${trimmed}`;
+      const res = await fetchWithTimeout(
+        `${host}/api/generate`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ model, prompt, stream: false, options: { temperature: 0.7 } }),
+        },
+        30_000,
+      );
+      if (!res.ok) {
+        showToast(`Erreur Ollama (${res.status})`);
+        return;
+      }
+      const data = (await res.json()) as { response?: string };
+      const text = (data.response ?? "").trim();
+      if (!text) {
+        showToast("Ollama n'a retourné aucune réponse");
+        return;
+      }
+      insertMarkdown(text);
+    } catch (err) {
+      console.warn("[askAi]", err);
+      showToast("Ollama indisponible — démarrez avec OLLAMA_ORIGINS=* ollama serve");
+    } finally {
+      setAiLoading(false);
+    }
+  }, [insertMarkdown]);
 
   const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -471,14 +570,23 @@ export function NoteEditor({ note }: NoteEditorProps) {
       )}
 
       {/* Toast */}
-      {toastMsg && (
+      {(toastMsg || aiLoading) && (
         <div
           className="absolute bottom-6 left-1/2 z-20 -translate-x-1/2 rounded-lg px-4 py-2 text-sm shadow-lg"
           style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
         >
-          {toastMsg}
+          {aiLoading ? "L'IA réfléchit…" : toastMsg}
         </div>
       )}
+
+      <PromptModal
+        open={aiModalOpen}
+        title="Demander à l'IA"
+        placeholder="Votre question ou instruction…"
+        confirmLabel="Envoyer"
+        onConfirm={(value) => { void handleAiSubmit(value); }}
+        onCancel={() => setAiModalOpen(false)}
+      />
 
       {/* Header */}
       <div className="px-10 py-6" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
@@ -554,11 +662,14 @@ export function NoteEditor({ note }: NoteEditorProps) {
       <div className="flex-1 overflow-y-auto">
         <div className="px-10 py-6">
           <SupernoteEditor
+            key={`${note.id}:${externalBodyVersion}`}
             initialMarkdown={note.body}
             onChange={handleEditorChange}
             onSave={handleManualSave}
             resolvers={resolvers}
             className="min-h-[60vh] w-full"
+            onAskAi={handleAskAi}
+            onEditorReady={(insert) => { editorInsertRef.current = insert; }}
           />
         </div>
         {/* Read-only summary of todos extracted from this note. Hidden when the
@@ -694,11 +805,17 @@ interface NoteTagsInputProps {
 
 function NoteTagsInput({ noteId, tags, onTagsChange, aiBadge }: NoteTagsInputProps) {
   const utils = trpc.useUtils();
+  // Brief inline status flash so the user sees that adding/removing a tag
+  // actually persisted — without it the chip just appears and the user
+  // wonders whether anything happened.
+  const [savedFlash, setSavedFlash] = useState(false);
   const updateMutation = trpc.entities.update.useMutation({
     onSuccess: () => {
       void utils.entities.get.invalidate({ id: noteId });
       void utils.entities.list.invalidate({ typeId: "note" });
       void utils.tags.list.invalidate();
+      setSavedFlash(true);
+      window.setTimeout(() => setSavedFlash(false), 1400);
     },
   });
 
@@ -748,6 +865,25 @@ function NoteTagsInput({ noteId, tags, onTagsChange, aiBadge }: NoteTagsInputPro
           </span>
         )}
         <TagSelector value={tags} onChange={(next) => void handleChange(next)} />
+        {(updateMutation.isPending || savedFlash || updateMutation.isError) && (
+          <span
+            className="ml-1 text-[10px] font-medium"
+            style={{
+              color: updateMutation.isError
+                ? "var(--color-danger, #ef4444)"
+                : updateMutation.isPending
+                  ? "var(--text-muted)"
+                  : "oklch(0.55 0.18 150)",
+            }}
+            aria-live="polite"
+          >
+            {updateMutation.isError
+              ? "Erreur"
+              : updateMutation.isPending
+                ? "Enregistrement…"
+                : "✓ Enregistré"}
+          </span>
+        )}
       </div>
     </div>
   );

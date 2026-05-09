@@ -83,6 +83,41 @@
   background: var(--accent-subtle, rgb(124 58 237 / 0.2));
 }
 
+/* ── Hero checklist item ────────────────────────────────────── */
+
+.sn-checkitem {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  line-height: 1.5;
+}
+
+.sn-checkitem__control {
+  display: inline-flex;
+  align-items: center;
+  /* The HeroUI Checkbox internally has padding; offset slightly so the box
+   * aligns with the first text line at the editor's default font-size. */
+  padding-top: 0.15rem;
+  user-select: none;
+}
+
+/* HeroUI's Checkbox label slot is empty here — collapse it so the box
+ * doesn't reserve label width and break alignment with the inline text. */
+.sn-checkitem__control [data-slot="label"] {
+  display: none;
+}
+
+.sn-checkitem__text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.sn-checkitem[data-checked="true"] .sn-checkitem__text {
+  color: var(--text-muted, #6b7280);
+  text-decoration: line-through;
+  text-decoration-color: var(--text-muted, #6b7280);
+}
+
 /* ── Wikilink pill ──────────────────────────────────────────── */
 
 .sn-wikilink {

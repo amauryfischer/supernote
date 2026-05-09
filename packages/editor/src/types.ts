@@ -49,4 +49,12 @@ export interface SupernoteEditorProps {
   searchTags?: (query: string) => Promise<string[]>;
   /** Additional CSS class for the wrapper element */
   className?: string;
+  /** Called when the user triggers the "Demander à l'IA" slash command */
+  onAskAi?: () => void;
+  /**
+   * Called once the editor is ready with an imperative insert function.
+   * The function receives markdown text and inserts it at the current cursor
+   * position as one paragraph block per double-newline-separated section.
+   */
+  onEditorReady?: (insert: (md: string) => void) => void;
 }

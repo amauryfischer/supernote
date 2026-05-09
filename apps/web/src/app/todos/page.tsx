@@ -29,8 +29,15 @@ import {
   Plus,
   Envelope,
   SortAscending,
+  ListBullets,
+  Tag,
+  Pencil,
+  Check,
+  Trash,
+  CalendarBlank,
 } from "@phosphor-icons/react";
-import { EmptyState } from "@supernote/ui";
+import { EmptyState, ContextMenu, useContextMenu, type ContextMenuItemDef } from "@supernote/ui";
+import { importanceColor, importanceLabel } from "@/components/todos/TodoRow";
 import Link from "next/link";
 import { useCallback, useMemo, useState } from "react";
 import { syncNoteTodos, toggleTodoDone, TODO_TYPE_ID } from "@/hooks/useTodoSync";
@@ -50,6 +57,10 @@ type SortKey = "priority" | "importance" | "dueDate" | "createdAt";
 interface UiTodoRow extends TodoRowData {
   updatedAt: string;
   createdAt: string;
+  /** Snapshot of the source note's tags at render time (computed live by the
+   *  /todos page from the notes list). Null when this todo has no source
+   *  note (standalone todo) or the note's tags array is empty. */
+  sourceNoteTags: string[];
 }
 
 /** Drop the optional time component so two ISO datetimes on the same day compare equal. */
@@ -101,10 +112,49 @@ export default function TodosPage() {
   const [busy, setBusy] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [editing, setEditing] = useState<UiTodoRow | null>(null);
+  // Tag filter — todos whose source note carries at least one of the
+  // selected tags pass through (OR semantics). Empty set = no tag filter.
+  const [tagFilter, setTagFilter] = useState<Set<string>>(() => new Set());
+  // Group by source note: when true, the displayed list is split into
+  // sections (one per note title) with standalone todos collected at the
+  // bottom. Persisted in localStorage so the user's choice sticks.
+  const [groupByNote, setGroupByNote] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return window.localStorage.getItem("supernote.todos.groupByNote") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const toggleGroupByNote = useCallback(() => {
+    setGroupByNote((v) => {
+      const next = !v;
+      try {
+        window.localStorage.setItem(
+          "supernote.todos.groupByNote",
+          next ? "1" : "0",
+        );
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  }, []);
+  const toggleTag = useCallback((tag: string) => {
+    setTagFilter((prev) => {
+      const next = new Set(prev);
+      if (next.has(tag)) next.delete(tag);
+      else next.add(tag);
+      return next;
+    });
+  }, []);
 
+  // staleTime: 0 + refetchOnMount: "always" so coming back from a note (where
+  // the user may have just toggled a checkbox) always shows the freshest
+  // todo state instead of a 30-second-old snapshot.
   const todosQuery = trpc.entities.list.useQuery(
     { typeId: TODO_TYPE_ID, limit: 1000, offset: 0 },
-    { staleTime: 30_000 },
+    { staleTime: 0, refetchOnMount: "always" },
   );
   const notesQuery = trpc.entities.list.useQuery(
     { typeId: "note", limit: 1000, offset: 0 },
@@ -120,6 +170,22 @@ export default function TodosPage() {
           ? (n.fields["title"] as string)
           : n.filePath.split("/").pop()?.replace(/\.md$/, "") ?? "Sans titre";
       map.set(n.id, title);
+    }
+    return map;
+  }, [notesQuery.data]);
+
+  // Lookup table for note tags — used to filter todos by their source
+  // note's tag set. Computed on the fly so renaming/adding tags on a note
+  // is reflected on /todos without a re-sync cycle.
+  const noteTagsById = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const n of notesQuery.data?.items ?? []) {
+      const tags = Array.isArray((n as { tags?: unknown }).tags)
+        ? ((n as { tags: unknown[] }).tags.filter(
+            (t) => typeof t === "string",
+          ) as string[])
+        : [];
+      if (tags.length > 0) map.set(n.id, tags);
     }
     return map;
   }, [notesQuery.data]);
@@ -155,22 +221,44 @@ export default function TodosPage() {
         priority: parsePriority(f["priority"]),
         importance: parseImportance(f["importance"]),
         sourceNoteTitle: sourceNoteId ? noteTitleById.get(sourceNoteId) ?? null : null,
+        sourceNoteTags: sourceNoteId ? noteTagsById.get(sourceNoteId) ?? [] : [],
         updatedAt: e.updatedAt,
         createdAt: e.createdAt,
       };
     });
-  }, [todosQuery.data, noteTitleById]);
+  }, [todosQuery.data, noteTitleById, noteTagsById]);
+
+  // Vocabulary of tags that actually appear on at least one source note of
+  // a todo. Drives the filter chips so we don't show tags the user can't
+  // possibly hit. Sorted alphabetically (case-insensitive) for stable UX.
+  const availableTags = useMemo(() => {
+    const set = new Set<string>();
+    for (const t of allTodos) for (const tag of t.sourceNoteTags) set.add(tag);
+    return Array.from(set).sort((a, b) =>
+      a.toLowerCase().localeCompare(b.toLowerCase()),
+    );
+  }, [allTodos]);
 
   const filteredTodos = useMemo(() => {
     return allTodos.filter((t) => {
-      if (filter === "pending") return !t.done;
-      if (filter === "done") return t.done;
-      if (filter === "today") return isToday(t.dueDate);
-      if (filter === "urgent")
-        return t.importance === "critical" || (t.priority !== null && t.priority <= 3);
+      // Status / urgency filter (existing chip row).
+      if (filter === "pending" && t.done) return false;
+      if (filter === "done" && !t.done) return false;
+      if (filter === "today" && !isToday(t.dueDate)) return false;
+      if (
+        filter === "urgent" &&
+        !(t.importance === "critical" || (t.priority !== null && t.priority <= 3))
+      ) {
+        return false;
+      }
+      // Tag filter — OR semantics across the active chip set.
+      if (tagFilter.size > 0) {
+        const hit = t.sourceNoteTags.some((tag) => tagFilter.has(tag));
+        if (!hit) return false;
+      }
       return true;
     });
-  }, [allTodos, filter]);
+  }, [allTodos, filter, tagFilter]);
 
   const sortedTodos = useMemo(() => {
     const arr = [...filteredTodos];
@@ -316,6 +404,72 @@ export default function TodosPage() {
     [utils, showToast],
   );
 
+  const handleQuickImportance = useCallback(
+    async (row: UiTodoRow, importance: TodoImportance) => {
+      try {
+        await trpcVanillaClient.entities.update.mutate({
+          id: row.id,
+          fields: { importance },
+        });
+        await utils.entities.list.invalidate({ typeId: TODO_TYPE_ID });
+      } catch {
+        showToast("Erreur lors de la mise à jour");
+      }
+    },
+    [utils, showToast],
+  );
+
+  // Right-click context menu — quick actions on a todo without opening
+  // the full edit modal. Importance is set inline; priority + due date
+  // remain in the modal because they're freeform inputs.
+  const ctxMenu = useContextMenu();
+  const openTodoContextMenu = useCallback(
+    (e: React.MouseEvent, row: UiTodoRow) => {
+      e.preventDefault();
+      const importanceDot = (level: TodoImportance) => (
+        <span
+          className="inline-block h-2.5 w-2.5 rounded-full"
+          style={{ backgroundColor: importanceColor(level) }}
+        />
+      );
+      const items: ContextMenuItemDef[] = [
+        ...(["critical", "high", "medium", "low"] as const).map((lvl) => ({
+          key: `imp-${lvl}`,
+          label: `Importance : ${importanceLabel(lvl)}`,
+          icon: importanceDot(lvl),
+          onPress: () => void handleQuickImportance(row, lvl),
+        })),
+        { key: "sep1", label: "", separator: true },
+        {
+          key: "toggle",
+          label: row.done ? "Marquer comme non faite" : "Marquer comme faite",
+          icon: <Check size={14} />,
+          onPress: () => void handleToggle(row),
+        },
+        {
+          key: "edit",
+          label: "Modifier (priorité, échéance, texte…)",
+          icon: <Pencil size={14} />,
+          onPress: () => setEditing(row),
+        },
+        { key: "sep2", label: "", separator: true },
+        {
+          key: "delete",
+          label: "Supprimer",
+          icon: <Trash size={14} />,
+          isDanger: true,
+          // Only allow direct delete for standalone todos. Note-derived todos
+          // would resurrect on the next sync, so route through the modal
+          // (which already gates delete behind a confirmation) instead.
+          isDisabled: !!row.sourceNoteId,
+          onPress: () => void handleDelete(row),
+        },
+      ];
+      ctxMenu.open(e, items);
+    },
+    [ctxMenu, handleQuickImportance, handleToggle, handleDelete],
+  );
+
   const toMailable = useCallback(
     (row: UiTodoRow): MailableTodo => ({
       text: row.text,
@@ -365,7 +519,7 @@ export default function TodosPage() {
       let total = 0;
       for (const n of notes) {
         // Need the body — `entities.list` returns summaries (no body),
-        // so fetch each note individually. Sequential to avoid hammering Ollama.
+        // so fetch each note individually. Sequential to keep tRPC pressure low.
         const full = await trpcVanillaClient.entities.get.query({ id: n.id });
         const out = await syncNoteTodos({
           noteId: full.id,
@@ -427,6 +581,23 @@ export default function TodosPage() {
             />
             <SortMenu value={sortKey} onChange={setSortKey} />
             <button
+              onClick={toggleGroupByNote}
+              className="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors"
+              style={{
+                borderColor: groupByNote
+                  ? "var(--accent)"
+                  : "var(--border-subtle)",
+                backgroundColor: groupByNote
+                  ? "var(--accent-subtle, var(--surface-2))"
+                  : "var(--surface-1)",
+                color: groupByNote ? "var(--accent)" : "var(--text-secondary)",
+              }}
+              title={groupByNote ? "Vue à plat" : "Grouper par note source"}
+            >
+              <ListBullets size={13} />
+              {groupByNote ? "Groupé" : "Grouper"}
+            </button>
+            <button
               onClick={() => setShowCreate(true)}
               className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-opacity hover:opacity-90"
               style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
@@ -465,6 +636,58 @@ export default function TodosPage() {
             </button>
           </div>
         </div>
+
+        {/* Tag filter row — shown only when at least one source note has
+            tags. OR semantics across the active chips. */}
+        {availableTags.length > 0 && (
+          <div className="border-b px-6 py-2" style={{ borderColor: "var(--border-subtle)" }}>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span
+                className="flex items-center gap-1 text-[11px] font-medium uppercase tracking-wide"
+                style={{ color: "var(--text-muted)" }}
+              >
+                <Tag size={11} />
+                Tags
+              </span>
+              {availableTags.map((tag) => {
+                const active = tagFilter.has(tag);
+                return (
+                  <button
+                    key={tag}
+                    type="button"
+                    onClick={() => toggleTag(tag)}
+                    className="rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors"
+                    style={
+                      active
+                        ? {
+                            backgroundColor: "var(--accent)",
+                            color: "var(--accent-foreground)",
+                            border: "1px solid var(--accent)",
+                          }
+                        : {
+                            backgroundColor: "var(--surface-1)",
+                            color: "var(--text-secondary)",
+                            border: "1px solid var(--border-subtle)",
+                          }
+                    }
+                  >
+                    {tag}
+                  </button>
+                );
+              })}
+              {tagFilter.size > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setTagFilter(new Set())}
+                  className="ml-1 text-[11px] underline"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  effacer
+                </button>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Toast */}
         {toast && (
@@ -505,7 +728,7 @@ export default function TodosPage() {
                         ? "Aucune priorité urgente"
                         : "Aucune todo"
               }
-              description="Cliquez sur « Nouvelle » pour créer une tâche, ou activez l'extraction depuis vos notes dans Paramètres → IA & Ollama."
+              description="Cliquez sur « Nouvelle » pour créer une tâche, ou ajoutez des cases « - [ ] » dans vos notes pour les extraire automatiquement."
               action={{
                 label: "Nouvelle tâche",
                 onClick: () => setShowCreate(true),
@@ -514,17 +737,84 @@ export default function TodosPage() {
             />
           ) : (
             <div className="mx-auto max-w-3xl">
-              <ul className="flex flex-col gap-1">
-                {sortedTodos.map((row) => (
-                  <TodoRow
-                    key={row.id}
-                    row={row}
-                    onToggle={() => void handleToggle(row)}
-                    onEdit={() => setEditing(row)}
-                    onEmail={() => handleEmailOne(row)}
-                  />
-                ))}
-              </ul>
+              {groupByNote ? (
+                // Grouped: one section per source note title; standalone
+                // todos (no sourceNoteId) collected under "Sans note" at
+                // the bottom so they're always reachable.
+                (() => {
+                  const groups = new Map<string, UiTodoRow[]>();
+                  const STANDALONE = "__standalone__";
+                  for (const row of sortedTodos) {
+                    const k = row.sourceNoteId ?? STANDALONE;
+                    const list = groups.get(k);
+                    if (list) list.push(row);
+                    else groups.set(k, [row]);
+                  }
+                  // Render order: noted todos first (insertion order
+                  // mirrors the sort), standalone last.
+                  const orderedKeys = Array.from(groups.keys()).filter(
+                    (k) => k !== STANDALONE,
+                  );
+                  if (groups.has(STANDALONE)) orderedKeys.push(STANDALONE);
+                  return (
+                    <div className="flex flex-col gap-5">
+                      {orderedKeys.map((k) => {
+                        const rows = groups.get(k)!;
+                        const title =
+                          k === STANDALONE
+                            ? "Sans note source"
+                            : (rows[0]?.sourceNoteTitle ?? "Note inconnue");
+                        return (
+                          <section key={k}>
+                            <header className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+                              <FileText size={11} />
+                              {k === STANDALONE ? (
+                                <span>{title}</span>
+                              ) : (
+                                <Link
+                                  href={`/notes/${k}`}
+                                  className="hover:underline"
+                                  style={{ color: "var(--text-muted)" }}
+                                >
+                                  {title}
+                                </Link>
+                              )}
+                              <span className="font-normal" style={{ color: "var(--text-muted)" }}>
+                                · {rows.length}
+                              </span>
+                            </header>
+                            <ul className="flex flex-col gap-1">
+                              {rows.map((row) => (
+                                <TodoRow
+                                  key={row.id}
+                                  row={row}
+                                  onToggle={() => void handleToggle(row)}
+                                  onEdit={() => setEditing(row)}
+                                  onEmail={() => handleEmailOne(row)}
+                                  onContextMenu={(e) => openTodoContextMenu(e, row)}
+                                />
+                              ))}
+                            </ul>
+                          </section>
+                        );
+                      })}
+                    </div>
+                  );
+                })()
+              ) : (
+                <ul className="flex flex-col gap-1">
+                  {sortedTodos.map((row) => (
+                    <TodoRow
+                      key={row.id}
+                      row={row}
+                      onToggle={() => void handleToggle(row)}
+                      onEdit={() => setEditing(row)}
+                      onEmail={() => handleEmailOne(row)}
+                      onContextMenu={(e) => openTodoContextMenu(e, row)}
+                    />
+                  ))}
+                </ul>
+              )}
               {/* Optional grouped-by-note legend at the bottom — surfaces what each row belongs to. */}
               {sortedTodos.some((t) => t.sourceNoteId) && (
                 <div
@@ -588,6 +878,8 @@ export default function TodosPage() {
           onDelete={editing.sourceNoteId ? undefined : () => void handleDelete(editing)}
         />
       )}
+
+      <ContextMenu state={ctxMenu.state} onClose={ctxMenu.close} />
     </AppShell>
   );
 }
