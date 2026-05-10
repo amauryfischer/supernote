@@ -24,6 +24,7 @@ import {
   noteFilePath,
 } from "./adapters";
 import { isSystemFolder } from "@/lib/system-folders";
+import type { FieldValue } from "@supernote/ipc";
 
 // ── Backend availability detection ────────────────────────────────────────────
 // True when the PWA vault Web Worker is available (Chromium-based browsers
@@ -274,6 +275,7 @@ export function useDeleteFolder() {
 export interface UpdateFolderPatch {
   color?: string | null;
   icon?: string | null;
+  sortOrder?: number | null;
 }
 
 export function useUpdateFolder() {
@@ -312,9 +314,19 @@ export function useNote(id: string): UseNoteResult {
   const hasBackend = useHasBackend();
   const workerReady = useWorkerReady();
 
+  // `placeholderData: (prev) => prev` keeps the previous Entity visible
+  // during a refetch (after `useUpdateNote.onSuccess` invalidates the cache,
+  // or when a tag mutation does the same). Without it, `query.data` flickers
+  // through `undefined` between invalidate and fresh data, and the parent
+  // page renders <EmptyEditor> for a frame — which unmounts NoteEditor
+  // entirely, dropping the user's title input state and the BlockNote
+  // instance the moment they save.
   const query = trpc.entities.get.useQuery(
     { id },
-    { enabled: hasBackend && workerReady && !!id },
+    {
+      enabled: hasBackend && workerReady && !!id,
+      placeholderData: (prev) => prev,
+    },
   );
 
   if (!hasBackend) {
@@ -426,6 +438,33 @@ export function useUpdateNote() {
   return { updateNote, isPending: mutation.isPending };
 }
 
+// ── useRenameNote ─────────────────────────────────────────────────────────────
+
+/**
+ * Rename a note by updating only `fields.title`.
+ * Deliberately does NOT touch `body` so the editor's in-progress draft is safe.
+ */
+export function useRenameNote() {
+  const hasBackend = useHasBackend();
+  const utils = trpc.useUtils();
+  const mutation = trpc.entities.update.useMutation({
+    onSuccess: (data) => {
+      void utils.entities.get.invalidate({ id: data.id });
+      void utils.entities.list.invalidate();
+    },
+  });
+
+  const renameNote = useCallback(
+    async (id: string, newTitle: string): Promise<void> => {
+      if (!hasBackend) return;
+      await mutation.mutateAsync({ id, fields: { title: newTitle } });
+    },
+    [hasBackend, mutation],
+  );
+
+  return { renameNote, isPending: mutation.isPending };
+}
+
 // ── useDeleteNote ─────────────────────────────────────────────────────────────
 
 export function useDeleteNote() {
@@ -446,4 +485,283 @@ export function useDeleteNote() {
   );
 
   return { deleteNote, isPending: mutation.isPending };
+}
+
+// ── useArchiveNote / useArchiveFolder ─────────────────────────────────────────
+
+/** Filesystem-safe ISO stamp: 2026-05-10T10-30-45-123Z. Colons are technically
+ *  legal on the OPFS layer Chromium ships today, but a few legacy adapters
+ *  (and the user's eventual one-day local backup script) reject them. Cheap
+ *  insurance against a foot-gun we don't have to debug later. */
+function safeStamp(): string {
+  return new Date().toISOString().replace(/[:.]/g, "-");
+}
+
+/** Strip path-hostile characters from a folder leaf so it can land inside an
+ *  `_archive/...` bucket name without exploding the segmentation later. */
+function safeLeaf(name: string): string {
+  return name.replace(/[/\\:*?"<>|]+/g, "_").trim() || "dossier";
+}
+
+/**
+ * Compute the on-disk path for an archived note. We preserve the relative
+ * structure under the archived folder (so a user who archives `Travail/X`
+ * still sees the `notes/inbox.md` vs `notes/projects/recap.md` split when
+ * unarchiving or browsing the archive bucket on disk).
+ *
+ *   originalFolder = "Travail/Projet-X"
+ *   originalFile   = "Travail/Projet-X/specs/recap.md"
+ *   bucket         = "_archive/2026-05-10T10-30-45-Projet-X"
+ *   →                "_archive/2026-05-10T10-30-45-Projet-X/specs/recap.md"
+ */
+function archivedFilePath(
+  bucket: string,
+  originalFolder: string,
+  originalFilePath: string,
+): string {
+  const folderPrefix = `${originalFolder}/`;
+  const relative = originalFilePath.startsWith(folderPrefix)
+    ? originalFilePath.slice(folderPrefix.length)
+    : originalFilePath.split("/").pop() ?? originalFilePath;
+  return `${bucket}/${relative}`;
+}
+
+/**
+ * Toggle the `archivedAt` field of a note. Pass `archived: true` to archive
+ * (writes the current ISO timestamp), `false` to restore (clears the field
+ * by writing `null`, which downstream readers treat as "active"). For
+ * single-note archive the file STAYS on disk where it is — only the metadata
+ * flag flips. Folder-level archiving (see `useArchiveFolder`) is what
+ * physically moves notes into the `_archive/...` bucket so a user-recreated
+ * folder of the same name doesn't collide with leftover archived files.
+ *
+ * On unarchive we ALSO try to move the file back to `originalFolderPath` if
+ * that field is set — that's how a "restore" of a folder-archived note
+ * actually returns to its old home. Falls back to leaving the file in place
+ * (only metadata flip) if no original path was recorded or the destination
+ * is taken.
+ */
+export function useArchiveNote() {
+  const hasBackend = useHasBackend();
+  const utils = trpc.useUtils();
+  const mutation = trpc.entities.update.useMutation({
+    onSuccess: (data) => {
+      void utils.entities.get.invalidate({ id: data.id });
+      void utils.entities.list.invalidate();
+    },
+  });
+
+  const setArchived = useCallback(
+    async (id: string, archived: boolean): Promise<void> => {
+      if (!hasBackend) return;
+
+      if (archived) {
+        // Single-note archive: don't touch filePath — the user is opting one
+        // note out of the active view, not bulk-archiving a project. Folder
+        // archival is the only path that physically relocates files.
+        await mutation.mutateAsync({
+          id,
+          fields: { archivedAt: new Date().toISOString() },
+        });
+        return;
+      }
+
+      // Restore — read the current entity to find its original home (if any).
+      // We pull from cache when possible to avoid an extra round-trip; only
+      // refetch when the entity isn't already loaded.
+      let cached = utils.entities.get.getData({ id });
+      if (!cached) cached = await utils.entities.get.fetch({ id });
+      const originalFolder =
+        typeof cached?.fields?.["originalFolderPath"] === "string"
+          ? (cached.fields["originalFolderPath"] as string)
+          : null;
+      const currentPath = cached?.filePath ?? null;
+      const filename = currentPath?.split("/").pop() ?? null;
+
+      // Default restore patch: clear archivedAt and the bookkeeping field.
+      // Use `null` (not `undefined`) so both cache + frontmatter round-trip
+      // agree the keys are empty.
+      const patch: { archivedAt: null; originalFolderPath: null } = {
+        archivedAt: null,
+        originalFolderPath: null,
+      };
+
+      // Try to relocate the file back to its original folder. We pre-check
+      // the destination by reading the same `entities.list` cache the UI
+      // already subscribes to — if a note already lives at that exact path
+      // we leave the file in `_archive/...` (the user can move it manually
+      // via the existing move modal) to avoid a silent overwrite.
+      let nextFilePath: string | undefined;
+      if (originalFolder && filename && currentPath) {
+        const desired = `${originalFolder}/${filename}`;
+        if (desired !== currentPath) {
+          const all = utils.entities.list.getData({ typeId: "note", limit: 500, offset: 0 });
+          const taken = all?.items.some((e) => e.filePath === desired && e.id !== id);
+          if (!taken) nextFilePath = desired;
+        }
+      }
+
+      await mutation.mutateAsync({
+        id,
+        fields: patch as unknown as Record<string, FieldValue>,
+        ...(nextFilePath ? { filePath: nextFilePath } : {}),
+      });
+    },
+    [hasBackend, mutation, utils],
+  );
+
+  return { setArchived, isPending: mutation.isPending };
+}
+
+/**
+ * Bulk-archive every note under a folder (recursively). For each note:
+ *   - mark `archivedAt` with the current timestamp
+ *   - record the `originalFolderPath` so a later restore can put it back
+ *   - move the .md file into a unique `_archive/<stamp>-<leaf>/...` bucket
+ *
+ * The unique bucket name is what guarantees a re-created folder of the
+ * same name won't collide with the archived files on disk — the active
+ * vault sees a fresh empty folder, the archived subtree stays intact for
+ * the /archive page to surface.
+ *
+ * After the moves succeed we call `vault.folders.delete` to drop the now-
+ * empty folder metadata entry (and any subfolder entries beneath it). The
+ * worker's cascade-delete is harmless on already-empty paths.
+ */
+export function useArchiveFolder() {
+  const hasBackend = useHasBackend();
+  const utils = trpc.useUtils();
+  const updateMutation = trpc.entities.update.useMutation();
+  const deleteFolderMutation = trpc.vault.folders.delete.useMutation();
+
+  const archiveFolder = useCallback(
+    async (folderPath: string): Promise<{ archivedCount: number }> => {
+      if (!hasBackend) return { archivedCount: 0 };
+
+      // Pull every note from the shared cache; the page-level useNoteList
+      // call has already populated this. Fall back to a refetch if the
+      // cache is cold (e.g. user landed straight on a context-menu action
+      // before the list query settled).
+      let all = utils.entities.list.getData({ typeId: "note", limit: 500, offset: 0 });
+      if (!all) {
+        all = await utils.entities.list.fetch({ typeId: "note", limit: 500, offset: 0 });
+      }
+
+      const folderPrefix = `${folderPath}/`;
+      const targets = all.items.filter((e) => {
+        const fp = e.filePath ?? "";
+        // Match notes living directly in the folder OR in any sub-folder.
+        // The folder path itself never appears as a filePath (folders aren't
+        // entities), so we don't need to special-case `fp === folderPath`.
+        return fp.startsWith(folderPrefix);
+      });
+
+      if (targets.length === 0) {
+        // Empty folder — still drop the metadata entry so the folder
+        // disappears from the FileTree.
+        try { await deleteFolderMutation.mutateAsync({ path: folderPath }); } catch { /* best-effort */ }
+        await utils.vault.folders.list.refetch();
+        return { archivedCount: 0 };
+      }
+
+      const stamp = safeStamp();
+      const leaf = safeLeaf(folderPath.split("/").pop() ?? "dossier");
+      const bucket = `_archive/${stamp}-${leaf}`;
+      const archivedAt = new Date().toISOString();
+
+      // Run the per-note updates in parallel — each rewrites the .md file
+      // at the new location and updates the entity row. The worker's move
+      // path is idempotent enough to handle concurrent writes, and a
+      // typical folder has a few dozen notes at most.
+      await Promise.all(
+        targets.map((e) => {
+          const oldPath = e.filePath ?? "";
+          // The folderPath we hand to the entity is the ORIGINAL note-level
+          // folder (e.g. "Travail/Projet-X/specs"), not the archived
+          // bucket — that's what we need to restore back to later. Each
+          // note independently remembers where it came from so a partial
+          // restore (single note, vs. whole folder) works the same way.
+          const originalFolderPath = oldPath.split("/").slice(0, -1).join("/");
+          const newPath = archivedFilePath(bucket, folderPath, oldPath);
+          const fields: Record<string, FieldValue> = {
+            ...(e.fields as Record<string, FieldValue>),
+            archivedAt,
+            originalFolderPath,
+          };
+          return updateMutation.mutateAsync({
+            id: e.id,
+            fields,
+            filePath: newPath,
+          });
+        }),
+      );
+
+      // Drop the now-empty folder + any subfolder metadata. The worker
+      // also tries to delete the on-disk directory — by this point it
+      // should be empty (we moved every .md out of it). If extra files
+      // somehow lived there (.DS_Store, ad-hoc user files), the
+      // best-effort delete logs a warning and continues.
+      try { await deleteFolderMutation.mutateAsync({ path: folderPath }); } catch { /* best-effort */ }
+
+      await utils.entities.list.refetch({ typeId: "note", limit: 500, offset: 0 });
+      await utils.vault.folders.list.refetch();
+      return { archivedCount: targets.length };
+    },
+    [hasBackend, updateMutation, deleteFolderMutation, utils],
+  );
+
+  return { archiveFolder, isPending: updateMutation.isPending || deleteFolderMutation.isPending };
+}
+
+// ── useReorderNotes ───────────────────────────────────────────────────────────
+
+/**
+ * Persist a new manual order for a list of notes. Each note gets a `sortOrder`
+ * written into `fields`. Uses step-of-1000 spacing so future inserts rarely
+ * need to rewrite every row.
+ */
+export function useReorderNotes() {
+  const hasBackend = useHasBackend();
+  const utils = trpc.useUtils();
+  const mutation = trpc.entities.update.useMutation();
+
+  const reorderNotes = useCallback(
+    async (orderedIds: string[]): Promise<void> => {
+      if (!hasBackend) return;
+      await Promise.all(
+        orderedIds.map((id, i) =>
+          mutation.mutateAsync({ id, fields: { sortOrder: (i + 1) * 1000 } }),
+        ),
+      );
+      await utils.entities.list.invalidate();
+    },
+    [hasBackend, mutation, utils],
+  );
+
+  return { reorderNotes };
+}
+
+// ── useReorderFolders ─────────────────────────────────────────────────────────
+
+/**
+ * Persist a new manual order for a list of root-level folders. Writes
+ * `sortOrder` into each folder's metadata entry via `vault.folders.update`.
+ */
+export function useReorderFolders() {
+  const utils = trpc.useUtils();
+  const mutation = trpc.vault.folders.update.useMutation();
+
+  const reorderFolders = useCallback(
+    async (orderedPaths: string[]): Promise<void> => {
+      await Promise.all(
+        orderedPaths.map((path, i) =>
+          mutation.mutateAsync({ path, sortOrder: (i + 1) * 1000 }),
+        ),
+      );
+      await utils.vault.folders.list.refetch();
+    },
+    [mutation, utils],
+  );
+
+  return { reorderFolders };
 }

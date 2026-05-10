@@ -2,13 +2,14 @@
 
 import { SquaresFour, Clock } from "@phosphor-icons/react";
 import type { CanvasMeta } from "./fixtures";
+import { useDateFormat } from "@/lib/dateFormat";
 
 interface CanvasCardProps {
   canvas: CanvasMeta;
   onClick: (id: string) => void;
 }
 
-function formatRelativeDate(isoDate: string): string {
+function buildRelativeOrCalendar(isoDate: string, compact: (s: string) => string): string {
   const date = new Date(isoDate);
   const now = new Date();
   // Floor at 0: a freshly written timestamp slightly in the future
@@ -17,10 +18,12 @@ function formatRelativeDate(isoDate: string): string {
   if (diffDays === 0) return "Aujourd'hui";
   if (diffDays === 1) return "Hier";
   if (diffDays < 7) return `Il y a ${diffDays}j`;
-  return date.toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
+  // Older than a week → fall back to the user's preferred compact pattern.
+  return compact(isoDate);
 }
 
 export function CanvasCard({ canvas, onClick }: CanvasCardProps) {
+  const { compact } = useDateFormat();
   return (
     <button
       onClick={() => onClick(canvas.id)}
@@ -71,7 +74,7 @@ export function CanvasCard({ canvas, onClick }: CanvasCardProps) {
             style={{ color: "var(--text-muted)" }}
           >
             <Clock size={11} />
-            {formatRelativeDate(canvas.updatedAt)}
+            {buildRelativeOrCalendar(canvas.updatedAt, compact)}
           </div>
         </div>
 

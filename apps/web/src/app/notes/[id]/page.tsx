@@ -15,8 +15,11 @@ import {
   useCreateNote,
   useCreateFolder,
   useDeleteFolder,
+  useArchiveNote,
+  useArchiveFolder,
   useDeleteNote,
   useRenameFolder,
+  useRenameNote,
 } from "@/components/notes/hooks";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
@@ -31,6 +34,7 @@ import {
 } from "@phosphor-icons/react";
 import { folderAccentVars, folderColorFromTree } from "@/lib/folderAccent";
 import { useShellChrome } from "@/components/shell/shell-chrome-context";
+import { useShortcuts } from "@/lib/keyboard";
 
 type NoteViewMode = "note" | "canvas";
 
@@ -256,6 +260,9 @@ function NoteDetailContent() {
   const { renameFolder } = useRenameFolder();
   const { deleteFolder } = useDeleteFolder();
   const { deleteNote, isPending: isDeleting } = useDeleteNote();
+  const { renameNote } = useRenameNote();
+  const { setArchived } = useArchiveNote();
+  const { archiveFolder } = useArchiveFolder();
   const prompt = usePrompt();
   const confirm = useConfirm();
 
@@ -336,6 +343,35 @@ function NoteDetailContent() {
     }
   }, [prompt, renameFolder, selectedFolder]);
 
+  const handleRenameFolderInline = useCallback(async (oldPath: string, newName: string) => {
+    const parts = oldPath.split("/");
+    parts[parts.length - 1] = newName;
+    const newPath = parts.join("/");
+    await renameFolder(oldPath, newPath);
+    if (selectedFolder === oldPath || selectedFolder?.startsWith(`${oldPath}/`)) {
+      setSelectedFolder(newPath + (selectedFolder!.slice(oldPath.length)));
+    }
+  }, [renameFolder, selectedFolder]);
+
+  const handleArchiveNote = useCallback(async (id: string, archived: boolean): Promise<void> => {
+    await setArchived(id, archived);
+  }, [setArchived]);
+
+  const handleArchiveFolder = useCallback(async (path: string): Promise<{ archivedCount: number }> => {
+    const ok = await confirm({
+      title: `Archiver "${path}" ?`,
+      description:
+        "Toutes les notes du dossier (et de ses sous-dossiers) seront déplacées dans les archives. Le dossier disparaîtra de l'arborescence — vous pourrez le recréer ou retrouver les notes dans /archive.",
+      confirmLabel: "Archiver",
+    });
+    if (!ok) return { archivedCount: 0 };
+    return await archiveFolder(path);
+  }, [archiveFolder, confirm]);
+
+  const handleRenameNote = useCallback(async (id: string, newTitle: string): Promise<void> => {
+    await renameNote(id, newTitle);
+  }, [renameNote]);
+
   const handleDeleteFolder = useCallback(async (path: string) => {
     const ok = await confirm({
       title: `Supprimer "${path}" ?`,
@@ -381,6 +417,33 @@ function NoteDetailContent() {
     router.push("/notes");
   }, [deleteTarget, deleteNote, router]);
 
+  // Ctrl/Cmd+N → nouvelle note dans le dossier actif. En onglet de
+  // navigateur, Chrome verrouille Ctrl+N (ouvre une fenêtre) ; on
+  // enregistre Ctrl+Alt+N en parallèle, jamais interceptée. Scope "global"
+  // pour que ça marche aussi quand le focus est dans l'éditeur.
+  useShortcuts([
+    {
+      id: "notes.detail.create",
+      keys: "mod+n",
+      scope: "global",
+      description: "Nouvelle note",
+      handler: () => {
+        void handleNewNote(null);
+        return true;
+      },
+    },
+    {
+      id: "notes.detail.create-alt",
+      keys: "mod+alt+n",
+      scope: "global",
+      description: "Nouvelle note (alternative onglet navigateur)",
+      handler: () => {
+        void handleNewNote(null);
+        return true;
+      },
+    },
+  ]);
+
   const folderName = selectedFolder
     ? selectedFolder.split("/").pop() ?? selectedFolder
     : null;
@@ -413,8 +476,10 @@ function NoteDetailContent() {
           onNewFolder={handleNewFolder}
           onNewNote={handleNewNote}
           onRenameFolder={handleRenameFolder}
+          onRenameFolderInline={handleRenameFolderInline}
           onDeleteFolder={handleDeleteFolder}
-          notes={allNotes}
+          onArchiveFolder={handleArchiveFolder}
+          notes={allNotes.filter((n) => !n.archivedAt)}
           onCollapse={handleToggleFileTreeCollapsed}
         />
       ) : !focusMode ? (
@@ -431,6 +496,7 @@ function NoteDetailContent() {
       {showNoteList ? (
         <NoteList
           notes={notes}
+          allNotes={allNotes}
           selectedNoteId={params.id}
           folderName={folderName}
           selectedFolder={selectedFolder}
@@ -441,6 +507,9 @@ function NoteDetailContent() {
           isFallback={isFallback}
           onNewNote={handleNewNote}
           onDeleteNote={handleDeleteRequest}
+          onRenameNote={handleRenameNote}
+          onArchiveNote={handleArchiveNote}
+          onRenameFolderInline={handleRenameFolderInline}
           onCollapse={handleToggleNoteListCollapsed}
         />
       ) : !focusMode ? (

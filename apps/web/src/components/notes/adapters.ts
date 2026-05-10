@@ -6,6 +6,15 @@
 import type { EntitySummary, Entity } from "@supernote/ipc";
 import type { Note, Folder } from "./fixtures";
 
+/** Pull the `archivedAt` ISO string out of a fields bag, or null. Tolerates
+ *  legacy `false` / empty-string values (early bug where the field was
+ *  cleared instead of removed) so a note isn't accidentally treated as
+ *  archived because of a stale falsy value. */
+function readArchivedAt(fields: Record<string, unknown> | undefined): string | null {
+  const v = fields?.["archivedAt"];
+  return typeof v === "string" && v.length > 0 ? v : null;
+}
+
 export function entitySummaryToNote(e: EntitySummary): Note {
   const title =
     typeof e.fields["title"] === "string"
@@ -16,9 +25,11 @@ export function entitySummaryToNote(e: EntitySummary): Note {
     title,
     body: "",
     folderPath: folderFromFilePath(e.filePath),
+    filePath: e.filePath,
     updatedAt: e.updatedAt,
     tags: e.tags,
     fields: e.fields,
+    archivedAt: readArchivedAt(e.fields),
   };
 }
 
@@ -32,9 +43,11 @@ export function entityToNote(e: Entity): Note {
     title,
     body: e.body,
     folderPath: folderFromFilePath(e.filePath),
+    filePath: e.filePath,
     updatedAt: e.updatedAt,
     tags: e.tags,
     fields: e.fields,
+    archivedAt: readArchivedAt(e.fields),
   };
 }
 
@@ -71,6 +84,7 @@ export interface FolderMeta {
   path: string;
   color?: string;
   icon?: string;
+  sortOrder?: number;
 }
 
 /**
@@ -92,7 +106,11 @@ export function foldersFromPaths(entries: Array<string | FolderMeta>): Folder[] 
     if (typeof e === "string") {
       if (!byPath.has(e)) byPath.set(e, { path: e });
     } else if (e && typeof e.path === "string") {
-      byPath.set(e.path, e);
+      const meta: FolderMeta = { path: e.path };
+      if (typeof e.color === "string") meta.color = e.color;
+      if (typeof e.icon === "string") meta.icon = e.icon;
+      if (typeof (e as { sortOrder?: unknown }).sortOrder === "number") meta.sortOrder = (e as { sortOrder: number }).sortOrder;
+      byPath.set(e.path, meta);
     }
   }
   const sorted = Array.from(byPath.values()).sort((a, b) =>
@@ -131,6 +149,7 @@ function insertPath(
   if (rest.length === 0) {
     if (entry.color !== undefined) node.color = entry.color;
     if (entry.icon !== undefined) node.icon = entry.icon;
+    if (entry.sortOrder !== undefined) node.sortOrder = entry.sortOrder;
   }
 
   if (rest.length > 0) {

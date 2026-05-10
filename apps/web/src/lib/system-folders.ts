@@ -20,6 +20,13 @@ export const SYSTEM_FOLDER_ROOTS: readonly string[] = [
   "Canvas",
   "Routines",
   "Todos",
+  // `_archive` is the bucket where useArchiveFolder relocates notes when
+  // the user archives a whole folder. Hidden from the FileTree so the
+  // archived subtree never competes visually with active folders, and so
+  // a user-created folder named "_archive" won't be deleted by accident.
+  // The /archive page reads notes by their `archivedAt` field and ignores
+  // filePath, so this hide is purely cosmetic.
+  "_archive",
 ];
 
 /** True when `path` is a system folder root or anything nested under one. */

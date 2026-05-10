@@ -14,12 +14,18 @@ import {
   Sun,
   Users,
   Lightning,
+  Folder,
   type Icon as PhosphorIcon,
 } from "@phosphor-icons/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 
 import { registry } from "@/lib/commands/registry";
 import type { Command as AppCommand } from "@/lib/commands/types";
+import { useDebounce } from "@/hooks/useDebounce";
+import { trpc, isBrowserPwaMode } from "@/lib/trpc/client";
+import { isWorkerReady } from "@/lib/trpc/browser-link";
+import type { SearchResult } from "@supernote/ipc";
 
 // ---------------------------------------------------------------------------
 // Icon resolver — maps seed icon names to Lucide components
@@ -99,6 +105,36 @@ const GROUP_LABELS: Record<string, string> = {
 };
 
 // ---------------------------------------------------------------------------
+// Entity routing — keep in sync with shell/RightPanel and notes/NoteCanvasView
+// ---------------------------------------------------------------------------
+
+function entityHref(entityId: string, typeId: string): string {
+  const t = typeId.toLowerCase();
+  if (t === "personne" || t === "contact") return `/contacts/${entityId}`;
+  if (t === "projet" || t === "project") return `/projets/${entityId}`;
+  if (t === "note") return `/notes/${entityId}`;
+  // Fallback: every entity has a notes-style detail page in the current
+  // routing layout, so /notes/{id} surfaces something useful even for
+  // types without a dedicated route (organisation, ressource, …).
+  return `/notes/${entityId}`;
+}
+
+const ENTITY_TYPE_LABELS: Record<string, string> = {
+  note: "Notes",
+  personne: "Contacts",
+  contact: "Contacts",
+  organisation: "Organisations",
+  projet: "Projets",
+  project: "Projets",
+  ressource: "Ressources",
+  journal: "Journal",
+};
+
+function entityGroupLabel(typeId: string, fallback: string): string {
+  return ENTITY_TYPE_LABELS[typeId.toLowerCase()] ?? fallback;
+}
+
+// ---------------------------------------------------------------------------
 // CommandPalette component
 // ---------------------------------------------------------------------------
 
@@ -109,6 +145,7 @@ interface CommandPaletteProps {
 
 export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const [query, setQuery] = useState("");
+  const router = useRouter();
 
   // Reset query on open
   useEffect(() => {
@@ -117,12 +154,102 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
 
   const allCommands = useMemo(() => registry.list(), [open]);
 
+  // Worker readiness — same gate as /recherche, /notes. Without this the
+  // entity search query rejects with "Vault not initialized" and stays in
+  // an error state forever (retry: false).
+  const [workerReady, setWorkerReady] = useState(() =>
+    typeof window === "undefined" ? false : isWorkerReady(),
+  );
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (isWorkerReady()) setWorkerReady(true);
+    const onReady = () => setWorkerReady(true);
+    window.addEventListener("supernote:vault-ready", onReady);
+    return () => window.removeEventListener("supernote:vault-ready", onReady);
+  }, []);
+
+  // Debounce so we don't hit the worker on every keystroke. 200 ms is short
+  // enough to feel instant, long enough to coalesce a normal typing burst.
+  const debouncedQuery = useDebounce(query, 200);
+  const trimmedQuery = debouncedQuery.trim();
+  const canSearchEntities =
+    open && isBrowserPwaMode() && workerReady && trimmedQuery.length > 0;
+
+  // Reuse search.query (rich SearchResult) — same source as /recherche.
+  const entitySearch = trpc.search.query.useQuery(
+    { query: trimmedQuery, limit: 30, offset: 0 },
+    { enabled: canSearchEntities, retry: false, staleTime: 30_000 },
+  );
+
+  const entityResults = useMemo<SearchResult[]>(() => {
+    if (!canSearchEntities) return [];
+    return (entitySearch.data?.items ?? []) as SearchResult[];
+  }, [canSearchEntities, entitySearch.data]);
+
+  // Diagnostic — surface why the palette is empty when it shouldn't be.
+  // Logs on every state transition so the developer console shows the
+  // chain (workerReady? canSearchEntities? data?.items.length?). Cheap;
+  // can be removed once the integration is confirmed in the wild.
+  useEffect(() => {
+    if (!open || !trimmedQuery) return;
+    console.info("[CommandPalette]", {
+      query: trimmedQuery,
+      isBrowserPwaMode: isBrowserPwaMode(),
+      workerReady,
+      canSearchEntities,
+      isLoading: entitySearch.isLoading,
+      isFetching: entitySearch.isFetching,
+      isError: entitySearch.isError,
+      error: entitySearch.error?.message ?? null,
+      itemsCount: entitySearch.data?.items?.length ?? null,
+      total: entitySearch.data?.total ?? null,
+    });
+  }, [
+    open,
+    trimmedQuery,
+    workerReady,
+    canSearchEntities,
+    entitySearch.isLoading,
+    entitySearch.isFetching,
+    entitySearch.isError,
+    entitySearch.error,
+    entitySearch.data,
+  ]);
+
+  // Group entities by typeId. Most-frequent types first, with a stable
+  // priority order so the layout doesn't jump around as results stream in.
+  const entityGroups = useMemo(() => {
+    const map = new Map<string, { typeName: string; items: SearchResult[] }>();
+    for (const r of entityResults) {
+      const bucket = map.get(r.typeId);
+      if (bucket) bucket.items.push(r);
+      else map.set(r.typeId, { typeName: r.typeName || r.typeId, items: [r] });
+    }
+    const priority = ["note", "personne", "organisation", "projet"];
+    return [...map.entries()].sort(([a], [b]) => {
+      const ai = priority.indexOf(a);
+      const bi = priority.indexOf(b);
+      if (ai !== -1 && bi !== -1) return ai - bi;
+      if (ai !== -1) return -1;
+      if (bi !== -1) return 1;
+      return a.localeCompare(b);
+    });
+  }, [entityResults]);
+
   const handleSelect = useCallback(
     async (cmdId: string) => {
       onClose();
       await registry.execute(cmdId);
     },
     [onClose],
+  );
+
+  const handleEntitySelect = useCallback(
+    (entityId: string, typeId: string) => {
+      onClose();
+      router.push(entityHref(entityId, typeId));
+    },
+    [onClose, router],
   );
 
   if (!open) return null;
@@ -136,6 +263,19 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   }, {});
 
   const groupOrder: string[] = ["creation", "navigation", "view", "tools", "editing", "plugin"];
+
+  // Manual command filter: cmdk's built-in shouldFilter is disabled below
+  // so the entity results (which the worker already filtered server-side)
+  // don't get filtered again client-side. We re-implement the same matching
+  // for commands here so the palette still narrows commands as you type.
+  const cmdQuery = trimmedQuery.toLowerCase();
+  const matchCommand = (cmd: AppCommand): boolean => {
+    if (!cmdQuery) return true;
+    const haystack = [cmd.label, cmd.description ?? "", ...(cmd.keywords ?? [])]
+      .join(" ")
+      .toLowerCase();
+    return haystack.includes(cmdQuery);
+  };
 
   return (
     // Overlay
@@ -164,7 +304,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
         <Command
           label="Command palette"
           loop
-          shouldFilter={true}
+          shouldFilter={false}
           className="flex flex-col"
         >
           {/* Search input */}
@@ -208,21 +348,36 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
               className="py-8 text-center text-sm"
               style={{ color: "var(--text-muted)" }}
             >
-              Aucun résultat pour &ldquo;{query}&rdquo;
+              {canSearchEntities && entitySearch.isFetching && entityResults.length === 0
+                ? "Recherche…"
+                : `Aucun résultat pour "${query}"`}
             </Command.Empty>
 
-            {/* Placeholder sections visible when no query */}
-            {!query && (
-              <>
-                <PlaceholderGroup label="Récents" />
-                <PlaceholderGroup label="Suggestions" />
-              </>
-            )}
+            {/* Entity results — surfaced first when the user is searching, so
+                "leroy merlin" → notes/contacts appear above the (lower-signal)
+                command matches. Hidden when query is empty. */}
+            {trimmedQuery.length > 0 &&
+              entityGroups.map(([typeId, group]) => (
+                <Command.Group
+                  key={`entity-${typeId}`}
+                  heading={entityGroupLabel(typeId, group.typeName)}
+                  className="px-2"
+                >
+                  {group.items.map((r) => (
+                    <EntityCommandItem
+                      key={r.entityId}
+                      result={r}
+                      onSelect={handleEntitySelect}
+                    />
+                  ))}
+                </Command.Group>
+              ))}
 
-            {/* Command groups */}
+            {/* Command groups — always rendered, filtered manually because
+                cmdk's built-in filter is off. */}
             {groupOrder.map((groupKey) => {
-              const cmds = grouped[groupKey];
-              if (!cmds?.length) return null;
+              const cmds = (grouped[groupKey] ?? []).filter(matchCommand);
+              if (!cmds.length) return null;
               return (
                 <Command.Group
                   key={groupKey}
@@ -239,15 +394,6 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
                 </Command.Group>
               );
             })}
-
-            {/* Placeholder sections */}
-            {!query && (
-              <>
-                <PlaceholderGroup label="Notes" items={["Ouvrir une note…"]} />
-                <PlaceholderGroup label="Contacts" items={["Rechercher un contact…"]} />
-                <PlaceholderGroup label="Projets" items={["Rechercher un projet…"]} />
-              </>
-            )}
           </Command.List>
 
           {/* Footer */}
@@ -355,40 +501,63 @@ function CommandItem({
 }
 
 // ---------------------------------------------------------------------------
-// Placeholder group (for sections not yet wired to tRPC)
+// EntityCommandItem
 // ---------------------------------------------------------------------------
 
-function PlaceholderGroup({
-  label,
-  items = [],
+const TYPE_ICON_MAP: Record<string, PhosphorIcon> = {
+  note: FileText,
+  personne: Users,
+  contact: Users,
+  organisation: Folder,
+  projet: Stack,
+  project: Stack,
+  ressource: BookOpen,
+  journal: Calendar,
+};
+
+function EntityCommandItem({
+  result,
+  onSelect,
 }: {
-  label: string;
-  items?: string[];
+  result: SearchResult;
+  onSelect: (entityId: string, typeId: string) => void;
 }) {
-  if (!items.length) {
-    return (
-      <Command.Group heading={label} className="px-2">
-        <div
-          className="px-3 py-2 text-xs italic"
-          style={{ color: "var(--text-muted)" }}
-        >
-          — prochainement —
-        </div>
-      </Command.Group>
-    );
-  }
+  const Icon = TYPE_ICON_MAP[result.typeId.toLowerCase()] ?? FileText;
+  const subtitle = result.excerpts[0] ?? result.filePath;
+  // cmdk needs a unique stable value per item — entityId is guaranteed
+  // unique. Filtering is disabled at the Command root, so the value here
+  // is purely for selection / keyboard nav.
   return (
-    <Command.Group heading={label} className="px-2">
-      {items.map((item) => (
-        <Command.Item
-          key={item}
-          disabled
-          className="px-3 py-2 text-xs"
-          style={{ color: "var(--text-muted)" }}
-        >
-          {item}
-        </Command.Item>
-      ))}
-    </Command.Group>
+    <Command.Item
+      value={`entity:${result.entityId}`}
+      onSelect={() => onSelect(result.entityId, result.typeId)}
+      className="flex cursor-pointer items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors"
+      style={{ color: "var(--text-primary)" }}
+      data-cmd-item
+    >
+      <span
+        data-cmd-icon
+        className="flex h-6 w-6 shrink-0 items-center justify-center rounded"
+        style={{
+          backgroundColor: "var(--surface-2)",
+          color: "var(--text-secondary)",
+        }}
+      >
+        <Icon size={13} />
+      </span>
+      <span className="flex flex-1 flex-col gap-0.5 overflow-hidden">
+        <span className="truncate font-medium leading-tight">
+          {result.title || "Sans titre"}
+        </span>
+        {subtitle && (
+          <span
+            className="truncate text-xs"
+            style={{ color: "var(--text-muted)" }}
+          >
+            {subtitle.replace(/<\/?mark>/g, "")}
+          </span>
+        )}
+      </span>
+    </Command.Item>
   );
 }

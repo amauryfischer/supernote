@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Archive,
   Bell,
   BookOpen,
   Calendar,
@@ -66,6 +67,7 @@ const NAV_GROUPS: NavGroup[] = [
     labelKey: "nav.groups.knowledge",
     items: [
       { labelKey: "nav.notes", icon: FileText, href: "/notes" },
+      { labelKey: "nav.archive", icon: Archive, href: "/archive" },
       { labelKey: "nav.todos", icon: CheckSquare, href: "/todos" },
       { labelKey: "nav.journal", icon: Calendar, href: "/journal" },
       { labelKey: "nav.contacts", icon: Users, href: "/contacts" },
@@ -94,6 +96,10 @@ const NavLink = memo(function NavLink({
   active: boolean;
   label: string;
 }) {
+  // Hover state is applied via direct style mutation on inactive items —
+  // a Tailwind `hover:bg-…` would lose to the inline `color` set below
+  // (inline always beats pseudo-classes), and the active style needs to
+  // remain stable on hover. Same approach as FolderNode in the FileTree.
   return (
     <Link
       href={item.href}
@@ -108,6 +114,18 @@ const NavLink = memo(function NavLink({
             }
           : { color: "var(--text-secondary)" }
       }
+      onMouseEnter={(e) => {
+        if (active) return;
+        const el = e.currentTarget as HTMLAnchorElement;
+        el.style.backgroundColor = "var(--surface-2)";
+        el.style.color = "var(--text-primary)";
+      }}
+      onMouseLeave={(e) => {
+        if (active) return;
+        const el = e.currentTarget as HTMLAnchorElement;
+        el.style.backgroundColor = "";
+        el.style.color = "var(--text-secondary)";
+      }}
     >
       <item.icon size={15} />
       {label}

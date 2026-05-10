@@ -119,7 +119,7 @@ export function entityToContact(entity: EntitySummary | Entity): Contact {
     tags: Array.isArray(entity.tags) ? entity.tags : parseJsonField<string[]>(f["tags"], []),
     aliases,
     social: parseJsonField<SocialLinks>(f["social"], {}),
-    notes: "body" in entity ? entity.body : str(f["notes"]),
+    notes: typeof entity.body === "string" ? entity.body : str(f["notes"]),
     lastInteractionDate: str(f["lastInteractionDate"]) || undefined,
   };
 }

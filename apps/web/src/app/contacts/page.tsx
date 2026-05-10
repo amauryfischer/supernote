@@ -227,6 +227,11 @@ export default function ContactsPage() {
       const matchQ =
         q.length === 0 ||
         c.name.toLowerCase().includes(q) ||
+        // Aliases were absent from the haystack — typing a contact's
+        // nickname (e.g. "LD" for "Linh Dan") returned zero results even
+        // though the contact picker (which goes through MiniSearch on the
+        // worker) handles aliases just fine.
+        (c.aliases ?? []).some((a) => a.toLowerCase().includes(q)) ||
         c.emails.some((e) => e.value.toLowerCase().includes(q)) ||
         c.tags.some((t) => t.toLowerCase().includes(q));
 

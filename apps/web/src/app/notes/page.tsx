@@ -13,12 +13,16 @@ import {
   useCreateFolder,
   useDeleteFolder,
   useRenameFolder,
+  useRenameNote,
+  useArchiveNote,
+  useArchiveFolder,
 } from "@/components/notes/hooks";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useConfirm, usePrompt } from "@/hooks/usePrompt";
 import { folderAccentVars, folderColorFromTree } from "@/lib/folderAccent";
 import { useShellChrome } from "@/components/shell/shell-chrome-context";
+import { useShortcuts } from "@/lib/keyboard";
 
 function NotesPageContent() {
   const router = useRouter();
@@ -50,6 +54,9 @@ function NotesPageContent() {
   const { createFolder } = useCreateFolder();
   const { renameFolder } = useRenameFolder();
   const { deleteFolder } = useDeleteFolder();
+  const { renameNote } = useRenameNote();
+  const { setArchived } = useArchiveNote();
+  const { archiveFolder } = useArchiveFolder();
   const prompt = usePrompt();
   const confirm = useConfirm();
 
@@ -149,6 +156,25 @@ function NotesPageContent() {
     }
   }, [prompt, renameFolder, router]);
 
+  /**
+   * Inline rename — called from `FolderNode` when the user double-clicks on
+   * the folder name and confirms (Enter or blur). Receives the new leaf name.
+   * Preserves the parent path and updates the URL if the renamed folder is
+   * the one currently selected.
+   */
+  const handleRenameFolderInline = useCallback(async (oldPath: string, newName: string) => {
+    const parts = oldPath.split("/");
+    parts[parts.length - 1] = newName;
+    const newPath = parts.join("/");
+    await renameFolder(oldPath, newPath);
+    if (selectedFolderRef.current === oldPath || selectedFolderRef.current?.startsWith(`${oldPath}/`)) {
+      const nextSelected = newPath + (selectedFolderRef.current!.slice(oldPath.length));
+      setSelectedFolder(nextSelected);
+      selectedFolderRef.current = nextSelected;
+      router.push(`/notes?folder=${encodeURIComponent(nextSelected)}`);
+    }
+  }, [renameFolder, router]);
+
   const handleDeleteFolder = useCallback(async (path: string) => {
     const ok = await confirm({
       title: `Supprimer "${path}" ?`,
@@ -171,6 +197,58 @@ function NotesPageContent() {
       console.error("[handleDeleteFolder] failed", err);
     }
   }, [confirm, deleteFolder, router]);
+
+  const handleRenameNote = useCallback(async (id: string, newTitle: string): Promise<void> => {
+    await renameNote(id, newTitle);
+  }, [renameNote]);
+
+  const handleArchiveNote = useCallback(async (id: string, archived: boolean): Promise<void> => {
+    await setArchived(id, archived);
+  }, [setArchived]);
+
+  const handleArchiveFolder = useCallback(async (path: string): Promise<{ archivedCount: number }> => {
+    const ok = await confirm({
+      title: `Archiver "${path}" ?`,
+      description:
+        "Toutes les notes du dossier (et de ses sous-dossiers) seront déplacées dans les archives. Le dossier disparaîtra de l'arborescence — vous pourrez le recréer ou retrouver les notes dans /archive.",
+      confirmLabel: "Archiver",
+    });
+    if (!ok) return { archivedCount: 0 };
+    const result = await archiveFolder(path);
+    if (selectedFolderRef.current === path || selectedFolderRef.current?.startsWith(`${path}/`)) {
+      setSelectedFolder("Inbox");
+      selectedFolderRef.current = "Inbox";
+      router.push(`/notes?folder=${encodeURIComponent("Inbox")}`);
+    }
+    return result;
+  }, [archiveFolder, confirm, router]);
+
+  // Ctrl/Cmd+N → nouvelle note. Marche uniquement en PWA standalone (en
+  // onglet, Chrome verrouille Ctrl+N pour ouvrir une fenêtre — preventDefault
+  // est ignoré). Ctrl+Alt+N est l'alternative jamais interceptée par le
+  // navigateur ; on enregistre les deux pour couvrir les deux modes.
+  useShortcuts([
+    {
+      id: "notes.index.create",
+      keys: "mod+n",
+      scope: "global",
+      description: "Nouvelle note",
+      handler: () => {
+        void handleNewNote(null);
+        return true;
+      },
+    },
+    {
+      id: "notes.index.create-alt",
+      keys: "mod+alt+n",
+      scope: "global",
+      description: "Nouvelle note (alternative onglet navigateur)",
+      handler: () => {
+        void handleNewNote(null);
+        return true;
+      },
+    },
+  ]);
 
   const folderName = selectedFolder
     ? selectedFolder.split("/").pop() ?? selectedFolder
@@ -196,12 +274,18 @@ function NotesPageContent() {
         onNewFolder={handleNewFolder}
         onNewNote={handleNewNote}
         onRenameFolder={handleRenameFolder}
+        onRenameFolderInline={handleRenameFolderInline}
         onDeleteFolder={handleDeleteFolder}
-        notes={allNotes}
+        onArchiveFolder={handleArchiveFolder}
+        // Counts must reflect "active" notes only — archived notes are
+        // hidden from the per-folder view by default and the user reads
+        // the (N) badge to plan where to write next, not to audit history.
+        notes={allNotes.filter((n) => !n.archivedAt)}
       />
 
       <NoteList
         notes={notes}
+        allNotes={allNotes}
         selectedNoteId={null}
         folderName={folderName}
         selectedFolder={selectedFolder}
@@ -211,6 +295,9 @@ function NotesPageContent() {
         errorMessage={errorMessage}
         isFallback={isFallback}
         onNewNote={handleNewNote}
+        onRenameNote={handleRenameNote}
+        onArchiveNote={handleArchiveNote}
+        onRenameFolderInline={handleRenameFolderInline}
       />
 
       <div

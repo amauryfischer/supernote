@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/shell";
 import { parseQuery } from "@supernote/search/query";
 import { isOk } from "@supernote/core";
+import type { SearchResult } from "@supernote/ipc";
 import {
   SearchBar,
   ModeToggle,
@@ -12,21 +13,21 @@ import {
   EmptyState,
   SearchSidebar,
   AstPreview,
-  FIXTURE_RESULTS,
-  ENTITY_TYPE_LABELS,
   type SearchMode,
   type ActiveFilter,
   type SavedSearch,
   type RecentSearch,
 } from "@/components/search";
 import { useDebounce } from "@/hooks/useDebounce";
+import { trpc, isBrowserPwaMode } from "@/lib/trpc/client";
+import { isWorkerReady } from "@/lib/trpc/browser-link";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function groupByType(results: typeof FIXTURE_RESULTS): Map<string, typeof FIXTURE_RESULTS> {
-  const groups = new Map<string, typeof FIXTURE_RESULTS>();
+function groupByType(results: SearchResult[]): Map<string, SearchResult[]> {
+  const groups = new Map<string, SearchResult[]>();
   for (const r of results) {
     const list = groups.get(r.typeId) ?? [];
     list.push(r);
@@ -35,42 +36,32 @@ function groupByType(results: typeof FIXTURE_RESULTS): Map<string, typeof FIXTUR
   return groups;
 }
 
-function applyFilters(
-  results: typeof FIXTURE_RESULTS,
+/**
+ * Client-side filter pass for chips that the worker doesn't (yet) support
+ * natively. `type:` is forwarded to the worker as `typeId`; `tag:` and
+ * `in:` (folder prefix) are applied here on the returned items.
+ *
+ * Excluded terms parsed from the query AST are also stripped client-side —
+ * MiniSearch doesn't expose a NOT operator, so we post-filter the result
+ * set against the title + excerpts haystack. Imperfect (won't catch terms
+ * that only appear in the body outside the excerpt window) but close
+ * enough for the in-list NOT semantics users expect.
+ */
+function applyClientFilters(
+  results: SearchResult[],
   filters: ActiveFilter[],
-): typeof FIXTURE_RESULTS {
-  return results.filter((r) =>
-    filters.every((f) => {
-      switch (f.key) {
-        case "type":
-          return r.typeId === f.value;
-        case "tag":
-          return r.tags.includes(f.value);
-        case "in":
-          return r.filePath.startsWith(f.value);
-        default:
-          return true;
-      }
-    }),
-  );
-}
-
-function applyQuery(
-  results: typeof FIXTURE_RESULTS,
-  query: string,
-): typeof FIXTURE_RESULTS {
-  const q = query.trim().toLowerCase();
-  if (!q) return results;
-
-  const ast = parseQuery(query);
-  const freeWords = isOk(ast) ? ast.value.freeText.map((w) => w.toLowerCase()) : [q];
-  const excluded = isOk(ast) ? ast.value.excluded.map((w) => w.toLowerCase()) : [];
-
+  excluded: string[],
+): SearchResult[] {
   return results.filter((r) => {
-    const haystack = `${r.title} ${r.excerpts.join(" ")} ${r.tags.join(" ")}`.toLowerCase();
-    const hasWords = freeWords.length === 0 || freeWords.some((w) => haystack.includes(w));
-    const hasExcluded = excluded.some((w) => haystack.includes(w));
-    return hasWords && !hasExcluded;
+    for (const f of filters) {
+      if (f.key === "tag" && !r.tags.includes(f.value)) return false;
+      if (f.key === "in" && !r.filePath.startsWith(f.value)) return false;
+    }
+    if (excluded.length > 0) {
+      const haystack = `${r.title} ${r.excerpts.join(" ")} ${r.tags.join(" ")}`.toLowerCase();
+      if (excluded.some((w) => haystack.includes(w))) return false;
+    }
+    return true;
   });
 }
 
@@ -120,20 +111,70 @@ export default function RecherchePage() {
     return [...filters, ...astFilters];
   }, [ast, filters]);
 
-  const filteredResults = useMemo(() => {
-    let results = FIXTURE_RESULTS;
-    results = applyQuery(results, debouncedQuery);
-    results = applyFilters(results, combinedFilters);
+  // Strip filter syntax (type:foo, tag:bar, …) and excluded terms from the
+  // raw query before sending it to the worker. The worker's MiniSearch
+  // doesn't understand the query DSL — passing "type:personne leroy"
+  // verbatim makes it tokenize "type:personne" as a single garbage term.
+  // Excluded terms are post-filtered client-side instead (see
+  // applyClientFilters) since MiniSearch has no NOT operator.
+  const workerQuery = useMemo(() => {
+    if (!ast) return debouncedQuery.trim();
+    return ast.freeText.join(" ").trim();
+  }, [ast, debouncedQuery]);
 
-    // Mode affects ordering simulation
-    if (mode === "semantic") {
-      results = [...results].sort((a, b) => (b.semantic ? 1 : 0) - (a.semantic ? 1 : 0));
-    } else if (mode === "fts") {
-      results = [...results].filter((r) => !r.semantic || Math.random() > 0.5);
-    }
+  const excludedTerms = useMemo(
+    () => (ast?.excluded ?? []).map((w) => w.toLowerCase()),
+    [ast],
+  );
 
-    return results;
-  }, [debouncedQuery, combinedFilters, mode]);
+  // typeFilter forwarded to the worker (it can index by typeId in O(1));
+  // we keep it in combinedFilters for the chip UI but strip it from the
+  // client-side filter pass so we don't double-filter.
+  const typeFilter = useMemo(
+    () => combinedFilters.find((f) => f.key === "type")?.value,
+    [combinedFilters],
+  );
+
+  // Worker readiness gate — same pattern as useNoteList. Listens for the
+  // VAULT_READY event so the search query re-enables the moment the worker
+  // is up, instead of getting stuck in `error: "Vault not initialized"`.
+  const [workerReady, setWorkerReady] = useState(() =>
+    typeof window === "undefined" ? false : isWorkerReady(),
+  );
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (isWorkerReady()) setWorkerReady(true);
+    const onReady = () => setWorkerReady(true);
+    window.addEventListener("supernote:vault-ready", onReady);
+    return () => window.removeEventListener("supernote:vault-ready", onReady);
+  }, []);
+
+  const hasBackend = isBrowserPwaMode();
+  const canQuery = hasBackend && workerReady && workerQuery.length > 0;
+
+  // The worker route returns rich SearchResult[] items already shaped for
+  // the UI. Mode toggle (`fts`/`semantic`/`hybrid`) is wired to the same
+  // endpoint for now — semantic + hybrid stubs return empty in the worker,
+  // so falling back to `search.query` keeps the UI usable until they land.
+  const searchQuery = trpc.search.query.useQuery(
+    {
+      query: workerQuery,
+      typeId: typeFilter,
+      limit: 100,
+      offset: 0,
+    },
+    {
+      enabled: canQuery,
+      retry: false,
+      staleTime: 30_000,
+    },
+  );
+
+  const filteredResults = useMemo<SearchResult[]>(() => {
+    if (!canQuery) return [];
+    const items = (searchQuery.data?.items ?? []) as SearchResult[];
+    return applyClientFilters(items, combinedFilters, excludedTerms);
+  }, [canQuery, searchQuery.data, combinedFilters, excludedTerms]);
 
   const grouped = useMemo(() => groupByType(filteredResults), [filteredResults]);
 
@@ -190,6 +231,7 @@ export default function RecherchePage() {
 
   const hasResults = filteredResults.length > 0;
   const isSearching = debouncedQuery.trim().length > 0 || combinedFilters.length > 0;
+  const isLoading = canQuery && (searchQuery.isLoading || searchQuery.isFetching) && !searchQuery.data;
 
   const orderedTypeIds = TYPE_ORDER.filter((t) => grouped.has(t)).concat(
     [...grouped.keys()].filter((t) => !TYPE_ORDER.includes(t)),
@@ -244,10 +286,22 @@ export default function RecherchePage() {
               </div>
             )}
 
-            {isSearching && hasResults && (
+            {isSearching && (isLoading || hasResults) && (
               <p className="mt-2 text-xs" style={{ color: "var(--text-muted)" }}>
-                {filteredResults.length} resultat{filteredResults.length > 1 ? "s" : ""}
-                {combinedFilters.length > 0 ? ` (${combinedFilters.length} filtre${combinedFilters.length > 1 ? "s" : ""})` : ""}
+                {isLoading
+                  ? "Recherche…"
+                  : `${filteredResults.length} résultat${filteredResults.length > 1 ? "s" : ""}`}
+                {!isLoading && combinedFilters.length > 0
+                  ? ` (${combinedFilters.length} filtre${combinedFilters.length > 1 ? "s" : ""})`
+                  : ""}
+                {searchQuery.data?.durationMs !== undefined && !isLoading
+                  ? ` · ${searchQuery.data.durationMs} ms`
+                  : ""}
+              </p>
+            )}
+            {isSearching && !hasBackend && (
+              <p className="mt-2 text-xs" style={{ color: "var(--text-muted)" }}>
+                Recherche indisponible en mode dégradé (FSA non supporté).
               </p>
             )}
           </div>

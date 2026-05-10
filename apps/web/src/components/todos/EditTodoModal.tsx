@@ -20,6 +20,7 @@ export interface EditTodoValues {
   done: boolean;
   priority: number;
   importance: TodoImportance;
+  startDate: string; // YYYY-MM-DD or "" when unset
   dueDate: string; // YYYY-MM-DD or "" when unset
 }
 
@@ -53,6 +54,7 @@ export function EditTodoModal({
   const [done, setDone] = useState(initial.done);
   const [priority, setPriority] = useState(initial.priority);
   const [importance, setImportance] = useState<TodoImportance>(initial.importance);
+  const [startDate, setStartDate] = useState(initial.startDate);
   const [dueDate, setDueDate] = useState(initial.dueDate);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -65,6 +67,7 @@ export function EditTodoModal({
       setDone(initial.done);
       setPriority(initial.priority);
       setImportance(initial.importance);
+      setStartDate(initial.startDate);
       setDueDate(initial.dueDate);
     }
   }, [open, initial]);
@@ -97,6 +100,7 @@ export function EditTodoModal({
       done,
       priority: clampPriority(priority),
       importance,
+      startDate: startDate.trim(),
       dueDate: dueDate.trim(),
     });
   };
@@ -178,6 +182,31 @@ export function EditTodoModal({
               value={priority}
               onChange={(e) => setPriority(Number(e.target.value) || 5)}
               className="w-full rounded-md px-3 py-2 text-sm tabular-nums outline-none"
+              style={{
+                backgroundColor: "var(--surface-0)",
+                border: "1px solid var(--border-subtle)",
+                color: "var(--text-primary)",
+              }}
+            />
+          </label>
+
+          {/* spacer — keeps importance row below on a full width */}
+          <div />
+        </div>
+
+        <div className="mb-3 grid grid-cols-2 gap-3">
+          <label className="block">
+            <span
+              className="mb-1 block text-xs font-medium"
+              style={{ color: "var(--text-muted)" }}
+            >
+              Début
+            </span>
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className="w-full rounded-md px-3 py-2 text-sm outline-none"
               style={{
                 backgroundColor: "var(--surface-0)",
                 border: "1px solid var(--border-subtle)",

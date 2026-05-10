@@ -260,7 +260,7 @@ export function buildRouter(
     );
   }
 
-  type FolderEntry = { path: string; color?: string; icon?: string };
+  type FolderEntry = { path: string; color?: string; icon?: string; sortOrder?: number };
 
   function readExplicitFolders(): FolderEntry[] {
     const r = row(db.exec(
@@ -283,10 +283,11 @@ export function buildRouter(
           typeof item === "object" &&
           typeof (item as { path?: unknown }).path === "string"
         ) {
-          const o = item as { path: string; color?: unknown; icon?: unknown };
+          const o = item as { path: string; color?: unknown; icon?: unknown; sortOrder?: unknown };
           const entry: FolderEntry = { path: o.path };
           if (typeof o.color === "string" && o.color) entry.color = o.color;
           if (typeof o.icon === "string" && o.icon) entry.icon = o.icon;
+          if (typeof o.sortOrder === "number") entry.sortOrder = o.sortOrder;
           out.push(entry);
         }
       }
@@ -364,9 +365,16 @@ export function buildRouter(
       // Explicit entries override derived ones — they may carry color/icon.
       byPath.set(entry.path, entry);
     }
-    return Array.from(byPath.values()).sort((a, b) =>
-      a.path.localeCompare(b.path),
-    );
+    return Array.from(byPath.values()).sort((a, b) => {
+      // When both entries have a sortOrder, use it; otherwise fall back to
+      // alphabetical. Entries without sortOrder go after those that have one.
+      if (a.sortOrder !== undefined && b.sortOrder !== undefined) {
+        return a.sortOrder - b.sortOrder;
+      }
+      if (a.sortOrder !== undefined) return -1;
+      if (b.sortOrder !== undefined) return 1;
+      return a.path.localeCompare(b.path);
+    });
   }
 
   const foldersList = async (): Promise<FolderEntry[]> => {
@@ -400,6 +408,7 @@ export function buildRouter(
       path?: string;
       color?: string | null;
       icon?: string | null;
+      sortOrder?: number | null;
     };
     const cleaned = sanitizeFolderPath(inp.path ?? "");
     if (!cleaned) throw new Error("Invalid folder path");
@@ -415,6 +424,10 @@ export function buildRouter(
     if (inp.icon !== undefined) {
       if (inp.icon === null || inp.icon === "") delete base.icon;
       else base.icon = inp.icon;
+    }
+    if (inp.sortOrder !== undefined) {
+      if (inp.sortOrder === null) delete base.sortOrder;
+      else base.sortOrder = inp.sortOrder;
     }
 
     if (idx >= 0) explicit[idx] = base;
@@ -709,11 +722,12 @@ export function buildRouter(
   };
 
   const entitiesUpdate = async (input: unknown): Promise<unknown> => {
-    const { id, fields, body, tags } = input as {
+    const { id, fields, body, tags, filePath: rawNextPath } = input as {
       id: string;
       fields?: Record<string, unknown>;
       body?: string;
       tags?: string[];
+      filePath?: string;
     };
     const ts = now();
     const existing = row(db.exec(
@@ -727,6 +741,16 @@ export function buildRouter(
     const newFields = fields ? { ...existingFields, ...fields } : existingFields;
     const newBody = body ?? (existing["body"] as string) ?? "";
 
+    const oldPath = (existing["filePath"] as string) ?? "";
+    // Normalize the requested path: strip ".." segments and leading/trailing
+    // slashes so a malicious caller can't escape the vault root.
+    const cleanedNextPath =
+      typeof rawNextPath === "string"
+        ? rawNextPath.replace(/\.\./g, "").replace(/^\/+|\/+$/g, "").trim()
+        : "";
+    const isMove = cleanedNextPath.length > 0 && cleanedNextPath !== oldPath;
+    const effectivePath = isMove ? cleanedNextPath : oldPath;
+
     // Rewrite the .md file
     const typeRow = row(db.exec(`SELECT name FROM entity_type WHERE id = ?`, [existing["typeId"] ?? null]));
     // See entitiesCreate: top-level keys, no nested `fields:` blob.
@@ -736,13 +760,22 @@ export function buildRouter(
       ...newFields,
     };
     const content = serializeFrontmatter(frontmatter, newBody);
-    const pathSegs = (existing["filePath"] as string).split("/");
-    await writeVaultFile(vaultHandle, pathSegs, content);
+    await writeVaultFile(vaultHandle, effectivePath.split("/"), content);
     const hash = await hashContent(content);
 
+    if (isMove) {
+      // Delete the previous file AFTER writing the new one so a crash mid-
+      // move leaves the content reachable at the old path rather than gone.
+      try {
+        await deleteVaultFile(vaultHandle, oldPath.split("/"));
+      } catch {
+        // Old file may already be gone (e.g. concurrent move) — best-effort.
+      }
+    }
+
     db.run(
-      `UPDATE entity SET fields = ?, body = ?, fileHash = ?, updatedAt = ? WHERE id = ?`,
-      [JSON.stringify(newFields), newBody, hash, ts, id],
+      `UPDATE entity SET fields = ?, body = ?, fileHash = ?, filePath = ?, updatedAt = ? WHERE id = ?`,
+      [JSON.stringify(newFields), newBody, hash, effectivePath, ts, id],
     );
 
     if (tags !== undefined) {
@@ -754,7 +787,7 @@ export function buildRouter(
     miniSearchAdd({
       id,
       typeId: existing["typeId"] as string,
-      title: deriveTitle(JSON.stringify(newFields), existing["filePath"] as string),
+      title: deriveTitle(JSON.stringify(newFields), effectivePath),
       body: newBody,
       tags: (tags ?? []).join(" "),
     });

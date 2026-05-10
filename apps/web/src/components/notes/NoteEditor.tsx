@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { Calendar, Hash, Tag, FloppyDisk, Microphone, Image, Sparkle, X } from "@phosphor-icons/react";
+import { CaretRight, Calendar, Tag, FloppyDisk, Microphone, Image, Sparkle, X } from "@phosphor-icons/react";
+import Link from "next/link";
+import { Fragment } from "react";
 import { TagSelector } from "@/components/tags/TagSelector";
 import { formatRelativeDate, type Note } from "./fixtures";
 import { useUpdateNote } from "./hooks";
@@ -18,8 +20,13 @@ import {
 } from "@/hooks/useAutoTitle";
 import { PromptModal } from "@/components/shell/PromptModal";
 import { isAutoTagEnabled, useAutoTag } from "@/hooks/useAutoTag";
-import { useTodoSync } from "@/hooks/useTodoSync";
 import { AssociatedTodos } from "@/components/todos/AssociatedTodos";
+import { ContextMenu, useContextMenu, type ContextMenuItemDef } from "@supernote/ui";
+import { MoveNoteModal } from "./MoveNoteModal";
+import { useFolderTree, useRenameFolder } from "./hooks";
+import { useRouter } from "next/navigation";
+import { useSettings } from "@/components/settings/SettingsContext";
+import { useDateFormat } from "@/lib/dateFormat";
 
 // Dynamic import to avoid SSR issues — BlockNote uses browser-only APIs
 const SupernoteEditor = dynamic<SupernoteEditorProps>(
@@ -84,6 +91,8 @@ export function NoteEditor({ note }: NoteEditorProps) {
   const [isSuggesting, setIsSuggesting] = useState(false);
   const [aiModalOpen, setAiModalOpen] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
+  // Move-to-folder: opened from the breadcrumb's right-click menu.
+  const [moveModalOpen, setMoveModalOpen] = useState(false);
   // Bumped when the note's body changes externally (e.g. another tab or the
   // /todos page rewriting a checkbox state). Used as part of the editor's
   // `key` so the BlockNote instance fully remounts with the new content —
@@ -102,18 +111,19 @@ export function NoteEditor({ note }: NoteEditorProps) {
   // body and force a BlockNote remount that drops the in-flight keystrokes.
   const lastSavedBodyRef = useRef<string | null>(note.body);
   const editorInsertRef = useRef<((md: string) => void) | null>(null);
+  // Mirror saveStatus into a ref so the external-body guard below can read
+  // the latest status without re-running the effect on every status flip
+  // (which would otherwise re-evaluate the remount decision the moment a
+  // save transitions back to "idle", potentially racing a stale refetch).
+  const saveStatusRef = useRef<SaveStatus>("idle");
 
   const { updateNote } = useUpdateNote();
   const { suggest: suggestTitle, isAvailable: ollamaAvailable } = useAutoTitle();
   const { suggest: suggestTags } = useAutoTag();
-  // Smart-todos pipeline: scans the body for `- [ ]` items, asks the LLM
-  // which ones are real todos, and reconciles them into `todo` entities.
-  // Inert until the user opts in via Settings → IA & Ollama.
-  const { scheduleSync: scheduleTodoSync, flushSync: flushTodoSync } = useTodoSync({
-    id: note.id,
-    title: note.title,
-    fields: note.fields ?? {},
-  });
+  // Notes-derived todos are now pure projections of the markdown — see
+  // `extractChecklists` + `inlineMetadata`. No sync hook, no entity
+  // duplication, no debounced "reconcile" pass to fight against the body
+  // autosave. AssociatedTodos reads `note.body` directly.
   // Existing-tag vocabulary for AI auto-tagging. The Ollama suggester is
   // *constrained* to this list (no new tags invented) — see useAutoTag.ts.
   // Refetched lazily; we read the latest value via a ref inside scheduleAutoTag
@@ -139,6 +149,111 @@ export function NoteEditor({ note }: NoteEditorProps) {
     },
   });
 
+  // User-chosen calendar pattern from Settings → Général → Format de date.
+  // Used to format the "Modifié …" footer below; the relative branch
+  // (Aujourd'hui / Hier / Il y a N jours) ignores it by design.
+  const { settings } = useSettings();
+  const dateFormatPref = settings.general.dateFormat;
+
+  // ── Move-to-folder wiring ──────────────────────────────────────────────────
+  const router = useRouter();
+  const ctxMenu = useContextMenu();
+  const { folders } = useFolderTree();
+  // Flatten the folder tree into a list of full slash-paths for the picker.
+  const folderPaths = useMemo(() => {
+    const out: string[] = [];
+    function walk(nodes: typeof folders) {
+      for (const f of nodes) {
+        out.push(f.path);
+        if (f.children && f.children.length > 0) walk(f.children);
+      }
+    }
+    walk(folders);
+    return out;
+  }, [folders]);
+  const moveMutation = trpc.entities.update.useMutation({
+    onSuccess: () => {
+      // utilsForTags is the same registry as `utils` further down — both
+      // come from the single tRPC react context. Reusing the earlier
+      // reference keeps the move handler self-contained.
+      void utilsForTags.entities.get.invalidate({ id: note.id });
+      void utilsForTags.entities.list.invalidate({ typeId: "note" });
+      void utilsForTags.vault.folders.list.invalidate();
+    },
+  });
+
+  // Inline rename of any breadcrumb segment. Reuses the same vault.folders.rename
+  // mutation as the FileTree — the worker cascades the rename to every nested
+  // .md file, so the open note's filePath updates automatically.
+  const { renameFolder } = useRenameFolder();
+  const handleRenameBreadcrumbFolder = useCallback(
+    async (oldFullPath: string, newName: string) => {
+      const cleaned = newName.trim().replace(/^\/+|\/+$/g, "").replace(/\.\./g, "");
+      if (!cleaned) return;
+      const parts = oldFullPath.split("/");
+      parts[parts.length - 1] = cleaned;
+      const newFullPath = parts.join("/");
+      if (newFullPath === oldFullPath) return;
+      try {
+        await renameFolder(oldFullPath, newFullPath);
+        // Sync the URL so `?folder=…` no longer points at a defunct path.
+        // The note itself is already at its new filePath thanks to the worker
+        // cascade — query invalidations refresh the editor view.
+        if (
+          note.folderPath === oldFullPath ||
+          note.folderPath.startsWith(`${oldFullPath}/`)
+        ) {
+          const nextFolder =
+            newFullPath + note.folderPath.slice(oldFullPath.length);
+          router.replace(
+            `/notes/${note.id}?folder=${encodeURIComponent(nextFolder)}`,
+          );
+        }
+      } catch (err) {
+        console.error("[NoteEditor.handleRenameBreadcrumbFolder] failed", err);
+      }
+    },
+    [note.id, note.folderPath, renameFolder, router],
+  );
+  const handleConfirmMove = useCallback(
+    async (nextFolder: string) => {
+      setMoveModalOpen(false);
+      if (nextFolder === note.folderPath) return;
+      // Falls back to a slugified title when filePath is absent (demo mode).
+      // In real PWA usage `note.filePath` is always present from the worker.
+      const filename =
+        note.filePath?.split("/").pop() ??
+        `${note.title.toLowerCase().replace(/\s+/g, "-").slice(0, 80) || "sans-titre"}.md`;
+      const nextFilePath = `${nextFolder}/${filename}`;
+      try {
+        await moveMutation.mutateAsync({ id: note.id, filePath: nextFilePath });
+        showToast(`Note déplacée dans ${nextFolder}`);
+        // Sync the URL so the FileTree highlight follows the note. We replace
+        // (not push) — the user's history stack stays meaningful.
+        router.replace(`/notes/${note.id}?folder=${encodeURIComponent(nextFolder)}`);
+      } catch (err) {
+        showToast(
+          `Erreur lors du déplacement : ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    },
+    [note.id, note.filePath, note.folderPath, moveMutation, router],
+  );
+  const openBreadcrumbContextMenu = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      const items: ContextMenuItemDef[] = [
+        {
+          key: "move",
+          label: "Déplacer dans un autre dossier…",
+          onPress: () => setMoveModalOpen(true),
+        },
+      ];
+      ctxMenu.open(e, items);
+    },
+    [ctxMenu],
+  );
+
   // Reset state when switching to a different note. We key on `note.id` only
   // so a tRPC re-fetch of the *same* note (after auto-save) doesn't wipe the
   // AI badges or clobber the unsaved local title/body the user is mid-edit.
@@ -161,35 +276,49 @@ export function NoteEditor({ note }: NoteEditorProps) {
   // bump `externalBodyVersion` to force BlockNote to remount with the new
   // content (BlockNote's `initialContent` is read only at mount).
   useEffect(() => {
+    // While the user is mid-edit (debounce armed OR a save in flight) any
+    // "external" body must be stale by definition — the worker can't have a
+    // newer copy than what's already in `bodyRef`. Skipping the remount here
+    // is what prevents the keystrokes-jumping-back symptom: without this
+    // guard, a tag-update (or any concurrent invalidation of `entities.get`)
+    // refetched the note with the previously-saved body, which differed from
+    // what the user had just typed, and we forced BlockNote to remount with
+    // that stale content — losing every in-flight keystroke.
+    if (debounceRef.current !== null) return;
+    if (saveStatusRef.current === "saving") return;
     // Echo of our own save — the user may have kept typing meanwhile, so
     // bodyRef can legitimately diverge from note.body. Don't remount.
     if (note.body === lastSavedBodyRef.current) return;
+    // Tolerate trivial round-trip diffs (trailing newline / whitespace) that
+    // SQLite/markdown serialization layers can introduce. Remounting on
+    // those would still drop the cursor for no semantic reason.
+    if (note.body.trimEnd() === (lastSavedBodyRef.current ?? "").trimEnd()) {
+      lastSavedBodyRef.current = note.body;
+      return;
+    }
     if (note.body !== bodyRef.current) {
       bodyRef.current = note.body;
       setExternalBodyVersion((v) => v + 1);
     }
   }, [note.body]);
 
-  // Cleanup timers on unmount + flush any pending body save AND todo sync so
-  // navigating away from the note (e.g. straight to /todos) doesn't drop the
-  // latest checkbox toggle on the floor.
+  useEffect(() => {
+    saveStatusRef.current = saveStatus;
+  }, [saveStatus]);
+
+  // Cleanup timers on unmount + flush any pending body save so navigating
+  // away from the note doesn't drop the latest keystrokes on the floor.
   useEffect(() => {
     return () => {
       if (autoTitleTimer.current) clearTimeout(autoTitleTimer.current);
       if (autoTagTimer.current) clearTimeout(autoTagTimer.current);
-      // Body autosave: if the debounce hasn't fired yet, flush it now so
-      // the markdown change is persisted before we leave.
       if (debounceRef.current) {
         clearTimeout(debounceRef.current);
         debounceRef.current = null;
         void updateNote(note.id, titleRef.current, bodyRef.current);
       }
-      // Todo reconcile pass — runs on the in-memory body even if the
-      // server-side save above is still inflight (the todo entity's `done`
-      // field is independent from the note's body column).
-      void flushTodoSync();
     };
-  }, [flushTodoSync, updateNote, note.id]);
+  }, [updateNote, note.id]);
 
   const transcribeAudio = trpc.system.transcribeAudio.useMutation();
   const ocrImage = trpc.system.ocrImage.useMutation();
@@ -241,9 +370,18 @@ export function NoteEditor({ note }: NoteEditorProps) {
       if (debounceRef.current) clearTimeout(debounceRef.current);
       setSaveStatus("saving");
       debounceRef.current = setTimeout(async () => {
+        // Clear the debounce ref so the external-body guard knows no save
+        // is currently armed. We're committed to this run from here on.
+        debounceRef.current = null;
+        // Optimistically mark this body as "ours" BEFORE awaiting the
+        // mutation. The vault tRPC link runs in a Web Worker — the refetch
+        // triggered by `entities.get.invalidate` inside `useUpdateNote.onSuccess`
+        // can land in the same microtask burst as the resolved mutation, so
+        // setting the ref *after* the await loses the race and forces a
+        // BlockNote remount that eats keystrokes.
+        lastSavedBodyRef.current = markdown;
         try {
           await updateNote(note.id, updatedTitle, markdown);
-          lastSavedBodyRef.current = markdown;
           setSaveStatus("saved");
           setTimeout(() => setSaveStatus("idle"), 2000);
         } catch {
@@ -366,11 +504,8 @@ export function NoteEditor({ note }: NoteEditorProps) {
       triggerAutoSave(markdown, title);
       scheduleAutoTitle(markdown);
       scheduleAutoTag(markdown);
-      // Todo extraction runs on its own debounce (1.5s). Pure scrape +
-      // heuristic filter — no LLM call, no opt-in toggle.
-      scheduleTodoSync(markdown);
     },
-    [triggerAutoSave, title, scheduleAutoTitle, scheduleAutoTag, scheduleTodoSync],
+    [triggerAutoSave, title, scheduleAutoTitle, scheduleAutoTag],
   );
 
   const handleTitleChange = useCallback(
@@ -389,22 +524,22 @@ export function NoteEditor({ note }: NoteEditorProps) {
 
   const handleManualSave = useCallback(
     async (md: string) => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+        debounceRef.current = null;
+      }
       setSaveStatus("saving");
+      lastSavedBodyRef.current = md;
       try {
         await updateNote(note.id, title, md);
-        lastSavedBodyRef.current = md;
         setSaveStatus("saved");
         setTimeout(() => setSaveStatus("idle"), 2000);
-        // Run todo extraction *after* the body has been persisted, otherwise
-        // the cache write would race the body write and could clobber it.
-        void flushTodoSync();
       } catch {
         setSaveStatus("error");
         setTimeout(() => setSaveStatus("idle"), 3000);
       }
     },
-    [note.id, title, updateNote, flushTodoSync],
+    [note.id, title, updateNote],
   );
 
   const insertMarkdown = useCallback((md: string) => {
@@ -536,13 +671,6 @@ export function NoteEditor({ note }: NoteEditorProps) {
     [insertMarkdown, ocrImage, transcribeAudio],
   );
 
-  const date = new Date(note.updatedAt).toLocaleDateString("fr-FR", {
-    weekday: "long",
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
-
   const isDropping = dropStatus === "audio-over" || dropStatus === "image-over";
 
   return (
@@ -590,6 +718,11 @@ export function NoteEditor({ note }: NoteEditorProps) {
 
       {/* Header */}
       <div className="px-10 py-6" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
+        <FolderBreadcrumb
+          path={note.folderPath}
+          onContextMenu={openBreadcrumbContextMenu}
+          onRenameFolder={handleRenameBreadcrumbFolder}
+        />
         <div className="flex items-center gap-2">
           <input
             type="text"
@@ -630,18 +763,15 @@ export function NoteEditor({ note }: NoteEditorProps) {
         </div>
 
         <div className="mt-3 flex flex-wrap items-center gap-4">
-          <div className="flex items-center gap-1.5">
-            <Calendar size={13} style={{ color: "var(--text-muted)" }} />
-            <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-              {date}
-            </span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <Hash size={13} style={{ color: "var(--text-muted)" }} />
-            <span className="text-xs capitalize" style={{ color: "var(--text-muted)" }}>
-              {note.folderPath}
-            </span>
-          </div>
+          <EditableNoteDate
+            noteId={note.id}
+            fallbackDate={note.updatedAt}
+            customDate={
+              typeof note.fields?.["noteDate"] === "string"
+                ? (note.fields["noteDate"] as string)
+                : null
+            }
+          />
           <NoteTagsInput
             noteId={note.id}
             tags={tags}
@@ -672,10 +802,9 @@ export function NoteEditor({ note }: NoteEditorProps) {
             onEditorReady={(insert) => { editorInsertRef.current = insert; }}
           />
         </div>
-        {/* Read-only summary of todos extracted from this note. Hidden when the
-            note has no associated todo entities (no extra fetch cost — the
-            list is cached/shared with the /todos page). */}
-        <AssociatedTodos noteId={note.id} />
+        {/* Read-only summary of todos extracted from this note. Pure
+            projection of the markdown body — no extra fetch, no entities. */}
+        <AssociatedTodos noteId={note.id} body={note.body} />
       </div>
 
       {/* Footer */}
@@ -684,12 +813,21 @@ export function NoteEditor({ note }: NoteEditorProps) {
         style={{ borderTop: "1px solid var(--border-subtle)" }}
       >
         <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-          Modifie {formatRelativeDate(note.updatedAt).toLowerCase()}
+          Modifié {formatRelativeDate(note.updatedAt, dateFormatPref).toLowerCase()}
         </span>
         <span className="text-xs" style={{ color: "var(--text-muted)" }}>
           Glissez un fichier audio ou image pour transcrire / OCR
         </span>
       </div>
+
+      <MoveNoteModal
+        open={moveModalOpen}
+        folders={folderPaths}
+        currentFolder={note.folderPath}
+        onConfirm={(next) => void handleConfirmMove(next)}
+        onCancel={() => setMoveModalOpen(false)}
+      />
+      <ContextMenu state={ctxMenu.state} onClose={ctxMenu.close} />
     </div>
   );
 }
@@ -795,6 +933,338 @@ function EditorSkeleton() {
 // the user picks from the canonical hierarchical tree (rather than typing).
 // Each mutation persists via `entities.update({tags})` and invalidates both
 // the note-detail query and the notes list so the metadata refreshes.
+
+// ── Folder breadcrumb ─────────────────────────────────────────────────────────
+//
+// Path crumbs sitting just above the title — each segment is a link back to
+// /notes filtered on that subtree, so the user can jump up the hierarchy
+// without leaving the keyboard.
+
+interface FolderBreadcrumbProps {
+  path: string;
+  /** Right-click handler — typically opens a context menu with a
+   *  "Move note to another folder…" entry. Bound on the whole nav so the
+   *  user can right-click any segment OR the empty area. */
+  onContextMenu?: (e: React.MouseEvent) => void;
+  /** Inline-rename callback. Receives the FULL old path (cumulative up to the
+   *  edited segment) and the NEW leaf name. The parent computes the new full
+   *  path and calls `vault.folders.rename`. */
+  onRenameFolder?: (oldPath: string, newName: string) => Promise<void> | void;
+}
+
+function FolderBreadcrumb({
+  path,
+  onContextMenu,
+  onRenameFolder,
+}: FolderBreadcrumbProps) {
+  const segments = path.split("/").filter((s) => s.length > 0);
+  // editingIndex must always be declared (hook order); guard the early-return
+  // on segments below it.
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  if (segments.length === 0) return null;
+  const crumbs = segments.map((label, i) => ({
+    label,
+    cumulativePath: segments.slice(0, i + 1).join("/"),
+    href: `/notes?folder=${encodeURIComponent(segments.slice(0, i + 1).join("/"))}`,
+    isLast: i === segments.length - 1,
+  }));
+
+  const beginEdit = (i: number) => {
+    if (!onRenameFolder) return;
+    setEditingIndex(i);
+  };
+  const commit = async (i: number, value: string) => {
+    setEditingIndex(null);
+    const trimmed = value.trim().replace(/^\/+|\/+$/g, "").replace(/\.\./g, "");
+    const old = crumbs[i]?.label ?? "";
+    if (!trimmed || trimmed === old || !onRenameFolder) return;
+    try {
+      await onRenameFolder(crumbs[i]!.cumulativePath, trimmed);
+    } catch {
+      /* parent surfaces the error toast — nothing more to do here */
+    }
+  };
+
+  return (
+    <nav
+      aria-label="Dossier"
+      className="mb-2 flex flex-wrap items-center gap-0.5 text-xs"
+      style={{ color: "var(--text-muted)" }}
+      onContextMenu={onContextMenu}
+      title={
+        onContextMenu
+          ? "Clic droit pour déplacer la note · double-clic sur un dossier pour le renommer"
+          : undefined
+      }
+    >
+      {crumbs.map((c, i) => (
+        <Fragment key={c.href}>
+          {i > 0 && (
+            <CaretRight
+              size={11}
+              weight="bold"
+              style={{ opacity: 0.4 }}
+            />
+          )}
+          {editingIndex === i ? (
+            <BreadcrumbRenameInput
+              initialValue={c.label}
+              onCommit={(v) => void commit(i, v)}
+              onCancel={() => setEditingIndex(null)}
+            />
+          ) : c.isLast ? (
+            // Single click on the current folder → edit (analogous to the
+            // always-editable note title input above). Keeps the segment
+            // visually inert until the user actually clicks it.
+            <button
+              type="button"
+              onClick={() => beginEdit(i)}
+              onDoubleClick={() => beginEdit(i)}
+              className="cursor-text rounded px-1 py-0.5 capitalize transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--text-primary)]"
+              style={{ color: "var(--text-secondary)", fontWeight: 500 }}
+              title={onRenameFolder ? "Cliquer pour renommer" : undefined}
+            >
+              {c.label}
+            </button>
+          ) : (
+            // Parent segments keep navigation on single-click; double-click
+            // opens the inline rename so the user can rename ancestors too.
+            <Link
+              href={c.href}
+              onDoubleClick={(e) => {
+                e.preventDefault();
+                beginEdit(i);
+              }}
+              className="rounded px-1 py-0.5 capitalize transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--text-primary)]"
+              title={onRenameFolder ? "Double-clic pour renommer" : undefined}
+            >
+              {c.label}
+            </Link>
+          )}
+        </Fragment>
+      ))}
+    </nav>
+  );
+}
+
+interface BreadcrumbRenameInputProps {
+  initialValue: string;
+  onCommit: (value: string) => void;
+  onCancel: () => void;
+}
+
+function BreadcrumbRenameInput({
+  initialValue,
+  onCommit,
+  onCancel,
+}: BreadcrumbRenameInputProps) {
+  const [value, setValue] = useState(initialValue);
+  const ref = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    ref.current?.focus();
+    ref.current?.select();
+  }, []);
+  return (
+    <input
+      ref={ref}
+      type="text"
+      value={value}
+      onChange={(e) => setValue(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          onCommit(value);
+        } else if (e.key === "Escape") {
+          e.preventDefault();
+          onCancel();
+        }
+      }}
+      onBlur={() => onCommit(value)}
+      // Single accent border + soft drop shadow for depth. `outline: none`
+      // is set inline (not via Tailwind) because globals.css has a global
+      // `:focus-visible { outline: 2px solid var(--accent) }` rule that
+      // wins over Tailwind utilities — without the inline override, the
+      // input rendered with both a border AND a focus outline (the user's
+      // "double border" report).
+      className="rounded border px-2 py-0.5 text-xs font-medium capitalize"
+      style={{
+        color: "var(--text-primary)",
+        backgroundColor: "var(--surface-0)",
+        borderColor: "var(--accent)",
+        boxShadow: "0 1px 4px rgba(0,0,0,0.08)",
+        outline: "none",
+        minWidth: `${Math.max(value.length, 4) + 1}ch`,
+      }}
+      aria-label="Renommer le dossier"
+    />
+  );
+}
+
+// ── Editable note date ────────────────────────────────────────────────────────
+//
+// Displays the note's date (custom override stored in `fields.noteDate`,
+// falling back to the auto-managed `updatedAt`). Click to backdate via a
+// native date picker, with a "Réinitialiser" link to drop the override
+// and fall back to the modification time. Persists silently in
+// `entities.update({fields:{noteDate}})`.
+
+interface EditableNoteDateProps {
+  noteId: string;
+  /** ISO datetime — auto-managed by the worker; used when no override is set. */
+  fallbackDate: string;
+  /** ISO YYYY-MM-DD or null. When set, displayed instead of fallbackDate. */
+  customDate: string | null;
+}
+
+// Note: the header date pill now uses the user's preferred calendar pattern
+// via `useDateFormat()` inside EditableNoteDate. The previous fr-FR-only
+// long-form ("mardi 12 mai 2025") is gone — the setting from Paramètres
+// → Général is the single source of truth.
+
+/** Convert any ISO-ish input to "YYYY-MM-DD" for the native date input. */
+function toDateInputValue(iso: string | null): string {
+  if (!iso) return "";
+  // Already a calendar date — accept as-is.
+  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  // Pad month/day to 2 digits without timezone surprises.
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function EditableNoteDate({
+  noteId,
+  fallbackDate,
+  customDate,
+}: EditableNoteDateProps) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(() => toDateInputValue(customDate ?? fallbackDate));
+  const inputRef = useRef<HTMLInputElement>(null);
+  const utils = trpc.useUtils();
+  const { full: formatFull } = useDateFormat();
+  const mutation = trpc.entities.update.useMutation({
+    onSuccess: () => {
+      void utils.entities.get.invalidate({ id: noteId });
+      void utils.entities.list.invalidate({ typeId: "note" });
+    },
+  });
+
+  // Re-seed the draft whenever the user opens the editor — they may have
+  // changed something elsewhere (or we may be re-opening for a different
+  // note) and we don't want to flash an obsolete value.
+  useEffect(() => {
+    if (editing) {
+      setDraft(toDateInputValue(customDate ?? fallbackDate));
+      const id = requestAnimationFrame(() => inputRef.current?.focus());
+      return () => cancelAnimationFrame(id);
+    }
+    return undefined;
+  }, [editing, customDate, fallbackDate]);
+
+  const displaySource = customDate ?? fallbackDate;
+  const displayLabel = formatFull(displaySource);
+  const isOverridden = !!customDate;
+
+  const commit = useCallback(
+    async (nextValue: string | null) => {
+      setEditing(false);
+      // No-op when nothing actually changed.
+      const current = customDate ?? "";
+      const target = nextValue ?? "";
+      if (current === target) return;
+      try {
+        await mutation.mutateAsync({
+          id: noteId,
+          fields: { noteDate: target || null },
+        });
+      } catch {
+        /* silent — the date stays at its previous value */
+      }
+    },
+    [customDate, mutation, noteId],
+  );
+
+  if (editing) {
+    return (
+      <div className="flex items-center gap-1.5">
+        <Calendar size={13} style={{ color: "var(--accent)" }} />
+        <input
+          ref={inputRef}
+          type="date"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              void commit(draft || null);
+            } else if (e.key === "Escape") {
+              e.preventDefault();
+              setEditing(false);
+            }
+          }}
+          className="bg-transparent text-xs outline-none"
+          style={{
+            color: "var(--text-primary)",
+            border: "1px solid var(--border-subtle)",
+            borderRadius: "0.25rem",
+            padding: "0.125rem 0.375rem",
+          }}
+          aria-label="Modifier la date affichée"
+        />
+        <button
+          type="button"
+          onClick={() => void commit(draft || null)}
+          className="text-[10px] font-medium uppercase tracking-wide"
+          style={{ color: "var(--accent)" }}
+          title="Enregistrer (Entrée)"
+        >
+          OK
+        </button>
+        {isOverridden && (
+          <button
+            type="button"
+            onClick={() => void commit(null)}
+            className="text-[10px] underline"
+            style={{ color: "var(--text-muted)" }}
+            title="Réinitialiser à la date de modification"
+          >
+            Réinitialiser
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => setEditing(true)}
+      className="flex items-center gap-1.5 rounded px-1 py-0.5 transition-colors hover:bg-[var(--surface-2)]"
+      title={
+        isOverridden
+          ? "Date personnalisée — clic pour modifier (sera réinitialisée à la date de modif si vidée)"
+          : "Clic pour fixer une date personnalisée"
+      }
+    >
+      <Calendar
+        size={13}
+        style={{ color: isOverridden ? "var(--accent)" : "var(--text-muted)" }}
+      />
+      <span
+        className="text-xs"
+        style={{
+          color: isOverridden ? "var(--text-secondary)" : "var(--text-muted)",
+          fontWeight: isOverridden ? 500 : 400,
+        }}
+      >
+        {displayLabel}
+      </span>
+    </button>
+  );
+}
 
 interface NoteTagsInputProps {
   noteId: string;

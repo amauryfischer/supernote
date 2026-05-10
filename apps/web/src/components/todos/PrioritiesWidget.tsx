@@ -6,6 +6,9 @@
  * Surfaces the same shortlist the user gets when they click "Urgentes" on
  * the /todos page (importance=critical OR priority<=3, undone only). Capped
  * at 5 rows to keep the panel compact; clicking a row deep-links to /todos.
+ *
+ * Source: pure projection of every note's markdown body (notes-derived
+ * todos) merged with standalone `todo` entities. Same model as /todos.
  */
 
 import Link from "next/link";
@@ -13,8 +16,11 @@ import { useMemo } from "react";
 import { Warning } from "@phosphor-icons/react";
 import { trpc } from "@/lib/trpc/client";
 import { TODO_TYPE_ID } from "@/hooks/useTodoSync";
+import { extractChecklists } from "@/lib/todos/extractChecklists";
+import { filterChecklistsHeuristic } from "@/lib/todos/heuristicFilter";
 import { importanceColor } from "./TodoRow";
 import type { TodoImportance } from "./TodoRow";
+import { InlineMarkdown } from "@/lib/inlineMarkdown";
 
 const MAX_ROWS = 5;
 
@@ -46,45 +52,70 @@ function parsePriority(v: unknown): number {
 }
 
 export function PrioritiesWidget() {
+  const notesQuery = trpc.entities.list.useQuery(
+    { typeId: "note", limit: 5000, offset: 0 },
+    { staleTime: 60_000, retry: false },
+  );
   const todosQuery = trpc.entities.list.useQuery(
-    { typeId: TODO_TYPE_ID, limit: 1000, offset: 0 },
-    { staleTime: 30_000, retry: false },
+    { typeId: TODO_TYPE_ID, limit: 5000, offset: 0 },
+    { staleTime: 60_000, retry: false },
   );
 
   const rows = useMemo<MiniRow[]>(() => {
-    const items = todosQuery.data?.items ?? [];
-    return items
-      .filter((e) => {
-        const f = e.fields ?? {};
-        const done = f["done"] === true || f["done"] === "true";
-        if (done) return false;
-        const importance = parseImportance(f["importance"]);
-        const priority = parsePriority(f["priority"]);
-        return importance === "critical" || priority <= 3;
-      })
-      .map((e) => {
-        const f = e.fields ?? {};
-        return {
-          id: e.id,
-          text: typeof f["text"] === "string" ? (f["text"] as string) : "(sans texte)",
-          priority: parsePriority(f["priority"]),
-          importance: parseImportance(f["importance"]),
-          sourceNoteId:
-            typeof f["sourceNoteId"] === "string" && f["sourceNoteId"]
-              ? (f["sourceNoteId"] as string)
-              : null,
-        };
-      })
+    const collected: MiniRow[] = [];
+
+    // Notes-derived rows.
+    for (const n of notesQuery.data?.items ?? []) {
+      const body = typeof n.body === "string" ? n.body : "";
+      if (!body || !body.includes("[")) continue;
+      const items = extractChecklists(body);
+      if (items.length === 0) continue;
+      const kept = filterChecklistsHeuristic(body, items);
+      for (const it of kept) {
+        if (it.done) continue;
+        const isUrgent = it.importance === "critical" || it.priority <= 3;
+        if (!isUrgent) continue;
+        collected.push({
+          id: `note:${n.id}:${it.blockId}`,
+          text: it.text,
+          priority: it.priority,
+          importance: it.importance,
+          sourceNoteId: n.id,
+        });
+      }
+    }
+
+    // Standalone entities.
+    for (const e of todosQuery.data?.items ?? []) {
+      const f = e.fields ?? {};
+      const sn = f["sourceNoteId"];
+      // Skip legacy note-derived entities — covered by the projection above
+      // (or pending migration). Otherwise the widget would double-count.
+      if (typeof sn === "string" && sn) continue;
+      const done = f["done"] === true || f["done"] === "true";
+      if (done) continue;
+      const importance = parseImportance(f["importance"]);
+      const priority = parsePriority(f["priority"]);
+      if (!(importance === "critical" || priority <= 3)) continue;
+      collected.push({
+        id: e.id,
+        text: typeof f["text"] === "string" ? (f["text"] as string) : "(sans texte)",
+        priority,
+        importance,
+        sourceNoteId: null,
+      });
+    }
+
+    return collected
       .sort((a, b) => {
-        // Critical importance always wins; then by priority ascending.
         if (a.importance === "critical" && b.importance !== "critical") return -1;
         if (a.importance !== "critical" && b.importance === "critical") return 1;
         return a.priority - b.priority;
       })
       .slice(0, MAX_ROWS);
-  }, [todosQuery.data]);
+  }, [notesQuery.data, todosQuery.data]);
 
-  if (todosQuery.isError) return null;
+  if (notesQuery.isError && todosQuery.isError) return null;
 
   return (
     <div className="flex flex-col gap-1 p-3">
@@ -134,7 +165,7 @@ export function PrioritiesWidget() {
               className="flex-1 truncate text-xs"
               style={{ color: "var(--text-primary)" }}
             >
-              {row.text}
+              <InlineMarkdown text={row.text} />
             </span>
           </Link>
         ))

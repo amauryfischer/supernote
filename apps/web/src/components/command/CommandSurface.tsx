@@ -78,18 +78,9 @@ export function CommandSurface() {
     },
   });
 
-  // Cmd+N — new note shortcut
-  useShortcut({
-    id: "shortcut.note.create",
-    keys: "mod+n",
-    scope: "global",
-    description: "Nouvelle note",
-    handler: () => {
-      const cmd = SEED_COMMANDS.find((c) => c.id === "note.create");
-      if (cmd) void cmd.run();
-      return true;
-    },
-  });
+  // Cmd+N — handled inside the notes view (see /notes & /notes/[id]) so it
+  // can call the real `handleNewNote` with the active folder. Registering it
+  // globally here would shadow the per-page handler (first-match-wins).
 
   // Cmd+D — daily note shortcut
   useShortcut({

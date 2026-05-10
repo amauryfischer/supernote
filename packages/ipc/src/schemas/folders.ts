@@ -49,6 +49,7 @@ export const UpdateFolderInput = z.object({
   path: FolderPath,
   color: z.string().nullish(),
   icon: z.string().nullish(),
+  sortOrder: z.number().nullish(),
 });
 export type UpdateFolderInput = z.infer<typeof UpdateFolderInput>;
 
@@ -65,6 +66,7 @@ export const FolderSchema = z.object({
   path: FolderPath,
   color: z.string().optional(),
   icon: z.string().optional(),
+  sortOrder: z.number().optional(),
 });
 export type FolderSchema = z.infer<typeof FolderSchema>;
 

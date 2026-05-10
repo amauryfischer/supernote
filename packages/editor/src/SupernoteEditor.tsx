@@ -20,6 +20,10 @@ import {
 import type { EntityLinkItemConfig } from "./extensions/slashMenu.js";
 import { createSaveExtension } from "./extensions/saveShortcut.js";
 import { attachCheckShortcut } from "./extensions/checkShortcut.js";
+import {
+  attachContinueChecklistOnEnter,
+  enterTagExtension,
+} from "./extensions/continueChecklistOnEnter.js";
 import type { SupernoteEditorProps } from "./types.js";
 
 /** Main Supernote rich-text editor */
@@ -89,7 +93,7 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
       initialContent: initialBlocks,
       dictionary,
       _tiptapOptions: {
-        extensions: [createSaveExtension(handleSave)],
+        extensions: [createSaveExtension(handleSave), enterTagExtension],
       },
     },
     []
@@ -101,6 +105,15 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
   // commands, leaving the type swap as a silent no-op.
   useEffect(() => {
     return attachCheckShortcut(editor as unknown as Parameters<typeof attachCheckShortcut>[0]);
+  }, [editor]);
+
+  // Pressing Enter inside a checkListItem produces another checkListItem
+  // instead of a plain paragraph. Same post-commit watcher pattern as the
+  // `x ` shortcut above so we don't fight BlockNote's transaction lifecycle.
+  useEffect(() => {
+    return attachContinueChecklistOnEnter(
+      editor as unknown as Parameters<typeof attachContinueChecklistOnEnter>[0],
+    );
   }, [editor]);
 
   // Wire up onChange

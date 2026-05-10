@@ -9,7 +9,7 @@
  */
 
 import { Outlet } from "react-router-dom";
-import { ThemeProvider } from "@supernote/ui";
+import { ThemeProvider, ToastProvider } from "@supernote/ui";
 import { NotificationsProvider } from "@supernote/notifications/renderer";
 import { TrpcProvider } from "@/lib/trpc/Provider";
 import { LocaleProvider } from "@/i18n/LocaleProvider";
@@ -21,14 +21,17 @@ import { VaultInitBanner } from "@/lib/vault/VaultInitBanner";
 import { PwaBootstrap } from "@/lib/pwa/PwaBootstrap";
 import { PwaVaultSetup } from "@/lib/pwa/PwaVaultSetup";
 import { PromptProvider } from "@/hooks/usePrompt";
+import { SettingsProvider } from "@/components/settings/SettingsContext";
 
 export function RootLayout() {
   return (
     <ThemeProvider defaultTheme="light" storageKey="supernote-theme">
+      <ToastProvider>
       <NotificationsProvider>
         <TrpcProvider>
           <LocaleProvider>
             <ShortcutProvider>
+              <SettingsProvider>
               <PromptProvider>
                 {/* Global top-of-viewport navigation progress bar */}
                 <NavProgress />
@@ -45,10 +48,12 @@ export function RootLayout() {
                   <Outlet />
                 </PwaVaultSetup>
               </PromptProvider>
+              </SettingsProvider>
             </ShortcutProvider>
           </LocaleProvider>
         </TrpcProvider>
       </NotificationsProvider>
+      </ToastProvider>
     </ThemeProvider>
   );
 }

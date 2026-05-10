@@ -90,6 +90,15 @@
   align-items: flex-start;
   gap: 0.5rem;
   line-height: 1.5;
+  /* BlockNote wraps this in a flex container (`.bn-block-content`) that
+   * doesn't auto-grow its children. Without `width: 100%` the checkitem
+   * shrinks to the checkbox's intrinsic size (~24px), leaving the inline
+   * content area at 0 width — caret has nowhere to render until the user
+   * types the first character. */
+  width: 100%;
+  /* `flex: 1` covers grandparents that DO size their children via flex
+   * (defensive — costs nothing when width:100% already wins). */
+  flex: 1 1 auto;
 }
 
 .sn-checkitem__control {
@@ -110,6 +119,21 @@
 .sn-checkitem__text {
   flex: 1 1 auto;
   min-width: 0;
+  /* Block-level container: ensures the inline content area always has
+   * a renderable box (caret stays visible right after the `[ ]`/`[x]`
+   * markdown transform, before the first keystroke fills it). The
+   * matching JSX uses `<div>` (was `<span>`) so this rule actually has
+   * a block to operate on. */
+  display: block;
+  min-height: 1.5em;
+}
+
+/* Zero-width-space fallback: covers the rare frame after a block
+ * transform where ProseMirror may not yet have inserted its trailing
+ * break. The `\200B` glyph occupies a layout box but renders nothing,
+ * so the caret has somewhere to land without any visual artifact. */
+.sn-checkitem__text:empty::before {
+  content: "\200B";
 }
 
 .sn-checkitem[data-checked="true"] .sn-checkitem__text {

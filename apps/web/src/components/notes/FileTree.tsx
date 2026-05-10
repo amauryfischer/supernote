@@ -80,14 +80,33 @@ import {
   User,
   Users,
   Wrench,
+  DotsThree,
+  DotsSixVertical,
 } from "@phosphor-icons/react";
 import type { Icon as PhosphorIcon } from "@phosphor-icons/react";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { Folder as FolderType } from "./fixtures";
 import { useTranslations } from "next-intl";
-import { ContextMenu, useContextMenu } from "@supernote/ui";
-import { useUpdateFolder } from "./hooks";
+import { ContextMenu, useContextMenu, useToast } from "@supernote/ui";
+import { useUpdateFolder, useReorderFolders } from "./hooks";
 import { folderAccentVars } from "@/lib/folderAccent";
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+  arrayMove,
+  useSortable,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 
 // ── Persisted expanded-folder state ───────────────────────────────────────────
 //
@@ -328,10 +347,18 @@ interface FileTreeProps {
   onNewFolder: (parentPath?: string | null) => void;
   /** Create a new note. When `parentPath` is provided, place it inside that folder. */
   onNewNote: (parentPath?: string | null) => void;
-  /** Right-click → "Renommer". Optional; menu item hidden when absent. */
+  /** Right-click → "Renommer" (opens a prompt modal). Optional; menu item hidden when absent. */
   onRenameFolder?: (path: string) => void;
+  /**
+   * Inline double-click rename callback. Receives (oldPath, newLeafName) and
+   * must resolve once the rename is committed. Returning a rejected promise
+   * triggers a toast error and the title reverts.
+   */
+  onRenameFolderInline?: (oldPath: string, newName: string) => Promise<void>;
   /** Right-click → "Supprimer le dossier et toutes ses notes". */
   onDeleteFolder?: (path: string) => void;
+  /** Right-click → "Archiver le dossier" (bulk-archive every note inside). */
+  onArchiveFolder?: (path: string) => Promise<{ archivedCount: number }>;
   /**
    * Full unfiltered list of notes — used to render the recursive note count
    * "(N)" next to each folder name. Only the `folderPath` field is read; the
@@ -364,7 +391,9 @@ export function FileTree({
   onNewFolder,
   onNewNote,
   onRenameFolder,
+  onRenameFolderInline,
   onDeleteFolder,
+  onArchiveFolder,
   notes,
   onCollapse,
 }: FileTreeProps) {
@@ -480,6 +509,42 @@ export function FileTree({
     [isExpanded, setExpanded, expandPath],
   );
 
+  // ── Folder DnD reordering ─────────────────────────────────────────────────
+  // Only root-level (depth=0) folders participate. Optimistic order state
+  // applied immediately; persisted in background via useReorderFolders.
+  const { reorderFolders } = useReorderFolders();
+  const [folderOrder, setFolderOrder] = useState<string[] | null>(null);
+
+  const dndSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  const orderedFolders = useMemo(() => {
+    if (!folderOrder) return folders;
+    const idx = new Map(folderOrder.map((p, i) => [p, i]));
+    return [...folders].sort((a, b) => {
+      const ia = idx.get(a.path) ?? Infinity;
+      const ib = idx.get(b.path) ?? Infinity;
+      return ia !== ib ? ia - ib : a.path.localeCompare(b.path);
+    });
+  }, [folders, folderOrder]);
+
+  const handleFolderDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      const { active, over } = event;
+      if (!over || active.id === over.id) return;
+      const current = orderedFolders.map((f) => f.path);
+      const oldIdx = current.indexOf(active.id as string);
+      const newIdx = current.indexOf(over.id as string);
+      if (oldIdx === -1 || newIdx === -1) return;
+      const next = arrayMove(current, oldIdx, newIdx);
+      setFolderOrder(next);
+      void reorderFolders(next).catch(() => setFolderOrder(current));
+    },
+    [orderedFolders, reorderFolders],
+  );
+
   return (
     <aside
       className="flex h-full flex-col border-r"
@@ -523,22 +588,36 @@ export function FileTree({
 
       <ExpandedContext.Provider value={expandedCtx}>
         <nav className="flex-1 overflow-y-auto p-2">
-          {folders.map((folder) => (
-            <FolderNode
-              key={folder.path}
-              folder={folder}
-              selectedFolder={selectedFolder}
-              onSelectFolder={onSelectFolder}
-              onNewFolder={onNewFolder}
-              onNewNote={onNewNote}
-              onRenameFolder={onRenameFolder}
-              onDeleteFolder={onDeleteFolder}
-              openContextMenu={ctx.open}
-              openPicker={openPicker}
-              depth={0}
-              notes={notes}
-            />
-          ))}
+          <DndContext
+            sensors={dndSensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleFolderDragEnd}
+          >
+            <SortableContext
+              items={orderedFolders.map((f) => f.path)}
+              strategy={verticalListSortingStrategy}
+            >
+              {orderedFolders.map((folder) => (
+                <FolderNode
+                  key={folder.path}
+                  folder={folder}
+                  selectedFolder={selectedFolder}
+                  onSelectFolder={onSelectFolder}
+                  onNewFolder={onNewFolder}
+                  onNewNote={onNewNote}
+                  onRenameFolder={onRenameFolder}
+                  onRenameFolderInline={onRenameFolderInline}
+                  onDeleteFolder={onDeleteFolder}
+                  onArchiveFolder={onArchiveFolder}
+                  openContextMenu={ctx.open}
+                  openPicker={openPicker}
+                  depth={0}
+                  notes={notes}
+                  sortable
+                />
+              ))}
+            </SortableContext>
+          </DndContext>
         </nav>
       </ExpandedContext.Provider>
 
@@ -569,7 +648,14 @@ interface FolderNodeProps {
   onNewFolder: (parentPath?: string | null) => void;
   onNewNote: (parentPath?: string | null) => void;
   onRenameFolder?: (path: string) => void;
+  onRenameFolderInline?: (oldPath: string, newName: string) => Promise<void>;
   onDeleteFolder?: (path: string) => void;
+  /**
+   * Bulk-archive every note in the folder. Returns the count so the caller
+   * can show a "12 notes archivées" toast. Resolves once the on-disk move
+   * + folder cleanup are committed.
+   */
+  onArchiveFolder?: (path: string) => Promise<{ archivedCount: number }>;
   /** Forwarded from FileTree's `useContextMenu().open` — opens the shared menu. */
   openContextMenu: (
     e: React.MouseEvent,
@@ -579,6 +665,8 @@ interface FolderNodeProps {
   openPicker: (kind: PickerKind, path: string, e: React.MouseEvent) => void;
   depth: number;
   notes: { folderPath: string }[];
+  /** When true, this root-level folder participates in DnD reordering. */
+  sortable?: boolean;
 }
 
 function FolderNode({
@@ -588,11 +676,14 @@ function FolderNode({
   onNewFolder,
   onNewNote,
   onRenameFolder,
+  onRenameFolderInline,
   onDeleteFolder,
+  onArchiveFolder,
   openContextMenu,
   openPicker,
   depth,
   notes,
+  sortable,
 }: FolderNodeProps) {
   const hasChildren = !!folder.children?.length;
   // Expanded state is hoisted to FileTree (persisted in localStorage) so it
@@ -601,6 +692,56 @@ function FolderNode({
   const { isExpanded, setExpanded } = useExpanded();
   const expanded = isExpanded(folder.path);
   const isSelected = selectedFolder === folder.path;
+  const { toast } = useToast();
+  // Track inline rename pending state to block single-click navigation during edit.
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [hovered, setHovered] = useState(false);
+
+  // ── Subfolder DnD wiring ─────────────────────────────────────────────────
+  // Each FolderNode that has children renders its own DndContext +
+  // SortableContext below, so siblings at every level can be reordered
+  // independently. Optimistic order is held locally and propagates to the
+  // tree refetch via useReorderFolders.
+  const { reorderFolders: reorderSubfolders } = useReorderFolders();
+  const [localChildOrder, setLocalChildOrder] = useState<string[] | null>(null);
+  const childDndSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+  const orderedChildren = useMemo(() => {
+    const kids = folder.children ?? [];
+    if (!localChildOrder) return kids;
+    const idx = new Map(localChildOrder.map((p, i) => [p, i]));
+    return [...kids].sort(
+      (a, b) => (idx.get(a.path) ?? Infinity) - (idx.get(b.path) ?? Infinity),
+    );
+  }, [folder.children, localChildOrder]);
+  const handleChildDragEnd = useCallback(
+    (e: DragEndEvent) => {
+      const { active, over } = e;
+      if (!over || active.id === over.id) return;
+      const current = orderedChildren.map((c) => c.path);
+      const oldIdx = current.indexOf(String(active.id));
+      const newIdx = current.indexOf(String(over.id));
+      if (oldIdx === -1 || newIdx === -1) return;
+      const next = arrayMove(current, oldIdx, newIdx);
+      setLocalChildOrder(next);
+      void reorderSubfolders(next).catch(() => setLocalChildOrder(current));
+    },
+    [orderedChildren, reorderSubfolders],
+  );
+
+  // DnD sortable — enabled when the parent passes `sortable={true}`. Now
+  // applies to every depth: the root level via FileTree's own SortableContext,
+  // and every subfolder list via the per-node SortableContext below.
+  const {
+    attributes: sortableAttributes,
+    listeners: sortableListeners,
+    setNodeRef: sortableNodeRef,
+    transform: sortableTransform,
+    transition: sortableTransition,
+    isDragging: isSortDragging,
+  } = useSortable({ id: folder.path, disabled: !sortable });
 
   // Recursive count: notes whose folderPath equals this folder OR begins with
   // "<folder.path>/" — i.e. notes nested at any depth underneath. Computed
@@ -616,8 +757,21 @@ function FolderNode({
   // Click on the row → just SELECT. Never toggle. The chevron is the sole
   // affordance for expand/collapse so accidental clicks don't collapse a
   // folder the user just wanted to navigate to.
+  // While the inline rename input is active, block navigation so clicking
+  // elsewhere (which causes blur → commit) doesn't also navigate.
   const handleClick = () => {
+    if (isRenaming) return;
     onSelectFolder(folder.path);
+  };
+
+  const handleInlineRename = async (newName: string) => {
+    if (!onRenameFolderInline) return;
+    setIsRenaming(false);
+    try {
+      await onRenameFolderInline(folder.path, newName);
+    } catch {
+      toast({ title: "Impossible de renommer le dossier", variant: "danger" });
+    }
   };
 
   // Chevron click → toggle expand only. stopPropagation so the row's select
@@ -628,23 +782,19 @@ function FolderNode({
     setExpanded(folder.path, !expanded);
   };
 
-  const handleContextMenu = (e: React.MouseEvent) => {
-    // Capture the click position now — the popover opens at the same spot
-    // even though the menu closes between picking the entry and the user
-    // seeing the popover.
-    const px = e.clientX;
-    const py = e.clientY;
+  // Build the list of actions once — reused by the right-click handler AND
+  // the visible "..." button below. Keeping a single source of truth means
+  // the two surfaces never drift apart.
+  const buildMenuItems = (point: {
+    clientX: number;
+    clientY: number;
+  }): import("@supernote/ui").ContextMenuItemDef[] => {
     const synth = (kind: PickerKind) =>
       openPicker(kind, folder.path, {
-        clientX: px,
-        clientY: py,
+        ...point,
         preventDefault: () => {},
       } as unknown as React.MouseEvent);
-
-    // Always render the same menu shape regardless of which page is hosting
-    // the FileTree. Renommer / Supprimer are no-ops when the parent didn't
-    // wire a handler (shouldn't happen — both notes pages pass them today).
-    const items: import("@supernote/ui").ContextMenuItemDef[] = [
+    return [
       {
         key: "new-subfolder",
         label: "Créer un sous-dossier",
@@ -685,6 +835,13 @@ function FolderNode({
       },
       { key: "sep-delete", label: "", separator: true },
       {
+        key: "archive",
+        label: "Archiver le dossier",
+        icon: <Archive size={14} />,
+        isDisabled: !onArchiveFolder,
+        onPress: () => void onArchiveFolder?.(folder.path),
+      },
+      {
         key: "delete",
         label: "Supprimer le dossier et toutes ses notes",
         icon: <Trash size={14} />,
@@ -693,7 +850,17 @@ function FolderNode({
         onPress: () => onDeleteFolder?.(folder.path),
       },
     ];
-    openContextMenu(e, items);
+  };
+
+  const handleContextMenu = (e: React.MouseEvent) => {
+    openContextMenu(e, buildMenuItems({ clientX: e.clientX, clientY: e.clientY }));
+  };
+
+  const handleActionsClick = (e: React.MouseEvent) => {
+    // Stop here so the row's onClick (folder selection) doesn't also fire.
+    e.stopPropagation();
+    e.preventDefault();
+    openContextMenu(e, buildMenuItems({ clientX: e.clientX, clientY: e.clientY }));
   };
 
   // Resolve the icon component once per render. Selected folders show
@@ -718,79 +885,208 @@ function FolderNode({
     ? selectedAccent["--accent"]
     : isSelected ? "var(--accent)" : "var(--text-secondary)";
 
+  const sharedRowStyle: React.CSSProperties = {
+    paddingLeft: `${8 + depth * 16}px`,
+    backgroundColor: selectedBg,
+    color: selectedFg,
+    fontWeight: isSelected ? 500 : 400,
+  };
+
+  const chevronSpan = (
+    <span
+      className="flex w-4 flex-shrink-0 items-center justify-center"
+      role={hasChildren ? "button" : undefined}
+      aria-label={hasChildren ? (expanded ? "Réduire" : "Développer") : undefined}
+      onClick={hasChildren ? handleChevronClick : undefined}
+      style={hasChildren ? { cursor: "pointer" } : undefined}
+    >
+      {hasChildren ? (
+        expanded ? <CaretDown size={12} /> : <CaretRight size={12} />
+      ) : null}
+    </span>
+  );
+
+  const sortableDndStyle: React.CSSProperties = sortable
+    ? {
+        transform: CSS.Transform.toString(sortableTransform),
+        transition: sortableTransition,
+        opacity: isSortDragging ? 0.4 : 1,
+        zIndex: isSortDragging ? 10 : undefined,
+      }
+    : {};
+
   return (
-    <div>
+    <div
+      ref={sortable ? sortableNodeRef : undefined}
+      style={sortableDndStyle}
+      {...(sortable ? sortableAttributes : {})}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
       <div
         className="group relative flex items-center"
         onContextMenu={handleContextMenu}
       >
-        <button
-          onClick={handleClick}
-          className="flex flex-1 items-center gap-1.5 rounded-md px-2 py-1.5 text-sm transition-colors"
-          style={{
-            paddingLeft: `${8 + depth * 16}px`,
-            backgroundColor: selectedBg,
-            color: selectedFg,
-            fontWeight: isSelected ? 500 : 400,
-          }}
-          onMouseEnter={(e) => {
-            if (!isSelected) {
-              (e.currentTarget as HTMLButtonElement).style.backgroundColor = "var(--surface-2)";
-            }
-          }}
-          onMouseLeave={(e) => {
-            if (!isSelected) {
-              (e.currentTarget as HTMLButtonElement).style.backgroundColor = "";
-            }
-          }}
-        >
-          <span
-            className="flex w-4 flex-shrink-0 items-center justify-center"
-            // The chevron is a span (inside a button) rather than a nested
-            // <button> because nested buttons are invalid HTML. We attach
-            // an onClick + role="button" + stopPropagation so it behaves
-            // like one without the validation warning.
-            role={hasChildren ? "button" : undefined}
-            aria-label={hasChildren ? (expanded ? "Réduire" : "Développer") : undefined}
-            onClick={hasChildren ? handleChevronClick : undefined}
-            style={hasChildren ? { cursor: "pointer" } : undefined}
+        {/* Drag handle — only visible on hover for root-level sortable folders */}
+        {sortable && hovered && (
+          <button
+            {...sortableListeners}
+            aria-label="Réordonner le dossier"
+            className="absolute left-0.5 top-1/2 -translate-y-1/2 flex h-5 w-4 items-center justify-center rounded cursor-grab active:cursor-grabbing"
+            style={{ color: "var(--text-muted)", zIndex: 1 }}
+            onMouseDown={(e) => e.stopPropagation()}
           >
-            {hasChildren ? (
-              expanded ? <CaretDown size={12} /> : <CaretRight size={12} />
-            ) : null}
-          </span>
-          <IconComponent size={14} color={iconColor} weight={folder.icon ? "fill" : "regular"} />
-          <span className="flex-1 truncate text-left">{folder.name}</span>
-          <span
-            className="ml-1 flex-shrink-0 text-xs tabular-nums"
-            style={{ color: "var(--text-muted)" }}
+            <DotsSixVertical size={12} />
+          </button>
+        )}
+        {/* Row: in edit mode switch the button for a plain div to avoid
+            <input> inside <button> (invalid HTML per spec). The InlineFolderRenameInput
+            is a small self-contained component that handles focus, commit, cancel. */}
+        {isRenaming ? (
+          <div
+            className="flex flex-1 items-center gap-1.5 rounded-md px-2 py-1.5 text-sm"
+            style={sharedRowStyle}
           >
-            ({recursiveCount})
-          </span>
-        </button>
+            {chevronSpan}
+            <IconComponent size={14} color={iconColor} weight={folder.icon ? "fill" : "regular"} />
+            <InlineFolderRenameInput
+              initialValue={folder.name}
+              onCommit={handleInlineRename}
+              onCancel={() => setIsRenaming(false)}
+            />
+          </div>
+        ) : (
+          <button
+            onClick={handleClick}
+            className="flex flex-1 items-center gap-1.5 rounded-md px-2 py-1.5 text-sm transition-colors"
+            style={sharedRowStyle}
+            onMouseEnter={(e) => {
+              if (!isSelected) (e.currentTarget as HTMLButtonElement).style.backgroundColor = "var(--surface-2)";
+            }}
+            onMouseLeave={(e) => {
+              if (!isSelected) (e.currentTarget as HTMLButtonElement).style.backgroundColor = "";
+            }}
+          >
+            {chevronSpan}
+            <IconComponent size={14} color={iconColor} weight={folder.icon ? "fill" : "regular"} />
+            <span
+              className="flex-1 truncate text-left"
+              onDoubleClick={onRenameFolderInline ? (e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                setIsRenaming(true);
+              } : undefined}
+              onKeyDown={onRenameFolderInline ? (e) => {
+                if (e.key === "F2") { e.preventDefault(); setIsRenaming(true); }
+              } : undefined}
+              tabIndex={onRenameFolderInline ? 0 : undefined}
+            >
+              {folder.name}
+            </span>
+            <span
+              className="ml-1 flex-shrink-0 text-xs tabular-nums"
+              style={{ color: "var(--text-muted)" }}
+            >
+              ({recursiveCount})
+            </span>
+          </button>
+        )}
+
+        {/* Visible on hover — surfaces the same actions as the right-click
+            menu (the parent row already has `group` so this works without
+            extra hover state in React). Lives outside the <button> because
+            nested buttons are invalid HTML; absolute-positioned over the
+            count so it never widens the row. */}
+        {!isRenaming && (
+          <button
+            type="button"
+            onClick={handleActionsClick}
+            onContextMenu={handleActionsClick}
+            aria-label="Actions du dossier"
+            title="Actions"
+            className="absolute right-1.5 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md border border-[var(--border-subtle)] bg-[var(--surface-1)] text-[var(--text-muted)] opacity-0 shadow-sm transition-opacity hover:bg-[var(--surface-2)] hover:text-[var(--text-primary)] focus:opacity-100 focus-visible:opacity-100 group-hover:opacity-100"
+          >
+            <DotsThree size={14} weight="bold" />
+          </button>
+        )}
       </div>
 
       {hasChildren && expanded && (
         <div>
-          {folder.children!.map((child) => (
-            <FolderNode
-              key={child.path}
-              folder={child}
-              selectedFolder={selectedFolder}
-              onSelectFolder={onSelectFolder}
-              onNewFolder={onNewFolder}
-              onNewNote={onNewNote}
-              onRenameFolder={onRenameFolder}
-              onDeleteFolder={onDeleteFolder}
-              openContextMenu={openContextMenu}
-              openPicker={openPicker}
-              depth={depth + 1}
-              notes={notes}
-            />
-          ))}
+          <DndContext
+            sensors={childDndSensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleChildDragEnd}
+          >
+            <SortableContext
+              items={orderedChildren.map((c) => c.path)}
+              strategy={verticalListSortingStrategy}
+            >
+              {orderedChildren.map((child) => (
+                <FolderNode
+                  key={child.path}
+                  folder={child}
+                  selectedFolder={selectedFolder}
+                  onSelectFolder={onSelectFolder}
+                  onNewFolder={onNewFolder}
+                  onNewNote={onNewNote}
+                  onRenameFolder={onRenameFolder}
+                  onRenameFolderInline={onRenameFolderInline}
+                  onDeleteFolder={onDeleteFolder}
+                  onArchiveFolder={onArchiveFolder}
+                  openContextMenu={openContextMenu}
+                  openPicker={openPicker}
+                  depth={depth + 1}
+                  notes={notes}
+                  sortable
+                />
+              ))}
+            </SortableContext>
+          </DndContext>
         </div>
       )}
     </div>
+  );
+}
+
+// ── InlineFolderRenameInput ───────────────────────────────────────────────────
+
+interface InlineFolderRenameInputProps {
+  initialValue: string;
+  onCommit: (value: string) => void;
+  onCancel: () => void;
+}
+
+function InlineFolderRenameInput({ initialValue, onCommit, onCancel }: InlineFolderRenameInputProps) {
+  const [draft, setDraft] = useState(initialValue);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    inputRef.current?.focus();
+    inputRef.current?.select();
+  }, []);
+
+  const commit = () => {
+    const trimmed = draft.trim().replace(/[/\\]/g, "").replace(/\.\./g, "");
+    if (!trimmed) { onCancel(); return; }
+    onCommit(trimmed);
+  };
+
+  return (
+    <input
+      ref={inputRef}
+      value={draft}
+      onChange={(e) => setDraft(e.currentTarget.value)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") { e.preventDefault(); commit(); }
+        else if (e.key === "Escape") { e.preventDefault(); onCancel(); }
+      }}
+      onBlur={commit}
+      onClick={(e) => e.stopPropagation()}
+      className="flex-1 min-w-0 rounded px-1 text-sm outline-none ring-1 ring-[var(--accent)]"
+      style={{ color: "var(--text-primary)", backgroundColor: "var(--surface-1)" }}
+      aria-label="Renommer le dossier"
+    />
   );
 }
 

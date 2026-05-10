@@ -41,9 +41,13 @@ export const heroCheckListItemSpec = createReactBlockSpec(
               </Checkbox.Control>
             </Checkbox>
           </span>
-          <span
+          {/* Block-level container — span used to be inline, which left
+              ProseMirror's caret without a renderable box right after the
+              `[ ]`/`[x]` markdown transform (cursor invisible until first
+              keystroke). A div has a guaranteed layout box even empty. */}
+          <div
             className="sn-checkitem__text"
-            ref={contentRef as unknown as React.Ref<HTMLSpanElement>}
+            ref={contentRef as unknown as React.Ref<HTMLDivElement>}
           />
         </div>
       );

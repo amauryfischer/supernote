@@ -15,6 +15,8 @@
 import * as React from "react";
 import Link from "next/link";
 import { FileText, Envelope } from "@phosphor-icons/react";
+import { useDateFormat } from "@/lib/dateFormat";
+import { InlineMarkdown } from "@/lib/inlineMarkdown";
 
 export type TodoImportance = "low" | "medium" | "high" | "critical";
 
@@ -26,6 +28,7 @@ export interface TodoRowData {
   /** 0-based source line; used to build the deep link to the note. */
   line: number | null;
   blockId: string | null;
+  startDate: string | null;
   dueDate: string | null;
   priority: number | null;
   importance: TodoImportance | null;
@@ -66,6 +69,7 @@ export function TodoRow({ row, onToggle, onEdit, onEmail, onContextMenu }: TodoR
   const isCritical = row.importance === "critical";
   const dotColor = importanceColor(row.importance);
   const priority = row.priority ?? 5;
+  const { compact: formatCompactDate, full: formatFullDate } = useDateFormat();
 
   return (
     <li
@@ -122,11 +126,15 @@ export function TodoRow({ row, onToggle, onEdit, onEmail, onContextMenu }: TodoR
         )}
       </button>
 
-      {/* Main text — clickable to open the edit modal. */}
+      {/* Main text — clickable to open the edit modal. Inline markdown
+          is rendered inside (bold/italic/code/strike/link) so users can
+          format their checklist items naturally. The wrapping `<span>`
+          inside InlineMarkdown lets the parent button keep its flex
+          truncation rules. */}
       <button
         type="button"
         onClick={onEdit}
-        className="flex-1 min-w-0 text-left leading-tight hover:underline"
+        className="flex-1 min-w-0 truncate text-left leading-tight hover:underline"
         style={{
           color: row.done ? "var(--text-muted)" : "var(--text-primary)",
           textDecoration: row.done ? "line-through" : undefined,
@@ -134,7 +142,7 @@ export function TodoRow({ row, onToggle, onEdit, onEmail, onContextMenu }: TodoR
           fontWeight: isCritical ? 600 : 400,
         }}
       >
-        {row.text}
+        <InlineMarkdown text={row.text} />
       </button>
 
       {/* Source note link */}
@@ -173,19 +181,32 @@ export function TodoRow({ row, onToggle, onEdit, onEmail, onContextMenu }: TodoR
         </button>
       )}
 
-      {/* Due date */}
-      {row.dueDate && (
+      {/* Date display — range, single due, or single start */}
+      {row.startDate && row.dueDate && row.startDate !== row.dueDate ? (
         <span
           className="mt-0.5 shrink-0 text-[10px] tabular-nums"
           style={{ color: "var(--text-muted)" }}
-          title={`Échéance : ${row.dueDate}`}
+          title={`Début : ${formatFullDate(row.startDate)} → Échéance : ${formatFullDate(row.dueDate)}`}
         >
-          {new Date(row.dueDate).toLocaleDateString("fr-FR", {
-            day: "2-digit",
-            month: "short",
-          })}
+          {formatCompactDate(row.startDate)} → {formatCompactDate(row.dueDate)}
         </span>
-      )}
+      ) : row.dueDate ? (
+        <span
+          className="mt-0.5 shrink-0 text-[10px] tabular-nums"
+          style={{ color: "var(--text-muted)" }}
+          title={`Échéance : ${formatFullDate(row.dueDate)}`}
+        >
+          {formatCompactDate(row.dueDate)}
+        </span>
+      ) : row.startDate ? (
+        <span
+          className="mt-0.5 shrink-0 text-[10px] tabular-nums"
+          style={{ color: "var(--text-muted)" }}
+          title={`Depuis le : ${formatFullDate(row.startDate)}`}
+        >
+          depuis {formatCompactDate(row.startDate)}
+        </span>
+      ) : null}
     </li>
   );
 }

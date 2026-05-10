@@ -87,6 +87,7 @@ export const router: any = createBrowserRouter([
       // ── Notes ─────────────────────────────────────────────────────────
       { path: "notes", lazy: lazyPage(() => import("./app/notes/page")) },
       { path: "notes/:id", lazy: lazyPage(() => import("./app/notes/[id]/page")) },
+      { path: "archive", lazy: lazyPage(() => import("./app/archive/page")) },
 
       // ── Todos (added by parallel agent — keep entry alongside notes) ──
       { path: "todos", lazy: lazyPage(() => import("./app/todos/page")) },

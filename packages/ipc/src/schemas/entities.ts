@@ -24,14 +24,22 @@ export const EntitySchema = z.object({
 });
 export type Entity = z.infer<typeof EntitySchema>;
 
-export const EntitySummarySchema = EntitySchema.omit({ body: true });
+// Summary keeps body OPTIONAL — the vault worker fills it on every list
+// query, and the /todos page (notes-derived projection) needs it. Older
+// callers that only consume metadata simply ignore the field.
+export const EntitySummarySchema = EntitySchema.extend({
+  body: z.string().optional(),
+});
 export type EntitySummary = z.infer<typeof EntitySummarySchema>;
 
 export const SortOrderSchema = z.enum(["asc", "desc"]);
 export type SortOrder = z.infer<typeof SortOrderSchema>;
 
 export const PaginationSchema = z.object({
-  limit: z.number().int().positive().max(1000).default(50),
+  // Bumped from 1000 to 10000 so /todos can pull every note's body in one
+  // round-trip (the new model parses todos from markdown — no entity per
+  // checkbox). Most callers stay at the 50 default.
+  limit: z.number().int().positive().max(10000).default(50),
   offset: z.number().int().nonnegative().default(0),
 });
 export type Pagination = z.infer<typeof PaginationSchema>;
@@ -67,6 +75,13 @@ export const UpdateEntityInput = z.object({
   fields: z.record(z.string(), FieldValueSchema).optional(),
   body: z.string().optional(),
   tags: z.array(z.string()).optional(),
+  /**
+   * Optional new on-disk path relative to the vault root, e.g.
+   * "Travail/Projets 2025/ma-note.md". When provided AND different from the
+   * current filePath, the worker treats this as a move: the old file is
+   * deleted and the content is rewritten at the new location.
+   */
+  filePath: z.string().optional(),
 });
 export type UpdateEntityInput = z.infer<typeof UpdateEntityInput>;
 

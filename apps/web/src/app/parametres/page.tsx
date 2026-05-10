@@ -19,7 +19,6 @@ import {
 } from "@phosphor-icons/react";
 import { AppShell } from "@/components/shell";
 import {
-  SettingsProvider,
   useSettings,
   GeneralTab,
   AppearanceTab,
@@ -158,11 +157,11 @@ function SettingsContent() {
 }
 
 export default function ParametresPage() {
+  // SettingsProvider lives at the RootLayout so the settings context is
+  // available across every route (the date format is read on /notes too).
   return (
     <AppShell>
-      <SettingsProvider>
-        <SettingsContent />
-      </SettingsProvider>
+      <SettingsContent />
     </AppShell>
   );
 }
