@@ -1,7 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { AppShell } from "@/components/shell";
+import {
+  AppShell,
+  useMobileTitle,
+  useMobileHeaderActions,
+  type MobileHeaderAction,
+} from "@/components/shell";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { parseQuery } from "@supernote/search/query";
 import { isOk } from "@supernote/core";
 import type { SearchResult } from "@supernote/ipc";
@@ -18,6 +24,7 @@ import {
   type SavedSearch,
   type RecentSearch,
 } from "@/components/search";
+import { MagnifyingGlass } from "@phosphor-icons/react";
 import { useDebounce } from "@/hooks/useDebounce";
 import { trpc, isBrowserPwaMode } from "@/lib/trpc/client";
 import { isWorkerReady } from "@/lib/trpc/browser-link";
@@ -72,6 +79,7 @@ const TYPE_ORDER = ["note", "projet", "personne", "ressource", "journal"];
 // ---------------------------------------------------------------------------
 
 export default function RecherchePage() {
+  const isMobile = useIsMobile();
   const [rawQuery, setRawQuery] = useState("");
   const [mode, setMode] = useState<SearchMode>("hybrid");
   const [filters, setFilters] = useState<ActiveFilter[]>([]);
@@ -237,6 +245,25 @@ export default function RecherchePage() {
     [...grouped.keys()].filter((t) => !TYPE_ORDER.includes(t)),
   );
 
+  useMobileTitle(isMobile ? "Recherche" : null);
+
+  const mobileHeaderActions = useMemo((): MobileHeaderAction[] => {
+    if (!isMobile) return [];
+    return [
+      {
+        id: "search-focus",
+        icon: MagnifyingGlass,
+        label: "Rechercher",
+        onPress: () => {
+          const el = document.querySelector<HTMLInputElement>("[data-search-input]");
+          el?.focus();
+        },
+      },
+    ];
+  }, [isMobile]);
+
+  useMobileHeaderActions(mobileHeaderActions);
+
   return (
     <AppShell>
       <div className="flex h-full">
@@ -263,7 +290,7 @@ export default function RecherchePage() {
         <div className="flex flex-1 flex-col overflow-hidden">
           {/* Search header */}
           <div
-            className="border-b px-6 py-4"
+            className="border-b px-3 py-3 md:px-6 md:py-4"
             style={{ borderColor: "var(--border-subtle)" }}
           >
             <SearchBar
@@ -277,7 +304,10 @@ export default function RecherchePage() {
                 onAdd={handleAddFilter}
                 onRemove={handleRemoveFilter}
               />
-              <ModeToggle mode={mode} onChange={setMode} />
+              {/* ModeToggle hidden on mobile — not critical in narrow view */}
+              <div className="hidden md:block">
+                <ModeToggle mode={mode} onChange={setMode} />
+              </div>
             </div>
 
             {ast && debugMode && (
@@ -307,7 +337,7 @@ export default function RecherchePage() {
           </div>
 
           {/* Results */}
-          <div className="flex-1 overflow-y-auto px-6 py-4">
+          <div className="flex-1 overflow-y-auto px-3 py-3 md:px-6 md:py-4">
             {!isSearching || !hasResults ? (
               <EmptyState query={rawQuery} onExampleClick={handleExampleClick} />
             ) : (

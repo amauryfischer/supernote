@@ -242,10 +242,8 @@ export function NoteList({
 
   return (
     <div
-      className="flex h-full flex-col border-r"
+      className="flex h-full w-full flex-col border-r md:w-[320px] md:min-w-[320px]"
       style={{
-        width: 320,
-        minWidth: 320,
         borderColor: "var(--border-subtle)",
         backgroundColor: "var(--surface-0)",
       }}

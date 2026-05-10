@@ -5,6 +5,7 @@ import {
   Calendar,
   FileText,
   Hash,
+  Plus,
   Stack,
   Users,
   Lightning,
@@ -13,7 +14,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
-import { useShellChrome } from "@/components/shell/shell-chrome-context";
+import { useShellChrome, useMobileFab, useMobileTitle } from "@/components/shell/shell-chrome-context";
 import { useCreateInboxNote } from "@/hooks/useCreateInboxNote";
 import type { SupernoteEditorProps, EntityRef } from "@supernote/editor";
 import { trpc, trpcVanillaClient } from "@/lib/trpc/client";
@@ -233,6 +234,17 @@ export function WritingSurface() {
     setEditorKey((k) => k + 1);
   }, [resetNote]);
 
+  // Mobile chrome: title + FAB to start a new note. The FAB does the same
+  // as the desktop topbar's "Nouveau" button — clears the surface and
+  // refocuses the editor.
+  useMobileTitle("Accueil");
+  const startNewNote = useCallback(() => {
+    setContent("");
+    resetNote();
+    setEditorKey((k) => k + 1);
+  }, [resetNote]);
+  useMobileFab({ icon: Plus, label: "Nouvelle note", onPress: startNewNote });
+
   // Derive the auto-title from the first non-empty line of markdown.
   const titlePreview =
     content.split("\n").find((line) => line.trim().length > 0)?.trim() ?? "";
@@ -246,12 +258,12 @@ export function WritingSurface() {
       ref={surfaceRef}
       data-tour="writing-surface"
       data-just-reset={justReset ? "true" : undefined}
-      className="writing-surface-root relative mx-auto flex h-full max-w-3xl flex-col px-8"
+      className="writing-surface-root relative mx-auto flex h-full max-w-3xl flex-col px-4 md:px-8"
     >
       {/* Writing canvas */}
       <div
         className={`transition-all duration-300 ease-out ${
-          isWriting ? "pt-20" : "pt-16"
+          isWriting ? "pt-8 md:pt-20" : "pt-6 md:pt-16"
         }`}
       >
         {/* Title chip (subtle, derived from first line) */}
@@ -304,9 +316,10 @@ export function WritingSurface() {
         </div>
       )}
 
-      {/* Footer hint when writing */}
+      {/* Footer hint when writing — keyboard shortcuts only make sense on
+          desktop; on mobile the FAB and the bottom nav handle save/exit. */}
       <div
-        className={`pointer-events-none fixed bottom-6 left-1/2 z-20 -translate-x-1/2 transition-all duration-200 ${
+        className={`pointer-events-none fixed bottom-6 left-1/2 z-20 hidden -translate-x-1/2 transition-all duration-200 md:block ${
           isWriting
             ? "translate-y-0 opacity-100"
             : "pointer-events-none translate-y-2 opacity-0"
@@ -359,19 +372,19 @@ export function WritingSurface() {
 
       {/* Quick access grid — fades out while writing */}
       <div
-        className={`mt-12 transition-all duration-300 ease-out ${
+        className={`mt-6 transition-all duration-300 ease-out md:mt-12 ${
           isWriting
             ? "pointer-events-none -translate-y-2 opacity-0"
             : "translate-y-0 opacity-100"
         }`}
       >
         <h2
-          className="mb-4 text-[10px] font-medium uppercase tracking-widest"
+          className="mb-3 text-[10px] font-medium uppercase tracking-widest md:mb-4"
           style={{ color: "var(--text-muted)" }}
         >
           {t("home.quickAccess")}
         </h2>
-        <div className="grid grid-cols-2 gap-3 pb-12">
+        <div className="grid grid-cols-2 gap-2 pb-24 md:gap-3 md:pb-12">
           {QUICK_ACCESS.map((item) => (
             <button
               key={item.labelKey}

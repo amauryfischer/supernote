@@ -12,11 +12,26 @@ import {
 } from "@phosphor-icons/react";
 import type { SearchResult } from "@supernote/ipc";
 import type { Icon } from "@phosphor-icons/react";
+import { useRouter } from "next/navigation";
 
 interface ResultCardProps {
   result: SearchResult;
   query: string;
   debugMode?: boolean;
+}
+
+/**
+ * Map an entity to the route that displays it. Mirrors the helper in
+ * `command/CommandPalette.tsx` — kept duplicated here (rather than shared
+ * via a util) because the type-id ↔ route mapping is page-policy and may
+ * diverge as routes evolve.
+ */
+function entityHref(entityId: string, typeId: string): string {
+  const t = typeId.toLowerCase();
+  if (t === "personne" || t === "contact") return `/contacts/${entityId}`;
+  if (t === "projet" || t === "project") return `/projets/${entityId}`;
+  if (t === "note") return `/notes/${entityId}`;
+  return `/notes/${entityId}`;
 }
 
 const TYPE_ICONS: Record<string, Icon> = {
@@ -54,10 +69,13 @@ function highlightMatch(text: string, query: string): React.ReactNode {
 export function ResultCard({ result, query, debugMode }: ResultCardProps) {
   const TypeIcon = TYPE_ICONS[result.typeId] ?? FileText;
   const folder = result.filePath.split("/").slice(0, -1).join("/");
+  const router = useRouter();
 
   return (
     <button
-      className="w-full rounded-lg border px-4 py-3 text-left transition-colors"
+      type="button"
+      onClick={() => router.push(entityHref(result.entityId, result.typeId))}
+      className="w-full cursor-pointer rounded-lg border px-4 py-3 text-left transition-colors active:bg-[var(--surface-2)]"
       style={{
         backgroundColor: "var(--surface-1)",
         borderColor: "var(--border-subtle)",

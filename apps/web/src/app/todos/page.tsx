@@ -20,7 +20,14 @@
  * note's line and deletes the entities. Standalones are never touched.
  */
 
-import { AppShell } from "@/components/shell";
+import {
+  AppShell,
+  useMobileFab,
+  useMobileHeaderActions,
+  useMobileTitle,
+  type MobileHeaderAction,
+} from "@/components/shell";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { trpc, trpcVanillaClient } from "@/lib/trpc/client";
 import {
   CheckSquare,
@@ -807,12 +814,60 @@ export default function TodosPage() {
     (t) => !t.done && (t.importance === "critical" || (t.priority !== null && t.priority <= 3)),
   ).length;
 
+  // Mobile chrome — title carries the count, FAB triggers the create modal,
+  // header actions surface refresh / email / view-toggle / group toggle. The
+  // dense desktop toolbar below is hidden in `md:flex` mode (see header
+  // wrapper className) so the mobile shell stays uncluttered.
+  const isMobile = useIsMobile();
+  useMobileTitle(
+    isMobile ? "Todos" : null,
+    isMobile ? `${totalPending} / ${totalAll}` : null,
+  );
+  useMobileFab(
+    isMobile ? { icon: Plus, label: "Nouvelle tâche", onPress: () => setShowCreate(true) } : null,
+  );
+  const mobileActions: MobileHeaderAction[] = useMemo(() => {
+    if (!isMobile) return [];
+    const actions: MobileHeaderAction[] = [];
+    actions.push({
+      id: "view-toggle",
+      icon: viewMode === "list" ? CalendarBlank : List,
+      label: viewMode === "list" ? "Vue calendrier" : "Vue liste",
+      onPress: toggleViewMode,
+    });
+    if (viewMode === "list") {
+      actions.push({
+        id: "group-toggle",
+        icon: ListBullets,
+        label: groupByNote ? "Vue à plat" : "Grouper par note",
+        onPress: toggleGroupByNote,
+        active: groupByNote,
+      });
+    }
+    actions.push({
+      id: "refresh",
+      icon: ArrowsClockwise,
+      label: "Actualiser",
+      onPress: () => void handleRefresh(),
+    });
+    actions.push({
+      id: "email-all",
+      icon: Envelope,
+      label: "Tout envoyer par email",
+      onPress: handleEmailAll,
+    });
+    return actions;
+  }, [isMobile, viewMode, toggleViewMode, groupByNote, toggleGroupByNote, handleRefresh, handleEmailAll]);
+  useMobileHeaderActions(mobileActions);
+
   return (
     <AppShell>
       <div className="flex h-full flex-col">
-        {/* Header */}
+        {/* Desktop header — hidden on mobile (title and actions live in the
+            top bar instead). FilterTabs are rendered separately below for
+            both layouts because they need horizontal scroll on phones. */}
         <div
-          className="flex items-center justify-between border-b px-6 py-3"
+          className="hidden items-center justify-between border-b px-6 py-3 md:flex"
           style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-0)" }}
         >
           <div className="flex items-center gap-3">
@@ -933,6 +988,30 @@ export default function TodosPage() {
             </button>
           </div>
         </div>
+
+        {/* Mobile sub-header — horizontal scroll of filter chips so the user
+            can switch between "En attente / Urgentes / Aujourd'hui …" with a
+            swipe. Sort menu sits to the right. Only rendered in list mode. */}
+        {viewMode === "list" && (
+          <div
+            className="flex shrink-0 items-center gap-2 border-b px-3 py-2 md:hidden"
+            style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-0)" }}
+          >
+            <div className="flex flex-1 items-center gap-1.5 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              <FilterTabs
+                value={filter}
+                onChange={setFilter}
+                counts={{
+                  pending: totalPending,
+                  done: totalDone,
+                  all: totalAll,
+                  urgent: totalUrgent,
+                }}
+              />
+            </div>
+            <SortMenu value={sortKey} onChange={setSortKey} />
+          </div>
+        )}
 
         {/* Migration banner — surfaces only when legacy entities are present */}
         {legacyCount > 0 && !migrationDismissed && (

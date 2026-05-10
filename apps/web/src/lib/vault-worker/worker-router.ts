@@ -33,6 +33,14 @@ interface EntityDoc {
   title: string;
   body: string;
   tags: string;
+  /**
+   * Folder + filename (minus `.md`) of the entity, with `/` replaced by
+   * spaces so MiniSearch tokenizes each segment. Lets users find a note by
+   * any folder along its path — typing "leroy" matches every note in
+   * `Maison VLM/Courses Leroy Merlin/...`, even ones whose own title and
+   * body never mention the word.
+   */
+  path: string;
 }
 
 function row(res: ReturnType<Database["exec"]>): SqlRow | null {
@@ -58,7 +66,7 @@ let miniSearch: MiniSearch<EntityDoc> | null = null;
 
 function createMiniSearch(): MiniSearch<EntityDoc> {
   return new MiniSearch<EntityDoc>({
-    fields: ["title", "body", "tags"],
+    fields: ["title", "body", "tags", "path"],
     storeFields: ["id", "typeId"],
     // Lowercase every indexed term so partial / case-insensitive queries
     // ("linh" vs "Linh Dan") match. MiniSearch's default tokenizer is
@@ -67,10 +75,23 @@ function createMiniSearch(): MiniSearch<EntityDoc> {
     searchOptions: {
       prefix: true,
       fuzzy: 0.2,
-      boost: { title: 2 },
+      // `path` ranks above plain body matches but below the title — a folder
+      // hit is a strong relevance signal but shouldn't outrank a literal
+      // title match.
+      boost: { title: 2, path: 1.5 },
       processTerm: (term) => term.toLowerCase(),
     },
   });
+}
+
+/**
+ * Tokenize a `filePath` (e.g. `Maison VLM/Courses Leroy Merlin/note.md`) into
+ * a search-friendly string by stripping `.md`, splitting on `/`, and joining
+ * with spaces so MiniSearch indexes each path segment as its own term.
+ */
+function derivePath(filePath: string | null): string {
+  if (!filePath) return "";
+  return filePath.replace(/\.md$/i, "").split("/").join(" ");
 }
 
 /**
@@ -156,6 +177,7 @@ function initMiniSearch(db: Database, vaultId: string): void {
     title: deriveTitle(r["fields"] as string | null, r["filePath"] as string | null),
     body: (r["body"] as string) ?? "",
     tags: (r["tagPaths"] as string) ?? "",
+    path: derivePath(r["filePath"] as string | null),
   }));
   ms.addAll(docs);
   miniSearch = ms;
@@ -189,6 +211,7 @@ function entityToDoc(r: SqlRow): EntityDoc {
     title: deriveTitle(r["fields"] as string | null, r["filePath"] as string | null),
     body: (r["body"] as string) ?? "",
     tags: (r["tags"] as string) ?? "",
+    path: derivePath(r["filePath"] as string | null),
   };
 }
 
@@ -716,6 +739,7 @@ export function buildRouter(
       title: deriveTitle(JSON.stringify(fields), relativePath),
       body: body ?? "",
       tags: (tags ?? []).join(" "),
+      path: derivePath(relativePath),
     });
 
     return entitiesGet({ id });
@@ -790,6 +814,7 @@ export function buildRouter(
       title: deriveTitle(JSON.stringify(newFields), effectivePath),
       body: newBody,
       tags: (tags ?? []).join(" "),
+      path: derivePath(effectivePath),
     });
 
     return entitiesGet({ id });

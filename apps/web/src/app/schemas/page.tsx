@@ -1,9 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Plus, Database, Stack } from "@phosphor-icons/react";
-import { AppShell } from "@/components/shell";
+import { AppShell, useMobileFab, useMobileTitle } from "@/components/shell";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { TypeListItem } from "@/components/schemas/TypeListItem";
 import { TypePreview } from "@/components/schemas/TypePreview";
 import { ENTITY_TYPES } from "@/components/schemas/fixtures";
@@ -48,6 +50,8 @@ function EmptyCustomTypes() {
 }
 
 export default function SchemasPage() {
+  const router = useRouter();
+  const isMobile = useIsMobile();
   const [selectedId, setSelectedId] = useState<string>("");
   const [filter, setFilter] = useState<"all" | "seeds">("all");
 
@@ -67,14 +71,21 @@ export default function SchemasPage() {
   const effectiveSelectedId = selectedId || displayed[0]?.id || "";
   const selected = coreTypes.find((t) => t.id === effectiveSelectedId) ?? coreTypes[0];
 
+  useMobileTitle(isMobile ? "Schémas" : null);
+  useMobileFab(
+    isMobile
+      ? { icon: Plus, label: "Nouveau type", onPress: () => router.push("/schemas/nouveau") }
+      : null,
+  );
+
   return (
     <AppShell>
       <div className="flex h-full">
-        {/* Left sidebar */}
+        {/* Left sidebar — full width on mobile, 320px on desktop */}
         <aside
           className="flex shrink-0 flex-col border-r"
           style={{
-            width: 320,
+            width: isMobile ? "100%" : 320,
             borderColor: "var(--border-subtle)",
             backgroundColor: "var(--surface-1)",
           }}
@@ -139,7 +150,13 @@ export default function SchemasPage() {
                 key={type.id}
                 type={type}
                 selected={type.id === effectiveSelectedId}
-                onSelect={() => setSelectedId(type.id)}
+                onSelect={() => {
+                  if (isMobile) {
+                    router.push(`/schemas/${type.id}`);
+                  } else {
+                    setSelectedId(type.id);
+                  }
+                }}
               />
             ))}
           </div>
@@ -161,16 +178,18 @@ export default function SchemasPage() {
           </div>
         </aside>
 
-        {/* Right — detail panel */}
-        <main className="flex-1 overflow-y-auto" style={{ backgroundColor: "var(--surface-0)" }}>
-          {selected ? (
-            <TypePreview type={selected} />
-          ) : (
-            <div className="flex h-full items-center justify-center">
-              <p style={{ color: "var(--text-muted)" }}>Sélectionnez un type</p>
-            </div>
-          )}
-        </main>
+        {/* Right — detail panel — hidden on mobile (user taps a type to go to [id]) */}
+        {!isMobile && (
+          <main className="flex-1 overflow-y-auto" style={{ backgroundColor: "var(--surface-0)" }}>
+            {selected ? (
+              <TypePreview type={selected} />
+            ) : (
+              <div className="flex h-full items-center justify-center">
+                <p style={{ color: "var(--text-muted)" }}>Sélectionnez un type</p>
+              </div>
+            )}
+          </main>
+        )}
       </div>
     </AppShell>
   );

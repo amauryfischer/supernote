@@ -21,8 +21,14 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useConfirm, usePrompt } from "@/hooks/usePrompt";
 import { folderAccentVars, folderColorFromTree } from "@/lib/folderAccent";
-import { useShellChrome } from "@/components/shell/shell-chrome-context";
+import {
+  useMobileFab,
+  useMobileTitle,
+  useShellChrome,
+} from "@/components/shell/shell-chrome-context";
 import { useShortcuts } from "@/lib/keyboard";
+import { useIsMobile } from "@/hooks/useIsMobile";
+import { Plus } from "@phosphor-icons/react";
 
 function NotesPageContent() {
   const router = useRouter();
@@ -265,43 +271,75 @@ function NotesPageContent() {
     return () => setAccentOverride(null);
   }, [folderColor, setAccentOverride]);
 
+  // Mobile chrome — title reflects the current pane (folder tree vs. note
+  // list of a folder), FAB triggers "new note in current folder".
+  const isMobile = useIsMobile();
+  // On mobile we treat the URL `?folder=` as the navigation cursor: present
+  // → user has drilled into a folder and sees the note list; absent → user
+  // is at the folder tree. Desktop renders both columns regardless.
+  const showNoteList = !isMobile || folderParam !== null;
+  const showFileTree = !isMobile || folderParam === null;
+  const mobileTitleText = isMobile
+    ? folderParam
+      ? folderName ?? "Notes"
+      : "Notes"
+    : null;
+  const mobileSubtitleText = isMobile && folderParam
+    ? `${notes.length} ${notes.length > 1 ? "notes" : "note"}`
+    : null;
+  useMobileTitle(mobileTitleText, mobileSubtitleText);
+  const onFabPress = useCallback(() => {
+    void handleNewNote(selectedFolderRef.current);
+  }, [handleNewNote]);
+  useMobileFab(
+    isMobile ? { icon: Plus, label: "Nouvelle note", onPress: onFabPress } : null,
+  );
+
   return (
     <div className="flex h-full overflow-hidden">
-      <FileTree
-        folders={foldersLoading ? [] : folders}
-        selectedFolder={selectedFolder}
-        onSelectFolder={handleSelectFolder}
-        onNewFolder={handleNewFolder}
-        onNewNote={handleNewNote}
-        onRenameFolder={handleRenameFolder}
-        onRenameFolderInline={handleRenameFolderInline}
-        onDeleteFolder={handleDeleteFolder}
-        onArchiveFolder={handleArchiveFolder}
-        // Counts must reflect "active" notes only — archived notes are
-        // hidden from the per-folder view by default and the user reads
-        // the (N) badge to plan where to write next, not to audit history.
-        notes={allNotes.filter((n) => !n.archivedAt)}
-      />
+      {showFileTree && (
+        <FileTree
+          folders={foldersLoading ? [] : folders}
+          selectedFolder={selectedFolder}
+          onSelectFolder={handleSelectFolder}
+          onNewFolder={handleNewFolder}
+          onNewNote={handleNewNote}
+          onRenameFolder={handleRenameFolder}
+          onRenameFolderInline={handleRenameFolderInline}
+          onDeleteFolder={handleDeleteFolder}
+          onArchiveFolder={handleArchiveFolder}
+          // Counts must reflect "active" notes only — archived notes are
+          // hidden from the per-folder view by default and the user reads
+          // the (N) badge to plan where to write next, not to audit history.
+          notes={allNotes.filter((n) => !n.archivedAt)}
+        />
+      )}
 
-      <NoteList
-        notes={notes}
-        allNotes={allNotes}
-        selectedNoteId={null}
-        folderName={folderName}
-        selectedFolder={selectedFolder}
-        onSelectNote={handleSelectNote}
-        isLoading={isLoading}
-        isError={isError}
-        errorMessage={errorMessage}
-        isFallback={isFallback}
-        onNewNote={handleNewNote}
-        onRenameNote={handleRenameNote}
-        onArchiveNote={handleArchiveNote}
-        onRenameFolderInline={handleRenameFolderInline}
-      />
+      {showNoteList && (
+        <NoteList
+          notes={notes}
+          allNotes={allNotes}
+          selectedNoteId={null}
+          folderName={folderName}
+          selectedFolder={selectedFolder}
+          onSelectNote={handleSelectNote}
+          isLoading={isLoading}
+          isError={isError}
+          errorMessage={errorMessage}
+          isFallback={isFallback}
+          onNewNote={handleNewNote}
+          onRenameNote={handleRenameNote}
+          onArchiveNote={handleArchiveNote}
+          onRenameFolderInline={handleRenameFolderInline}
+        />
+      )}
 
+      {/* Editor pane — desktop-only filler that invites the user to pick a
+          note. On mobile the user is either browsing folders or the note
+          list; tapping a note pushes /notes/:id which renders the editor
+          full-screen on its own page. */}
       <div
-        className="flex flex-1 flex-col overflow-hidden"
+        className="hidden flex-1 flex-col overflow-hidden md:flex"
         style={{ backgroundColor: "var(--surface-0)" }}
       >
         <EmptyEditor onNewNote={handleNewNote} />

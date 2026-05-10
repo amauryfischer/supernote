@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { Camera, ArrowsClockwise, Wallet } from "@phosphor-icons/react";
-import { AppShell } from "@/components/shell";
+import { AppShell, useMobileTitle, useMobileFab, useMobileHeaderActions } from "@/components/shell";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { useTranslations } from "next-intl";
 import { EmptyState, SkeletonCard } from "@supernote/ui";
 import { MetricCard } from "@/components/finance/MetricCard";
@@ -41,6 +42,7 @@ const CategoryDonut = dynamic(
 export default function FinancePage() {
   const t = useTranslations("finance");
   const router = useRouter();
+  const isMobile = useIsMobile();
   const { accounts, isLoading: loadingAccounts } = useFinanceAccounts();
   const { assets, isLoading: loadingAssets } = useFinanceAssets();
   const { loans, isLoading: loadingLoans } = useFinanceLoans();
@@ -82,15 +84,34 @@ export default function FinancePage() {
     /* À venir — pipeline snapshot via worker */
   }, []);
 
+  useMobileTitle(isMobile ? t("title") : null, isMobile ? todayLabel : null);
+  useMobileFab(null);
+  useMobileHeaderActions(
+    useMemo(
+      () =>
+        isMobile
+          ? [
+              {
+                id: "snapshot",
+                icon: Camera,
+                label: t("takeSnapshot"),
+                onPress: () => void handleTakeSnapshot(),
+              },
+            ]
+          : [],
+      [isMobile, t, handleTakeSnapshot]
+    )
+  );
+
   if (isLoading) {
     return (
       <AppShell>
-        <div className="flex flex-col gap-6 p-6">
-          <div className="grid grid-cols-4 gap-4">
+        <div className="flex flex-col gap-6 px-3 py-6 md:px-6">
+          <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
             {Array.from({ length: 4 }, (_, i) => <SkeletonCard key={i} />)}
           </div>
           <SkeletonCard className="h-48" />
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
             {Array.from({ length: 3 }, (_, i) => <SkeletonCard key={i} />)}
           </div>
         </div>
@@ -117,9 +138,9 @@ export default function FinancePage() {
 
   return (
     <AppShell>
-    <div className="flex flex-col gap-6 p-6">
-      {/* Header */}
-      <div className="flex items-start justify-between">
+    <div className="flex flex-col gap-6 px-3 py-6 md:px-6">
+      {/* Header — desktop only */}
+      <div className="hidden md:flex items-start justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight" style={{ color: "var(--text-primary)" }}>
             {t("title")}
@@ -153,7 +174,7 @@ export default function FinancePage() {
       </div>
 
       {/* Row 1 — Metric cards */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
         <MetricCard
           label={t("metrics.netWorth")}
           value={formatCurrency(currentNetWorth)}
@@ -188,7 +209,7 @@ export default function FinancePage() {
       <CategoryDonut snapshot={latestSnapshot} />
 
       {/* Row 4 — Quick lists */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
         <AccountsList accounts={accounts} />
         <AssetsList assets={assets} />
         <GoalsList goals={goals} />

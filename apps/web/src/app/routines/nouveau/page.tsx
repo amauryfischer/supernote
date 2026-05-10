@@ -1,6 +1,7 @@
 "use client";
 
-import { AppShell } from "@/components/shell";
+import { AppShell, useMobileTitle } from "@/components/shell";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { TemplatePickerStep, RoutineEditor, getTemplateRoutine } from "@/components/routines";
 import type { RoutineFixture, TemplateKey } from "@/components/routines";
 import { trpc } from "@/lib/trpc/client";
@@ -14,6 +15,7 @@ import { routineFixtureToEntityFields, ROUTINE_TYPE_ID } from "@/lib/routines/en
 
 function NouveauContent() {
   const router = useRouter();
+  const isMobile = useIsMobile();
   const searchParams = useSearchParams();
   const templateParam = searchParams.get("template") as TemplateKey | null;
 
@@ -59,11 +61,17 @@ function NouveauContent() {
     }
   }, [step, templateParam, router]);
 
+  // Mobile chrome — title reflects the current step
+  useMobileTitle(
+    isMobile ? (step === "pick" ? "Nouveau modèle" : "Nouvelle routine") : null,
+  );
+
   if (step === "pick") {
     return (
       <div className="flex h-full flex-col">
+        {/* Breadcrumb — hidden on mobile (title in top bar) */}
         <div
-          className="flex items-center gap-3 border-b px-6 py-3"
+          className="hidden items-center gap-3 border-b px-6 py-3 md:flex"
           style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-0)" }}
         >
           <Link
@@ -80,7 +88,7 @@ function NouveauContent() {
           </span>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-6 py-8">
+        <div className="flex-1 overflow-y-auto px-3 py-6 md:px-6 md:py-8">
           <div className="mx-auto max-w-xl">
             <TemplatePickerStep onSelect={handleSelectTemplate} />
           </div>

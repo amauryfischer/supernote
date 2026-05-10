@@ -4,7 +4,8 @@ import { useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, X } from "@phosphor-icons/react";
-import { AppShell } from "@/components/shell";
+import { AppShell, useMobileTitle } from "@/components/shell";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { ENTITY_TYPES, RELATION_TYPES } from "@/components/schemas/fixtures";
 
 // RelationsGraph pulls in @xyflow/react and its CSS — that's >100KB of JS plus
@@ -24,6 +25,8 @@ import type { RelationType, EntityType } from "@supernote/core";
 
 export default function RelationsPage() {
   const router = useRouter();
+  const isMobile = useIsMobile();
+  useMobileTitle(isMobile ? "Graphe des relations" : null);
   const [selectedRel, setSelectedRel] = useState<RelationType | null>(null);
 
   // Load entity types from tRPC; fallback to fixtures on error
@@ -46,9 +49,9 @@ export default function RelationsPage() {
   return (
     <AppShell>
       <div className="flex h-full flex-col">
-        {/* Top bar */}
+        {/* Top bar — hidden on mobile (shell top bar shows the title) */}
         <div
-          className="flex items-center gap-3 border-b px-6 py-3"
+          className="hidden items-center gap-3 border-b px-6 py-3 md:flex"
           style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-1)" }}
         >
           <button

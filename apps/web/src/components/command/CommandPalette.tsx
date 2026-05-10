@@ -468,6 +468,13 @@ function CommandItem({
       value={cmd.id}
       keywords={cmd.keywords}
       onSelect={() => onSelect(cmd.id)}
+      // Mirrors the EntityCommandItem fix: cmdk doesn't fire onSelect on
+      // mobile taps unless the item was first keyboard-focused. Explicit
+      // onClick makes pointer interaction work cross-platform.
+      onClick={(e) => {
+        e.preventDefault();
+        onSelect(cmd.id);
+      }}
       className="flex cursor-pointer items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors"
       style={{
         color: "var(--text-primary)",
@@ -531,6 +538,14 @@ function EntityCommandItem({
     <Command.Item
       value={`entity:${result.entityId}`}
       onSelect={() => onSelect(result.entityId, result.typeId)}
+      // cmdk's onSelect fires on Enter and on synthetic click after the item
+      // has been keyboard-focused — on mobile tap the item is never marked
+      // `data-selected` first, so onSelect never runs. Adding an explicit
+      // onClick makes the row react to taps and clicks alike.
+      onClick={(e) => {
+        e.preventDefault();
+        onSelect(result.entityId, result.typeId);
+      }}
       className="flex cursor-pointer items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors"
       style={{ color: "var(--text-primary)" }}
       data-cmd-item

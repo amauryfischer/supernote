@@ -1,6 +1,7 @@
 "use client";
 
-import { AppShell } from "@/components/shell";
+import { AppShell, useMobileTitle } from "@/components/shell";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { ROUTINES, RoutineEditor } from "@/components/routines";
 import type { RoutineFixture } from "@/components/routines";
 import { trpc } from "@/lib/trpc/client";
@@ -36,6 +37,7 @@ function RoutineDetailSkeleton() {
 export default function RoutineDetailPage() {
   const params = useParams();
   const router = useRouter();
+  const isMobile = useIsMobile();
   const rawId = params.id;
   const id: string = typeof rawId === "string" ? rawId : Array.isArray(rawId) ? (rawId[0] ?? "") : "";
 
@@ -85,6 +87,9 @@ export default function RoutineDetailPage() {
     // Manual run is not yet implemented in the worker — show a friendly toast.
     showToast("Routine lancée (mode dégradé)");
   }, []);
+
+  // Mobile chrome — publish the routine name as the page title
+  useMobileTitle(isMobile ? (routine?.name ?? "Routine") : null);
 
   if (getQuery.isLoading) {
     return (

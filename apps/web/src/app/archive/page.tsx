@@ -13,12 +13,14 @@
 import { Archive, ArrowUUpLeft, FileText, Folder as FolderIcon, MagnifyingGlass } from "@phosphor-icons/react";
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { AppShell } from "@/components/shell";
+import { AppShell, useMobileTitle } from "@/components/shell";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { useNoteList, useArchiveNote } from "@/components/notes/hooks";
 import { useDateFormat } from "@/lib/dateFormat";
 import { useToast } from "@supernote/ui";
 
 export default function ArchivePage() {
+  const isMobile = useIsMobile();
   // `null` folderPath → fetch every note, then we pick the archived ones.
   // The recursive filter in useNoteList collapses to a no-op when null.
   const { notes, isLoading, isError, errorMessage } = useNoteList(null);
@@ -95,6 +97,15 @@ export default function ArchivePage() {
     }
   };
 
+  useMobileTitle(
+    isMobile ? "Archive" : null,
+    isMobile
+      ? isLoading
+        ? null
+        : `${archived.length} note${archived.length !== 1 ? "s" : ""}`
+      : null,
+  );
+
   const handleUnarchiveGroup = async (ids: string[]) => {
     try {
       // Sequential — restoring N notes runs N file moves through the worker;
@@ -120,9 +131,9 @@ export default function ArchivePage() {
         className="flex h-full flex-col"
         style={{ backgroundColor: "var(--surface-0)" }}
       >
-        {/* Header */}
+        {/* Header — hidden on mobile (title via useMobileTitle, search inline below) */}
         <div
-          className="flex items-center justify-between gap-4 px-6 py-4"
+          className="hidden md:flex items-center justify-between gap-4 px-6 py-4"
           style={{ borderBottom: "1px solid var(--border-subtle)" }}
         >
           <div className="flex items-center gap-3">
@@ -168,8 +179,34 @@ export default function ArchivePage() {
           </div>
         </div>
 
+        {/* Mobile search bar — shown only on mobile */}
+        <div
+          className="md:hidden px-3 py-2"
+          style={{ borderBottom: "1px solid var(--border-subtle)" }}
+        >
+          <div className="relative">
+            <MagnifyingGlass
+              size={13}
+              className="absolute left-2.5 top-1/2 -translate-y-1/2"
+              style={{ color: "var(--text-muted)" }}
+            />
+            <input
+              type="text"
+              placeholder="Rechercher dans les archives…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              className="w-full rounded-md py-1.5 pl-8 pr-3 text-xs outline-none"
+              style={{
+                backgroundColor: "var(--surface-1)",
+                color: "var(--text-primary)",
+                border: "1px solid var(--border-subtle)",
+              }}
+            />
+          </div>
+        </div>
+
         {/* Body */}
-        <div className="flex-1 overflow-y-auto p-6">
+        <div className="flex-1 overflow-y-auto px-3 py-3 md:p-6">
           {isError ? (
             <div className="mx-auto max-w-md text-center text-sm" style={{ color: "var(--text-muted)" }}>
               {errorMessage ?? "Impossible de charger les archives."}

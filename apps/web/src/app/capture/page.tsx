@@ -86,7 +86,7 @@ export default function CapturePage() {
         className="flex w-full flex-col overflow-hidden rounded-xl border shadow-2xl"
         style={{
           maxWidth: 560,
-          margin: "0 20px",
+          margin: "0 16px",
           backgroundColor: "var(--surface-1, rgba(30,30,30,0.95))",
           borderColor: "var(--border-subtle, rgba(255,255,255,0.08))",
           backdropFilter: "blur(20px)",
@@ -94,17 +94,17 @@ export default function CapturePage() {
       >
         {/* Hint bar */}
         <div
-          className="flex items-center justify-between px-4 py-2"
+          className="flex items-center justify-between px-4 py-2.5"
           style={{ borderBottom: "1px solid var(--border-subtle, rgba(255,255,255,0.06))" }}
         >
           <span className="text-[11px]" style={{ color: "var(--text-muted, #888)" }}>
             Capture rapide — Inbox
           </span>
           <div className="flex items-center gap-3 text-[10px]" style={{ color: "var(--text-muted, #888)" }}>
-            <span>
+            <span className="hidden sm:inline">
               <kbd className="font-mono">Esc</kbd> Annuler
             </span>
-            <span>
+            <span className="hidden sm:inline">
               <kbd className="font-mono">⌘ Enter</kbd> Enregistrer
             </span>
           </div>
@@ -117,7 +117,7 @@ export default function CapturePage() {
           onChange={(e) => setContent(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder="Capture rapide…"
-          rows={4}
+          rows={5}
           disabled={status === "saving" || status === "done"}
           className="resize-none px-4 py-3 text-sm outline-none"
           style={{
@@ -128,18 +128,31 @@ export default function CapturePage() {
           aria-label="Contenu de la note"
         />
 
-        {/* Status */}
-        {statusLabel && (
-          <div
-            className="px-4 py-2 text-[11px]"
-            style={{
-              color: status === "error" ? "#ef4444" : "var(--accent, #6366f1)",
-              borderTop: "1px solid var(--border-subtle, rgba(255,255,255,0.06))",
-            }}
+        {/* Action row — touch-friendly submit button visible on small screens */}
+        <div
+          className="flex items-center justify-between px-4 py-2"
+          style={{ borderTop: "1px solid var(--border-subtle, rgba(255,255,255,0.06))" }}
+        >
+          {statusLabel ? (
+            <span
+              className="text-[11px]"
+              style={{ color: status === "error" ? "#ef4444" : "var(--accent, #6366f1)" }}
+            >
+              {statusLabel}
+            </span>
+          ) : (
+            <span />
+          )}
+          <button
+            type="button"
+            onClick={() => void submit()}
+            disabled={status === "saving" || status === "done"}
+            className="rounded-md px-3 py-1.5 text-xs font-medium transition-opacity hover:opacity-90 disabled:opacity-50"
+            style={{ backgroundColor: "var(--accent, #6366f1)", color: "white" }}
           >
-            {statusLabel}
-          </div>
-        )}
+            Enregistrer
+          </button>
+        </div>
       </div>
     </div>
   );

@@ -1,19 +1,29 @@
 "use client";
 
-import { AppShell } from "@/components/shell";
+import { AppShell, useMobileTitle } from "@/components/shell";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { KnowledgeGraph, GRAPH_NODES, GRAPH_EDGES } from "@/components/graph-page";
 import { Graph } from "@phosphor-icons/react";
 import { EmptyState } from "@supernote/ui";
 
 export default function GraphPage() {
   const isEmpty = GRAPH_NODES.length === 0;
+  const isMobile = useIsMobile();
+
+  const subtitle = !isEmpty
+    ? `${GRAPH_NODES.length} noeuds · ${GRAPH_EDGES.length} liens`
+    : null;
+
+  // Mobile chrome — publish title; the interactive surface works natively
+  // with touch (pinch-zoom, pan) so no special handling needed.
+  useMobileTitle(isMobile ? "Graphe" : null, isMobile ? subtitle : null);
 
   return (
     <AppShell>
       <div className="flex h-full flex-col overflow-hidden">
-        {/* Page header */}
+        {/* Page header — hidden on mobile (title lives in the top bar) */}
         <div
-          className="flex shrink-0 items-center gap-3 border-b px-6 py-3"
+          className="hidden shrink-0 items-center gap-3 border-b px-6 py-3 md:flex"
           style={{
             borderColor: "var(--border-subtle)",
             backgroundColor: "var(--surface-0)",

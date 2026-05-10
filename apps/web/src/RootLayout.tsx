@@ -20,6 +20,7 @@ import { OnboardingTour } from "@/components/onboarding/OnboardingTour";
 import { VaultInitBanner } from "@/lib/vault/VaultInitBanner";
 import { PwaBootstrap } from "@/lib/pwa/PwaBootstrap";
 import { PwaVaultSetup } from "@/lib/pwa/PwaVaultSetup";
+import { GitSyncProvider } from "@/lib/git/GitSyncProvider";
 import { PromptProvider } from "@/hooks/usePrompt";
 import { SettingsProvider } from "@/components/settings/SettingsContext";
 
@@ -43,9 +44,13 @@ export function RootLayout() {
                     in PWA mode it stays silent). */}
                 <VaultInitBanner />
                 <OnboardingTour />
-                {/* PWA: vault folder picker modal wraps every route */}
+                {/* PWA: vault folder picker modal wraps every route.
+                    GitSyncProvider lives INSIDE PwaVaultSetup so it can
+                    read the active vault handle through `useVault()`. */}
                 <PwaVaultSetup>
-                  <Outlet />
+                  <GitSyncProvider>
+                    <Outlet />
+                  </GitSyncProvider>
                 </PwaVaultSetup>
               </PromptProvider>
               </SettingsProvider>

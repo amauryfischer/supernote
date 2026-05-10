@@ -547,10 +547,8 @@ export function FileTree({
 
   return (
     <aside
-      className="flex h-full flex-col border-r"
+      className="flex h-full w-full flex-col border-r md:w-[280px] md:min-w-[280px]"
       style={{
-        width: 280,
-        minWidth: 280,
         borderColor: "var(--border-subtle)",
         backgroundColor: "var(--surface-1)",
       }}

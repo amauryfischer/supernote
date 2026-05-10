@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import { ArrowLeft, Plus, Target } from "@phosphor-icons/react";
 import Link from "next/link";
-import { AppShell } from "@/components/shell";
+import { AppShell, useMobileTitle, useMobileFab, useMobileHeaderActions } from "@/components/shell";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { useFinanceGoals, useFinanceSnapshots } from "@/components/finance/hooks";
 import { formatCurrency, formatDate, getGoalETA } from "@/components/finance/utils";
 import { projectETA } from "@supernote/finance/snapshots";
@@ -37,6 +38,7 @@ function snapshotToEntity(s: Snapshot): SnapshotEntity {
 }
 
 export default function ObjectifsPage() {
+  const isMobile = useIsMobile();
   const { goals, isLoading, isFallback } = useFinanceGoals();
   const { snapshots } = useFinanceSnapshots();
 
@@ -64,10 +66,18 @@ export default function ObjectifsPage() {
     }
   }, [createMutation]);
 
+  useMobileTitle(isMobile ? "Objectifs" : null);
+  useMobileFab(
+    isMobile
+      ? { icon: Plus, label: "Nouvel objectif", onPress: () => void handleNewGoal() }
+      : null
+  );
+  useMobileHeaderActions([]);
+
   return (
     <AppShell>
-    <div className="flex flex-col gap-6 p-6">
-      <div className="flex items-center justify-between">
+    <div className="flex flex-col gap-6 px-3 py-6 md:px-6">
+      <div className="hidden md:flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Link href="/finance" className="flex items-center gap-1 text-sm" style={{ color: "var(--text-muted)" }}>
             <ArrowLeft size={14} /> Finance
@@ -103,7 +113,7 @@ export default function ObjectifsPage() {
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             {goals.map((goal) => {
               const pct = goal.targetAmount > 0 ? Math.min((goal.currentAmount / goal.targetAmount) * 100, 100) : 0;
               const style = CATEGORY_STYLES[goal.category] ?? { color: "var(--accent)", bg: "var(--accent-subtle)", label: goal.category };
@@ -182,7 +192,7 @@ export default function ObjectifsPage() {
           </div>
 
           {/* Summary */}
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <div
               className="rounded-xl border p-4"
               style={{ backgroundColor: "var(--surface-1)", borderColor: "var(--border-subtle)" }}

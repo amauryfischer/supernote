@@ -1,7 +1,8 @@
 "use client";
 
-import { AppShell } from "@/components/shell";
-import { Stack } from "@phosphor-icons/react";
+import { AppShell, useMobileFab, useMobileTitle } from "@/components/shell";
+import { useIsMobile } from "@/hooks/useIsMobile";
+import { Stack, Plus } from "@phosphor-icons/react";
 import { EmptyState } from "@supernote/ui";
 import { useRouter } from "next/navigation";
 import { trpc } from "@/lib/trpc/client";
@@ -9,6 +10,7 @@ import { useCallback } from "react";
 
 export default function ProjetsPage() {
   const router = useRouter();
+  const isMobile = useIsMobile();
   const utils = trpc.useUtils();
   const createMutation = trpc.entities.create.useMutation({
     onSuccess: () => {
@@ -27,6 +29,13 @@ export default function ProjetsPage() {
       console.error("[projets] create failed", err);
     }
   }, [createMutation, router]);
+
+  useMobileTitle(isMobile ? "Projets" : null);
+  useMobileFab(
+    isMobile
+      ? { icon: Plus, label: "Nouveau projet", onPress: () => void handleNewProject() }
+      : null,
+  );
 
   return (
     <AppShell>

@@ -3,13 +3,16 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Plus } from "@phosphor-icons/react";
-import { AppShell } from "@/components/shell";
+import { AppShell, useMobileTitle } from "@/components/shell";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { ViewKindPicker, ENTITY_TYPES } from "@/components/views";
 import { trpc } from "@/lib/trpc/client";
 import type { ViewKind } from "@supernote/views";
 
 export default function NouvelleVuePage() {
   const router = useRouter();
+  const isMobile = useIsMobile();
+  useMobileTitle(isMobile ? "Nouvelle vue" : null);
   const [name, setName] = useState("");
   const [kind, setKind] = useState<ViewKind>("table");
   const [entityTypeId, setEntityTypeId] = useState<string>(Object.keys(ENTITY_TYPES)[0] ?? "contact");
@@ -45,9 +48,9 @@ export default function NouvelleVuePage() {
   return (
     <AppShell>
       <div className="flex h-full flex-col">
-        {/* Header */}
+        {/* Header — hidden on mobile (shell top bar shows the title) */}
         <div
-          className="flex items-center gap-3 border-b px-4 py-2"
+          className="hidden items-center gap-3 border-b px-4 py-2 md:flex"
           style={{ borderColor: "var(--border-subtle)" }}
         >
           <button
@@ -64,7 +67,7 @@ export default function NouvelleVuePage() {
         </div>
 
         {/* Form */}
-        <div className="mx-auto w-full max-w-lg px-6 py-10">
+        <div className="mx-auto w-full max-w-lg px-3 py-6 md:px-6 md:py-10">
           <div className="flex flex-col gap-6">
             {/* Name */}
             <div className="flex flex-col gap-1.5">

@@ -1,6 +1,7 @@
 "use client";
 
-import { AppShell } from "@/components/shell";
+import { AppShell, useMobileFab, useMobileTitle } from "@/components/shell";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import {
   ROUTINES,
   TEMPLATE_META,
@@ -100,6 +101,7 @@ function NewRoutineDropdown() {
 
 export default function RoutinesPage() {
   const t = useTranslations("routines");
+  const isMobile = useIsMobile();
   const utils = trpc.useUtils();
   const listQuery = trpc.entities.list.useQuery({ typeId: ROUTINE_TYPE_ID });
   const updateMutation = trpc.entities.update.useMutation({
@@ -155,12 +157,23 @@ export default function RoutinesPage() {
 
   const activeCount = routines.filter((r) => r.enabled).length;
 
+  // Mobile chrome — publish title, FAB navigates to /routines/nouveau
+  useMobileTitle(
+    isMobile ? t("title") : null,
+    isMobile ? `${activeCount} active${activeCount !== 1 ? "s" : ""}` : null,
+  );
+  useMobileFab(
+    isMobile
+      ? { icon: Plus, label: t("newRoutine"), onPress: () => { window.location.href = "/routines/nouveau"; } }
+      : null,
+  );
+
   return (
     <AppShell>
       <div className="flex h-full flex-col">
-        {/* Header */}
+        {/* Header — hidden on mobile (title and FAB live in the top bar / FAB) */}
         <div
-          className="flex items-center justify-between border-b px-6 py-3"
+          className="hidden items-center justify-between border-b px-6 py-3 md:flex"
           style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-0)" }}
         >
           <div className="flex items-center gap-3">
@@ -206,7 +219,7 @@ export default function RoutinesPage() {
         )}
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto px-6 py-6">
+        <div className="flex-1 overflow-y-auto px-3 py-4 md:px-6 md:py-6">
           {listQuery.isLoading ? (
             <div className="mx-auto max-w-3xl space-y-3">
               {Array.from({ length: 3 }).map((_, i) => <RoutineSkeleton key={i} />)}

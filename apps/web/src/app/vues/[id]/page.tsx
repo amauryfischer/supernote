@@ -11,7 +11,8 @@ import {
   PencilSimple,
   Check,
 } from "@phosphor-icons/react";
-import { AppShell } from "@/components/shell";
+import { AppShell, useMobileTitle, useMobileHeaderActions, type MobileHeaderAction } from "@/components/shell";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import {
   FilterBuilder,
   SortBuilder,
@@ -110,6 +111,7 @@ export default function VueEditPage() {
   const params = useParams();
   const router = useRouter();
   const viewId = params.id as string;
+  const isMobile = useIsMobile();
 
   const getQuery = trpc.views.get.useQuery({ id: viewId }, { retry: false });
   const saveMutation = trpc.views.save.useMutation({
@@ -175,6 +177,21 @@ export default function VueEditPage() {
     if (e.key === "Enter" || e.key === "Escape") setIsEditingName(false);
   };
 
+  useMobileTitle(isMobile ? name : null);
+  const mobileActions: MobileHeaderAction[] = useMemo(() => {
+    if (!isMobile) return [];
+    return [
+      {
+        id: "save",
+        icon: FloppyDisk,
+        label: saved ? "Enregistré" : "Enregistrer",
+        onPress: handleSave,
+        active: saved,
+      },
+    ];
+  }, [isMobile, saved, handleSave]);
+  useMobileHeaderActions(mobileActions);
+
   if (getQuery.isLoading) {
     return (
       <AppShell>
@@ -205,9 +222,9 @@ export default function VueEditPage() {
   return (
     <AppShell>
       <div className="flex h-full flex-col overflow-hidden">
-        {/* Header */}
+        {/* Header — hidden on mobile (title + save live in shell top bar) */}
         <div
-          className="flex items-center justify-between border-b px-4 py-2"
+          className="hidden items-center justify-between border-b px-4 py-2 md:flex"
           style={{ borderColor: "var(--border-subtle)" }}
         >
           <div className="flex items-center gap-3">

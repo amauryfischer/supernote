@@ -27,7 +27,10 @@ import {
   PromptModal,
   ColorPickerPopover,
   COLOR_PRESETS,
+  useMobileTitle,
+  useMobileFab,
 } from "@/components/shell";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { TagTree } from "@/components/tags/TagTree";
 import { trpc } from "@/lib/trpc/client";
 import type { Tag, TagEntity } from "@supernote/ipc/schemas/tags";
@@ -78,6 +81,7 @@ interface DeleteModalState {
 }
 
 export default function TagsPage() {
+  const isMobile = useIsMobile();
   const utils = trpc.useUtils();
   const tagsQuery = trpc.tags.list.useQuery({});
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
@@ -258,15 +262,27 @@ export default function TagsPage() {
   // turns this into a free-text-with-hints input — no extra deps.
   const allPaths = useMemo(() => tags.map((t) => t.path).sort(), [tags]);
 
+  useMobileTitle(isMobile ? "Tags" : null);
+
+  useMobileFab(
+    isMobile
+      ? {
+          icon: Plus,
+          label: "Nouveau tag",
+          onPress: () => setCreateModal({ open: true, parent: "" }),
+        }
+      : null,
+  );
+
   return (
     <AppShell>
       <div className="flex h-full">
         <aside
-          className="flex shrink-0 flex-col border-r"
-          style={{ width: 360, borderColor: subtle, backgroundColor: "var(--surface-1)" }}
+          className="flex w-full shrink-0 flex-col border-r md:w-[360px]"
+          style={{ borderColor: subtle, backgroundColor: "var(--surface-1)" }}
         >
           <div
-            className="flex items-center justify-between gap-2 border-b px-4 py-3"
+            className="flex items-center justify-between gap-2 border-b px-4 py-2 md:py-3"
             style={{ borderColor: subtle }}
           >
             <div className="flex items-center gap-2">
@@ -278,9 +294,10 @@ export default function TagsPage() {
                 Tags ({tags.length})
               </span>
             </div>
+            {/* "Nouveau tag" button hidden on mobile — FAB handles creation */}
             <button
               onClick={() => setCreateModal({ open: true, parent: "" })}
-              className="flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium"
+              className="hidden md:flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium"
               style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
             >
               <Plus size={12} /> Nouveau tag
@@ -339,8 +356,9 @@ export default function TagsPage() {
           </div>
         </aside>
 
+        {/* Detail pane: hidden on mobile, full width on desktop */}
         <main
-          className="flex-1 overflow-y-auto p-6"
+          className="hidden md:block flex-1 overflow-y-auto p-6"
           style={{ backgroundColor: "var(--surface-0)" }}
         >
           {!selectedPath && (

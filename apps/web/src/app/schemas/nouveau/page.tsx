@@ -3,7 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Check } from "@phosphor-icons/react";
-import { AppShell } from "@/components/shell";
+import { AppShell, useMobileTitle } from "@/components/shell";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { getIcon } from "@/components/schemas/icon-map";
 import { trpc } from "@/lib/trpc/client";
 
@@ -31,6 +32,8 @@ interface FormState {
 
 export default function NouveauSchemaPage() {
   const router = useRouter();
+  const isMobile = useIsMobile();
+  useMobileTitle(isMobile ? "Nouveau type" : null);
   const [form, setForm] = useState<FormState>({
     name: "",
     plural: "",
@@ -70,7 +73,7 @@ export default function NouveauSchemaPage() {
 
   return (
     <AppShell>
-      <div className="mx-auto flex max-w-2xl flex-col gap-8 px-6 py-10">
+      <div className="mx-auto flex max-w-2xl flex-col gap-8 px-3 py-6 md:px-6 md:py-10">
         {/* Back */}
         <button
           onClick={() => router.push("/schemas")}

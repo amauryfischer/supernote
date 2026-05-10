@@ -28,6 +28,9 @@ import { saveVaultHandle, loadVaultHandle, verifyHandlePermission } from "@/lib/
 import { initWorkerVault, onWorkerMessage, setWorkerReady, flushVaultWorker } from "@/lib/trpc/browser-link";
 import { isBrowserPwaMode } from "@/lib/trpc/client";
 import type { VaultReadyMessage, VaultErrorMessage } from "@/lib/vault-worker/worker-protocol";
+import { cloneIntoVault, initInVault, isLinked } from "@/lib/git/github-sync";
+import { saveGitConfig } from "@/lib/git/config-storage";
+import { clearOpfsDb } from "@/lib/vault-worker/db-persistence";
 
 const DEGRADED_STORAGE_KEY = "supernote.degraded";
 
@@ -35,11 +38,29 @@ type SetupState =
   | "idle"        // Checking for existing handle
   | "checking"    // Verifying stored handle permission
   | "ready"       // Vault is initialized
-  | "prompt"      // Show the welcome modal
+  | "prompt"      // Welcome — choose between local folder and git repo
+  | "git-form"    // Git setup form (URL + PAT + folder)
   | "picking"     // showDirectoryPicker in progress
+  | "cloning"     // git clone in progress
   | "loading"     // Worker initializing
   | "error"       // Init failed
   | "degraded";   // User chose localStorage mode
+
+export interface GitSetupArgs {
+  /** HTTPS clone URL — `https://github.com/me/notes.git`. */
+  url: string;
+  /** Personal Access Token — optional for public repos. */
+  token: string;
+  /** Branch to track. Defaults to `main`. */
+  ref?: string;
+  /**
+   * Behaviour when the picked folder is not empty:
+   *   - "clone-into-empty": refuse, force the user to pick an empty folder
+   *   - "init-existing": skip clone, init `.git/`, link remote, push as
+   *     initial commit on next sync
+   */
+  mode: "clone-into-empty" | "init-existing";
+}
 
 interface VaultContextValue {
   state: SetupState;
@@ -47,6 +68,12 @@ interface VaultContextValue {
   vaultName: string | null;
   /** Open the FSA folder picker and re-initialise the worker with the chosen folder. */
   pickFolder: () => Promise<void>;
+  /** Open the Git setup form. */
+  startGitFlow: () => void;
+  /** Cancel the Git setup form and return to the welcome screen. */
+  cancelGitFlow: () => void;
+  /** Run the Git flow: pick folder, clone (or init), persist config, init worker. */
+  setupGitVault: (args: GitSetupArgs) => Promise<void>;
   /** Continue without a vault folder (localStorage degraded mode). */
   skipToDegraded: () => void;
   /** True only in PWA mode (FSA available, no Electron bridge). */
@@ -162,6 +189,15 @@ export function usePwaVaultSetup(): VaultContextValue {
         mode: "readwrite",
         startIn: "documents",
       }) as FileSystemDirectoryHandle;
+      // If the user picked a DIFFERENT folder than what's currently linked,
+      // wipe the OPFS-cached SQLite index — otherwise the worker would fall
+      // back to it and resurrect the previous vault's data in the new
+      // folder. Same-folder re-pick (e.g. re-authorising permission after
+      // a session expiry) keeps the cache.
+      const previous = await loadVaultHandle().catch(() => null);
+      if (!previous || !(await previous.isSameEntry(handle).catch(() => false))) {
+        await clearOpfsDb();
+      }
       await saveVaultHandle(handle);
       // Picking a folder explicitly opts out of degraded mode.
       if (typeof window !== "undefined") window.localStorage.removeItem(DEGRADED_STORAGE_KEY);
@@ -185,7 +221,106 @@ export function usePwaVaultSetup(): VaultContextValue {
     setState("degraded");
   }, []);
 
-  return { state, errorMsg, vaultName, pickFolder, skipToDegraded, isPwa };
+  const startGitFlow = useCallback(() => {
+    setErrorMsg(null);
+    setState("git-form");
+  }, []);
+
+  const cancelGitFlow = useCallback(() => {
+    setErrorMsg(null);
+    setState("prompt");
+  }, []);
+
+  const setupGitVault = useCallback(async (args: GitSetupArgs) => {
+    setErrorMsg(null);
+    setState("picking");
+    let handle: FileSystemDirectoryHandle;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      handle = await (window as any).showDirectoryPicker({
+        id: "supernote-vault",
+        mode: "readwrite",
+        startIn: "documents",
+      }) as FileSystemDirectoryHandle;
+    } catch (err) {
+      if ((err as Error).name === "AbortError") {
+        setState("git-form");
+        return;
+      }
+      setErrorMsg(String(err));
+      setState("error");
+      return;
+    }
+
+    setState("cloning");
+    let step: string = "init";
+    let initialHeadSha: string | null = null;
+    try {
+      step = "check-linked";
+      const alreadyLinked = await isLinked(handle);
+      if (alreadyLinked) {
+        // No-op — config is refreshed below.
+      } else if (args.mode === "clone-into-empty") {
+        step = "clear-opfs";
+        await clearOpfsDb();
+        step = "clone";
+        const cloneResult = await cloneIntoVault(handle, {
+          url: args.url,
+          token: args.token || null,
+          ref: args.ref ?? "main",
+        });
+        // Anchor the local worktree at the cloned HEAD so the next sync
+        // sees a clean baseline (no false-positive "everything changed
+        // locally" diff against an unknown baseline).
+        initialHeadSha = cloneResult.headSha || null;
+      } else {
+        // Init-existing: keep OPFS cache so the local index survives.
+        step = "init-remote";
+        await initInVault(handle, {
+          url: args.url,
+          token: args.token || null,
+          ref: args.ref ?? "main",
+        });
+      }
+
+      step = "persist-config";
+      await saveGitConfig({
+        url: args.url,
+        token: args.token || null,
+        ref: args.ref ?? "main",
+        lastSyncSha: initialHeadSha,
+        lastSyncAt: initialHeadSha ? new Date().toISOString() : undefined,
+      });
+      await saveVaultHandle(handle);
+      if (typeof window !== "undefined") window.localStorage.removeItem(DEGRADED_STORAGE_KEY);
+      setWorkerReady(false);
+      setVaultName(null);
+      setState("loading");
+      startWorker(handle);
+    } catch (err) {
+      // Label the failure with the step that was running so the user (and
+      // the dev console) sees exactly which phase blew up. The raw FSA
+      // error message ("A requested file or directory could not be found
+      // at the time an operation was processed.") is otherwise too generic
+      // to debug.
+      const raw = (err as Error).message || String(err);
+      console.error(`[git-setup] step=${step} failed:`, err);
+      setErrorMsg(`Échec à l'étape « ${step} » : ${raw}`);
+      setState("error");
+    }
+  }, []);
+
+  return {
+    state,
+    errorMsg,
+    vaultName,
+    pickFolder,
+    startGitFlow,
+    cancelGitFlow,
+    setupGitVault,
+    skipToDegraded,
+    isPwa,
+  };
 }
 
 function startWorker(handle: FileSystemDirectoryHandle): void {
@@ -196,11 +331,8 @@ function startWorker(handle: FileSystemDirectoryHandle): void {
 
 export function PwaVaultSetup({ children }: { children: React.ReactNode }) {
   const value = usePwaVaultSetup();
-  const { state, errorMsg, pickFolder, skipToDegraded, isPwa } = value;
+  const { state, errorMsg, pickFolder, startGitFlow, cancelGitFlow, setupGitVault, skipToDegraded, isPwa } = value;
 
-  // Decide whether an overlay is currently visible. Critically, we ALWAYS
-  // render `<>{children}{overlay}</>` so the React tree shape is stable
-  // between transitions. Children never unmount when the overlay toggles.
   const showOverlay =
     isPwa &&
     state !== "ready" &&
@@ -214,7 +346,17 @@ export function PwaVaultSetup({ children }: { children: React.ReactNode }) {
       overlay = (
         <PwaOverlay>
           <LoadingSpinner />
-          <p style={styles.subtitle}>Ouverture du vault...</p>
+          <p style={styles.subtitle}>Ouverture du vault…</p>
+        </PwaOverlay>
+      );
+    } else if (state === "cloning") {
+      overlay = (
+        <PwaOverlay>
+          <LoadingSpinner />
+          <p style={styles.subtitle}>Clonage du dépôt en cours…</p>
+          <p style={{ ...styles.subtitle, fontSize: 12, opacity: 0.7 }}>
+            Selon la taille du repo, cela peut prendre quelques secondes.
+          </p>
         </PwaOverlay>
       );
     } else if (state === "error") {
@@ -223,36 +365,68 @@ export function PwaVaultSetup({ children }: { children: React.ReactNode }) {
           <p style={styles.title}>Erreur</p>
           <p style={styles.error}>{errorMsg}</p>
           <button style={styles.btnPrimary} onClick={() => void pickFolder()}>
-            Réessayer
+            Choisir un dossier local
           </button>
-          <button style={styles.btnSecondary} onClick={skipToDegraded}>
+          <button style={styles.btnSecondary} onClick={startGitFlow}>
+            Réessayer avec un dépôt Git
+          </button>
+          <button style={styles.btnGhost} onClick={skipToDegraded}>
             Continuer sans dossier
           </button>
         </PwaOverlay>
       );
-    } else {
-      // "prompt" or "picking" — welcome modal
+    } else if (state === "git-form") {
       overlay = (
-        <PwaOverlay>
+        <PwaOverlay wide>
+          <GitSetupForm
+            onSubmit={(args) => void setupGitVault(args)}
+            onCancel={cancelGitFlow}
+          />
+        </PwaOverlay>
+      );
+    } else {
+      // "prompt" or "picking" — welcome modal with two source choices
+      overlay = (
+        <PwaOverlay wide>
           <div style={styles.logo}>S</div>
           <h1 style={styles.title}>Bienvenue sur Supernote</h1>
           <p style={styles.subtitle}>
-            Pour stocker vos notes localement et les retrouver à chaque visite,
-            choisissez un dossier sur votre disque.
+            Choisissez l&apos;emplacement où vos notes vivront — un dossier
+            local sur cet appareil, ou un dépôt Git que vous synchronisez
+            entre plusieurs appareils.
           </p>
-          <ul style={styles.featureList}>
-            <li>Fichiers <code>.md</code> dans votre dossier — pas de lock-in</li>
-            <li>SQLite local — aucune donnée n&apos;est envoyée sur un serveur</li>
-            <li>Fonctionne hors-ligne une fois installé</li>
-          </ul>
-          <button
-            style={styles.btnPrimary}
-            onClick={() => void pickFolder()}
-            disabled={state === "picking"}
-          >
-            {state === "picking" ? "Sélection..." : "Choisir un dossier"}
-          </button>
-          <button style={styles.btnSecondary} onClick={skipToDegraded}>
+
+          <div style={styles.choiceGrid}>
+            <button
+              type="button"
+              style={styles.choiceCard}
+              onClick={() => void pickFolder()}
+              disabled={state === "picking"}
+            >
+              <div style={styles.choiceIcon}>📁</div>
+              <div style={styles.choiceTitle}>Dossier local</div>
+              <div style={styles.choiceDesc}>
+                Vos notes restent sur cet appareil. Idéal pour démarrer
+                rapidement, sans configuration.
+              </div>
+            </button>
+
+            <button
+              type="button"
+              style={styles.choiceCard}
+              onClick={startGitFlow}
+              disabled={state === "picking"}
+            >
+              <div style={styles.choiceIcon}>🔀</div>
+              <div style={styles.choiceTitle}>Dépôt Git</div>
+              <div style={styles.choiceDesc}>
+                Synchronise vos notes via un repo GitHub / GitLab / Forgejo.
+                Accessible depuis tous vos appareils.
+              </div>
+            </button>
+          </div>
+
+          <button style={styles.btnGhost} onClick={skipToDegraded}>
             Continuer sans dossier (mode limité)
           </button>
         </PwaOverlay>
@@ -268,12 +442,127 @@ export function PwaVaultSetup({ children }: { children: React.ReactNode }) {
   );
 }
 
+// ── Git setup form ─────────────────────────────────────────────────────────────
+
+function GitSetupForm({
+  onSubmit,
+  onCancel,
+}: {
+  onSubmit: (args: GitSetupArgs) => void;
+  onCancel: () => void;
+}) {
+  const [url, setUrl] = useState("");
+  const [token, setToken] = useState("");
+  const [ref, setRef] = useState("main");
+  const [mode, setMode] = useState<"clone-into-empty" | "init-existing">("clone-into-empty");
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!url.trim()) return;
+    onSubmit({ url: url.trim(), token: token.trim(), ref: ref.trim() || "main", mode });
+  };
+
+  return (
+    <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 14, textAlign: "left" }}>
+      <div style={{ textAlign: "center" }}>
+        <div style={styles.logo}>🔀</div>
+        <h1 style={styles.title}>Connecter un dépôt Git</h1>
+        <p style={{ ...styles.subtitle, marginTop: 8 }}>
+          La PWA clonera (ou initialisera) le dépôt dans le dossier que vous
+          choisissez. Ensuite chaque modification sera commit&apos;ée et
+          poussée automatiquement.
+        </p>
+      </div>
+
+      <label style={styles.label}>
+        URL HTTPS du dépôt
+        <input
+          type="url"
+          required
+          placeholder="https://github.com/votre-utilisateur/notes.git"
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          style={styles.input}
+          autoComplete="off"
+          spellCheck={false}
+        />
+      </label>
+
+      <label style={styles.label}>
+        Personal Access Token (PAT)
+        <input
+          type="password"
+          placeholder="Optionnel pour un repo public"
+          value={token}
+          onChange={(e) => setToken(e.target.value)}
+          style={styles.input}
+          autoComplete="off"
+        />
+        <span style={styles.hint}>
+          Stocké uniquement dans IndexedDB sur cet appareil — jamais envoyé au
+          dépôt. Pour GitHub :{" "}
+          <code>Settings → Developer settings → Personal access tokens →
+          Fine-grained → repo scope</code>.
+        </span>
+      </label>
+
+      <label style={styles.label}>
+        Branche
+        <input
+          type="text"
+          value={ref}
+          onChange={(e) => setRef(e.target.value)}
+          style={styles.input}
+          spellCheck={false}
+        />
+      </label>
+
+      <div style={styles.label}>
+        Mode
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 6 }}>
+          <label style={styles.radioRow}>
+            <input
+              type="radio"
+              checked={mode === "clone-into-empty"}
+              onChange={() => setMode("clone-into-empty")}
+            />
+            <span>
+              <strong>Cloner</strong> dans un dossier vide (récupère un repo
+              existant)
+            </span>
+          </label>
+          <label style={styles.radioRow}>
+            <input
+              type="radio"
+              checked={mode === "init-existing"}
+              onChange={() => setMode("init-existing")}
+            />
+            <span>
+              <strong>Initialiser</strong> dans un dossier existant (push
+              vos notes locales vers un repo neuf)
+            </span>
+          </label>
+        </div>
+      </div>
+
+      <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+        <button type="button" style={{ ...styles.btnSecondary, flex: 1 }} onClick={onCancel}>
+          Retour
+        </button>
+        <button type="submit" style={{ ...styles.btnPrimary, flex: 2 }}>
+          Choisir le dossier et continuer
+        </button>
+      </div>
+    </form>
+  );
+}
+
 // ── Sub-components ─────────────────────────────────────────────────────────────
 
-function PwaOverlay({ children }: { children: React.ReactNode }) {
+function PwaOverlay({ children, wide = false }: { children: React.ReactNode; wide?: boolean }) {
   return (
     <div style={styles.backdrop}>
-      <div style={styles.card}>{children}</div>
+      <div style={wide ? { ...styles.card, maxWidth: 560 } : styles.card}>{children}</div>
     </div>
   );
 }
@@ -365,13 +654,25 @@ const styles: Record<string, React.CSSProperties> = {
   },
   btnSecondary: {
     background: "transparent",
-    color: "#6b7280",
+    color: "#374151",
     border: "1px solid #d1d5db",
     borderRadius: 8,
     padding: "10px 24px",
+    fontSize: 14,
+    fontWeight: 500,
+    cursor: "pointer",
+    width: "100%",
+  },
+  btnGhost: {
+    background: "transparent",
+    color: "#6b7280",
+    border: "none",
+    padding: "8px 12px",
     fontSize: 13,
     cursor: "pointer",
     width: "100%",
+    textDecoration: "underline",
+    textUnderlineOffset: "3px",
   },
   error: {
     color: "#dc2626",
@@ -380,5 +681,73 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 6,
     padding: "8px 12px",
     margin: 0,
+  },
+  choiceGrid: {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr",
+    gap: 12,
+    marginTop: 8,
+  },
+  choiceCard: {
+    background: "#f9fafb",
+    border: "1px solid #e5e7eb",
+    borderRadius: 12,
+    padding: "20px 16px",
+    cursor: "pointer",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: 8,
+    textAlign: "center",
+    transition: "border-color 160ms, background 160ms, transform 80ms",
+  },
+  choiceIcon: {
+    fontSize: 32,
+    lineHeight: 1,
+  },
+  choiceTitle: {
+    fontSize: 15,
+    fontWeight: 600,
+    color: "#111827",
+  },
+  choiceDesc: {
+    fontSize: 12,
+    color: "#6b7280",
+    lineHeight: 1.5,
+  },
+  label: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 4,
+    fontSize: 13,
+    fontWeight: 600,
+    color: "#374151",
+  },
+  input: {
+    border: "1px solid #d1d5db",
+    borderRadius: 8,
+    padding: "10px 12px",
+    fontSize: 14,
+    fontWeight: 400,
+    color: "#111827",
+    background: "#fff",
+    outline: "none",
+  },
+  hint: {
+    fontSize: 11,
+    fontWeight: 400,
+    color: "#9ca3af",
+    lineHeight: 1.5,
+    marginTop: 2,
+  },
+  radioRow: {
+    display: "flex",
+    alignItems: "flex-start",
+    gap: 8,
+    fontSize: 13,
+    fontWeight: 400,
+    color: "#374151",
+    cursor: "pointer",
+    lineHeight: 1.5,
   },
 };

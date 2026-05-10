@@ -1,6 +1,7 @@
 "use client";
 
-import { AppShell } from "@/components/shell";
+import { AppShell, useMobileTitle } from "@/components/shell";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import {
   CONTACTS,
   INTERACTIONS,
@@ -355,6 +356,7 @@ function ActiviteTab({ filePath }: ActiviteTabProps) {
 export default function ContactDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [tab, setTab] = useState<Tab>("notes");
+  const isMobile = useIsMobile();
 
   // Try to load via tRPC first; fall back to fixture / localStore.
   const { data: trpcEntity, isError: entityError } = trpc.entities.get.useQuery(
@@ -432,12 +434,15 @@ export default function ContactDetailPage() {
     { id: "activite", label: "Activité" },
   ];
 
+  // Mobile chrome — publish contact name as title; hide desktop breadcrumb + sidebar.
+  useMobileTitle(isMobile ? contact.name : null);
+
   return (
     <AppShell>
       <div className="flex h-full flex-col overflow-hidden">
-        {/* Back + name + aliases breadcrumb */}
+        {/* Back + name + aliases breadcrumb — hidden on mobile (title is in shell top bar) */}
         <div
-          className="flex items-center gap-3 border-b px-6 py-3"
+          className="hidden items-center gap-3 border-b px-6 py-3 md:flex"
           style={{ borderColor: "var(--border-subtle)" }}
         >
           <Link
@@ -479,8 +484,8 @@ export default function ContactDetailPage() {
         </div>
 
         <div className="flex flex-1 overflow-hidden">
-          {/* Left column — editable sidebar */}
-          <EditableSidebar contact={contact} hasLiveBackend={hasLiveBackend} />
+          {/* Left column — editable sidebar — hidden on mobile (full-width detail only) */}
+          {!isMobile && <EditableSidebar contact={contact} hasLiveBackend={hasLiveBackend} />}
 
           {/* Right column */}
           <div className="flex flex-1 flex-col overflow-hidden">
@@ -506,7 +511,7 @@ export default function ContactDetailPage() {
             </div>
 
             {/* Tab content */}
-            <div className="flex-1 overflow-y-auto p-6">
+            <div className="flex-1 overflow-y-auto p-3 md:p-6">
               {tab === "notes" && (
                 <NotesTab entityId={id} initialNotes={contact.notes} />
               )}

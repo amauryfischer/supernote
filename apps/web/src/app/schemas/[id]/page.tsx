@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, Plus } from "@phosphor-icons/react";
+import { ArrowLeft, Plus, FloppyDisk } from "@phosphor-icons/react";
 import {
   DndContext,
   closestCenter,
@@ -18,7 +18,8 @@ import {
   verticalListSortingStrategy,
   arrayMove,
 } from "@dnd-kit/sortable";
-import { AppShell } from "@/components/shell";
+import { AppShell, useMobileTitle, useMobileHeaderActions, useMobileFab, type MobileHeaderAction } from "@/components/shell";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { ENTITY_TYPES } from "@/components/schemas/fixtures";
 import { SortableFieldRow } from "@/components/schemas/SortableFieldRow";
 import { FieldEditorModal } from "@/components/schemas/FieldEditorModal";
@@ -31,6 +32,7 @@ import type { Field, EntityType } from "@supernote/core";
 export default function SchemaEditPage() {
   const params = useParams();
   const router = useRouter();
+  const isMobile = useIsMobile();
   const id = typeof params.id === "string" ? params.id : (params.id?.[0] ?? "");
 
   // tRPC get — fallback to fixture on error
@@ -104,6 +106,27 @@ export default function SchemaEditPage() {
     }
   }, [id, fields, updateMutation]);
 
+  // Mobile chrome — hooks must be unconditional (before early returns)
+  useMobileTitle(isMobile ? (resolvedType?.name ?? "Schéma") : null);
+  const mobileHeaderActions: MobileHeaderAction[] = useMemo(() => {
+    if (!isMobile) return [];
+    return [
+      {
+        id: "save",
+        icon: FloppyDisk,
+        label: saveSuccess ? "Sauvegardé" : "Sauvegarder",
+        onPress: () => void handleSave(),
+        active: saveSuccess,
+      },
+    ];
+  }, [isMobile, saveSuccess, handleSave]);
+  useMobileHeaderActions(mobileHeaderActions);
+  useMobileFab(
+    isMobile
+      ? { icon: Plus, label: "Nouveau champ", onPress: () => setEditingField("new") }
+      : null,
+  );
+
   if (isLoading) {
     return (
       <AppShell>
@@ -129,9 +152,9 @@ export default function SchemaEditPage() {
   return (
     <AppShell>
       <div className="flex h-full flex-col">
-        {/* Top bar */}
+        {/* Top bar — hidden on mobile (title + save in shell top bar) */}
         <div
-          className="flex items-center gap-3 border-b px-6 py-3"
+          className="hidden items-center gap-3 border-b px-6 py-3 md:flex"
           style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-1)" }}
         >
           <button
@@ -177,12 +200,16 @@ export default function SchemaEditPage() {
           </div>
         </div>
 
-        {/* Body — 2 columns */}
+        {/* Body — 2 columns on desktop, 1 column on mobile */}
         <div className="flex flex-1 overflow-hidden">
-          {/* Left — sortable field list */}
+          {/* Left — sortable field list — full width on mobile */}
           <aside
-            className="flex w-80 shrink-0 flex-col border-r"
-            style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-1)" }}
+            className="flex shrink-0 flex-col border-r"
+            style={{
+              width: isMobile ? "100%" : 320,
+              borderColor: "var(--border-subtle)",
+              backgroundColor: "var(--surface-1)",
+            }}
           >
             <div
               className="flex items-center justify-between border-b px-4 py-3"
@@ -219,8 +246,8 @@ export default function SchemaEditPage() {
             </div>
           </aside>
 
-          {/* Right — live preview */}
-          <main className="flex flex-1 flex-col overflow-hidden" style={{ backgroundColor: "var(--surface-0)" }}>
+          {/* Right — live preview — hidden on mobile */}
+          {!isMobile && <main className="flex flex-1 flex-col overflow-hidden" style={{ backgroundColor: "var(--surface-0)" }}>
             <div className="border-b px-6 py-4" style={{ borderColor: "var(--border-subtle)" }}>
               <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
                 Aperçu live — {resolvedType.defaultView ?? "table"}
@@ -293,7 +320,7 @@ export default function SchemaEditPage() {
                 </div>
               )}
             </div>
-          </main>
+          </main>}
         </div>
       </div>
 

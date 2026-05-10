@@ -33,8 +33,15 @@ import {
   ListBullets,
 } from "@phosphor-icons/react";
 import { folderAccentVars, folderColorFromTree } from "@/lib/folderAccent";
-import { useShellChrome } from "@/components/shell/shell-chrome-context";
+import {
+  useMobileHeaderActions,
+  useMobileTitle,
+  useShellChrome,
+  type MobileHeaderAction,
+} from "@/components/shell/shell-chrome-context";
 import { useShortcuts } from "@/lib/keyboard";
+import { useIsMobile } from "@/hooks/useIsMobile";
+import { Article, SquareSplitHorizontal } from "@phosphor-icons/react";
 
 type NoteViewMode = "note" | "canvas";
 
@@ -463,8 +470,34 @@ function NoteDetailContent() {
 
   // Effective visibility — focus mode short-circuits both individual collapse
   // toggles. Computing this once keeps the JSX flat and the rules in one place.
-  const showFileTree = !focusMode && !fileTreeCollapsed;
-  const showNoteList = !focusMode && !noteListCollapsed;
+  // Mobile collapses BOTH side columns unconditionally — the user navigates
+  // to /notes (folder tree) or /notes?folder=X (note list) to switch context.
+  const isMobile = useIsMobile();
+  const showFileTree = !isMobile && !focusMode && !fileTreeCollapsed;
+  const showNoteList = !isMobile && !focusMode && !noteListCollapsed;
+  const showCollapsedFileTree = !isMobile && !focusMode && fileTreeCollapsed;
+  const showCollapsedNoteList = !isMobile && !focusMode && noteListCollapsed;
+
+  // Mobile chrome — title comes from the note, header actions expose the
+  // canvas/note view toggle as a single icon button so the user can flip
+  // without hunting for the desktop ViewToggle widget.
+  const mobileTitle = note?.fields?.["title"] && typeof note.fields["title"] === "string"
+    ? (note.fields["title"] as string)
+    : note?.fields?.["name"] && typeof note.fields["name"] === "string"
+      ? (note.fields["name"] as string)
+      : "Note";
+  useMobileTitle(isMobile ? mobileTitle : null, isMobile && folderName ? folderName : null);
+  const mobileActions: MobileHeaderAction[] = isMobile
+    ? [
+        {
+          id: "view-toggle",
+          icon: viewMode === "note" ? SquareSplitHorizontal : Article,
+          label: viewMode === "note" ? "Vue canvas" : "Vue note",
+          onPress: () => handleSetViewMode(viewMode === "note" ? "canvas" : "note"),
+        },
+      ]
+    : [];
+  useMobileHeaderActions(mobileActions);
 
   return (
     <div className="flex h-full overflow-hidden">
@@ -482,7 +515,7 @@ function NoteDetailContent() {
           notes={allNotes.filter((n) => !n.archivedAt)}
           onCollapse={handleToggleFileTreeCollapsed}
         />
-      ) : !focusMode ? (
+      ) : showCollapsedFileTree ? (
         // Restore strip — only shown when the user collapsed THIS column
         // individually. In focus mode we hide the entire row so the canvas
         // gets the full width without any visual debris.
@@ -512,7 +545,7 @@ function NoteDetailContent() {
           onRenameFolderInline={handleRenameFolderInline}
           onCollapse={handleToggleNoteListCollapsed}
         />
-      ) : !focusMode ? (
+      ) : showCollapsedNoteList ? (
         <CollapsedColumnStrip
           label="Notes"
           icon={<ListBullets size={14} />}
@@ -528,12 +561,17 @@ function NoteDetailContent() {
           <NoteLoadingSkeleton />
         ) : note ? (
           <>
-            <ViewToggle
-              mode={viewMode}
-              onChange={handleSetViewMode}
-              focusMode={focusMode}
-              onToggleFocusMode={handleToggleFocusMode}
-            />
+            {/* Desktop ViewToggle — hidden on mobile because the same toggle
+                is exposed as a single icon in the mobile top bar (header
+                action published via `useMobileHeaderActions`). */}
+            {!isMobile && (
+              <ViewToggle
+                mode={viewMode}
+                onChange={handleSetViewMode}
+                focusMode={focusMode}
+                onToggleFocusMode={handleToggleFocusMode}
+              />
+            )}
             {viewMode === "note" ? (
               <NoteEditor note={note} />
             ) : (

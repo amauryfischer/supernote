@@ -1,10 +1,17 @@
 "use client";
 
-import { AppShell } from "@/components/shell";
+import {
+  AppShell,
+  useMobileTitle,
+  useMobileFab,
+  useMobileHeaderActions,
+  type MobileHeaderAction,
+} from "@/components/shell";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { JournalCalendar, JournalEditor } from "@/components/journal";
 import { useRouter } from "next/navigation";
 import { useMemo, useState, useEffect } from "react";
-import { CalendarBlank } from "@phosphor-icons/react";
+import { CalendarBlank, PencilSimple } from "@phosphor-icons/react";
 import { DAILY_JOURNAL } from "@supernote/templates";
 import { Skeleton, SkeletonText } from "@supernote/ui";
 
@@ -38,16 +45,10 @@ const MOCK_DATES_WITH_NOTE = new Set<string>([
 
 function JournalPageContent() {
   const router = useRouter();
+  const isMobile = useIsMobile();
   const today = todayYMD();
   const [selectedDate, setSelectedDate] = useState<string>(today);
   const [isLoading, setIsLoading] = useState(true);
-
-  useEffect(() => {
-    const t = setTimeout(() => setIsLoading(false), 250);
-    return () => clearTimeout(t);
-  }, []);
-
-  const initialMarkdown = useMemo(() => buildInitialMarkdown(selectedDate), [selectedDate]);
 
   const handleSelectDate = (date: string) => {
     setSelectedDate(date);
@@ -59,11 +60,50 @@ function JournalPageContent() {
     router.push(`/journal/${today}`, { scroll: false });
   };
 
+  useEffect(() => {
+    const t = setTimeout(() => setIsLoading(false), 250);
+    return () => clearTimeout(t);
+  }, []);
+
+  const initialMarkdown = useMemo(() => buildInitialMarkdown(selectedDate), [selectedDate]);
+
+  // Format selected date for mobile title
+  const mobileTitle = useMemo(() => {
+    const d = new Date(selectedDate + "T12:00:00");
+    return d.toLocaleDateString("fr-FR", { day: "numeric", month: "long" });
+  }, [selectedDate]);
+
+  useMobileTitle(isMobile ? mobileTitle : null, isMobile ? "Journal" : null);
+
+  const mobileHeaderActions = useMemo((): MobileHeaderAction[] => {
+    if (!isMobile) return [];
+    return [
+      {
+        id: "today",
+        icon: CalendarBlank,
+        label: "Aujourd'hui",
+        onPress: handleToday,
+      },
+    ];
+  }, [isMobile, handleToday]);
+
+  useMobileHeaderActions(mobileHeaderActions);
+
+  useMobileFab(
+    isMobile
+      ? {
+          icon: PencilSimple,
+          label: "Écrire",
+          onPress: () => router.push(`/journal/${today}`),
+        }
+      : null,
+  );
+
   if (isLoading) {
     return (
       <div className="flex h-full overflow-hidden">
         <div
-          className="flex flex-col border-r p-4 gap-3"
+          className="hidden md:flex flex-col border-r p-4 gap-3"
           style={{ width: 240, minWidth: 240, backgroundColor: "var(--surface-1)", borderColor: "var(--border-subtle)" }}
         >
           <Skeleton className="h-6 w-3/4" />
@@ -78,9 +118,9 @@ function JournalPageContent() {
 
   return (
     <div className="flex h-full overflow-hidden">
-      {/* Sidebar: calendar */}
+      {/* Sidebar: calendar — hidden on mobile (user navigates via header actions + FAB) */}
       <aside
-        className="flex flex-col border-r"
+        className="hidden md:flex flex-col border-r"
         style={{
           width: 240,
           minWidth: 240,

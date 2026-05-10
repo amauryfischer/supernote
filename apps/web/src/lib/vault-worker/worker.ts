@@ -45,26 +45,25 @@ let persistChain: Promise<void> = Promise.resolve();
 // ── DB init ───────────────────────────────────────────────────────────────────
 
 async function initSqlite(handle: FileSystemDirectoryHandle): Promise<Database> {
-  // Fetch the WASM ourselves and pass the buffer directly. This bypasses
-  // emscripten's `locateFile` + XHR fallback chain, which is fragile inside
-  // a Web Worker bundle (Turbopack chunk URL ≠ origin root). The fetch is
-  // an absolute origin path so it works in worker context too.
+  console.info("[init.sqlite] fetching WASM");
   const wasmResponse = await fetch(`${self.location.origin}/wasm/sql-wasm.wasm`);
   if (!wasmResponse.ok) {
     throw new Error(`WASM fetch failed: ${wasmResponse.status} ${wasmResponse.statusText}`);
   }
   const wasmBinary = new Uint8Array(await wasmResponse.arrayBuffer());
 
-  // wasmBinary is supported at runtime but missing from @types/sql.js
+  console.info("[init.sqlite] initSqlJs");
   const SQL = await initSqlJs({ wasmBinary } as Parameters<typeof initSqlJs>[0]);
 
-  // Try loading from FSA first (vault's own .supernote/index.db)
+  console.info("[init.sqlite] loadDbFromFsa…");
   let bytes = await loadDbFromFsa(handle);
   if (!bytes) {
-    // Try OPFS fallback
+    console.info("[init.sqlite] loadDbFromOpfs (fallback)…");
     bytes = await loadDbFromOpfs();
   }
+  console.info(`[init.sqlite] bytes loaded? ${bytes ? bytes.byteLength : "no"}`);
 
+  console.info("[init.sqlite] instantiate SQL.Database");
   const database = bytes ? new SQL.Database(bytes) : new SQL.Database();
 
   // Migration : an earlier buggy schema created an FTS5 virtual table + 3
@@ -88,7 +87,9 @@ async function initSqlite(handle: FileSystemDirectoryHandle): Promise<Database> 
     console.warn("[vault-worker] FTS5 migration failed (non-fatal)", e);
   }
 
+  console.info("[init.sqlite] running SCHEMA_SQL_BASE");
   database.run(SCHEMA_SQL_BASE);
+  console.info("[init.sqlite] done");
   return database;
 }
 
@@ -173,7 +174,9 @@ async function handleInitVault(handle: FileSystemDirectoryHandle): Promise<void>
 
     console.info("[init] full re-init from FSA, handle.name=", handle.name);
     vaultHandle = handle;
+    console.info("[init] step=initSqlite");
     db = await initSqlite(handle);
+    console.info("[init] step=initSqlite done");
     // Sanity: how many rows are in `entity` right after load? If this is 0
     // after a previous create+reload cycle, persistence is broken.
     try {
@@ -205,11 +208,11 @@ async function handleInitVault(handle: FileSystemDirectoryHandle): Promise<void>
       );
     }
 
-    // Seed default entity types + relation types (idempotent — INSERT OR IGNORE).
-    // This guarantees `note`, `personne`, `projet`, … exist out of the box.
+    console.info("[init] step=seedDefaults");
     seedDefaults(db, vaultId, ts);
-
+    console.info("[init] step=buildRouter");
     router = buildRouter(db, handle, vaultId);
+    console.info("[init] step=buildRouter done");
 
     // Diagnostic: how many entities did we just load from disk?
     let loadedCount = 0;
@@ -226,11 +229,9 @@ async function handleInitVault(handle: FileSystemDirectoryHandle): Promise<void>
 
     // Persist initial state — saves the (possibly empty) DB so a second
     // tab / reload doesn't see "uninitialised" if the user navigates fast.
-    // We DON'T do the recovery reindex here synchronously: a vault with
-    // hundreds of .md files would take several seconds, freezing the
-    // "Ouverture du vault…" overlay. We post VAULT_READY now and rebuild
-    // in the background below.
+    console.info("[init] step=persistDb (initial)");
     await persistDb();
+    console.info("[init] step=persistDb done");
 
     // Start polling for file changes (30s interval)
     if (pollTimer) clearInterval(pollTimer);

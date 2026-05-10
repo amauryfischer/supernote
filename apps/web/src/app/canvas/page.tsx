@@ -15,7 +15,8 @@
 import { useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { SquaresFour } from "@phosphor-icons/react";
-import { AppShell } from "@/components/shell";
+import { AppShell, useMobileTitle } from "@/components/shell";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { CanvasGrid } from "@/components/canvas-page";
 import type { CanvasMeta } from "@/components/canvas-page";
 import { EmptyState, SkeletonCard } from "@supernote/ui";
@@ -71,6 +72,7 @@ function canvasMetaFromNote(row: NoteEntityRow): CanvasMeta | null {
 
 export default function CanvasListPage() {
   const router = useRouter();
+  const isMobile = useIsMobile();
 
   // List notes — we filter client-side to those that have a non-empty
   // canvas payload. 500 is the same cap the notes list uses.
@@ -105,12 +107,15 @@ export default function CanvasListPage() {
     router.push("/notes");
   }, [router]);
 
+  // Mobile chrome — publish the page title to the top bar
+  useMobileTitle(isMobile ? "Canvas" : null, isMobile ? `${canvases.length}` : null);
+
   return (
     <AppShell>
       <div className="flex h-full flex-col">
-        {/* Page header */}
+        {/* Page header — hidden on mobile (title lives in the top bar) */}
         <div
-          className="flex shrink-0 items-center justify-between border-b px-6 py-3"
+          className="hidden shrink-0 items-center justify-between border-b px-6 py-3 md:flex"
           style={{
             borderColor: "var(--border-subtle)",
             backgroundColor: "var(--surface-0)",
@@ -136,7 +141,7 @@ export default function CanvasListPage() {
         {/* Grid */}
         <div className="flex-1 overflow-y-auto">
           {isLoading ? (
-            <div className="grid gap-4 p-6" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))" }}>
+            <div className="grid gap-4 p-3 md:p-6" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))" }}>
               {Array.from({ length: 4 }, (_, i) => <SkeletonCard key={i} />)}
             </div>
           ) : canvases.length === 0 ? (

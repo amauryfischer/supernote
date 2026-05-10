@@ -2,8 +2,10 @@
 
 import { useState, useMemo } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Plus, BookOpen } from "@phosphor-icons/react";
-import { AppShell } from "@/components/shell";
+import { AppShell, useMobileFab, useMobileTitle } from "@/components/shell";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { ViewCard, SAVED_VIEWS } from "@/components/views";
 import type { SavedView } from "@/components/views";
 import { trpc } from "@/lib/trpc/client";
@@ -80,6 +82,7 @@ export default function VuesPage() {
   const deleteMutation = trpc.views.delete.useMutation({
     onSuccess: () => { void listQuery.refetch(); },
   });
+  const router = useRouter();
 
   const [activeKind, setActiveKind] = useState<ViewKind | "all">("all");
 
@@ -99,12 +102,20 @@ export default function VuesPage() {
     deleteMutation.mutate({ id });
   }
 
+  const isMobile = useIsMobile();
+  useMobileTitle(isMobile ? "Vues" : null, isMobile ? `${allViews.length}` : null);
+  useMobileFab(
+    isMobile
+      ? { icon: Plus, label: "Nouvelle vue", onPress: () => router.push("/vues/nouvelle") }
+      : null,
+  );
+
   return (
     <AppShell>
       <div className="flex h-full flex-col">
-        {/* Header */}
+        {/* Header — hidden on mobile (title/FAB live in shell) */}
         <div
-          className="flex items-center justify-between border-b px-6 py-3"
+          className="hidden items-center justify-between border-b px-6 py-3 md:flex"
           style={{ borderColor: "var(--border-subtle)" }}
         >
           <div className="flex items-center gap-2">
@@ -140,7 +151,7 @@ export default function VuesPage() {
 
         {/* Kind filter chips */}
         <div
-          className="flex items-center gap-2 border-b px-6 py-2"
+          className="flex items-center gap-2 overflow-x-auto border-b px-3 py-2 md:px-6 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
           style={{ borderColor: "var(--border-subtle)" }}
         >
           {VIEW_KINDS.map(({ value, label }) => {
@@ -163,7 +174,7 @@ export default function VuesPage() {
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto px-6 py-4">
+        <div className="flex-1 overflow-y-auto px-3 py-4 md:px-6">
           {listQuery.isLoading ? (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {Array.from({ length: 6 }).map((_, i) => <ViewCardSkeleton key={i} />)}

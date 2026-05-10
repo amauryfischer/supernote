@@ -1,10 +1,17 @@
 "use client";
 
-import { AppShell } from "@/components/shell";
+import {
+  AppShell,
+  useMobileTitle,
+  useMobileFab,
+  useMobileHeaderActions,
+  type MobileHeaderAction,
+} from "@/components/shell";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { JournalCalendar, JournalEditor } from "@/components/journal";
 import { useRouter, useParams } from "next/navigation";
 import { useMemo, useState } from "react";
-import { CalendarBlank } from "@phosphor-icons/react";
+import { CalendarBlank, PencilSimple } from "@phosphor-icons/react";
 import { DAILY_JOURNAL } from "@supernote/templates";
 
 function todayYMD(): string {
@@ -36,6 +43,7 @@ const MOCK_DATES_WITH_NOTE = new Set<string>([todayYMD()]);
 
 function DateJournalContent({ date }: { date: string }) {
   const router = useRouter();
+  const isMobile = useIsMobile();
   const today = todayYMD();
   const [selectedDate, setSelectedDate] = useState<string>(date);
   const initialMarkdown = useMemo(() => buildInitialMarkdown(selectedDate), [selectedDate]);
@@ -50,10 +58,42 @@ function DateJournalContent({ date }: { date: string }) {
     router.push(`/journal/${today}`, { scroll: false });
   };
 
+  const mobileTitle = useMemo(() => {
+    const d = new Date(selectedDate + "T12:00:00");
+    return d.toLocaleDateString("fr-FR", { day: "numeric", month: "long" });
+  }, [selectedDate]);
+
+  useMobileTitle(isMobile ? mobileTitle : null, isMobile ? "Journal" : null);
+
+  const mobileHeaderActions = useMemo((): MobileHeaderAction[] => {
+    if (!isMobile) return [];
+    return [
+      {
+        id: "today",
+        icon: CalendarBlank,
+        label: "Aujourd'hui",
+        onPress: handleToday,
+      },
+    ];
+  }, [isMobile, handleToday]);
+
+  useMobileHeaderActions(mobileHeaderActions);
+
+  useMobileFab(
+    isMobile
+      ? {
+          icon: PencilSimple,
+          label: "Aujourd'hui",
+          onPress: () => router.push(`/journal/${today}`),
+        }
+      : null,
+  );
+
   return (
     <div className="flex h-full overflow-hidden">
+      {/* Sidebar: calendar — hidden on mobile */}
       <aside
-        className="flex flex-col border-r"
+        className="hidden md:flex flex-col border-r"
         style={{
           width: 240,
           minWidth: 240,

@@ -17,7 +17,8 @@ import {
   BookmarkSimple,
   Database,
 } from "@phosphor-icons/react";
-import { AppShell } from "@/components/shell";
+import { AppShell, useMobileTitle } from "@/components/shell";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import {
   useSettings,
   GeneralTab,
@@ -81,19 +82,23 @@ function SettingsContent() {
   const [activeTab, setActiveTab] = useState<SettingsTab>("general");
   const { saveSettings, isSaving } = useSettings();
   const t = useTranslations();
+  const isMobile = useIsMobile();
 
   const activeItem = NAV_ITEMS.find((n) => n.id === activeTab)!;
   const ActiveIcon = activeItem.icon;
 
+  // Mobile chrome — publish the active section name as the page title
+  useMobileTitle(isMobile ? t("settings.title") : null, isMobile ? t(activeItem.labelKey) : null);
+
   return (
-    <div className="flex h-full">
-      {/* Sidebar */}
+    <div className="flex h-full flex-col md:flex-row">
+      {/* Navigation — desktop: fixed-width sidebar; mobile: horizontal scroll strip */}
       <nav
-        className="flex w-52 shrink-0 flex-col gap-0.5 border-r p-3"
+        className="flex shrink-0 flex-row gap-0.5 overflow-x-auto border-b p-2 md:w-52 md:flex-col md:overflow-x-hidden md:overflow-y-auto md:border-b-0 md:border-r md:p-3 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         style={{ borderColor: "var(--border)", backgroundColor: "var(--surface-1)" }}
       >
         <p
-          className="mb-2 px-2 text-[10px] font-semibold uppercase tracking-widest"
+          className="mb-2 hidden px-2 text-[10px] font-semibold uppercase tracking-widest md:block"
           style={{ color: "var(--text-muted)" }}
         >
           {t("settings.title")}
@@ -104,7 +109,7 @@ function SettingsContent() {
             <button
               key={id}
               onClick={() => setActiveTab(id)}
-              className="flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm transition-all"
+              className="flex shrink-0 items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-all md:gap-2.5"
               style={{
                 backgroundColor: isActive ? "var(--accent-subtle)" : "transparent",
                 color: isActive ? "var(--accent)" : "var(--text-secondary)",
@@ -112,7 +117,7 @@ function SettingsContent() {
               }}
             >
               <Icon size={15} weight={isActive ? "fill" : "regular"} />
-              {t(labelKey)}
+              <span className="whitespace-nowrap">{t(labelKey)}</span>
             </button>
           );
         })}
@@ -120,12 +125,12 @@ function SettingsContent() {
 
       {/* Main content */}
       <div className="flex flex-1 flex-col overflow-hidden">
-        {/* Header */}
+        {/* Header — hidden on mobile (title in top bar, save button kept) */}
         <div
-          className="flex items-center justify-between border-b px-6 py-4"
+          className="flex items-center justify-between border-b px-3 py-3 md:px-6 md:py-4"
           style={{ borderColor: "var(--border)" }}
         >
-          <div className="flex items-center gap-2">
+          <div className="hidden items-center gap-2 md:flex">
             <ActiveIcon size={18} style={{ color: "var(--accent)" }} />
             <h1 className="text-base font-semibold" style={{ color: "var(--text-primary)" }}>
               {t(activeItem.labelKey)}
@@ -135,7 +140,7 @@ function SettingsContent() {
             <button
               onClick={saveSettings}
               disabled={isSaving}
-              className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-all hover:opacity-90 disabled:opacity-50"
+              className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-all hover:opacity-90 disabled:opacity-50 md:ml-auto"
               style={{
                 backgroundColor: "var(--accent)",
                 color: "var(--accent-foreground)",
@@ -148,7 +153,7 @@ function SettingsContent() {
         </div>
 
         {/* Scrollable content */}
-        <div className="flex-1 overflow-y-auto px-6 py-5">
+        <div className="flex-1 overflow-y-auto px-3 py-4 md:px-6 md:py-5">
           <TabContent active={activeTab} />
         </div>
       </div>

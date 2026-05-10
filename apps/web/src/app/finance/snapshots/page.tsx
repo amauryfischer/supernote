@@ -3,7 +3,8 @@
 import { useState } from "react";
 import { ArrowLeft, Camera } from "@phosphor-icons/react";
 import Link from "next/link";
-import { AppShell } from "@/components/shell";
+import { AppShell, useMobileTitle, useMobileFab, useMobileHeaderActions } from "@/components/shell";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { useFinanceSnapshots } from "@/components/finance/hooks";
 import { trpc } from "@/lib/trpc/client";
 import { formatCurrency, formatDate, CATEGORY_LABELS, CATEGORY_COLORS } from "@/components/finance/utils";
@@ -25,6 +26,7 @@ function DiffBadge({ value }: { value: number }) {
 }
 
 export default function SnapshotsPage() {
+  const isMobile = useIsMobile();
   const { snapshots, isLoading, isFallback } = useFinanceSnapshots();
   const utils = trpc.useUtils();
 
@@ -49,13 +51,21 @@ export default function SnapshotsPage() {
     });
   };
 
+  useMobileTitle(isMobile ? "Snapshots" : null);
+  useMobileFab(
+    isMobile
+      ? { icon: Camera, label: "Prendre un snapshot", onPress: () => void handleTakeSnapshot() }
+      : null
+  );
+  useMobileHeaderActions([]);
+
   // Reverse for timeline display (newest first)
   const reversed = [...snapshots].reverse();
 
   return (
     <AppShell>
-    <div className="flex flex-col gap-6 p-6">
-      <div className="flex items-center justify-between">
+    <div className="flex flex-col gap-6 px-3 py-6 md:px-6">
+      <div className="hidden md:flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Link href="/finance" className="flex items-center gap-1 text-sm" style={{ color: "var(--text-muted)" }}>
             <ArrowLeft size={14} /> Finance
@@ -99,7 +109,7 @@ export default function SnapshotsPage() {
             <h3 className="mb-3 text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
               Comparer deux snapshots
             </h3>
-            <div className="flex items-center gap-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
               <div className="flex flex-1 flex-col gap-1">
                 <label className="text-xs" style={{ color: "var(--text-muted)" }}>De</label>
                 <select
@@ -134,7 +144,7 @@ export default function SnapshotsPage() {
               )}
             </div>
             {snapA && snapB && (
-              <div className="mt-4 grid grid-cols-6 gap-2">
+              <div className="mt-4 grid grid-cols-3 gap-2 sm:grid-cols-6">
                 {Object.entries(snapB.breakdown).map(([cat, valueB]) => {
                   const valueA = (snapA.breakdown as Record<string, number>)[cat] ?? 0;
                   const diff = valueB - valueA;

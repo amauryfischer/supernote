@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { AppShell } from "@/components/shell";
-import { useShellChrome } from "@/components/shell/shell-chrome-context";
+import { useShellChrome, useMobileTitle } from "@/components/shell/shell-chrome-context";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { CanvasEditorToolbar } from "@/components/canvas-page";
 import { trpc } from "@/lib/trpc/client";
 import type { EntityRef } from "@supernote/canvas";
@@ -76,6 +77,7 @@ function FullscreenCanvasEditor() {
   const params = useParams();
   const router = useRouter();
   const { setFocusMode } = useShellChrome();
+  const isMobile = useIsMobile();
   const id = typeof params.id === "string" ? params.id : (params.id?.[0] ?? "");
 
   const utils = trpc.useUtils();
@@ -233,6 +235,10 @@ function FullscreenCanvasEditor() {
     const url = `${window.location.origin}/canvas/${id}`;
     void navigator.clipboard.writeText(url);
   }, [id]);
+
+  // Publish title to mobile top bar so the user knows which canvas they're
+  // editing without needing the inline editable title to be visible.
+  useMobileTitle(isMobile ? title || "Canvas" : null);
 
   // While the entity is loading we still mount the toolbar so the user
   // sees the page chrome immediately. The canvas is mounted only once

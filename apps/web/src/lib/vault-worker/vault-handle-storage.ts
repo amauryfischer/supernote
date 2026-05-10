@@ -7,7 +7,11 @@
  */
 
 const DB_NAME = "supernote-vault";
-const DB_VERSION = 1;
+// Bumped to v2 when we added the `git-config` store. Both helpers
+// (vault-handle-storage and git/config-storage) MUST use the same version
+// so they upgrade in lockstep — opening v1 while another module wants v2
+// triggers an indefinite hang.
+const DB_VERSION = 2;
 const STORE_NAME = "handles";
 const HANDLE_KEY = "vaultHandle";
 
@@ -15,7 +19,13 @@ function openIdb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
     req.onupgradeneeded = () => {
-      req.result.createObjectStore(STORE_NAME);
+      const db = req.result;
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        db.createObjectStore(STORE_NAME);
+      }
+      if (!db.objectStoreNames.contains("git-config")) {
+        db.createObjectStore("git-config");
+      }
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);

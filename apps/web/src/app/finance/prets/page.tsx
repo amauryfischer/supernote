@@ -3,7 +3,8 @@
 import { useCallback, useState } from "react";
 import { ArrowLeft, CaretDown, CaretRight, Plus } from "@phosphor-icons/react";
 import Link from "next/link";
-import { AppShell } from "@/components/shell";
+import { AppShell, useMobileTitle, useMobileFab, useMobileHeaderActions } from "@/components/shell";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { useFinanceLoans } from "@/components/finance/hooks";
 import type { Loan } from "@/components/finance/fixtures";
 import {
@@ -44,8 +45,8 @@ function AmortizationTable({ loan }: { loan: Loan }) {
   const first12 = schedule.slice(0, 12);
 
   return (
-    <div className="mt-3 overflow-hidden rounded-lg border" style={{ borderColor: "var(--border-subtle)" }}>
-      <table className="w-full text-xs">
+    <div className="mt-3 overflow-x-auto rounded-lg border" style={{ borderColor: "var(--border-subtle)" }}>
+      <table className="min-w-[480px] w-full text-xs">
         <thead>
           <tr style={{ backgroundColor: "var(--surface-2)" }}>
             {["#", "Date", "Mensualite", "Capital", "Interets", "Restant"].map((h) => (
@@ -142,6 +143,7 @@ function LoanRow({ loan }: { loan: Loan }) {
 }
 
 export default function PretsPage() {
+  const isMobile = useIsMobile();
   const { loans, isLoading, isFallback } = useFinanceLoans();
 
   const utils = trpc.useUtils();
@@ -161,10 +163,18 @@ export default function PretsPage() {
     }
   }, [createMutation]);
 
+  useMobileTitle(isMobile ? "Prêts" : null);
+  useMobileFab(
+    isMobile
+      ? { icon: Plus, label: "Nouveau prêt", onPress: () => void handleNewLoan() }
+      : null
+  );
+  useMobileHeaderActions([]);
+
   return (
     <AppShell>
-    <div className="flex flex-col gap-6 p-6">
-      <div className="flex items-center justify-between">
+    <div className="flex flex-col gap-6 px-3 py-6 md:px-6">
+      <div className="hidden md:flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Link href="/finance" className="flex items-center gap-1 text-sm" style={{ color: "var(--text-muted)" }}>
             <ArrowLeft size={14} /> Finance

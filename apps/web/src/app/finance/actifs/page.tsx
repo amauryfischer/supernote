@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { ArrowLeft, Plus, TrendUp, TrendDown } from "@phosphor-icons/react";
 import Link from "next/link";
-import { AppShell } from "@/components/shell";
+import { AppShell, useMobileTitle, useMobileFab, useMobileHeaderActions } from "@/components/shell";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { useFinanceAssets, useFinanceAccounts } from "@/components/finance/hooks";
 import type { Asset } from "@/components/finance/fixtures";
 import { formatCurrency, CATEGORY_COLORS, CATEGORY_LABELS } from "@/components/finance/utils";
@@ -71,6 +72,7 @@ function AssetCard({ asset, accountName, livePrice }: { asset: Asset; accountNam
 }
 
 export default function ActifsPage() {
+  const isMobile = useIsMobile();
   const { assets, isLoading, isFallback } = useFinanceAssets();
   const { accounts } = useFinanceAccounts();
   const [livePrices, setLivePrices] = useState<Map<string, LivePrice>>(new Map());
@@ -125,10 +127,18 @@ export default function ActifsPage() {
 
   const categories = Object.entries(byCategory);
 
+  useMobileTitle(isMobile ? "Actifs" : null);
+  useMobileFab(
+    isMobile
+      ? { icon: Plus, label: "Nouvel actif", onPress: () => void handleNewAsset() }
+      : null
+  );
+  useMobileHeaderActions([]);
+
   return (
     <AppShell>
-    <div className="flex flex-col gap-6 p-6">
-      <div className="flex items-center justify-between">
+    <div className="flex flex-col gap-6 px-3 py-6 md:px-6">
+      <div className="hidden md:flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Link href="/finance" className="flex items-center gap-1 text-sm" style={{ color: "var(--text-muted)" }}>
             <ArrowLeft size={14} /> Finance
@@ -190,7 +200,7 @@ export default function ActifsPage() {
                   {catAssets.length} actif{catAssets.length > 1 ? "s" : ""} · {formatCurrency(total)}
                 </span>
               </div>
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3">
                 {catAssets.map((asset) => (
                   <Link
                     key={asset.id}

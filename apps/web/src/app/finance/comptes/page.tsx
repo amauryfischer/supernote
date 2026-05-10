@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
-import { AppShell } from "@/components/shell";
+import { AppShell, useMobileTitle, useMobileFab, useMobileHeaderActions } from "@/components/shell";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import {
   useReactTable,
   getCoreRowModel,
@@ -42,6 +43,7 @@ const KIND_COLORS: Record<string, string> = {
 
 export default function ComptesPage() {
   const router = useRouter();
+  const isMobile = useIsMobile();
   const { accounts, isLoading, isFallback } = useFinanceAccounts();
   const [sorting, setSorting] = useState<SortingState>([]);
 
@@ -126,10 +128,18 @@ export default function ComptesPage() {
     getSortedRowModel: getSortedRowModel(),
   });
 
+  useMobileTitle(isMobile ? "Comptes" : null);
+  useMobileFab(
+    isMobile
+      ? { icon: Plus, label: "Nouveau compte", onPress: () => void handleNewAccount() }
+      : null
+  );
+  useMobileHeaderActions([]);
+
   return (
     <AppShell>
-    <div className="flex flex-col gap-6 p-6">
-      <div className="flex items-center justify-between">
+    <div className="flex flex-col gap-6 px-3 py-6 md:px-6">
+      <div className="hidden md:flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Link
             href="/finance"
@@ -171,7 +181,45 @@ export default function ComptesPage() {
         </div>
       ) : (
         <>
-          <div className="overflow-hidden rounded-xl border" style={{ borderColor: "var(--border-subtle)" }}>
+          {/* Mobile: card list */}
+          <div className="flex flex-col gap-3 md:hidden">
+            {table.getRowModel().rows.map((row) => (
+              <button
+                key={row.id}
+                onClick={() => router.push(`/finance/comptes/${row.original.id}`)}
+                className="w-full rounded-xl border p-4 text-left transition-colors hover:bg-[var(--surface-2)]"
+                style={{ backgroundColor: "var(--surface-1)", borderColor: "var(--border-subtle)" }}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                    {row.original.name}
+                  </span>
+                  <span className="text-sm font-bold tabular-nums" style={{ color: "var(--text-primary)" }}>
+                    {formatCurrency(row.original.balance)}
+                  </span>
+                </div>
+                <div className="mt-1 flex items-center gap-2">
+                  <span
+                    className="rounded-full px-2 py-0.5 text-xs font-medium"
+                    style={{
+                      backgroundColor: (KIND_COLORS[row.original.kind] ?? "#94A3B8") + "20",
+                      color: KIND_COLORS[row.original.kind] ?? "#94A3B8",
+                    }}
+                  >
+                    {KIND_LABELS[row.original.kind] ?? row.original.kind}
+                  </span>
+                  {row.original.institution && (
+                    <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+                      {row.original.institution}
+                    </span>
+                  )}
+                </div>
+              </button>
+            ))}
+          </div>
+
+          {/* Desktop: table */}
+          <div className="hidden md:block overflow-hidden rounded-xl border" style={{ borderColor: "var(--border-subtle)" }}>
             <table className="w-full">
               <thead>
                 {table.getHeaderGroups().map((hg) => (

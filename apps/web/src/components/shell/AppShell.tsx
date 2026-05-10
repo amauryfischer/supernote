@@ -1,6 +1,8 @@
 "use client";
 
 import { memo } from "react";
+import { useIsMobile } from "@/hooks/useIsMobile";
+import { MobileShell } from "./mobile/MobileShell";
 import { RightPanel } from "./RightPanel";
 import { ShellChromeProvider, useShellChrome } from "./shell-chrome-context";
 import { Sidebar } from "./Sidebar";
@@ -10,12 +12,25 @@ interface AppShellProps {
   children: React.ReactNode;
 }
 
+/**
+ * Top-level chrome dispatcher. Wraps every page; under 768 px renders the
+ * `MobileShell` (bottom nav + drawer + sheets), above renders the desktop
+ * three-column shell. Both share the same `ShellChromeProvider` so pages
+ * can publish chrome config (focus mode, accent overrides, mobile title /
+ * FAB / actions) without caring about which shell is active.
+ */
 export function AppShell({ children }: AppShellProps) {
   return (
     <ShellChromeProvider>
-      <ShellLayout>{children}</ShellLayout>
+      <ShellSwitcher>{children}</ShellSwitcher>
     </ShellChromeProvider>
   );
+}
+
+function ShellSwitcher({ children }: AppShellProps) {
+  const isMobile = useIsMobile();
+  if (isMobile) return <MobileShell>{children}</MobileShell>;
+  return <ShellLayout>{children}</ShellLayout>;
 }
 
 /**

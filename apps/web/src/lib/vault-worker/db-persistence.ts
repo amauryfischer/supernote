@@ -22,7 +22,10 @@ async function getOpfsFile(create: boolean): Promise<FileSystemFileHandle | null
   try {
     const root = await navigator.storage.getDirectory();
     const dir = await root.getDirectoryHandle(OPFS_DIR, { create });
-    return dir.getFileHandle(OPFS_FILE, { create });
+    // Note the `await` — without it, the returned Promise's rejection
+    // escapes the synchronous try/catch and a NotFoundError (file absent
+    // when create=false) bubbles up to the worker init, crashing it.
+    return await dir.getFileHandle(OPFS_FILE, { create });
   } catch {
     return null;
   }
@@ -37,6 +40,27 @@ export async function loadDbFromOpfs(): Promise<Uint8Array | null> {
     return new Uint8Array(buf);
   } catch {
     return null;
+  }
+}
+
+/**
+ * Wipe the OPFS-cached SQLite index. Called when the user switches vaults
+ * (e.g. cloning a Git repo into a fresh folder) so the new vault doesn't
+ * inherit the previous one's data through the OPFS fallback path in the
+ * worker bootstrap. Safe to call when no file exists.
+ */
+export async function clearOpfsDb(): Promise<void> {
+  try {
+    const root = await navigator.storage.getDirectory();
+    // Drop the whole `supernote/` directory recursively. Leaving an empty
+    // dir behind would steer the next `getOpfsFile(false)` into the "dir
+    // exists, file doesn't" branch — which was previously a footgun (see
+    // `getOpfsFile`).
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (root as any).removeEntry(OPFS_DIR, { recursive: true }).catch(() => undefined);
+    console.info(`[persist] clearOpfsDb: removed ${OPFS_DIR}/`);
+  } catch (err) {
+    console.warn("[persist] clearOpfsDb failed", err);
   }
 }
 

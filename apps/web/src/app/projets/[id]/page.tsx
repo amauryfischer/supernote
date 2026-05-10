@@ -7,7 +7,8 @@
  * — without this page Next.js would 404 immediately after `router.push`.
  */
 
-import { AppShell } from "@/components/shell";
+import { AppShell, useMobileTitle } from "@/components/shell";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { ArrowLeft } from "@phosphor-icons/react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -17,6 +18,7 @@ import { trpc } from "@/lib/trpc/client";
 export default function ProjetDetailPage() {
   const params = useParams<{ id: string }>();
   const id = params.id;
+  const isMobile = useIsMobile();
 
   const query = trpc.entities.get.useQuery({ id }, { enabled: !!id });
   const utils = trpc.useUtils();
@@ -36,6 +38,8 @@ export default function ProjetDetailPage() {
     setDescription(String(query.data.fields["description"] ?? ""));
   }, [query.data]);
 
+  useMobileTitle(isMobile ? (name || "Projet") : null);
+
   function persist(nextName: string, nextDescription: string) {
     if (!query.data) return;
     updateMutation.mutate({
@@ -46,7 +50,7 @@ export default function ProjetDetailPage() {
 
   return (
     <AppShell>
-      <div className="mx-auto max-w-3xl px-6 py-8">
+      <div className="mx-auto max-w-3xl px-3 py-6 md:px-6 md:py-8">
         <Link
           href="/projets"
           className="mb-6 flex items-center gap-1.5 text-sm transition-colors hover:underline"

@@ -1,6 +1,13 @@
 "use client";
 
-import { AppShell } from "@/components/shell";
+import {
+  AppShell,
+  useMobileFab,
+  useMobileHeaderActions,
+  useMobileTitle,
+  type MobileHeaderAction,
+} from "@/components/shell";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import {
   BulkActionBar,
   ContactGallery,
@@ -255,12 +262,50 @@ export default function ContactsPage() {
 
   const isEmpty = !isLoading && allContacts.length === 0;
 
+  const isMobile = useIsMobile();
+  useMobileTitle(isMobile ? t("title") : null, isMobile ? `${filtered.length}` : null);
+  useMobileFab(
+    isMobile
+      ? {
+          icon: Plus,
+          label: t("newContact"),
+          onPress: () => router.push("/contacts/nouveau"),
+        }
+      : null,
+  );
+  const mobileActions: MobileHeaderAction[] = useMemo(() => {
+    if (!isMobile) return [];
+    return [
+      {
+        id: "view-table",
+        icon: List,
+        label: t("tableView"),
+        onPress: () => setView("table"),
+        active: view === "table",
+      },
+      {
+        id: "view-gallery",
+        icon: GridFour,
+        label: t("galleryView"),
+        onPress: () => setView("gallery"),
+        active: view === "gallery",
+      },
+      {
+        id: "import",
+        icon: UploadSimple,
+        label: t("importLabel"),
+        onPress: handleImportClick,
+      },
+    ];
+  }, [isMobile, view, t, handleImportClick]);
+  useMobileHeaderActions(mobileActions);
+
   return (
     <AppShell>
       <div className="flex h-full flex-col">
-        {/* Page topbar */}
+        {/* Page topbar — hidden on mobile (title/actions live in the shell top bar) */}
         <div
-          className="flex items-center justify-between border-b px-6 py-3"
+          className="hidden items-center justify-between border-b px-6 py-3 md:flex"
           style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-0)" }}
         >
           <div className="flex items-center gap-3">
@@ -344,7 +389,7 @@ export default function ContactsPage() {
 
         {/* Filters */}
         <div
-          className="flex flex-wrap items-center gap-3 border-b px-6 py-2"
+          className="flex flex-wrap items-center gap-3 border-b px-3 py-2 md:px-6"
           style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-0)" }}
         >
           {/* Search */}

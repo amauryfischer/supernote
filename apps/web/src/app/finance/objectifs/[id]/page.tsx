@@ -4,7 +4,8 @@
  * Goal detail/edit page — fields persist on blur via entities.update.
  */
 
-import { AppShell } from "@/components/shell";
+import { AppShell, useMobileTitle, useMobileFab, useMobileHeaderActions } from "@/components/shell";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { ArrowLeft } from "@phosphor-icons/react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -37,6 +38,10 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
 export default function ObjectifDetailPage() {
   const params = useParams<{ id: string }>();
   const id = params.id;
+  const isMobile = useIsMobile();
+  useMobileTitle(isMobile ? "Objectif" : null);
+  useMobileFab(null);
+  useMobileHeaderActions([]);
 
   const query = trpc.entities.get.useQuery({ id }, { enabled: !!id });
   const utils = trpc.useUtils();
@@ -74,7 +79,7 @@ export default function ObjectifDetailPage() {
 
   return (
     <AppShell>
-      <div className="mx-auto max-w-3xl px-6 py-8">
+      <div className="mx-auto max-w-3xl px-3 py-6 md:px-6 md:py-8">
         <Link
           href="/finance/objectifs"
           className="mb-6 flex items-center gap-1.5 text-sm transition-colors hover:underline"

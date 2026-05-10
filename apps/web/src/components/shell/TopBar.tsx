@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { trpc } from "@/lib/trpc/client";
 import { useShellChrome } from "./shell-chrome-context";
 import { useAppTheme, type ThemeValue } from "@supernote/ui";
+import { GitSyncIndicator } from "@/lib/git/GitSyncIndicator";
 
 // ── Route label map for static segments ──────────────────────────────────────
 
@@ -197,6 +198,7 @@ export const TopBar = memo(function TopBar() {
 
       {/* Actions */}
       <div className="flex shrink-0 items-center gap-1">
+        <GitSyncIndicator />
         <ThemeToggleButton />
         <button
           onClick={handleNewNote}

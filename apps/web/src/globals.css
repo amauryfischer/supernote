@@ -239,3 +239,59 @@ input[type="checkbox"]:focus-visible {
 .sn-editor-wrapper input[type="checkbox"] {
   margin-top: 0.2em;
 }
+
+/* ────────────────────────────────────────────────────────────────────────── */
+/* Mobile polish                                                              */
+/* ────────────────────────────────────────────────────────────────────────── */
+
+/* Tap highlight — disable the dark blue flash WebKit applies on link/button
+   tap, which clashes with the violet accent. Per-element hover/active styles
+   already provide visual feedback. */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Touch-action — let the browser interpret drag gestures as scroll on most
+   surfaces, but allow custom panning on canvas/graph surfaces (they opt out
+   via .touch-pan or inline style as needed). */
+html, body {
+  touch-action: manipulation;
+}
+
+/* Hide scrollbars on mobile horizontal-scroll rows (filter chip rails, etc.)
+   while keeping native scrolling. Apply via `.scroll-x-clean`. */
+.scroll-x-clean {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scroll-x-clean::-webkit-scrollbar {
+  display: none;
+}
+
+/* Safe-area padding utilities — additive helpers for content that sits at
+   the bottom edge (FABs, sticky bars). Tailwind's `env()` access via `[…]`
+   is verbose; these short-hands keep the page code clean. */
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.pt-safe {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+.pl-safe {
+  padding-left: env(safe-area-inset-left, 0px);
+}
+.pr-safe {
+  padding-right: env(safe-area-inset-right, 0px);
+}
+
+/* Mobile fullscreen drawer override — HeroUI's `Drawer` sets a 85vh
+   max-height AND a 24px padding on the inner `.drawer__dialog--bottom`,
+   regardless of the outer container's height/width. Adding the
+   `fullscreen-drawer` class on the wrapper bypasses both so the sheet
+   truly fills the viewport edge-to-edge with no internal gutter — the
+   wrapped page content owns its own padding. */
+.fullscreen-drawer .drawer__dialog--bottom {
+  height: 100% !important;
+  max-height: 100% !important;
+  padding: 0 !important;
+}

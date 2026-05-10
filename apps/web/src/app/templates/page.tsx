@@ -1,6 +1,7 @@
 "use client";
 
-import { AppShell } from "@/components/shell";
+import { AppShell, useMobileTitle } from "@/components/shell";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { TemplateEditor, TemplateList } from "@/components/templates";
 import { SEED_TEMPLATES } from "@supernote/templates";
 import { trpc } from "@/lib/trpc/client";
@@ -58,6 +59,7 @@ function newCustomTemplate(): Template {
 }
 
 function TemplatesPageContent() {
+  const isMobile = useIsMobile();
   const listQuery = trpc.templates.list.useQuery({ source: "all" });
   const saveMutation = trpc.templates.save.useMutation({
     onSuccess: () => { void listQuery.refetch(); },
@@ -76,6 +78,13 @@ function TemplatesPageContent() {
   const templates: Template[] = useFallback ? localTemplates : ipcTemplates;
 
   const selected = templates.find((t) => t.id === selectedId) ?? null;
+
+  // Mobile chrome — publish the selected template name as the page title.
+  // On mobile the 2-col layout stacks: tabs list on top (horizontal scroll),
+  // editor below taking full width.
+  useMobileTitle(
+    isMobile ? (selected?.name ?? "Templates") : null,
+  );
 
   const handleSave = useCallback((updated: Template) => {
     if (useFallback) {
@@ -135,18 +144,23 @@ function TemplatesPageContent() {
   }, [useFallback, deleteMutation, listQuery, selectedId, ipcTemplates]);
 
   return (
-    <div className="flex h-full overflow-hidden">
-      {listQuery.isLoading ? (
-        <TemplateSidebarSkeleton />
-      ) : (
-        <TemplateList
-          templates={templates}
-          selectedId={selectedId}
-          onSelect={setSelectedId}
-          onNew={handleNew}
-          onDelete={handleDelete}
-        />
-      )}
+    <div className="flex h-full flex-col overflow-hidden md:flex-row">
+      {/* Template list — on mobile: horizontal scroll strip at top; on desktop: vertical sidebar */}
+      <div className="flex shrink-0 overflow-x-auto border-b md:w-[260px] md:overflow-x-hidden md:overflow-y-auto md:border-b-0 md:border-r [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-1)" }}
+      >
+        {listQuery.isLoading ? (
+          <TemplateSidebarSkeleton />
+        ) : (
+          <TemplateList
+            templates={templates}
+            selectedId={selectedId}
+            onSelect={setSelectedId}
+            onNew={handleNew}
+            onDelete={handleDelete}
+          />
+        )}
+      </div>
 
       <main className="flex-1 overflow-hidden" style={{ backgroundColor: "var(--surface-0)" }}>
         {selected ? (

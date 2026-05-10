@@ -1,6 +1,7 @@
 "use client";
 
-import { AppShell } from "@/components/shell";
+import { AppShell, useMobileTitle } from "@/components/shell";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import {
   ALL_RELATION_TYPES,
   RelationChip,
@@ -48,6 +49,8 @@ function TextInput({ value, onChange, placeholder, type = "text" }: {
 
 export default function NouveauContactPage() {
   const router = useRouter();
+  const isMobile = useIsMobile();
+  useMobileTitle(isMobile ? "Nouveau contact" : null);
 
   const [name, setName] = useState("");
   const [photoPreview, setPhotoPreview] = useState<string | undefined>();
@@ -180,7 +183,7 @@ export default function NouveauContactPage() {
           </div>
         </div>
       )}
-      <div className="mx-auto max-w-2xl px-6 py-8">
+      <div className="mx-auto max-w-2xl px-3 py-6 md:px-6 md:py-8">
         {/* Back */}
         <Link
           href="/contacts"
