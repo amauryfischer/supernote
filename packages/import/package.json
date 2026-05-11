@@ -34,9 +34,9 @@
   },
   "devDependencies": {
     "@supernote/tsconfig": "workspace:*",
-    "@types/node": "^22.10.0",
+    "@types/node": "^25.6.2",
     "@types/yauzl": "^2.10.3",
-    "typescript": "^5.7.2",
+    "typescript": "^6.0.3",
     "vitest": "^3.0.0"
   }
 }
