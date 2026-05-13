@@ -11,14 +11,22 @@
  */
 
 import { useState } from "react";
-import { Funnel, ArrowsDownUp, Eye, Plus } from "@phosphor-icons/react";
+import {
+  Funnel,
+  ArrowsDownUp,
+  Eye,
+  Plus,
+  Stack,
+  CalendarBlank,
+} from "@phosphor-icons/react";
 import type { EntityType } from "@supernote/core";
 import type { View } from "@supernote/ipc";
 import { FilterBuilder } from "./FilterBuilder";
 import { SortBuilder } from "./SortBuilder";
 import { VisibleFieldsMenu } from "./VisibleFieldsMenu";
+import { PivotFieldMenu } from "./PivotFieldMenu";
 
-type OpenMenu = "filters" | "sorts" | "fields" | null;
+type OpenMenu = "filters" | "sorts" | "fields" | "pivot" | null;
 
 interface BaseToolbarProps {
   base: EntityType;
@@ -38,6 +46,12 @@ export function BaseToolbar({ base, view, onCreateEntry, extra }: BaseToolbarPro
   // Helper so each trigger toggles its own menu and closes the others.
   const toggle = (next: OpenMenu) =>
     setOpen((current) => (current === next ? null : next));
+
+  // Kanban / List need a "Group by" pivot field; Calendar needs a "Date"
+  // pivot field. Both reuse the view's `groupByField` slot — the active
+  // renderer decides how to interpret it.
+  const showGroupPivot = view.kind === "board" || view.kind === "list";
+  const showDatePivot = view.kind === "calendar";
 
   return (
     <div
@@ -86,6 +100,27 @@ export function BaseToolbar({ base, view, onCreateEntry, extra }: BaseToolbarPro
           <VisibleFieldsMenu base={base} view={view} onClose={() => setOpen(null)} />
         )}
       </div>
+
+      {(showGroupPivot || showDatePivot) && (
+        <div className="relative">
+          <ToolbarButton
+            icon={showDatePivot ? <CalendarBlank size={11} /> : <Stack size={11} />}
+            label={showDatePivot ? "Date" : "Grouper"}
+            active={open === "pivot"}
+            count={view.groupByField ? 1 : undefined}
+            countTone="accent"
+            onClick={() => toggle("pivot")}
+          />
+          {open === "pivot" && (
+            <PivotFieldMenu
+              base={base}
+              view={view}
+              mode={showDatePivot ? "date" : "group"}
+              onClose={() => setOpen(null)}
+            />
+          )}
+        </div>
+      )}
 
       <div className="ml-auto flex items-center gap-1">
         {extra}

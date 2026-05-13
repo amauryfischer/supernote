@@ -24,7 +24,10 @@ import {
 import { ViewTabs } from "./ViewTabs";
 import { DataGrid } from "./DataGrid";
 import { BaseToolbar } from "./BaseToolbar";
-import { VIEW_KIND_LABEL } from "./ViewKindIcon";
+import { KanbanView } from "./KanbanView";
+import { GalleryView } from "./GalleryView";
+import { CalendarView } from "./CalendarView";
+import { ListView } from "./ListView";
 
 interface BaseViewProps {
   base: EntityType;
@@ -109,18 +112,7 @@ export function BaseView({ base, pinnedViewId, maxHeight }: BaseViewProps) {
       )}
       <div className="flex-1 overflow-hidden">
         {active ? (
-          active.kind === "table" ? (
-            <DataGrid base={base} view={active} maxHeight={maxHeight} />
-          ) : (
-            <div
-              className="flex h-full items-center justify-center px-4 py-12 text-center text-xs"
-              style={{ color: "var(--text-muted)" }}
-            >
-              La vue « {VIEW_KIND_LABEL[active.kind] ?? active.kind} » sera disponible bientôt.
-              <br />
-              Bascule sur une vue Tableau en attendant.
-            </div>
-          )
+          <ViewRenderer base={base} view={active} maxHeight={maxHeight} />
         ) : (
           <div
             className="flex items-center justify-center py-8 text-xs"
@@ -132,4 +124,35 @@ export function BaseView({ base, pinnedViewId, maxHeight }: BaseViewProps) {
       </div>
     </div>
   );
+}
+
+// ── ViewRenderer ──────────────────────────────────────────────────────────
+//
+// Polymorphic dispatch on view.kind. Kept inline because no other consumer
+// ever wants a "render any view kind" entry point — the dispatcher is
+// implementation detail of BaseView.
+
+function ViewRenderer({
+  base,
+  view,
+  maxHeight,
+}: {
+  base: import("@supernote/core").EntityType;
+  view: import("@supernote/ipc").View;
+  maxHeight?: string;
+}) {
+  switch (view.kind) {
+    case "table":
+      return <DataGrid base={base} view={view} maxHeight={maxHeight} />;
+    case "board":
+      return <KanbanView base={base} view={view} />;
+    case "gallery":
+      return <GalleryView base={base} view={view} />;
+    case "calendar":
+      return <CalendarView base={base} view={view} />;
+    case "list":
+      return <ListView base={base} view={view} />;
+    default:
+      return <DataGrid base={base} view={view} maxHeight={maxHeight} />;
+  }
 }
