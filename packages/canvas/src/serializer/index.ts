@@ -39,6 +39,7 @@ interface RawEdge {
 interface RawDocument {
   nodes?: unknown;
   edges?: unknown;
+  excalidrawElements?: unknown;
   metadata?: unknown;
 }
 
@@ -184,11 +185,28 @@ export function parseCanvas(json: string | object): CanvasDocument {
     .map((e: unknown) => parseEdge(e as RawEdge))
     .filter((e): e is CanvasEdge => e !== null);
 
-  const doc: CanvasDocument = { nodes, edges };
+  const rawExcali = Array.isArray(raw["excalidrawElements"])
+    ? (raw["excalidrawElements"] as unknown[])
+    : null;
+
+  const excalidrawElements = rawExcali
+    ? rawExcali.filter(
+        (e): e is { id: string; type: string; [k: string]: unknown } =>
+          typeof e === "object" &&
+          e !== null &&
+          typeof (e as Record<string, unknown>)["id"] === "string" &&
+          typeof (e as Record<string, unknown>)["type"] === "string",
+      )
+    : undefined;
+
+  const doc: CanvasDocument = {
+    nodes,
+    edges,
+    ...(excalidrawElements && { excalidrawElements }),
+  };
 
   if (raw["metadata"] && typeof raw["metadata"] === "object") {
     const m = raw["metadata"] as Record<string, unknown>;
-    doc as unknown as Record<string, unknown>;
     return {
       ...doc,
       metadata: {
@@ -212,6 +230,9 @@ export function serializeCanvas(doc: CanvasDocument): string {
     {
       nodes: doc.nodes,
       edges: doc.edges,
+      ...(doc.excalidrawElements && {
+        excalidrawElements: doc.excalidrawElements,
+      }),
       ...(doc.metadata && { metadata: doc.metadata }),
     },
     null,

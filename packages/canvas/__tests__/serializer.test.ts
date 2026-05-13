@@ -372,3 +372,18 @@ describe("Round-trip: mixed document", () => {
     expect(result.nodes.some((n) => n.type === "query")).toBe(true);
   });
 });
+
+describe("excalidrawElements round-trip", () => {
+  it("preserves excalidrawElements through serialize → parse", () => {
+    const doc: CanvasDocument = {
+      nodes: [],
+      edges: [],
+      excalidrawElements: [
+        { id: "el-1", type: "freedraw", points: [[0, 0], [10, 10]] },
+      ],
+    };
+    const json = serializeCanvas(doc);
+    const parsed = parseCanvas(json);
+    expect(parsed.excalidrawElements).toEqual(doc.excalidrawElements);
+  });
+});
