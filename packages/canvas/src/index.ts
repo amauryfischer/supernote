@@ -55,3 +55,7 @@ export type {
 // Store (for testing / advanced usage)
 export { createCanvasStore } from "./store/index.js";
 export type { CanvasState, CanvasStore } from "./store/index.js";
+
+// Excalidraw bridge — read/write CanvasDocument as a standalone
+// `.excalidraw` file (openable on excalidraw.com).
+export * from "./excalidraw/index.js";
