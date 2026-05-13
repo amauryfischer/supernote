@@ -23,7 +23,7 @@ import {
   type DatabaseViewBlockProps,
   type DatabaseViewRenderer,
 } from "@supernote/editor";
-import { trpc, trpcVanillaClient } from "@/lib/trpc/client";
+import { trpc } from "@/lib/trpc/client";
 import { ipcEntityTypeToCore } from "@/components/schemas/adapters";
 import { BaseView, useViews } from "@/components/bases";
 import { getIcon } from "@/components/schemas/icon-map";
@@ -116,28 +116,25 @@ function BasePicker({ currentId }: { currentId: string }) {
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
   const [newPlural, setNewPlural] = useState("");
-  const [submitting, setSubmitting] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
   const { data: ipcTypes, isLoading } = trpc.schemas.list.useQuery({ search: undefined });
 
-  const handleCreate = async () => {
+  const createSchema = trpc.schemas.create.useMutation({
+    onSuccess: (created) => {
+      if (created?.id) requestReconfigure(created.id, "");
+    },
+  });
+
+  const handleCreate = () => {
     const name = newName.trim();
-    if (!name) return;
+    if (!name || createSchema.isPending) return;
     const plural = newPlural.trim() || name + "s";
-    setSubmitting(true);
-    try {
-      const created = await trpcVanillaClient.schemas.create.mutate({
-        name,
-        plural,
-        defaultPath: name.toLowerCase().replace(/\s+/g, "-"),
-        fileNamePattern: "{id}",
-      });
-      if (created && typeof created === "object" && "id" in created) {
-        requestReconfigure((created as { id: string }).id, "");
-      }
-    } finally {
-      setSubmitting(false);
-    }
+    createSchema.mutate({
+      name,
+      plural,
+      defaultPath: name.toLowerCase().replace(/\s+/g, "-"),
+      fileNamePattern: "{id}",
+    });
   };
 
   const openCreateForm = () => {
@@ -235,7 +232,7 @@ function BasePicker({ currentId }: { currentId: string }) {
                 setNewPlural(e.target.value.trim() + "s");
               }}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && !submitting) void handleCreate();
+                if (e.key === "Enter" && !createSchema.isPending) handleCreate();
                 if (e.key === "Escape") setCreating(false);
               }}
               className="rounded border bg-transparent px-2 py-1 text-xs"
@@ -247,12 +244,17 @@ function BasePicker({ currentId }: { currentId: string }) {
               value={newPlural}
               onChange={(e) => setNewPlural(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && !submitting) void handleCreate();
+                if (e.key === "Enter" && !createSchema.isPending) handleCreate();
                 if (e.key === "Escape") setCreating(false);
               }}
               className="rounded border bg-transparent px-2 py-1 text-xs"
               style={{ borderColor: "var(--border-subtle)", color: "var(--text-primary)" }}
             />
+            {createSchema.error && (
+              <p className="text-[11px]" style={{ color: "var(--destructive)" }}>
+                Erreur : {createSchema.error.message}
+              </p>
+            )}
             <div className="flex items-center justify-end gap-1.5 pt-0.5">
               <button
                 type="button"
@@ -265,15 +267,15 @@ function BasePicker({ currentId }: { currentId: string }) {
               <button
                 type="button"
                 onClick={handleCreate}
-                disabled={!newName.trim() || submitting}
+                disabled={!newName.trim() || createSchema.isPending}
                 className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium"
                 style={{
                   backgroundColor: "var(--accent)",
                   color: "var(--accent-foreground)",
-                  opacity: !newName.trim() || submitting ? 0.5 : 1,
+                  opacity: !newName.trim() || createSchema.isPending ? 0.5 : 1,
                 }}
               >
-                <Plus size={10} /> {submitting ? "Création…" : "Créer"}
+                <Plus size={10} /> {createSchema.isPending ? "Création…" : "Créer"}
               </button>
             </div>
           </div>
@@ -308,23 +310,21 @@ function ViewLinkPicker({
   basePlural: string;
 }) {
   const { data: views = [], isLoading } = useViews(baseId);
-  const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState(`Vue inline – ${basePlural}`);
 
-  const createAndLink = async () => {
-    setCreating(true);
-    try {
-      const created = await trpcVanillaClient.views.create.mutate({
-        typeId: baseId,
-        name: newName.trim() || `Vue inline – ${basePlural}`,
-        kind: "table",
-      });
-      if (created && typeof created === "object" && "id" in created) {
-        requestReconfigure(baseId, (created as { id: string }).id);
-      }
-    } finally {
-      setCreating(false);
-    }
+  const createView = trpc.views.create.useMutation({
+    onSuccess: (created) => {
+      if (created?.id) requestReconfigure(baseId, created.id);
+    },
+  });
+
+  const createAndLink = () => {
+    if (createView.isPending) return;
+    createView.mutate({
+      typeId: baseId,
+      name: newName.trim() || `Vue inline – ${basePlural}`,
+      kind: "table",
+    });
   };
 
   return (
@@ -389,7 +389,7 @@ function ViewLinkPicker({
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && !creating) void createAndLink();
+              if (e.key === "Enter" && !createView.isPending) createAndLink();
             }}
             className="flex-1 rounded border bg-transparent px-1.5 py-1 text-xs"
             style={{
@@ -400,18 +400,23 @@ function ViewLinkPicker({
           />
           <button
             type="button"
-            disabled={creating}
+            disabled={createView.isPending}
             onClick={createAndLink}
             className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium"
             style={{
               backgroundColor: "var(--accent)",
               color: "var(--accent-foreground)",
-              opacity: creating ? 0.6 : 1,
+              opacity: createView.isPending ? 0.6 : 1,
             }}
           >
-            <Plus size={10} /> Créer
+            <Plus size={10} /> {createView.isPending ? "Création…" : "Créer"}
           </button>
         </div>
+        {createView.error && (
+          <p className="mt-1 text-[11px]" style={{ color: "var(--destructive)" }}>
+            Erreur : {createView.error.message}
+          </p>
+        )}
       </div>
     </div>
   );
