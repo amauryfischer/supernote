@@ -73,7 +73,7 @@ export const MobileBottomNav = memo(function MobileBottomNav({
         // Highlight "Plus" whenever we're on a section that lives only in the
         // drawer — keeps the nav coherent when the user is deep in finance,
         // contacts, journal, etc.
-        ["/contacts", "/projets", "/finance", "/tags", "/vues", "/canvas",
+        ["/contacts", "/finance", "/tags", "/vues", "/canvas",
           "/graph", "/routines", "/templates", "/recherche", "/parametres",
           "/schemas", "/capture", "/journal"].some((prefix) => p.startsWith(prefix)),
     },

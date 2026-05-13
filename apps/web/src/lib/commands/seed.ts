@@ -58,16 +58,6 @@ export const SEED_COMMANDS: Command[] = [
     },
   },
   {
-    id: "nav.projects",
-    label: "Aller aux Projets",
-    icon: "layers",
-    group: "navigation",
-    keywords: ["projets", "projects"],
-    run: () => {
-      console.info("[seed] nav.projects — router.push('/projects')");
-    },
-  },
-  {
     id: "nav.routines",
     label: "Aller aux Routines",
     icon: "zap",

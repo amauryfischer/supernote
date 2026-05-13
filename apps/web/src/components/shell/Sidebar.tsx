@@ -4,29 +4,32 @@ import {
   Archive,
   Bell,
   BookOpen,
+  CaretDown,
   Calendar,
+  Check,
   CheckSquare,
   FileText,
   FolderOpen,
+  GitBranch,
   Gear,
   Graph,
   House,
   Lightning,
   MagnifyingGlass,
   SquaresFour,
-  Stack,
   Tag,
+  Trash,
   Users,
   Wallet,
   type Icon as PhosphorIcon,
 } from "@phosphor-icons/react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
-import { memo, useCallback, useEffect, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { NotificationBadge, useNotifications } from "@supernote/notifications/renderer";
 import { useTranslations } from "next-intl";
-import { useVault } from "@/lib/pwa/PwaVaultSetup";
+import { useVault, type RecentVault } from "@/lib/pwa/PwaVaultSetup";
 import {
   BUILT_IN_PLUGINS,
   PLUGIN_HREF_BY_SLUG,
@@ -71,7 +74,6 @@ const NAV_GROUPS: NavGroup[] = [
       { labelKey: "nav.todos", icon: CheckSquare, href: "/todos" },
       { labelKey: "nav.journal", icon: Calendar, href: "/journal" },
       { labelKey: "nav.contacts", icon: Users, href: "/contacts" },
-      { labelKey: "nav.projects", icon: Stack, href: "/projets" },
       { labelKey: "nav.finance", icon: Wallet, href: "/finance" },
       { labelKey: "nav.tags", icon: Tag, href: "/tags" },
       { labelKey: "nav.views", icon: BookOpen, href: "/vues" },
@@ -166,6 +168,8 @@ export const Sidebar = memo(function Sidebar() {
       ? vault.vaultName ?? (vault.state === "degraded" ? "Aucun vault" : "Supernote")
       : "Supernote";
   const canPickVault = Boolean(vault?.isPwa);
+  const [switcherOpen, setSwitcherOpen] = useState(false);
+  const brandRef = useRef<HTMLButtonElement>(null);
 
   const isActive = useCallback(
     (href: string) => (href === "/" ? pathname === "/" : pathname.startsWith(href)),
@@ -197,45 +201,65 @@ export const Sidebar = memo(function Sidebar() {
           backgroundColor: "var(--surface-1)",
         }}
       >
-        {/* App brand — also surfaces the active vault in PWA mode so the
-            user can see which folder is open and re-pick it without hunting
-            through settings. */}
+        {/* App brand — in PWA mode this opens the vault switcher popover so
+            the user can swap between known vaults (or pick a new one) from
+            the top-left without hunting through settings. In Electron the
+            label is non-interactive and renders as a plain Link to home. */}
         <div
           className="flex items-center justify-between gap-1 px-4"
           style={{ height: "var(--header-height)" }}
         >
-          <Link
-            href="/"
-            prefetch={true}
-            title={brandLabel}
-            className="flex min-w-0 flex-1 items-center gap-2.5 transition-opacity hover:opacity-80 focus-visible:outline-none"
-          >
-            <div
-              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-xs font-bold"
-              style={{
-                backgroundColor: "var(--accent)",
-                color: "var(--accent-foreground)",
-              }}
-            >
-              S
-            </div>
-            <span
-              className="truncate text-sm font-semibold tracking-tight"
-              style={{ color: "var(--text-primary)" }}
-            >
-              {brandLabel}
-            </span>
-          </Link>
-          {canPickVault && (
+          {canPickVault ? (
             <button
-              onClick={() => void vault?.pickFolder()}
+              ref={brandRef}
+              type="button"
+              onClick={() => setSwitcherOpen((v) => !v)}
+              title={`Vault actif : ${brandLabel}`}
               aria-label="Changer de vault"
-              title="Changer de vault"
-              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-[var(--surface-2)]"
-              style={{ color: "var(--text-muted)" }}
+              aria-haspopup="menu"
+              aria-expanded={switcherOpen}
+              className="flex min-w-0 flex-1 items-center gap-2.5 rounded-md px-1 py-1 -mx-1 transition-colors hover:bg-[var(--surface-2)] focus-visible:outline-none"
             >
-              <FolderOpen size={14} />
+              <div
+                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-xs font-bold"
+                style={{
+                  backgroundColor: "var(--accent)",
+                  color: "var(--accent-foreground)",
+                }}
+              >
+                S
+              </div>
+              <span
+                className="truncate text-sm font-semibold tracking-tight"
+                style={{ color: "var(--text-primary)" }}
+              >
+                {brandLabel}
+              </span>
+              <CaretDown size={11} weight="bold" style={{ color: "var(--text-muted)" }} />
             </button>
+          ) : (
+            <Link
+              href="/"
+              prefetch={true}
+              title={brandLabel}
+              className="flex min-w-0 flex-1 items-center gap-2.5 transition-opacity hover:opacity-80 focus-visible:outline-none"
+            >
+              <div
+                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-xs font-bold"
+                style={{
+                  backgroundColor: "var(--accent)",
+                  color: "var(--accent-foreground)",
+                }}
+              >
+                S
+              </div>
+              <span
+                className="truncate text-sm font-semibold tracking-tight"
+                style={{ color: "var(--text-primary)" }}
+              >
+                {brandLabel}
+              </span>
+            </Link>
           )}
           <button
             onClick={() => setNotifOpen(true)}
@@ -250,6 +274,30 @@ export const Sidebar = memo(function Sidebar() {
             />
           </button>
         </div>
+        {canPickVault && vault && (
+          <VaultSwitcherPopover
+            open={switcherOpen}
+            anchorRef={brandRef}
+            recents={vault.recentVaults}
+            activeId={vault.activeVaultId}
+            onSwitch={(id) => {
+              setSwitcherOpen(false);
+              void vault.switchToVault(id);
+            }}
+            onForget={(id) => {
+              void vault.forgetVault(id);
+            }}
+            onPickFolder={() => {
+              setSwitcherOpen(false);
+              void vault.pickFolder();
+            }}
+            onStartGit={() => {
+              setSwitcherOpen(false);
+              vault.startGitFlow();
+            }}
+            onClose={() => setSwitcherOpen(false)}
+          />
+        )}
 
       <div
         className="border-b"
@@ -320,3 +368,174 @@ export const Sidebar = memo(function Sidebar() {
     </>
   );
 });
+
+/* ── Vault switcher ───────────────────────────────────────────────────── */
+
+interface VaultSwitcherPopoverProps {
+  open: boolean;
+  anchorRef: React.RefObject<HTMLElement | null>;
+  recents: ReadonlyArray<RecentVault>;
+  activeId: string | null;
+  onSwitch: (id: string) => void;
+  onForget: (id: string) => void;
+  onPickFolder: () => void;
+  onStartGit: () => void;
+  onClose: () => void;
+}
+
+/**
+ * Anchored popover listing known vaults so the user can switch between
+ * folders without leaving the sidebar. Same lightweight pattern as
+ * `ColorPickerPopover` — no portal, `position: fixed` next to the trigger,
+ * click-outside + Escape close.
+ */
+function VaultSwitcherPopover({
+  open,
+  anchorRef,
+  recents,
+  activeId,
+  onSwitch,
+  onForget,
+  onPickFolder,
+  onStartGit,
+  onClose,
+}: VaultSwitcherPopoverProps) {
+  const popRef = useRef<HTMLDivElement>(null);
+  const [rect, setRect] = useState<DOMRect | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    // Recompute on open so the rect reflects the current sidebar width
+    // and chrome state (which may have shifted since last open).
+    setRect(anchorRef.current?.getBoundingClientRect() ?? null);
+  }, [open, anchorRef]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDown = (e: MouseEvent) => {
+      if (popRef.current?.contains(e.target as Node)) return;
+      if (anchorRef.current?.contains(e.target as Node)) return;
+      onClose();
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onClose();
+      }
+    };
+    const id = window.setTimeout(() => {
+      document.addEventListener("mousedown", onDown);
+    }, 0);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      window.clearTimeout(id);
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open, onClose, anchorRef]);
+
+  if (!open || !rect) return null;
+
+  const POP_W = 256;
+  const margin = 4;
+  let left = rect.left;
+  const top = rect.bottom + margin;
+  if (left + POP_W > window.innerWidth - 8) {
+    left = Math.max(8, window.innerWidth - POP_W - 8);
+  }
+
+  return (
+    <div
+      ref={popRef}
+      role="menu"
+      aria-label="Vaults récents"
+      className="fixed z-50 flex flex-col rounded-lg p-1 shadow-xl"
+      style={{
+        left,
+        top,
+        width: POP_W,
+        backgroundColor: "var(--surface-1)",
+        border: "1px solid var(--border-subtle)",
+      }}
+    >
+      {recents.length === 0 && (
+        <div
+          className="px-3 py-2 text-xs"
+          style={{ color: "var(--text-muted)" }}
+        >
+          Aucun vault récent.
+        </div>
+      )}
+      {recents.map((v) => {
+        const isActive = v.id === activeId;
+        return (
+          <div
+            key={v.id}
+            className="group flex items-center gap-1 rounded-md hover:bg-[var(--surface-2)]"
+          >
+            <button
+              type="button"
+              role="menuitemradio"
+              aria-checked={isActive}
+              onClick={() => onSwitch(v.id)}
+              className="flex min-w-0 flex-1 items-center gap-2 px-2 py-2 text-left text-sm focus-visible:outline-none"
+              style={{
+                color: isActive ? "var(--accent)" : "var(--text-primary)",
+                fontWeight: isActive ? 500 : 400,
+              }}
+            >
+              <span
+                className="flex h-4 w-4 shrink-0 items-center justify-center"
+                style={{ color: isActive ? "var(--accent)" : "var(--text-muted)" }}
+              >
+                {isActive ? <Check size={13} weight="bold" /> : <FolderOpen size={13} />}
+              </span>
+              <span className="truncate">{v.name}</span>
+            </button>
+            {!isActive && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onForget(v.id);
+                }}
+                title="Retirer de l'historique"
+                aria-label={`Retirer ${v.name} de l'historique`}
+                className="mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded opacity-0 transition-opacity group-hover:opacity-100 hover:bg-[var(--surface-3)] focus-visible:opacity-100 focus-visible:outline-none"
+                style={{ color: "var(--text-muted)" }}
+              >
+                <Trash size={12} />
+              </button>
+            )}
+          </div>
+        );
+      })}
+
+      <div
+        className="my-1 border-t"
+        style={{ borderColor: "var(--border-subtle)" }}
+      />
+
+      <button
+        type="button"
+        role="menuitem"
+        onClick={onPickFolder}
+        className="flex items-center gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-[var(--surface-2)] focus-visible:outline-none"
+        style={{ color: "var(--text-primary)" }}
+      >
+        <FolderOpen size={13} style={{ color: "var(--text-muted)" }} />
+        <span>Choisir un autre dossier…</span>
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        onClick={onStartGit}
+        className="flex items-center gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-[var(--surface-2)] focus-visible:outline-none"
+        style={{ color: "var(--text-primary)" }}
+      >
+        <GitBranch size={13} style={{ color: "var(--text-muted)" }} />
+        <span>Connecter un dépôt Git…</span>
+      </button>
+    </div>
+  );
+}

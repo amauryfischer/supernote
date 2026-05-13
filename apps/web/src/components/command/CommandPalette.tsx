@@ -6,7 +6,6 @@ import {
   Calendar,
   FileText,
   Hash,
-  Stack,
   SidebarSimple,
   Plus,
   MagnifyingGlass,
@@ -37,7 +36,6 @@ const ICON_MAP: Record<string, PhosphorIcon> = {
   "calendar": Calendar,
   "search": MagnifyingGlass,
   "users": Users,
-  "layers": Stack,
   "hash": Hash,
   "settings": Gear,
   "panel-left": SidebarSimple,
@@ -111,7 +109,6 @@ const GROUP_LABELS: Record<string, string> = {
 function entityHref(entityId: string, typeId: string): string {
   const t = typeId.toLowerCase();
   if (t === "personne" || t === "contact") return `/contacts/${entityId}`;
-  if (t === "projet" || t === "project") return `/projets/${entityId}`;
   if (t === "note") return `/notes/${entityId}`;
   // Fallback: every entity has a notes-style detail page in the current
   // routing layout, so /notes/{id} surfaces something useful even for
@@ -124,8 +121,6 @@ const ENTITY_TYPE_LABELS: Record<string, string> = {
   personne: "Contacts",
   contact: "Contacts",
   organisation: "Organisations",
-  projet: "Projets",
-  project: "Projets",
   ressource: "Ressources",
   journal: "Journal",
 };
@@ -225,7 +220,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
       if (bucket) bucket.items.push(r);
       else map.set(r.typeId, { typeName: r.typeName || r.typeId, items: [r] });
     }
-    const priority = ["note", "personne", "organisation", "projet"];
+    const priority = ["note", "personne", "organisation"];
     return [...map.entries()].sort(([a], [b]) => {
       const ai = priority.indexOf(a);
       const bi = priority.indexOf(b);
@@ -516,8 +511,6 @@ const TYPE_ICON_MAP: Record<string, PhosphorIcon> = {
   personne: Users,
   contact: Users,
   organisation: Folder,
-  projet: Stack,
-  project: Stack,
   ressource: BookOpen,
   journal: Calendar,
 };
