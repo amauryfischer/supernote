@@ -10,7 +10,6 @@ const KEYWORD_RULES: Array<{ pattern: RegExp; concept: string }> = [
   { pattern: /\b(todo|à faire|action item|tâche|task)\b/i, concept: "todo" },
   { pattern: /\b(family|famille|enfant|parent|perso|personnel)\b/i, concept: "perso" },
   { pattern: /\b(client|customer|prospect|vente|sales)\b/i, concept: "client" },
-  { pattern: /\b(projet|project|milestone|sprint|roadmap)\b/i, concept: "project" },
   { pattern: /\b(recette|recipe|cuisine|ingrédient|cuire)\b/i, concept: "recette" },
   { pattern: /\b(finance|budget|dépense|revenu|facture|invoice)\b/i, concept: "finance" },
   { pattern: /\b(health|santé|médecin|doctor|sport|exercise)\b/i, concept: "sante" },

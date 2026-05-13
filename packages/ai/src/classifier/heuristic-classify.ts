@@ -37,13 +37,6 @@ const BUILT_IN_SIGNATURES: Array<{ typeName: string; patterns: RegExp[] }> = [
     ],
   },
   {
-    typeName: "Projet",
-    patterns: [
-      /\b(projet|project|objectifs?|goals?|milestones?|roadmap|livrable|deliverable)\b/i,
-      /\b(budget|timeline|équipe|team|stakeholders?)\b/i,
-    ],
-  },
-  {
     typeName: "Journal",
     patterns: [
       /\b(aujourd'hui|today|ce matin|this morning|humeur|mood|journal|diary|log)\b/i,
