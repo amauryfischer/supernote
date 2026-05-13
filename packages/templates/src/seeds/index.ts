@@ -28,17 +28,8 @@ export const RECIPE: Template = {
   body: "# {{prompt:Nom de la recette?}}\n\n- **Temps** : {{prompt:Temps de préparation?}}\n- **Difficulté** : {{select:Facile|Moyen|Difficile}}\n- **Personnes** : {{prompt:Pour combien?|4}}\n\n## Ingrédients\n- {{cursor}}\n\n## Étapes",
 };
 
-export const PROJECT_BRIEF: Template = {
-  id: "seed-project-brief",
-  name: "Brief de projet",
-  description: "Project brief with objectives, context, deliverables and stakeholders",
-  icon: "briefcase",
-  body: "# {{prompt:Nom du projet?}}\n\n## Objectifs\n{{cursor}}\n\n## Contexte\n\n## Livrables\n\n## Stakeholders\n{{contact:personne}}",
-};
-
 export const SEED_TEMPLATES: readonly Template[] = [
   DAILY_JOURNAL,
   MEETING_NOTES,
   RECIPE,
-  PROJECT_BRIEF,
 ] as const;

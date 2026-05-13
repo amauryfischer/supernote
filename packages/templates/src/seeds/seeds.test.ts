@@ -1,10 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { SEED_TEMPLATES, DAILY_JOURNAL, MEETING_NOTES, RECIPE, PROJECT_BRIEF } from "./index.js";
+import { SEED_TEMPLATES, DAILY_JOURNAL, MEETING_NOTES, RECIPE } from "./index.js";
 import { validateTemplate } from "../validator.js";
 
 describe("seed templates", () => {
-  it("exports 4 seed templates", () => {
-    expect(SEED_TEMPLATES).toHaveLength(4);
+  it("exports 3 seed templates", () => {
+    expect(SEED_TEMPLATES).toHaveLength(3);
   });
 
   it("all seeds have unique ids", () => {
@@ -44,11 +44,4 @@ describe("seed templates", () => {
     expect(RECIPE.body).toContain("{{cursor}}");
   });
 
-  it("project brief has cursor", () => {
-    expect(PROJECT_BRIEF.body).toContain("{{cursor}}");
-  });
-
-  it("project brief has contact variable", () => {
-    expect(PROJECT_BRIEF.body).toContain("{{contact:personne}}");
-  });
 });

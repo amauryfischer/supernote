@@ -19,4 +19,4 @@ export { renderTemplate, TemplateRenderError } from "./renderer/index.js";
 export { listVariables, validateTemplate } from "./validator.js";
 export { parseVariables } from "./parser/index.js";
 export { formatDate } from "./date/format.js";
-export { SEED_TEMPLATES, DAILY_JOURNAL, MEETING_NOTES, RECIPE, PROJECT_BRIEF } from "./seeds/index.js";
+export { SEED_TEMPLATES, DAILY_JOURNAL, MEETING_NOTES, RECIPE } from "./seeds/index.js";
