@@ -92,28 +92,6 @@ const orgaFields: SeedField[] = [
   { id: "org_updated_at", name: "updatedAt", label: "Modifié le", kind: "updatedAt" },
 ];
 
-const projetFields: SeedField[] = [
-  { id: "proj_name", name: "name", label: "Nom", kind: "text", required: true },
-  {
-    id: "proj_status", name: "status", label: "Statut", kind: "status",
-    options: [
-      { value: "backlog", label: "Backlog", color: "#94A3B8" },
-      { value: "en_cours", label: "En cours", color: "#60A5FA" },
-      { value: "en_pause", label: "En pause", color: "#FBBF24" },
-      { value: "termine", label: "Terminé", color: "#10B981" },
-      { value: "annule", label: "Annulé", color: "#EF4444" },
-    ],
-  },
-  { id: "proj_start", name: "start_date", label: "Début", kind: "date" },
-  { id: "proj_end", name: "end_date", label: "Fin prévue", kind: "date" },
-  { id: "proj_priority", name: "priority", label: "Priorité", kind: "rating", min: 1, max: 5 },
-  { id: "proj_budget", name: "budget", label: "Budget", kind: "currency", currencyCode: "EUR" },
-  { id: "proj_progress", name: "progress", label: "Avancement", kind: "progress" },
-  { id: "proj_description", name: "description", label: "Description", kind: "markdown" },
-  { id: "proj_created_at", name: "createdAt", label: "Créé le", kind: "createdAt" },
-  { id: "proj_updated_at", name: "updatedAt", label: "Modifié le", kind: "updatedAt" },
-];
-
 const interactionFields: SeedField[] = [
   { id: "int_title", name: "title", label: "Titre", kind: "text", required: true },
   {
@@ -301,8 +279,7 @@ const goalFields: SeedField[] = [
 export const DEFAULT_ENTITY_TYPES: SeedEntityType[] = [
   { id: "personne", name: "Personne", plural: "Personnes", icon: "User", color: "#6366F1", fields: personneFields, defaultPath: "Contacts", fileNamePattern: "{name}", defaultView: "table" },
   { id: "organisation", name: "Organisation", plural: "Organisations", icon: "Building2", color: "#0EA5E9", fields: orgaFields, defaultPath: "Contacts/Organisations", fileNamePattern: "{name}", defaultView: "table" },
-  { id: "projet", name: "Projet", plural: "Projets", icon: "Layers", color: "#8B5CF6", fields: projetFields, defaultPath: "Projets", fileNamePattern: "{name}", defaultView: "kanban" },
-  { id: "interaction", name: "Interaction", plural: "Interactions", icon: "MessageCircle", color: "#10B981", fields: interactionFields, defaultPath: "Interactions", fileNamePattern: "{date}-{title}", defaultView: "table" },
+{ id: "interaction", name: "Interaction", plural: "Interactions", icon: "MessageCircle", color: "#10B981", fields: interactionFields, defaultPath: "Interactions", fileNamePattern: "{date}-{title}", defaultView: "table" },
   { id: "note", name: "Note", plural: "Notes", icon: "FileText", color: "#F59E0B", fields: noteFields, defaultPath: "Notes", fileNamePattern: "{title}", defaultView: "table" },
   { id: "daily", name: "Daily", plural: "Dailies", icon: "Calendar", color: "#EC4899", fields: dailyFields, defaultPath: "Daily", fileNamePattern: "{date}", defaultView: "calendar" },
   { id: "tag", name: "Tag", plural: "Tags", icon: "Tag", color: "#64748B", fields: tagFields, defaultPath: "Tags", fileNamePattern: "{name}", defaultView: "table" },
@@ -318,13 +295,9 @@ export const DEFAULT_ENTITY_TYPES: SeedEntityType[] = [
 
 export const DEFAULT_RELATION_TYPES: SeedRelationType[] = [
   { id: "rel_personne_org", forwardLabel: "travaille chez", inverseLabel: "emploie", sourceTypeId: "personne", targetTypeId: "organisation", cardinality: "many_to_many" },
-  { id: "rel_personne_projet", forwardLabel: "contribue à", inverseLabel: "a pour contributeur", sourceTypeId: "personne", targetTypeId: "projet", cardinality: "many_to_many" },
   { id: "rel_interaction_personne", forwardLabel: "implique", inverseLabel: "a participé à", sourceTypeId: "interaction", targetTypeId: "personne", cardinality: "many_to_many" },
-  { id: "rel_interaction_projet", forwardLabel: "concerne", inverseLabel: "a pour interaction", sourceTypeId: "interaction", targetTypeId: "projet", cardinality: "many_to_many" },
-  { id: "rel_note_projet", forwardLabel: "associée à", inverseLabel: "a pour note", sourceTypeId: "note", targetTypeId: "projet", cardinality: "many_to_many" },
   { id: "rel_asset_account", forwardLabel: "détenu dans", inverseLabel: "contient", sourceTypeId: "asset", targetTypeId: "account", cardinality: "many_to_many" },
   { id: "rel_loan_asset", forwardLabel: "finance", inverseLabel: "financé par", sourceTypeId: "loan", targetTypeId: "asset", cardinality: "one_to_many" },
-  { id: "rel_org_projet", forwardLabel: "sponsor de", inverseLabel: "sponsorisé par", sourceTypeId: "organisation", targetTypeId: "projet", cardinality: "many_to_many" },
   { id: "rel_todo_note", forwardLabel: "extraite de", inverseLabel: "contient la todo", sourceTypeId: "todo", targetTypeId: "note", cardinality: "many_to_many" },
 ];
 
