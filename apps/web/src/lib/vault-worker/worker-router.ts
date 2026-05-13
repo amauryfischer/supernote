@@ -23,6 +23,12 @@ import {
   hashContent,
   generateId,
 } from "./fsa-file-io";
+import {
+  writeExcalidrawSibling,
+  readExcalidrawSibling,
+  moveExcalidrawSibling,
+  deleteExcalidrawSibling,
+} from "./canvas-excalidraw-io";
 
 type SqlValue = string | number | null | Uint8Array;
 type SqlRow = Record<string, SqlValue>;
@@ -650,7 +656,23 @@ export function buildRouter(
       [id],
     ));
     if (!r) throw new Error(`Entity not found: ${id}`);
-    return entityRowToApi(r);
+    const api = entityRowToApi(r) as {
+      filePath: string;
+      typeName: string;
+      fields: Record<string, unknown>;
+    };
+    // Canvas hydration: when the entity references a sibling `.excalidraw`,
+    // read it and inject the reconstituted JSON back into `fields.data`
+    // (canvas entities) or `fields.canvas` (notes with canvas view) so
+    // the UI keeps consuming the same shape as before the split.
+    if (typeof api.fields["canvasFile"] === "string") {
+      const doc = await readExcalidrawSibling(vaultHandle, api.filePath);
+      if (doc) {
+        const targetField = api.typeName === "canvas" ? "data" : "canvas";
+        api.fields[targetField] = JSON.stringify(doc);
+      }
+    }
+    return api;
   };
 
   const entitiesCreate = async (input: unknown): Promise<unknown> => {
@@ -709,6 +731,26 @@ export function buildRouter(
         candidate = `${stem}-${suffix}${ext}`;
       }
       relativePath = candidate;
+    }
+
+    // Canvas split: if fields carry a serialized CanvasDocument (canvas
+    // standalone → `data`, notes with canvas view → `canvas`), write it
+    // to a sibling `.excalidraw` file and replace the in-frontmatter blob
+    // with a `canvasFile` pointer. Entities without a canvas blob are
+    // untouched.
+    const canvasFieldCreate = extractCanvasField(fields);
+    if (canvasFieldCreate) {
+      try {
+        const doc = parseCanvasJson(canvasFieldCreate.json);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const canvasFile = await writeExcalidrawSibling(vaultHandle, relativePath, doc as any);
+        if (canvasFile) {
+          delete fields[canvasFieldCreate.fieldName];
+          fields["canvasFile"] = canvasFile;
+        }
+      } catch (err) {
+        console.warn("[canvas-excalidraw] create: bridge skipped", err);
+      }
     }
 
     // Frontmatter uses TOP-LEVEL YAML keys for each field (id, type, then
@@ -775,6 +817,24 @@ export function buildRouter(
     const isMove = cleanedNextPath.length > 0 && cleanedNextPath !== oldPath;
     const effectivePath = isMove ? cleanedNextPath : oldPath;
 
+    // Canvas split on update: mirrors entitiesCreate. If the incoming
+    // fields carry a fresh canvas JSON, write it to the sibling and
+    // replace with a canvasFile pointer.
+    const canvasFieldUpdate = extractCanvasField(newFields);
+    if (canvasFieldUpdate) {
+      try {
+        const doc = parseCanvasJson(canvasFieldUpdate.json);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const canvasFile = await writeExcalidrawSibling(vaultHandle, effectivePath, doc as any);
+        if (canvasFile) {
+          delete newFields[canvasFieldUpdate.fieldName];
+          newFields["canvasFile"] = canvasFile;
+        }
+      } catch (err) {
+        console.warn("[canvas-excalidraw] update: bridge skipped", err);
+      }
+    }
+
     // Rewrite the .md file
     const typeRow = row(db.exec(`SELECT name FROM entity_type WHERE id = ?`, [existing["typeId"] ?? null]));
     // See entitiesCreate: top-level keys, no nested `fields:` blob.
@@ -795,6 +855,8 @@ export function buildRouter(
       } catch {
         // Old file may already be gone (e.g. concurrent move) — best-effort.
       }
+      // Move the .excalidraw sibling alongside the .md (best-effort).
+      await moveExcalidrawSibling(vaultHandle, oldPath, effectivePath);
     }
 
     db.run(
@@ -824,11 +886,14 @@ export function buildRouter(
     const { id } = input as { id: string };
     const existing = row(db.exec(`SELECT filePath FROM entity WHERE id = ?`, [id]));
     if (existing) {
+      const filePath = (existing["filePath"] as string) ?? "";
       try {
-        await deleteVaultFile(vaultHandle, (existing["filePath"] as string).split("/"));
+        await deleteVaultFile(vaultHandle, filePath.split("/"));
       } catch {
         // File may already be gone
       }
+      // Also remove the .excalidraw sibling if present.
+      await deleteExcalidrawSibling(vaultHandle, filePath);
       db.run(`DELETE FROM entity WHERE id = ?`, [id]);
       miniSearchRemove(id);
     }
@@ -1681,6 +1746,54 @@ function safeParseFieldsBlob(raw: string): Record<string, unknown> {
     return cleaned;
   } catch {
     return {};
+  }
+}
+
+/**
+ * Two field names carry a serialized CanvasDocument JSON:
+ *  - canvas standalone entities use `data`
+ *  - notes with a canvas view use `canvas`
+ *
+ * Returns `{ fieldName, json }` when one is present with non-empty
+ * JSON-looking content, otherwise null.
+ */
+function extractCanvasField(
+  fields: Record<string, unknown>,
+): { fieldName: "data" | "canvas"; json: string } | null {
+  for (const name of ["data", "canvas"] as const) {
+    const v = fields[name];
+    if (
+      typeof v === "string" &&
+      v.trim().length > 0 &&
+      v.trim().startsWith("{")
+    ) {
+      return { fieldName: name, json: v };
+    }
+  }
+  return null;
+}
+
+/** Parse a frontmatter-stored canvas JSON into the shape expected by the bridge. */
+function parseCanvasJson(json: string): {
+  nodes: unknown[];
+  edges: unknown[];
+  excalidrawElements?: unknown[];
+} {
+  try {
+    const parsed = JSON.parse(json) as Partial<{
+      nodes: unknown;
+      edges: unknown;
+      excalidrawElements: unknown;
+    }>;
+    return {
+      nodes: Array.isArray(parsed.nodes) ? parsed.nodes : [],
+      edges: Array.isArray(parsed.edges) ? parsed.edges : [],
+      ...(Array.isArray(parsed.excalidrawElements)
+        ? { excalidrawElements: parsed.excalidrawElements }
+        : {}),
+    };
+  } catch {
+    return { nodes: [], edges: [] };
   }
 }
 
