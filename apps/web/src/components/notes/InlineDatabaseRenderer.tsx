@@ -17,7 +17,7 @@
  * picks.
  */
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   requestDatabaseBlockReconfigure,
   type DatabaseViewBlockProps,
@@ -27,7 +27,7 @@ import { trpc, trpcVanillaClient } from "@/lib/trpc/client";
 import { ipcEntityTypeToCore } from "@/components/schemas/adapters";
 import { BaseView, useViews } from "@/components/bases";
 import { getIcon } from "@/components/schemas/icon-map";
-import { Plus, Link as LinkIcon } from "@phosphor-icons/react";
+import { Plus, Link as LinkIcon, Database } from "@phosphor-icons/react";
 
 /** Public entry — pass this to <DatabaseViewProvider renderer={...} />. */
 export const renderInlineDatabase: DatabaseViewRenderer = (props) => (
@@ -113,7 +113,39 @@ function InlineBaseHeader({
 
 function BasePicker({ currentId }: { currentId: string }) {
   const [open, setOpen] = useState(true);
+  const [creating, setCreating] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newPlural, setNewPlural] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const nameRef = useRef<HTMLInputElement>(null);
   const { data: ipcTypes, isLoading } = trpc.schemas.list.useQuery({ search: undefined });
+
+  const handleCreate = async () => {
+    const name = newName.trim();
+    if (!name) return;
+    const plural = newPlural.trim() || name + "s";
+    setSubmitting(true);
+    try {
+      const created = await trpcVanillaClient.schemas.create.mutate({
+        name,
+        plural,
+        defaultPath: name.toLowerCase().replace(/\s+/g, "-"),
+        fileNamePattern: "{id}",
+      });
+      if (created && typeof created === "object" && "id" in created) {
+        requestReconfigure((created as { id: string }).id, "");
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const openCreateForm = () => {
+    setCreating(true);
+    setNewName("");
+    setNewPlural("");
+    setTimeout(() => nameRef.current?.focus(), 0);
+  };
 
   if (!open) {
     return (
@@ -141,27 +173,112 @@ function BasePicker({ currentId }: { currentId: string }) {
       }}
     >
       <p className="mb-2 text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
-        Choisir une Base à afficher inline
+        Choisir ou créer une Base
       </p>
-      {isLoading && <p className="text-xs" style={{ color: "var(--text-muted)" }}>Chargement…</p>}
-      <div className="flex flex-wrap gap-1.5">
-        {(ipcTypes ?? []).map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            onClick={() => requestReconfigure(t.id, "")}
-            className="rounded-md px-2 py-1 text-xs font-medium hover:bg-[var(--surface-2)]"
-            style={{
-              backgroundColor: t.id === currentId ? "var(--surface-3)" : "transparent",
-              color: "var(--text-primary)",
-              border: "1px solid var(--border-subtle)",
-            }}
+
+      {/* Existing bases */}
+      {isLoading ? (
+        <p className="mb-2 text-xs" style={{ color: "var(--text-muted)" }}>Chargement…</p>
+      ) : (
+        <div className="mb-3 flex flex-wrap gap-1.5">
+          {(ipcTypes ?? []).map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => requestReconfigure(t.id, "")}
+              className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium hover:bg-[var(--surface-2)]"
+              style={{
+                backgroundColor: t.id === currentId ? "var(--surface-3)" : "transparent",
+                color: "var(--text-primary)",
+                border: "1px solid var(--border-subtle)",
+              }}
+            >
+              {t.icon ? t.icon : <Database size={11} />}
+              {" "}{t.plural}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Create new base form */}
+      {!creating ? (
+        <button
+          type="button"
+          onClick={openCreateForm}
+          className="flex items-center gap-1.5 rounded-md border border-dashed px-2 py-1.5 text-xs"
+          style={{
+            borderColor: "var(--border-subtle)",
+            color: "var(--accent)",
+          }}
+        >
+          <Plus size={11} /> Nouvelle Base
+        </button>
+      ) : (
+        <div
+          className="mt-1 rounded border p-2"
+          style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-0)" }}
+        >
+          <p
+            className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide"
+            style={{ color: "var(--text-muted)" }}
           >
-            {t.icon ? `${t.icon} ` : ""}
-            {t.plural}
-          </button>
-        ))}
-      </div>
+            Nouvelle Base
+          </p>
+          <div className="flex flex-col gap-1.5">
+            <input
+              ref={nameRef}
+              type="text"
+              placeholder="Nom (ex : Client)"
+              value={newName}
+              onChange={(e) => {
+                setNewName(e.target.value);
+                setNewPlural(e.target.value.trim() + "s");
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !submitting) void handleCreate();
+                if (e.key === "Escape") setCreating(false);
+              }}
+              className="rounded border bg-transparent px-2 py-1 text-xs"
+              style={{ borderColor: "var(--border-subtle)", color: "var(--text-primary)" }}
+            />
+            <input
+              type="text"
+              placeholder="Pluriel (ex : Clients)"
+              value={newPlural}
+              onChange={(e) => setNewPlural(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !submitting) void handleCreate();
+                if (e.key === "Escape") setCreating(false);
+              }}
+              className="rounded border bg-transparent px-2 py-1 text-xs"
+              style={{ borderColor: "var(--border-subtle)", color: "var(--text-primary)" }}
+            />
+            <div className="flex items-center justify-end gap-1.5 pt-0.5">
+              <button
+                type="button"
+                onClick={() => setCreating(false)}
+                className="rounded px-2 py-1 text-xs"
+                style={{ color: "var(--text-muted)" }}
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                onClick={handleCreate}
+                disabled={!newName.trim() || submitting}
+                className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium"
+                style={{
+                  backgroundColor: "var(--accent)",
+                  color: "var(--accent-foreground)",
+                  opacity: !newName.trim() || submitting ? 0.5 : 1,
+                }}
+              >
+                <Plus size={10} /> {submitting ? "Création…" : "Créer"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
