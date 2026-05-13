@@ -29,7 +29,6 @@ model Vault {
   relationTypes  RelationType[]
   entities       Entity[]
   tags           Tag[]
-  views          View[]
   templates      Template[]
   automations    Automation[]
   formulas       Formula[]
@@ -56,7 +55,6 @@ model EntityType {
   fields           String   @default("[]")
   defaultPath      String?
   fileNamePattern  String?
-  defaultView      String?
   /// JSON: ValidationRule[]
   validations      String   @default("[]")
   /// JSON: string[] — workflow IDs
@@ -236,29 +234,43 @@ model Mention {
 }
 
 // ---------------------------------------------------------------------------
-// VIEWS & TEMPLATES
+// VIEWS — saved Coda/Notion-style projections of a Base (EntityType)
 // ---------------------------------------------------------------------------
 
+/// A View is a named filtered+sorted+projected representation of all entities
+/// of one typeId. Inline ad-hoc views (embedded inside a note's BlockNote
+/// `databaseView` block) are NOT stored here — they live in the note body.
 model View {
-  id          String   @id
-  vaultId     String
-  name        String
-  /// "TABLE" | "KANBAN" | "GALLERY" | "CALENDAR" | "TIMELINE" | "GRAPH" | "MAP" | "DASHBOARD"
-  kind        String
-  /// Entity type this view targets (null = cross-type / custom query)
-  entityTypeId String?
-  /// JSON: ViewConfig — filters, sorts, groupBy, columns, etc.
-  config      String   @default("{}")
-  isDefault   Boolean  @default(false)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id             String   @id
+  vaultId        String
+  typeId         String
+  name           String
+  icon           String?
+  /// "table" | "board" | "gallery" | "calendar" | "list"
+  kind           String   @default("table")
+  /// JSON: FilterClause[]
+  filters        String   @default("[]")
+  /// JSON: SortClause[]
+  sorts          String   @default("[]")
+  /// JSON: string[] — ordered fieldIds to display (empty = use schema order)
+  visibleFields  String   @default("[]")
+  /// JSON: string[] — fieldIds explicitly hidden
+  hiddenFields   String   @default("[]")
+  /// fieldId used to group rows (board/list views)
+  groupByField   String?
+  /// "short" | "normal" | "tall"
+  rowHeight      String   @default("normal")
+  isSystem       Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
-  vault Vault @relation(fields: [vaultId], references: [id], onDelete: Cascade)
-
-  @@index([vaultId])
-  @@index([vaultId, entityTypeId])
+  @@index([vaultId, typeId])
   @@map("view")
 }
+
+// ---------------------------------------------------------------------------
+// TEMPLATES
+// ---------------------------------------------------------------------------
 
 model Template {
   id           String   @id

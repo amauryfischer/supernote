@@ -10,6 +10,10 @@ import {
   SuggestionMenuController,
 } from "@blocknote/react";
 import { supernoteSchema } from "./schema.js";
+import {
+  DatabaseViewProvider,
+  useDatabaseBlockPickListener,
+} from "./blocks/index.js";
 import { markdownToBlocks, blocksToMarkdown } from "./serialization/index.js";
 import {
   SupernoteSuggestionMenu,
@@ -38,6 +42,7 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
     onAskAi,
     onEditorReady,
     placeholder,
+    renderDatabaseView,
   } = props;
 
   const onSaveRef = useRef(onSave);
@@ -149,6 +154,10 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
 
   const { openPicker, pickerElement } = useEntityPickerState(editor, resolvers);
 
+  // Install the listener that reacts to <BasePicker> picks from inline
+  // database blocks. No-op when no databaseView blocks are present.
+  useDatabaseBlockPickListener(editor);
+
   const getItems = useCallback(
     async (query: string) => {
       const items = getSupernoteSlashMenuItems(editor, openPicker, onAskAiRef.current);
@@ -176,7 +185,14 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
     [editor, resolvers]
   );
 
+  // Wrap the editor in DatabaseViewProvider so every inline `databaseView`
+  // block can pull the host-supplied renderer. When no renderer is provided
+  // we still mount the provider with a stub (returns null) — the block's
+  // built-in fallback will display the offline placeholder.
+  const databaseRenderer = renderDatabaseView ?? (() => null);
+
   return (
+    <DatabaseViewProvider renderer={databaseRenderer}>
     <div
       className={`sn-editor-wrapper${className ? ` ${className}` : ""}`}
       data-readonly={readOnly || undefined}
@@ -206,5 +222,6 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
         <div className="sn-entity-picker-overlay">{pickerElement}</div>
       )}
     </div>
+    </DatabaseViewProvider>
   );
 }

@@ -57,4 +57,13 @@ export interface SupernoteEditorProps {
    * position as one paragraph block per double-newline-separated section.
    */
   onEditorReady?: (insert: (md: string) => void) => void;
+  /**
+   * Renderer for inline database blocks. When provided, every `databaseView`
+   * block in the document calls this renderer with its (baseId, viewId).
+   * If absent, the block falls back to a stub placeholder.
+   */
+  renderDatabaseView?: (props: {
+    baseId: string;
+    viewId: string;
+  }) => React.ReactNode;
 }

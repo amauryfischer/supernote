@@ -1,17 +1,21 @@
 import { router, publicProcedure } from "./trpc.js";
 import { notImplemented } from "../errors/index.js";
+import { z } from "zod";
 import {
   ListViewsInput,
   ListViewsOutput,
   GetViewInput,
   ViewSchema,
-  SaveViewInput,
+  CreateViewInput,
+  UpdateViewInput,
   DeleteViewInput,
+  EnsureDefaultViewInput,
+  QueryForViewInput,
+  QueryForViewOutput,
 } from "../schemas/views.js";
-import { z } from "zod";
 
 export const viewsRouter = router({
-  /** List saved views, optionally filtered by entity type or view type. */
+  /** List saved views, optionally filtered by typeId (Base). */
   list: publicProcedure
     .input(ListViewsInput)
     .output(ListViewsOutput)
@@ -19,7 +23,7 @@ export const viewsRouter = router({
       throw notImplemented("views.list");
     }),
 
-  /** Get a single saved view by id. */
+  /** Get a single view by id. */
   get: publicProcedure
     .input(GetViewInput)
     .output(ViewSchema)
@@ -27,20 +31,53 @@ export const viewsRouter = router({
       throw notImplemented("views.get");
     }),
 
-  /** Create or update a view (upsert by id if provided). */
-  save: publicProcedure
-    .input(SaveViewInput)
+  /** Create a new view for a Base. */
+  create: publicProcedure
+    .input(CreateViewInput)
     .output(ViewSchema)
     .mutation(() => {
-      throw notImplemented("views.save");
+      throw notImplemented("views.create");
     }),
 
-  /** Delete a saved view. */
+  /** Patch an existing view (filters, sorts, visible fields, etc.). */
+  update: publicProcedure
+    .input(UpdateViewInput)
+    .output(ViewSchema)
+    .mutation(() => {
+      throw notImplemented("views.update");
+    }),
+
+  /** Delete a view. System (default) views cannot be deleted. */
   delete: publicProcedure
     .input(DeleteViewInput)
     .output(z.object({ id: z.string(), deleted: z.boolean() }))
     .mutation(() => {
       throw notImplemented("views.delete");
+    }),
+
+  /**
+   * Idempotent: returns the default Table view for `typeId`, creating it
+   * (isSystem: true) on first call. Used by the Base page on first visit so
+   * the user always lands on something.
+   */
+  ensureDefault: publicProcedure
+    .input(EnsureDefaultViewInput)
+    .output(ViewSchema)
+    .mutation(() => {
+      throw notImplemented("views.ensureDefault");
+    }),
+
+  /**
+   * Query entities for a view: applies filters + sorts and returns matching
+   * Entity rows. Distinct from `entities.list` which is a raw fetch by
+   * typeId/typeName — `queryForView` is the data path used by every view
+   * renderer (table, board, gallery, …).
+   */
+  queryForView: publicProcedure
+    .input(QueryForViewInput)
+    .output(QueryForViewOutput)
+    .query(() => {
+      throw notImplemented("views.queryForView");
     }),
 });
 

@@ -33,9 +33,9 @@ export { vaultRouter, type VaultRouter } from "./router/vault.router.js";
 export { foldersRouter, type FoldersRouter } from "./router/folders.router.js";
 export { entitiesRouter, type EntitiesRouter } from "./router/entities.router.js";
 export { schemasRouter, type SchemasRouter } from "./router/schemas.router.js";
+export { viewsRouter, type ViewsRouter } from "./router/views.router.js";
 export { relationsRouter, type RelationsRouter } from "./router/relations.router.js";
 export { tagsRouter, type TagsRouter } from "./router/tags.router.js";
-export { viewsRouter, type ViewsRouter } from "./router/views.router.js";
 export {
   automationsRouter,
   routinesRouter,

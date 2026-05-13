@@ -537,3 +537,33 @@
   font-size: 0.8rem;
   text-align: center;
 }
+
+/* ── Database view block ─────────────────────────────────────────────────── */
+
+.sn-database-block {
+  border-radius: 8px;
+  margin: 0.5rem 0;
+}
+
+.sn-database-block__empty,
+.sn-database-block__fallback {
+  border: 1px dashed var(--border-subtle, #e5e7eb);
+  background: var(--surface-1, #f9fafb);
+  border-radius: 6px;
+  padding: 14px;
+  text-align: center;
+  font-size: 0.85rem;
+}
+
+.sn-database-block__empty p,
+.sn-database-block__fallback p {
+  margin: 0 0 4px;
+  font-weight: 500;
+  color: var(--text-secondary, #4b5563);
+}
+
+.sn-database-block__empty span,
+.sn-database-block__fallback code {
+  color: var(--text-muted, #9ca3af);
+  font-size: 0.75rem;
+}

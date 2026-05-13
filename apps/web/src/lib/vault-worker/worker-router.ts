@@ -2,7 +2,7 @@
  * worker-router — handles tRPC-style route dispatch inside the vault web worker.
  *
  * Implements the same procedure surface as the Electron main process:
- * vault.*, entities.*, schemas.*, tags.*, views.*, search.*
+ * vault.*, entities.*, schemas.*, tags.*, search.*
  *
  * Uses sql.js Database directly (no Prisma) and FSA for file I/O.
  *
@@ -1058,6 +1058,340 @@ export function buildRouter(
     return { id, deleted: true };
   };
 
+  // ── views.* ───────────────────────────────────────────────────────────────
+  //
+  // A view is a named, saved projection of a Base (entity_type): filters,
+  // sorts, visible fields, kind (table / board / gallery / …). Persisted in
+  // the `view` SQLite table. Inline ad-hoc views (BlockNote `databaseView`
+  // blocks) live inside the note body, not here.
+  //
+  // `view.fields` columns are stored as JSON strings (filters/sorts/etc.) and
+  // parsed on read, mirroring the same approach used by `entity_type.fields`.
+
+  const viewRowToApi = (r: SqlRow): unknown => ({
+    id: r["id"],
+    typeId: r["typeId"],
+    name: r["name"],
+    icon: (r["icon"] as string) ?? undefined,
+    kind: (r["kind"] as string) ?? "table",
+    filters: JSON.parse((r["filters"] as string) || "[]"),
+    sorts: JSON.parse((r["sorts"] as string) || "[]"),
+    visibleFields: JSON.parse((r["visibleFields"] as string) || "[]"),
+    hiddenFields: JSON.parse((r["hiddenFields"] as string) || "[]"),
+    groupByField: (r["groupByField"] as string) ?? undefined,
+    rowHeight: (r["rowHeight"] as string) ?? "normal",
+    isSystem: Boolean(r["isSystem"]),
+    createdAt: r["createdAt"],
+    updatedAt: r["updatedAt"],
+  });
+
+  const viewsList = async (input?: unknown): Promise<unknown> => {
+    const { typeId } = (input ?? {}) as { typeId?: string };
+    let sql = `SELECT * FROM view WHERE vaultId = ?`;
+    const params: SqlValue[] = [vaultId];
+    if (typeId) {
+      sql += ` AND typeId = ?`;
+      params.push(typeId);
+    }
+    sql += ` ORDER BY isSystem DESC, createdAt ASC`;
+    return rows(db.exec(sql, params)).map(viewRowToApi);
+  };
+
+  const viewsGet = async (input: unknown): Promise<unknown> => {
+    const { id } = input as { id: string };
+    const r = row(db.exec(`SELECT * FROM view WHERE id = ?`, [id]));
+    if (!r) throw new Error(`View not found: ${id}`);
+    return viewRowToApi(r);
+  };
+
+  const viewsCreate = async (input: unknown): Promise<unknown> => {
+    const inp = (input ?? {}) as {
+      typeId: string;
+      name: string;
+      icon?: string;
+      kind?: string;
+      filters?: unknown[];
+      sorts?: unknown[];
+      visibleFields?: string[];
+      hiddenFields?: string[];
+      groupByField?: string;
+      rowHeight?: string;
+      isSystem?: boolean;
+    };
+    const id = generateId();
+    const ts = now();
+    db.run(
+      `INSERT INTO view (
+         id, vaultId, typeId, name, icon, kind,
+         filters, sorts, visibleFields, hiddenFields,
+         groupByField, rowHeight, isSystem, createdAt, updatedAt
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id,
+        vaultId,
+        inp.typeId,
+        inp.name,
+        inp.icon ?? null,
+        inp.kind ?? "table",
+        JSON.stringify(inp.filters ?? []),
+        JSON.stringify(inp.sorts ?? []),
+        JSON.stringify(inp.visibleFields ?? []),
+        JSON.stringify(inp.hiddenFields ?? []),
+        inp.groupByField ?? null,
+        inp.rowHeight ?? "normal",
+        inp.isSystem ? 1 : 0,
+        ts,
+        ts,
+      ],
+    );
+    return viewsGet({ id });
+  };
+
+  const viewsUpdate = async (input: unknown): Promise<unknown> => {
+    const { id, ...patch } = (input ?? {}) as {
+      id: string;
+      name?: string;
+      icon?: string;
+      kind?: string;
+      filters?: unknown[];
+      sorts?: unknown[];
+      visibleFields?: string[];
+      hiddenFields?: string[];
+      groupByField?: string | null;
+      rowHeight?: string;
+    };
+    const existing = row(db.exec(`SELECT * FROM view WHERE id = ?`, [id]));
+    if (!existing) throw new Error(`View not found: ${id}`);
+    const ts = now();
+
+    // Each column is either patched or carried over from the existing row.
+    // groupByField is special: callers can pass `null` to clear it, which is
+    // different from omitting the field (= keep).
+    const next = {
+      name: patch.name ?? (existing["name"] as string),
+      icon: patch.icon ?? (existing["icon"] as string | null),
+      kind: patch.kind ?? (existing["kind"] as string),
+      filters: JSON.stringify(
+        patch.filters ?? JSON.parse((existing["filters"] as string) || "[]"),
+      ),
+      sorts: JSON.stringify(
+        patch.sorts ?? JSON.parse((existing["sorts"] as string) || "[]"),
+      ),
+      visibleFields: JSON.stringify(
+        patch.visibleFields ??
+          JSON.parse((existing["visibleFields"] as string) || "[]"),
+      ),
+      hiddenFields: JSON.stringify(
+        patch.hiddenFields ??
+          JSON.parse((existing["hiddenFields"] as string) || "[]"),
+      ),
+      groupByField:
+        patch.groupByField === undefined
+          ? (existing["groupByField"] as string | null)
+          : patch.groupByField,
+      rowHeight: patch.rowHeight ?? (existing["rowHeight"] as string),
+    };
+
+    db.run(
+      `UPDATE view SET name = ?, icon = ?, kind = ?, filters = ?, sorts = ?,
+         visibleFields = ?, hiddenFields = ?, groupByField = ?, rowHeight = ?,
+         updatedAt = ? WHERE id = ?`,
+      [
+        next.name,
+        next.icon ?? null,
+        next.kind,
+        next.filters,
+        next.sorts,
+        next.visibleFields,
+        next.hiddenFields,
+        next.groupByField ?? null,
+        next.rowHeight,
+        ts,
+        id,
+      ],
+    );
+    return viewsGet({ id });
+  };
+
+  const viewsDelete = async (input: unknown): Promise<unknown> => {
+    const { id } = input as { id: string };
+    // System (default) views are not user-deletable. The user can still
+    // tweak filters/sorts/fields, but the default view must stay so the
+    // Base page always has something to fall back to.
+    const r = row(db.exec(`SELECT isSystem FROM view WHERE id = ?`, [id]));
+    if (r && Number(r["isSystem"]) === 1) {
+      throw new Error("Cannot delete the default view");
+    }
+    db.run(`DELETE FROM view WHERE id = ?`, [id]);
+    return { id, deleted: true };
+  };
+
+  /**
+   * Idempotent: returns the default Table view of `typeId`, creating it
+   * lazily on first access (`isSystem: true`, name = type's plural label).
+   * Called by the Base page so the user always lands somewhere even when
+   * no view has been authored yet.
+   */
+  const viewsEnsureDefault = async (input: unknown): Promise<unknown> => {
+    const { typeId } = input as { typeId: string };
+    const existing = row(db.exec(
+      `SELECT * FROM view WHERE vaultId = ? AND typeId = ? AND isSystem = 1 LIMIT 1`,
+      [vaultId, typeId],
+    ));
+    if (existing) return viewRowToApi(existing);
+
+    const typeRow = row(db.exec(
+      `SELECT plural, name FROM entity_type WHERE id = ?`, [typeId],
+    ));
+    if (!typeRow) throw new Error(`EntityType not found: ${typeId}`);
+    const label = (typeRow["plural"] as string) ?? (typeRow["name"] as string);
+    return viewsCreate({
+      typeId,
+      name: `Toutes les ${label.toLowerCase()}`,
+      kind: "table",
+      isSystem: true,
+    });
+  };
+
+  // ── views.queryForView ────────────────────────────────────────────────────
+  //
+  // Returns entities of `typeId` matching `filters` and ordered by `sorts`.
+  // Filters/sorts run in-memory because entity field values are stored in a
+  // single JSON blob — pushing them into SQL would require either a JSON
+  // function (SQLite ≥3.38, not guaranteed on sql.js standard build) or a
+  // normalized side table. For vaults under ~5k entities this is fast enough;
+  // we'll optimize when we hit a real perf wall.
+
+  type AnyVal = unknown;
+
+  function compareValues(a: AnyVal, b: AnyVal): number {
+    if (a === b) return 0;
+    if (a === null || a === undefined) return -1;
+    if (b === null || b === undefined) return 1;
+    if (typeof a === "number" && typeof b === "number") return a - b;
+    // Lowercase string compare so "alice" < "Bob" doesn't flip on case.
+    const as = String(a).toLowerCase();
+    const bs = String(b).toLowerCase();
+    if (as < bs) return -1;
+    if (as > bs) return 1;
+    return 0;
+  }
+
+  function matchesFilter(
+    fieldValue: AnyVal,
+    op: string,
+    target: AnyVal,
+  ): boolean {
+    switch (op) {
+      case "is_empty":
+        return (
+          fieldValue === null ||
+          fieldValue === undefined ||
+          fieldValue === "" ||
+          (Array.isArray(fieldValue) && fieldValue.length === 0)
+        );
+      case "is_not_empty":
+        return !matchesFilter(fieldValue, "is_empty", target);
+      case "eq":
+        return String(fieldValue ?? "") === String(target ?? "");
+      case "neq":
+        return String(fieldValue ?? "") !== String(target ?? "");
+      case "contains":
+        return String(fieldValue ?? "")
+          .toLowerCase()
+          .includes(String(target ?? "").toLowerCase());
+      case "not_contains":
+        return !String(fieldValue ?? "")
+          .toLowerCase()
+          .includes(String(target ?? "").toLowerCase());
+      case "starts_with":
+        return String(fieldValue ?? "")
+          .toLowerCase()
+          .startsWith(String(target ?? "").toLowerCase());
+      case "ends_with":
+        return String(fieldValue ?? "")
+          .toLowerCase()
+          .endsWith(String(target ?? "").toLowerCase());
+      case "gt":
+        return compareValues(fieldValue, target) > 0;
+      case "lt":
+        return compareValues(fieldValue, target) < 0;
+      case "gte":
+        return compareValues(fieldValue, target) >= 0;
+      case "lte":
+        return compareValues(fieldValue, target) <= 0;
+      case "in":
+        return Array.isArray(target) && target.some((t) => String(fieldValue) === String(t));
+      case "not_in":
+        return !(Array.isArray(target) && target.some((t) => String(fieldValue) === String(t)));
+      default:
+        return true;
+    }
+  }
+
+  const viewsQueryForView = async (input: unknown): Promise<unknown> => {
+    const inp = (input ?? {}) as {
+      typeId: string;
+      filters?: { fieldId: string; op: string; value?: unknown }[];
+      sorts?: { fieldId: string; direction: "asc" | "desc" }[];
+      limit?: number;
+      offset?: number;
+    };
+    const filters = inp.filters ?? [];
+    const sorts = inp.sorts ?? [];
+    const limit = inp.limit ?? 1000;
+    const offset = inp.offset ?? 0;
+
+    const allRows = rows(db.exec(
+      `SELECT e.id, e.typeId, et.name as typeName, e.filePath, e.fields, e.body,
+              e.createdAt, e.updatedAt,
+              (SELECT GROUP_CONCAT(t.path, char(31))
+                 FROM entity_tag etag
+                 JOIN tag t ON t.id = etag.tagId
+                WHERE etag.entityId = e.id) AS tagPaths
+       FROM entity e
+       JOIN entity_type et ON et.id = e.typeId
+       WHERE e.vaultId = ? AND e.typeId = ?`,
+      [vaultId, inp.typeId],
+    )).map(entityRowToApi) as Array<{
+      id: string;
+      typeId: string;
+      filePath: string;
+      fields: Record<string, unknown>;
+      createdAt: string;
+      updatedAt: string;
+    }>;
+
+    // Filter pass — every clause must match (AND). Reading derived columns
+    // like `createdAt` / `updatedAt` directly from the row, not from the
+    // serialized fields blob, since those are top-level columns.
+    function readField(
+      ent: { fields: Record<string, unknown>; createdAt: string; updatedAt: string },
+      fieldId: string,
+    ): unknown {
+      if (fieldId === "createdAt" || fieldId === "_createdAt") return ent.createdAt;
+      if (fieldId === "updatedAt" || fieldId === "_updatedAt") return ent.updatedAt;
+      return ent.fields[fieldId];
+    }
+
+    const filtered = allRows.filter((e) =>
+      filters.every((f) => matchesFilter(readField(e, f.fieldId), f.op, f.value)),
+    );
+
+    // Sort pass — apply sorts in reverse order so the first sort is the
+    // primary key (stable sort guarantees secondary sorts don't disturb it).
+    const sorted = [...filtered];
+    for (let i = sorts.length - 1; i >= 0; i--) {
+      const s = sorts[i];
+      if (!s) continue;
+      const dir = s.direction === "desc" ? -1 : 1;
+      sorted.sort((a, b) => dir * compareValues(readField(a, s.fieldId), readField(b, s.fieldId)));
+    }
+
+    const paged = sorted.slice(offset, offset + limit);
+    return { items: paged, total: filtered.length };
+  };
+
   // ── tags.* ────────────────────────────────────────────────────────────────
   //
   // Output shape mirrors @supernote/ipc TagSchema: { id, name, path, count,
@@ -1438,26 +1772,6 @@ export function buildRouter(
     }));
   };
 
-  // ── views.* ───────────────────────────────────────────────────────────────
-
-  const viewsList = async (): Promise<unknown> => {
-    const viewRows = rows(db.exec(
-      `SELECT id, name, kind, entityTypeId, config, isDefault, createdAt, updatedAt
-       FROM view WHERE vaultId = ? ORDER BY name ASC`,
-      [vaultId],
-    ));
-    return viewRows.map((r) => ({
-      id: r["id"],
-      name: r["name"],
-      kind: r["kind"],
-      entityTypeId: r["entityTypeId"] ?? null,
-      config: JSON.parse((r["config"] as string) || "{}"),
-      isDefault: Boolean(r["isDefault"]),
-      createdAt: r["createdAt"],
-      updatedAt: r["updatedAt"],
-    }));
-  };
-
   // ── search.* ──────────────────────────────────────────────────────────────
 
   const searchQuery = async (input: unknown): Promise<unknown> => {
@@ -1669,6 +1983,14 @@ export function buildRouter(
     "schemas.update": schemasUpdate,
     "schemas.delete": schemasDelete,
 
+    "views.list": viewsList,
+    "views.get": viewsGet,
+    "views.create": viewsCreate,
+    "views.update": viewsUpdate,
+    "views.delete": viewsDelete,
+    "views.ensureDefault": viewsEnsureDefault,
+    "views.queryForView": viewsQueryForView,
+
     "tags.list": tagsList,
     "tags.create": tagsCreate,
     "tags.update": tagsUpdate,
@@ -1677,8 +1999,6 @@ export function buildRouter(
     "tags.move": tagsMove,
     "tags.merge": tagsMerge,
     "tags.entities": tagsEntities,
-
-    "views.list": viewsList,
 
     "search.query": searchQuery,
     "search.semantic": async () => ({ items: [], total: 0, durationMs: 0 }),

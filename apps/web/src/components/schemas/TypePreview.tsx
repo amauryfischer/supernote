@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { PencilSimple, Copy, Trash, Plus, ArrowRight } from "@phosphor-icons/react";
+import { PencilSimple, Copy, Trash, Plus, ArrowRight, Table } from "@phosphor-icons/react";
 import type { EntityType, Field } from "@supernote/core";
 import { RELATION_TYPES, ENTITY_TYPES, ENTITY_COUNTS } from "./fixtures";
 import { FieldKindBadge } from "./FieldKindBadge";
@@ -34,18 +34,27 @@ export function TypePreview({ type }: TypePreviewProps) {
               {type.name}
             </h2>
             <p className="text-sm" style={{ color: "var(--text-muted)" }}>
-              {type.plural} · {count} entités · Vue par défaut : {type.defaultView ?? "table"}
+              {type.plural} · {count} entités
             </p>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Link href={`/schemas/${type.id}`}>
+          <Link href={`/bases/${type.id}`}>
             <button
               className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors"
               style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
             >
+              <Table size={13} />
+              Ouvrir la Base
+            </button>
+          </Link>
+          <Link href={`/schemas/${type.id}`}>
+            <button
+              className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors hover:bg-[var(--surface-2)]"
+              style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
+            >
               <PencilSimple size={13} />
-              Modifier
+              Schéma
             </button>
           </Link>
           <button
@@ -149,18 +158,6 @@ export function TypePreview({ type }: TypePreviewProps) {
         )}
       </section>
 
-      {/* Default view preview */}
-      <section>
-        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
-          Vue par défaut
-        </h3>
-        <div
-          className="flex items-center justify-center rounded-xl border py-10 text-sm"
-          style={{ borderColor: "var(--border-subtle)", color: "var(--text-muted)", backgroundColor: "var(--surface-1)" }}
-        >
-          Aperçu {type.defaultView ?? "table"} — {count} entités
-        </div>
-      </section>
     </div>
   );
 }

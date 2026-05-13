@@ -38,7 +38,6 @@ CREATE TABLE IF NOT EXISTS "entity_type" (
     "fields" TEXT NOT NULL DEFAULT '[]',
     "defaultPath" TEXT,
     "fileNamePattern" TEXT,
-    "defaultView" TEXT,
     "validations" TEXT NOT NULL DEFAULT '[]',
     "workflowIds" TEXT NOT NULL DEFAULT '[]',
     "isSystem" INTEGER NOT NULL DEFAULT 0,
@@ -126,19 +125,6 @@ CREATE TABLE IF NOT EXISTS "mention" (
     FOREIGN KEY ("targetId") REFERENCES "entity" ("id") ON DELETE SET NULL ON UPDATE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS "view" (
-    "id" TEXT NOT NULL PRIMARY KEY,
-    "vaultId" TEXT NOT NULL,
-    "name" TEXT NOT NULL,
-    "kind" TEXT NOT NULL,
-    "entityTypeId" TEXT,
-    "config" TEXT NOT NULL DEFAULT '{}',
-    "isDefault" INTEGER NOT NULL DEFAULT 0,
-    "createdAt" TEXT NOT NULL,
-    "updatedAt" TEXT NOT NULL,
-    FOREIGN KEY ("vaultId") REFERENCES "vault" ("id") ON DELETE CASCADE ON UPDATE CASCADE
-);
-
 CREATE TABLE IF NOT EXISTS "template" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "vaultId" TEXT NOT NULL,
@@ -178,6 +164,30 @@ CREATE TABLE IF NOT EXISTS "setting" (
     FOREIGN KEY ("vaultId") REFERENCES "vault" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
+-- Saved views of a Base (Coda/Notion-style projection of an entity_type).
+-- A view is a named filtered+sorted+projected representation of all entities
+-- of one typeId. Inline ad-hoc views (embedded inside a note's BlockNote
+-- "databaseView" block) are NOT stored here -- they live in the note body.
+CREATE TABLE IF NOT EXISTS "view" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "vaultId" TEXT NOT NULL,
+    "typeId" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "icon" TEXT,
+    "kind" TEXT NOT NULL DEFAULT 'table',
+    "filters" TEXT NOT NULL DEFAULT '[]',
+    "sorts" TEXT NOT NULL DEFAULT '[]',
+    "visibleFields" TEXT NOT NULL DEFAULT '[]',
+    "hiddenFields" TEXT NOT NULL DEFAULT '[]',
+    "groupByField" TEXT,
+    "rowHeight" TEXT NOT NULL DEFAULT 'normal',
+    "isSystem" INTEGER NOT NULL DEFAULT 0,
+    "createdAt" TEXT NOT NULL,
+    "updatedAt" TEXT NOT NULL,
+    FOREIGN KEY ("vaultId") REFERENCES "vault" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    FOREIGN KEY ("typeId") REFERENCES "entity_type" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+
 -- Indexes
 CREATE UNIQUE INDEX IF NOT EXISTS "vault_rootPath_key" ON "vault"("rootPath");
 CREATE INDEX IF NOT EXISTS "entity_type_vaultId_idx" ON "entity_type"("vaultId");
@@ -187,6 +197,7 @@ CREATE INDEX IF NOT EXISTS "entity_vaultId_idx" ON "entity"("vaultId");
 CREATE UNIQUE INDEX IF NOT EXISTS "entity_vaultId_filePath_key" ON "entity"("vaultId", "filePath");
 CREATE INDEX IF NOT EXISTS "tag_vaultId_idx" ON "tag"("vaultId");
 CREATE UNIQUE INDEX IF NOT EXISTS "tag_vaultId_path_key" ON "tag"("vaultId", "path");
+CREATE INDEX IF NOT EXISTS "view_vaultId_typeId_idx" ON "view"("vaultId", "typeId");
 `;
 
 /**

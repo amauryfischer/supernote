@@ -9,6 +9,7 @@ import {
 import {
   calloutBlockSpec,
   codeHighlightBlockSpec,
+  databaseViewBlockSpec,
   embedBlockSpec,
   heroCheckListItemSpec,
   wikilinkInlineSpec,
@@ -30,6 +31,7 @@ export const supernoteSchema = BlockNoteSchema.create({
     callout: calloutBlockSpec(),
     codeHighlight: codeHighlightBlockSpec(),
     embed: embedBlockSpec(),
+    databaseView: databaseViewBlockSpec(),
   },
   inlineContentSpecs: {
     ...defaultInlineContentSpecs,

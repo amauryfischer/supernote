@@ -21,6 +21,7 @@ import {
 import { PromptModal } from "@/components/shell/PromptModal";
 import { isAutoTagEnabled, useAutoTag } from "@/hooks/useAutoTag";
 import { AssociatedTodos } from "@/components/todos/AssociatedTodos";
+import { renderInlineDatabase } from "./InlineDatabaseRenderer";
 import { ContextMenu, useContextMenu, type ContextMenuItemDef } from "@supernote/ui";
 import { MoveNoteModal } from "./MoveNoteModal";
 import { useFolderTree, useRenameFolder } from "./hooks";
@@ -800,6 +801,7 @@ export function NoteEditor({ note }: NoteEditorProps) {
             className="min-h-[60vh] w-full"
             onAskAi={handleAskAi}
             onEditorReady={(insert) => { editorInsertRef.current = insert; }}
+            renderDatabaseView={renderInlineDatabase}
           />
         </div>
         {/* Read-only summary of todos extracted from this note. Pure

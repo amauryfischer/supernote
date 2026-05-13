@@ -187,7 +187,6 @@ export interface EntityType {
   readonly fields: Field[];
   readonly defaultPath: string;
   readonly fileNamePattern: string;
-  readonly defaultView?: "table" | "kanban" | "gallery" | "calendar" | "timeline" | "graph";
   readonly validations?: ValidationRule[];
   readonly workflows?: Workflow[];
 }
@@ -272,4 +271,64 @@ export interface ValidationError {
   readonly fieldId: string;
   readonly message: string;
   readonly received?: unknown;
+}
+
+// ------ Views (Coda/Notion-style projections of a Base) ------
+
+export type ViewKind = "table" | "board" | "gallery" | "calendar" | "list";
+
+export type RowHeight = "short" | "normal" | "tall";
+
+export type FilterOp =
+  | "eq"
+  | "neq"
+  | "contains"
+  | "not_contains"
+  | "starts_with"
+  | "ends_with"
+  | "gt"
+  | "lt"
+  | "gte"
+  | "lte"
+  | "is_empty"
+  | "is_not_empty"
+  | "in"
+  | "not_in";
+
+export interface FilterClause {
+  readonly fieldId: string;
+  readonly op: FilterOp;
+  readonly value?: unknown;
+}
+
+export interface SortClause {
+  readonly fieldId: string;
+  readonly direction: "asc" | "desc";
+}
+
+/**
+ * Saved or inline view of a Base (EntityType). Persisted in the `view`
+ * SQLite table when named, embedded as JSON in a BlockNote `databaseView`
+ * block when inline / ad-hoc.
+ *
+ * `visibleFields` is an ordered list of fieldIds that are shown — order
+ * matters (defines column order in a table view). When empty, every field
+ * of the EntityType is shown in its declaration order, minus those in
+ * `hiddenFields`.
+ */
+export interface ViewDefinition {
+  readonly id: string;
+  readonly typeId: string;
+  readonly name: string;
+  readonly icon?: string;
+  readonly kind: ViewKind;
+  readonly filters: FilterClause[];
+  readonly sorts: SortClause[];
+  readonly visibleFields: string[];
+  readonly hiddenFields: string[];
+  readonly groupByField?: string;
+  readonly rowHeight: RowHeight;
+  readonly isSystem: boolean;
+  readonly createdAt: Date;
+  readonly updatedAt: Date;
 }

@@ -5,6 +5,18 @@ export { codeHighlightBlockSpec } from "./codeHighlight.js";
 export type { CodeLanguage } from "./codeHighlight.js";
 export { embedBlockSpec } from "./embed.js";
 export { heroCheckListItemSpec } from "./heroCheckListItem.js";
+export {
+  databaseViewBlockSpec,
+  DatabaseViewProvider,
+  useDatabaseViewRenderer,
+  useDatabaseBlockPickListener,
+  requestDatabaseBlockReconfigure,
+} from "./databaseView.js";
+export type {
+  DatabaseViewBlockProps,
+  DatabaseViewRenderer,
+  DatabaseBlockPickDetail,
+} from "./databaseView.js";
 
 // Inline content specs
 export { wikilinkInlineSpec } from "./wikilink.js";

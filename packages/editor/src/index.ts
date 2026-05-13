@@ -18,8 +18,18 @@ export {
   wikilinkInlineSpec,
   mentionInlineSpec,
   tagInlineSpec,
+  databaseViewBlockSpec,
+  DatabaseViewProvider,
+  useDatabaseViewRenderer,
+  useDatabaseBlockPickListener,
+  requestDatabaseBlockReconfigure,
 } from "./blocks/index.js";
-export type { CodeLanguage } from "./blocks/index.js";
+export type {
+  CodeLanguage,
+  DatabaseViewBlockProps,
+  DatabaseViewRenderer,
+  DatabaseBlockPickDetail,
+} from "./blocks/index.js";
 
 // Serialization utilities
 export { markdownToBlocks, blocksToMarkdown } from "./serialization/index.js";

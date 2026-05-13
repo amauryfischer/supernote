@@ -120,10 +120,8 @@ export const router: any = createBrowserRouter([
       { path: "schemas/relations", lazy: lazyPage(() => import("./app/schemas/relations/page")) },
       { path: "schemas/:id", lazy: lazyPage(() => import("./app/schemas/[id]/page")) },
 
-      // ── Vues ──────────────────────────────────────────────────────────
-      { path: "vues", lazy: lazyPage(() => import("./app/vues/page")) },
-      { path: "vues/nouvelle", lazy: lazyPage(() => import("./app/vues/nouvelle/page")) },
-      { path: "vues/:id", lazy: lazyPage(() => import("./app/vues/[id]/page")) },
+      // ── Bases (data view of an EntityType) ───────────────────────────
+      { path: "bases/:typeId", lazy: lazyPage(() => import("./app/bases/[typeId]/page")) },
 
       // ── Routines ──────────────────────────────────────────────────────
       { path: "routines", lazy: lazyPage(() => import("./app/routines/page")) },

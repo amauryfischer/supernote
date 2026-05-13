@@ -4,12 +4,12 @@ import { entitiesRouter } from "./entities.router.js";
 import { schemasRouter } from "./schemas.router.js";
 import { relationsRouter } from "./relations.router.js";
 import { tagsRouter } from "./tags.router.js";
-import { viewsRouter } from "./views.router.js";
 import { automationsRouter, routinesRouter } from "./automations.router.js";
 import { templatesRouter } from "./templates.router.js";
 import { gitRouter } from "./git.router.js";
 import { searchRouter } from "./search.router.js";
 import { systemRouter } from "./system.router.js";
+import { viewsRouter } from "./views.router.js";
 
 /**
  * Root tRPC router for the Supernote IPC bridge.
@@ -22,9 +22,9 @@ export const appRouter = router({
   vault: vaultRouter,
   entities: entitiesRouter,
   schemas: schemasRouter,
+  views: viewsRouter,
   relations: relationsRouter,
   tags: tagsRouter,
-  views: viewsRouter,
   automations: automationsRouter,
   routines: routinesRouter,
   templates: templatesRouter,
@@ -40,9 +40,9 @@ export { vaultRouter, type VaultRouter } from "./vault.router.js";
 export { foldersRouter, type FoldersRouter } from "./folders.router.js";
 export { entitiesRouter, type EntitiesRouter } from "./entities.router.js";
 export { schemasRouter, type SchemasRouter } from "./schemas.router.js";
+export { viewsRouter, type ViewsRouter } from "./views.router.js";
 export { relationsRouter, type RelationsRouter } from "./relations.router.js";
 export { tagsRouter, type TagsRouter } from "./tags.router.js";
-export { viewsRouter, type ViewsRouter } from "./views.router.js";
 export { automationsRouter, routinesRouter, type AutomationsRouter, type RoutinesRouter } from "./automations.router.js";
 export { templatesRouter, type TemplatesRouter } from "./templates.router.js";
 export { gitRouter, type GitRouter } from "./git.router.js";

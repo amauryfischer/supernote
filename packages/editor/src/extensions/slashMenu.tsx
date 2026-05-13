@@ -245,13 +245,30 @@ export function getSupernoteSlashMenuItems(
     },
   };
 
+  // Inline Base view — Coda/Notion-style database embedded in the note.
+  // Inserts an unconfigured block; the user picks Base + view inside it.
+  const databaseViewItem: DefaultReactSuggestionItem = {
+    title: "Base / Database",
+    subtext: "Insère une vue inline d'une Base (Coda / Notion)",
+    group: "Bases",
+    aliases: ["base", "database", "table", "tableau", "vue", "view"],
+    icon: <span aria-hidden="true">▦</span>,
+    onItemClick() {
+      editor.insertBlocks(
+        [{ type: "databaseView" as any, props: { baseId: "", viewId: "" } } as any],
+        editor.getTextCursorPosition().block,
+        "after",
+      );
+    },
+  };
+
   const entityLinkItems = ENTITY_LINK_CONFIGS.map((cfg) =>
     makeEntityLinkItem(editor, cfg, openPicker)
   );
 
   const aiItems: DefaultReactSuggestionItem[] = onAskAi ? [makeAskAiItem(onAskAi)] : [];
 
-  return [...defaults, ...calloutItems, codeItem, embedItem, ...entityLinkItems, ...aiItems];
+  return [...defaults, ...calloutItems, codeItem, embedItem, databaseViewItem, ...entityLinkItems, ...aiItems];
 }
 
 // ── Suggestion menu renderer ──────────────────────────────────────────────────
