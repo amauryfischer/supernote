@@ -6,7 +6,6 @@ import {
   FileText,
   Hash,
   Plus,
-  Stack,
   Users,
   Lightning,
   type Icon as PhosphorIcon,
@@ -37,7 +36,6 @@ interface QuickAccessItem {
 const QUICK_ACCESS: QuickAccessItem[] = [
   { labelKey: "nav.notes", descriptionKey: "home.descriptions.notes", icon: FileText, href: "/notes" },
   { labelKey: "nav.contacts", descriptionKey: "home.descriptions.contacts", icon: Users, href: "/contacts" },
-  { labelKey: "nav.projects", descriptionKey: "home.descriptions.projects", icon: Stack, href: "/projets" },
   { labelKey: "nav.journal", descriptionKey: "home.descriptions.journal", icon: Calendar, href: "/journal" },
   { labelKey: "nav.schemas", descriptionKey: "home.descriptions.schemas", icon: Hash, href: "/schemas" },
   { labelKey: "nav.views", descriptionKey: "home.descriptions.views", icon: BookOpen, href: "/vues" },

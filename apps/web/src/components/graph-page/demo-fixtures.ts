@@ -8,7 +8,6 @@ export const DEMO_GRAPH_NODES: GraphNode[] = [
   { id: "p1", label: "Alice Martin", type: "contact", tags: ["product"], date: "2026-01-15", degree: 3 },
   { id: "p2", label: "Baptiste Leroy", type: "contact", tags: ["design"], date: "2026-02-10", degree: 2 },
   { id: "o1", label: "Acme Corp", type: "organisation", tags: ["tech"], date: "2025-06-01", degree: 4 },
-  { id: "pr1", label: "Supernote PKM", type: "projet", tags: ["dev", "produit"], date: "2025-12-01", degree: 5 },
   { id: "n1", label: "Architecture Supernote", type: "note", tags: ["dev"], date: "2026-05-07", degree: 3, path: "/notes/5" },
   { id: "n2", label: "Veille IA — Mai 2026", type: "note", tags: ["IA"], date: "2026-05-07", degree: 2, path: "/notes/10" },
 ];
@@ -16,6 +15,5 @@ export const DEMO_GRAPH_NODES: GraphNode[] = [
 export const DEMO_GRAPH_EDGES: GraphEdge[] = [
   { source: "p1", target: "o1", label: "travaille chez" },
   { source: "p2", target: "o1", label: "partenaire" },
-  { source: "p1", target: "pr1", label: "contribue à" },
-  { source: "n1", target: "pr1", label: "documente" },
+  { source: "p1", target: "n1", label: "documente" },
 ];

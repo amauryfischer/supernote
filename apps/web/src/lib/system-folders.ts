@@ -12,7 +12,6 @@
 
 export const SYSTEM_FOLDER_ROOTS: readonly string[] = [
   "Contacts",
-  "Projets",
   "Interactions",
   "Daily",
   "Tags",

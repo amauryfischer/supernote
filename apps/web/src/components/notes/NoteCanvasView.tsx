@@ -32,15 +32,13 @@ import type { Note } from "./fixtures";
 import { EntityLinkPicker } from "./EntityLinkPicker";
 
 /**
- * Map an entity's typeName onto the correct detail page. Kept in lockstep
- * with `RightPanel.entityHref` — when adding a new typed area (projets,
- * etc.) update both. The fallback to /notes/{id} works because every entity
+ * Map an entity's typeName onto the correct detail page.
+ * The fallback to /notes/{id} works because every entity
  * has a notes-style detail page in the current routing layout.
  */
 function entityHref(entityId: string, entityType: string): string {
   const t = entityType.toLowerCase();
   if (t === "contact" || t === "personne") return `/contacts/${entityId}`;
-  if (t === "projet" || t === "project") return `/projets/${entityId}`;
   if (t === "note") return `/notes/${entityId}`;
   return `/notes/${entityId}`;
 }

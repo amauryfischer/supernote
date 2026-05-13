@@ -41,8 +41,8 @@ function makeResolvers(
 // ── ENTITY_LINK_CONFIGS ────────────────────────────────────────────────────────
 
 describe("ENTITY_LINK_CONFIGS", () => {
-  it("has 8 entity link items", () => {
-    expect(ENTITY_LINK_CONFIGS).toHaveLength(8);
+  it("has 7 entity link items", () => {
+    expect(ENTITY_LINK_CONFIGS).toHaveLength(7);
   });
 
   it("all items have required fields", () => {
@@ -55,11 +55,10 @@ describe("ENTITY_LINK_CONFIGS", () => {
     }
   });
 
-  it("includes note, personne, projet, organisation, actif, tag, embed, vue types", () => {
+  it("includes note, personne, organisation, actif, tag, embed, vue types", () => {
     const typeIds = ENTITY_LINK_CONFIGS.map((c) => c.typeId);
     expect(typeIds).toContain("note");
     expect(typeIds).toContain("personne");
-    expect(typeIds).toContain("projet");
     expect(typeIds).toContain("organisation");
     expect(typeIds).toContain("actif");
     expect(typeIds).toContain("tag");
@@ -160,16 +159,16 @@ describe("picker selection flow", () => {
   });
 
   it("createEntity is called when user creates new entry", async () => {
-    const store: Record<string, EntityRef[]> = { projet: [] };
+    const store: Record<string, EntityRef[]> = { note: [] };
     const resolvers = makeResolvers(store);
     const createSpy = vi.spyOn(resolvers, "createEntity");
 
     // Simulate: no results found, user clicks "+ Creer"
-    const results = await resolvers.searchEntities("Nouveau projet", "projet");
+    const results = await resolvers.searchEntities("Nouvelle note", "note");
     expect(results).toHaveLength(0);
 
-    await resolvers.createEntity!("projet", "Nouveau projet");
-    expect(createSpy).toHaveBeenCalledWith("projet", "Nouveau projet");
+    await resolvers.createEntity!("note", "Nouvelle note");
+    expect(createSpy).toHaveBeenCalledWith("note", "Nouvelle note");
   });
 });
 

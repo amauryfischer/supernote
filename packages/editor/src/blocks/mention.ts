@@ -7,7 +7,6 @@ const TYPE_ICONS: Record<string, string> = {
   personne: "👤",
   contact: "👤",
   organisation: "🏢",
-  projet: "📋",
   note: "📝",
   actif: "💰",
   tag: "#",
@@ -27,7 +26,6 @@ function hrefForEntity(id: string, entityType: string): string {
   if (!id) return "#";
   const t = entityType.toLowerCase();
   if (t === "personne" || t === "contact") return `/contacts/${id}`;
-  if (t === "projet") return `/projets/${id}`;
   if (t === "organisation") return `/contacts/${id}`;
   if (t === "actif") return `/finance/actifs/${id}`;
   if (t === "note") return `/notes/${id}`;

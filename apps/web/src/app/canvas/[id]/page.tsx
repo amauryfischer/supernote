@@ -37,15 +37,6 @@ const MOCK_ENTITIES: EntityRef[] = [
     name: "Numerisk",
     fields: { sector: "Tech", employees: 12 },
   },
-  {
-    id: "entity-3",
-    typeId: "projet",
-    typeName: "Projet",
-    typeIcon: "Rocket",
-    typeColor: "#F59E0B",
-    name: "Supernote PKM",
-    fields: { status: "En cours", deadline: "2026-12-31" },
-  },
 ];
 
 async function mockResolveEntity(id: string): Promise<EntityRef | null> {

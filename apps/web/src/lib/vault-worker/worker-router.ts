@@ -273,7 +273,6 @@ export function buildRouter(
   // (DEFAULT_ENTITY_TYPES[].defaultPath, minus "Notes").
   const SYSTEM_FOLDER_ROOTS: readonly string[] = [
     "Contacts",
-    "Projets",
     "Interactions",
     "Daily",
     "Tags",

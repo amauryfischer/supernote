@@ -14,7 +14,6 @@ const ROUTE_LABELS: Record<string, string> = {
   notes: "Notes",
   journal: "Journal",
   contacts: "Contacts",
-  projets: "Projets",
   finance: "Finance",
   schemas: "Schémas",
   vues: "Vues",

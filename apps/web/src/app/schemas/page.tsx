@@ -15,7 +15,7 @@ import { ipcEntityTypeToCore } from "@/components/schemas/adapters";
 import { Skeleton } from "@supernote/ui";
 
 const SEED_IDS = new Set([
-  "personne", "organisation", "projet", "interaction", "note",
+  "personne", "organisation", "interaction", "note",
   "daily", "tag", "account", "asset", "loan", "snapshot", "goal",
 ]);
 

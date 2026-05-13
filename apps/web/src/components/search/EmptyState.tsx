@@ -9,7 +9,7 @@ interface EmptyStateProps {
 
 const EXAMPLES = [
   { query: "type:personne tag:client", label: "Contacts clients" },
-  { query: "type:projet in:Projets", label: "Projets actifs" },
+  { query: "type:note tag:idee", label: "Notes idées" },
   { query: "type:note tag:urgent", label: "Notes urgentes" },
   { query: "type:journal", label: "Entrées de journal" },
   { query: "architecture AND NOT archive", label: "Architecture (sans archives)" },

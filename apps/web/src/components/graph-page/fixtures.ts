@@ -4,7 +4,6 @@ export type NodeType =
   | "contact"
   | "organisation"
   | "note"
-  | "projet"
   | "tag"
   | "concept";
 
@@ -37,7 +36,6 @@ export const ALL_NODE_TYPES: NodeType[] = [
   "contact",
   "organisation",
   "note",
-  "projet",
   "tag",
   "concept",
 ];
@@ -47,7 +45,6 @@ export const NODE_TYPE_COLORS: Record<NodeType, string> = {
   contact: "#6366F1",
   organisation: "#0EA5E9",
   note: "#10B981",
-  projet: "#F59E0B",
   tag: "#8B5CF6",
   concept: "#EC4899",
 };
@@ -56,7 +53,6 @@ export const NODE_TYPE_LABELS: Record<NodeType, string> = {
   contact: "Contacts",
   organisation: "Organisations",
   note: "Notes",
-  projet: "Projets",
   tag: "Tags",
   concept: "Concepts",
 };

@@ -53,29 +53,6 @@ const orgaFields: Field[] = [
   f({ id: "org_updated_at", name: "updatedAt", label: "Modifié le", kind: "updatedAt" }),
 ];
 
-// ---- Projet ----
-const projetFields: Field[] = [
-  f({ id: "proj_name", name: "name", label: "Nom", kind: "text", required: true }),
-  f({
-    id: "proj_status", name: "status", label: "Statut", kind: "status",
-    options: [
-      { value: "backlog", label: "Backlog", color: "#94A3B8" },
-      { value: "en_cours", label: "En cours", color: "#60A5FA" },
-      { value: "en_pause", label: "En pause", color: "#FBBF24" },
-      { value: "termine", label: "Terminé", color: "#10B981" },
-      { value: "annule", label: "Annulé", color: "#EF4444" },
-    ],
-  } as FieldInput),
-  f({ id: "proj_start", name: "start_date", label: "Début", kind: "date" }),
-  f({ id: "proj_end", name: "end_date", label: "Fin prévue", kind: "date" }),
-  f({ id: "proj_priority", name: "priority", label: "Priorité", kind: "rating", min: 1, max: 5 } as FieldInput),
-  f({ id: "proj_budget", name: "budget", label: "Budget", kind: "currency", currencyCode: "EUR" } as FieldInput),
-  f({ id: "proj_progress", name: "progress", label: "Avancement", kind: "progress" }),
-  f({ id: "proj_description", name: "description", label: "Description", kind: "markdown" }),
-  f({ id: "proj_created_at", name: "createdAt", label: "Créé le", kind: "createdAt" }),
-  f({ id: "proj_updated_at", name: "updatedAt", label: "Modifié le", kind: "updatedAt" }),
-];
-
 // ---- Interaction ----
 const interactionFields: Field[] = [
   f({ id: "int_title", name: "title", label: "Titre", kind: "text", required: true }),
@@ -235,17 +212,6 @@ export const ENTITY_TYPES: EntityType[] = [
     defaultView: "table",
   },
   {
-    id: "projet",
-    name: "Projet",
-    plural: "Projets",
-    icon: "Layers",
-    color: "#8B5CF6",
-    fields: projetFields,
-    defaultPath: "/Projets",
-    fileNamePattern: "{name}",
-    defaultView: "kanban",
-  },
-  {
     id: "interaction",
     name: "Interaction",
     plural: "Interactions",
@@ -357,35 +323,11 @@ export const RELATION_TYPES: RelationType[] = [
     cardinality: "many_to_many",
   },
   {
-    id: "rel_personne_projet",
-    forwardLabel: "contribue à",
-    inverseLabel: "a pour contributeur",
-    sourceTypeId: "personne",
-    targetTypeId: "projet",
-    cardinality: "many_to_many",
-  },
-  {
     id: "rel_interaction_personne",
     forwardLabel: "implique",
     inverseLabel: "a participé à",
     sourceTypeId: "interaction",
     targetTypeId: "personne",
-    cardinality: "many_to_many",
-  },
-  {
-    id: "rel_interaction_projet",
-    forwardLabel: "concerne",
-    inverseLabel: "a pour interaction",
-    sourceTypeId: "interaction",
-    targetTypeId: "projet",
-    cardinality: "many_to_many",
-  },
-  {
-    id: "rel_note_projet",
-    forwardLabel: "associée à",
-    inverseLabel: "a pour note",
-    sourceTypeId: "note",
-    targetTypeId: "projet",
     cardinality: "many_to_many",
   },
   {
@@ -404,14 +346,6 @@ export const RELATION_TYPES: RelationType[] = [
     targetTypeId: "asset",
     cardinality: "one_to_many",
   },
-  {
-    id: "rel_org_projet",
-    forwardLabel: "sponsor de",
-    inverseLabel: "sponsorisé par",
-    sourceTypeId: "organisation",
-    targetTypeId: "projet",
-    cardinality: "many_to_many",
-  },
 ];
 
 // ---- Mock entity counts ----
@@ -419,7 +353,6 @@ export const RELATION_TYPES: RelationType[] = [
 export const ENTITY_COUNTS: Record<string, number> = {
   personne: 0,
   organisation: 0,
-  projet: 0,
   interaction: 0,
   note: 0,
   daily: 0,

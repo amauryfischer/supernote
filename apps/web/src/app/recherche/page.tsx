@@ -72,7 +72,7 @@ function applyClientFilters(
   });
 }
 
-const TYPE_ORDER = ["note", "projet", "personne", "ressource", "journal"];
+const TYPE_ORDER = ["note", "personne", "ressource", "journal"];
 
 // ---------------------------------------------------------------------------
 // Page
@@ -87,7 +87,7 @@ export default function RecherchePage() {
   const [recentSearches, setRecentSearches] = useState<RecentSearch[]>([
     { id: "r1", query: "type:personne tag:client", usedAt: "2026-05-07T09:00:00Z" },
     { id: "r2", query: "architecture monorepo", usedAt: "2026-05-06T17:00:00Z" },
-    { id: "r3", query: "type:projet in:Projets", usedAt: "2026-05-05T11:00:00Z" },
+    { id: "r3", query: "type:note tag:idee", usedAt: "2026-05-05T11:00:00Z" },
   ]);
   const [savedSearches, setSavedSearches] = useState<SavedSearch[]>([
     {
