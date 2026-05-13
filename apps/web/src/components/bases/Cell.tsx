@@ -12,8 +12,10 @@
  * from the grid in Phase 1.
  */
 
-import { useEffect, useRef, useState } from "react";
-import type { Field, FieldValue, SelectOption } from "@supernote/core";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { Field, FieldValue, RelationField, SelectOption } from "@supernote/core";
+import { trpc } from "@/lib/trpc/client";
+import { RelationPicker } from "./RelationPicker";
 
 interface CellProps {
   field: Field;
@@ -30,9 +32,6 @@ const READONLY_KINDS = new Set<Field["kind"]>([
   "formula",
   "rollup",
   "lookup",
-  "file",
-  "image",
-  "relation",
 ]);
 
 export function Cell({ field, value, onChange, readOnly }: CellProps) {
@@ -183,11 +182,35 @@ function CellDisplay({ field, value }: { field: Field; value: unknown }) {
     case "markdown":
       return <span className="line-clamp-2 whitespace-pre-wrap">{String(value)}</span>;
     case "relation":
-      return <span style={{ color: "var(--text-muted)" }}>↔ {String(value).slice(0, 10)}…</span>;
+      return <RelationCellDisplay field={field as RelationField} value={value} />;
+    case "image": {
+      const src = typeof value === "string" && value.startsWith("data:") ? value : null;
+      if (!src) return <span style={{ color: "var(--text-muted)" }}>—</span>;
+      return (
+        <img
+          src={src}
+          alt=""
+          className="max-h-8 max-w-full rounded object-cover"
+        />
+      );
+    }
+    case "file": {
+      const meta = parseFileMeta(value);
+      if (!meta) return <span style={{ color: "var(--text-muted)" }}>—</span>;
+      return (
+        <span className="flex items-center gap-1 text-xs" style={{ color: "var(--accent)" }}>
+          📎 {meta.name}
+        </span>
+      );
+    }
     case "formula":
     case "rollup":
     case "lookup":
-      return <span style={{ color: "var(--text-muted)" }}>{String(value)}</span>;
+      return (
+        <span style={{ color: "var(--text-muted)", fontStyle: "italic" }}>
+          {value === null || value === undefined ? "—" : String(value)}
+        </span>
+      );
     default:
       return <span>{String(value)}</span>;
   }
@@ -372,6 +395,31 @@ function CellEditor({ field, value, onCommit, onCancel }: CellEditorProps) {
         </div>
       );
     }
+    case "relation":
+      return (
+        <RelationPicker
+          field={field as RelationField}
+          value={draft}
+          onCommit={(next) => onCommit(next as FieldValue)}
+          onCancel={onCancel}
+        />
+      );
+    case "image":
+      return (
+        <ImageEditor
+          value={draft}
+          onCommit={onCommit}
+          onCancel={onCancel}
+        />
+      );
+    case "file":
+      return (
+        <FileEditor
+          value={draft}
+          onCommit={onCommit}
+          onCancel={onCancel}
+        />
+      );
     default:
       // text, url, email, phone, color, …
       return (
@@ -388,6 +436,230 @@ function CellEditor({ field, value, onCommit, onCancel }: CellEditorProps) {
         />
       );
   }
+}
+
+// ── RelationCellDisplay ────────────────────────────────────────────────────
+//
+// Shows entity chips in read mode. Fetches entity titles for the target type
+// once (React Query caches per typeId) and resolves stored IDs client-side.
+
+function RelationCellDisplay({ field, value }: { field: RelationField; value: unknown }) {
+  const ids = useMemo(() => {
+    if (!value) return [];
+    if (Array.isArray(value)) return value.map(String).filter(Boolean);
+    if (typeof value === "string") {
+      if (value.startsWith("[")) {
+        try { return (JSON.parse(value) as unknown[]).map(String).filter(Boolean); } catch { /* fall through */ }
+      }
+      return value ? [value] : [];
+    }
+    return [];
+  }, [value]);
+
+  const { data } = trpc.entities.search.useQuery(
+    { query: " ", typeId: field.targetTypeId, limit: 100 },
+    { enabled: ids.length > 0 },
+  );
+
+  const byId = useMemo(
+    () => new Map((data?.items ?? []).map((e) => [e.id, e])),
+    [data],
+  );
+
+  if (ids.length === 0) return <span style={{ color: "var(--text-muted)" }}>—</span>;
+
+  return (
+    <div className="flex flex-wrap gap-1">
+      {ids.map((id) => {
+        const entity = byId.get(id);
+        const label = entity
+          ? (String(entity.fields["name"] ?? entity.fields["title"] ?? entity.filePath.split("/").pop()?.replace(/\.md$/i, "") ?? id.slice(0, 8)))
+          : id.slice(0, 8) + "…";
+        return (
+          <span
+            key={id}
+            className="rounded px-1.5 py-0.5 text-xs"
+            style={{
+              backgroundColor: "var(--accent)" + "22",
+              color: "var(--accent)",
+            }}
+          >
+            ↔ {label}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── ImageEditor ────────────────────────────────────────────────────────────
+
+const MAX_IMAGE_BYTES = 512 * 1024; // 512 KB
+
+function ImageEditor({
+  value,
+  onCommit,
+  onCancel,
+}: {
+  value: unknown;
+  onCommit: (next: FieldValue) => void;
+  onCancel: () => void;
+}) {
+  const [preview, setPreview] = useState<string | null>(
+    typeof value === "string" && value.startsWith("data:") ? value : null,
+  );
+
+  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > MAX_IMAGE_BYTES) {
+      alert(`Image trop volumineuse (max ${MAX_IMAGE_BYTES / 1024} Ko).`);
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const dataUrl = ev.target?.result as string;
+      setPreview(dataUrl);
+      onCommit(dataUrl);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  return (
+    <div
+      className="flex flex-col gap-2 p-2 ring-2 ring-[var(--accent)]"
+      style={{ backgroundColor: "var(--surface-1)" }}
+    >
+      {preview && (
+        <img src={preview} alt="" className="max-h-24 max-w-full rounded object-contain" />
+      )}
+      <input type="file" accept="image/*" onChange={handleFile} className="text-xs" />
+      <div className="flex justify-end gap-2">
+        {preview && (
+          <button
+            type="button"
+            className="text-xs"
+            style={{ color: "var(--destructive)" }}
+            onClick={() => { setPreview(null); onCommit(null); }}
+          >
+            Supprimer
+          </button>
+        )}
+        <button
+          type="button"
+          className="text-xs"
+          style={{ color: "var(--text-muted)" }}
+          onClick={onCancel}
+        >
+          Annuler
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── FileEditor ─────────────────────────────────────────────────────────────
+
+const MAX_FILE_BYTES = 1024 * 1024; // 1 MB
+
+interface FileMeta { name: string; type: string; size: number; data: string }
+
+function parseFileMeta(value: unknown): FileMeta | null {
+  if (!value) return null;
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && "name" in parsed) {
+        return parsed as FileMeta;
+      }
+    } catch { /* fall through */ }
+  }
+  return null;
+}
+
+function FileEditor({
+  value,
+  onCommit,
+  onCancel,
+}: {
+  value: unknown;
+  onCommit: (next: FieldValue) => void;
+  onCancel: () => void;
+}) {
+  const [current, setCurrent] = useState<FileMeta | null>(() => parseFileMeta(value));
+
+  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > MAX_FILE_BYTES) {
+      alert(`Fichier trop volumineux (max ${MAX_FILE_BYTES / 1024} Ko).`);
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const meta: FileMeta = {
+        name: file.name,
+        type: file.type,
+        size: file.size,
+        data: ev.target?.result as string,
+      };
+      setCurrent(meta);
+      onCommit(JSON.stringify(meta));
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const download = () => {
+    if (!current) return;
+    const a = document.createElement("a");
+    a.href = current.data;
+    a.download = current.name;
+    a.click();
+  };
+
+  return (
+    <div
+      className="flex flex-col gap-2 p-2 ring-2 ring-[var(--accent)]"
+      style={{ backgroundColor: "var(--surface-1)" }}
+    >
+      {current && (
+        <div className="flex items-center gap-2 text-xs">
+          <span className="flex-1 truncate" style={{ color: "var(--text-primary)" }}>
+            📎 {current.name}
+          </span>
+          <button
+            type="button"
+            onClick={download}
+            className="underline"
+            style={{ color: "var(--accent)" }}
+          >
+            Télécharger
+          </button>
+        </div>
+      )}
+      <input type="file" onChange={handleFile} className="text-xs" />
+      <div className="flex justify-end gap-2">
+        {current && (
+          <button
+            type="button"
+            className="text-xs"
+            style={{ color: "var(--destructive)" }}
+            onClick={() => { setCurrent(null); onCommit(null); }}
+          >
+            Supprimer
+          </button>
+        )}
+        <button
+          type="button"
+          className="text-xs"
+          style={{ color: "var(--text-muted)" }}
+          onClick={onCancel}
+        >
+          Annuler
+        </button>
+      </div>
+    </div>
+  );
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────

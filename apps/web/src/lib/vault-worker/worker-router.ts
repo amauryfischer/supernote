@@ -1362,6 +1362,153 @@ export function buildRouter(
       updatedAt: string;
     }>;
 
+    // ── Derived-field enrichment (formula / rollup / lookup) ──────────────
+    //
+    // For formula: evaluate an expression with {fieldId} placeholders
+    // substituted by actual values, using a sandboxed Function constructor.
+    // For rollup/lookup: fetch all related entities in one batched SQL query,
+    // then distribute results — no per-entity round trips.
+
+    type DerivedFieldDef = {
+      id: string;
+      name: string;
+      kind: string;
+      expression?: string;
+      relationFieldId?: string;
+      targetFieldId?: string;
+      aggregation?: string;
+    };
+
+    const typeRow = rows(db.exec(
+      `SELECT fields FROM entity_type WHERE id = ? AND vaultId = ?`,
+      [inp.typeId, vaultId],
+    ))[0];
+
+    const allFieldDefs: DerivedFieldDef[] = typeRow
+      ? (JSON.parse((typeRow["fields"] as string) || "[]") as DerivedFieldDef[])
+      : [];
+
+    const derivedDefs = allFieldDefs.filter(
+      (f) => f.kind === "formula" || f.kind === "rollup" || f.kind === "lookup",
+    );
+
+    function getRelIds(entityFields: Record<string, unknown>, relFieldId: string): string[] {
+      const v = entityFields[relFieldId];
+      if (!v) return [];
+      if (Array.isArray(v)) return v.map(String).filter(Boolean);
+      if (typeof v === "string") {
+        if (v.startsWith("[")) {
+          try { return (JSON.parse(v) as unknown[]).map(String).filter(Boolean); } catch { /* fall through */ }
+        }
+        return v ? [v] : [];
+      }
+      return [];
+    }
+
+    // eslint-disable-next-line no-new-func
+    function evalFormula(expr: string, fields: Record<string, unknown>): unknown {
+      const subst = expr.replace(/\{([^}]+)\}/g, (_, ref: string) => {
+        const def = allFieldDefs.find((d) => d.id === ref || d.name === ref);
+        const val = def ? (fields[def.id] ?? null) : null;
+        if (val === null || val === undefined) return "null";
+        if (typeof val === "string") return JSON.stringify(val);
+        return String(val);
+      });
+      if (/\b(eval|Function|import|require|fetch|XMLHttpRequest|localStorage)\b/i.test(subst)) {
+        return "#ERREUR";
+      }
+      const CONCAT = (...a: unknown[]) => a.map(String).join("");
+      const IF = (c: unknown, t: unknown, f: unknown) => (c ? t : f);
+      const ROUND = (n: number, d = 0) => Math.round(n * 10 ** d) / 10 ** d;
+      const UPPER = (s: unknown) => String(s ?? "").toUpperCase();
+      const LOWER = (s: unknown) => String(s ?? "").toLowerCase();
+      const LEN = (s: unknown) => String(s ?? "").length;
+      const NOW = () => new Date().toISOString();
+      const TODAY = () => new Date().toISOString().slice(0, 10);
+      try {
+        // eslint-disable-next-line no-new-func
+        return new Function(
+          "CONCAT", "IF", "ROUND", "UPPER", "LOWER", "LEN", "NOW", "TODAY",
+          `"use strict"; return (${subst})`,
+        )(CONCAT, IF, ROUND, UPPER, LOWER, LEN, NOW, TODAY);
+      } catch {
+        return null;
+      }
+    }
+
+    // Pre-collect all related entity IDs across the whole page so we can
+    // batch-fetch in one SQL query instead of N per-entity queries.
+    const relLookupDefs = derivedDefs.filter(
+      (f) => (f.kind === "rollup" || f.kind === "lookup") && f.relationFieldId && f.targetFieldId,
+    );
+
+    const entityRelMap = new Map<string, Map<string, string[]>>();
+    const allRelIds = new Set<string>();
+    if (relLookupDefs.length > 0) {
+      for (const entity of allRows) {
+        const byField = new Map<string, string[]>();
+        for (const d of relLookupDefs) {
+          const ids = getRelIds(entity.fields, d.relationFieldId!);
+          byField.set(d.id, ids);
+          ids.forEach((id) => allRelIds.add(id));
+        }
+        entityRelMap.set(entity.id, byField);
+      }
+    }
+
+    const relEntityFields = new Map<string, Record<string, unknown>>();
+    if (allRelIds.size > 0) {
+      const idList = Array.from(allRelIds);
+      const ph = idList.map(() => "?").join(",");
+      const relRows = rows(db.exec(`SELECT id, fields FROM entity WHERE id IN (${ph})`, idList));
+      for (const r of relRows) {
+        const id = r["id"] as string;
+        try { relEntityFields.set(id, JSON.parse((r["fields"] as string) || "{}") as Record<string, unknown>); }
+        catch { relEntityFields.set(id, {}); }
+      }
+    }
+
+    function computeRollupVal(relIds: string[], targetFieldId: string, agg: string): unknown {
+      const nums = relIds
+        .map((id) => relEntityFields.get(id)?.[targetFieldId])
+        .filter((v) => v !== null && v !== undefined);
+      switch (agg) {
+        case "count": return relIds.length;
+        case "sum": return nums.reduce<number>((acc, v) => acc + (Number(v) || 0), 0);
+        case "avg": return nums.length > 0 ? nums.reduce<number>((a, v) => a + (Number(v) || 0), 0) / nums.length : null;
+        case "min": return nums.length > 0 ? Math.min(...nums.map((v) => Number(v) || 0)) : null;
+        case "max": return nums.length > 0 ? Math.max(...nums.map((v) => Number(v) || 0)) : null;
+        case "all": return nums.every((v) => Boolean(v));
+        case "any": return nums.some((v) => Boolean(v));
+        default: return null;
+      }
+    }
+
+    function computeLookupVal(relIds: string[], targetFieldId: string): unknown {
+      const vals = relIds
+        .map((id) => relEntityFields.get(id)?.[targetFieldId])
+        .filter((v) => v !== null && v !== undefined);
+      return relIds.length <= 1 ? (vals[0] ?? null) : vals;
+    }
+
+    const enrichedRows = derivedDefs.length > 0
+      ? allRows.map((entity) => {
+          const newFields = { ...entity.fields };
+          for (const d of derivedDefs) {
+            if (d.kind === "formula" && d.expression) {
+              newFields[d.id] = evalFormula(d.expression, newFields);
+            } else if (d.kind === "rollup" && d.targetFieldId && d.aggregation) {
+              const relIds = entityRelMap.get(entity.id)?.get(d.id) ?? [];
+              newFields[d.id] = computeRollupVal(relIds, d.targetFieldId, d.aggregation);
+            } else if (d.kind === "lookup" && d.targetFieldId) {
+              const relIds = entityRelMap.get(entity.id)?.get(d.id) ?? [];
+              newFields[d.id] = computeLookupVal(relIds, d.targetFieldId);
+            }
+          }
+          return { ...entity, fields: newFields };
+        })
+      : allRows;
+
     // Filter pass — every clause must match (AND). Reading derived columns
     // like `createdAt` / `updatedAt` directly from the row, not from the
     // serialized fields blob, since those are top-level columns.
@@ -1374,7 +1521,7 @@ export function buildRouter(
       return ent.fields[fieldId];
     }
 
-    const filtered = allRows.filter((e) =>
+    const filtered = enrichedRows.filter((e) =>
       filters.every((f) => matchesFilter(readField(e, f.fieldId), f.op, f.value)),
     );
 
