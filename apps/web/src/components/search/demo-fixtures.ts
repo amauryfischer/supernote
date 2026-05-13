@@ -27,15 +27,4 @@ export const DEMO_SEARCH_RESULTS: SearchResult[] = [
     semantic: true,
     tags: ["product", "ux"],
   },
-  {
-    entityId: "entity-3",
-    typeId: "projet",
-    typeName: "Projet",
-    filePath: "Projets/supernote-pkm.md",
-    title: "Supernote PKM",
-    excerpts: ["Application de gestion de connaissances. MVP en cours."],
-    score: 0.82,
-    semantic: false,
-    tags: ["dev", "produit"],
-  },
 ];

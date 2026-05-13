@@ -3,7 +3,6 @@
 import {
   FileText,
   User,
-  Briefcase,
   BookOpen,
   CalendarBlank,
   Hash,
@@ -29,15 +28,13 @@ interface ResultCardProps {
 function entityHref(entityId: string, typeId: string): string {
   const t = typeId.toLowerCase();
   if (t === "personne" || t === "contact") return `/contacts/${entityId}`;
-  if (t === "projet" || t === "project") return `/projets/${entityId}`;
-  if (t === "note") return `/notes/${entityId}`;
+if (t === "note") return `/notes/${entityId}`;
   return `/notes/${entityId}`;
 }
 
 const TYPE_ICONS: Record<string, Icon> = {
   note: FileText,
   personne: User,
-  projet: Briefcase,
   ressource: BookOpen,
   journal: CalendarBlank,
 };

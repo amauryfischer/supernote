@@ -11,9 +11,9 @@ interface FilterChipsProps {
 }
 
 const FILTER_PRESETS: Array<{ key: FilterKey; label: string; values: string[] }> = [
-  { key: "type", label: "Type", values: ["note", "personne", "projet", "ressource", "journal"] },
+  { key: "type", label: "Type", values: ["note", "personne", "ressource", "journal"] },
   { key: "tag", label: "Tag", values: ["client", "urgent", "dev", "design", "IA", "archive"] },
-  { key: "in", label: "Dossier", values: ["Inbox", "Notes", "Daily", "Projets", "Contacts"] },
+  { key: "in", label: "Dossier", values: ["Inbox", "Notes", "Daily", "Contacts"] },
   { key: "relation", label: "Relation", values: ["mentionne", "lié-à", "parent-de"] },
   { key: "created", label: "Créé", values: [">2026-01-01", ">2026-04-01", ">2026-05-01"] },
 ];
