@@ -22,6 +22,7 @@ import { SCHEMA_SQL_BASE } from "./db-schema";
 import { loadDbFromFsa, saveDbToFsa, loadDbFromOpfs, saveDbToOpfs } from "./db-persistence";
 import { seedDefaults } from "./seed-default-types";
 import { buildRouter, RouteHandler } from "./worker-router";
+import { migrateCanvasesToExcalidraw } from "./migration-canvas-excalidraw";
 import type {
   WorkerInboundMessage,
   WorkerRequest,
@@ -268,10 +269,28 @@ async function handleInitVault(handle: FileSystemDirectoryHandle): Promise<void>
             await schedulePersist();
             self.postMessage({ type: "INDEX_PROGRESS", indexed, total: indexed });
           }
+          await runCanvasMigration();
         } catch (err) {
           console.warn("[init] background reindex failed (non-fatal)", err);
         }
       })();
+    } else {
+      // DB came up with rows already — still try to migrate any legacy
+      // canvases (idempotent: rows with canvasFile already set are skipped).
+      void runCanvasMigration();
+    }
+
+    async function runCanvasMigration() {
+      if (!db || !vaultId) return;
+      try {
+        const n = await migrateCanvasesToExcalidraw({ db, vaultHandle: handle, vaultId });
+        if (n > 0) {
+          console.info(`[init] migrated ${n} canvas(es) to .excalidraw sibling`);
+          await schedulePersist();
+        }
+      } catch (err) {
+        console.warn("[init] canvas excalidraw migration failed (non-fatal)", err);
+      }
     }
   } catch (err) {
     console.error("[vault-worker] init failed", err);
