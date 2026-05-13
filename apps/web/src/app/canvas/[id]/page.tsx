@@ -227,9 +227,15 @@ function FullscreenCanvasEditor() {
     void flushSave();
   }, [flushSave]);
 
-  const handleExportPng = useCallback(() => {
-    console.log("[Canvas] Export PNG — not yet implemented");
-  }, []);
+  // Filename of the sibling `.excalidraw` file persisted by the
+  // vault-worker. Surfaced in the toolbar as a hint that the canvas is
+  // also a standalone, openable-elsewhere file in the user's vault.
+  const excalidrawFileName = useMemo(() => {
+    const fields = (entityQuery.data as { fields?: Record<string, unknown> } | undefined)?.fields;
+    return typeof fields?.["canvasFile"] === "string"
+      ? (fields["canvasFile"] as string)
+      : undefined;
+  }, [entityQuery.data]);
 
   const handleShare = useCallback(() => {
     const url = `${window.location.origin}/canvas/${id}`;
@@ -272,10 +278,10 @@ function FullscreenCanvasEditor() {
         fullscreen={fullscreen}
         onBack={handleBack}
         onTitleChange={handleTitleChange}
-        onExportPng={handleExportPng}
         onShare={handleShare}
         onSave={handleSave}
         onToggleFullscreen={handleToggleFullscreen}
+        excalidrawFileName={excalidrawFileName}
       />
 
       <div className="relative flex-1 overflow-hidden">

@@ -3,11 +3,11 @@
 import { useState } from "react";
 import {
   ArrowLeft,
-  Export,
   ShareNetwork,
   CornersOut,
   CornersIn,
   FloppyDisk,
+  FileCode,
 } from "@phosphor-icons/react";
 
 interface CanvasEditorToolbarProps {
@@ -15,10 +15,16 @@ interface CanvasEditorToolbarProps {
   fullscreen: boolean;
   onBack: () => void;
   onTitleChange: (title: string) => void;
-  onExportPng: () => void;
   onShare: () => void;
   onSave: () => void;
   onToggleFullscreen: () => void;
+  /**
+   * Basename of the sibling `.excalidraw` file persisted alongside the
+   * note. When set, the toolbar surfaces it as a non-interactive hint so
+   * the user knows the canvas is also a standard Excalidraw file in their
+   * vault — drag-droppable onto excalidraw.com.
+   */
+  excalidrawFileName?: string;
 }
 
 export function CanvasEditorToolbar({
@@ -26,10 +32,10 @@ export function CanvasEditorToolbar({
   fullscreen,
   onBack,
   onTitleChange,
-  onExportPng,
   onShare,
   onSave,
   onToggleFullscreen,
+  excalidrawFileName,
 }: CanvasEditorToolbarProps) {
   const [editing, setEditing] = useState(false);
   const [localTitle, setLocalTitle] = useState(title);
@@ -79,9 +85,16 @@ export function CanvasEditorToolbar({
       </div>
 
       <div className="flex items-center gap-1">
-        <ToolbarButton label="Exporter PNG" onClick={onExportPng}>
-          <Export size={14} />
-        </ToolbarButton>
+        {excalidrawFileName && (
+          <div
+            className="hidden md:flex items-center gap-1 rounded-md px-2 py-0.5 text-xs"
+            style={{ color: "var(--text-muted)" }}
+            title={`Aussi disponible comme ${excalidrawFileName} dans votre vault — ouvrable sur excalidraw.com`}
+          >
+            <FileCode size={12} />
+            <span className="font-mono">{excalidrawFileName}</span>
+          </div>
+        )}
         <ToolbarButton label="Partager" onClick={onShare}>
           <ShareNetwork size={14} />
         </ToolbarButton>
