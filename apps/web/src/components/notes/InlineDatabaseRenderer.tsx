@@ -23,10 +23,11 @@ import {
   type DatabaseViewBlockProps,
   type DatabaseViewRenderer,
 } from "@supernote/editor";
-import { trpc } from "@/lib/trpc/client";
+import { trpc, trpcVanillaClient } from "@/lib/trpc/client";
 import { ipcEntityTypeToCore } from "@/components/schemas/adapters";
-import { BaseView } from "@/components/bases";
+import { BaseView, useViews } from "@/components/bases";
 import { getIcon } from "@/components/schemas/icon-map";
+import { Plus, Link as LinkIcon } from "@phosphor-icons/react";
 
 /** Public entry — pass this to <DatabaseViewProvider renderer={...} />. */
 export const renderInlineDatabase: DatabaseViewRenderer = (props) => (
@@ -41,10 +42,13 @@ function InlineDatabase({ baseId, viewId }: DatabaseViewBlockProps) {
     [ipcType],
   );
 
-  // Picker mode: block is unconfigured (no baseId), or baseId points to an
-  // EntityType we couldn't find (likely deleted). Either way, prompt to pick.
+  // No Base yet → pick one.
   if (!base) {
     return <BasePicker currentId={baseId} />;
+  }
+  // Base chosen but no specific view → pick a view linkage strategy.
+  if (!viewId) {
+    return <ViewLinkPicker baseId={baseId} basePlural={base.plural} />;
   }
 
   return (
@@ -168,4 +172,130 @@ function BasePicker({ currentId }: { currentId: string }) {
 
 function requestReconfigure(nextBaseId: string, nextViewId: string): void {
   requestDatabaseBlockReconfigure({ nextBaseId, nextViewId });
+}
+
+// ── ViewLinkPicker ────────────────────────────────────────────────────────
+//
+// After picking a Base, the user chooses HOW to view it inline:
+//   - "Lier à une vue existante" → picks one of the named views (incl. default)
+//   - "Nouvelle vue dédiée"      → creates a fresh persisted view and binds to it
+//
+// This mirrors Coda's mental model: every visible projection of a Base is
+// a real, persisted view — the inline placement is just where it's rendered.
+
+function ViewLinkPicker({
+  baseId,
+  basePlural,
+}: {
+  baseId: string;
+  basePlural: string;
+}) {
+  const { data: views = [], isLoading } = useViews(baseId);
+  const [creating, setCreating] = useState(false);
+  const [newName, setNewName] = useState(`Vue inline – ${basePlural}`);
+
+  const createAndLink = async () => {
+    setCreating(true);
+    try {
+      const created = await trpcVanillaClient.views.create.mutate({
+        typeId: baseId,
+        name: newName.trim() || `Vue inline – ${basePlural}`,
+        kind: "table",
+      });
+      if (created && typeof created === "object" && "id" in created) {
+        requestReconfigure(baseId, (created as { id: string }).id);
+      }
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  return (
+    <div
+      className="rounded border px-3 py-3"
+      style={{
+        borderColor: "var(--border-subtle)",
+        backgroundColor: "var(--surface-1)",
+      }}
+    >
+      <p className="mb-2 text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
+        Choisir une vue de « {basePlural} »
+      </p>
+
+      {/* Existing views */}
+      {isLoading ? (
+        <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+          Chargement…
+        </p>
+      ) : (
+        <div className="mb-3 flex flex-wrap gap-1.5">
+          {views.map((v) => (
+            <button
+              key={v.id}
+              type="button"
+              onClick={() => requestReconfigure(baseId, v.id)}
+              className="flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs hover:bg-[var(--surface-2)]"
+              style={{
+                borderColor: "var(--border-subtle)",
+                color: "var(--text-primary)",
+              }}
+            >
+              <LinkIcon size={10} />
+              {v.name}
+              {v.isSystem && (
+                <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>
+                  (par défaut)
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* New view */}
+      <div
+        className="rounded border-dashed border p-2"
+        style={{
+          borderColor: "var(--border-subtle)",
+          backgroundColor: "var(--surface-0)",
+        }}
+      >
+        <p
+          className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide"
+          style={{ color: "var(--text-muted)" }}
+        >
+          Nouvelle vue dédiée
+        </p>
+        <div className="flex items-center gap-1.5">
+          <input
+            type="text"
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !creating) void createAndLink();
+            }}
+            className="flex-1 rounded border bg-transparent px-1.5 py-1 text-xs"
+            style={{
+              borderColor: "var(--border-subtle)",
+              color: "var(--text-primary)",
+            }}
+            placeholder={`Vue inline – ${basePlural}`}
+          />
+          <button
+            type="button"
+            disabled={creating}
+            onClick={createAndLink}
+            className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium"
+            style={{
+              backgroundColor: "var(--accent)",
+              color: "var(--accent-foreground)",
+              opacity: creating ? 0.6 : 1,
+            }}
+          >
+            <Plus size={10} /> Créer
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }

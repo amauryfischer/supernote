@@ -4,13 +4,15 @@
  * ViewTabs — horizontal tab strip listing every saved view of a Base.
  *
  * One tab per view. The active tab is highlighted; clicking a tab swaps the
- * grid. A trailing "+" button creates a fresh view (defaults to a table
- * named "Nouvelle vue").
+ * grid. A small kebab (⋯) on the active tab opens ViewSettingsMenu. A
+ * trailing "+" creates a fresh view.
  */
 
-import { Plus } from "@phosphor-icons/react";
+import { useState } from "react";
+import { Plus, DotsThree } from "@phosphor-icons/react";
 import type { View } from "@supernote/ipc";
 import { ViewKindIcon } from "./ViewKindIcon";
+import { ViewSettingsMenu } from "./ViewSettingsMenu";
 
 interface ViewTabsProps {
   views: View[];
@@ -20,6 +22,8 @@ interface ViewTabsProps {
 }
 
 export function ViewTabs({ views, activeViewId, onSelect, onCreate }: ViewTabsProps) {
+  const [menuOpenFor, setMenuOpenFor] = useState<string | null>(null);
+  const activeView = views.find((v) => v.id === menuOpenFor);
   return (
     <div
       className="flex items-center gap-1 overflow-x-auto border-b px-3 py-1.5"
@@ -28,20 +32,50 @@ export function ViewTabs({ views, activeViewId, onSelect, onCreate }: ViewTabsPr
       {views.map((v) => {
         const active = v.id === activeViewId;
         return (
-          <button
-            key={v.id}
-            type="button"
-            onClick={() => onSelect(v.id)}
-            className="flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors"
-            style={
-              active
-                ? { backgroundColor: "var(--surface-3)", color: "var(--text-primary)" }
-                : { color: "var(--text-muted)" }
-            }
-          >
-            <ViewKindIcon kind={v.kind} size={12} />
-            <span>{v.name}</span>
-          </button>
+          <div key={v.id} className="relative flex shrink-0 items-center">
+            <button
+              type="button"
+              onClick={() => onSelect(v.id)}
+              className="flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors"
+              style={
+                active
+                  ? { backgroundColor: "var(--surface-3)", color: "var(--text-primary)" }
+                  : { color: "var(--text-muted)" }
+              }
+            >
+              <ViewKindIcon kind={v.kind} size={12} />
+              <span>{v.name}</span>
+            </button>
+            {active && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setMenuOpenFor((cur) => (cur === v.id ? null : v.id));
+                }}
+                className="ml-0.5 rounded p-1 hover:bg-[var(--surface-2)]"
+                style={{ color: "var(--text-muted)" }}
+                title="Options de la vue"
+              >
+                <DotsThree size={12} weight="bold" />
+              </button>
+            )}
+            {menuOpenFor === v.id && activeView && (
+              <ViewSettingsMenu
+                view={activeView}
+                onClose={() => setMenuOpenFor(null)}
+                onDeleted={() => {
+                  // Caller's onSelect will switch to a fallback once the list
+                  // refetches; we just close the menu.
+                  setMenuOpenFor(null);
+                }}
+                onDuplicated={(newId) => {
+                  onSelect(newId);
+                  setMenuOpenFor(null);
+                }}
+              />
+            )}
+          </div>
         );
       })}
       <button

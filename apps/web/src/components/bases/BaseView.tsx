@@ -15,9 +15,15 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { EntityType } from "@supernote/core";
-import { useEnsureDefaultView, useViewMutations, useViews } from "./hooks";
+import {
+  useEnsureDefaultView,
+  useEntityMutations,
+  useViewMutations,
+  useViews,
+} from "./hooks";
 import { ViewTabs } from "./ViewTabs";
 import { DataGrid } from "./DataGrid";
+import { BaseToolbar } from "./BaseToolbar";
 import { VIEW_KIND_LABEL } from "./ViewKindIcon";
 
 interface BaseViewProps {
@@ -32,6 +38,7 @@ export function BaseView({ base, pinnedViewId, maxHeight }: BaseViewProps) {
   useEnsureDefaultView(base.id);
   const { data: views = [], isLoading } = useViews(base.id);
   const { create: createView } = useViewMutations();
+  const entityMut = useEntityMutations(base.id);
 
   const [selectedId, setSelectedId] = useState<string | undefined>(pinnedViewId);
 
@@ -89,6 +96,15 @@ export function BaseView({ base, pinnedViewId, maxHeight }: BaseViewProps) {
           activeViewId={selectedId}
           onSelect={setSelectedId}
           onCreate={handleCreateView}
+        />
+      )}
+      {active && (
+        <BaseToolbar
+          base={base}
+          view={active}
+          onCreateEntry={() =>
+            entityMut.create.mutate({ typeId: base.id, fields: {}, body: "" })
+          }
         />
       )}
       <div className="flex-1 overflow-hidden">
