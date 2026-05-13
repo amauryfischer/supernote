@@ -122,15 +122,6 @@ export const ENTITY_LINK_CONFIGS: EntityLinkItemConfig[] = [
     insert: MENTION_INSERT("personne"),
   },
   {
-    title: "Lier un projet",
-    subtext: "Wikilink vers un projet",
-    typeId: "projet",
-    typeLabel: "projet",
-    icon: "P",
-    keywords: "projet",
-    insert: WIKILINK_INSERT,
-  },
-  {
     title: "Lier une organisation",
     subtext: "Wikilink vers une organisation",
     typeId: "organisation",
@@ -404,7 +395,6 @@ const MENTION_TYPE_ICONS: Record<string, string> = {
   personne: "👤",
   contact: "👤",
   organisation: "🏢",
-  projet: "📋",
   note: "📝",
   actif: "💰",
   tag: "#",

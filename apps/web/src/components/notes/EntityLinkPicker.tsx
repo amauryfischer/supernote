@@ -40,7 +40,6 @@ interface EntityLinkPickerProps {
 const TYPE_FILTER_LABELS: Record<string, string> = {
   note: "Lier une note",
   personne: "Lier un contact",
-  projet: "Lier un projet",
   organisation: "Lier une organisation",
   interaction: "Lier une interaction",
   asset: "Lier un actif",
