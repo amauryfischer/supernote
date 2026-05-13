@@ -34,7 +34,7 @@ const STEPS: TourStep[] = [
   {
     selector: "[data-tour='new-btn']",
     title: "Crée n'importe quoi",
-    description: "Le bouton + Nouveau crée notes, contacts, projets, et plus encore en un clic.",
+    description: "Le bouton + Nouveau crée notes, contacts, canvas, et plus encore en un clic.",
     position: "bottom",
   },
   {

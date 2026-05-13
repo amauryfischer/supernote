@@ -53,7 +53,7 @@ export default function GraphPage() {
               <EmptyState
                 icon={<Graph size={28} />}
                 title="Le graphe s'enrichira dès tes premières entités"
-                description="Crée des notes, contacts ou projets et les liens apparaîtront automatiquement."
+                description="Crée des notes et des contacts, les liens apparaîtront automatiquement."
               />
             </div>
           ) : (
