@@ -101,10 +101,6 @@ export const router: any = createBrowserRouter([
       { path: "contacts/nouveau", lazy: lazyPage(() => import("./app/contacts/nouveau/page")) },
       { path: "contacts/:id", lazy: lazyPage(() => import("./app/contacts/[id]/page")) },
 
-      // ── Projets ───────────────────────────────────────────────────────
-      { path: "projets", lazy: lazyPage(() => import("./app/projets/page")) },
-      { path: "projets/:id", lazy: lazyPage(() => import("./app/projets/[id]/page")) },
-
       // ── Finance ───────────────────────────────────────────────────────
       { path: "finance", lazy: lazyPage(() => import("./app/finance/page")) },
       { path: "finance/comptes", lazy: lazyPage(() => import("./app/finance/comptes/page")) },
