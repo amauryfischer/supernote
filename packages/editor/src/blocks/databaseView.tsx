@@ -74,10 +74,10 @@ export const databaseViewBlockSpec = createReactBlockSpec(
           // Block is non-editable — the inner cells handle their own focus.
           contentEditable={false}
         >
-          {!baseId ? (
-            <DatabaseBlockEmptyState />
-          ) : renderer ? (
+          {renderer ? (
             renderer({ baseId, viewId })
+          ) : !baseId ? (
+            <DatabaseBlockEmptyState />
           ) : (
             <DatabaseBlockOfflineFallback baseId={baseId} viewId={viewId} />
           )}
