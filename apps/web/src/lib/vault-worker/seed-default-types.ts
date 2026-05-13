@@ -279,7 +279,7 @@ const goalFields: SeedField[] = [
 export const DEFAULT_ENTITY_TYPES: SeedEntityType[] = [
   { id: "personne", name: "Personne", plural: "Personnes", icon: "User", color: "#6366F1", fields: personneFields, defaultPath: "Contacts", fileNamePattern: "{name}", defaultView: "table" },
   { id: "organisation", name: "Organisation", plural: "Organisations", icon: "Building2", color: "#0EA5E9", fields: orgaFields, defaultPath: "Contacts/Organisations", fileNamePattern: "{name}", defaultView: "table" },
-{ id: "interaction", name: "Interaction", plural: "Interactions", icon: "MessageCircle", color: "#10B981", fields: interactionFields, defaultPath: "Interactions", fileNamePattern: "{date}-{title}", defaultView: "table" },
+  { id: "interaction", name: "Interaction", plural: "Interactions", icon: "MessageCircle", color: "#10B981", fields: interactionFields, defaultPath: "Interactions", fileNamePattern: "{date}-{title}", defaultView: "table" },
   { id: "note", name: "Note", plural: "Notes", icon: "FileText", color: "#F59E0B", fields: noteFields, defaultPath: "Notes", fileNamePattern: "{title}", defaultView: "table" },
   { id: "daily", name: "Daily", plural: "Dailies", icon: "Calendar", color: "#EC4899", fields: dailyFields, defaultPath: "Daily", fileNamePattern: "{date}", defaultView: "calendar" },
   { id: "tag", name: "Tag", plural: "Tags", icon: "Tag", color: "#64748B", fields: tagFields, defaultPath: "Tags", fileNamePattern: "{name}", defaultView: "table" },
