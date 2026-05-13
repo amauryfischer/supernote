@@ -17,17 +17,6 @@ export const DEMO_SAVED_VIEWS: SavedView[] = [
     updatedAt: "2026-04-20T14:30:00Z",
   },
   {
-    id: "view-002",
-    name: "Projets actifs",
-    kind: "kanban",
-    entityTypeId: "project",
-    resultCount: 0,
-    filters: [{ fieldId: "status", operator: "neq", value: "archived" }],
-    groupBy: "status",
-    createdAt: "2026-01-15T10:00:00Z",
-    updatedAt: "2026-04-25T11:00:00Z",
-  },
-  {
     id: "view-003",
     name: "Interactions semaine",
     kind: "calendar",

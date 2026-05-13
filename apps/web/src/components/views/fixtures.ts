@@ -18,7 +18,6 @@ export const SAVED_VIEWS: SavedView[] = [];
 
 export const ENTITY_TYPES: Record<string, string> = {
   contact: "Contact",
-  project: "Projet",
   interaction: "Interaction",
   asset: "Actif",
   loan: "Pret",
