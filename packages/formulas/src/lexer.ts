@@ -147,6 +147,7 @@ export class Lexer {
     if (isDigit(ch) || (ch === "." && isDigit(this.peek(1)))) return this.readNumber(start);
     if (isAlpha(ch) || ch === "_") return this.readIdent(start);
     if (ch === "@") return this.readEntityRef(start);
+    if (ch === "$") return this.readVariableRef(start);
 
     this.advance();
     return err(makeParseError(`Unexpected character '${ch}'`, start));
@@ -202,6 +203,18 @@ export class Lexer {
     let name = "";
     while (isAlphaNum(this.peek()) || this.peek() === "_") name += this.advance();
     return ok({ kind: "Identifier", raw: `@${name}`, pos: start });
+  }
+
+  /** Read $varName → Identifier with raw `$<name>` */
+  private readVariableRef(start: Position): Result<Token, ParseError> {
+    this.advance(); // consume $
+    const nameStart = this.offset;
+    while (isAlphaNum(this.peek()) || this.peek() === "_") this.advance();
+    if (this.offset === nameStart) {
+      return err(makeParseError("$ must be followed by an identifier", start));
+    }
+    const name = this.src.slice(nameStart, this.offset);
+    return ok({ kind: "Identifier", raw: `$${name}`, pos: start });
   }
 
   /** Read {field name} → Identifier with sanitized raw `_f_<safe>` */
@@ -260,3 +273,8 @@ const ESCAPE_MAP: Record<string, string> = {
   n: "\n", t: "\t", r: "\r",
   '"': '"', "'": "'", "\\": "\\",
 };
+
+/** Convenience: tokenize a source string to a token array. */
+export function tokenize(src: string): Result<Token[], ParseError> {
+  return new Lexer(src).tokenize();
+}

@@ -891,6 +891,34 @@ describe("Coda stdlib — lists", () => {
 });
 
 // ============================================================
+// lexer $variable
+// ============================================================
+
+import { tokenize } from './lexer.js';
+
+describe('lexer $variable', () => {
+  it('emits Identifier "$name" for $tauxTVA', () => {
+    const res = tokenize('$tauxTVA + 1');
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const tokens = res.value;
+    expect(tokens[0]).toMatchObject({ kind: 'Identifier', raw: '$tauxTVA' });
+  });
+
+  it('rejects bare $ with no name', () => {
+    const res = tokenize('$ + 1');
+    expect(res.ok).toBe(false);
+  });
+
+  it('does not consume $ inside string literal', () => {
+    const res = tokenize('"$nope"');
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.value[0]?.kind).toBe('String');
+  });
+});
+
+// ============================================================
 // where(currentValue) + list aggregat properties + entity projection
 // ============================================================
 
