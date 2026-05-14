@@ -948,6 +948,28 @@ describe("Coda — where with implicit currentValue", () => {
   });
 });
 
+// ============================================================
+// parser $variable
+// ============================================================
+
+describe('parser $variable', () => {
+  it('parses $tauxTVA as VariableRef', () => {
+    const res = parseFormula('$tauxTVA');
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.value).toMatchObject({ kind: 'VariableRef', name: 'tauxTVA' });
+  });
+
+  it('uses $variable in arithmetic', () => {
+    const res = parseFormula('$a + $b * 2');
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const ast = res.value as any;
+    expect(ast.kind).toBe('BinaryOp');
+    expect(ast.left).toMatchObject({ kind: 'VariableRef', name: 'a' });
+  });
+});
+
 describe("Coda — entity projection from lists", () => {
   // Build a synthetic list of entity values via a Filter context
   const contacts: Entity[] = [

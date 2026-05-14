@@ -119,6 +119,13 @@ export interface WikiLink {
   readonly span: Span;
 }
 
+/** $varName reference resolved via context */
+export interface VariableRef {
+  readonly kind: "VariableRef";
+  readonly name: string;
+  readonly span: Span;
+}
+
 // ------ Root union -------------------------------------------
 
 export type FormulaAST =
@@ -132,4 +139,5 @@ export type FormulaAST =
   | ListLiteral
   | Conditional
   | EntityRef
-  | WikiLink;
+  | WikiLink
+  | VariableRef;

@@ -256,6 +256,12 @@ class Parser {
       return ok({ kind: "WikiLink", title: wlTok.raw, span: span(start, wlTok.pos) });
     }
 
+    // $VariableRef
+    if (this.check("Identifier") && tok.raw.startsWith("$")) {
+      this.advance();
+      return ok({ kind: "VariableRef", name: tok.raw.slice(1), span: span(start, start) });
+    }
+
     // @EntityRef
     if (this.check("Identifier") && tok.raw.startsWith("@")) {
       this.advance();
