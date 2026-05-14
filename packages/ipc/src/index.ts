@@ -77,6 +77,7 @@ export * from "./schemas/relations.js";
 export * from "./schemas/tags.js";
 export * from "./schemas/views.js";
 export * from "./schemas/automations.js";
+export * from "./schemas/variables.js";
 export * from "./schemas/templates.js";
 export * from "./schemas/git.js";
 export * from "./schemas/search.js";
