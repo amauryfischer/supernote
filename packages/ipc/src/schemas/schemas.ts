@@ -47,6 +47,9 @@ export type SelectOption = z.infer<typeof SelectOptionSchema>;
 export const FieldDefinitionSchema = z.object({
   id: z.string(),
   name: z.string().min(1),
+  // Libellé humain affiché dans les en-têtes / formulaires. `name` reste le
+  // slug machine. Optional pour rétro-compat avec d'anciens enregistrements.
+  label: z.string().optional(),
   type: FieldTypeSchema,
   required: z.boolean().default(false),
   unique: z.boolean().default(false),
@@ -55,6 +58,8 @@ export const FieldDefinitionSchema = z.object({
   options: z.array(SelectOptionSchema).optional(),
   relationTypeId: z.string().optional(),
   formulaExpr: z.string().optional(),
+  formulaOutputKind: z.enum(["text", "number", "date", "bool"]).optional(),
+  formulaOutputFormat: z.string().optional(),
   helpText: z.string().optional(),
   group: z.string().optional(),
 });
@@ -71,7 +76,9 @@ export const EntityTypeSchema = z.object({
   fields: z.array(FieldDefinitionSchema),
   defaultPath: z.string().optional(),
   fileNamePattern: z.string().optional(),
-  defaultView: z.string().optional(),
+  // Marqueur des seeds système (créés par seed-default-types). Permet à l'UI
+  // de filtrer ou tagger les Bases pré-installées vs celles de l'utilisateur.
+  isSystem: z.boolean().optional(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });
@@ -109,7 +116,6 @@ export const UpdateSchemaInput = z.object({
   fields: z.array(FieldDefinitionSchema).optional(),
   defaultPath: z.string().optional(),
   fileNamePattern: z.string().optional(),
-  defaultView: z.string().optional(),
 });
 export type UpdateSchemaInput = z.infer<typeof UpdateSchemaInput>;
 

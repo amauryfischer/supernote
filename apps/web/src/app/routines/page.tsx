@@ -2,6 +2,7 @@
 
 import { AppShell, useMobileFab, useMobileTitle } from "@/components/shell";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { Button } from "@heroui/react";
 import {
   ROUTINES,
   TEMPLATE_META,
@@ -61,15 +62,16 @@ function NewRoutineDropdown() {
 
   return (
     <div className="relative" ref={ref}>
-      <button
-        onClick={() => setOpen((o) => !o)}
+      <Button
+        onPress={() => setOpen((o) => !o)}
+        size="sm"
         className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-opacity hover:opacity-90"
         style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
       >
         <Plus size={13} />
         {t("newRoutine")}
         <CaretDown size={11} className={`transition-transform ${open ? "rotate-180" : ""}`} />
-      </button>
+      </Button>
 
       {open && (
         <div

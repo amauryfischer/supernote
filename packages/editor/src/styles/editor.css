@@ -545,6 +545,15 @@
   margin: 0.5rem 0;
 }
 
+/* BlockNote applique un outline bleu de 4px aux nœuds non-éditables
+   sélectionnés (.ProseMirror-selectednode). Visuellement parasite sur un
+   `databaseView` qui occupe déjà toute la largeur — on neutralise pour ce
+   type seulement, en gardant le ring sur les autres blocs custom. */
+.bn-block-content[data-content-type="databaseView"].ProseMirror-selectednode > *,
+.ProseMirror-selectednode > .bn-block-content[data-content-type="databaseView"] > * {
+  outline: none !important;
+}
+
 .sn-database-block__empty,
 .sn-database-block__fallback {
   border: 1px dashed var(--border-subtle, #e5e7eb);

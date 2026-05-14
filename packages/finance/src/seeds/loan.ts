@@ -8,7 +8,6 @@ export const loanSeed: EntityTypeDefinition = {
   color: "#EF4444",
   defaultPath: "/Finance/Loans",
   fileNamePattern: "{name}",
-  defaultView: "table",
   fields: [
     {
       id: "loan_name",

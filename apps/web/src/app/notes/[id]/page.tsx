@@ -20,11 +20,13 @@ import {
   useDeleteNote,
   useRenameFolder,
   useRenameNote,
+  useMoveNote,
 } from "@/components/notes/hooks";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { DeleteNoteModal } from "@/components/notes/DeleteNoteModal";
 import { useConfirm, usePrompt } from "@/hooks/usePrompt";
+import { Button } from "@heroui/react";
 import {
   ArrowsInSimple,
   ArrowsOutSimple,
@@ -270,6 +272,7 @@ function NoteDetailContent() {
   const { renameNote } = useRenameNote();
   const { setArchived } = useArchiveNote();
   const { archiveFolder } = useArchiveFolder();
+  const { moveNote } = useMoveNote();
   const prompt = usePrompt();
   const confirm = useConfirm();
 
@@ -374,6 +377,10 @@ function NoteDetailContent() {
     if (!ok) return { archivedCount: 0 };
     return await archiveFolder(path);
   }, [archiveFolder, confirm]);
+
+  const handleMoveNote = useCallback(async (noteId: string, folderPath: string): Promise<void> => {
+    await moveNote(noteId, folderPath);
+  }, [moveNote]);
 
   const handleRenameNote = useCallback(async (id: string, newTitle: string): Promise<void> => {
     await renameNote(id, newTitle);
@@ -514,6 +521,7 @@ function NoteDetailContent() {
           onArchiveFolder={handleArchiveFolder}
           notes={allNotes.filter((n) => !n.archivedAt)}
           onCollapse={handleToggleFileTreeCollapsed}
+          onDropNote={handleMoveNote}
         />
       ) : showCollapsedFileTree ? (
         // Restore strip — only shown when the user collapsed THIS column
@@ -544,6 +552,7 @@ function NoteDetailContent() {
           onArchiveNote={handleArchiveNote}
           onRenameFolderInline={handleRenameFolderInline}
           onCollapse={handleToggleNoteListCollapsed}
+          onDragNote={() => {}}
         />
       ) : showCollapsedNoteList ? (
         <CollapsedColumnStrip
@@ -608,18 +617,18 @@ interface CollapsedColumnStripProps {
  */
 function CollapsedColumnStrip({ label, icon, onExpand }: CollapsedColumnStripProps) {
   return (
-    <button
-      type="button"
-      onClick={onExpand}
+    <Button
+      variant="ghost"
+      onPress={onExpand}
       aria-label={`Afficher ${label}`}
-      title={`Afficher ${label}`}
-      className="flex h-full flex-col items-center justify-start gap-2 border-r py-3 transition-colors hover:bg-[var(--surface-2)]"
+      className="flex h-full flex-col items-center justify-start gap-2 border-r py-3 transition-colors hover:bg-[var(--surface-2)] rounded-none"
       style={{
         width: 24,
         minWidth: 24,
         borderColor: "var(--border-subtle)",
         backgroundColor: "var(--surface-1)",
         color: "var(--text-muted)",
+        padding: 0,
       }}
     >
       <CaretDoubleRight size={12} />
@@ -634,7 +643,7 @@ function CollapsedColumnStrip({ label, icon, onExpand }: CollapsedColumnStripPro
       >
         {label}
       </span>
-    </button>
+    </Button>
   );
 }
 
@@ -692,22 +701,23 @@ function ViewToggle({ mode, onChange, focusMode, onToggleFocusMode }: ViewToggle
           label="Canvas"
         />
       </div>
-      <button
-        type="button"
-        onClick={onToggleFocusMode}
-        aria-pressed={focusMode}
-        title={focusMode ? "Quitter le mode focus" : "Mode focus (cacher les colonnes)"}
+      <Button
+        variant="outline"
+        size="sm"
+        onPress={onToggleFocusMode}
         aria-label={focusMode ? "Quitter le mode focus" : "Mode focus"}
         className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors hover:bg-[var(--surface-2)]"
         style={{
           color: focusMode ? "var(--accent)" : "var(--text-muted)",
           border: "1px solid var(--border-subtle)",
           backgroundColor: focusMode ? "var(--accent-subtle)" : "transparent",
+          minWidth: 0,
+          height: "auto",
         }}
       >
         {focusMode ? <ArrowsInSimple size={13} /> : <ArrowsOutSimple size={13} />}
         <span>{focusMode ? "Quitter focus" : "Focus"}</span>
-      </button>
+      </Button>
     </div>
   );
 }
@@ -722,20 +732,21 @@ function ViewToggleButton({
   label: string;
 }) {
   return (
-    <button
-      type="button"
-      role="tab"
-      aria-selected={active}
-      onClick={onClick}
+    <Button
+      variant="ghost"
+      size="sm"
+      onPress={onClick}
       className="rounded px-3 py-1 text-xs font-medium transition-colors"
       style={{
         backgroundColor: active ? "var(--surface-0)" : "transparent",
         color: active ? "var(--text-primary)" : "var(--text-muted)",
         boxShadow: active ? "0 1px 2px rgba(0,0,0,0.06)" : "none",
+        minWidth: 0,
+        height: "auto",
       }}
     >
       {label}
-    </button>
+    </Button>
   );
 }
 

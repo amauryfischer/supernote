@@ -8,11 +8,13 @@ import { useCreateBlockNote } from "@blocknote/react";
 import {
   BlockNoteViewRaw,
   SuggestionMenuController,
+  type DefaultReactSuggestionItem,
 } from "@blocknote/react";
 import { supernoteSchema } from "./schema.js";
 import {
   DatabaseViewProvider,
   useDatabaseBlockPickListener,
+  FormulaProvider,
 } from "./blocks/index.js";
 import { markdownToBlocks, blocksToMarkdown } from "./serialization/index.js";
 import {
@@ -43,6 +45,7 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
     onEditorReady,
     placeholder,
     renderDatabaseView,
+    renderFormula,
   } = props;
 
   const onSaveRef = useRef(onSave);
@@ -129,6 +132,31 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
     });
   }, [editor]);
 
+  // Garantit qu'un block éditable termine toujours le document. Sans ça,
+  // un `databaseView` (contentEditable=false) en dernière position bloque
+  // tout clic sous le bloc — l'utilisateur ne peut pas créer de nouveau
+  // contenu en dessous de la base.
+  useEffect(() => {
+    const NON_EDITABLE_TRAILING = new Set(["databaseView"]);
+    const ensureTrailingParagraph = () => {
+      const doc = editor.document as Block[];
+      const last = doc[doc.length - 1];
+      if (!last) return;
+      if (!NON_EDITABLE_TRAILING.has(last.type as string)) return;
+      try {
+        editor.insertBlocks(
+          [{ type: "paragraph" } as any],
+          last as any,
+          "after",
+        );
+      } catch {
+        /* schema may reject during transient states — best-effort */
+      }
+    };
+    ensureTrailingParagraph();
+    return editor.onChange(ensureTrailingParagraph);
+  }, [editor]);
+
   // Expose an imperative insert function to the host once the editor mounts.
   useEffect(() => {
     if (!onEditorReadyRef.current) return;
@@ -162,15 +190,36 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
     async (query: string) => {
       const items = getSupernoteSlashMenuItems(editor, openPicker, onAskAiRef.current);
       if (!query) return items;
-      const q = query.toLowerCase();
-      return items.filter((item) => {
-        if (item.title.toLowerCase().includes(q)) return true;
-        if (item.group?.toLowerCase().includes(q)) return true;
-        // aliases hold the keyword strings for entity-link items
-        const aliases = (item as any).aliases as string[] | undefined;
-        if (aliases?.some((a) => a.toLowerCase().includes(q))) return true;
-        return false;
-      });
+      const q = query.toLowerCase().trim();
+
+      // Match strict en préfixe de mot (title splité sur espaces / `/`) et
+      // sur préfixe d'alias. Évite que "/base" matche par sub-string sur
+      // n'importe quel groupe ou titre contenant "base" (ex : "Database",
+      // "Vue / Base", etc. côté items entity-link).
+      const matches = (item: DefaultReactSuggestionItem): number => {
+        const title = item.title.toLowerCase();
+        const titleWords = title.split(/[\s/]+/).filter(Boolean);
+        const aliases =
+          ((item as unknown as { aliases?: string[] }).aliases ?? []).map((a) =>
+            a.toLowerCase(),
+          );
+
+        // Exact title or alias = top score.
+        if (title === q || aliases.includes(q)) return 100;
+        // Title starts with query → second.
+        if (title.startsWith(q)) return 80;
+        // A word in the title starts with query.
+        if (titleWords.some((w) => w.startsWith(q))) return 60;
+        // An alias starts with query.
+        if (aliases.some((a) => a.startsWith(q))) return 40;
+        return 0;
+      };
+
+      return items
+        .map((item) => ({ item, score: matches(item) }))
+        .filter((entry) => entry.score > 0)
+        .sort((a, b) => b.score - a.score)
+        .map((entry) => entry.item);
     },
     [editor, openPicker]
   );
@@ -190,12 +239,55 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
   // we still mount the provider with a stub (returns null) — the block's
   // built-in fallback will display the offline placeholder.
   const databaseRenderer = renderDatabaseView ?? (() => null);
+  const formulaRenderer = renderFormula ?? (() => null);
+
+  // Click sur la zone vide sous le dernier block → focus le dernier block
+  // éditable. Sans ce handler, BlockNote n'attrape que les clics *dans* la
+  // zone d'un block — un clic sous le document (zone padding du wrapper)
+  // n'a aucun effet et l'utilisateur reste prisonnier d'un `databaseView`
+  // précédent quand il clique loin sous la table.
+  const handleWrapperClick = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      if (readOnly) return;
+      const target = e.target as HTMLElement;
+      // Ignore les clics qui ont déjà touché un block / contenu éditable.
+      if (target.closest("[data-node-type], [contenteditable='true']")) return;
+
+      const doc = editor.document as Block[];
+      if (doc.length === 0) return;
+      let last = doc[doc.length - 1];
+      // Si dernier block n'est pas éditable, append paragraph et focus dessus.
+      if (last && (last.type as string) === "databaseView") {
+        try {
+          const inserted = editor.insertBlocks(
+            [{ type: "paragraph" } as any],
+            last as any,
+            "after",
+          );
+          last = (inserted?.[0] as Block) ?? last;
+        } catch {
+          /* schema may reject during transient state */
+        }
+      }
+      if (last) {
+        try {
+          editor.setTextCursorPosition(last as any, "end");
+          editor.focus();
+        } catch {
+          /* best-effort */
+        }
+      }
+    },
+    [editor, readOnly],
+  );
 
   return (
     <DatabaseViewProvider renderer={databaseRenderer}>
+    <FormulaProvider renderer={formulaRenderer}>
     <div
       className={`sn-editor-wrapper${className ? ` ${className}` : ""}`}
       data-readonly={readOnly || undefined}
+      onClick={handleWrapperClick}
     >
       <BlockNoteViewRaw
         editor={editor}
@@ -222,6 +314,7 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
         <div className="sn-entity-picker-overlay">{pickerElement}</div>
       )}
     </div>
+    </FormulaProvider>
     </DatabaseViewProvider>
   );
 }

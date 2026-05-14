@@ -14,7 +14,7 @@ import {
   canvasToFileBridge,
   excalidrawSiblingPath,
   parseExcalidrawFileContent,
-} from "@supernote/canvas";
+} from "@supernote/canvas/excalidraw";
 import type { CanvasDocument } from "@supernote/canvas";
 import {
   readVaultFile,

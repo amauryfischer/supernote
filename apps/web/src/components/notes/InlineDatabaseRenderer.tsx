@@ -18,6 +18,7 @@
  */
 
 import { useMemo, useRef, useState } from "react";
+import { Button, Input, Checkbox } from "@heroui/react";
 import {
   requestDatabaseBlockReconfigure,
   type DatabaseViewBlockProps,
@@ -35,7 +36,13 @@ export const renderInlineDatabase: DatabaseViewRenderer = (props) => (
 );
 
 function InlineDatabase({ baseId, viewId }: DatabaseViewBlockProps) {
-  const { data: ipcTypes } = trpc.schemas.list.useQuery({ search: undefined });
+  // staleTime — chaque bloc databaseView monte sa propre query. Sans cache,
+  // une note avec N blocs déclenche N refetches à chaque action. On laisse
+  // React Query dédupliquer les fenêtres de 30 s.
+  const { data: ipcTypes } = trpc.schemas.list.useQuery(
+    { search: undefined },
+    { staleTime: 30_000 },
+  );
   const ipcType = ipcTypes?.find((t) => t.id === baseId);
   const base = useMemo(
     () => (ipcType ? ipcEntityTypeToCore(ipcType) : undefined),
@@ -96,15 +103,14 @@ function InlineBaseHeader({
       <Icon size={12} style={{ color: base.color ?? "var(--accent)" }} weight="fill" />
       <span style={{ color: "var(--text-secondary)", fontWeight: 600 }}>{base.plural}</span>
       <span style={{ color: "var(--text-muted)" }}>· vue inline</span>
-      <button
-        type="button"
-        onClick={() => requestReconfigure(baseId, viewId)}
+      <Button
+        onPress={() => requestReconfigure(baseId, viewId)}
         className="ml-auto rounded px-1.5 py-0.5 hover:bg-[var(--surface-2)]"
         style={{ color: "var(--text-muted)" }}
-        title="Changer de Base"
+        aria-label="Changer de Base"
       >
         Changer
-      </button>
+      </Button>
     </div>
   );
 }
@@ -116,11 +122,38 @@ function BasePicker({ currentId }: { currentId: string }) {
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
   const [newPlural, setNewPlural] = useState("");
+  const [search, setSearch] = useState("");
+  const [showSystem, setShowSystem] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
-  const { data: ipcTypes, isLoading } = trpc.schemas.list.useQuery({ search: undefined });
+  const { data: ipcTypes, isLoading } = trpc.schemas.list.useQuery(
+    { search: undefined },
+    { staleTime: 30_000 },
+  );
+  const utils = trpc.useUtils();
+
+  // Liste utilisateur d'abord, system masqué par défaut. Recherche fuzzy
+  // simple sur name + plural pour scaler à beaucoup de Bases.
+  const filteredTypes = useMemo(() => {
+    const all = ipcTypes ?? [];
+    const q = search.trim().toLowerCase();
+    return all
+      .filter((t) => showSystem || !t.isSystem)
+      .filter((t) => {
+        if (!q) return true;
+        return (
+          t.name.toLowerCase().includes(q) ||
+          (t.plural ?? "").toLowerCase().includes(q)
+        );
+      });
+  }, [ipcTypes, search, showSystem]);
+
+  const systemCount = (ipcTypes ?? []).filter((t) => t.isSystem).length;
 
   const createSchema = trpc.schemas.create.useMutation({
-    onSuccess: (created) => {
+    onSuccess: async (created) => {
+      // Invalider le cache avant de reconfigurer — sinon InlineDatabase ne
+      // trouve pas le nouveau schéma dans la query cache et repasse au picker.
+      await utils.schemas.list.invalidate();
       if (created?.id) requestReconfigure(created.id, "");
     },
   });
@@ -146,9 +179,8 @@ function BasePicker({ currentId }: { currentId: string }) {
 
   if (!open) {
     return (
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
+      <Button
+        onPress={() => setOpen(true)}
         className="block w-full rounded border border-dashed px-3 py-3 text-center text-xs"
         style={{
           borderColor: "var(--border-subtle)",
@@ -157,7 +189,7 @@ function BasePicker({ currentId }: { currentId: string }) {
         }}
       >
         Sélectionner une Base à afficher
-      </button>
+      </Button>
     );
   }
 
@@ -173,16 +205,32 @@ function BasePicker({ currentId }: { currentId: string }) {
         Choisir ou créer une Base
       </p>
 
+      {/* Search input */}
+      <Input
+        type="text"
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        placeholder={`Rechercher parmi ${(ipcTypes ?? []).filter((t) => showSystem || !t.isSystem).length} Bases…`}
+        aria-label="Rechercher une Base"
+        className="mb-2 w-full rounded border bg-transparent px-2 py-1 text-xs"
+        style={{ borderColor: "var(--border-subtle)", color: "var(--text-primary)" }}
+      />
+
       {/* Existing bases */}
       {isLoading ? (
         <p className="mb-2 text-xs" style={{ color: "var(--text-muted)" }}>Chargement…</p>
+      ) : filteredTypes.length === 0 ? (
+        <p className="mb-2 text-xs" style={{ color: "var(--text-muted)" }}>
+          {search ? "Aucun résultat." : "Aucune Base — créez-en une."}
+        </p>
       ) : (
-        <div className="mb-3 flex flex-wrap gap-1.5">
-          {(ipcTypes ?? []).map((t) => (
-            <button
+        <div
+          className="mb-2 flex max-h-40 flex-wrap gap-1.5 overflow-y-auto"
+        >
+          {filteredTypes.map((t) => (
+            <Button
               key={t.id}
-              type="button"
-              onClick={() => requestReconfigure(t.id, "")}
+              onPress={() => requestReconfigure(t.id, "")}
               className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium hover:bg-[var(--surface-2)]"
               style={{
                 backgroundColor: t.id === currentId ? "var(--surface-3)" : "transparent",
@@ -192,16 +240,29 @@ function BasePicker({ currentId }: { currentId: string }) {
             >
               {t.icon ? t.icon : <Database size={11} />}
               {" "}{t.plural}
-            </button>
+              {t.isSystem && (
+                <span className="text-[9px]" style={{ color: "var(--text-muted)" }}>·sys</span>
+              )}
+            </Button>
           ))}
         </div>
       )}
 
+      {systemCount > 0 && (
+        <Checkbox
+          isSelected={showSystem}
+          onChange={setShowSystem}
+          className="mb-2 flex cursor-pointer items-center gap-1.5 text-[11px]"
+          style={{ color: "var(--text-muted)" }}
+        >
+          Afficher les Bases système ({systemCount})
+        </Checkbox>
+      )}
+
       {/* Create new base form */}
       {!creating ? (
-        <button
-          type="button"
-          onClick={openCreateForm}
+        <Button
+          onPress={openCreateForm}
           className="flex items-center gap-1.5 rounded-md border border-dashed px-2 py-1.5 text-xs"
           style={{
             borderColor: "var(--border-subtle)",
@@ -209,7 +270,7 @@ function BasePicker({ currentId }: { currentId: string }) {
           }}
         >
           <Plus size={11} /> Nouvelle Base
-        </button>
+        </Button>
       ) : (
         <div
           className="mt-1 rounded border p-2"
@@ -235,6 +296,7 @@ function BasePicker({ currentId }: { currentId: string }) {
                 if (e.key === "Enter" && !createSchema.isPending) handleCreate();
                 if (e.key === "Escape") setCreating(false);
               }}
+              aria-label="Nom de la Base"
               className="rounded border bg-transparent px-2 py-1 text-xs"
               style={{ borderColor: "var(--border-subtle)", color: "var(--text-primary)" }}
             />
@@ -247,6 +309,7 @@ function BasePicker({ currentId }: { currentId: string }) {
                 if (e.key === "Enter" && !createSchema.isPending) handleCreate();
                 if (e.key === "Escape") setCreating(false);
               }}
+              aria-label="Nom pluriel de la Base"
               className="rounded border bg-transparent px-2 py-1 text-xs"
               style={{ borderColor: "var(--border-subtle)", color: "var(--text-primary)" }}
             />
@@ -256,18 +319,16 @@ function BasePicker({ currentId }: { currentId: string }) {
               </p>
             )}
             <div className="flex items-center justify-end gap-1.5 pt-0.5">
-              <button
-                type="button"
-                onClick={() => setCreating(false)}
+              <Button
+                onPress={() => setCreating(false)}
                 className="rounded px-2 py-1 text-xs"
                 style={{ color: "var(--text-muted)" }}
               >
                 Annuler
-              </button>
-              <button
-                type="button"
-                onClick={handleCreate}
-                disabled={!newName.trim() || createSchema.isPending}
+              </Button>
+              <Button
+                onPress={handleCreate}
+                isDisabled={!newName.trim() || createSchema.isPending}
                 className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium"
                 style={{
                   backgroundColor: "var(--accent)",
@@ -276,7 +337,7 @@ function BasePicker({ currentId }: { currentId: string }) {
                 }}
               >
                 <Plus size={10} /> {createSchema.isPending ? "Création…" : "Créer"}
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -347,10 +408,9 @@ function ViewLinkPicker({
       ) : (
         <div className="mb-3 flex flex-wrap gap-1.5">
           {views.map((v) => (
-            <button
+            <Button
               key={v.id}
-              type="button"
-              onClick={() => requestReconfigure(baseId, v.id)}
+              onPress={() => requestReconfigure(baseId, v.id)}
               className="flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs hover:bg-[var(--surface-2)]"
               style={{
                 borderColor: "var(--border-subtle)",
@@ -364,7 +424,7 @@ function ViewLinkPicker({
                   (par défaut)
                 </span>
               )}
-            </button>
+            </Button>
           ))}
         </div>
       )}
@@ -384,13 +444,14 @@ function ViewLinkPicker({
           Nouvelle vue dédiée
         </p>
         <div className="flex items-center gap-1.5">
-          <input
+          <Input
             type="text"
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !createView.isPending) createAndLink();
             }}
+            aria-label="Nom de la nouvelle vue"
             className="flex-1 rounded border bg-transparent px-1.5 py-1 text-xs"
             style={{
               borderColor: "var(--border-subtle)",
@@ -398,10 +459,9 @@ function ViewLinkPicker({
             }}
             placeholder={`Vue inline – ${basePlural}`}
           />
-          <button
-            type="button"
-            disabled={createView.isPending}
-            onClick={createAndLink}
+          <Button
+            isDisabled={createView.isPending}
+            onPress={createAndLink}
             className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium"
             style={{
               backgroundColor: "var(--accent)",
@@ -410,7 +470,7 @@ function ViewLinkPicker({
             }}
           >
             <Plus size={10} /> {createView.isPending ? "Création…" : "Créer"}
-          </button>
+          </Button>
         </div>
         {createView.error && (
           <p className="mt-1 text-[11px]" style={{ color: "var(--destructive)" }}>

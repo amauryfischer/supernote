@@ -10,6 +10,7 @@
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Database, Plus, Gear } from "@phosphor-icons/react";
+import { Button } from "@heroui/react";
 import { AppShell, useMobileTitle, useMobileFab } from "@/components/shell";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { trpc } from "@/lib/trpc/client";
@@ -86,15 +87,17 @@ export default function BasePage() {
           className="flex items-center gap-3 border-b px-4 py-3"
           style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-1)" }}
         >
-          <button
-            type="button"
-            onClick={() => router.push("/schemas")}
-            className="rounded p-1 hover:bg-[var(--surface-2)]"
-            title="Retour aux schémas"
-            style={{ color: "var(--text-muted)" }}
+          <Button
+            isIconOnly
+            variant="ghost"
+            size="sm"
+            onPress={() => router.push("/schemas")}
+            aria-label="Retour aux schémas"
+            className="rounded p-1"
+            style={{ color: "var(--text-muted)", minWidth: 0 }}
           >
             <ArrowLeft size={16} />
-          </button>
+          </Button>
           <Icon
             size={18}
             style={{ color: base.color ?? "var(--accent)" }}
@@ -110,14 +113,14 @@ export default function BasePage() {
           </div>
           <div className="ml-auto flex items-center gap-2">
             {!isMobile && (
-              <button
-                type="button"
-                onClick={() => mut.create.mutate({ typeId: base.id, fields: {}, body: "" })}
+              <Button
+                size="sm"
+                onPress={() => mut.create.mutate({ typeId: base.id, fields: {}, body: "" })}
                 className="flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-medium"
                 style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
               >
                 <Plus size={12} /> Nouvelle entrée
-              </button>
+              </Button>
             )}
             <Link
               href={`/schemas/${base.id}`}

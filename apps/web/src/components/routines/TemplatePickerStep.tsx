@@ -1,5 +1,6 @@
 "use client";
 
+import { Button } from "@heroui/react";
 import { Calendar, Lightning, Alarm, Brain, Plus } from "@phosphor-icons/react";
 import type { TemplateKey } from "./fixtures";
 import { TEMPLATE_META } from "./fixtures";
@@ -39,10 +40,11 @@ export function TemplatePickerStep({ onSelect }: TemplatePickerStepProps) {
           const Icon = TEMPLATE_ICONS[key];
           const isBlank = key === "blank";
           return (
-            <button
+            <Button
               key={key}
-              onClick={() => onSelect(key)}
-              className="flex items-start gap-3 rounded-xl border p-4 text-left transition-all hover:border-[var(--accent)] hover:shadow-sm"
+              variant="ghost"
+              onPress={() => onSelect(key)}
+              className="flex h-auto items-start gap-3 rounded-xl border p-4 text-left transition-all hover:border-[var(--accent)] hover:shadow-sm"
               style={{
                 borderColor: "var(--border)",
                 backgroundColor: "var(--surface-1)",
@@ -64,7 +66,7 @@ export function TemplatePickerStep({ onSelect }: TemplatePickerStepProps) {
                   {meta.description}
                 </div>
               </div>
-            </button>
+            </Button>
           );
         })}
       </div>

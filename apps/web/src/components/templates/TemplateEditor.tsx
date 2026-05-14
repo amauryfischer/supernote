@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
+import { Button, Input, TextArea } from "@heroui/react";
 import { listVariables, renderTemplate } from "@supernote/templates";
 import type { Template, TemplateResolvers } from "@supernote/templates";
 import { Play, Tag } from "@phosphor-icons/react";
@@ -80,32 +81,32 @@ export function TemplateEditor({ template, onSave, onTest }: TemplateEditorProps
         className="flex items-center justify-between px-6 py-4"
         style={{ borderBottom: "1px solid var(--border-subtle)" }}
       >
-        <input
+        <Input
           type="text"
           value={name}
           onChange={(e) => setName(e.target.value)}
-          className="bg-transparent text-lg font-semibold outline-none"
-          style={{ color: "var(--text-primary)" }}
+          className="bg-transparent text-lg font-semibold"
           placeholder="Nom du template"
           aria-label="Nom du template"
         />
         <div className="flex items-center gap-2">
-          <button
-            onClick={handleTest}
-            disabled={isRendering}
+          <Button
+            variant="secondary"
+            onPress={handleTest}
+            isDisabled={isRendering}
             className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors"
             style={{ backgroundColor: "var(--surface-2)", color: "var(--text-secondary)" }}
           >
             <Play size={12} />
             {isRendering ? "Rendu…" : "Tester"}
-          </button>
-          <button
-            onClick={handleSave}
+          </Button>
+          <Button
+            variant="primary"
+            onPress={handleSave}
             className="rounded-md px-3 py-1.5 text-xs font-medium text-white transition-colors"
-            style={{ backgroundColor: "var(--accent)" }}
           >
             Enregistrer
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -120,17 +121,13 @@ export function TemplateEditor({ template, onSave, onTest }: TemplateEditorProps
             <label className="mb-1 block text-xs font-medium" style={{ color: "var(--text-muted)" }}>
               Type d&apos;entité cible
             </label>
-            <input
+            <Input
               type="text"
               value={entityType}
               onChange={(e) => setEntityType(e.target.value)}
-              className="w-full rounded-md border px-3 py-1.5 text-sm outline-none"
-              style={{
-                borderColor: "var(--border-subtle)",
-                backgroundColor: "var(--surface-1)",
-                color: "var(--text-primary)",
-              }}
+              className="w-full text-sm"
               placeholder="ex: note, contact, projet…"
+              aria-label="Type d'entité cible"
             />
           </div>
 
@@ -168,20 +165,13 @@ export function TemplateEditor({ template, onSave, onTest }: TemplateEditorProps
 
         {/* Right: body textarea + preview */}
         <div className="flex flex-1 flex-col overflow-hidden">
-          <textarea
+          <TextArea
             value={body}
             onChange={(e) => setBody(e.target.value)}
-            className="flex-1 resize-none p-6 font-mono text-sm outline-none"
-            style={{
-              backgroundColor: "var(--surface-0)",
-              color: "var(--text-primary)",
-              borderBottom:
-                preview !== null || previewError !== null
-                  ? "1px solid var(--border-subtle)"
-                  : undefined,
-            }}
+            className={`flex-1 resize-none p-6 font-mono text-sm bg-[var(--surface-0)] text-[var(--text-primary)]${preview !== null || previewError !== null ? " border-b border-[var(--border-subtle)]" : ""}`}
             aria-label="Corps du template"
             spellCheck={false}
+            rows={10}
           />
           {previewError && (
             <div className="p-4 text-xs" style={{ color: "#ef4444", backgroundColor: "var(--surface-1)" }}>

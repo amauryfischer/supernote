@@ -20,6 +20,8 @@
  * note's line and deletes the entities. Standalones are never touched.
  */
 
+import { Button } from "@heroui/react";
+import { NativeSelect } from "@/components/settings/NativeSelect";
 import {
   AppShell,
   useMobileFab,
@@ -888,34 +890,34 @@ export default function TodosPage() {
               className="flex items-center gap-0.5 rounded-md p-0.5"
               style={{ backgroundColor: "var(--surface-2)" }}
             >
-              <button
-                type="button"
-                onClick={() => viewMode !== "list" && toggleViewMode()}
-                className="flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-colors"
+              <Button
+                size="sm"
+                variant="ghost"
+                onPress={() => viewMode !== "list" && toggleViewMode()}
+                className="flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-colors min-w-0 h-auto"
                 style={
                   viewMode === "list"
                     ? { backgroundColor: "var(--surface-0)", color: "var(--text-primary)" }
                     : { color: "var(--text-muted)" }
                 }
-                title="Vue liste"
               >
                 <List size={12} />
                 Liste
-              </button>
-              <button
-                type="button"
-                onClick={() => viewMode !== "calendar" && toggleViewMode()}
-                className="flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-colors"
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onPress={() => viewMode !== "calendar" && toggleViewMode()}
+                className="flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-colors min-w-0 h-auto"
                 style={
                   viewMode === "calendar"
                     ? { backgroundColor: "var(--surface-0)", color: "var(--text-primary)" }
                     : { color: "var(--text-muted)" }
                 }
-                title="Vue calendrier"
               >
                 <CalendarBlank size={12} />
                 Calendrier
-              </button>
+              </Button>
             </div>
             {viewMode === "list" && (
               <FilterTabs
@@ -931,9 +933,11 @@ export default function TodosPage() {
             )}
             {viewMode === "list" && <SortMenu value={sortKey} onChange={setSortKey} />}
             {viewMode === "list" && (
-              <button
-                onClick={toggleGroupByNote}
-                className="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors"
+              <Button
+                size="sm"
+                variant="outline"
+                onPress={toggleGroupByNote}
+                className="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors min-w-0 h-auto"
                 style={{
                   borderColor: groupByNote
                     ? "var(--accent)"
@@ -943,49 +947,51 @@ export default function TodosPage() {
                     : "var(--surface-1)",
                   color: groupByNote ? "var(--accent)" : "var(--text-secondary)",
                 }}
-                title={groupByNote ? "Vue à plat" : "Grouper par note source"}
               >
                 <ListBullets size={13} />
                 {groupByNote ? "Groupé" : "Grouper"}
-              </button>
+              </Button>
             )}
-            <button
-              onClick={() => setShowCreate(true)}
-              className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-opacity hover:opacity-90"
+            <Button
+              size="sm"
+              variant="primary"
+              onPress={() => setShowCreate(true)}
+              className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-opacity hover:opacity-90 min-w-0 h-auto"
               style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
-              title="Nouvelle tâche"
             >
               <Plus size={13} />
               Nouvelle
-            </button>
-            <button
-              onClick={handleEmailAll}
-              disabled={sortedTodos.length === 0}
-              className="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition-opacity hover:opacity-90 disabled:opacity-50"
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onPress={handleEmailAll}
+              isDisabled={sortedTodos.length === 0}
+              className="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition-opacity hover:opacity-90 min-w-0 h-auto"
               style={{
                 borderColor: "var(--border-subtle)",
                 color: "var(--text-secondary)",
                 backgroundColor: "var(--surface-1)",
               }}
-              title="Envoyer toutes les tâches affichées par email"
             >
               <Envelope size={13} />
               Tout envoyer
-            </button>
-            <button
-              onClick={() => void handleRefresh()}
-              disabled={busy}
-              className="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition-opacity hover:opacity-90 disabled:opacity-50"
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onPress={() => void handleRefresh()}
+              isDisabled={busy}
+              className="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition-opacity hover:opacity-90 min-w-0 h-auto"
               style={{
                 borderColor: "var(--border-subtle)",
                 color: "var(--text-secondary)",
                 backgroundColor: "var(--surface-1)",
               }}
-              title="Actualiser"
             >
               <ArrowsClockwise size={13} className={busy ? "animate-spin" : ""} />
               {busy ? "…" : "Actualiser"}
-            </button>
+            </Button>
           </div>
         </div>
 
@@ -1031,27 +1037,29 @@ export default function TodosPage() {
               </span>
             </div>
             <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => void handleMigrate()}
-                disabled={migrating}
-                className="rounded-md px-3 py-1 text-xs font-medium transition-opacity hover:opacity-90 disabled:opacity-50"
+              <Button
+                size="sm"
+                variant="primary"
+                onPress={() => void handleMigrate()}
+                isDisabled={migrating}
+                className="rounded-md px-3 py-1 text-xs font-medium transition-opacity hover:opacity-90 min-w-0 h-auto"
                 style={{
                   backgroundColor: "oklch(0.45 0.18 60)",
                   color: "white",
                 }}
               >
                 {migrating ? "Migration en cours…" : "Migrer maintenant"}
-              </button>
-              <button
-                type="button"
-                onClick={() => setMigrationDismissed(true)}
-                disabled={migrating}
-                className="text-xs underline"
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onPress={() => setMigrationDismissed(true)}
+                isDisabled={migrating}
+                className="text-xs underline min-w-0 h-auto p-0"
                 style={{ color: "oklch(0.4 0.12 60)" }}
               >
                 plus tard
-              </button>
+              </Button>
             </div>
           </div>
         )}
@@ -1070,11 +1078,12 @@ export default function TodosPage() {
               {availableTags.map((tag) => {
                 const active = tagFilter.has(tag);
                 return (
-                  <button
+                  <Button
                     key={tag}
-                    type="button"
-                    onClick={() => toggleTag(tag)}
-                    className="rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors"
+                    size="sm"
+                    variant={active ? "primary" : "outline"}
+                    onPress={() => toggleTag(tag)}
+                    className="rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors min-w-0 h-auto"
                     style={
                       active
                         ? {
@@ -1090,18 +1099,19 @@ export default function TodosPage() {
                     }
                   >
                     {tag}
-                  </button>
+                  </Button>
                 );
               })}
               {tagFilter.size > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setTagFilter(new Set())}
-                  className="ml-1 text-[11px] underline"
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onPress={() => setTagFilter(new Set())}
+                  className="ml-1 text-[11px] underline min-w-0 h-auto p-0"
                   style={{ color: "var(--text-muted)" }}
                 >
                   effacer
-                </button>
+                </Button>
               )}
             </div>
           </div>
@@ -1352,10 +1362,12 @@ function FilterTabs({ value, onChange, counts }: FilterTabsProps) {
       {tabs.map((tab) => {
         const active = value === tab.key;
         return (
-          <button
+          <Button
             key={tab.key}
-            onClick={() => onChange(tab.key)}
-            className="flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-colors"
+            size="sm"
+            variant="ghost"
+            onPress={() => onChange(tab.key)}
+            className="flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-colors min-w-0 h-auto"
             style={
               active
                 ? { backgroundColor: "var(--surface-0)", color: "var(--text-primary)" }
@@ -1374,7 +1386,7 @@ function FilterTabs({ value, onChange, counts }: FilterTabsProps) {
                 {tab.count}
               </span>
             )}
-          </button>
+          </Button>
         );
       })}
     </div>
@@ -1422,15 +1434,18 @@ function SortableTodoRow({ row, sortable, onToggle, onEdit, onEmail, onContextMe
       onMouseLeave={() => setHovered(false)}
     >
       {sortable && hovered && (
-        <button
+        <Button
           {...listeners}
           aria-label="Réordonner"
-          className="absolute left-0 top-1/2 z-10 -translate-y-1/2 flex h-6 w-5 items-center justify-center rounded cursor-grab active:cursor-grabbing"
+          size="sm"
+          variant="ghost"
+          isIconOnly
+          className="absolute left-0 top-1/2 z-10 -translate-y-1/2 flex h-6 w-5 items-center justify-center rounded cursor-grab active:cursor-grabbing min-w-0 p-0"
           style={{ color: "var(--text-muted)" }}
-          onMouseDown={(e) => e.stopPropagation()}
+          onMouseDown={(e: React.MouseEvent) => e.stopPropagation()}
         >
           <DotsSixVertical size={13} />
-        </button>
+        </Button>
       )}
       <TodoRow
         row={row}
@@ -1444,15 +1459,15 @@ function SortableTodoRow({ row, sortable, onToggle, onEdit, onEmail, onContextMe
 }
 
 function SortMenu({ value, onChange }: SortMenuProps) {
-  const options: Array<{ key: SortKey; label: string }> = [
-    { key: "priority", label: "Priorité" },
-    { key: "importance", label: "Importance" },
-    { key: "dueDate", label: "Échéance" },
-    { key: "createdAt", label: "Créée le" },
-    { key: "manual", label: "Manuel (glisser)" },
+  const options: Array<{ value: SortKey; label: string }> = [
+    { value: "priority", label: "Priorité" },
+    { value: "importance", label: "Importance" },
+    { value: "dueDate", label: "Échéance" },
+    { value: "createdAt", label: "Créée le" },
+    { value: "manual", label: "Manuel (glisser)" },
   ];
   return (
-    <label
+    <div
       className="flex items-center gap-1.5 rounded-md border px-2 py-1.5 text-xs"
       style={{
         borderColor: "var(--border-subtle)",
@@ -1462,18 +1477,11 @@ function SortMenu({ value, onChange }: SortMenuProps) {
       title="Tri"
     >
       <SortAscending size={12} />
-      <select
+      <NativeSelect
         value={value}
-        onChange={(e) => onChange(e.target.value as SortKey)}
-        className="bg-transparent outline-none"
-        style={{ color: "var(--text-secondary)" }}
-      >
-        {options.map((o) => (
-          <option key={o.key} value={o.key}>
-            {o.label}
-          </option>
-        ))}
-      </select>
-    </label>
+        onChange={(v) => onChange(v as SortKey)}
+        options={options}
+      />
+    </div>
   );
 }

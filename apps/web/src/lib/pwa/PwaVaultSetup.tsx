@@ -24,7 +24,19 @@
  */
 
 import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from "react";
-import { saveVaultHandle, loadVaultHandle, verifyHandlePermission } from "@/lib/vault-worker/vault-handle-storage";
+import { Button } from "@heroui/react";
+import {
+  saveVaultHandle,
+  loadVaultHandle,
+  verifyHandlePermission,
+  listVaults,
+  getVaultEntry,
+  upsertVaultEntry,
+  removeVaultEntry,
+  getActiveVaultId,
+  setActiveVaultId,
+  type VaultEntry,
+} from "@/lib/vault-worker/vault-handle-storage";
 import { initWorkerVault, onWorkerMessage, setWorkerReady, flushVaultWorker } from "@/lib/trpc/browser-link";
 import { isBrowserPwaMode } from "@/lib/trpc/client";
 import type { VaultReadyMessage, VaultErrorMessage } from "@/lib/vault-worker/worker-protocol";
@@ -62,6 +74,13 @@ export interface GitSetupArgs {
   mode: "clone-into-empty" | "init-existing";
 }
 
+/** Lightweight projection of {@link VaultEntry} exposed to UI consumers. */
+export interface RecentVault {
+  id: string;
+  name: string;
+  lastOpenedAt: number;
+}
+
 interface VaultContextValue {
   state: SetupState;
   errorMsg: string | null;
@@ -78,6 +97,18 @@ interface VaultContextValue {
   skipToDegraded: () => void;
   /** True only in PWA mode (FSA available, no Electron bridge). */
   isPwa: boolean;
+  /** Known vaults, freshest first. Repopulated on every switch / pick. */
+  recentVaults: RecentVault[];
+  /** Id of the vault currently mounted by the worker, or null. */
+  activeVaultId: string | null;
+  /**
+   * Activate one of the {@link recentVaults} by id. Re-requests permission
+   * if needed; on success the worker is re-initialised against the new
+   * folder. Resolves once the worker emits `VAULT_READY` (or rejects).
+   */
+  switchToVault: (id: string) => Promise<void>;
+  /** Remove a vault from the recents registry. The active vault cannot be removed. */
+  forgetVault: (id: string) => Promise<void>;
 }
 
 const VaultContext = createContext<VaultContextValue | null>(null);
@@ -95,9 +126,28 @@ export function usePwaVaultSetup(): VaultContextValue {
   const [state, setState] = useState<SetupState>("idle");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [vaultName, setVaultName] = useState<string | null>(null);
+  const [recentVaults, setRecentVaults] = useState<RecentVault[]>([]);
+  const [activeVaultId, setActiveVaultIdState] = useState<string | null>(null);
 
   // Only runs in PWA mode (FSA available, no Electron)
   const isPwa = isBrowserPwaMode();
+
+  // Refresh the in-memory recents projection from IDB. Cheap (≤ a handful of
+  // entries) so we call it from any code path that mutates the registry.
+  const refreshRecents = useCallback(async () => {
+    try {
+      const [entries, active] = await Promise.all([
+        listVaults(),
+        getActiveVaultId(),
+      ]);
+      setRecentVaults(
+        entries.map((e) => ({ id: e.id, name: e.name, lastOpenedAt: e.lastOpenedAt })),
+      );
+      setActiveVaultIdState(active);
+    } catch (err) {
+      console.warn("[pwa-vault] refreshRecents failed", err);
+    }
+  }, []);
 
   // Guard so the bootstrap effect runs at most once per page load.
   // Without this, the effect would re-fire on every navigation that
@@ -121,6 +171,9 @@ export function usePwaVaultSetup(): VaultContextValue {
     setState("checking");
     void (async () => {
       const handle = await loadVaultHandle().catch(() => null);
+      // Seed the recents projection regardless of permission outcome so the
+      // sidebar switcher is populated as soon as the chrome mounts.
+      void refreshRecents();
       if (!handle) { setState("prompt"); return; }
 
       const granted = await verifyHandlePermission(handle, false);
@@ -143,6 +196,10 @@ export function usePwaVaultSetup(): VaultContextValue {
         setVaultName((m as VaultReadyMessage).vaultName);
         setWorkerReady(true);
         setState("ready");
+        // The worker just finished mounting a handle — make sure the
+        // recents list and active id reflect that (covers the bootstrap
+        // path where the registry hadn't been touched yet).
+        void refreshRecents();
       } else if (m.type === "VAULT_ERROR") {
         setErrorMsg((m as VaultErrorMessage).error);
         setState("error");
@@ -204,6 +261,7 @@ export function usePwaVaultSetup(): VaultContextValue {
       setWorkerReady(false);
       setVaultName(null);
       setState("loading");
+      void refreshRecents();
       startWorker(handle);
     } catch (err) {
       // User cancelled
@@ -296,6 +354,7 @@ export function usePwaVaultSetup(): VaultContextValue {
       setWorkerReady(false);
       setVaultName(null);
       setState("loading");
+      void refreshRecents();
       startWorker(handle);
     } catch (err) {
       // Label the failure with the step that was running so the user (and
@@ -310,6 +369,58 @@ export function usePwaVaultSetup(): VaultContextValue {
     }
   }, []);
 
+  const switchToVault = useCallback(async (id: string) => {
+    setErrorMsg(null);
+    const entry = await getVaultEntry(id);
+    if (!entry) {
+      setErrorMsg("Ce vault n'existe plus dans l'historique.");
+      return;
+    }
+    // No-op if the user clicks the already-active vault — but still refresh
+    // `lastOpenedAt` so it stays at the top of the recents list.
+    if (id === activeVaultId) {
+      await upsertVaultEntry(entry.handle);
+      void refreshRecents();
+      return;
+    }
+
+    // Permission state is NOT persisted across sessions, so a registry
+    // entry that worked yesterday may need re-authorisation today.
+    const granted = await verifyHandlePermission(entry.handle, true);
+    if (!granted) {
+      setErrorMsg("Permission refusée pour ce dossier.");
+      return;
+    }
+
+    // Different folder → wipe the OPFS-cached SQLite index so the worker
+    // doesn't resurrect the previous vault's data. Same dedup logic as
+    // `pickFolder`. Best-effort — if the handle was invalidated we still
+    // try to clear the cache so we start from a clean slate.
+    try {
+      const previous = await loadVaultHandle().catch(() => null);
+      if (!previous || !(await previous.isSameEntry(entry.handle).catch(() => false))) {
+        await clearOpfsDb();
+      }
+    } catch (err) {
+      console.warn("[pwa-vault] OPFS clear skipped", err);
+    }
+
+    await saveVaultHandle(entry.handle);
+    await setActiveVaultId(entry.id);
+    if (typeof window !== "undefined") window.localStorage.removeItem(DEGRADED_STORAGE_KEY);
+    setWorkerReady(false);
+    setVaultName(null);
+    setState("loading");
+    void refreshRecents();
+    startWorker(entry.handle);
+  }, [activeVaultId, refreshRecents]);
+
+  const forgetVault = useCallback(async (id: string) => {
+    if (id === activeVaultId) return;
+    await removeVaultEntry(id);
+    void refreshRecents();
+  }, [activeVaultId, refreshRecents]);
+
   return {
     state,
     errorMsg,
@@ -320,6 +431,10 @@ export function usePwaVaultSetup(): VaultContextValue {
     setupGitVault,
     skipToDegraded,
     isPwa,
+    recentVaults,
+    activeVaultId,
+    switchToVault,
+    forgetVault,
   };
 }
 
@@ -364,15 +479,33 @@ export function PwaVaultSetup({ children }: { children: React.ReactNode }) {
         <PwaOverlay>
           <p style={styles.title}>Erreur</p>
           <p style={styles.error}>{errorMsg}</p>
-          <button style={styles.btnPrimary} onClick={() => void pickFolder()}>
+          <Button
+            type="button"
+            variant="primary"
+            onPress={() => void pickFolder()}
+            className="w-full"
+            style={{ fontSize: 15, fontWeight: 600, padding: "12px 24px" }}
+          >
             Choisir un dossier local
-          </button>
-          <button style={styles.btnSecondary} onClick={startGitFlow}>
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            onPress={startGitFlow}
+            className="w-full"
+            style={{ fontSize: 14, fontWeight: 500, padding: "10px 24px" }}
+          >
             Réessayer avec un dépôt Git
-          </button>
-          <button style={styles.btnGhost} onClick={skipToDegraded}>
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            onPress={skipToDegraded}
+            className="w-full underline underline-offset-[3px]"
+            style={{ fontSize: 13, color: "#6b7280" }}
+          >
             Continuer sans dossier
-          </button>
+          </Button>
         </PwaOverlay>
       );
     } else if (state === "git-form") {
@@ -397,11 +530,13 @@ export function PwaVaultSetup({ children }: { children: React.ReactNode }) {
           </p>
 
           <div style={styles.choiceGrid}>
-            <button
+            <Button
               type="button"
+              variant="ghost"
+              onPress={() => void pickFolder()}
+              isDisabled={state === "picking"}
               style={styles.choiceCard}
-              onClick={() => void pickFolder()}
-              disabled={state === "picking"}
+              className="h-auto flex-col items-center gap-2 p-0"
             >
               <div style={styles.choiceIcon}>📁</div>
               <div style={styles.choiceTitle}>Dossier local</div>
@@ -409,13 +544,15 @@ export function PwaVaultSetup({ children }: { children: React.ReactNode }) {
                 Vos notes restent sur cet appareil. Idéal pour démarrer
                 rapidement, sans configuration.
               </div>
-            </button>
+            </Button>
 
-            <button
+            <Button
               type="button"
+              variant="ghost"
+              onPress={startGitFlow}
+              isDisabled={state === "picking"}
               style={styles.choiceCard}
-              onClick={startGitFlow}
-              disabled={state === "picking"}
+              className="h-auto flex-col items-center gap-2 p-0"
             >
               <div style={styles.choiceIcon}>🔀</div>
               <div style={styles.choiceTitle}>Dépôt Git</div>
@@ -423,12 +560,18 @@ export function PwaVaultSetup({ children }: { children: React.ReactNode }) {
                 Synchronise vos notes via un repo GitHub / GitLab / Forgejo.
                 Accessible depuis tous vos appareils.
               </div>
-            </button>
+            </Button>
           </div>
 
-          <button style={styles.btnGhost} onClick={skipToDegraded}>
+          <Button
+            type="button"
+            variant="ghost"
+            onPress={skipToDegraded}
+            className="w-full underline underline-offset-[3px]"
+            style={{ fontSize: 13, color: "#6b7280" }}
+          >
             Continuer sans dossier (mode limité)
-          </button>
+          </Button>
         </PwaOverlay>
       );
     }
@@ -546,12 +689,21 @@ function GitSetupForm({
       </div>
 
       <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
-        <button type="button" style={{ ...styles.btnSecondary, flex: 1 }} onClick={onCancel}>
+        <Button
+          type="button"
+          variant="outline"
+          onPress={onCancel}
+          style={{ flex: 1, fontSize: 14, fontWeight: 500, padding: "10px 24px" }}
+        >
           Retour
-        </button>
-        <button type="submit" style={{ ...styles.btnPrimary, flex: 2 }}>
+        </Button>
+        <Button
+          type="submit"
+          variant="primary"
+          style={{ flex: 2, fontSize: 15, fontWeight: 600, padding: "12px 24px" }}
+        >
           Choisir le dossier et continuer
-        </button>
+        </Button>
       </div>
     </form>
   );

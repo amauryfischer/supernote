@@ -8,7 +8,6 @@ export const assetSeed: EntityTypeDefinition = {
   color: "#10B981",
   defaultPath: "/Finance/Assets",
   fileNamePattern: "{name}",
-  defaultView: "kanban",
   fields: [
     {
       id: "asset_name",

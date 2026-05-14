@@ -137,9 +137,23 @@ function blockToMarkdownLine(block: AnyBlock): string {
     case "divider":
       return "---";
 
+    case "databaseView": {
+      // Bloc Coda/Notion-like — on persiste les deux ids en tant que ligne
+      // dédiée pour qu'un round-trip markdown ne perde jamais les blocs
+      // insérés dans une note (sinon l'autosave réécrit la note sans les
+      // blocs et le reload affiche une note vide).
+      const baseId = (props.baseId as string) ?? "";
+      const viewId = (props.viewId as string) ?? "";
+      return `[databaseView base="${escapeAttr(baseId)}" view="${escapeAttr(viewId)}"]`;
+    }
+
     default:
       return serializeInlineContent(block.content);
   }
+}
+
+function escapeAttr(s: string): string {
+  return s.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
 /** Convert blocks to Obsidian-compatible markdown */

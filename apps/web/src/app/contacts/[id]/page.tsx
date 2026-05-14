@@ -20,6 +20,7 @@ import {
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState, useCallback } from "react";
+import { Button, TextArea } from "@heroui/react";
 import { trpc } from "@/lib/trpc/client";
 import type { RelationEdge, FieldValue } from "@supernote/ipc";
 import { localStore } from "@/lib/local-store";
@@ -75,16 +76,17 @@ function NotesTab({ entityId, initialNotes }: NotesTabProps) {
         <p className="text-xs font-medium uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
           Note de fiche
         </p>
-        <button
-          onClick={handleSave}
-          disabled={updateMutation.isPending}
-          className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-opacity hover:opacity-90 disabled:opacity-50"
+        <Button
+          onPress={handleSave}
+          isDisabled={updateMutation.isPending}
+          size="sm"
+          className="px-3 text-xs font-medium"
           style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
         >
-          {updateMutation.isPending ? "Enregistrement…" : saved ? "Enregistre" : "Enregistrer"}
-        </button>
+          {updateMutation.isPending ? "Enregistrement…" : saved ? "Enregistré" : "Enregistrer"}
+        </Button>
       </div>
-      <textarea
+      <TextArea
         value={notes}
         onChange={(e) => setNotes(e.target.value)}
         rows={20}
@@ -151,12 +153,13 @@ function TimelineTab({ contactId, fixtureInteractions }: TimelineTabProps) {
         <p className="text-xs font-medium uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
           {sorted.length} interaction{sorted.length > 1 ? "s" : ""}
         </p>
-        <button
-          className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors hover:opacity-90"
+        <Button
+          size="sm"
+          className="px-3 text-xs font-medium"
           style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
         >
           + Ajouter interaction
-        </button>
+        </Button>
       </div>
 
       {sorted.length === 0 && (
@@ -495,18 +498,19 @@ export default function ContactDetailPage() {
               style={{ borderColor: "var(--border-subtle)" }}
             >
               {TABS.map((t) => (
-                <button
+                <Button
                   key={t.id}
-                  onClick={() => setTab(t.id)}
-                  className="px-4 py-3 text-sm font-medium transition-colors"
+                  variant="ghost"
+                  size="sm"
+                  onPress={() => setTab(t.id)}
+                  className="rounded-none px-4 py-3 text-sm font-medium"
                   style={{
                     color: tab === t.id ? "var(--accent)" : "var(--text-muted)",
                     borderBottom: tab === t.id ? "2px solid var(--accent)" : "2px solid transparent",
-                    backgroundColor: "transparent",
                   }}
                 >
                   {t.label}
-                </button>
+                </Button>
               ))}
             </div>
 

@@ -3,7 +3,6 @@
 import {
   Archive,
   Bell,
-  BookOpen,
   CaretDown,
   Calendar,
   Check,
@@ -16,7 +15,6 @@ import {
   House,
   Lightning,
   MagnifyingGlass,
-  SquaresFour,
   Tag,
   Trash,
   Users,
@@ -35,6 +33,7 @@ import {
   PLUGIN_HREF_BY_SLUG,
   usePluginEnabled,
 } from "@/hooks/usePluginEnabled";
+import { Button } from "@supernote/ui";
 
 // NotificationCenter is heavy and only mounts when the panel is open. Loading
 // it lazily keeps the initial sidebar bundle small (Turbopack can tree-shake
@@ -76,13 +75,11 @@ const NAV_GROUPS: NavGroup[] = [
       { labelKey: "nav.contacts", icon: Users, href: "/contacts" },
       { labelKey: "nav.finance", icon: Wallet, href: "/finance" },
       { labelKey: "nav.tags", icon: Tag, href: "/tags" },
-      { labelKey: "nav.views", icon: BookOpen, href: "/vues" },
     ],
   },
   {
     labelKey: "nav.groups.tools",
     items: [
-      { labelKey: "nav.canvas", icon: SquaresFour, href: "/canvas" },
       { labelKey: "nav.graph", icon: Graph, href: "/graph" },
       { labelKey: "nav.routines", icon: Lightning, href: "/routines" },
     ],
@@ -148,12 +145,10 @@ export const Sidebar = memo(function Sidebar() {
   // href → enabled map that the render pass consults below.
   const journalEnabled = usePluginEnabled("journal", false);
   const routinesEnabled = usePluginEnabled("routines", true);
-  const canvasEnabled = usePluginEnabled("canvas", true);
   const graphEnabled = usePluginEnabled("graph", true);
   const pluginEnabledByHref: Record<string, boolean> = {
     [PLUGIN_HREF_BY_SLUG.journal]: journalEnabled,
     [PLUGIN_HREF_BY_SLUG.routines]: routinesEnabled,
-    [PLUGIN_HREF_BY_SLUG.canvas]: canvasEnabled,
     [PLUGIN_HREF_BY_SLUG.graph]: graphEnabled,
   };
   // Reference BUILT_IN_PLUGINS so future additions surface a type error
@@ -210,15 +205,15 @@ export const Sidebar = memo(function Sidebar() {
           style={{ height: "var(--header-height)" }}
         >
           {canPickVault ? (
-            <button
+            <Button
               ref={brandRef}
               type="button"
+              variant="ghost"
               onClick={() => setSwitcherOpen((v) => !v)}
-              title={`Vault actif : ${brandLabel}`}
               aria-label="Changer de vault"
               aria-haspopup="menu"
               aria-expanded={switcherOpen}
-              className="flex min-w-0 flex-1 items-center gap-2.5 rounded-md px-1 py-1 -mx-1 transition-colors hover:bg-[var(--surface-2)] focus-visible:outline-none"
+              className="flex min-w-0 flex-1 items-center gap-2.5 rounded-md px-1 py-1 -mx-1"
             >
               <div
                 className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-xs font-bold"
@@ -236,7 +231,7 @@ export const Sidebar = memo(function Sidebar() {
                 {brandLabel}
               </span>
               <CaretDown size={11} weight="bold" style={{ color: "var(--text-muted)" }} />
-            </button>
+            </Button>
           ) : (
             <Link
               href="/"
@@ -261,10 +256,12 @@ export const Sidebar = memo(function Sidebar() {
               </span>
             </Link>
           )}
-          <button
+          <Button
+            variant="ghost"
+            size="icon"
             onClick={() => setNotifOpen(true)}
             aria-label="Ouvrir le centre de notifications"
-            className="relative flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-[var(--surface-2)]"
+            className="relative flex h-7 w-7 shrink-0 items-center justify-center rounded-md"
             style={{ color: "var(--text-muted)" }}
           >
             <Bell size={15} />
@@ -272,7 +269,7 @@ export const Sidebar = memo(function Sidebar() {
               count={unreadCount}
               className="absolute -right-1 -top-1"
             />
-          </button>
+          </Button>
         </div>
         {canPickVault && vault && (
           <VaultSwitcherPopover
@@ -473,12 +470,12 @@ function VaultSwitcherPopover({
             key={v.id}
             className="group flex items-center gap-1 rounded-md hover:bg-[var(--surface-2)]"
           >
-            <button
+            <Button
               type="button"
-              role="menuitemradio"
               aria-checked={isActive}
+              variant="ghost"
               onClick={() => onSwitch(v.id)}
-              className="flex min-w-0 flex-1 items-center gap-2 px-2 py-2 text-left text-sm focus-visible:outline-none"
+              className="flex min-w-0 flex-1 items-center gap-2 px-2 py-2 text-left text-sm"
               style={{
                 color: isActive ? "var(--accent)" : "var(--text-primary)",
                 fontWeight: isActive ? 500 : 400,
@@ -491,21 +488,22 @@ function VaultSwitcherPopover({
                 {isActive ? <Check size={13} weight="bold" /> : <FolderOpen size={13} />}
               </span>
               <span className="truncate">{v.name}</span>
-            </button>
+            </Button>
             {!isActive && (
-              <button
+              <Button
                 type="button"
+                variant="ghost"
+                size="icon"
                 onClick={(e) => {
                   e.stopPropagation();
                   onForget(v.id);
                 }}
-                title="Retirer de l'historique"
                 aria-label={`Retirer ${v.name} de l'historique`}
-                className="mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded opacity-0 transition-opacity group-hover:opacity-100 hover:bg-[var(--surface-3)] focus-visible:opacity-100 focus-visible:outline-none"
+                className="mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
                 style={{ color: "var(--text-muted)" }}
               >
                 <Trash size={12} />
-              </button>
+              </Button>
             )}
           </div>
         );
@@ -516,26 +514,26 @@ function VaultSwitcherPopover({
         style={{ borderColor: "var(--border-subtle)" }}
       />
 
-      <button
+      <Button
         type="button"
-        role="menuitem"
+        variant="ghost"
         onClick={onPickFolder}
-        className="flex items-center gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-[var(--surface-2)] focus-visible:outline-none"
+        className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm"
         style={{ color: "var(--text-primary)" }}
       >
         <FolderOpen size={13} style={{ color: "var(--text-muted)" }} />
         <span>Choisir un autre dossier…</span>
-      </button>
-      <button
+      </Button>
+      <Button
         type="button"
-        role="menuitem"
+        variant="ghost"
         onClick={onStartGit}
-        className="flex items-center gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-[var(--surface-2)] focus-visible:outline-none"
+        className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm"
         style={{ color: "var(--text-primary)" }}
       >
         <GitBranch size={13} style={{ color: "var(--text-muted)" }} />
         <span>Connecter un dépôt Git…</span>
-      </button>
+      </Button>
     </div>
   );
 }

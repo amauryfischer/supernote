@@ -33,6 +33,11 @@ export function useEnsureDefaultView(typeId: string | undefined): void {
   });
   useEffect(() => {
     if (!typeId) return;
+    // Inspect le cache d'abord — si une vue système existe déjà, no-op.
+    // Évite un burst de N mutations quand une note contient N blocs
+    // `databaseView` qui pointent vers la même Base.
+    const cached = utils.views.list.getData({ typeId });
+    if (cached && cached.some((v) => v.isSystem)) return;
     mut.mutate({ typeId });
     // mut intentionally excluded — we only want to fire on typeId change.
     // eslint-disable-next-line react-hooks/exhaustive-deps

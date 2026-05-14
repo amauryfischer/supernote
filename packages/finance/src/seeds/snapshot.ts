@@ -8,7 +8,6 @@ export const snapshotSeed: EntityTypeDefinition = {
   color: "#8B5CF6",
   defaultPath: "/Finance/Snapshots",
   fileNamePattern: "{name}-{taken_at}",
-  defaultView: "table",
   fields: [
     {
       id: "snapshot_name",

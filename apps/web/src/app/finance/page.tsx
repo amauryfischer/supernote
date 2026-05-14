@@ -4,6 +4,7 @@ import { useCallback, useMemo } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { Camera, ArrowsClockwise, Wallet } from "@phosphor-icons/react";
+import { Button } from "@heroui/react";
 import { AppShell, useMobileTitle, useMobileFab, useMobileHeaderActions } from "@/components/shell";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useTranslations } from "next-intl";
@@ -150,26 +151,29 @@ export default function FinancePage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => void handleRefreshPrices()}
-            disabled
-            title="À venir (proxy CORS)"
-            className="flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition-colors hover:bg-[var(--surface-2)] disabled:opacity-50"
+          <Button
+            onPress={() => void handleRefreshPrices()}
+            isDisabled
+            aria-label="À venir (proxy CORS)"
+            variant="outline"
+            size="sm"
+            className="flex items-center gap-2 font-medium"
             style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
           >
             <ArrowsClockwise size={14} />
             {t("refreshPrices")}
-          </button>
-          <button
-            onClick={() => void handleTakeSnapshot()}
-            disabled
-            title="À venir (proxy CORS)"
-            className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors disabled:opacity-50"
+          </Button>
+          <Button
+            onPress={() => void handleTakeSnapshot()}
+            isDisabled
+            aria-label="À venir (proxy CORS)"
+            size="sm"
+            className="flex items-center gap-2 font-medium"
             style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
           >
             <Camera size={14} />
             {createSnapshotMutation.isPending ? t("savingSnapshot") : t("takeSnapshot")}
-          </button>
+          </Button>
         </div>
       </div>
 

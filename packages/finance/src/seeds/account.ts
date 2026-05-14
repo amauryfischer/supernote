@@ -8,7 +8,6 @@ export const accountSeed: EntityTypeDefinition = {
   color: "#4F8EF7",
   defaultPath: "/Finance/Accounts",
   fileNamePattern: "{name}",
-  defaultView: "table",
   fields: [
     {
       id: "account_name",

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Button } from "@heroui/react";
 import {
   Gear,
   Palette,
@@ -106,19 +107,24 @@ function SettingsContent() {
         {NAV_ITEMS.map(({ id, labelKey, icon: Icon }) => {
           const isActive = activeTab === id;
           return (
-            <button
+            <Button
               key={id}
-              onClick={() => setActiveTab(id)}
+              onPress={() => setActiveTab(id)}
+              variant="ghost"
+              size="sm"
               className="flex shrink-0 items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-all md:gap-2.5"
               style={{
                 backgroundColor: isActive ? "var(--accent-subtle)" : "transparent",
                 color: isActive ? "var(--accent)" : "var(--text-secondary)",
                 fontWeight: isActive ? 500 : 400,
+                justifyContent: "flex-start",
+                minWidth: 0,
+                height: "auto",
               }}
             >
               <Icon size={15} weight={isActive ? "fill" : "regular"} />
               <span className="whitespace-nowrap">{t(labelKey)}</span>
-            </button>
+            </Button>
           );
         })}
       </nav>
@@ -137,9 +143,10 @@ function SettingsContent() {
             </h1>
           </div>
           {activeTab !== "about" && activeTab !== "securite" && activeTab !== "templates" && activeTab !== "schemas" && (
-            <button
-              onClick={saveSettings}
-              disabled={isSaving}
+            <Button
+              onPress={saveSettings}
+              isDisabled={isSaving}
+              size="sm"
               className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-all hover:opacity-90 disabled:opacity-50 md:ml-auto"
               style={{
                 backgroundColor: "var(--accent)",
@@ -148,7 +155,7 @@ function SettingsContent() {
             >
               <FloppyDisk size={14} />
               {isSaving ? t("settings.saving") : t("settings.save")}
-            </button>
+            </Button>
           )}
         </div>
 

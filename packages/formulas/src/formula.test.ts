@@ -756,3 +756,188 @@ describe("formulaDependencies", () => {
     expect(entityDeps).toHaveLength(1);
   });
 });
+
+// ============================================================
+// Coda parity — added stdlib & syntax
+// ============================================================
+
+describe("Coda syntax — operators", () => {
+  it("bare = is equality", () => {
+    expect(evalSrc("1 = 1")).toBe(true);
+    expect(evalSrc("1 = 2")).toBe(false);
+  });
+  it("<> is not-equal", () => {
+    expect(evalSrc("1 <> 2")).toBe(true);
+    expect(evalSrc("1 <> 1")).toBe(false);
+  });
+  it("&& and ||", () => {
+    expect(evalSrc("true && false")).toBe(false);
+    expect(evalSrc("true || false")).toBe(true);
+  });
+  it("case-insensitive AND/OR/NOT/TRUE", () => {
+    expect(evalSrc("TRUE AND FALSE")).toBe(false);
+    expect(evalSrc("TRUE OR FALSE")).toBe(true);
+    expect(evalSrc("NOT FALSE")).toBe(true);
+  });
+});
+
+describe("Coda chaining", () => {
+  it("desugars x.Fn(args) to Fn(x, args)", () => {
+    expect(evalSrc('"hello".Upper()')).toBe("HELLO");
+    expect(evalSrc('[1, 2, 3].Sum()')).toBe(6);
+    expect(evalSrc('[3, 1, 2].Sort().First()')).toBe(1);
+  });
+});
+
+describe("Coda stdlib — strings", () => {
+  it("Concatenate", () => {
+    expect(evalSrc('Concatenate("a", "b", "c")')).toBe("abc");
+  });
+  it("Format text template", () => {
+    expect(evalSrc('Format("Hi {1}, {2}!", "Bob", "rainy")')).toBe("Hi Bob, rainy!");
+  });
+  it("Left / Right / Middle", () => {
+    expect(evalSrc('Left("abcdef", 3)')).toBe("abc");
+    expect(evalSrc('Right("abcdef", 2)')).toBe("ef");
+    expect(evalSrc('Middle("abcdef", 2, 3)')).toBe("bcd");
+  });
+  it("Find returns 1-based index, 0 if missing", () => {
+    expect(evalSrc('Find("abcdef", "cd")')).toBe(3);
+    expect(evalSrc('Find("abcdef", "zz")')).toBe(0);
+  });
+  it("Proper", () => {
+    expect(evalSrc('Proper("hello world")')).toBe("Hello World");
+  });
+  it("RepeatString", () => {
+    expect(evalSrc('RepeatString("ab", 3)')).toBe("ababab");
+  });
+});
+
+describe("Coda stdlib — math", () => {
+  it("RoundUp / RoundDown / Int / Sign", () => {
+    expect(evalSrc("RoundUp(1.2)")).toBe(2);
+    expect(evalSrc("RoundDown(1.8)")).toBe(1);
+    expect(evalSrc("Int(-1.7)")).toBe(-1);
+    expect(evalSrc("Sign(-3)")).toBe(-1);
+    expect(evalSrc("Sign(0)")).toBe(0);
+  });
+  it("Log / Ln / Exp", () => {
+    expect(evalSrc("Log(100)")).toBeCloseTo(2);
+    expect(evalSrc("Ln(1)")).toBe(0);
+    expect(evalSrc("Exp(0)")).toBe(1);
+  });
+  it("Sequence", () => {
+    expect(evalSrc("Sequence(1, 4)")).toEqual([1, 2, 3, 4]);
+    expect(evalSrc("Sequence(1, 10, 3)")).toEqual([1, 4, 7, 10]);
+  });
+  it("Median", () => {
+    expect(evalSrc("Median([1, 2, 3, 4])")).toBe(2.5);
+    expect(evalSrc("Median([5, 1, 3])")).toBe(3);
+  });
+});
+
+describe("Coda stdlib — logic", () => {
+  it("IsBlank / IsNotBlank / IfBlank", () => {
+    expect(evalSrc('IsBlank("")')).toBe(true);
+    expect(evalSrc('IsBlank("x")')).toBe(false);
+    expect(evalSrc("IsBlank(null)")).toBe(true);
+    expect(evalSrc("IsBlank([])")).toBe(true);
+    expect(evalSrc('IsNotBlank("x")')).toBe(true);
+    expect(evalSrc('IfBlank("", "fallback")')).toBe("fallback");
+    expect(evalSrc('IfBlank("v", "fallback")')).toBe("v");
+  });
+  it("SwitchIf", () => {
+    expect(evalSrc('SwitchIf(false, "a", true, "b", "default")')).toBe("b");
+    expect(evalSrc('SwitchIf(false, "a", false, "b", "default")')).toBe("default");
+  });
+  it("type predicates", () => {
+    expect(evalSrc("IsNumber(1)")).toBe(true);
+    expect(evalSrc('IsText("hi")')).toBe(true);
+    expect(evalSrc("IsList([1])")).toBe(true);
+    expect(evalSrc("IsBoolean(true)")).toBe(true);
+  });
+});
+
+describe("Coda stdlib — dates", () => {
+  it("Date(y, m, d) builds a date", () => {
+    const v = evalSrc("Date(2026, 5, 14)");
+    expect(v instanceof Date).toBe(true);
+    expect((v as Date).getFullYear()).toBe(2026);
+    expect((v as Date).getMonth()).toBe(4);
+    expect((v as Date).getDate()).toBe(14);
+  });
+  it("Weekday / WeekdayName / MonthName / Quarter", () => {
+    const ctx: Partial<FormulaContext> = { now: () => new Date("2026-05-14T12:00:00Z") };
+    expect(typeof evalSrc("Weekday(Now())", ctx)).toBe("number");
+    expect(typeof evalSrc("WeekdayName(Now())", ctx)).toBe("string");
+    expect(typeof evalSrc("MonthName(Now())", ctx)).toBe("string");
+    expect(evalSrc("Quarter(Date(2026, 5, 14))")).toBe(2);
+  });
+});
+
+describe("Coda stdlib — lists", () => {
+  it("Contains polymorphic", () => {
+    expect(evalSrc('Contains("hello", "ell")')).toBe(true);
+    expect(evalSrc('Contains([1, 2, 3], 2)')).toBe(true);
+    expect(evalSrc('Contains([1, 2, 3], 9)')).toBe(false);
+  });
+  it("In", () => {
+    expect(evalSrc('In("b", ["a", "b", "c"])')).toBe(true);
+    expect(evalSrc('In("z", ["a", "b"])')).toBe(false);
+  });
+  it("Slice", () => {
+    expect(evalSrc('Slice([10, 20, 30, 40], 1, 3)')).toEqual([20, 30]);
+  });
+});
+
+// ============================================================
+// where(currentValue) + list aggregat properties + entity projection
+// ============================================================
+
+describe("Coda — list aggregates as properties", () => {
+  it(".count / .length / .sum / .avg / .min / .max", () => {
+    expect(evalSrc("[1, 2, 3, 4].count")).toBe(4);
+    expect(evalSrc("[1, 2, 3, 4].length")).toBe(4);
+    expect(evalSrc("[1, 2, 3, 4].sum")).toBe(10);
+    expect(evalSrc("[1, 2, 3, 4].avg")).toBe(2.5);
+    expect(evalSrc("[1, 2, 3, 4].min")).toBe(1);
+    expect(evalSrc("[1, 2, 3, 4].max")).toBe(4);
+    expect(evalSrc("[3, 1, 2].first")).toBe(3);
+    expect(evalSrc("[3, 1, 2].last")).toBe(2);
+  });
+});
+
+describe("Coda — where with implicit currentValue", () => {
+  it("list.where(predicate)", () => {
+    expect(evalSrc("[1, 2, 3, 4, 5].where(currentValue > 2)")).toEqual([3, 4, 5]);
+    expect(evalSrc("[1, 2, 3, 4, 5].where(currentValue > 2).count")).toBe(3);
+  });
+  it("Where(list, predicate) function form", () => {
+    expect(evalSrc("Where([1, 2, 3, 4, 5], currentValue >= 4)")).toEqual([4, 5]);
+  });
+  it("explicit lambda still works", () => {
+    expect(evalSrc("[1, 2, 3].where(x -> x > 1)")).toEqual([2, 3]);
+  });
+});
+
+describe("Coda — entity projection from lists", () => {
+  // Build a synthetic list of entity values via a Filter context
+  const contacts: Entity[] = [
+    { id: "a", typeId: "Contact", filePath: "", body: "", createdAt: new Date(), updatedAt: new Date(), fields: { age: 20, name: "Alice" } },
+    { id: "b", typeId: "Contact", filePath: "", body: "", createdAt: new Date(), updatedAt: new Date(), fields: { age: 30, name: "Bob" } },
+    { id: "c", typeId: "Contact", filePath: "", body: "", createdAt: new Date(), updatedAt: new Date(), fields: { age: 30, name: "Carol" } },
+  ];
+  const scope: Scope = {
+    Contacts: contacts.map((e) => ({ _type: "entity", entity: e })),
+    thisRow: { _type: "entity", entity: { id: "_", typeId: "X", filePath: "", body: "", createdAt: new Date(), updatedAt: new Date(), fields: { age: 30 } } },
+  };
+  it("base.age → list of ages", () => {
+    expect(evalSrc("Contacts.age", undefined, scope)).toEqual([20, 30, 30]);
+  });
+  it("Contacts.where(currentValue.age == thisRow.age).count", () => {
+    expect(evalSrc("Contacts.where(currentValue.age == thisRow.age).count", undefined, scope)).toBe(2);
+  });
+  it("aggregation pipeline: ages of matches summed", () => {
+    expect(evalSrc("Contacts.where(currentValue.age >= 25).age.sum", undefined, scope)).toBe(60);
+  });
+});

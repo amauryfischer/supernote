@@ -15,6 +15,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { FolderSimple, MagnifyingGlass } from "@phosphor-icons/react";
+import { Button } from "@heroui/react";
 
 interface MoveNoteModalProps {
   open: boolean;
@@ -103,7 +104,7 @@ export function MoveNoteModal({
           </h2>
         </div>
 
-        <label
+        <div
           className="flex items-center gap-2 border-b px-4 py-2"
           style={{ borderColor: "var(--border-subtle)" }}
         >
@@ -116,8 +117,9 @@ export function MoveNoteModal({
             placeholder="Filtrer les dossiers…"
             className="w-full bg-transparent text-sm outline-none"
             style={{ color: "var(--text-primary)" }}
+            aria-label="Filtrer les dossiers"
           />
-        </label>
+        </div>
 
         <ul className="flex-1 overflow-y-auto py-1">
           {filtered.length === 0 ? (
@@ -132,10 +134,9 @@ export function MoveNoteModal({
               const isCurrent = path === currentFolder;
               return (
                 <li key={path}>
-                  <button
-                    type="button"
-                    disabled={isCurrent}
-                    onClick={() => {
+                  <Button
+                    isDisabled={isCurrent}
+                    onPress={() => {
                       if (!isCurrent) onConfirm(path);
                     }}
                     className="flex w-full items-center gap-2 px-4 py-2 text-left text-sm transition-colors disabled:cursor-default"
@@ -146,16 +147,6 @@ export function MoveNoteModal({
                       backgroundColor: isCurrent
                         ? "var(--surface-2)"
                         : "transparent",
-                    }}
-                    onMouseEnter={(e) => {
-                      if (!isCurrent) {
-                        e.currentTarget.style.backgroundColor = "var(--surface-2)";
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      if (!isCurrent) {
-                        e.currentTarget.style.backgroundColor = "transparent";
-                      }
                     }}
                   >
                     <FolderSimple
@@ -171,7 +162,7 @@ export function MoveNoteModal({
                         actuel
                       </span>
                     )}
-                  </button>
+                  </Button>
                 </li>
               );
             })

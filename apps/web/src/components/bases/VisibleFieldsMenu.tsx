@@ -14,6 +14,7 @@
  */
 
 import { useEffect, useRef } from "react";
+import { Button } from "@heroui/react";
 import { Eye, EyeSlash, CaretUp, CaretDown } from "@phosphor-icons/react";
 import type { EntityType } from "@supernote/core";
 import type { View } from "@supernote/ipc";
@@ -122,38 +123,41 @@ export function VisibleFieldsMenu({ base, view, onClose }: VisibleFieldsMenuProp
               className="flex items-center gap-1.5 rounded px-1.5 py-1 hover:bg-[var(--surface-2)]"
             >
               <div className="flex flex-col">
-                <button
-                  type="button"
-                  onClick={() => move(index, -1)}
-                  disabled={index === 0}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onPress={() => move(index, -1)}
+                  isDisabled={index === 0}
                   className="rounded p-0.5 hover:bg-[var(--surface-3)] disabled:opacity-30"
                   style={{ color: "var(--text-muted)" }}
                 >
                   <CaretUp size={10} />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => move(index, 1)}
-                  disabled={index === visible.length - 1}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onPress={() => move(index, 1)}
+                  isDisabled={index === visible.length - 1}
                   className="rounded p-0.5 hover:bg-[var(--surface-3)] disabled:opacity-30"
                   style={{ color: "var(--text-muted)" }}
                 >
                   <CaretDown size={10} />
-                </button>
+                </Button>
               </div>
               <FieldKindBadge kind={field.kind} />
               <span className="flex-1 text-xs" style={{ color: "var(--text-primary)" }}>
                 {labelForField(field)}
               </span>
-              <button
-                type="button"
-                onClick={() => toggle(fid, true)}
+              <Button
+                variant="ghost"
+                size="sm"
+                onPress={() => toggle(fid, true)}
                 className="rounded p-1 hover:bg-[var(--surface-3)]"
-                title="Masquer"
+                aria-label="Masquer"
                 style={{ color: "var(--text-muted)" }}
               >
                 <Eye size={12} />
-              </button>
+              </Button>
             </div>
           );
         })}
@@ -184,15 +188,16 @@ export function VisibleFieldsMenu({ base, view, onClose }: VisibleFieldsMenuProp
                   <span className="flex-1 text-xs" style={{ color: "var(--text-secondary)" }}>
                     {labelForField(field)}
                   </span>
-                  <button
-                    type="button"
-                    onClick={() => toggle(fid, false)}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onPress={() => toggle(fid, false)}
                     className="rounded p-1 hover:bg-[var(--surface-3)]"
-                    title="Afficher"
+                    aria-label="Afficher"
                     style={{ color: "var(--text-muted)" }}
                   >
                     <EyeSlash size={12} />
-                  </button>
+                  </Button>
                 </div>
               );
             })}

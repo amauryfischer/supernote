@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Button, TextArea } from "@heroui/react";
 import { trpc } from "@/lib/trpc/client";
 
 /**
@@ -13,6 +14,7 @@ export default function CapturePage() {
   const [content, setContent] = useState("");
   const [status, setStatus] = useState<"idle" | "saving" | "done" | "error">("idle");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // TextArea from @heroui/react forwards the ref to the underlying <textarea> DOM element
 
   const utils = trpc.useUtils();
   const createMutation = trpc.entities.create.useMutation({
@@ -111,7 +113,7 @@ export default function CapturePage() {
         </div>
 
         {/* Textarea */}
-        <textarea
+        <TextArea
           ref={textareaRef}
           value={content}
           onChange={(e) => setContent(e.target.value)}
@@ -143,15 +145,15 @@ export default function CapturePage() {
           ) : (
             <span />
           )}
-          <button
-            type="button"
-            onClick={() => void submit()}
-            disabled={status === "saving" || status === "done"}
-            className="rounded-md px-3 py-1.5 text-xs font-medium transition-opacity hover:opacity-90 disabled:opacity-50"
+          <Button
+            size="sm"
+            onPress={() => void submit()}
+            isDisabled={status === "saving" || status === "done"}
+            className="rounded-md px-3 py-1.5 text-xs font-medium"
             style={{ backgroundColor: "var(--accent, #6366f1)", color: "white" }}
           >
             Enregistrer
-          </button>
+          </Button>
         </div>
       </div>
     </div>

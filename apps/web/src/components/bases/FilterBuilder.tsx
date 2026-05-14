@@ -13,6 +13,7 @@
  */
 
 import { useEffect, useRef } from "react";
+import { Button, Input, SelectRoot, SelectTrigger, SelectValue, SelectPopover, ListBox, ListBoxItem } from "@heroui/react";
 import { Funnel, X, Plus } from "@phosphor-icons/react";
 import type { EntityType, Field, FilterClause, FilterOp, SelectOption } from "@supernote/core";
 import type { View } from "@supernote/ipc";
@@ -119,14 +120,15 @@ export function FilterBuilder({ base, view, onClose }: FilterBuilderProps) {
         className="border-t px-3 py-2"
         style={{ borderColor: "var(--border-subtle)" }}
       >
-        <button
-          type="button"
-          onClick={addClause}
+        <Button
+          variant="ghost"
+          size="sm"
+          onPress={addClause}
           className="flex items-center gap-1.5 rounded px-2 py-1 text-xs font-medium hover:bg-[var(--surface-2)]"
           style={{ color: "var(--text-secondary)" }}
         >
           <Plus size={11} /> Ajouter un filtre
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -151,50 +153,46 @@ function FilterRow({ base, clause, onChange, onRemove }: FilterRowProps) {
   return (
     <div className="flex items-center gap-1.5">
       {/* Field picker */}
-      <select
-        value={field.id}
-        onChange={(e) => {
-          const nextField = base.fields.find((f) => f.id === e.target.value);
+      <SelectRoot
+        selectedKey={field.id}
+        onSelectionChange={(key) => {
+          const nextField = base.fields.find((f) => f.id === key);
           if (!nextField) return;
-          // When the field changes, the operator must also be valid for the
-          // new kind. Fall back to the kind's default operator.
-          onChange({
-            fieldId: nextField.id,
-            op: defaultOpForFieldKind(nextField.kind),
-            value: "",
-          });
+          onChange({ fieldId: nextField.id, op: defaultOpForFieldKind(nextField.kind), value: "" });
         }}
-        className="rounded border bg-transparent px-1.5 py-1 text-xs"
-        style={{
-          borderColor: "var(--border-subtle)",
-          color: "var(--text-primary)",
-          minWidth: 130,
-        }}
+        className="text-xs"
+        style={{ minWidth: 130 }}
       >
-        {base.fields.map((f) => (
-          <option key={f.id} value={f.id}>
-            {labelForField(f)}
-          </option>
-        ))}
-      </select>
+        <SelectTrigger className="rounded border px-1.5 py-1 text-xs" style={{ borderColor: "var(--border-subtle)", color: "var(--text-primary)", minWidth: 130 }}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectPopover>
+          <ListBox>
+            {base.fields.map((f) => (
+              <ListBoxItem key={f.id} id={f.id}>{labelForField(f)}</ListBoxItem>
+            ))}
+          </ListBox>
+        </SelectPopover>
+      </SelectRoot>
 
       {/* Op picker */}
-      <select
-        value={currentOp.op}
-        onChange={(e) => onChange({ op: e.target.value as FilterOp })}
-        className="rounded border bg-transparent px-1.5 py-1 text-xs"
-        style={{
-          borderColor: "var(--border-subtle)",
-          color: "var(--text-primary)",
-          minWidth: 110,
-        }}
+      <SelectRoot
+        selectedKey={currentOp.op}
+        onSelectionChange={(key) => { if (key != null) onChange({ op: key as FilterOp }); }}
+        className="text-xs"
+        style={{ minWidth: 110 }}
       >
-        {ops.map((o) => (
-          <option key={o.op} value={o.op}>
-            {o.label}
-          </option>
-        ))}
-      </select>
+        <SelectTrigger className="rounded border px-1.5 py-1 text-xs" style={{ borderColor: "var(--border-subtle)", color: "var(--text-primary)", minWidth: 110 }}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectPopover>
+          <ListBox>
+            {ops.map((o) => (
+              <ListBoxItem key={o.op} id={o.op}>{o.label}</ListBoxItem>
+            ))}
+          </ListBox>
+        </SelectPopover>
+      </SelectRoot>
 
       {/* Value editor — kind-specific */}
       <div className="flex-1">
@@ -209,15 +207,16 @@ function FilterRow({ base, clause, onChange, onRemove }: FilterRowProps) {
         )}
       </div>
 
-      <button
-        type="button"
-        onClick={onRemove}
+      <Button
+        variant="ghost"
+        size="sm"
+        onPress={onRemove}
         className="rounded p-1 hover:bg-[var(--surface-2)]"
-        title="Supprimer le filtre"
+        aria-label="Supprimer le filtre"
         style={{ color: "var(--text-muted)" }}
       >
         <X size={12} />
-      </button>
+      </Button>
     </div>
   );
 }
@@ -233,12 +232,6 @@ function FilterValueInput({
   value: unknown;
   onChange: (next: unknown) => void;
 }) {
-  const baseStyle = {
-    borderColor: "var(--border-subtle)",
-    color: "var(--text-primary)",
-  };
-  const cls = "w-full rounded border bg-transparent px-1.5 py-1 text-xs";
-
   switch (field.kind) {
     case "number":
     case "currency":
@@ -248,10 +241,10 @@ function FilterValueInput({
     case "duration":
     case "autoNumber":
       return (
-        <input
+        <Input
           type="number"
-          className={cls}
-          style={baseStyle}
+          className="w-full rounded border bg-transparent px-1.5 py-1 text-xs"
+          style={{ borderColor: "var(--border-subtle)", color: "var(--text-primary)" }}
           value={value === null || value === undefined ? "" : String(value)}
           onChange={(e) => onChange(e.target.value === "" ? "" : Number(e.target.value))}
         />
@@ -261,55 +254,66 @@ function FilterValueInput({
     case "createdAt":
     case "updatedAt":
       return (
-        <input
+        <Input
           type={field.kind === "datetime" || field.kind === "createdAt" || field.kind === "updatedAt" ? "datetime-local" : "date"}
-          className={cls}
-          style={baseStyle}
+          className="w-full rounded border bg-transparent px-1.5 py-1 text-xs"
+          style={{ borderColor: "var(--border-subtle)", color: "var(--text-primary)" }}
           value={value === null || value === undefined ? "" : String(value).slice(0, field.kind === "date" ? 10 : 16)}
           onChange={(e) => onChange(e.target.value)}
         />
       );
-    case "bool":
+    case "bool": {
+      const boolVal = value === true ? "true" : value === false ? "false" : "";
       return (
-        <select
-          className={cls}
-          style={baseStyle}
-          value={value === true ? "true" : value === false ? "false" : ""}
-          onChange={(e) =>
-            onChange(e.target.value === "true" ? true : e.target.value === "false" ? false : null)
-          }
+        <SelectRoot
+          selectedKey={boolVal || null}
+          onSelectionChange={(key) => {
+            onChange(key === "true" ? true : key === "false" ? false : null);
+          }}
+          className="w-full text-xs"
         >
-          <option value="">—</option>
-          <option value="true">Vrai</option>
-          <option value="false">Faux</option>
-        </select>
+          <SelectTrigger className="w-full rounded border px-1.5 py-1 text-xs" style={{ borderColor: "var(--border-subtle)", color: "var(--text-primary)" }}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectPopover>
+            <ListBox>
+              <ListBoxItem id="true">Vrai</ListBoxItem>
+              <ListBoxItem id="false">Faux</ListBoxItem>
+            </ListBox>
+          </SelectPopover>
+        </SelectRoot>
       );
+    }
     case "select":
     case "status":
     case "multiselect": {
       const opts = (field as { options: SelectOption[] }).options ?? [];
+      const strVal = value === null || value === undefined ? "" : String(value);
       return (
-        <select
-          className={cls}
-          style={baseStyle}
-          value={value === null || value === undefined ? "" : String(value)}
-          onChange={(e) => onChange(e.target.value)}
+        <SelectRoot
+          selectedKey={strVal || null}
+          onSelectionChange={(key) => { onChange(key ? String(key) : ""); }}
+          className="w-full text-xs"
         >
-          <option value="">—</option>
-          {opts.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger className="w-full rounded border px-1.5 py-1 text-xs" style={{ borderColor: "var(--border-subtle)", color: "var(--text-primary)" }}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectPopover>
+            <ListBox>
+              {opts.map((o) => (
+                <ListBoxItem key={o.value} id={o.value}>{o.label}</ListBoxItem>
+              ))}
+            </ListBox>
+          </SelectPopover>
+        </SelectRoot>
       );
     }
     default:
       return (
-        <input
+        <Input
           type="text"
-          className={cls}
-          style={baseStyle}
+          className="w-full rounded border bg-transparent px-1.5 py-1 text-xs"
+          style={{ borderColor: "var(--border-subtle)", color: "var(--text-primary)" }}
           value={value === null || value === undefined ? "" : String(value)}
           onChange={(e) => onChange(e.target.value)}
           placeholder="Valeur…"

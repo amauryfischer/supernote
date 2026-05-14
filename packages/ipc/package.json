@@ -53,11 +53,6 @@
       "import": "./dist/schemas/tags.js",
       "default": "./dist/schemas/tags.js"
     },
-    "./schemas/views": {
-      "types": "./dist/schemas/views.d.ts",
-      "import": "./dist/schemas/views.js",
-      "default": "./dist/schemas/views.js"
-    },
     "./schemas/automations": {
       "types": "./dist/schemas/automations.d.ts",
       "import": "./dist/schemas/automations.js",

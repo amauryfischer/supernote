@@ -194,7 +194,7 @@ class Parser {
     return this.parsePostfix();
   }
 
-  /** Handles property access:  a.b.c */
+  /** Handles property access and Coda-style chaining: a.b.c, a.Fn(x) */
   private parsePostfix(): Result<FormulaAST, ParseError> {
     let base = this.parsePrimary();
     if (!base.ok) return base;
@@ -204,6 +204,38 @@ class Parser {
         return err(makeParseError("Expected property name after '.'", this.current().pos, this.source));
       }
       const prop = this.advance();
+      // Chaining: base.Fn(args) — desugared to Fn(base, args...)
+      if (this.check("LParen")) {
+        const callRes = this.parseFunctionCall(prop.raw, base.value.span.start);
+        if (!callRes.ok) return callRes;
+        const call = callRes.value as { kind: "FunctionCall"; name: string; args: FormulaAST[]; span: Span };
+        // Coda-style `.where(expr)` / `.WhereBy(expr)` — auto-wrap the
+        // predicate as `currentValue -> expr` so users can write
+        // `list.where(currentValue.age > 18)` without an explicit lambda.
+        const nameLower = call.name.toLowerCase();
+        const autoLambdaMethods = new Set(["where", "whereby"]);
+        let wrappedArgs = call.args;
+        if (autoLambdaMethods.has(nameLower) && call.args.length === 1) {
+          const arg = call.args[0]!;
+          if (arg.kind !== "Lambda") {
+            wrappedArgs = [{
+              kind: "Lambda",
+              params: ["currentValue"],
+              body: arg,
+              span: arg.span,
+            }];
+          }
+        }
+        // Normalize method name to canonical stdlib entry (Filter).
+        const normalizedName = autoLambdaMethods.has(nameLower) ? "Filter" : call.name;
+        base = ok({
+          kind: "FunctionCall",
+          name: normalizedName,
+          args: [base.value, ...wrappedArgs],
+          span: span(base.value.span.start, call.span.end),
+        });
+        continue;
+      }
       base = ok({
         kind: "PropertyAccess",
         object: base.value,
@@ -252,10 +284,10 @@ class Parser {
       return ok({ kind: "StringLiteral", value, span: span(start, start) });
     }
 
-    // Bool
+    // Bool — case-insensitive (Coda accepts TRUE/FALSE/True/False)
     if (this.check("Bool")) {
       this.advance();
-      return ok({ kind: "BoolLiteral", value: tok.raw === "true", span: span(start, start) });
+      return ok({ kind: "BoolLiteral", value: tok.raw.toLowerCase() === "true", span: span(start, start) });
     }
 
     // Null
@@ -314,6 +346,20 @@ class Parser {
       return err(makeParseError(`Expected ')' after arguments of '${name}'`, this.current().pos, this.source));
     }
     const endPos = this.advance().pos;
+    // `Where(list, expr)` / `WhereBy(list, expr)` — auto-wrap predicate.
+    const nameLower = name.toLowerCase();
+    if ((nameLower === "where" || nameLower === "whereby") && args.length === 2 && args[1]!.kind !== "Lambda") {
+      const pred = args[1]!;
+      return ok({
+        kind: "FunctionCall",
+        name: "Filter",
+        args: [
+          args[0]!,
+          { kind: "Lambda", params: ["currentValue"], body: pred, span: pred.span },
+        ],
+        span: span(start, endPos),
+      });
+    }
     return ok({ kind: "FunctionCall", name, args, span: span(start, endPos) });
   }
 

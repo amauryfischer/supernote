@@ -18,6 +18,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
+import { Button, Input } from "@supernote/ui";
 
 interface PromptModalProps {
   open: boolean;
@@ -106,7 +107,7 @@ export function PromptModal({
           {title}
         </h2>
 
-        <input
+        <Input
           ref={inputRef}
           type="text"
           value={value}
@@ -118,37 +119,25 @@ export function PromptModal({
               submit();
             }
           }}
-          className="w-full rounded-md px-3 py-2 text-sm outline-none transition-colors"
-          style={{
-            backgroundColor: "var(--surface-0)",
-            border: "1px solid var(--border-subtle)",
-            color: "var(--text-primary)",
-          }}
         />
 
         <div className="mt-4 flex justify-end gap-2">
-          <button
+          <Button
             type="button"
+            variant="outline"
+            size="sm"
             onClick={onCancel}
-            className="rounded-md px-3 py-1.5 text-sm font-medium transition-colors hover:bg-[var(--surface-2)]"
-            style={{
-              border: "1px solid var(--border-subtle)",
-              color: "var(--text-secondary)",
-            }}
           >
             {cancelLabel}
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
+            variant="primary"
+            size="sm"
             onClick={submit}
-            className="rounded-md px-3 py-1.5 text-sm font-medium transition-opacity hover:opacity-90"
-            style={{
-              backgroundColor: "var(--accent)",
-              color: "var(--accent-foreground)",
-            }}
           >
             {confirmLabel}
-          </button>
+          </Button>
         </div>
       </div>
     </div>

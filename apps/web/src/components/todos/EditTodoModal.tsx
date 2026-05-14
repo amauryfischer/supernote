@@ -12,6 +12,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
+import { Button, Input, Checkbox } from "@heroui/react";
 import type { TodoImportance } from "./TodoRow";
 import { importanceColor } from "./TodoRow";
 
@@ -131,14 +132,14 @@ export function EditTodoModal({
           Modifier la tâche
         </h2>
 
-        <label className="mb-3 block">
+        <div className="mb-3">
           <span
             className="mb-1 block text-xs font-medium"
             style={{ color: "var(--text-muted)" }}
           >
             Texte
           </span>
-          <input
+          <Input
             ref={inputRef}
             type="text"
             value={text}
@@ -150,12 +151,8 @@ export function EditTodoModal({
                 submit();
               }
             }}
-            className="w-full rounded-md px-3 py-2 text-sm outline-none transition-colors disabled:opacity-60"
-            style={{
-              backgroundColor: "var(--surface-0)",
-              border: "1px solid var(--border-subtle)",
-              color: "var(--text-primary)",
-            }}
+            className="w-full text-sm"
+            aria-label="Texte de la tâche"
           />
           {readonlyText && (
             <span
@@ -165,75 +162,63 @@ export function EditTodoModal({
               Texte verrouillé : modifie la note source pour le changer.
             </span>
           )}
-        </label>
+        </div>
 
         <div className="mb-3 grid grid-cols-2 gap-3">
-          <label className="block">
+          <div>
             <span
               className="mb-1 block text-xs font-medium"
               style={{ color: "var(--text-muted)" }}
             >
               Priorité (1-9)
             </span>
-            <input
+            <Input
               type="number"
               min={1}
               max={9}
-              value={priority}
+              value={String(priority)}
               onChange={(e) => setPriority(Number(e.target.value) || 5)}
-              className="w-full rounded-md px-3 py-2 text-sm tabular-nums outline-none"
-              style={{
-                backgroundColor: "var(--surface-0)",
-                border: "1px solid var(--border-subtle)",
-                color: "var(--text-primary)",
-              }}
+              className="w-full text-sm"
+              aria-label="Priorité"
             />
-          </label>
+          </div>
 
           {/* spacer — keeps importance row below on a full width */}
           <div />
         </div>
 
         <div className="mb-3 grid grid-cols-2 gap-3">
-          <label className="block">
+          <div>
             <span
               className="mb-1 block text-xs font-medium"
               style={{ color: "var(--text-muted)" }}
             >
               Début
             </span>
-            <input
+            <Input
               type="date"
               value={startDate}
               onChange={(e) => setStartDate(e.target.value)}
-              className="w-full rounded-md px-3 py-2 text-sm outline-none"
-              style={{
-                backgroundColor: "var(--surface-0)",
-                border: "1px solid var(--border-subtle)",
-                color: "var(--text-primary)",
-              }}
+              className="w-full text-sm"
+              aria-label="Date de début"
             />
-          </label>
+          </div>
 
-          <label className="block">
+          <div>
             <span
               className="mb-1 block text-xs font-medium"
               style={{ color: "var(--text-muted)" }}
             >
               Échéance
             </span>
-            <input
+            <Input
               type="date"
               value={dueDate}
               onChange={(e) => setDueDate(e.target.value)}
-              className="w-full rounded-md px-3 py-2 text-sm outline-none"
-              style={{
-                backgroundColor: "var(--surface-0)",
-                border: "1px solid var(--border-subtle)",
-                color: "var(--text-primary)",
-              }}
+              className="w-full text-sm"
+              aria-label="Date d'échéance"
             />
-          </label>
+          </div>
         </div>
 
         <div className="mb-4">
@@ -247,87 +232,64 @@ export function EditTodoModal({
             {IMPORTANCE_OPTIONS.map((opt) => {
               const active = importance === opt.value;
               return (
-                <button
+                <Button
                   key={opt.value}
-                  type="button"
-                  onClick={() => setImportance(opt.value)}
+                  variant={active ? "secondary" : "ghost"}
+                  onPress={() => setImportance(opt.value)}
                   className="flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium transition-colors"
-                  style={
-                    active
-                      ? {
-                          backgroundColor: "var(--surface-3)",
-                          color: "var(--text-primary)",
-                          border: "1px solid var(--border)",
-                        }
-                      : {
-                          backgroundColor: "var(--surface-0)",
-                          color: "var(--text-muted)",
-                          border: "1px solid var(--border-subtle)",
-                        }
-                  }
                 >
                   <span
                     className="h-2 w-2 rounded-full"
                     style={{ backgroundColor: importanceColor(opt.value) }}
                   />
                   {opt.label}
-                </button>
+                </Button>
               );
             })}
           </div>
         </div>
 
-        <label className="mb-4 flex items-center gap-2">
-          <input
-            type="checkbox"
-            checked={done}
-            onChange={(e) => setDone(e.target.checked)}
-            className="h-4 w-4"
-          />
-          <span className="text-sm" style={{ color: "var(--text-primary)" }}>
-            Marquée comme faite
-          </span>
-        </label>
+        <div className="mb-4 flex items-center gap-2">
+          <Checkbox
+            isSelected={done}
+            onChange={(checked) => setDone(checked)}
+            aria-label="Marquée comme faite"
+          >
+            <span className="text-sm" style={{ color: "var(--text-primary)" }}>
+              Marquée comme faite
+            </span>
+          </Checkbox>
+        </div>
 
         <div className="flex items-center justify-between">
           {onDelete ? (
-            <button
-              type="button"
-              onClick={onDelete}
-              className="rounded-md px-3 py-1.5 text-sm font-medium transition-colors"
-              style={{
-                color: "#EF4444",
-                border: "1px solid var(--border-subtle)",
-              }}
+            <Button
+              variant="ghost"
+              onPress={onDelete}
+              className="rounded-md px-3 py-1.5 text-sm font-medium"
+              style={{ color: "#EF4444" }}
             >
               Supprimer
-            </button>
+            </Button>
           ) : (
             <span />
           )}
           <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={onCancel}
-              className="rounded-md px-3 py-1.5 text-sm font-medium transition-colors hover:bg-[var(--surface-2)]"
-              style={{
-                border: "1px solid var(--border-subtle)",
-                color: "var(--text-secondary)",
-              }}
+            <Button
+              variant="outline"
+              onPress={onCancel}
+              className="rounded-md px-3 py-1.5 text-sm font-medium"
+              style={{ color: "var(--text-secondary)" }}
             >
               Annuler
-            </button>
-            <button
-              type="button"
-              onClick={submit}
-              className="rounded-md px-3 py-1.5 text-sm font-medium transition-opacity hover:opacity-90"
-              style={{
-                backgroundColor: "var(--accent)",
-                color: "var(--accent-foreground)",
-              }}
+            </Button>
+            <Button
+              variant="primary"
+              onPress={submit}
+              className="rounded-md px-3 py-1.5 text-sm font-medium"
             >
               Enregistrer
-            </button>
+            </Button>
           </div>
         </div>
       </div>

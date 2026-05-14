@@ -14,6 +14,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { Button } from "@heroui/react";
 import { CaretDown, CaretRight, CheckSquare } from "@phosphor-icons/react";
 import { extractChecklists } from "@/lib/todos/extractChecklists";
 import { filterChecklistsHeuristic } from "@/lib/todos/heuristicFilter";
@@ -82,9 +83,9 @@ export function AssociatedTodos({ noteId, body }: AssociatedTodosProps) {
       }}
     >
       {/* Header row — always visible, always clickable to toggle. */}
-      <button
-        type="button"
-        onClick={() => setExpanded((v) => !v)}
+      <Button
+        variant="ghost"
+        onPress={() => setExpanded((v) => !v)}
         aria-expanded={expanded}
         className="flex w-full items-center gap-2 rounded-lg px-4 py-2 transition-colors hover:bg-[var(--surface-2)]"
       >
@@ -109,7 +110,7 @@ export function AssociatedTodos({ noteId, body }: AssociatedTodosProps) {
         >
           Tout voir →
         </Link>
-      </button>
+      </Button>
       {expanded ? <div className="px-4 pb-4 pt-1">
       <ul className="flex flex-col gap-1">
         {rows.map((row) => (

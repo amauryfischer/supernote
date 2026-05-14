@@ -12,7 +12,7 @@
  * from the grid in Phase 1.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import type { Field, FieldValue, RelationField, SelectOption } from "@supernote/core";
 import { trpc } from "@/lib/trpc/client";
 import { RelationPicker } from "./RelationPicker";
@@ -34,18 +34,33 @@ const READONLY_KINDS = new Set<Field["kind"]>([
   "lookup",
 ]);
 
-export function Cell({ field, value, onChange, readOnly }: CellProps) {
+function CellInner({ field, value, onChange, readOnly }: CellProps) {
   const [editing, setEditing] = useState(false);
+  // Valeur "pending" : maintenue localement entre le commit et le moment où la
+  // prop `value` rattrape (après invalidate+refetch de queryForView). Sans ça,
+  // au blur le cell repasse en display mode avec l'ANCIENNE valeur de cache,
+  // puis flash sur la nouvelle quand le refetch arrive.
+  const [pending, setPending] = useState<{ value: unknown } | null>(null);
   const isReadOnly = readOnly || READONLY_KINDS.has(field.kind);
+
+  // Efface le pending dès que la prop value reflète la valeur committée.
+  useEffect(() => {
+    if (pending && cellValueEq(value, pending.value)) setPending(null);
+  }, [value, pending]);
+
+  const effectiveValue = pending ? pending.value : value;
 
   if (editing && !isReadOnly) {
     return (
       <CellEditor
         field={field}
-        value={value}
+        value={effectiveValue}
         onCommit={(next) => {
           setEditing(false);
-          if (next !== value) onChange(next);
+          if (!cellValueEq(next, effectiveValue)) {
+            setPending({ value: next });
+            onChange(next);
+          }
         }}
         onCancel={() => setEditing(false)}
       />
@@ -57,6 +72,7 @@ export function Cell({ field, value, onChange, readOnly }: CellProps) {
       className={`group flex h-full w-full items-center px-2 py-1 text-sm ${
         isReadOnly ? "" : "cursor-text"
       }`}
+      data-cell-display=""
       onClick={() => {
         if (!isReadOnly) setEditing(true);
       }}
@@ -69,10 +85,42 @@ export function Cell({ field, value, onChange, readOnly }: CellProps) {
       tabIndex={isReadOnly ? -1 : 0}
       style={{ color: "var(--text-primary)" }}
     >
-      <CellDisplay field={field} value={value} />
+      <CellDisplay field={field} value={effectiveValue} />
     </div>
   );
 }
+
+// Égalité tolérante aux tableaux (multiselect) et primitifs. Objet structurés
+// (file meta) tombent sur Object.is — comparaison par référence, on accepte
+// que le pending reste actif jusqu'au prochain edit dans ces cas rares.
+function cellValueEq(a: unknown, b: unknown): boolean {
+  if (Object.is(a, b)) return true;
+  if (Array.isArray(a) && Array.isArray(b)) {
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) if (!Object.is(a[i], b[i])) return false;
+    return true;
+  }
+  return false;
+}
+
+// Memoize aggressively : la grille re-render à chaque mutation (invalidation
+// cache). Sans memo, N rows × M colonnes re-renderent même quand seule une
+// cellule a changé. On compare uniquement les props significatifs ; field
+// peut changer de référence sans muter ses propriétés (useMemo en amont
+// reconstruit la map à chaque base.fields).
+export const Cell = memo(CellInner, (a, b) => {
+  if (a.value !== b.value) return false;
+  if (a.readOnly !== b.readOnly) return false;
+  if (a.onChange !== b.onChange) return false;
+  if (a.field === b.field) return true;
+  // Comparaison shallow sur les attributs visibles d'un Field.
+  return (
+    a.field.id === b.field.id &&
+    a.field.name === b.field.name &&
+    a.field.label === b.field.label &&
+    a.field.kind === b.field.kind
+  );
+});
 
 // ── Display ─────────────────────────────────────────────────────────────────
 
@@ -203,12 +251,61 @@ function CellDisplay({ field, value }: { field: Field; value: unknown }) {
         </span>
       );
     }
-    case "formula":
+    case "formula": {
+      if (value === null || value === undefined || value === "") {
+        return <span style={{ color: "var(--text-muted)" }}>—</span>;
+      }
+      if (typeof value === "string" && value.startsWith("#ERREUR")) {
+        const msg = value.replace(/^#ERREUR:?\s*/, "") || "Erreur d'évaluation";
+        return <span title={msg} style={{ color: "var(--destructive)" }}>#ERREUR</span>;
+      }
+      const out = (field as { outputKind?: string }).outputKind ?? "text";
+      const fmt = (field as { outputFormat?: string }).outputFormat;
+      if (out === "number") {
+        const n = typeof value === "number" ? value : Number(value);
+        if (isNaN(n)) return <span>{String(value)}</span>;
+        let formatted = n.toLocaleString();
+        if (fmt) {
+          const m = fmt.match(/^decimals:(\d+)$/);
+          if (m) formatted = n.toLocaleString(undefined, { minimumFractionDigits: +m[1]!, maximumFractionDigits: +m[1]! });
+          else if (fmt === "percent") formatted = (n * 100).toLocaleString(undefined, { maximumFractionDigits: 2 }) + " %";
+          else if (fmt.startsWith("currency:")) formatted = n.toLocaleString(undefined, { style: "currency", currency: fmt.slice(9) });
+        }
+        return <span className="font-mono tabular-nums">{formatted}</span>;
+      }
+      if (out === "bool") {
+        const truthy = value === true || value === "true" || value === 1;
+        return (
+          <span
+            className="inline-flex h-4 w-4 items-center justify-center rounded text-[10px]"
+            style={{ backgroundColor: truthy ? "var(--accent)" : "var(--surface-2)", color: truthy ? "var(--accent-foreground)" : "var(--text-muted)" }}
+          >
+            {truthy ? "✓" : ""}
+          </span>
+        );
+      }
+      if (out === "date") {
+        const d = value instanceof Date ? value : new Date(String(value));
+        if (isNaN(d.getTime())) return <span>{String(value)}</span>;
+        if (fmt && fmt.startsWith("date:")) {
+          const pat = fmt.slice(5);
+          const s = pat
+            .replace("YYYY", String(d.getFullYear()).padStart(4, "0"))
+            .replace("MM", String(d.getMonth() + 1).padStart(2, "0"))
+            .replace("DD", String(d.getDate()).padStart(2, "0"))
+            .replace("HH", String(d.getHours()).padStart(2, "0"))
+            .replace("mm", String(d.getMinutes()).padStart(2, "0"));
+          return <span>{s}</span>;
+        }
+        return <span>{d.toLocaleDateString()}</span>;
+      }
+      return <span>{String(value)}</span>;
+    }
     case "rollup":
     case "lookup":
       return (
-        <span style={{ color: "var(--text-muted)", fontStyle: "italic" }}>
-          {value === null || value === undefined ? "—" : String(value)}
+        <span style={{ color: "var(--text-muted)" }}>
+          {value === null || value === undefined ? "—" : Array.isArray(value) ? value.join(", ") : String(value)}
         </span>
       );
     default:
@@ -456,8 +553,9 @@ function RelationCellDisplay({ field, value }: { field: RelationField; value: un
     return [];
   }, [value]);
 
+  // Liste plus large par défaut (couvre la plupart des bases).
   const { data } = trpc.entities.search.useQuery(
-    { query: " ", typeId: field.targetTypeId, limit: 100 },
+    { query: " ", typeId: field.targetTypeId, limit: 500 },
     { enabled: ids.length > 0 },
   );
 
@@ -466,30 +564,46 @@ function RelationCellDisplay({ field, value }: { field: RelationField; value: un
     [data],
   );
 
+  // Fallback : pour les IDs manquants (base très grande), fetch par id.
+  const missingIds = useMemo(
+    () => ids.filter((id) => !byId.has(id)),
+    [ids, byId],
+  );
+
   if (ids.length === 0) return <span style={{ color: "var(--text-muted)" }}>—</span>;
 
   return (
     <div className="flex flex-wrap gap-1">
       {ids.map((id) => {
         const entity = byId.get(id);
-        const label = entity
-          ? (String(entity.fields["name"] ?? entity.fields["title"] ?? entity.filePath.split("/").pop()?.replace(/\.md$/i, "") ?? id.slice(0, 8)))
-          : id.slice(0, 8) + "…";
-        return (
-          <span
-            key={id}
-            className="rounded px-1.5 py-0.5 text-xs"
-            style={{
-              backgroundColor: "var(--accent)" + "22",
-              color: "var(--accent)",
-            }}
-          >
-            ↔ {label}
-          </span>
-        );
+        if (entity) {
+          const label = String(entity.fields["name"] ?? entity.fields["title"] ?? entity.filePath.split("/").pop()?.replace(/\.md$/i, "") ?? id.slice(0, 8));
+          return <RelationChip key={id} label={label} />;
+        }
+        return <RelationChipLazy key={id} id={id} fetch={missingIds.includes(id)} />;
       })}
     </div>
   );
+}
+
+function RelationChip({ label }: { label: string }) {
+  return (
+    <span
+      className="rounded px-1.5 py-0.5 text-xs"
+      style={{ backgroundColor: "var(--accent)" + "22", color: "var(--accent)" }}
+    >
+      ↔ {label}
+    </span>
+  );
+}
+
+function RelationChipLazy({ id, fetch }: { id: string; fetch: boolean }) {
+  const { data } = trpc.entities.get.useQuery({ id }, { enabled: fetch });
+  if (!data) return <RelationChip label={id.slice(0, 8) + "…"} />;
+  const label = String(
+    data.fields["name"] ?? data.fields["title"] ?? data.filePath.split("/").pop()?.replace(/\.md$/i, "") ?? id.slice(0, 8),
+  );
+  return <RelationChip label={label} />;
 }
 
 // ── ImageEditor ────────────────────────────────────────────────────────────

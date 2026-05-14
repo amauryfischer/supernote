@@ -10,6 +10,7 @@ import {
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { memo } from "react";
+import { Button } from "@supernote/ui";
 
 interface NavTab {
   href: string;
@@ -73,7 +74,7 @@ export const MobileBottomNav = memo(function MobileBottomNav({
         // Highlight "Plus" whenever we're on a section that lives only in the
         // drawer — keeps the nav coherent when the user is deep in finance,
         // contacts, journal, etc.
-        ["/contacts", "/finance", "/tags", "/vues", "/canvas",
+        ["/contacts", "/finance", "/tags",
           "/graph", "/routines", "/templates", "/recherche", "/parametres",
           "/schemas", "/capture", "/journal"].some((prefix) => p.startsWith(prefix)),
     },
@@ -122,8 +123,9 @@ const NavTabButton = memo(function NavTabButton({
 
   if (tab.onPress) {
     return (
-      <button
+      <Button
         type="button"
+        variant="ghost"
         onClick={tab.onPress}
         className={baseClass}
         style={style}
@@ -132,7 +134,7 @@ const NavTabButton = memo(function NavTabButton({
       >
         <Icon size={22} weight={active ? "fill" : "regular"} />
         <span>{tab.label}</span>
-      </button>
+      </Button>
     );
   }
   return (

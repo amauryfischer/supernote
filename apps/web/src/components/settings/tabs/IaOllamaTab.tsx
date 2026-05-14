@@ -2,6 +2,7 @@
 
 import { Robot, CircleNotch, CheckCircle, XCircle, Copy, Check } from "@phosphor-icons/react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Button, Input } from "@heroui/react";
 import { useSettings } from "../SettingsContext";
 import { SettingRow } from "../SettingRow";
 import { SettingSection } from "../SettingSection";
@@ -346,15 +347,17 @@ export function IaOllamaTab() {
             <XCircle size={13} weight="fill" className="shrink-0" />
           )}
           <span className="flex-1">{banner.text}</span>
-          <button
-            onClick={() => void runProbe()}
-            disabled={probing}
-            className="ml-auto flex shrink-0 items-center gap-1 rounded border px-2 py-0.5 transition-all hover:opacity-80 disabled:opacity-50"
+          <Button
+            variant="ghost"
+            size="sm"
+            onPress={() => void runProbe()}
+            isDisabled={probing}
+            className="ml-auto flex shrink-0 items-center gap-1 rounded border px-2 py-0.5"
             style={{ borderColor: "var(--border)", color: "var(--text-secondary)", backgroundColor: "var(--surface-1)" }}
           >
             {probing && <CircleNotch size={11} className="animate-spin" />}
             Tester la connexion
-          </button>
+          </Button>
         </div>
 
         {/* CORS guidance — only shown when the probe says CORS is the problem */}
@@ -379,15 +382,17 @@ export function IaOllamaTab() {
               }}
             >
               <code className="flex-1 truncate">{corsCmd}</code>
-              <button
-                onClick={() => void copyCorsCmd()}
-                className="flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 transition-all hover:opacity-80"
+              <Button
+                variant="ghost"
+                size="sm"
+                onPress={() => void copyCorsCmd()}
+                className="flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5"
                 style={{ color: "var(--text-secondary)" }}
                 aria-label="Copier la commande"
               >
                 {copied ? <Check size={11} /> : <Copy size={11} />}
                 {copied ? "Copie" : "Copier"}
-              </button>
+              </Button>
             </div>
             <p className="text-[11px] opacity-80">
               Si OLLAMA_ORIGINS=* est deja actif et que ca ne fonctionne toujours pas,
@@ -409,9 +414,11 @@ export function IaOllamaTab() {
           >
             <div className="flex items-center justify-between gap-2">
               <strong style={{ color: "var(--text-primary)" }}>Diagnostic</strong>
-              <button
-                onClick={() => void copyDiagnostic()}
-                className="flex shrink-0 items-center gap-1 rounded border px-2 py-0.5 transition-all hover:opacity-80"
+              <Button
+                variant="ghost"
+                size="sm"
+                onPress={() => void copyDiagnostic()}
+                className="flex shrink-0 items-center gap-1 rounded border px-2 py-0.5"
                 style={{
                   borderColor: "var(--border)",
                   color: "var(--text-secondary)",
@@ -421,7 +428,7 @@ export function IaOllamaTab() {
               >
                 {diagCopied ? <Check size={11} /> : <Copy size={11} />}
                 {diagCopied ? "Copie" : "Copier le diagnostic"}
-              </button>
+              </Button>
             </div>
             <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 font-mono">
               <dt className="opacity-70">URL</dt>
@@ -474,18 +481,13 @@ export function IaOllamaTab() {
           label="Hote Ollama"
           description={`Defaut: ${DEFAULT_OLLAMA_HOST}`}
         >
-          <input
+          <Input
             type="text"
             value={host}
             onChange={(e) => setHost(e.target.value)}
             onBlur={(e) => persistHost(e.target.value || DEFAULT_OLLAMA_HOST)}
             placeholder={DEFAULT_OLLAMA_HOST}
-            className="w-56 rounded border px-2 py-1 text-sm"
-            style={{
-              borderColor: "var(--border)",
-              backgroundColor: "var(--surface-1)",
-              color: "var(--text-primary)",
-            }}
+            className="w-56"
           />
         </SettingRow>
 

@@ -1,7 +1,7 @@
 "use client";
 
+import { Button } from "@heroui/react";
 import {
-  BookOpen,
   Calendar,
   FileText,
   Hash,
@@ -38,7 +38,6 @@ const QUICK_ACCESS: QuickAccessItem[] = [
   { labelKey: "nav.contacts", descriptionKey: "home.descriptions.contacts", icon: Users, href: "/contacts" },
   { labelKey: "nav.journal", descriptionKey: "home.descriptions.journal", icon: Calendar, href: "/journal" },
   { labelKey: "nav.schemas", descriptionKey: "home.descriptions.schemas", icon: Hash, href: "/schemas" },
-  { labelKey: "nav.views", descriptionKey: "home.descriptions.views", icon: BookOpen, href: "/vues" },
   { labelKey: "nav.routines", descriptionKey: "home.descriptions.routines", icon: Lightning, href: "/routines" },
 ];
 
@@ -340,15 +339,16 @@ export function WritingSurface() {
           >
             ⌘ S
           </kbd>
-          <button
-            onClick={() => {
+          <Button
+            variant="ghost"
+            onPress={() => {
               if (content.trim()) saveNote(content);
             }}
-            className="transition-colors hover:text-[var(--text-primary)]"
-            disabled={isSaving}
+            className="transition-colors hover:text-[var(--text-primary)] p-0 h-auto min-w-0"
+            isDisabled={isSaving}
           >
             {isSaving ? t("home.savingHint") : t("home.saveHint")}
-          </button>
+          </Button>
           <span style={{ color: "var(--border)" }}>·</span>
           <kbd
             className="rounded border px-1.5 py-0.5 text-[10px] font-medium"
@@ -359,12 +359,13 @@ export function WritingSurface() {
           >
             Esc
           </kbd>
-          <button
-            onClick={exitWriting}
-            className="transition-colors hover:text-[var(--text-primary)]"
+          <Button
+            variant="ghost"
+            onPress={exitWriting}
+            className="transition-colors hover:text-[var(--text-primary)] p-0 h-auto min-w-0"
           >
             {t("home.quitHint")}
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -384,11 +385,11 @@ export function WritingSurface() {
         </h2>
         <div className="grid grid-cols-2 gap-2 pb-24 md:gap-3 md:pb-12">
           {QUICK_ACCESS.map((item) => (
-            <button
+            <Button
               key={item.labelKey}
-              type="button"
-              onClick={() => router.push(item.href)}
-              className="quick-access-card group flex items-center gap-3 rounded-xl border p-4 text-left"
+              variant="ghost"
+              onPress={() => router.push(item.href)}
+              className="quick-access-card group flex items-center gap-3 rounded-xl border p-4 text-left h-auto justify-start"
             >
               <div
                 className="quick-access-icon flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md"
@@ -409,7 +410,7 @@ export function WritingSurface() {
                   {t(item.descriptionKey)}
                 </p>
               </div>
-            </button>
+            </Button>
           ))}
         </div>
       </div>

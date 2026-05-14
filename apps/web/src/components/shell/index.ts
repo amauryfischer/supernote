@@ -11,6 +11,7 @@ export {
   useMobileHeaderActions,
   type MobileFabConfig,
   type MobileHeaderAction,
+  type ColumnEditorState,
 } from "./shell-chrome-context";
 export { PromptModal } from "./PromptModal";
 export { ConfirmModal } from "./ConfirmModal";

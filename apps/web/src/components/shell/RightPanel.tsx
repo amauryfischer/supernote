@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { trpc } from "@/lib/trpc/client";
 import { useShellChrome } from "./shell-chrome-context";
 import { PrioritiesWidget } from "@/components/todos/PrioritiesWidget";
+import { Button } from "@supernote/ui";
 
 // ── Fixtures used when tRPC is unavailable (browser without IPC) ─────────────
 
@@ -98,10 +99,12 @@ function RecentList() {
     return (
       <>
         {FALLBACK_ITEMS.map((item) => (
-          <button
+          <Button
             key={item.id}
+            variant="ghost"
+            size="sm"
             onClick={() => router.push(item.href)}
-            className="flex flex-col rounded-md px-3 py-2.5 text-left transition-colors hover:bg-[var(--surface-2)]"
+            className="flex h-auto w-full flex-col items-start rounded-md px-3 py-2.5 text-left"
           >
             <span className="text-xs font-medium leading-snug" style={{ color: "var(--text-primary)" }}>
               {item.label}
@@ -109,7 +112,7 @@ function RecentList() {
             <span className="mt-0.5 text-[11px]" style={{ color: "var(--text-muted)" }}>
               {item.time}
             </span>
-          </button>
+          </Button>
         ))}
       </>
     );
@@ -126,10 +129,12 @@ function RecentList() {
   return (
     <>
       {data.items.map((entity) => (
-        <button
+        <Button
           key={entity.id}
+          variant="ghost"
+          size="sm"
           onClick={() => router.push(entityHref(entity))}
-          className="flex flex-col rounded-md px-3 py-2.5 text-left transition-colors hover:bg-[var(--surface-2)]"
+          className="flex h-auto w-full flex-col items-start rounded-md px-3 py-2.5 text-left"
         >
           <span className="text-xs font-medium leading-snug" style={{ color: "var(--text-primary)" }}>
             {entityLabel(entity)}
@@ -137,7 +142,7 @@ function RecentList() {
           <span className="mt-0.5 text-[11px]" style={{ color: "var(--text-muted)" }}>
             {relativeTime(entity.updatedAt)}
           </span>
-        </button>
+        </Button>
       ))}
     </>
   );
@@ -168,14 +173,16 @@ export const RightPanel = memo(function RightPanel() {
         >
           Contexte
         </span>
-        <button
+        <Button
+          variant="ghost"
+          size="icon"
           onClick={() => setRightPanelVisible(false)}
           aria-label="Fermer le panneau"
-          className="flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-[var(--surface-2)]"
+          className="flex h-6 w-6 items-center justify-center rounded-md"
           style={{ color: "var(--text-muted)" }}
         >
           <X size={13} />
-        </button>
+        </Button>
       </div>
 
       <div className="border-b" style={{ borderColor: "var(--border-subtle)" }} />

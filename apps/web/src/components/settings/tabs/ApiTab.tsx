@@ -2,6 +2,7 @@
 
 import { Key, Copy, ArrowCounterClockwise, Check, Desktop } from "@phosphor-icons/react";
 import { useState } from "react";
+import { Button, Input } from "@heroui/react";
 import { useSettings } from "../SettingsContext";
 import { SettingRow } from "../SettingRow";
 import { SettingSection } from "../SettingSection";
@@ -46,17 +47,22 @@ export function ApiTab() {
             >
               {displayToken}
             </span>
-            <button
-              onClick={() => setShowToken((s) => !s)}
+            <Button
+              variant="ghost"
+              size="sm"
+              onPress={() => setShowToken((s) => !s)}
               className="text-xs underline"
               style={{ color: "var(--text-muted)" }}
             >
               {showToken ? "Masquer" : "Afficher"}
-            </button>
-            <button
-              onClick={copyToken}
-              title="Copier le token"
-              className="rounded-md border p-1.5 transition-all hover:opacity-80"
+            </Button>
+            <Button
+              isIconOnly
+              variant="ghost"
+              size="sm"
+              onPress={copyToken}
+              aria-label="Copier le token"
+              className="rounded-md border p-1.5"
               style={{ borderColor: "var(--border)", color: "var(--text-secondary)", backgroundColor: "var(--surface-1)" }}
             >
               {copied ? (
@@ -64,30 +70,27 @@ export function ApiTab() {
               ) : (
                 <Copy size={14} />
               )}
-            </button>
-            <button
-              onClick={regenerateToken}
-              title="Régénérer le token"
-              className="rounded-md border p-1.5 transition-all hover:opacity-80"
+            </Button>
+            <Button
+              isIconOnly
+              variant="ghost"
+              size="sm"
+              onPress={regenerateToken}
+              aria-label="Régénérer le token"
+              className="rounded-md border p-1.5"
               style={{ borderColor: "var(--border)", color: "var(--text-secondary)", backgroundColor: "var(--surface-1)" }}
             >
               <ArrowCounterClockwise size={14} />
-            </button>
+            </Button>
           </div>
         </SettingRow>
 
         <SettingRow label="URL du serveur">
-          <input
+          <Input
             type="url"
             value={api.serverUrl}
             onChange={(e) => updateSettings("api", { ...api, serverUrl: e.target.value })}
-            className="rounded-md border px-3 py-1.5 text-sm focus:outline-none"
-            style={{
-              borderColor: "var(--border)",
-              backgroundColor: "var(--surface-1)",
-              color: "var(--text-primary)",
-              width: 240,
-            }}
+            className="w-60"
           />
         </SettingRow>
       </SettingSection>

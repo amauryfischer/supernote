@@ -1,5 +1,6 @@
 "use client";
 
+import { Button } from "@heroui/react";
 import type { SearchMode } from "./types";
 
 interface ModeToggleProps {
@@ -20,10 +21,12 @@ export function ModeToggle({ mode, onChange }: ModeToggleProps) {
       style={{ backgroundColor: "var(--surface-1)", borderColor: "var(--border-subtle)" }}
     >
       {MODES.map((m) => (
-        <button
+        <Button
           key={m.value}
-          onClick={() => onChange(m.value)}
-          className="rounded-md px-3 py-1 text-xs font-medium transition-colors"
+          variant={mode === m.value ? "primary" : "ghost"}
+          size="sm"
+          onPress={() => onChange(m.value)}
+          className="rounded-md px-3 py-1 text-xs font-medium"
           style={
             mode === m.value
               ? { backgroundColor: "var(--accent)", color: "white" }
@@ -31,7 +34,7 @@ export function ModeToggle({ mode, onChange }: ModeToggleProps) {
           }
         >
           {m.label}
-        </button>
+        </Button>
       ))}
     </div>
   );

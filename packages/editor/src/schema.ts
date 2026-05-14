@@ -15,6 +15,8 @@ import {
   wikilinkInlineSpec,
   mentionInlineSpec,
   tagInlineSpec,
+  formulaBlockSpec,
+  formulaInlineSpec,
 } from "./blocks/index.js";
 
 // Drop BlockNote's default checkListItem so our HeroUI-rendered version
@@ -32,12 +34,14 @@ export const supernoteSchema = BlockNoteSchema.create({
     codeHighlight: codeHighlightBlockSpec(),
     embed: embedBlockSpec(),
     databaseView: databaseViewBlockSpec(),
+    formula: formulaBlockSpec(),
   },
   inlineContentSpecs: {
     ...defaultInlineContentSpecs,
     wikilink: wikilinkInlineSpec,
     mention: mentionInlineSpec,
     tag: tagInlineSpec,
+    formulaInline: formulaInlineSpec,
   },
   styleSpecs: {
     ...defaultStyleSpecs,

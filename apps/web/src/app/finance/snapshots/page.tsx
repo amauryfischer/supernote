@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { ArrowLeft, Camera } from "@phosphor-icons/react";
+import { Button, SelectRoot, SelectTrigger, SelectValue, SelectPopover, ListBox, ListBoxItem } from "@heroui/react";
 import Link from "next/link";
 import { AppShell, useMobileTitle, useMobileFab, useMobileHeaderActions } from "@/components/shell";
 import { useIsMobile } from "@/hooks/useIsMobile";
@@ -78,14 +79,15 @@ export default function SnapshotsPage() {
             </span>
           )}
         </div>
-        <button
-          onClick={() => void handleTakeSnapshot()}
-          disabled={createMutation.isPending}
-          className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium disabled:opacity-50"
+        <Button
+          onPress={() => void handleTakeSnapshot()}
+          isDisabled={createMutation.isPending}
+          size="sm"
+          className="flex items-center gap-2 font-medium"
           style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
         >
           <Camera size={14} /> {createMutation.isPending ? "Enregistrement..." : "Prendre un snapshot"}
-        </button>
+        </Button>
       </div>
 
       {isLoading ? (
@@ -112,29 +114,45 @@ export default function SnapshotsPage() {
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
               <div className="flex flex-1 flex-col gap-1">
                 <label className="text-xs" style={{ color: "var(--text-muted)" }}>De</label>
-                <select
-                  className="rounded-lg border px-3 py-2 text-sm"
-                  style={{ borderColor: "var(--border)", backgroundColor: "var(--surface-0)", color: "var(--text-primary)" }}
-                  value={effectiveA}
-                  onChange={(e) => setSelectedA(e.target.value)}
+                <SelectRoot
+                  selectedKey={effectiveA}
+                  onSelectionChange={(key) => { if (key != null) setSelectedA(String(key)); }}
                 >
-                  {snapshots.map((s) => (
-                    <option key={s.id} value={s.id}>{s.name}</option>
-                  ))}
-                </select>
+                  <SelectTrigger
+                    className="rounded-lg border px-3 py-2 text-sm w-full"
+                    style={{ borderColor: "var(--border)", backgroundColor: "var(--surface-0)", color: "var(--text-primary)" }}
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectPopover>
+                    <ListBox>
+                      {snapshots.map((s) => (
+                        <ListBoxItem key={s.id} id={s.id}>{s.name}</ListBoxItem>
+                      ))}
+                    </ListBox>
+                  </SelectPopover>
+                </SelectRoot>
               </div>
               <div className="flex flex-1 flex-col gap-1">
                 <label className="text-xs" style={{ color: "var(--text-muted)" }}>A</label>
-                <select
-                  className="rounded-lg border px-3 py-2 text-sm"
-                  style={{ borderColor: "var(--border)", backgroundColor: "var(--surface-0)", color: "var(--text-primary)" }}
-                  value={effectiveB}
-                  onChange={(e) => setSelectedB(e.target.value)}
+                <SelectRoot
+                  selectedKey={effectiveB}
+                  onSelectionChange={(key) => { if (key != null) setSelectedB(String(key)); }}
                 >
-                  {snapshots.map((s) => (
-                    <option key={s.id} value={s.id}>{s.name}</option>
-                  ))}
-                </select>
+                  <SelectTrigger
+                    className="rounded-lg border px-3 py-2 text-sm w-full"
+                    style={{ borderColor: "var(--border)", backgroundColor: "var(--surface-0)", color: "var(--text-primary)" }}
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectPopover>
+                    <ListBox>
+                      {snapshots.map((s) => (
+                        <ListBoxItem key={s.id} id={s.id}>{s.name}</ListBoxItem>
+                      ))}
+                    </ListBox>
+                  </SelectPopover>
+                </SelectRoot>
               </div>
               {netWorthDiff !== null && (
                 <div className="flex flex-col items-center gap-1">

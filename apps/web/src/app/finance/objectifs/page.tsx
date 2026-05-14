@@ -2,6 +2,7 @@
 
 import { useCallback, useMemo } from "react";
 import { ArrowLeft, Plus, Target } from "@phosphor-icons/react";
+import { Button } from "@heroui/react";
 import Link from "next/link";
 import { AppShell, useMobileTitle, useMobileFab, useMobileHeaderActions } from "@/components/shell";
 import { useIsMobile } from "@/hooks/useIsMobile";
@@ -90,14 +91,15 @@ export default function ObjectifsPage() {
             </span>
           )}
         </div>
-        <button
-          onClick={() => void handleNewGoal()}
-          disabled={createMutation.isPending}
-          className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-opacity disabled:opacity-50"
+        <Button
+          onPress={() => void handleNewGoal()}
+          isDisabled={createMutation.isPending}
+          size="sm"
+          className="flex items-center gap-2 font-medium"
           style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
         >
           <Plus size={14} /> Objectif
-        </button>
+        </Button>
       </div>
 
       {isLoading ? (

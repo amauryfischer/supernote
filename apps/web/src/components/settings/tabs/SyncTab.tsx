@@ -2,6 +2,7 @@
 
 import { GitBranch, ArrowsClockwise, CheckCircle } from "@phosphor-icons/react";
 import { useState } from "react";
+import { Button, Input } from "@heroui/react";
 import { useSettings } from "../SettingsContext";
 import { SettingRow } from "../SettingRow";
 import { SettingSection } from "../SettingSection";
@@ -30,17 +31,12 @@ export function SyncTab() {
         icon={<GitBranch size={16} />}
       >
         <SettingRow label="URL remote">
-          <input
+          <Input
             type="url"
             placeholder="https://github.com/user/vault.git"
             value={sync.gitRemoteUrl}
             onChange={(e) => updateSync({ gitRemoteUrl: e.target.value })}
-            className="w-72 rounded-md border px-3 py-1.5 text-sm focus:outline-none"
-            style={{
-              borderColor: "var(--border)",
-              backgroundColor: "var(--surface-1)",
-              color: "var(--text-primary)",
-            }}
+            className="w-72"
           />
         </SettingRow>
 
@@ -60,10 +56,12 @@ export function SyncTab() {
 
       <SettingSection title="Actions" description="Synchronisation manuelle et état">
         <SettingRow label="Synchroniser">
-          <button
-            onClick={handleSyncNow}
-            disabled={syncing}
-            className="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm transition-all hover:opacity-80 disabled:opacity-50"
+          <Button
+            variant="ghost"
+            size="sm"
+            onPress={handleSyncNow}
+            isDisabled={syncing}
+            className="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm"
             style={{
               borderColor: "var(--accent)",
               color: "var(--accent)",
@@ -72,7 +70,7 @@ export function SyncTab() {
           >
             <ArrowsClockwise size={14} className={syncing ? "animate-spin" : ""} />
             Sync now
-          </button>
+          </Button>
         </SettingRow>
 
         <SettingRow label="Dernier sync">

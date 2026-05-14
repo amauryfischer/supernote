@@ -5,7 +5,7 @@ import { memo, useCallback, useMemo } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { trpc } from "@/lib/trpc/client";
 import { useShellChrome } from "./shell-chrome-context";
-import { useAppTheme, type ThemeValue } from "@supernote/ui";
+import { Button, useAppTheme, type ThemeValue } from "@supernote/ui";
 import { GitSyncIndicator } from "@/lib/git/GitSyncIndicator";
 
 // ── Route label map for static segments ──────────────────────────────────────
@@ -18,7 +18,6 @@ const ROUTE_LABELS: Record<string, string> = {
   schemas: "Schémas",
   vues: "Vues",
   routines: "Routines",
-  canvas: "Canvas",
   graph: "Graph",
   templates: "Templates",
   recherche: "Recherche",
@@ -129,15 +128,16 @@ function ThemeToggleButton() {
   const label = theme === "dark" ? "Thème sombre" : theme === "system" ? "Thème système" : "Thème clair";
 
   return (
-    <button
+    <Button
+      variant="ghost"
+      size="icon"
       onClick={next}
       aria-label={label}
-      title={label}
-      className="flex h-8 w-8 items-center justify-center rounded-full transition-colors hover:bg-[var(--surface-2)]"
+      className="flex h-8 w-8 items-center justify-center rounded-full"
       style={{ color: "var(--text-muted)" }}
     >
       <Icon size={15} />
-    </button>
+    </Button>
   );
 }
 
@@ -166,16 +166,15 @@ export const TopBar = memo(function TopBar() {
       }}
     >
       {/* Search trigger */}
-      <button
+      <Button
+        variant="outline"
+        size="sm"
         onClick={() => {
           window.dispatchEvent(new CustomEvent("supernote:open-command-palette"));
         }}
         data-tour="command-palette-btn"
-        className="flex shrink-0 items-center gap-2 rounded-md px-3 py-1.5 text-xs transition-colors hover:bg-[var(--surface-2)]"
-        style={{
-          color: "var(--text-muted)",
-          border: "1px solid var(--border-subtle)",
-        }}
+        className="flex shrink-0 items-center gap-2 rounded-md px-3 py-1.5 text-xs"
+        style={{ color: "var(--text-muted)" }}
       >
         <Command size={11} />
         <span>Recherche rapide…</span>
@@ -188,7 +187,7 @@ export const TopBar = memo(function TopBar() {
         >
           K
         </kbd>
-      </button>
+      </Button>
 
       {/* Breadcrumb — fills remaining space */}
       <div className="flex flex-1 items-center justify-center overflow-hidden">
@@ -199,28 +198,28 @@ export const TopBar = memo(function TopBar() {
       <div className="flex shrink-0 items-center gap-1">
         <GitSyncIndicator />
         <ThemeToggleButton />
-        <button
+        <Button
+          variant="primary"
+          size="sm"
           onClick={handleNewNote}
           data-tour="new-btn"
-          className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-opacity hover:opacity-90"
-          style={{
-            backgroundColor: "var(--accent)",
-            color: "var(--accent-foreground)",
-          }}
+          className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium"
         >
           <Plus size={13} />
           Nouveau
-        </button>
-        <button
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
           onClick={toggleRightPanel}
           aria-label={rightPanelVisible ? "Masquer le panneau" : "Afficher le panneau"}
-          className="relative flex h-8 w-8 items-center justify-center rounded-md transition-colors hover:bg-[var(--surface-2)]"
+          className="relative flex h-8 w-8 items-center justify-center rounded-md"
           style={{
             color: rightPanelVisible ? "var(--text-secondary)" : "var(--text-muted)",
           }}
         >
           <SidebarSimple size={15} />
-        </button>
+        </Button>
       </div>
     </header>
   );

@@ -14,5 +14,4 @@ export interface EntityTypeDefinition
   readonly color: string;
   readonly defaultPath: string;
   readonly fields: Field[];
-  readonly defaultView: EntityType["defaultView"];
 }

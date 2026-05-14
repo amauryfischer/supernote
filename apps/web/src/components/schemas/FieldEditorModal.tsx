@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { Button, Input, TextArea, Checkbox, Select, ListBox, ListBoxItem } from "@heroui/react";
+import type { Key } from "@heroui/react";
 import { X, Plus, Trash } from "@phosphor-icons/react";
 import type { Field, FieldKind, SelectOption } from "@supernote/core";
 import { FIELD_KINDS, ENTITY_TYPES } from "./fixtures";
@@ -116,9 +118,9 @@ export function FieldEditorModal({ field, onClose, onSave }: FieldEditorModalPro
           <h2 className="text-base font-semibold" style={{ color: "var(--text-primary)" }}>
             {field ? "Modifier le champ" : "Nouveau champ"}
           </h2>
-          <button onClick={onClose} className="rounded-md p-1 hover:bg-[var(--surface-2)]">
+          <Button isIconOnly variant="ghost" size="sm" onPress={onClose} className="rounded-md p-1 hover:bg-[var(--surface-2)]">
             <X size={16} style={{ color: "var(--text-muted)" }} />
-          </button>
+          </Button>
         </div>
 
         <div className="flex flex-col gap-4 overflow-y-auto p-6">
@@ -128,7 +130,7 @@ export function FieldEditorModal({ field, onClose, onSave }: FieldEditorModalPro
               <label className="mb-1 block text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
                 Label
               </label>
-              <input
+              <Input
                 value={label}
                 onChange={(e) => handleLabelChange(e.target.value)}
                 className="w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[var(--accent)]"
@@ -140,7 +142,7 @@ export function FieldEditorModal({ field, onClose, onSave }: FieldEditorModalPro
               <label className="mb-1 block text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
                 Slug (name)
               </label>
-              <input
+              <Input
                 value={name}
                 onChange={(e) => setName(makeSlug(e.target.value))}
                 className="w-full rounded-lg border px-3 py-2 font-mono text-sm outline-none focus:ring-2 focus:ring-[var(--accent)]"
@@ -165,9 +167,11 @@ export function FieldEditorModal({ field, onClose, onSave }: FieldEditorModalPro
                   </p>
                   <div className="flex flex-wrap gap-1.5">
                     {FIELD_KINDS.filter((k) => k.group === group).map((k) => (
-                      <button
+                      <Button
                         key={k.kind}
-                        onClick={() => setKind(k.kind as FieldKind)}
+                        variant="ghost"
+                        size="sm"
+                        onPress={() => setKind(k.kind as FieldKind)}
                         className="rounded-md border px-2.5 py-1 text-xs font-medium transition-colors"
                         style={
                           kind === k.kind
@@ -180,7 +184,7 @@ export function FieldEditorModal({ field, onClose, onSave }: FieldEditorModalPro
                         }
                       >
                         {k.label}
-                      </button>
+                      </Button>
                     ))}
                   </div>
                 </div>
@@ -195,9 +199,9 @@ export function FieldEditorModal({ field, onClose, onSave }: FieldEditorModalPro
                 <label className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
                   Options
                 </label>
-                <button onClick={addOption} className="flex items-center gap-1 text-xs" style={{ color: "var(--accent)" }}>
+                <Button variant="ghost" size="sm" onPress={addOption} className="flex items-center gap-1 text-xs" style={{ color: "var(--accent)" }}>
                   <Plus size={11} /> Ajouter
-                </button>
+                </Button>
               </div>
               <div className="flex flex-col gap-1.5">
                 {options.map((opt, i) => (
@@ -208,7 +212,7 @@ export function FieldEditorModal({ field, onClose, onSave }: FieldEditorModalPro
                       onChange={(e) => updateOption(i, { color: e.target.value })}
                       className="h-7 w-7 cursor-pointer rounded border-none"
                     />
-                    <input
+                    <Input
                       value={opt.label}
                       onChange={(e) =>
                         updateOption(i, { label: e.target.value, value: makeSlug(e.target.value) })
@@ -220,9 +224,9 @@ export function FieldEditorModal({ field, onClose, onSave }: FieldEditorModalPro
                         color: "var(--text-primary)",
                       }}
                     />
-                    <button onClick={() => removeOption(i)} className="rounded p-1 hover:bg-red-50">
+                    <Button isIconOnly variant="ghost" size="sm" onPress={() => removeOption(i)} className="rounded p-1 hover:bg-red-50">
                       <Trash size={12} style={{ color: "var(--danger)" }} />
-                    </button>
+                    </Button>
                   </div>
                 ))}
               </div>
@@ -236,40 +240,50 @@ export function FieldEditorModal({ field, onClose, onSave }: FieldEditorModalPro
                 <label className="mb-1 block text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
                   Type cible
                 </label>
-                <select
-                  value={targetTypeId}
-                  onChange={(e) => setTargetTypeId(e.target.value)}
-                  className="w-full rounded-lg border px-3 py-2 text-sm outline-none"
-                  style={{
-                    borderColor: "var(--border)",
-                    backgroundColor: "var(--surface-1)",
-                    color: "var(--text-primary)",
-                  }}
+                <Select
+                  selectedKey={targetTypeId}
+                  onSelectionChange={(k: Key | null) => setTargetTypeId(String(k ?? ""))}
+                  aria-label="Type cible"
                 >
-                  <option value="">Choisir…</option>
-                  {ENTITY_TYPES.map((t) => (
-                    <option key={t.id} value={t.id}>{t.name}</option>
-                  ))}
-                </select>
+                  <Select.Trigger
+                    className="flex w-full items-center justify-between rounded-lg border px-3 py-2 text-sm outline-none"
+                    style={{ borderColor: "var(--border)", backgroundColor: "var(--surface-1)", color: "var(--text-primary)" }}
+                  >
+                    <Select.Value />
+                  </Select.Trigger>
+                  <Select.Popover>
+                    <ListBox>
+                      <ListBoxItem key="">Choisir…</ListBoxItem>
+                      {ENTITY_TYPES.map((t) => (
+                        <ListBoxItem key={t.id}>{t.name}</ListBoxItem>
+                      ))}
+                    </ListBox>
+                  </Select.Popover>
+                </Select>
               </div>
               <div>
                 <label className="mb-1 block text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
                   Cardinalité
                 </label>
-                <select
-                  value={cardinality}
-                  onChange={(e) => setCardinality(e.target.value)}
-                  className="w-full rounded-lg border px-3 py-2 text-sm outline-none"
-                  style={{
-                    borderColor: "var(--border)",
-                    backgroundColor: "var(--surface-1)",
-                    color: "var(--text-primary)",
-                  }}
+                <Select
+                  selectedKey={cardinality}
+                  onSelectionChange={(k: Key | null) => setCardinality(String(k ?? ""))}
+                  aria-label="Cardinalité"
                 >
-                  <option value="one_to_one">1:1</option>
-                  <option value="one_to_many">1:N</option>
-                  <option value="many_to_many">N:N</option>
-                </select>
+                  <Select.Trigger
+                    className="flex w-full items-center justify-between rounded-lg border px-3 py-2 text-sm outline-none"
+                    style={{ borderColor: "var(--border)", backgroundColor: "var(--surface-1)", color: "var(--text-primary)" }}
+                  >
+                    <Select.Value />
+                  </Select.Trigger>
+                  <Select.Popover>
+                    <ListBox>
+                      <ListBoxItem key="one_to_one">1:1</ListBoxItem>
+                      <ListBoxItem key="one_to_many">1:N</ListBoxItem>
+                      <ListBoxItem key="many_to_many">N:N</ListBoxItem>
+                    </ListBox>
+                  </Select.Popover>
+                </Select>
               </div>
             </div>
           )}
@@ -280,7 +294,7 @@ export function FieldEditorModal({ field, onClose, onSave }: FieldEditorModalPro
               <label className="mb-1 block text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
                 Expression
               </label>
-              <textarea
+              <TextArea
                 value={expression}
                 onChange={(e) => setExpression(e.target.value)}
                 rows={3}
@@ -300,7 +314,7 @@ export function FieldEditorModal({ field, onClose, onSave }: FieldEditorModalPro
             <label className="mb-1 block text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
               Texte d&apos;aide
             </label>
-            <input
+            <Input
               value={helpText}
               onChange={(e) => setHelpText(e.target.value)}
               className="w-full rounded-lg border px-3 py-2 text-sm outline-none"
@@ -315,24 +329,20 @@ export function FieldEditorModal({ field, onClose, onSave }: FieldEditorModalPro
 
           {/* Checkboxes */}
           <div className="flex gap-6">
-            <label className="flex cursor-pointer items-center gap-2 text-sm" style={{ color: "var(--text-secondary)" }}>
-              <input
-                type="checkbox"
-                checked={required}
-                onChange={(e) => setRequired(e.target.checked)}
-                className="accent-[var(--accent)]"
-              />
-              Requis
-            </label>
-            <label className="flex cursor-pointer items-center gap-2 text-sm" style={{ color: "var(--text-secondary)" }}>
-              <input
-                type="checkbox"
-                checked={unique}
-                onChange={(e) => setUnique(e.target.checked)}
-                className="accent-[var(--accent)]"
-              />
-              Unique
-            </label>
+            <Checkbox
+              isSelected={required}
+              onChange={setRequired}
+              style={{ color: "var(--text-secondary)" }}
+            >
+              <span className="text-sm">Requis</span>
+            </Checkbox>
+            <Checkbox
+              isSelected={unique}
+              onChange={setUnique}
+              style={{ color: "var(--text-secondary)" }}
+            >
+              <span className="text-sm">Unique</span>
+            </Checkbox>
           </div>
 
           {/* Validation error */}
@@ -348,20 +358,23 @@ export function FieldEditorModal({ field, onClose, onSave }: FieldEditorModalPro
           className="flex justify-end gap-2 border-t px-6 py-4"
           style={{ borderColor: "var(--border-subtle)" }}
         >
-          <button
-            onClick={onClose}
+          <Button
+            variant="ghost"
+            size="sm"
+            onPress={onClose}
             className="rounded-lg border px-4 py-2 text-sm font-medium transition-colors hover:bg-[var(--surface-2)]"
             style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
           >
             Annuler
-          </button>
-          <button
-            onClick={handleSave}
+          </Button>
+          <Button
+            size="sm"
+            onPress={handleSave}
             className="rounded-lg px-4 py-2 text-sm font-medium transition-colors"
             style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
           >
             Enregistrer
-          </button>
+          </Button>
         </div>
       </div>
     </div>

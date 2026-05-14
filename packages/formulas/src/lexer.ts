@@ -90,6 +90,11 @@ export class Lexer {
       this.advance(); this.advance();
       return ok({ kind: "RWikiLink", raw: "]]", pos: start });
     }
+    // {field name or slug} — Coda-style placeholder; emitted as Identifier
+    // whose raw is `_f_<sanitized>` so it matches the worker's scope keys.
+    if (ch === "{") {
+      return this.readFieldRef(start);
+    }
 
     if (ch === "-" && this.peek(1) === ">") {
       this.advance(); this.advance();
@@ -99,6 +104,11 @@ export class Lexer {
     if (ch === "!" && this.peek(1) === "=") {
       this.advance(); this.advance();
       return ok({ kind: "BangEq", raw: "!=", pos: start });
+    }
+    // Coda-style "<>" for not-equal
+    if (ch === "<" && this.peek(1) === ">") {
+      this.advance(); this.advance();
+      return ok({ kind: "BangEq", raw: "<>", pos: start });
     }
     if (ch === "=" && this.peek(1) === "=") {
       this.advance(); this.advance();
@@ -111,6 +121,20 @@ export class Lexer {
     if (ch === ">" && this.peek(1) === "=") {
       this.advance(); this.advance();
       return ok({ kind: "GtEq", raw: ">=", pos: start });
+    }
+    // Coda-style "&&" / "||" boolean operators
+    if (ch === "&" && this.peek(1) === "&") {
+      this.advance(); this.advance();
+      return ok({ kind: "And", raw: "&&", pos: start });
+    }
+    if (ch === "|" && this.peek(1) === "|") {
+      this.advance(); this.advance();
+      return ok({ kind: "Or", raw: "||", pos: start });
+    }
+    // Bare "=" used as equality in Coda formulas
+    if (ch === "=" && this.peek(1) !== "=") {
+      this.advance();
+      return ok({ kind: "EqEq", raw: "=", pos: start });
     }
 
     const single = SINGLE_CHAR_TOKENS[ch];
@@ -165,7 +189,8 @@ export class Lexer {
   private readIdent(start: Position): Result<Token, ParseError> {
     let raw = "";
     while (isAlphaNum(this.peek()) || this.peek() === "_") raw += this.advance();
-    const kind = KEYWORD_MAP[raw];
+    // Coda is case-insensitive for keywords (TRUE, FALSE, AND, OR, NOT, NULL)
+    const kind = KEYWORD_MAP[raw.toLowerCase()];
     if (kind === "Bool" || kind === "Null" || kind === "And" || kind === "Or" || kind === "Not") {
       return ok({ kind, raw, pos: start });
     }
@@ -177,6 +202,21 @@ export class Lexer {
     let name = "";
     while (isAlphaNum(this.peek()) || this.peek() === "_") name += this.advance();
     return ok({ kind: "Identifier", raw: `@${name}`, pos: start });
+  }
+
+  /** Read {field name} → Identifier with sanitized raw `_f_<safe>` */
+  private readFieldRef(start: Position): Result<Token, ParseError> {
+    this.advance(); // consume {
+    let inner = "";
+    while (this.offset < this.src.length && this.peek() !== "}") {
+      inner += this.advance();
+    }
+    if (this.offset >= this.src.length) {
+      return err(makeParseError("Unterminated field reference '{...'", start));
+    }
+    this.advance(); // consume }
+    const safe = "_f_" + inner.trim().replace(/[^A-Za-z0-9_]/g, "_");
+    return ok({ kind: "Identifier", raw: safe, pos: start });
   }
 
   /** Read a full [[...]] wikilink as a single token */

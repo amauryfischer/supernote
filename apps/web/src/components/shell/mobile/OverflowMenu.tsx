@@ -1,6 +1,6 @@
 "use client";
 
-import { Drawer } from "@supernote/ui";
+import { Button, Drawer } from "@supernote/ui";
 import type { MobileHeaderAction } from "../shell-chrome-context";
 
 /**
@@ -39,19 +39,20 @@ export function OverflowMenu({
           {actions.map((a) => {
             const Icon = a.icon;
             return (
-              <button
+              <Button
                 key={a.id}
                 type="button"
+                variant="ghost"
                 onClick={() => {
                   a.onPress();
                   onClose();
                 }}
-                className="flex h-12 items-center gap-3 px-4 text-[15px] transition-colors active:bg-[var(--surface-2)]"
+                className="flex h-12 w-full items-center gap-3 px-4 text-[15px]"
                 style={{ color: a.active ? "var(--accent)" : "var(--text-primary)" }}
               >
                 <Icon size={20} />
                 <span>{a.label}</span>
-              </button>
+              </Button>
             );
           })}
         </div>

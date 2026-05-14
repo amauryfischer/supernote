@@ -1,5 +1,6 @@
 "use client";
 
+import { Button } from "@heroui/react";
 import { EntityType } from "@supernote/core";
 import { ENTITY_COUNTS } from "./fixtures";
 import { getIcon } from "./icon-map";
@@ -15,9 +16,10 @@ export function TypeListItem({ type, selected, onSelect }: TypeListItemProps) {
   const count = ENTITY_COUNTS[type.id] ?? 0;
 
   return (
-    <button
-      onClick={onSelect}
-      className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors"
+    <Button
+      variant="ghost"
+      onPress={onSelect}
+      className="flex h-auto w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors"
       style={
         selected
           ? { backgroundColor: "var(--accent-subtle)", color: "var(--accent)" }
@@ -39,6 +41,6 @@ export function TypeListItem({ type, selected, onSelect }: TypeListItemProps) {
       <span className="text-xs" style={{ color: "var(--text-muted)" }}>
         {count}
       </span>
-    </button>
+    </Button>
   );
 }

@@ -18,6 +18,7 @@ import {
   verticalListSortingStrategy,
   arrayMove,
 } from "@dnd-kit/sortable";
+import { Button } from "@heroui/react";
 import { AppShell, useMobileTitle, useMobileHeaderActions, useMobileFab, type MobileHeaderAction } from "@/components/shell";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { ENTITY_TYPES } from "@/components/schemas/fixtures";
@@ -157,14 +158,16 @@ export default function SchemaEditPage() {
           className="hidden items-center gap-3 border-b px-6 py-3 md:flex"
           style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-1)" }}
         >
-          <button
-            onClick={() => router.push("/schemas")}
-            className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-[var(--surface-2)]"
+          <Button
+            onPress={() => router.push("/schemas")}
+            variant="ghost"
+            size="sm"
+            className="text-sm"
             style={{ color: "var(--text-secondary)" }}
           >
             <ArrowLeft size={14} />
             Schémas
-          </button>
+          </Button>
           <span style={{ color: "var(--border)" }}>/</span>
           <div className="flex items-center gap-2">
             <span
@@ -189,14 +192,16 @@ export default function SchemaEditPage() {
             {saveSuccess && (
               <span className="text-xs" style={{ color: "var(--accent)" }}>Sauvegardé</span>
             )}
-            <button
-              onClick={() => void handleSave()}
-              disabled={updateMutation.isPending}
-              className="rounded-lg px-4 py-1.5 text-sm font-medium transition-colors disabled:opacity-50"
+            <Button
+              onPress={() => void handleSave()}
+              isDisabled={updateMutation.isPending}
+              isPending={updateMutation.isPending}
+              size="sm"
+              className="text-sm font-medium"
               style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
             >
-              {updateMutation.isPending ? "…" : "Sauvegarder"}
-            </button>
+              Sauvegarder
+            </Button>
           </div>
         </div>
 
@@ -218,13 +223,14 @@ export default function SchemaEditPage() {
               <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
                 Champs ({fields.length})
               </span>
-              <button
-                onClick={() => setEditingField("new")}
-                className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium"
+              <Button
+                onPress={() => setEditingField("new")}
+                size="sm"
+                className="text-xs font-medium"
                 style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
               >
                 <Plus size={11} /> Champ
-              </button>
+              </Button>
             </div>
             <div className="flex flex-1 flex-col gap-1.5 overflow-y-auto p-3">
               <DndContext
@@ -250,7 +256,7 @@ export default function SchemaEditPage() {
           {!isMobile && <main className="flex flex-1 flex-col overflow-hidden" style={{ backgroundColor: "var(--surface-0)" }}>
             <div className="border-b px-6 py-4" style={{ borderColor: "var(--border-subtle)" }}>
               <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
-                Aperçu live — {resolvedType.defaultView ?? "table"}
+                Aperçu live
               </p>
             </div>
             <div className="overflow-auto p-6">

@@ -11,6 +11,7 @@
  */
 
 import { useMemo, useState } from "react";
+import { Button } from "@heroui/react";
 import { CaretDown, CaretRight, Plus } from "@phosphor-icons/react";
 import type { EntityType, SelectOption } from "@supernote/core";
 import type { View } from "@supernote/ipc";
@@ -117,14 +118,15 @@ export function ListView({ base, view }: ListViewProps) {
           </ListSection>
         ))}
         {!groupField && (
-          <button
-            type="button"
-            onClick={() => addEntry()}
+          <Button
+            variant="ghost"
+            size="sm"
+            onPress={() => addEntry()}
             className="flex items-center gap-1.5 self-start rounded px-2 py-1 text-xs font-medium hover:bg-[var(--surface-2)]"
             style={{ color: "var(--text-secondary)" }}
           >
             <Plus size={11} /> Nouvelle entrée
-          </button>
+          </Button>
         )}
       </div>
     </div>
@@ -150,9 +152,10 @@ function ListSection({ label, color, count, onAdd, children }: ListSectionProps)
         className="flex items-center gap-2 rounded-md px-2 py-1 hover:bg-[var(--surface-2)]"
         style={{ cursor: "pointer" }}
       >
-        <button
-          type="button"
-          onClick={() => setOpen((v) => !v)}
+        <Button
+          variant="ghost"
+          size="sm"
+          onPress={() => setOpen((v) => !v)}
           className="flex flex-1 items-center gap-2 text-left"
           style={{ color: "var(--text-secondary)" }}
         >
@@ -165,17 +168,18 @@ function ListSection({ label, color, count, onAdd, children }: ListSectionProps)
           <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>
             {count}
           </span>
-        </button>
+        </Button>
         {onAdd && (
-          <button
-            type="button"
-            onClick={onAdd}
+          <Button
+            variant="ghost"
+            size="sm"
+            onPress={onAdd}
             className="rounded p-0.5 hover:bg-[var(--surface-3)]"
             style={{ color: "var(--text-muted)" }}
-            title="Ajouter dans cette section"
+            aria-label="Ajouter dans cette section"
           >
             <Plus size={11} />
-          </button>
+          </Button>
         )}
       </div>
       {open && (

@@ -4,6 +4,7 @@ import { useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, X } from "@phosphor-icons/react";
+import { Button } from "@heroui/react";
 import { AppShell, useMobileTitle } from "@/components/shell";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { ENTITY_TYPES, RELATION_TYPES } from "@/components/schemas/fixtures";
@@ -54,14 +55,16 @@ export default function RelationsPage() {
           className="hidden items-center gap-3 border-b px-6 py-3 md:flex"
           style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-1)" }}
         >
-          <button
-            onClick={() => router.push("/schemas")}
-            className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-[var(--surface-2)]"
+          <Button
+            onPress={() => router.push("/schemas")}
+            variant="ghost"
+            size="sm"
+            className="text-sm"
             style={{ color: "var(--text-secondary)" }}
           >
             <ArrowLeft size={14} />
             Schémas
-          </button>
+          </Button>
           <span style={{ color: "var(--border)" }}>/</span>
           <span className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
             Graphe des relations
@@ -91,12 +94,15 @@ export default function RelationsPage() {
                 <h3 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
                   Édition de relation
                 </h3>
-                <button
-                  onClick={() => setSelectedRel(null)}
-                  className="rounded-md p-1 hover:bg-[var(--surface-2)]"
+                <Button
+                  onPress={() => setSelectedRel(null)}
+                  variant="ghost"
+                  isIconOnly
+                  size="sm"
+                  className="h-6 w-6"
                 >
                   <X size={14} style={{ color: "var(--text-muted)" }} />
-                </button>
+                </Button>
               </div>
 
               {/* Source → Target */}
@@ -158,18 +164,22 @@ export default function RelationsPage() {
 
               {/* Actions */}
               <div className="flex gap-2">
-                <button
-                  className="flex-1 rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors hover:bg-[var(--surface-2)]"
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="flex-1 text-sm font-medium"
                   style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
                 >
                   Modifier les labels
-                </button>
-                <button
-                  className="rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors hover:bg-red-50"
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-sm font-medium"
                   style={{ borderColor: "var(--border)", color: "var(--danger)" }}
                 >
                   Supprimer
-                </button>
+                </Button>
               </div>
             </div>
           )}

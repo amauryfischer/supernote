@@ -20,6 +20,7 @@
  */
 
 import { useMemo, useState, useCallback } from "react";
+import { Button } from "@heroui/react";
 import {
   CaretDown,
   CaretRight,
@@ -298,27 +299,16 @@ function TagNodeRow({
         className="group relative flex items-center"
         onContextMenu={handleContext}
       >
-        <button
-          type="button"
-          onClick={() => onSelectPath(node.path)}
-          className="flex flex-1 items-center gap-1.5 rounded-md px-2 py-1.5 text-sm transition-colors"
+        <Button
+          variant="ghost"
+          onPress={() => onSelectPath(node.path)}
+          className="flex h-auto flex-1 items-center gap-1.5 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-[var(--surface-2)]"
           style={{
             paddingLeft: `${8 + depth * 16}px`,
             backgroundColor: isSelected ? "var(--accent-subtle)" : undefined,
             color: isSelected ? "var(--accent)" : "var(--text-secondary)",
             fontWeight: isSelected ? 500 : 400,
             fontStyle: node.virtual ? "italic" : undefined,
-          }}
-          onMouseEnter={(e) => {
-            if (!isSelected) {
-              (e.currentTarget as HTMLButtonElement).style.backgroundColor =
-                "var(--surface-2)";
-            }
-          }}
-          onMouseLeave={(e) => {
-            if (!isSelected) {
-              (e.currentTarget as HTMLButtonElement).style.backgroundColor = "";
-            }
           }}
         >
           <span
@@ -367,7 +357,7 @@ function TagNodeRow({
           >
             ({node.totalCount})
           </span>
-        </button>
+        </Button>
       </div>
       {hasChildren && effectiveExpanded && (
         <div>

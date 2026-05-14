@@ -14,6 +14,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { Button } from "@heroui/react";
 import { FileText, Envelope } from "@phosphor-icons/react";
 import { useDateFormat } from "@/lib/dateFormat";
 import { InlineMarkdown } from "@/lib/inlineMarkdown";
@@ -100,14 +101,14 @@ export function TodoRow({ row, onToggle, onEdit, onEmail, onContextMenu }: TodoR
       </span>
 
       {/* Checkbox */}
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
+      <Button
+        variant="ghost"
+        onPress={(e) => {
+          void e;
           onToggle();
         }}
         aria-label={row.done ? "Marquer comme non faite" : "Marquer comme faite"}
-        className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border"
+        className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border p-0 min-w-0"
         style={{
           borderColor: row.done ? "var(--accent)" : "var(--border)",
           backgroundColor: row.done ? "var(--accent)" : "transparent",
@@ -124,17 +125,13 @@ export function TodoRow({ row, onToggle, onEdit, onEmail, onContextMenu }: TodoR
             />
           </svg>
         )}
-      </button>
+      </Button>
 
-      {/* Main text — clickable to open the edit modal. Inline markdown
-          is rendered inside (bold/italic/code/strike/link) so users can
-          format their checklist items naturally. The wrapping `<span>`
-          inside InlineMarkdown lets the parent button keep its flex
-          truncation rules. */}
-      <button
-        type="button"
-        onClick={onEdit}
-        className="flex-1 min-w-0 truncate text-left leading-tight hover:underline"
+      {/* Main text — clickable to open the edit modal. */}
+      <Button
+        variant="ghost"
+        onPress={onEdit}
+        className="flex-1 min-w-0 truncate text-left leading-tight hover:underline p-0 h-auto justify-start"
         style={{
           color: row.done ? "var(--text-muted)" : "var(--text-primary)",
           textDecoration: row.done ? "line-through" : undefined,
@@ -143,7 +140,7 @@ export function TodoRow({ row, onToggle, onEdit, onEmail, onContextMenu }: TodoR
         }}
       >
         <InlineMarkdown text={row.text} />
-      </button>
+      </Button>
 
       {/* Source note link */}
       {row.sourceNoteId && (
@@ -166,19 +163,15 @@ export function TodoRow({ row, onToggle, onEdit, onEmail, onContextMenu }: TodoR
 
       {/* Email button */}
       {onEmail && (
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onEmail();
-          }}
+        <Button
+          variant="ghost"
+          onPress={onEmail}
           aria-label="Envoyer par email"
-          className="flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[10px] opacity-0 transition-opacity group-hover:opacity-100"
+          className="flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[10px] opacity-0 transition-opacity group-hover:opacity-100 min-w-0 h-auto"
           style={{ color: "var(--text-muted)" }}
-          title="Envoyer cette tâche par email"
         >
           <Envelope size={11} />
-        </button>
+        </Button>
       )}
 
       {/* Date display — range, single due, or single start */}

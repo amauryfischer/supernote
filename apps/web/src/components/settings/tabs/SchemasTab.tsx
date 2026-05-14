@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { Plus, Database, Stack } from "@phosphor-icons/react";
+import { Button } from "@heroui/react";
 import { TypeListItem } from "@/components/schemas/TypeListItem";
 import { TypePreview } from "@/components/schemas/TypePreview";
 import { ENTITY_TYPES } from "@/components/schemas/fixtures";
@@ -35,12 +36,14 @@ function EmptyCustomTypes() {
         {CUSTOM_TYPE_EXAMPLES.join(", ")}…
       </p>
       <Link href="/schemas/nouveau">
-        <button
-          className="mt-3 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors"
+        <Button
+          variant="ghost"
+          size="sm"
+          className="mt-3 rounded-lg px-3 py-1.5 text-xs font-medium"
           style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
         >
           Créer un type
-        </button>
+        </Button>
       </Link>
     </div>
   );
@@ -96,13 +99,15 @@ export function SchemasTab() {
             </span>
           </div>
           <Link href="/schemas/nouveau">
-            <button
-              className="flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium transition-colors"
+            <Button
+              variant="ghost"
+              size="sm"
+              className="flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium"
               style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
             >
               <Plus size={12} />
               Nouveau
-            </button>
+            </Button>
           </Link>
         </div>
 
@@ -112,10 +117,12 @@ export function SchemasTab() {
           style={{ borderColor: "var(--border-subtle)" }}
         >
           {(["all", "seeds"] as const).map((f) => (
-            <button
+            <Button
               key={f}
-              onClick={() => setFilter(f)}
-              className="flex-1 rounded-md py-1.5 text-xs font-medium transition-colors"
+              variant="ghost"
+              size="sm"
+              onPress={() => setFilter(f)}
+              className="flex-1 rounded-md py-1.5 text-xs font-medium"
               style={
                 filter === f
                   ? { backgroundColor: "var(--surface-3)", color: "var(--text-primary)" }
@@ -123,7 +130,7 @@ export function SchemasTab() {
               }
             >
               {f === "all" ? "Mes types" : "Seeds Supernote"}
-            </button>
+            </Button>
           ))}
         </div>
 
@@ -155,13 +162,15 @@ export function SchemasTab() {
           style={{ borderColor: "var(--border-subtle)" }}
         >
           <Link href="/schemas/relations">
-            <button
-              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors hover:bg-[var(--surface-2)]"
+            <Button
+              variant="ghost"
+              size="sm"
+              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium"
               style={{ color: "var(--text-secondary)" }}
             >
               <Stack size={14} />
               Graphe des relations
-            </button>
+            </Button>
           </Link>
         </div>
       </aside>

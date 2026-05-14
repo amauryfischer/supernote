@@ -2,6 +2,7 @@
 
 import { Keyboard, ArrowCounterClockwise } from "@phosphor-icons/react";
 import { useState } from "react";
+import { Button, Input } from "@heroui/react";
 import { useSettings } from "../SettingsContext";
 import { SettingSection } from "../SettingSection";
 import { DEFAULT_SETTINGS } from "../defaults";
@@ -50,38 +51,38 @@ function ShortcutRow({
       </span>
       {editing ? (
         <div className="flex items-center gap-2">
-          <input
+          <Input
             autoFocus
             value={draft}
             onKeyDown={handleKeyDown}
             readOnly
-            className="rounded-md border px-2 py-1 font-mono text-xs focus:outline-none"
-            style={{
-              borderColor: "var(--accent)",
-              backgroundColor: "var(--surface-1)",
-              color: "var(--text-primary)",
-              width: 120,
-            }}
+            className="w-[120px] font-mono text-xs"
           />
-          <button
-            onClick={save}
+          <Button
+            variant="ghost"
+            size="sm"
+            onPress={save}
             className="rounded-md px-2 py-1 text-xs font-medium"
             style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
           >
             OK
-          </button>
-          <button
-            onClick={cancel}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onPress={cancel}
             className="rounded-md border px-2 py-1 text-xs"
             style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
           >
             Annuler
-          </button>
+          </Button>
         </div>
       ) : (
-        <button
-          onClick={() => setEditing(true)}
-          className="rounded-md border px-2 py-1 font-mono text-xs transition-all hover:opacity-80"
+        <Button
+          variant="ghost"
+          size="sm"
+          onPress={() => setEditing(true)}
+          className="rounded-md border px-2 py-1 font-mono text-xs"
           style={{
             borderColor: "var(--border)",
             backgroundColor: "var(--surface-1)",
@@ -89,7 +90,7 @@ function ShortcutRow({
           }}
         >
           {shortcut.keys}
-        </button>
+        </Button>
       )}
     </div>
   );
@@ -117,14 +118,16 @@ export function ShortcutsTab() {
         description="Cliquez sur un raccourci pour le modifier"
         icon={<Keyboard size={16} />}
         action={
-          <button
-            onClick={restoreDefaults}
-            className="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm transition-all hover:opacity-80"
+          <Button
+            variant="ghost"
+            size="sm"
+            onPress={restoreDefaults}
+            className="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm"
             style={{ borderColor: "var(--border)", color: "var(--text-secondary)", backgroundColor: "var(--surface-1)" }}
           >
             <ArrowCounterClockwise size={14} />
             Restaurer les défauts
-          </button>
+          </Button>
         }
       >
         <div>

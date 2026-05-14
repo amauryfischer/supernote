@@ -2,6 +2,7 @@
 
 import { FolderOpen } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
+import { Button, Input } from "@heroui/react";
 import { useSettings } from "../SettingsContext";
 import { SettingRow } from "../SettingRow";
 import { SettingSection } from "../SettingSection";
@@ -81,24 +82,20 @@ export function GeneralTab() {
               <FolderOpen size={14} style={{ color: "var(--text-muted)" }} />
               <span className="truncate font-mono text-xs">{displayedVaultPath}</span>
             </div>
-            <button
-              type="button"
-              onClick={canChangeVault ? () => void vault?.pickFolder() : undefined}
-              disabled={!canChangeVault || isPicking}
-              className="rounded-md border px-3 py-1.5 text-sm transition-all hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-50"
+            <Button
+              variant="ghost"
+              size="sm"
+              onPress={canChangeVault ? () => void vault?.pickFolder() : undefined}
+              isDisabled={!canChangeVault || isPicking}
+              className="rounded-md border px-3 py-1.5 text-sm"
               style={{
                 borderColor: "var(--border)",
                 color: "var(--text-secondary)",
                 backgroundColor: "var(--surface-1)",
               }}
-              title={
-                canChangeVault
-                  ? t("settings.general.change")
-                  : "Disponible uniquement en mode navigateur (PWA)"
-              }
             >
               {isPicking ? "..." : t("settings.general.change")}
-            </button>
+            </Button>
           </div>
         </SettingRow>
       </SettingSection>
@@ -138,17 +135,12 @@ export function GeneralTab() {
         description="Adresse pré-remplie quand vous envoyez une tâche par email depuis /todos."
       >
         <SettingRow label="Adresse par défaut">
-          <input
+          <Input
             type="email"
             value={defaultEmail}
             onChange={(e) => persistDefaultEmail(e.target.value)}
             placeholder="vous@exemple.fr"
-            className="w-full rounded-md border px-3 py-1.5 text-sm outline-none transition-colors"
-            style={{
-              borderColor: "var(--border)",
-              backgroundColor: "var(--surface-1)",
-              color: "var(--text-primary)",
-            }}
+            className="w-full"
           />
         </SettingRow>
       </SettingSection>

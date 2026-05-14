@@ -36,7 +36,6 @@ interface SeedEntityType {
   fields: SeedField[];
   defaultPath: string;
   fileNamePattern: string;
-  defaultView: string;
 }
 
 interface SeedRelationType {
@@ -277,20 +276,20 @@ const goalFields: SeedField[] = [
 ];
 
 export const DEFAULT_ENTITY_TYPES: SeedEntityType[] = [
-  { id: "personne", name: "Personne", plural: "Personnes", icon: "User", color: "#6366F1", fields: personneFields, defaultPath: "Contacts", fileNamePattern: "{name}", defaultView: "table" },
-  { id: "organisation", name: "Organisation", plural: "Organisations", icon: "Building2", color: "#0EA5E9", fields: orgaFields, defaultPath: "Contacts/Organisations", fileNamePattern: "{name}", defaultView: "table" },
-  { id: "interaction", name: "Interaction", plural: "Interactions", icon: "MessageCircle", color: "#10B981", fields: interactionFields, defaultPath: "Interactions", fileNamePattern: "{date}-{title}", defaultView: "table" },
-  { id: "note", name: "Note", plural: "Notes", icon: "FileText", color: "#F59E0B", fields: noteFields, defaultPath: "Notes", fileNamePattern: "{title}", defaultView: "table" },
-  { id: "daily", name: "Daily", plural: "Dailies", icon: "Calendar", color: "#EC4899", fields: dailyFields, defaultPath: "Daily", fileNamePattern: "{date}", defaultView: "calendar" },
-  { id: "tag", name: "Tag", plural: "Tags", icon: "Tag", color: "#64748B", fields: tagFields, defaultPath: "Tags", fileNamePattern: "{name}", defaultView: "table" },
-  { id: "account", name: "Account", plural: "Accounts", icon: "Wallet", color: "#4F8EF7", fields: accountFields, defaultPath: "Finance/Accounts", fileNamePattern: "{name}", defaultView: "table" },
-  { id: "asset", name: "Asset", plural: "Assets", icon: "TrendingUp", color: "#10B981", fields: assetFields, defaultPath: "Finance/Assets", fileNamePattern: "{name}", defaultView: "table" },
-  { id: "loan", name: "Loan", plural: "Loans", icon: "CreditCard", color: "#EF4444", fields: loanFields, defaultPath: "Finance/Loans", fileNamePattern: "{name}", defaultView: "table" },
-  { id: "snapshot", name: "Snapshot", plural: "Snapshots", icon: "BarChart2", color: "#06B6D4", fields: snapshotFields, defaultPath: "Finance/Snapshots", fileNamePattern: "{date}", defaultView: "table" },
-  { id: "goal", name: "Goal", plural: "Goals", icon: "Target", color: "#F97316", fields: goalFields, defaultPath: "Finance/Goals", fileNamePattern: "{name}", defaultView: "table" },
-  { id: "canvas", name: "Canvas", plural: "Canvas", icon: "SquaresFour", color: "#0EA5E9", fields: canvasFields, defaultPath: "Canvas", fileNamePattern: "{name}", defaultView: "grid" },
-  { id: "routine", name: "Routine", plural: "Routines", icon: "Lightning", color: "#F59E0B", fields: routineFields, defaultPath: "Routines", fileNamePattern: "{name}", defaultView: "table" },
-  { id: "todo", name: "Todo", plural: "Todos", icon: "CheckSquare", color: "#22C55E", fields: todoFields, defaultPath: "Todos", fileNamePattern: "{text}", defaultView: "table" },
+  { id: "personne", name: "Personne", plural: "Personnes", icon: "User", color: "#6366F1", fields: personneFields, defaultPath: "Contacts", fileNamePattern: "{name}" },
+  { id: "organisation", name: "Organisation", plural: "Organisations", icon: "Building2", color: "#0EA5E9", fields: orgaFields, defaultPath: "Contacts/Organisations", fileNamePattern: "{name}" },
+  { id: "interaction", name: "Interaction", plural: "Interactions", icon: "MessageCircle", color: "#10B981", fields: interactionFields, defaultPath: "Interactions", fileNamePattern: "{date}-{title}" },
+  { id: "note", name: "Note", plural: "Notes", icon: "FileText", color: "#F59E0B", fields: noteFields, defaultPath: "Notes", fileNamePattern: "{title}" },
+  { id: "daily", name: "Daily", plural: "Dailies", icon: "Calendar", color: "#EC4899", fields: dailyFields, defaultPath: "Daily", fileNamePattern: "{date}" },
+  { id: "tag", name: "Tag", plural: "Tags", icon: "Tag", color: "#64748B", fields: tagFields, defaultPath: "Tags", fileNamePattern: "{name}" },
+  { id: "account", name: "Account", plural: "Accounts", icon: "Wallet", color: "#4F8EF7", fields: accountFields, defaultPath: "Finance/Accounts", fileNamePattern: "{name}" },
+  { id: "asset", name: "Asset", plural: "Assets", icon: "TrendingUp", color: "#10B981", fields: assetFields, defaultPath: "Finance/Assets", fileNamePattern: "{name}" },
+  { id: "loan", name: "Loan", plural: "Loans", icon: "CreditCard", color: "#EF4444", fields: loanFields, defaultPath: "Finance/Loans", fileNamePattern: "{name}" },
+  { id: "snapshot", name: "Snapshot", plural: "Snapshots", icon: "BarChart2", color: "#06B6D4", fields: snapshotFields, defaultPath: "Finance/Snapshots", fileNamePattern: "{date}" },
+  { id: "goal", name: "Goal", plural: "Goals", icon: "Target", color: "#F97316", fields: goalFields, defaultPath: "Finance/Goals", fileNamePattern: "{name}" },
+  { id: "canvas", name: "Canvas", plural: "Canvas", icon: "SquaresFour", color: "#0EA5E9", fields: canvasFields, defaultPath: "Canvas", fileNamePattern: "{name}" },
+  { id: "routine", name: "Routine", plural: "Routines", icon: "Lightning", color: "#F59E0B", fields: routineFields, defaultPath: "Routines", fileNamePattern: "{name}" },
+  { id: "todo", name: "Todo", plural: "Todos", icon: "CheckSquare", color: "#22C55E", fields: todoFields, defaultPath: "Todos", fileNamePattern: "{text}" },
 ];
 
 export const DEFAULT_RELATION_TYPES: SeedRelationType[] = [
@@ -311,9 +310,9 @@ export function seedDefaults(db: Database, vaultId: string, ts: string): void {
     db.run(
       `INSERT OR IGNORE INTO entity_type
          (id, vaultId, name, plural, icon, color, fields,
-          defaultPath, fileNamePattern, defaultView,
+          defaultPath, fileNamePattern,
           validations, workflowIds, isSystem, createdAt, updatedAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '[]', 1, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '[]', 1, ?, ?)`,
       [
         t.id,
         vaultId,
@@ -324,7 +323,6 @@ export function seedDefaults(db: Database, vaultId: string, ts: string): void {
         JSON.stringify(t.fields),
         t.defaultPath,
         t.fileNamePattern,
-        t.defaultView,
         ts,
         ts,
       ],

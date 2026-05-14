@@ -17,7 +17,9 @@ export function ipcFieldToCore(f: FieldDefinition): Field {
   const base = {
     id: f.id,
     name: f.name,
-    label: f.name,
+    // Préserve le libellé humain — fallback sur `name` (slug) seulement quand
+    // l'ancien enregistrement n'avait pas de label persisté.
+    label: f.label?.trim() ? f.label : f.name,
     required: f.required ?? false,
     unique: f.unique ?? false,
     helpText: f.helpText,
@@ -32,7 +34,13 @@ export function ipcFieldToCore(f: FieldDefinition): Field {
     return { ...base, kind, options: (f.options ?? []) as SelectOption[] };
   }
   if (kind === "formula") {
-    return { ...base, kind, expression: f.formulaExpr ?? "", outputKind: "text" };
+    return {
+      ...base,
+      kind,
+      expression: f.formulaExpr ?? "",
+      outputKind: (f.formulaOutputKind ?? "text") as "text" | "number" | "date" | "bool",
+      outputFormat: f.formulaOutputFormat,
+    };
   }
   if (kind === "rollup") {
     return { ...base, kind, relationFieldId: "", targetFieldId: "", aggregation: "count" };
@@ -55,7 +63,6 @@ export function ipcEntityTypeToCore(et: IpcEntityType): EntityType {
     fields: et.fields.map(ipcFieldToCore),
     defaultPath: et.defaultPath ?? "",
     fileNamePattern: et.fileNamePattern ?? "{name}",
-    defaultView: et.defaultView as EntityType["defaultView"],
   };
 }
 
@@ -64,6 +71,7 @@ export function coreFieldToIpc(f: Field): FieldDefinition {
   const base: FieldDefinition = {
     id: f.id,
     name: f.name,
+    label: f.label,
     type: f.kind as FieldDefinition["type"],
     required: f.required,
     unique: f.unique,
@@ -77,6 +85,11 @@ export function coreFieldToIpc(f: Field): FieldDefinition {
   }
   if (f.kind === "formula") {
     base.formulaExpr = f.expression;
+    const ok = f.outputKind;
+    if (ok === "text" || ok === "number" || ok === "date" || ok === "bool") {
+      base.formulaOutputKind = ok;
+    }
+    if (f.outputFormat) base.formulaOutputFormat = f.outputFormat;
   }
   return base;
 }

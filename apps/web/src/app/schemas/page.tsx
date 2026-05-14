@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Plus, Database, Stack } from "@phosphor-icons/react";
+import { Button } from "@heroui/react";
 import { AppShell, useMobileFab, useMobileTitle } from "@/components/shell";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { TypeListItem } from "@/components/schemas/TypeListItem";
@@ -38,12 +39,13 @@ function EmptyCustomTypes() {
         {CUSTOM_TYPE_EXAMPLES.join(", ")}…
       </p>
       <Link href="/schemas/nouveau">
-        <button
-          className="mt-3 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors"
+        <Button
+          size="sm"
+          className="mt-3 text-xs font-medium"
           style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
         >
           Créer un type
-        </button>
+        </Button>
       </Link>
     </div>
   );
@@ -102,13 +104,14 @@ export default function SchemasPage() {
               </span>
             </div>
             <Link href="/schemas/nouveau">
-              <button
-                className="flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium transition-colors"
+              <Button
+                size="sm"
+                className="text-xs font-medium"
                 style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
               >
                 <Plus size={12} />
                 Nouveau
-              </button>
+              </Button>
             </Link>
           </div>
 
@@ -118,10 +121,12 @@ export default function SchemasPage() {
             style={{ borderColor: "var(--border-subtle)" }}
           >
             {(["all", "seeds"] as const).map((f) => (
-              <button
+              <Button
                 key={f}
-                onClick={() => setFilter(f)}
-                className="flex-1 rounded-md py-1.5 text-xs font-medium transition-colors"
+                onPress={() => setFilter(f)}
+                variant="ghost"
+                size="sm"
+                className="flex-1 text-xs font-medium"
                 style={
                   filter === f
                     ? { backgroundColor: "var(--surface-3)", color: "var(--text-primary)" }
@@ -129,7 +134,7 @@ export default function SchemasPage() {
                 }
               >
                 {f === "all" ? "Mes types" : "Seeds Supernote"}
-              </button>
+              </Button>
             ))}
           </div>
 
@@ -167,13 +172,15 @@ export default function SchemasPage() {
             style={{ borderColor: "var(--border-subtle)" }}
           >
             <Link href="/schemas/relations">
-              <button
-                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors hover:bg-[var(--surface-2)]"
+              <Button
+                variant="ghost"
+                size="sm"
+                className="w-full justify-start text-sm font-medium"
                 style={{ color: "var(--text-secondary)" }}
               >
                 <Stack size={14} />
                 Graphe des relations
-              </button>
+              </Button>
             </Link>
           </div>
         </aside>

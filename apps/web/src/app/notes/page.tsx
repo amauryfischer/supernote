@@ -16,10 +16,12 @@ import {
   useRenameNote,
   useArchiveNote,
   useArchiveFolder,
+  useMoveNote,
 } from "@/components/notes/hooks";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useConfirm, usePrompt } from "@/hooks/usePrompt";
+import { useToast } from "@supernote/ui";
 import { folderAccentVars, folderColorFromTree } from "@/lib/folderAccent";
 import {
   useMobileFab,
@@ -63,8 +65,10 @@ function NotesPageContent() {
   const { renameNote } = useRenameNote();
   const { setArchived } = useArchiveNote();
   const { archiveFolder } = useArchiveFolder();
+  const { moveNote } = useMoveNote();
   const prompt = usePrompt();
   const confirm = useConfirm();
+  const { toast } = useToast();
 
   const handleSelectFolder = useCallback((path: string) => {
     setSelectedFolder(path);
@@ -229,6 +233,16 @@ function NotesPageContent() {
     return result;
   }, [archiveFolder, confirm, router]);
 
+  const handleMoveNote = useCallback(async (noteId: string, folderPath: string): Promise<void> => {
+    try {
+      await moveNote(noteId, folderPath);
+      const leaf = folderPath.split("/").pop() ?? folderPath;
+      toast({ title: `Note déplacée dans « ${leaf} »` });
+    } catch {
+      toast({ title: "Impossible de déplacer la note", variant: "danger" });
+    }
+  }, [moveNote, toast]);
+
   // Ctrl/Cmd+N → nouvelle note. Marche uniquement en PWA standalone (en
   // onglet, Chrome verrouille Ctrl+N pour ouvrir une fenêtre — preventDefault
   // est ignoré). Ctrl+Alt+N est l'alternative jamais interceptée par le
@@ -312,6 +326,7 @@ function NotesPageContent() {
           // hidden from the per-folder view by default and the user reads
           // the (N) badge to plan where to write next, not to audit history.
           notes={allNotes.filter((n) => !n.archivedAt)}
+          onDropNote={handleMoveNote}
         />
       )}
 
@@ -331,6 +346,7 @@ function NotesPageContent() {
           onRenameNote={handleRenameNote}
           onArchiveNote={handleArchiveNote}
           onRenameFolderInline={handleRenameFolderInline}
+          onDragNote={() => {}}
         />
       )}
 

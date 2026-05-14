@@ -10,6 +10,7 @@ import {
   FolderOpen,
   Key,
 } from "@phosphor-icons/react";
+import { Button, Input } from "@heroui/react";
 import { SettingSection } from "../SettingSection";
 import { trpc } from "@/lib/trpc/client";
 
@@ -38,19 +39,14 @@ function PassphraseModal({ title, onConfirm, onCancel, loading, error }: Passphr
             {title}
           </h2>
         </div>
-        <input
+        <Input
           type="password"
           placeholder="Passphrase..."
           value={value}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && value && onConfirm(value)}
           autoFocus
-          className="mb-3 w-full rounded-md border px-3 py-2 text-sm outline-none focus:ring-1"
-          style={{
-            borderColor: "var(--border)",
-            backgroundColor: "var(--surface-1)",
-            color: "var(--text-primary)",
-          }}
+          className="mb-3 w-full"
         />
         {error && (
           <p className="mb-3 text-xs" style={{ color: "var(--danger)" }}>
@@ -58,21 +54,25 @@ function PassphraseModal({ title, onConfirm, onCancel, loading, error }: Passphr
           </p>
         )}
         <div className="flex justify-end gap-2">
-          <button
-            onClick={onCancel}
-            className="rounded-md px-3 py-1.5 text-sm transition-all hover:opacity-80"
+          <Button
+            variant="ghost"
+            size="sm"
+            onPress={onCancel}
+            className="rounded-md px-3 py-1.5 text-sm"
             style={{ color: "var(--text-secondary)" }}
           >
             Annuler
-          </button>
-          <button
-            onClick={() => value && onConfirm(value)}
-            disabled={!value || loading}
-            className="rounded-md px-3 py-1.5 text-sm font-medium transition-all hover:opacity-90 disabled:opacity-50"
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onPress={() => value && onConfirm(value)}
+            isDisabled={!value || loading}
+            className="rounded-md px-3 py-1.5 text-sm font-medium"
             style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
           >
             {loading ? "En cours..." : "Confirmer"}
-          </button>
+          </Button>
         </div>
       </div>
     </div>
@@ -104,10 +104,11 @@ function FolderRow({ folder, onDecrypt }: FolderRowProps) {
           </p>
         </div>
       </div>
-      <button
-        onClick={() => onDecrypt(folder)}
-        title="Dechiffrer ce dossier"
-        className="flex items-center gap-1 rounded-md border px-2 py-1 text-xs transition-all hover:opacity-80"
+      <Button
+        variant="ghost"
+        size="sm"
+        onPress={() => onDecrypt(folder)}
+        className="flex items-center gap-1 rounded-md border px-2 py-1 text-xs"
         style={{
           borderColor: "var(--danger)",
           color: "var(--danger)",
@@ -116,7 +117,7 @@ function FolderRow({ folder, onDecrypt }: FolderRowProps) {
       >
         <Trash size={12} />
         Dechiffrer
-      </button>
+      </Button>
     </div>
   );
 }
@@ -243,9 +244,11 @@ export function SecurityTab() {
           </div>
           <div className="flex gap-2">
             {!isUnlocked && encryptedFolders.length > 0 && (
-              <button
-                onClick={() => openModal({ type: "unlock" })}
-                className="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm transition-all hover:opacity-80"
+              <Button
+                variant="ghost"
+                size="sm"
+                onPress={() => openModal({ type: "unlock" })}
+                className="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm"
                 style={{
                   borderColor: "var(--accent)",
                   color: "var(--accent)",
@@ -254,13 +257,15 @@ export function SecurityTab() {
               >
                 <LockOpen size={14} />
                 Deverrouiller
-              </button>
+              </Button>
             )}
             {isUnlocked && (
-              <button
-                onClick={() => lockMutation.mutate()}
-                disabled={lockMutation.isPending}
-                className="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm transition-all hover:opacity-80"
+              <Button
+                variant="ghost"
+                size="sm"
+                onPress={() => lockMutation.mutate()}
+                isDisabled={lockMutation.isPending}
+                className="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm"
                 style={{
                   borderColor: "var(--border)",
                   color: "var(--text-secondary)",
@@ -269,7 +274,7 @@ export function SecurityTab() {
               >
                 <Lock size={14} />
                 Verrouiller
-              </button>
+              </Button>
             )}
           </div>
         </div>
@@ -302,10 +307,12 @@ export function SecurityTab() {
           </div>
         )}
 
-        <button
-          onClick={handlePickAndEncrypt}
-          disabled={folderPickerMutation.isPending || encryptMutation.isPending}
-          className="mt-3 flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm transition-all hover:opacity-80 disabled:opacity-50"
+        <Button
+          variant="ghost"
+          size="sm"
+          onPress={handlePickAndEncrypt}
+          isDisabled={folderPickerMutation.isPending || encryptMutation.isPending}
+          className="mt-3 flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm"
           style={{
             borderColor: "var(--accent)",
             color: "var(--accent)",
@@ -314,7 +321,7 @@ export function SecurityTab() {
         >
           <FolderOpen size={14} />
           + Chiffrer un dossier
-        </button>
+        </Button>
       </SettingSection>
     </div>
   );

@@ -7,6 +7,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
+import { Button, Input } from "@heroui/react";
 import {
   PencilSimple,
   Copy,
@@ -128,9 +129,8 @@ export function ViewSettingsMenu({
           className="border-b p-2"
           style={{ borderColor: "var(--border-subtle)" }}
         >
-          <input
+          <Input
             autoFocus
-            type="text"
             value={nextName}
             onChange={(e) => setNextName(e.target.value)}
             onKeyDown={(e) => {
@@ -141,10 +141,7 @@ export function ViewSettingsMenu({
               }
             }}
             className="w-full rounded border bg-transparent px-2 py-1 text-xs"
-            style={{
-              borderColor: "var(--accent)",
-              color: "var(--text-primary)",
-            }}
+            style={{ borderColor: "var(--accent)", color: "var(--text-primary)" }}
           />
         </div>
       ) : (
@@ -172,10 +169,11 @@ export function ViewSettingsMenu({
           const KindIcon = KIND_ICONS[kind];
           const active = kind === view.kind;
           return (
-            <button
+            <Button
               key={kind}
-              type="button"
-              onClick={() => changeKind(kind)}
+              variant="ghost"
+              size="sm"
+              onPress={() => changeKind(kind)}
               className="flex items-center gap-2 rounded px-2 py-1 text-left text-xs hover:bg-[var(--surface-2)]"
               style={{
                 color: active ? "var(--text-primary)" : "var(--text-secondary)",
@@ -185,7 +183,7 @@ export function ViewSettingsMenu({
               <KindIcon size={11} />
               {VIEW_KIND_LABEL[kind]}
               {active && <span className="ml-auto text-xs">✓</span>}
-            </button>
+            </Button>
           );
         })}
       </div>
@@ -200,25 +198,24 @@ export function ViewSettingsMenu({
           {confirmDelete ? (
             <div className="flex items-center gap-1 p-2 text-xs">
               <span style={{ color: "var(--text-secondary)" }}>Confirmer ?</span>
-              <button
-                type="button"
-                onClick={remove}
+              <Button
+                variant="danger"
+                size="sm"
+                onPress={remove}
                 className="ml-auto rounded px-2 py-0.5"
-                style={{
-                  backgroundColor: "#EF4444",
-                  color: "white",
-                }}
+                style={{ backgroundColor: "#EF4444", color: "white" }}
               >
                 Supprimer
-              </button>
-              <button
-                type="button"
-                onClick={() => setConfirmDelete(false)}
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onPress={() => setConfirmDelete(false)}
                 className="rounded px-2 py-0.5"
                 style={{ color: "var(--text-muted)" }}
               >
                 Annuler
-              </button>
+              </Button>
             </div>
           ) : (
             <MenuButton
@@ -246,14 +243,15 @@ function MenuButton({
   danger?: boolean;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
+    <Button
+      variant="ghost"
+      size="sm"
+      onPress={onClick}
       className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-[var(--surface-2)]"
       style={{ color: danger ? "#EF4444" : "var(--text-secondary)" }}
     >
       {icon}
       {label}
-    </button>
+    </Button>
   );
 }

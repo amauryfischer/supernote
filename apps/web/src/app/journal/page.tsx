@@ -11,6 +11,7 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import { JournalCalendar, JournalEditor } from "@/components/journal";
 import { useRouter } from "next/navigation";
 import { useMemo, useState, useEffect } from "react";
+import { Button } from "@heroui/react";
 import { CalendarBlank, PencilSimple } from "@phosphor-icons/react";
 import { DAILY_JOURNAL } from "@supernote/templates";
 import { Skeleton, SkeletonText } from "@supernote/ui";
@@ -138,16 +139,17 @@ function JournalPageContent() {
               Journal
             </span>
           </div>
-          <button
-            onClick={handleToday}
-            className="rounded px-2 py-0.5 text-[11px] font-medium transition-colors hover:bg-[var(--surface-2)]"
+          <Button
+            onPress={handleToday}
+            size="sm"
+            className="rounded px-2 py-0.5 text-[11px] font-medium"
             style={{
               backgroundColor: "var(--accent-subtle)",
               color: "var(--accent)",
             }}
           >
             Aujourd'hui
-          </button>
+          </Button>
         </div>
 
         <div className="mt-3">

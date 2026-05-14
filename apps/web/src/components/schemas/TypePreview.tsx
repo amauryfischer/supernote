@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { Button } from "@heroui/react";
 import { PencilSimple, Copy, Trash, Plus, ArrowRight, Table } from "@phosphor-icons/react";
 import type { EntityType, Field } from "@supernote/core";
 import { RELATION_TYPES, ENTITY_TYPES, ENTITY_COUNTS } from "./fixtures";
@@ -40,36 +41,44 @@ export function TypePreview({ type }: TypePreviewProps) {
         </div>
         <div className="flex items-center gap-2">
           <Link href={`/bases/${type.id}`}>
-            <button
+            <Button
+              size="sm"
               className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors"
               style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
             >
               <Table size={13} />
               Ouvrir la Base
-            </button>
+            </Button>
           </Link>
           <Link href={`/schemas/${type.id}`}>
-            <button
+            <Button
+              variant="ghost"
+              size="sm"
               className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors hover:bg-[var(--surface-2)]"
               style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
             >
               <PencilSimple size={13} />
               Schéma
-            </button>
+            </Button>
           </Link>
-          <button
+          <Button
+            variant="ghost"
+            size="sm"
             className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors hover:bg-[var(--surface-2)]"
             style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
           >
             <Copy size={13} />
             Dupliquer
-          </button>
-          <button
+          </Button>
+          <Button
+            isIconOnly
+            variant="ghost"
+            size="sm"
             className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors hover:bg-red-50"
             style={{ borderColor: "var(--border)", color: "var(--danger)" }}
           >
             <Trash size={13} />
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -80,13 +89,15 @@ export function TypePreview({ type }: TypePreviewProps) {
             Champs ({type.fields.length})
           </h3>
           <Link href={`/schemas/${type.id}`}>
-            <button
+            <Button
+              variant="ghost"
+              size="sm"
               className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-colors hover:bg-[var(--surface-2)]"
               style={{ color: "var(--accent)" }}
             >
               <Plus size={12} />
               Champ
-            </button>
+            </Button>
           </Link>
         </div>
         <div
@@ -106,13 +117,15 @@ export function TypePreview({ type }: TypePreviewProps) {
             Relations ({relations.length})
           </h3>
           <Link href="/schemas/relations">
-            <button
+            <Button
+              variant="ghost"
+              size="sm"
               className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-colors hover:bg-[var(--surface-2)]"
               style={{ color: "var(--accent)" }}
             >
               <Plus size={12} />
               Relation
-            </button>
+            </Button>
           </Link>
         </div>
         {relations.length === 0 ? (

@@ -245,6 +245,38 @@ export function getSupernoteSlashMenuItems(
     },
   };
 
+  // Formule — bloc avec expression évaluée
+  const formulaItem: DefaultReactSuggestionItem = {
+    title: "Formule",
+    subtext: "Calcul / expression évaluée (@supernote/formulas)",
+    group: "Bases",
+    aliases: ["formule", "formula", "calcul", "expression", "="],
+    icon: <span aria-hidden="true">ƒ</span>,
+    onItemClick() {
+      const inserted = editor.insertBlocks(
+        [
+          { type: "formula" as any, props: { expression: "", outputKind: "text" } } as any,
+          { type: "paragraph" } as any,
+        ],
+        editor.getTextCursorPosition().block,
+        "after",
+      );
+      // Déclenche immédiatement l'édition pour que l'utilisateur tape.
+      const newBlock = inserted?.[0];
+      if (newBlock) {
+        setTimeout(() => {
+          window.dispatchEvent(new CustomEvent("supernote:formula-edit", {
+            detail: {
+              blockId: (newBlock as { id: string }).id,
+              expression: "",
+              outputKind: "text",
+            },
+          }));
+        }, 50);
+      }
+    },
+  };
+
   // Inline Base view — Coda/Notion-style database embedded in the note.
   // Inserts an unconfigured block; the user picks Base + view inside it.
   const databaseViewItem: DefaultReactSuggestionItem = {
@@ -254,11 +286,21 @@ export function getSupernoteSlashMenuItems(
     aliases: ["base", "database", "table", "tableau", "vue", "view"],
     icon: <span aria-hidden="true">▦</span>,
     onItemClick() {
-      editor.insertBlocks(
-        [{ type: "databaseView" as any, props: { baseId: "", viewId: "" } } as any],
+      // databaseView est contentEditable=false. Sans paragraphe trailing,
+      // un clic sous le bloc n'a aucune cible éditable et l'utilisateur
+      // reste prisonnier de la base.
+      const inserted = editor.insertBlocks(
+        [
+          { type: "databaseView" as any, props: { baseId: "", viewId: "" } } as any,
+          { type: "paragraph" } as any,
+        ],
         editor.getTextCursorPosition().block,
         "after",
       );
+      const trailing = inserted?.[1];
+      if (trailing) {
+        editor.setTextCursorPosition(trailing as any, "start");
+      }
     },
   };
 
@@ -268,7 +310,7 @@ export function getSupernoteSlashMenuItems(
 
   const aiItems: DefaultReactSuggestionItem[] = onAskAi ? [makeAskAiItem(onAskAi)] : [];
 
-  return [...defaults, ...calloutItems, codeItem, embedItem, databaseViewItem, ...entityLinkItems, ...aiItems];
+  return [...defaults, ...calloutItems, codeItem, embedItem, databaseViewItem, formulaItem, ...entityLinkItems, ...aiItems];
 }
 
 // ── Suggestion menu renderer ──────────────────────────────────────────────────

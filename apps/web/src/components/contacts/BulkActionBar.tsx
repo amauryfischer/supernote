@@ -1,5 +1,6 @@
 "use client";
 
+import { Button } from "@heroui/react";
 import { Archive, Envelope, Tag, Trash, X } from "@phosphor-icons/react";
 
 interface BulkActionBarProps {
@@ -31,40 +32,49 @@ export function BulkActionBar({ selectedCount, onClear, onEmail, onArchive, arch
       </span>
 
       <div className="flex gap-2">
-        <button
-          onClick={onEmail}
-          className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--surface-2)]"
+        <Button
+          variant="ghost"
+          size="sm"
+          onPress={onEmail}
+          className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium"
           style={{ color: "var(--text-secondary)" }}
         >
           <Envelope size={13} />
           Email
-        </button>
-        <button
-          onClick={onAddTag}
-          className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--surface-2)]"
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          onPress={onAddTag}
+          className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium"
           style={{ color: "var(--text-secondary)" }}
         >
           <Tag size={13} />
           Ajouter tag
-        </button>
-        <button
-          onClick={onArchive}
-          className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--surface-2)]"
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          onPress={onArchive}
+          className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium"
           style={{ color: "var(--text-secondary)" }}
         >
           <ArchiveIcon size={13} />
           {archiveText}
-        </button>
+        </Button>
       </div>
 
-      <button
-        onClick={onClear}
-        className="flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-[var(--surface-2)]"
+      <Button
+        isIconOnly
+        variant="ghost"
+        size="sm"
+        onPress={onClear}
+        className="h-7 w-7 rounded-md"
         style={{ color: "var(--text-muted)" }}
         aria-label="Désélectionner tout"
       >
         <X size={14} />
-      </button>
+      </Button>
     </div>
   );
 }

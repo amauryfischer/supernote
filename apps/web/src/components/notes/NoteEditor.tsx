@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Button } from "@heroui/react";
 import dynamic from "next/dynamic";
 import { CaretRight, Calendar, Tag, FloppyDisk, Microphone, Image, Sparkle, X } from "@phosphor-icons/react";
 import Link from "next/link";
@@ -22,6 +23,7 @@ import { PromptModal } from "@/components/shell/PromptModal";
 import { isAutoTagEnabled, useAutoTag } from "@/hooks/useAutoTag";
 import { AssociatedTodos } from "@/components/todos/AssociatedTodos";
 import { renderInlineDatabase } from "./InlineDatabaseRenderer";
+import { renderNoteFormula, NoteFormulaModalHost } from "./NoteFormulaBridge";
 import { ContextMenu, useContextMenu, type ContextMenuItemDef } from "@supernote/ui";
 import { MoveNoteModal } from "./MoveNoteModal";
 import { useFolderTree, useRenameFolder } from "./hooks";
@@ -744,22 +746,20 @@ export function NoteEditor({ note }: NoteEditorProps) {
             </span>
           )}
           {ollamaAvailable && (
-            <button
-              type="button"
-              onClick={runSuggestTitle}
-              disabled={isSuggesting}
+            <Button
+              onPress={runSuggestTitle}
+              isDisabled={isSuggesting}
               className="flex shrink-0 items-center gap-1 rounded border px-2 py-1 text-xs transition-all hover:opacity-80 disabled:opacity-50"
               style={{
                 borderColor: "var(--border)",
                 color: "var(--text-secondary)",
                 backgroundColor: "var(--surface-1)",
               }}
-              title="Générer un titre via Ollama"
               aria-label="Suggérer un titre"
             >
               <Sparkle size={12} />
               {isSuggesting ? "..." : "Suggérer un titre"}
-            </button>
+            </Button>
           )}
         </div>
 
@@ -790,7 +790,49 @@ export function NoteEditor({ note }: NoteEditorProps) {
       </div>
 
       {/* Editor area */}
-      <div className="flex-1 overflow-y-auto">
+      <div
+        className="flex-1 overflow-y-auto"
+        onMouseDown={(e) => {
+          // Click dans la zone padding hors block : routé vers le caret.
+          // Position Y détermine si on focus le premier (clic au-dessus) ou
+          // le dernier block (clic en-dessous) — sinon un clic sous une
+          // base ramène absurdement le curseur en haut du document.
+          const target = e.target as HTMLElement;
+          if (
+            target.closest(".bn-block-content") ||
+            target.closest(".bn-side-menu") ||
+            target.closest(".bn-formatting-toolbar") ||
+            target.closest("[contenteditable=\"true\"]") ||
+            target.closest("a, button, input, textarea, [role=\"button\"]")
+          ) {
+            return;
+          }
+          const currentTarget = e.currentTarget;
+          const editable = currentTarget.querySelector<HTMLElement>(
+            "[contenteditable=\"true\"]",
+          );
+          if (!editable) return;
+          e.preventDefault();
+          editable.focus();
+
+          const blocks = editable.querySelectorAll<HTMLElement>(".bn-block-content");
+          const firstBlock = blocks[0] ?? null;
+          const lastBlock = blocks[blocks.length - 1] ?? null;
+          // Click below the bottom of the last block → land at the end
+          // (handles "clic loin sous la table"). Otherwise top of document.
+          const goToEnd =
+            lastBlock != null &&
+            e.clientY > lastBlock.getBoundingClientRect().bottom;
+          const targetBlock = goToEnd ? lastBlock : firstBlock;
+
+          const range = document.createRange();
+          range.selectNodeContents(targetBlock ?? editable);
+          range.collapse(!goToEnd);
+          const selection = window.getSelection();
+          selection?.removeAllRanges();
+          selection?.addRange(range);
+        }}
+      >
         <div className="px-10 py-6">
           <SupernoteEditor
             key={`${note.id}:${externalBodyVersion}`}
@@ -802,12 +844,16 @@ export function NoteEditor({ note }: NoteEditorProps) {
             onAskAi={handleAskAi}
             onEditorReady={(insert) => { editorInsertRef.current = insert; }}
             renderDatabaseView={renderInlineDatabase}
+            renderFormula={renderNoteFormula}
           />
         </div>
         {/* Read-only summary of todos extracted from this note. Pure
             projection of the markdown body — no extra fetch, no entities. */}
         <AssociatedTodos noteId={note.id} body={note.body} />
       </div>
+      <NoteFormulaModalHost
+        stubBase={{ id: "_note", name: "Note", plural: "Notes", fields: [], defaultPath: "", fileNamePattern: "{name}" }}
+      />
 
       {/* Footer */}
       <div
@@ -1018,16 +1064,15 @@ function FolderBreadcrumb({
             // Single click on the current folder → edit (analogous to the
             // always-editable note title input above). Keeps the segment
             // visually inert until the user actually clicks it.
-            <button
-              type="button"
-              onClick={() => beginEdit(i)}
+            <Button
+              onPress={() => beginEdit(i)}
               onDoubleClick={() => beginEdit(i)}
               className="cursor-text rounded px-1 py-0.5 capitalize transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--text-primary)]"
               style={{ color: "var(--text-secondary)", fontWeight: 500 }}
-              title={onRenameFolder ? "Cliquer pour renommer" : undefined}
+              aria-label={onRenameFolder ? "Cliquer pour renommer" : c.label}
             >
               {c.label}
-            </button>
+            </Button>
           ) : (
             // Parent segments keep navigation on single-click; double-click
             // opens the inline rename so the user can rename ancestors too.
@@ -1216,38 +1261,35 @@ function EditableNoteDate({
           }}
           aria-label="Modifier la date affichée"
         />
-        <button
-          type="button"
-          onClick={() => void commit(draft || null)}
+        <Button
+          onPress={() => void commit(draft || null)}
           className="text-[10px] font-medium uppercase tracking-wide"
           style={{ color: "var(--accent)" }}
-          title="Enregistrer (Entrée)"
+          aria-label="Enregistrer (Entrée)"
         >
           OK
-        </button>
+        </Button>
         {isOverridden && (
-          <button
-            type="button"
-            onClick={() => void commit(null)}
+          <Button
+            onPress={() => void commit(null)}
             className="text-[10px] underline"
             style={{ color: "var(--text-muted)" }}
-            title="Réinitialiser à la date de modification"
+            aria-label="Réinitialiser à la date de modification"
           >
             Réinitialiser
-          </button>
+          </Button>
         )}
       </div>
     );
   }
 
   return (
-    <button
-      type="button"
-      onClick={() => setEditing(true)}
+    <Button
+      onPress={() => setEditing(true)}
       className="flex items-center gap-1.5 rounded px-1 py-0.5 transition-colors hover:bg-[var(--surface-2)]"
-      title={
+      aria-label={
         isOverridden
-          ? "Date personnalisée — clic pour modifier (sera réinitialisée à la date de modif si vidée)"
+          ? "Date personnalisée — clic pour modifier"
           : "Clic pour fixer une date personnalisée"
       }
     >
@@ -1264,7 +1306,7 @@ function EditableNoteDate({
       >
         {displayLabel}
       </span>
-    </button>
+    </Button>
   );
 }
 
@@ -1317,14 +1359,13 @@ function NoteTagsInput({ noteId, tags, onTagsChange, aiBadge }: NoteTagsInputPro
             style={{ backgroundColor: "var(--accent-subtle)", color: "var(--accent)" }}
           >
             #{tag}
-            <button
-              type="button"
-              onClick={() => removeTag(tag)}
+            <Button
+              onPress={() => removeTag(tag)}
               aria-label={`Retirer le tag ${tag}`}
               className="opacity-70 transition-opacity hover:opacity-100"
             >
               <X size={9} weight="bold" />
-            </button>
+            </Button>
           </span>
         ))}
         {aiBadge && tags.length > 0 && (

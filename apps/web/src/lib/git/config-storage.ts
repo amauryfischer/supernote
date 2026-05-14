@@ -33,7 +33,7 @@ export interface StoredGitConfig {
 // the same version. See that file for the lockstep rationale.
 function openIdb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, 2);
+    const req = indexedDB.open(DB_NAME, 3);
     req.onupgradeneeded = () => {
       const db = req.result;
       if (!db.objectStoreNames.contains("handles")) {
@@ -41,6 +41,9 @@ function openIdb(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(STORE_NAME)) {
         db.createObjectStore(STORE_NAME);
+      }
+      if (!db.objectStoreNames.contains("vaults")) {
+        db.createObjectStore("vaults", { keyPath: "id" });
       }
     };
     req.onsuccess = () => resolve(req.result);

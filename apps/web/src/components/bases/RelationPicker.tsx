@@ -9,6 +9,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
+import { Button } from "@heroui/react";
 import { Check, MagnifyingGlass, X } from "@phosphor-icons/react";
 import type { RelationField } from "@supernote/core";
 import { trpc } from "@/lib/trpc/client";
@@ -63,13 +64,20 @@ export function RelationPicker({ field, value, onCommit, onCancel }: RelationPic
     inputRef.current?.focus();
   }, []);
 
+  // Au click extérieur, on commit l'état courant (sinon le user perd sa sélection).
+  // Snapshot stable via ref pour ne pas re-créer le handler à chaque selected.
+  const selectedRef = useRef(selected);
+  selectedRef.current = selected;
   useEffect(() => {
     const onDown = (e: MouseEvent) => {
-      if (popRef.current && !popRef.current.contains(e.target as Node)) onCancel();
+      if (popRef.current && !popRef.current.contains(e.target as Node)) {
+        const cur = selectedRef.current;
+        onCommit(isMulti ? cur : cur[0] ?? "");
+      }
     };
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);
-  }, [onCancel]);
+  }, [onCommit, isMulti]);
 
   const toggle = (id: string) => {
     if (!isMulti) {
@@ -90,12 +98,19 @@ export function RelationPicker({ field, value, onCommit, onCancel }: RelationPic
   return (
     <div
       ref={popRef}
-      className="absolute z-50 mt-1 flex flex-col overflow-hidden rounded-lg border shadow-lg"
+      className="absolute z-50 mt-1 flex select-none flex-col overflow-hidden rounded-lg border shadow-lg"
       style={{
         width: 280,
         maxHeight: 380,
         backgroundColor: "var(--surface-1)",
         borderColor: "var(--border-subtle)",
+        userSelect: "none",
+      }}
+      onClick={(e) => e.stopPropagation()}
+      onMouseDown={(e) => {
+        // Évite que le browser démarre une sélection de texte au drag.
+        const tag = (e.target as HTMLElement).tagName;
+        if (tag !== "INPUT" && tag !== "TEXTAREA") e.preventDefault();
       }}
     >
       {/* Search input */}
@@ -135,13 +150,15 @@ export function RelationPicker({ field, value, onCommit, onCancel }: RelationPic
                 style={{ backgroundColor: "var(--accent)" + "22", color: "var(--accent)" }}
               >
                 {label}
-                <button
-                  type="button"
-                  onClick={() => remove(id)}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onPress={() => remove(id)}
                   style={{ color: "var(--text-muted)" }}
+                  aria-label="Retirer"
                 >
                   <X size={9} />
-                </button>
+                </Button>
               </span>
             );
           })}
@@ -158,11 +175,12 @@ export function RelationPicker({ field, value, onCommit, onCancel }: RelationPic
           candidates.map((entity) => {
             const isOn = selected.includes(entity.id);
             return (
-              <button
+              <Button
                 key={entity.id}
-                type="button"
-                onClick={() => toggle(entity.id)}
-                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:bg-[var(--surface-2)]"
+                variant="ghost"
+                size="sm"
+                onPress={() => toggle(entity.id)}
+                className="flex w-full select-none items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:bg-[var(--surface-2)]"
                 style={{
                   color: isOn ? "var(--accent)" : "var(--text-secondary)",
                   backgroundColor: isOn ? "var(--surface-3)" : "transparent",
@@ -170,7 +188,7 @@ export function RelationPicker({ field, value, onCommit, onCancel }: RelationPic
               >
                 <span className="flex-1 truncate">{getTitle(entity)}</span>
                 {isOn && <Check size={11} style={{ color: "var(--accent)", flexShrink: 0 }} />}
-              </button>
+              </Button>
             );
           })
         )}
@@ -179,14 +197,15 @@ export function RelationPicker({ field, value, onCommit, onCancel }: RelationPic
       {/* Confirm button (multi only) */}
       {isMulti && (
         <div className="border-t p-2" style={{ borderColor: "var(--border-subtle)" }}>
-          <button
-            type="button"
-            onClick={commit}
+          <Button
+            variant="primary"
+            size="sm"
+            onPress={commit}
             className="w-full rounded py-1 text-xs font-medium"
             style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
           >
             Confirmer ({selected.length} sélectionné{selected.length > 1 ? "s" : ""})
-          </button>
+          </Button>
         </div>
       )}
     </div>

@@ -2,6 +2,7 @@
 
 import { useCallback, useState } from "react";
 import { ArrowLeft, CaretDown, CaretRight, Plus } from "@phosphor-icons/react";
+import { Button } from "@heroui/react";
 import Link from "next/link";
 import { AppShell, useMobileTitle, useMobileFab, useMobileHeaderActions } from "@/components/shell";
 import { useIsMobile } from "@/hooks/useIsMobile";
@@ -97,14 +98,17 @@ function LoanRow({ loan }: { loan: Loan }) {
         className="flex cursor-pointer items-center gap-4 p-4 transition-colors hover:bg-[var(--surface-2)]"
         style={{ backgroundColor: "var(--surface-1)" }}
       >
-        <button
-          className="flex-shrink-0"
+        <Button
+          variant="ghost"
+          isIconOnly
+          size="sm"
+          className="flex-shrink-0 min-w-0"
           style={{ color: "var(--text-muted)" }}
           onClick={(e) => { e.preventDefault(); e.stopPropagation(); setExpanded((v) => !v); }}
           aria-label={expanded ? "Réduire" : "Développer"}
         >
           {expanded ? <CaretDown size={16} /> : <CaretRight size={16} />}
-        </button>
+        </Button>
         <div className="h-3 w-3 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
         <div className="flex-1">
           <p className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>{loan.name}</p>
@@ -187,14 +191,15 @@ export default function PretsPage() {
             </span>
           )}
         </div>
-        <button
-          onClick={() => void handleNewLoan()}
-          disabled={createMutation.isPending}
-          className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-opacity disabled:opacity-50"
+        <Button
+          onPress={() => void handleNewLoan()}
+          isDisabled={createMutation.isPending}
+          size="sm"
+          className="flex items-center gap-2 font-medium"
           style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
         >
           <Plus size={14} /> Prêt
-        </button>
+        </Button>
       </div>
 
       {isLoading ? (

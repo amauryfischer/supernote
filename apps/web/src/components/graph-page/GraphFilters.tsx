@@ -1,5 +1,6 @@
 "use client";
 
+import { Button, Input } from "@heroui/react";
 import { X } from "@phosphor-icons/react";
 import {
   ALL_NODE_TYPES,
@@ -42,10 +43,12 @@ export function GraphFilters({
           const active =
             activeTypes.length === 0 || activeTypes.includes(type);
           return (
-            <button
+            <Button
               key={type}
-              onClick={() => onToggleType(type)}
-              className="flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium transition-all"
+              variant="ghost"
+              size="sm"
+              onPress={() => onToggleType(type)}
+              className="flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium"
               style={{
                 borderColor: NODE_TYPE_COLORS[type],
                 backgroundColor: active
@@ -60,34 +63,31 @@ export function GraphFilters({
                 style={{ backgroundColor: NODE_TYPE_COLORS[type] }}
               />
               {NODE_TYPE_LABELS[type]}
-            </button>
+            </Button>
           );
         })}
       </div>
 
       {activeTypes.length > 0 && (
-        <button
-          onClick={onClearTypes}
-          className="flex items-center gap-1 rounded-full px-2 py-0.5 text-xs transition-colors hover:bg-[var(--surface-2)]"
+        <Button
+          variant="ghost"
+          size="sm"
+          onPress={onClearTypes}
+          className="flex items-center gap-1 rounded-full px-2 py-0.5 text-xs"
           style={{ color: "var(--text-muted)" }}
         >
           <X size={10} />
           Tout
-        </button>
+        </Button>
       )}
 
       {/* Tag filter */}
-      <input
+      <Input
         type="text"
         value={tagFilter}
         onChange={(e) => onTagFilterChange(e.target.value)}
         placeholder="#tag…"
-        className="ml-2 rounded-md border bg-transparent px-2 py-0.5 text-xs outline-none"
-        style={{
-          borderColor: "var(--border-subtle)",
-          color: "var(--text-primary)",
-          width: 100,
-        }}
+        className="ml-2 w-[100px]"
       />
     </div>
   );

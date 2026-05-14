@@ -2,6 +2,7 @@
 
 import { FileText, Plus } from "@phosphor-icons/react";
 import { useTranslations } from "next-intl";
+import { Button } from "@heroui/react";
 
 interface EmptyEditorProps {
   onNewNote: () => void;
@@ -31,8 +32,8 @@ export function EmptyEditor({ onNewNote }: EmptyEditorProps) {
         </p>
       </div>
 
-      <button
-        onClick={onNewNote}
+      <Button
+        onPress={onNewNote}
         className="flex items-center gap-2 rounded-lg px-5 py-2.5 text-sm font-medium transition-opacity hover:opacity-90"
         style={{
           backgroundColor: "var(--accent)",
@@ -41,7 +42,7 @@ export function EmptyEditor({ onNewNote }: EmptyEditorProps) {
       >
         <Plus size={15} />
         {t("newNote")}
-      </button>
+      </Button>
     </div>
   );
 }

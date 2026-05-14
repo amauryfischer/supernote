@@ -29,6 +29,7 @@ import {
   moveExcalidrawSibling,
   deleteExcalidrawSibling,
 } from "./canvas-excalidraw-io";
+import { parseFormula, evaluate, type FormulaContext, type Value as FormulaValue, type Scope, type FormulaAST } from "@supernote/formulas";
 
 type SqlValue = string | number | null | Uint8Array;
 type SqlRow = Record<string, SqlValue>;
@@ -1025,6 +1026,15 @@ export function buildRouter(
     return schemasList().then((list) => (list as unknown[]).find((s: unknown) => (s as { id: string }).id === id));
   };
 
+  const schemasGet = async (input: unknown): Promise<unknown> => {
+    const { id } = input as { id: string };
+    const found = await schemasList().then((list) =>
+      (list as unknown[]).find((s: unknown) => (s as { id: string }).id === id),
+    );
+    if (!found) throw new Error(`Schema not found: ${id}`);
+    return found;
+  };
+
   const schemasUpdate = async (input: unknown): Promise<unknown> => {
     const { id, ...patch } = input as {
       id: string;
@@ -1351,7 +1361,8 @@ export function buildRouter(
                 WHERE etag.entityId = e.id) AS tagPaths
        FROM entity e
        JOIN entity_type et ON et.id = e.typeId
-       WHERE e.vaultId = ? AND e.typeId = ?`,
+       WHERE e.vaultId = ? AND e.typeId = ?
+       ORDER BY e.createdAt ASC, e.id ASC`,
       [vaultId, inp.typeId],
     )).map(entityRowToApi) as Array<{
       id: string;
@@ -1374,6 +1385,7 @@ export function buildRouter(
       name: string;
       kind: string;
       expression?: string;
+      outputKind?: string;
       relationFieldId?: string;
       targetFieldId?: string;
       aggregation?: string;
@@ -1384,13 +1396,126 @@ export function buildRouter(
       [inp.typeId, vaultId],
     ))[0];
 
+    type RawFieldDef = {
+      id: string;
+      name: string;
+      kind?: string;
+      type?: string;
+      expression?: string;
+      formulaExpr?: string;
+      outputKind?: string;
+      formulaOutputKind?: string;
+      relationFieldId?: string;
+      targetFieldId?: string;
+      aggregation?: string;
+    };
+
+    // Normalise les 2 shapes possibles (core `kind`/`expression` ou
+    // IPC `type`/`formulaExpr`) en un seul `DerivedFieldDef` interne.
     const allFieldDefs: DerivedFieldDef[] = typeRow
-      ? (JSON.parse((typeRow["fields"] as string) || "[]") as DerivedFieldDef[])
+      ? (JSON.parse((typeRow["fields"] as string) || "[]") as RawFieldDef[]).map((f): DerivedFieldDef => ({
+          id: f.id,
+          name: f.name,
+          kind: (f.kind ?? f.type ?? "") as string,
+          expression: f.expression ?? f.formulaExpr,
+          outputKind: f.outputKind ?? f.formulaOutputKind,
+          relationFieldId: f.relationFieldId,
+          targetFieldId: f.targetFieldId,
+          aggregation: f.aggregation,
+        }))
       : [];
 
     const derivedDefs = allFieldDefs.filter(
       (f) => f.kind === "formula" || f.kind === "rollup" || f.kind === "lookup",
     );
+
+    // ── Cross-base scope ──────────────────────────────────────────────────
+    // Collect base names referenced in formula expressions so we can expose
+    // them as identifiers (Contact, Tasks, …) bound to lists of entities.
+    type BaseInfo = { id: string; name: string; plural: string | null; fields: DerivedFieldDef[] };
+    const formulaSources = derivedDefs
+      .filter((d) => d.kind === "formula" && d.expression)
+      .map((d) => d.expression as string);
+
+    const baseInfos = formulaSources.length > 0
+      ? rows(db.exec(
+          `SELECT id, name, plural, fields FROM entity_type WHERE vaultId = ?`,
+          [vaultId],
+        )).map((r): BaseInfo => ({
+          id: r["id"] as string,
+          name: (r["name"] as string) ?? "",
+          plural: (r["plural"] as string | null) ?? null,
+          fields: (() => {
+            try {
+              const raw = JSON.parse((r["fields"] as string) || "[]") as RawFieldDef[];
+              return raw.map((f): DerivedFieldDef => ({
+                id: f.id,
+                name: f.name,
+                kind: (f.kind ?? f.type ?? "") as string,
+                expression: f.expression ?? f.formulaExpr,
+                outputKind: f.outputKind ?? f.formulaOutputKind,
+                relationFieldId: f.relationFieldId,
+                targetFieldId: f.targetFieldId,
+                aggregation: f.aggregation,
+              }));
+            } catch { return []; }
+          })(),
+        }))
+      : [];
+
+    function safeIdent(s: string): string {
+      return "_f_" + s.replace(/[^A-Za-z0-9_]/g, "_");
+    }
+
+    function baseIdentifiers(b: BaseInfo): string[] {
+      const out = new Set<string>();
+      const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+      for (const cand of [b.name, b.plural ?? ""]) {
+        if (!cand) continue;
+        const variants = [cand, cand.toLowerCase(), cap(cand.toLowerCase())];
+        for (const v of variants) {
+          if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(v)) out.add(v);
+          out.add(safeIdent(v));
+        }
+      }
+      return Array.from(out);
+    }
+
+    // Identify which bases are referenced. Cheap textual scan — false
+    // positives just load extra rows, never break eval.
+    const referencedBaseIds = new Set<string>();
+    if (baseInfos.length > 0 && formulaSources.length > 0) {
+      const joinedSrc = formulaSources.join("\n");
+      for (const b of baseInfos) {
+        const idents = baseIdentifiers(b);
+        if (idents.some((i) => new RegExp(`\\b${i}\\b`, "i").test(joinedSrc))) {
+          referencedBaseIds.add(b.id);
+        }
+      }
+    }
+
+    // Batch-load entities for each referenced base.
+    const baseEntities = new Map<string, Array<{ id: string; fields: Record<string, unknown>; typeId: string }>>();
+    if (referencedBaseIds.size > 0) {
+      const ids = Array.from(referencedBaseIds);
+      const ph = ids.map(() => "?").join(",");
+      const ents = rows(db.exec(
+        `SELECT id, typeId, fields FROM entity WHERE vaultId = ? AND typeId IN (${ph})`,
+        [vaultId, ...ids],
+      ));
+      for (const r of ents) {
+        const tid = r["typeId"] as string;
+        const list = baseEntities.get(tid) ?? [];
+        try {
+          list.push({
+            id: r["id"] as string,
+            typeId: tid,
+            fields: JSON.parse((r["fields"] as string) || "{}") as Record<string, unknown>,
+          });
+        } catch { /* skip malformed */ }
+        baseEntities.set(tid, list);
+      }
+    }
 
     function getRelIds(entityFields: Record<string, unknown>, relFieldId: string): string[] {
       const v = entityFields[relFieldId];
@@ -1405,36 +1530,268 @@ export function buildRouter(
       return [];
     }
 
-    // eslint-disable-next-line no-new-func
-    function evalFormula(expr: string, fields: Record<string, unknown>): unknown {
-      const subst = expr.replace(/\{([^}]+)\}/g, (_, ref: string) => {
-        const def = allFieldDefs.find((d) => d.id === ref || d.name === ref);
-        const val = def ? (fields[def.id] ?? null) : null;
-        if (val === null || val === undefined) return "null";
-        if (typeof val === "string") return JSON.stringify(val);
-        return String(val);
-      });
-      if (/\b(eval|Function|import|require|fetch|XMLHttpRequest|localStorage)\b/i.test(subst)) {
-        return "#ERREUR";
-      }
-      const CONCAT = (...a: unknown[]) => a.map(String).join("");
-      const IF = (c: unknown, t: unknown, f: unknown) => (c ? t : f);
-      const ROUND = (n: number, d = 0) => Math.round(n * 10 ** d) / 10 ** d;
-      const UPPER = (s: unknown) => String(s ?? "").toUpperCase();
-      const LOWER = (s: unknown) => String(s ?? "").toLowerCase();
-      const LEN = (s: unknown) => String(s ?? "").length;
-      const NOW = () => new Date().toISOString();
-      const TODAY = () => new Date().toISOString().slice(0, 10);
-      try {
-        // eslint-disable-next-line no-new-func
-        return new Function(
-          "CONCAT", "IF", "ROUND", "UPPER", "LOWER", "LEN", "NOW", "TODAY",
-          `"use strict"; return (${subst})`,
-        )(CONCAT, IF, ROUND, UPPER, LOWER, LEN, NOW, TODAY);
-      } catch {
-        return null;
-      }
+    // Cache simple : id/name → entity reconstruite pour @Ref/[[Wiki]]/Lookup.
+    const entityRefCache = new Map<string, unknown>();
+    function loadEntityByRef(ref: string): {
+      id: string; typeId: string; filePath: string; body: string;
+      createdAt: Date; updatedAt: Date; fields: Record<string, FormulaValue>;
+    } | null {
+      const cached = entityRefCache.get(ref);
+      if (cached !== undefined) return cached as ReturnType<typeof loadEntityByRef>;
+      // ref = id direct OU name (entity.name dans fields.name OU filename)
+      const r =
+        row(db.exec(
+          `SELECT id, typeId, filePath, createdAt, updatedAt, fields FROM entity
+           WHERE vaultId = ? AND id = ?`,
+          [vaultId, ref],
+        )) ??
+        row(db.exec(
+          `SELECT id, typeId, filePath, createdAt, updatedAt, fields FROM entity
+           WHERE vaultId = ? AND (fields LIKE ? OR filePath LIKE ?) LIMIT 1`,
+          [vaultId, `%"name":${JSON.stringify(ref)}%`, `%/${ref}.md`],
+        ));
+      if (!r) { entityRefCache.set(ref, null); return null; }
+      let fields: Record<string, unknown> = {};
+      try { fields = JSON.parse((r["fields"] as string) || "{}") as Record<string, unknown>; }
+      catch { fields = {}; }
+      const fv: Record<string, FormulaValue> = {};
+      for (const [k, v] of Object.entries(fields)) fv[k] = toFormulaValue(v);
+      const out = {
+        id: r["id"] as string,
+        typeId: r["typeId"] as string,
+        filePath: (r["filePath"] as string) ?? "",
+        body: "",
+        createdAt: new Date((r["createdAt"] as string) ?? Date.now()),
+        updatedAt: new Date((r["updatedAt"] as string) ?? Date.now()),
+        fields: fv,
+      };
+      entityRefCache.set(ref, out);
+      return out;
     }
+
+    function loadEntitiesOfType(typeIdOrName: string): unknown[] {
+      // typeId direct
+      let typeId = typeIdOrName;
+      const direct = row(db.exec(`SELECT id FROM entity_type WHERE id = ? AND vaultId = ?`, [typeIdOrName, vaultId]));
+      if (!direct) {
+        const byName = row(db.exec(
+          `SELECT id FROM entity_type WHERE vaultId = ? AND (LOWER(name) = LOWER(?) OR LOWER(plural) = LOWER(?))`,
+          [vaultId, typeIdOrName, typeIdOrName],
+        ));
+        if (!byName) return [];
+        typeId = byName["id"] as string;
+      }
+      const ents = rows(db.exec(
+        `SELECT id, typeId, filePath, createdAt, updatedAt, fields FROM entity
+         WHERE vaultId = ? AND typeId = ?`,
+        [vaultId, typeId],
+      ));
+      return ents.map((r) => {
+        let f: Record<string, unknown> = {};
+        try { f = JSON.parse((r["fields"] as string) || "{}") as Record<string, unknown>; }
+        catch { f = {}; }
+        const fv: Record<string, FormulaValue> = {};
+        for (const [k, v] of Object.entries(f)) fv[k] = toFormulaValue(v);
+        return {
+          id: r["id"] as string,
+          typeId: r["typeId"] as string,
+          filePath: (r["filePath"] as string) ?? "",
+          body: "",
+          createdAt: new Date((r["createdAt"] as string) ?? Date.now()),
+          updatedAt: new Date((r["updatedAt"] as string) ?? Date.now()),
+          fields: fv,
+        };
+      });
+    }
+
+    const formulaContext: FormulaContext = {
+      resolveEntity: (ref) => loadEntityByRef(ref) as never,
+      queryEntities: (typeId) => loadEntitiesOfType(typeId) as never,
+      getRelations: () => [],
+      now: () => new Date(),
+    };
+
+    function toFormulaValue(v: unknown): FormulaValue {
+      if (v === null || v === undefined) return null;
+      if (typeof v === "number" || typeof v === "string" || typeof v === "boolean") return v;
+      if (v instanceof Date) return v;
+      if (Array.isArray(v)) return v.map(toFormulaValue);
+      if (typeof v === "object") return String(v); // fall back to string repr
+      return null;
+    }
+
+    // (safeIdent declared above, reused for cross-base identifier mapping)
+
+    function buildScope(fields: Record<string, unknown>): Scope {
+      const scope: Scope = {};
+      for (const def of allFieldDefs) {
+        const fv = toFormulaValue(fields[def.id] ?? null);
+        scope[safeIdent(def.id)] = fv;
+        if (def.name) scope[safeIdent(def.name)] = fv;
+        // Also expose the bare field name when it is already a safe identifier
+        // (no spaces / special chars) — lets users write `Amount + 1`.
+        if (def.name && /^[A-Za-z_][A-Za-z0-9_]*$/.test(def.name)) {
+          scope[def.name] = fv;
+        }
+      }
+      // thisRow as a synthetic entity so users can write `thisRow.fieldId`
+      const thisRowFields: Record<string, FormulaValue> = {};
+      for (const def of allFieldDefs) {
+        const fv = toFormulaValue(fields[def.id] ?? null);
+        thisRowFields[def.id] = fv;
+        if (def.name) thisRowFields[def.name] = fv;
+      }
+      const thisRowEntity = {
+        id: "__thisRow__",
+        typeId: inp.typeId,
+        filePath: "",
+        body: "",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        fields: thisRowFields,
+      };
+      scope["thisRow"] = { _type: "entity", entity: thisRowEntity as never };
+
+      // Expose each referenced base as a list of entity values so users can
+      // write `Contacts.where(currentValue.age > 18).count` and similar.
+      for (const b of baseInfos) {
+        if (!referencedBaseIds.has(b.id)) continue;
+        const ents = baseEntities.get(b.id) ?? [];
+        const entityValues: FormulaValue[] = ents.map((e) => {
+          const projected: Record<string, FormulaValue> = {};
+          for (const def of b.fields) {
+            projected[def.id] = toFormulaValue(e.fields[def.id] ?? null);
+            if (def.name) projected[def.name] = toFormulaValue(e.fields[def.id] ?? null);
+          }
+          return {
+            _type: "entity",
+            entity: {
+              id: e.id,
+              typeId: e.typeId,
+              filePath: "",
+              body: "",
+              createdAt: new Date(),
+              updatedAt: new Date(),
+              fields: projected,
+            } as never,
+          };
+        });
+        for (const ident of baseIdentifiers(b)) {
+          scope[ident] = entityValues;
+        }
+      }
+      return scope;
+    }
+
+    function rewritePlaceholders(expr: string): string {
+      return expr.replace(/\{([^}]+)\}/g, (_, ref: string) => {
+        const def = allFieldDefs.find((d) => d.id === ref || d.name === ref);
+        return safeIdent(def?.id ?? ref);
+      });
+    }
+
+    // ── AST cache : parse une fois par expression, partagé entre lignes ──
+    const astCache = new Map<string, { ok: true; ast: FormulaAST } | { ok: false; msg: string }>();
+    function getCachedAst(expr: string): { ok: true; ast: FormulaAST } | { ok: false; msg: string } {
+      const cached = astCache.get(expr);
+      if (cached) return cached;
+      const src = rewritePlaceholders(expr);
+      const parsed = parseFormula(src);
+      const entry = parsed.ok
+        ? { ok: true as const, ast: parsed.value }
+        : { ok: false as const, msg: parsed.error.message };
+      astCache.set(expr, entry);
+      if (!entry.ok) console.warn("[formula] parse error:", entry.msg, "in", JSON.stringify(expr));
+      return entry;
+    }
+
+    function evalFormula(expr: string, fields: Record<string, unknown>): unknown {
+      const entry = getCachedAst(expr);
+      if (!entry.ok) return `#ERREUR: ${entry.msg}`;
+      const scope = buildScope(fields);
+      const res = evaluate(entry.ast, formulaContext, scope);
+      if (!res.ok) {
+        console.warn("[formula] eval error:", res.error.message, "in", JSON.stringify(expr), "scope keys:", Object.keys(scope));
+        return `#ERREUR: ${res.error.message}`;
+      }
+      const v = res.value;
+      if (v === null || v === undefined) return null;
+      if (v instanceof Date) return v.toISOString();
+      if (typeof v === "object" && !Array.isArray(v)) return String(v);
+      return v;
+    }
+
+    // ── Topo sort + cycle detection sur les formules d'une même base ─────
+    // Une formule peut référencer un autre champ formula. Sans tri, on
+    // peut consommer une valeur pas encore calculée.
+    function localFieldRefs(ast: FormulaAST): Set<string> {
+      const out = new Set<string>();
+      const visit = (n: FormulaAST): void => {
+        switch (n.kind) {
+          case "Identifier":
+            if (n.name.startsWith("_f_")) out.add(n.name.slice(3));
+            else out.add(n.name);
+            break;
+          case "BinaryOp": visit(n.left); visit(n.right); break;
+          case "UnaryOp": visit(n.operand); break;
+          case "PropertyAccess": visit(n.object); break;
+          case "FunctionCall": n.args.forEach(visit); break;
+          case "Conditional": visit(n.condition); visit(n.consequent); visit(n.alternate); break;
+          case "ListLiteral": n.elements.forEach(visit); break;
+          case "Lambda": visit(n.body); break;
+          default: break;
+        }
+      };
+      visit(ast);
+      return out;
+    }
+
+    function topoSortFormulas(defs: DerivedFieldDef[]): { ordered: DerivedFieldDef[]; cycles: Set<string> } {
+      const formulaDefs = defs.filter((d) => d.kind === "formula" && d.expression);
+      const idToDef = new Map(formulaDefs.map((d) => [d.id, d] as const));
+      const nameToId = new Map(formulaDefs.map((d) => [d.name, d.id] as const));
+      const deps = new Map<string, Set<string>>();
+      for (const d of formulaDefs) {
+        const entry = getCachedAst(d.expression!);
+        const refs = entry.ok ? localFieldRefs(entry.ast) : new Set<string>();
+        const localDeps = new Set<string>();
+        for (const ref of refs) {
+          if (idToDef.has(ref)) localDeps.add(ref);
+          const byName = nameToId.get(ref);
+          if (byName) localDeps.add(byName);
+        }
+        deps.set(d.id, localDeps);
+      }
+      // Kahn's algorithm.
+      const indeg = new Map<string, number>();
+      for (const id of deps.keys()) indeg.set(id, 0);
+      for (const ds of deps.values()) for (const d of ds) indeg.set(d, (indeg.get(d) ?? 0)); // ensure key
+      const reverse = new Map<string, Set<string>>();
+      for (const [from, ds] of deps) for (const to of ds) {
+        if (!reverse.has(to)) reverse.set(to, new Set());
+        reverse.get(to)!.add(from);
+      }
+      for (const [from, ds] of deps) indeg.set(from, ds.size);
+      const queue: string[] = [];
+      for (const [id, n] of indeg) if (n === 0) queue.push(id);
+      const ordered: DerivedFieldDef[] = [];
+      while (queue.length) {
+        const id = queue.shift()!;
+        const def = idToDef.get(id);
+        if (def) ordered.push(def);
+        for (const downstream of reverse.get(id) ?? []) {
+          indeg.set(downstream, (indeg.get(downstream) ?? 1) - 1);
+          if ((indeg.get(downstream) ?? 0) === 0) queue.push(downstream);
+        }
+      }
+      const cycles = new Set<string>();
+      if (ordered.length < formulaDefs.length) {
+        for (const d of formulaDefs) if (!ordered.find((o) => o.id === d.id)) cycles.add(d.id);
+      }
+      return { ordered, cycles };
+    }
+
+    const { ordered: orderedFormulaDefs, cycles: cyclicFormulaIds } = topoSortFormulas(allFieldDefs);
 
     // Pre-collect all related entity IDs across the whole page so we can
     // batch-fetch in one SQL query instead of N per-entity queries.
@@ -1494,10 +1851,15 @@ export function buildRouter(
     const enrichedRows = derivedDefs.length > 0
       ? allRows.map((entity) => {
           const newFields = { ...entity.fields };
+          // Cycles : marquer comme #ERREUR avant éval pour stopper la cascade.
+          for (const cid of cyclicFormulaIds) newFields[cid] = "#ERREUR: cycle de dépendance";
+          // Formulas dans l'ordre topologique (les referencées d'abord).
+          for (const d of orderedFormulaDefs) {
+            if (d.expression) newFields[d.id] = evalFormula(d.expression, newFields);
+          }
+          // Rollup / lookup (n'ont pas de deps entre eux).
           for (const d of derivedDefs) {
-            if (d.kind === "formula" && d.expression) {
-              newFields[d.id] = evalFormula(d.expression, newFields);
-            } else if (d.kind === "rollup" && d.targetFieldId && d.aggregation) {
+            if (d.kind === "rollup" && d.targetFieldId && d.aggregation) {
               const relIds = entityRelMap.get(entity.id)?.get(d.id) ?? [];
               newFields[d.id] = computeRollupVal(relIds, d.targetFieldId, d.aggregation);
             } else if (d.kind === "lookup" && d.targetFieldId) {
@@ -2126,6 +2488,7 @@ export function buildRouter(
     "entities.getBacklinks": entitiesGetBacklinks,
 
     "schemas.list": schemasList,
+    "schemas.get": schemasGet,
     "schemas.create": schemasCreate,
     "schemas.update": schemasUpdate,
     "schemas.delete": schemasDelete,

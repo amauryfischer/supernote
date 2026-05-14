@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Clock, BookmarkSimple, Trash, FloppyDisk, X } from "@phosphor-icons/react";
+import { Button } from "@heroui/react";
 import type { RecentSearch, SavedSearch, SearchMode, ActiveFilter } from "./types";
 
 interface SearchSidebarProps {
@@ -39,9 +40,11 @@ export function SearchSidebar({
     <aside className="flex h-full flex-col gap-6">
       {query.trim() && (
         <div>
-          <button
-            onClick={handleSave}
-            className="flex w-full items-center justify-center gap-2 rounded-lg border px-3 py-2 text-xs font-medium transition-colors"
+          <Button
+            variant="outline"
+            size="sm"
+            onPress={handleSave}
+            className="w-full rounded-lg px-3 py-2 text-xs font-medium"
             style={{
               backgroundColor: showSaveConfirm ? "var(--accent-subtle)" : "var(--surface-1)",
               borderColor: showSaveConfirm ? "var(--accent)" : "var(--border-subtle)",
@@ -50,7 +53,7 @@ export function SearchSidebar({
           >
             <FloppyDisk size={13} />
             {showSaveConfirm ? "Sauvegardee !" : "Sauvegarder cette recherche"}
-          </button>
+          </Button>
         </div>
       )}
 
@@ -66,20 +69,25 @@ export function SearchSidebar({
           <ul className="flex flex-col gap-0.5">
             {recentSearches.slice(0, 8).map((r) => (
               <li key={r.id} className="group flex items-center gap-1">
-                <button
-                  onClick={() => onSelectQuery(r.query)}
-                  className="flex-1 truncate rounded-md px-2 py-1 text-left text-xs transition-colors hover:opacity-70"
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onPress={() => onSelectQuery(r.query)}
+                  className="flex-1 justify-start truncate rounded-md px-2 py-1 text-xs"
                   style={{ color: "var(--text-secondary)" }}
                 >
                   {r.query}
-                </button>
-                <button
-                  onClick={() => onDeleteRecent(r.id)}
+                </Button>
+                <Button
+                  isIconOnly
+                  variant="ghost"
+                  size="sm"
+                  onPress={() => onDeleteRecent(r.id)}
                   className="shrink-0 rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100"
                   style={{ color: "var(--text-muted)" }}
                 >
                   <X size={10} />
-                </button>
+                </Button>
               </li>
             ))}
           </ul>
@@ -98,23 +106,28 @@ export function SearchSidebar({
           <ul className="flex flex-col gap-0.5">
             {savedSearches.map((s) => (
               <li key={s.id} className="group flex items-center gap-1">
-                <button
-                  onClick={() => onLoadSaved(s)}
-                  className="flex-1 truncate rounded-md px-2 py-1 text-left transition-colors hover:opacity-70"
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onPress={() => onLoadSaved(s)}
+                  className="flex-1 justify-start truncate rounded-md px-2 py-1"
                   style={{ color: "var(--text-secondary)" }}
                 >
                   <span className="block truncate text-xs font-medium">{s.label}</span>
                   <span className="block truncate font-mono text-[10px]" style={{ color: "var(--text-muted)" }}>
                     {s.query}
                   </span>
-                </button>
-                <button
-                  onClick={() => onDeleteSaved(s.id)}
+                </Button>
+                <Button
+                  isIconOnly
+                  variant="ghost"
+                  size="sm"
+                  onPress={() => onDeleteSaved(s.id)}
                   className="shrink-0 rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100"
                   style={{ color: "var(--text-muted)" }}
                 >
                   <Trash size={10} />
-                </button>
+                </Button>
               </li>
             ))}
           </ul>

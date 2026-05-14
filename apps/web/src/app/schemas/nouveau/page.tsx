@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Check } from "@phosphor-icons/react";
+import { Button, Input, TextArea } from "@heroui/react";
 import { AppShell, useMobileTitle } from "@/components/shell";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { getIcon } from "@/components/schemas/icon-map";
@@ -75,14 +76,16 @@ export default function NouveauSchemaPage() {
     <AppShell>
       <div className="mx-auto flex max-w-2xl flex-col gap-8 px-3 py-6 md:px-6 md:py-10">
         {/* Back */}
-        <button
-          onClick={() => router.push("/schemas")}
-          className="flex w-fit items-center gap-1.5 text-sm transition-colors hover:opacity-70"
+        <Button
+          onPress={() => router.push("/schemas")}
+          variant="ghost"
+          size="sm"
+          className="w-fit text-sm"
           style={{ color: "var(--text-muted)" }}
         >
           <ArrowLeft size={14} />
           Retour aux schémas
-        </button>
+        </Button>
 
         {/* Title */}
         <div>
@@ -120,32 +123,32 @@ export default function NouveauSchemaPage() {
           {/* Name + Plural */}
           <div className="grid grid-cols-2 gap-4">
             <FormField label="Nom singulier *">
-              <input
+              <Input
                 value={form.name}
                 onChange={(e) => patch("name", e.target.value)}
                 placeholder="Exemple : Livre"
-                style={inputStyle}
+                variant="primary"
               />
             </FormField>
             <FormField label="Nom pluriel *">
-              <input
+              <Input
                 value={form.plural}
                 onChange={(e) => patch("plural", e.target.value)}
                 placeholder="Exemple : Livres"
-                style={inputStyle}
+                variant="primary"
               />
             </FormField>
           </div>
 
           {/* Description */}
           <FormField label="Description">
-            <textarea
+            <TextArea
               value={form.description}
               onChange={(e) => patch("description", e.target.value)}
               placeholder="À quoi sert ce type d'entité ?"
               rows={2}
-              style={{ ...inputStyle, resize: "none" }}
-              className="w-full"
+              variant="primary"
+              className="w-full resize-none"
             />
           </FormField>
 
@@ -155,20 +158,22 @@ export default function NouveauSchemaPage() {
               {ICON_OPTIONS.map((name) => {
                 const Ic = getIcon(name);
                 const selected = form.icon === name;
+                const iconStyle: React.CSSProperties = selected
+                  ? { backgroundColor: form.color, color: "#fff", borderColor: form.color }
+                  : { borderColor: "var(--border)", color: "var(--text-secondary)" };
                 return (
-                  <button
+                  <Button
                     key={name}
-                    onClick={() => patch("icon", name)}
-                    className="flex h-9 w-9 items-center justify-center rounded-lg border transition-colors"
-                    style={
-                      selected
-                        ? { backgroundColor: form.color, color: "#fff", borderColor: form.color }
-                        : { borderColor: "var(--border)", color: "var(--text-secondary)" }
-                    }
-                    title={name}
+                    onPress={() => patch("icon", name)}
+                    isIconOnly
+                    variant="outline"
+                    size="sm"
+                    className="h-9 w-9"
+                    style={iconStyle}
+                    aria-label={name}
                   >
                     <Ic size={16} />
-                  </button>
+                  </Button>
                 );
               })}
             </div>
@@ -178,9 +183,11 @@ export default function NouveauSchemaPage() {
           <FormField label="Couleur">
             <div className="flex flex-wrap gap-2">
               {COLOR_OPTIONS.map((color) => (
-                <button
+                <Button
                   key={color}
-                  onClick={() => patch("color", color)}
+                  onPress={() => patch("color", color)}
+                  isIconOnly
+                  size="sm"
                   className="relative h-8 w-8 rounded-full border-2 transition-transform hover:scale-110"
                   style={{
                     backgroundColor: color,
@@ -190,7 +197,7 @@ export default function NouveauSchemaPage() {
                   {form.color === color && (
                     <Check size={12} className="absolute inset-0 m-auto text-white" />
                   )}
-                </button>
+                </Button>
               ))}
             </div>
           </FormField>
@@ -203,10 +210,11 @@ export default function NouveauSchemaPage() {
                 { value: "kanban", label: "Kanban", desc: "Colonnes d'états" },
                 { value: "linear", label: "Linéaire", desc: "Pipeline séquentiel" },
               ] as const).map((opt) => (
-                <button
+                <Button
                   key={opt.value}
-                  onClick={() => patch("workflow", opt.value)}
-                  className="flex flex-1 flex-col rounded-xl border px-4 py-3 text-left transition-colors"
+                  onPress={() => patch("workflow", opt.value)}
+                  variant="outline"
+                  className="flex h-auto flex-1 flex-col items-start rounded-xl px-4 py-3"
                   style={
                     form.workflow === opt.value
                       ? { borderColor: "var(--accent)", backgroundColor: "var(--accent-subtle)" }
@@ -220,7 +228,7 @@ export default function NouveauSchemaPage() {
                     {opt.label}
                   </span>
                   <span className="text-xs" style={{ color: "var(--text-muted)" }}>{opt.desc}</span>
-                </button>
+                </Button>
               ))}
             </div>
           </FormField>
@@ -233,38 +241,30 @@ export default function NouveauSchemaPage() {
 
         {/* Submit */}
         <div className="flex items-center justify-end gap-3">
-          <button
-            onClick={() => router.push("/schemas")}
-            className="rounded-lg border px-5 py-2.5 text-sm font-medium transition-colors hover:bg-[var(--surface-2)]"
+          <Button
+            onPress={() => router.push("/schemas")}
+            variant="outline"
+            size="md"
+            className="text-sm font-medium"
             style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
           >
             Annuler
-          </button>
-          <button
-            onClick={handleCreate}
-            disabled={!form.name || !form.plural || createMutation.isPending}
-            className="rounded-lg px-5 py-2.5 text-sm font-medium transition-colors disabled:opacity-50"
+          </Button>
+          <Button
+            onPress={handleCreate}
+            isDisabled={!form.name || !form.plural || createMutation.isPending}
+            isPending={createMutation.isPending}
+            size="md"
+            className="text-sm font-medium"
             style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
           >
-            {createMutation.isPending ? "Création…" : "Créer le type"}
-          </button>
+            Créer le type
+          </Button>
         </div>
       </div>
     </AppShell>
   );
 }
-
-const inputStyle: React.CSSProperties = {
-  borderColor: "var(--border)",
-  backgroundColor: "var(--surface-1)",
-  color: "var(--text-primary)",
-  width: "100%",
-  borderRadius: "var(--radius-lg)",
-  border: "1px solid var(--border)",
-  padding: "8px 12px",
-  fontSize: "0.875rem",
-  outline: "none",
-};
 
 function FormField({ label, children }: { label: string; children: React.ReactNode }) {
   return (

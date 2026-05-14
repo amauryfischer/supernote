@@ -15,6 +15,7 @@
 //   - value.ts     → type coercions
 // ============================================================
 
+import { Button } from "@heroui/react";
 import { X, CaretDown, CaretRight } from "@phosphor-icons/react";
 import { useState } from "react";
 
@@ -207,10 +208,10 @@ function CollapsibleSection({ section }: { section: DocSection }) {
       className="rounded-md border"
       style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-0)" }}
     >
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center justify-between px-3 py-2 text-left text-xs font-semibold transition-colors hover:bg-[var(--surface-2)]"
+      <Button
+        variant="ghost"
+        onPress={() => setOpen((v) => !v)}
+        className="flex h-auto w-full items-center justify-between px-3 py-2 text-left text-xs font-semibold transition-colors hover:bg-[var(--surface-2)]"
         style={{ color: "var(--text-primary)" }}
       >
         <span className="flex items-center gap-2">
@@ -220,7 +221,7 @@ function CollapsibleSection({ section }: { section: DocSection }) {
         <span className="text-[10px] font-normal" style={{ color: "var(--text-muted)" }}>
           {section.entries.length}
         </span>
-      </button>
+      </Button>
       {open && (
         <div className="border-t px-3 py-2" style={{ borderColor: "var(--border-subtle)" }}>
           {section.note && (
@@ -288,15 +289,17 @@ export function ConditionDocsPanel({ open, onClose }: ConditionDocsPanelProps) {
               Référence du langage @supernote/formulas
             </p>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
+          <Button
+            isIconOnly
+            variant="ghost"
+            size="sm"
+            onPress={onClose}
             className="rounded p-1 transition-colors hover:bg-[var(--surface-3)]"
             style={{ color: "var(--text-muted)" }}
             aria-label="Fermer"
           >
             <X size={14} />
-          </button>
+          </Button>
         </div>
 
         {/* Body */}

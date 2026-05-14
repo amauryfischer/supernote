@@ -3,6 +3,7 @@
 import { Plus } from "@phosphor-icons/react";
 import { memo } from "react";
 import { useShellChrome } from "../shell-chrome-context";
+import { Button } from "@supernote/ui";
 
 /**
  * Floating action button — round 56 px button anchored to the central slot
@@ -32,8 +33,9 @@ export const MobileFab = memo(function MobileFab() {
   });
 
   return (
-    <button
+    <Button
       type="button"
+      variant="primary"
       onClick={onPress}
       aria-label={label}
       className="absolute left-1/2 z-30 flex h-14 w-14 -translate-x-1/2 items-center justify-center rounded-full transition-transform active:scale-95"
@@ -56,6 +58,6 @@ export const MobileFab = memo(function MobileFab() {
       }}
     >
       <Icon size={24} weight="bold" />
-    </button>
+    </Button>
   );
 });

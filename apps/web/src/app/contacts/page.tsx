@@ -21,6 +21,7 @@ import { GridFour, List, Plus, MagnifyingGlass, X, UploadSimple } from "@phospho
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRef, useState, useMemo, useEffect } from "react";
+import { Button, Input } from "@heroui/react";
 import { SkeletonCard } from "@supernote/ui";
 import { useTranslations } from "next-intl";
 import { trpc } from "@/lib/trpc/client";
@@ -334,28 +335,34 @@ export default function ContactsPage() {
               className="flex items-center rounded-md border"
               style={{ borderColor: "var(--border-subtle)" }}
             >
-              <button
-                onClick={() => setView("table")}
-                className="flex h-7 w-7 items-center justify-center rounded-l-md transition-colors"
+              <Button
+                isIconOnly
+                variant="ghost"
+                size="sm"
+                onPress={() => setView("table")}
+                className="h-7 w-7 rounded-r-none"
+                aria-label={t("tableView")}
                 style={{
                   backgroundColor: view === "table" ? "var(--surface-3)" : "transparent",
                   color: view === "table" ? "var(--text-primary)" : "var(--text-muted)",
                 }}
-                aria-label={t("tableView")}
               >
                 <List size={14} />
-              </button>
-              <button
-                onClick={() => setView("gallery")}
-                className="flex h-7 w-7 items-center justify-center rounded-r-md transition-colors"
+              </Button>
+              <Button
+                isIconOnly
+                variant="ghost"
+                size="sm"
+                onPress={() => setView("gallery")}
+                className="h-7 w-7 rounded-l-none"
+                aria-label={t("galleryView")}
                 style={{
                   backgroundColor: view === "gallery" ? "var(--surface-3)" : "transparent",
                   color: view === "gallery" ? "var(--text-primary)" : "var(--text-muted)",
                 }}
-                aria-label={t("galleryView")}
               >
                 <GridFour size={14} />
-              </button>
+              </Button>
             </div>
 
             <input
@@ -365,15 +372,16 @@ export default function ContactsPage() {
               className="hidden"
               onChange={handleImportFile}
             />
-            <button
-              className="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--surface-2)]"
+            <Button
+              variant="outline"
+              size="sm"
+              onPress={handleImportClick}
+              className="flex items-center gap-1.5 text-xs"
               style={{ borderColor: "var(--border-subtle)", color: "var(--text-muted)" }}
-              title={t("importHint")}
-              onClick={handleImportClick}
             >
               <UploadSimple size={13} />
               {t("importLabel")}
-            </button>
+            </Button>
 
             <Link
               href="/contacts/nouveau"
@@ -398,7 +406,7 @@ export default function ContactsPage() {
             style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-1)" }}
           >
             <MagnifyingGlass size={13} style={{ color: "var(--text-muted)" }} />
-            <input
+            <Input
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
@@ -407,9 +415,16 @@ export default function ContactsPage() {
               style={{ color: "var(--text-primary)", width: 180 }}
             />
             {query && (
-              <button onClick={() => setQuery("")} aria-label="Effacer">
+              <Button
+                isIconOnly
+                variant="ghost"
+                size="sm"
+                onPress={() => setQuery("")}
+                aria-label="Effacer"
+                className="h-4 w-4 min-w-0 p-0"
+              >
                 <X size={12} style={{ color: "var(--text-muted)" }} />
-              </button>
+              </Button>
             )}
           </div>
 
@@ -418,26 +433,30 @@ export default function ContactsPage() {
             {ALL_RELATION_TYPES.map((type) => {
               const active = activeTypes.includes(type);
               return (
-                <button
+                <Button
                   key={type}
-                  onClick={() => toggleType(type)}
-                  className="transition-opacity"
+                  variant="ghost"
+                  size="sm"
+                  onPress={() => toggleType(type)}
+                  className="min-w-0 px-0 transition-opacity"
                   style={{ opacity: active ? 1 : 0.55 }}
                   aria-pressed={active}
                 >
                   <RelationChip type={type} />
-                </button>
+                </Button>
               );
             })}
             {activeTypes.length > 0 && (
-              <button
-                onClick={() => setActiveTypes([])}
-                className="flex items-center gap-1 rounded-full px-2 py-0.5 text-xs transition-colors hover:bg-[var(--surface-2)]"
+              <Button
+                variant="ghost"
+                size="sm"
+                onPress={() => setActiveTypes([])}
+                className="flex items-center gap-1 rounded-full px-2 text-xs"
                 style={{ color: "var(--text-muted)" }}
               >
                 <X size={10} />
                 {t("clearFilter")}
-              </button>
+              </Button>
             )}
           </div>
         </div>

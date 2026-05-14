@@ -16,6 +16,7 @@
  */
 
 import { useState } from "react";
+import { Button } from "@heroui/react";
 import { useGitSync } from "./GitSyncProvider";
 
 export function GitSyncIndicator({ size = "sm" }: { size?: "sm" | "md" }) {
@@ -62,12 +63,14 @@ export function GitSyncIndicator({ size = "sm" }: { size?: "sm" | "md" }) {
 
   return (
     <div className="relative">
-      <button
+      <Button
+        isIconOnly
+        variant="ghost"
+        size="sm"
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onPress={() => setOpen((v) => !v)}
         aria-label={`État de la synchronisation : ${label}`}
-        title={label}
-        className="flex h-8 w-8 items-center justify-center rounded-full transition-colors active:bg-[var(--surface-2)]"
+        className="flex h-8 w-8 min-w-0 items-center justify-center rounded-full active:bg-[var(--surface-2)]"
       >
         <span
           className={sync.status === "syncing" ? "animate-pulse" : undefined}
@@ -85,7 +88,7 @@ export function GitSyncIndicator({ size = "sm" }: { size?: "sm" | "md" }) {
                   : undefined,
           }}
         />
-      </button>
+      </Button>
 
       {open && (
         <>
@@ -155,21 +158,22 @@ export function GitSyncIndicator({ size = "sm" }: { size?: "sm" | "md" }) {
               </ul>
             )}
 
-            <button
+            <Button
               type="button"
-              onClick={() => {
+              variant="primary"
+              onPress={() => {
                 setOpen(false);
                 void sync.syncNow();
               }}
-              disabled={sync.status === "syncing" || sync.status === "offline"}
-              className="w-full rounded-md px-3 py-2 text-[13px] font-medium transition-opacity hover:opacity-90 disabled:opacity-50"
+              isDisabled={sync.status === "syncing" || sync.status === "offline"}
+              className="w-full text-[13px] font-medium"
               style={{
                 backgroundColor: "var(--accent)",
                 color: "var(--accent-foreground)",
               }}
             >
               {sync.status === "syncing" ? "Synchronisation…" : "Synchroniser maintenant"}
-            </button>
+            </Button>
           </div>
         </>
       )}

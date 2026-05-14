@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { Checkbox } from "@heroui/react";
 import type { Contact } from "./fixtures";
 import { ORGANISATIONS } from "./fixtures";
 import { ContactAvatar } from "./ContactAvatar";
@@ -35,18 +36,12 @@ export function ContactGallery({ contacts, selectedIds, onToggleSelect, orgNames
               backgroundColor: selected ? "var(--accent-subtle)" : "var(--surface-1)",
             }}
           >
-            <button
-              onClick={() => onToggleSelect(contact.id)}
-              className="absolute top-2 right-2 flex h-5 w-5 items-center justify-center rounded"
+            <Checkbox
+              isSelected={selected}
+              onChange={() => onToggleSelect(contact.id)}
+              className="absolute top-2 right-2"
               aria-label={selected ? "Désélectionner" : "Sélectionner"}
-            >
-              <input
-                type="checkbox"
-                checked={selected}
-                onChange={() => onToggleSelect(contact.id)}
-                className="cursor-pointer accent-[var(--accent)]"
-              />
-            </button>
+            />
 
             <Link href={`/contacts/${contact.id}`} className="flex flex-col items-center gap-2 text-center">
               <ContactAvatar name={contact.name} photoUrl={contact.photoUrl} size={64} />

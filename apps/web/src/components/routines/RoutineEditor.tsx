@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Button, Input, TextArea } from "@heroui/react";
 import { Plus, FloppyDisk, X, Play, ArrowLeft, Question } from "@phosphor-icons/react";
 import Link from "next/link";
 import type { RoutineFixture, ActionConfig, ActionType } from "./fixtures";
@@ -131,8 +132,7 @@ export function RoutineEditor({ routine, onSave, onCancel, onRunNow }: RoutineEd
             Routines
           </Link>
           <span style={{ color: "var(--border)" }}>/</span>
-          <input
-            type="text"
+          <Input
             value={data.name}
             onChange={(e) => update({ name: e.target.value })}
             className="rounded border border-transparent bg-transparent px-1 py-0.5 text-sm font-semibold outline-none focus:border-[var(--accent)] focus:bg-[var(--surface-1)]"
@@ -141,31 +141,36 @@ export function RoutineEditor({ routine, onSave, onCancel, onRunNow }: RoutineEd
         </div>
         <div className="flex items-center gap-2">
           {onRunNow && (
-            <button
-              onClick={onRunNow}
+            <Button
+              variant="ghost"
+              size="sm"
+              onPress={onRunNow}
               className="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--surface-2)]"
               style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
             >
               <Play size={13} />
               Tester
-            </button>
+            </Button>
           )}
-          <button
-            onClick={onCancel}
+          <Button
+            variant="ghost"
+            size="sm"
+            onPress={onCancel}
             className="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--surface-2)]"
             style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
           >
             <X size={13} />
             Annuler
-          </button>
-          <button
-            onClick={handleSave}
+          </Button>
+          <Button
+            size="sm"
+            onPress={handleSave}
             className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-opacity hover:opacity-90"
             style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
           >
             <FloppyDisk size={13} />
             {saved ? "Enregistré" : "Enregistrer"}
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -176,9 +181,11 @@ export function RoutineEditor({ routine, onSave, onCancel, onRunNow }: RoutineEd
           style={{ width: 160, borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-1)" }}
         >
           {SECTIONS.map((s) => (
-            <button
+            <Button
               key={s.id}
-              onClick={() => setActiveSection(s.id)}
+              variant="ghost"
+              size="sm"
+              onPress={() => setActiveSection(s.id)}
               className="rounded-md px-3 py-2 text-left text-xs font-medium transition-colors"
               style={{
                 backgroundColor: activeSection === s.id ? "var(--accent-subtle)" : "transparent",
@@ -186,7 +193,7 @@ export function RoutineEditor({ routine, onSave, onCancel, onRunNow }: RoutineEd
               }}
             >
               {s.label}
-            </button>
+            </Button>
           ))}
         </nav>
 
@@ -198,8 +205,7 @@ export function RoutineEditor({ routine, onSave, onCancel, onRunNow }: RoutineEd
               <label className="mb-1 block text-xs font-medium" style={{ color: "var(--text-muted)" }}>
                 Description
               </label>
-              <input
-                type="text"
+              <Input
                 value={data.description}
                 onChange={(e) => update({ description: e.target.value })}
                 className="w-full rounded-md border px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
@@ -246,18 +252,19 @@ export function RoutineEditor({ routine, onSave, onCancel, onRunNow }: RoutineEd
                     <label className="block text-xs font-medium" style={{ color: "var(--text-muted)" }}>
                       Formule de condition
                     </label>
-                    <button
-                      type="button"
-                      onClick={() => setDocsOpen(true)}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onPress={() => setDocsOpen(true)}
                       className="flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-medium transition-colors hover:bg-[var(--surface-3)]"
                       style={{ color: "var(--accent)" }}
                       aria-label="Voir la documentation des formules de condition"
                     >
                       <Question size={12} weight="bold" />
                       Voir la doc
-                    </button>
+                    </Button>
                   </div>
-                  <textarea
+                  <TextArea
                     className="w-full resize-y rounded-md border px-3 py-2 font-mono text-sm outline-none focus:border-[var(--accent)]"
                     style={{
                       backgroundColor: "var(--surface-0)",
@@ -311,14 +318,15 @@ export function RoutineEditor({ routine, onSave, onCancel, onRunNow }: RoutineEd
                     ))}
                   </div>
 
-                  <button
-                    onClick={() => setPickerOpen(true)}
+                  <Button
+                    variant="ghost"
+                    onPress={() => setPickerOpen(true)}
                     className="mt-4 flex w-full items-center justify-center gap-2 rounded-lg border border-dashed py-3 text-sm font-medium transition-colors hover:bg-[var(--surface-2)]"
                     style={{ borderColor: "var(--border)", color: "var(--text-muted)" }}
                   >
                     <Plus size={14} />
                     Ajouter une action
-                  </button>
+                  </Button>
                 </div>
               </>
             )}

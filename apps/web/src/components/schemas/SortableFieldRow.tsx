@@ -2,6 +2,7 @@
 
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { Button } from "@heroui/react";
 import { DotsSixVertical, PencilSimple, Trash } from "@phosphor-icons/react";
 import type { Field } from "@supernote/core";
 import { FieldKindBadge } from "./FieldKindBadge";
@@ -33,7 +34,9 @@ export function SortableFieldRow({ field, onEdit, onDelete }: SortableFieldRowPr
     >
       <button
         {...listeners}
+        type="button"
         className="cursor-grab rounded p-0.5 hover:bg-[var(--surface-2)] active:cursor-grabbing"
+        aria-label="Déplacer"
       >
         <DotsSixVertical size={14} style={{ color: "var(--text-muted)" }} />
       </button>
@@ -50,20 +53,26 @@ export function SortableFieldRow({ field, onEdit, onDelete }: SortableFieldRowPr
         </span>
       )}
       <div className="flex items-center gap-1">
-        <button
-          onClick={onEdit}
+        <Button
+          isIconOnly
+          variant="ghost"
+          size="sm"
+          onPress={onEdit}
           className="rounded p-1 hover:bg-[var(--surface-2)]"
-          title="Modifier"
+          aria-label="Modifier"
         >
           <PencilSimple size={13} style={{ color: "var(--text-muted)" }} />
-        </button>
-        <button
-          onClick={onDelete}
+        </Button>
+        <Button
+          isIconOnly
+          variant="ghost"
+          size="sm"
+          onPress={onDelete}
           className="rounded p-1 hover:bg-red-50"
-          title="Supprimer"
+          aria-label="Supprimer"
         >
           <Trash size={13} style={{ color: "var(--danger)" }} />
-        </button>
+        </Button>
       </div>
     </div>
   );

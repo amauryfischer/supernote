@@ -1,0 +1,802 @@
+"use client";
+
+/**
+ * ColumnEditorSidebar — panneau latéral pleine hauteur pour gérer les colonnes
+ * d'une Base (EntityType) dans le contexte d'une vue.
+ *
+ * Deux axes :
+ *  - Visibilité/ordre → mutations sur la vue (views.update)
+ *  - Ajout/édition/suppression → mutations sur le schéma (schemas.update)
+ *
+ * Rendu depuis AppShell quand ShellChromeContext.columnEditor !== null.
+ */
+
+import { useState, useCallback } from "react";
+import { Button, Input, Checkbox, SelectRoot, SelectTrigger, SelectValue, SelectPopover, ListBox, ListBoxItem } from "@heroui/react";
+import {
+  X,
+  Eye,
+  EyeSlash,
+  CaretUp,
+  CaretDown,
+  PencilSimple,
+  Trash,
+  Plus,
+  Check,
+} from "@phosphor-icons/react";
+import type { EntityType, Field, FieldKind, SelectOption } from "@supernote/core";
+import type { View } from "@supernote/ipc";
+import { trpc } from "@/lib/trpc/client";
+import { FieldKindBadge } from "@/components/schemas/FieldKindBadge";
+import { FIELD_KINDS } from "@/components/schemas/fixtures";
+import { coreFieldToIpc, ipcEntityTypeToCore } from "@/components/schemas/adapters";
+import { useShellChrome } from "@/components/shell/shell-chrome-context";
+import { parseFormula } from "@supernote/formulas";
+import { useViewMutations, resolveVisibleFieldIds } from "./hooks";
+import { labelForField } from "./filter-ops";
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+function makeSlug(s: string) {
+  return s.toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "");
+}
+
+function newFieldId() {
+  return `f_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
+
+interface ColumnEditorSidebarProps {
+  base: EntityType;
+  view: View;
+  focusFieldId?: string;
+  prefillFormula?: { expression: string; outputKind?: "text" | "number" | "date" | "bool" };
+}
+
+export function ColumnEditorSidebar({ base: baseSnapshot, view: viewSnapshot, focusFieldId, prefillFormula }: ColumnEditorSidebarProps) {
+  const { closeColumnEditor } = useShellChrome();
+  const { update: updateView } = useViewMutations();
+  const utils = trpc.useUtils();
+
+  // Snapshots viennent du context (figés à l'ouverture). On refetch en frais
+  // pour éviter les écrasements lors de mutations successives — sinon
+  // commitFieldChange envoie `base.fields` stale et la 1ère colonne ajoutée
+  // disparaît à la 2ème mutation.
+  const { data: ipcBase } = trpc.schemas.get.useQuery(
+    { id: baseSnapshot.id },
+    { initialData: undefined },
+  );
+  const { data: freshView } = trpc.views.get.useQuery(
+    { id: viewSnapshot.id },
+    { initialData: undefined },
+  );
+  const base = ipcBase ? ipcEntityTypeToCore(ipcBase) : baseSnapshot;
+  const view = freshView ?? viewSnapshot;
+
+  const updateSchema = trpc.schemas.update.useMutation({
+    onSuccess: () => {
+      void utils.schemas.list.invalidate();
+      void utils.schemas.get.invalidate({ id: base.id });
+    },
+  });
+
+  // ── Visibility/order state ─────────────────────────────────────────────────
+
+  const allFieldIds = base.fields.map((f) => f.id);
+  const visible = resolveVisibleFieldIds(view, allFieldIds);
+  const visibleSet = new Set(visible);
+  const hidden = allFieldIds.filter((id) => !visibleSet.has(id));
+
+  const commitView = (nextVisible: string[], nextHidden: string[]) => {
+    updateView.mutate({ id: view.id, visibleFields: nextVisible, hiddenFields: nextHidden });
+  };
+
+  const toggleVisibility = (fieldId: string, currentlyVisible: boolean) => {
+    if (currentlyVisible) {
+      commitView(visible.filter((id) => id !== fieldId), [...hidden, fieldId]);
+    } else {
+      commitView([...visible, fieldId], hidden.filter((id) => id !== fieldId));
+    }
+  };
+
+  const move = (index: number, delta: -1 | 1) => {
+    const target = index + delta;
+    if (target < 0 || target >= visible.length) return;
+    const next = [...visible];
+    const tmp = next[index]!;
+    next[index] = next[target]!;
+    next[target] = tmp;
+    commitView(next, hidden);
+  };
+
+  // ── Field edit state ───────────────────────────────────────────────────────
+
+  const [editingFieldId, setEditingFieldId] = useState<string | "new" | null>(
+    focusFieldId ? focusFieldId : prefillFormula ? "new" : null,
+  );
+
+  const commitFieldChange = useCallback(
+    (updatedField: Field, mode: "edit" | "add") => {
+      const currentFields = base.fields;
+      const nextFields =
+        mode === "add"
+          ? [...currentFields, updatedField]
+          : currentFields.map((f) => (f.id === updatedField.id ? updatedField : f));
+      updateSchema.mutate({ id: base.id, fields: nextFields.map(coreFieldToIpc) });
+      setEditingFieldId(null);
+    },
+    [base.fields, base.id, updateSchema],
+  );
+
+  const deleteField = useCallback(
+    (fieldId: string) => {
+      const nextFields = base.fields.filter((f) => f.id !== fieldId);
+      // Retire aussi de la vue si besoin
+      const nextVisible = visible.filter((id) => id !== fieldId);
+      const nextHidden = hidden.filter((id) => id !== fieldId);
+      updateSchema.mutate({ id: base.id, fields: nextFields.map(coreFieldToIpc) });
+      commitView(nextVisible, nextHidden);
+    },
+    [base.fields, base.id, updateSchema, visible, hidden], // eslint-disable-line react-hooks/exhaustive-deps
+  );
+
+  const fieldById = new Map(base.fields.map((f) => [f.id, f]));
+
+  return (
+    <aside
+      className="flex h-full flex-col border-l"
+      style={{
+        width: 320,
+        minWidth: 320,
+        borderColor: "var(--border-subtle)",
+        backgroundColor: "var(--surface-1)",
+      }}
+    >
+      {/* Header */}
+      <div
+        className="flex shrink-0 items-center gap-2 border-b px-4"
+        style={{ height: "var(--header-height)", borderColor: "var(--border-subtle)" }}
+      >
+        <span className="flex-1 truncate text-xs font-semibold" style={{ color: "var(--text-primary)" }}>
+          {base.plural} · Colonnes
+        </span>
+        <Button
+          variant="ghost"
+          size="sm"
+          onPress={closeColumnEditor}
+          className="flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-[var(--surface-2)]"
+          style={{ color: "var(--text-muted)" }}
+          aria-label="Fermer"
+        >
+          <X size={13} />
+        </Button>
+      </div>
+
+      {/* Field list */}
+      <div className="flex-1 overflow-y-auto">
+        {/* Visible fields */}
+        {visible.length > 0 && (
+          <div className="py-2">
+            <SectionLabel label="Visibles" />
+            {visible.map((fid, index) => {
+              const field = fieldById.get(fid);
+              if (!field) return null;
+              return (
+                <FieldRow
+                  key={fid}
+                  field={field}
+                  isVisible
+                  canMoveUp={index > 0}
+                  canMoveDown={index < visible.length - 1}
+                  isEditing={editingFieldId === fid}
+                  isSaving={updateSchema.isPending}
+                  currentBaseId={base.id}
+                  currentBasePlural={base.plural}
+                  onToggle={() => toggleVisibility(fid, true)}
+                  onMoveUp={() => move(index, -1)}
+                  onMoveDown={() => move(index, 1)}
+                  onEdit={() => setEditingFieldId(editingFieldId === fid ? null : fid)}
+                  onDelete={() => deleteField(fid)}
+                  onSave={(f) => commitFieldChange(f, "edit")}
+                  onCancelEdit={() => setEditingFieldId(null)}
+                />
+              );
+            })}
+          </div>
+        )}
+
+        {/* Hidden fields */}
+        {hidden.length > 0 && (
+          <div className="border-t py-2" style={{ borderColor: "var(--border-subtle)" }}>
+            <SectionLabel label="Masquées" />
+            {hidden.map((fid) => {
+              const field = fieldById.get(fid);
+              if (!field) return null;
+              return (
+                <FieldRow
+                  key={fid}
+                  field={field}
+                  isVisible={false}
+                  canMoveUp={false}
+                  canMoveDown={false}
+                  isEditing={editingFieldId === fid}
+                  isSaving={updateSchema.isPending}
+                  currentBaseId={base.id}
+                  currentBasePlural={base.plural}
+                  onToggle={() => toggleVisibility(fid, false)}
+                  onMoveUp={() => {}}
+                  onMoveDown={() => {}}
+                  onEdit={() => setEditingFieldId(editingFieldId === fid ? null : fid)}
+                  onDelete={() => deleteField(fid)}
+                  onSave={(f) => commitFieldChange(f, "edit")}
+                  onCancelEdit={() => setEditingFieldId(null)}
+                />
+              );
+            })}
+          </div>
+        )}
+
+        {/* Add field */}
+        <div className="border-t px-3 py-3" style={{ borderColor: "var(--border-subtle)" }}>
+          {editingFieldId === "new" ? (
+            <FieldEditForm
+              field={null}
+              isSaving={updateSchema.isPending}
+              prefill={prefillFormula}
+              currentBaseId={base.id}
+              currentBasePlural={base.plural}
+              onSave={(f) => commitFieldChange(f, "add")}
+              onCancel={() => setEditingFieldId(null)}
+            />
+          ) : (
+            <Button
+              variant="ghost"
+              size="sm"
+              onPress={() => setEditingFieldId("new")}
+              className="flex w-full items-center gap-2 rounded-md border border-dashed px-3 py-2 text-xs transition-colors hover:bg-[var(--surface-2)]"
+              style={{ borderColor: "var(--border-subtle)", color: "var(--accent)" }}
+            >
+              <Plus size={12} />
+              Ajouter un champ
+            </Button>
+          )}
+        </div>
+      </div>
+    </aside>
+  );
+}
+
+// ── Section label ─────────────────────────────────────────────────────────────
+
+function SectionLabel({ label }: { label: string }) {
+  return (
+    <div className="px-4 pb-1">
+      <span
+        className="text-[10px] font-semibold uppercase tracking-wide"
+        style={{ color: "var(--text-muted)" }}
+      >
+        {label}
+      </span>
+    </div>
+  );
+}
+
+// ── FieldRow ──────────────────────────────────────────────────────────────────
+
+interface FieldRowProps {
+  field: Field;
+  isVisible: boolean;
+  canMoveUp: boolean;
+  canMoveDown: boolean;
+  isEditing: boolean;
+  isSaving: boolean;
+  currentBaseId: string;
+  currentBasePlural: string;
+  onToggle: () => void;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+  onSave: (f: Field) => void;
+  onCancelEdit: () => void;
+}
+
+function FieldRow({
+  field,
+  isVisible,
+  canMoveUp,
+  canMoveDown,
+  isEditing,
+  isSaving,
+  currentBaseId,
+  currentBasePlural,
+  onToggle,
+  onMoveUp,
+  onMoveDown,
+  onEdit,
+  onDelete,
+  onSave,
+  onCancelEdit,
+}: FieldRowProps) {
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  return (
+    <div>
+      <div
+        className={`group flex items-center gap-1.5 px-3 py-1.5 transition-colors hover:bg-[var(--surface-2)] ${
+          !isVisible ? "opacity-50" : ""
+        }`}
+      >
+        {/* Reorder arrows */}
+        {isVisible && (
+          <div className="flex flex-col">
+            <Button
+              variant="ghost"
+              size="sm"
+              onPress={onMoveUp}
+              isDisabled={!canMoveUp}
+              className="rounded p-0.5 hover:bg-[var(--surface-3)] disabled:opacity-20"
+              style={{ color: "var(--text-muted)" }}
+            >
+              <CaretUp size={9} />
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onPress={onMoveDown}
+              isDisabled={!canMoveDown}
+              className="rounded p-0.5 hover:bg-[var(--surface-3)] disabled:opacity-20"
+              style={{ color: "var(--text-muted)" }}
+            >
+              <CaretDown size={9} />
+            </Button>
+          </div>
+        )}
+
+        {/* Visibility toggle */}
+        <Button
+          variant="ghost"
+          size="sm"
+          onPress={onToggle}
+          className="rounded p-1 transition-colors hover:bg-[var(--surface-3)]"
+          style={{ color: "var(--text-muted)" }}
+          aria-label={isVisible ? "Masquer" : "Afficher"}
+        >
+          {isVisible ? <Eye size={12} /> : <EyeSlash size={12} />}
+        </Button>
+
+        {/* Kind badge + label */}
+        <FieldKindBadge kind={field.kind} />
+        <span className="flex-1 truncate text-xs" style={{ color: "var(--text-primary)" }}>
+          {labelForField(field)}
+        </span>
+
+        {/* Actions */}
+        <div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+          <Button
+            variant="ghost"
+            size="sm"
+            onPress={onEdit}
+            className="rounded p-1 hover:bg-[var(--surface-3)]"
+            style={{ color: isEditing ? "var(--accent)" : "var(--text-muted)" }}
+            aria-label="Modifier"
+          >
+            <PencilSimple size={12} />
+          </Button>
+          {!confirmDelete ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              onPress={() => setConfirmDelete(true)}
+              className="rounded p-1 hover:bg-[var(--surface-3)]"
+              style={{ color: "var(--text-muted)" }}
+              aria-label="Supprimer"
+            >
+              <Trash size={12} />
+            </Button>
+          ) : (
+            <Button
+              variant="danger"
+              size="sm"
+              onPress={() => { onDelete(); setConfirmDelete(false); }}
+              className="rounded px-1.5 py-0.5 text-[10px] font-medium"
+              style={{ backgroundColor: "var(--destructive)", color: "#fff" }}
+              aria-label="Confirmer la suppression"
+            >
+              Suppr.
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {/* Inline edit form */}
+      {isEditing && (
+        <div className="border-t border-b px-3 py-3" style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-0)" }}>
+          <FieldEditForm
+            field={field}
+            isSaving={isSaving}
+            currentBaseId={currentBaseId}
+            currentBasePlural={currentBasePlural}
+            onSave={onSave}
+            onCancel={onCancelEdit}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── FieldEditForm ─────────────────────────────────────────────────────────────
+
+const KIND_GROUPS = Array.from(new Set(FIELD_KINDS.map((k) => k.group)));
+
+interface FieldEditFormProps {
+  field: Field | null;
+  isSaving: boolean;
+  prefill?: { expression: string; outputKind?: FormulaOutputKind };
+  currentBaseId: string;
+  currentBasePlural: string;
+  onSave: (f: Field) => void;
+  onCancel: () => void;
+}
+
+type FormulaOutputKind = "text" | "number" | "date" | "bool";
+
+function FieldEditForm({ field, isSaving, prefill, currentBaseId, currentBasePlural, onSave, onCancel }: FieldEditFormProps) {
+  const [label, setLabel] = useState(field?.label ?? (prefill ? "Formule" : ""));
+  const [name, setName] = useState(field?.name ?? (prefill ? "formule" : ""));
+  const [kind, setKind] = useState<FieldKind>(field?.kind ?? (prefill ? "formula" : "text"));
+  const [required, setRequired] = useState(field?.required ?? false);
+  const [options, setOptions] = useState<SelectOption[]>(
+    (field as { options?: SelectOption[] })?.options ?? [],
+  );
+  const [expression, setExpression] = useState<string>(
+    (field as { expression?: string })?.expression ?? prefill?.expression ?? "",
+  );
+  const [outputKind, setOutputKind] = useState<FormulaOutputKind>(
+    ((field as { outputKind?: FormulaOutputKind })?.outputKind ?? prefill?.outputKind ?? "text"),
+  );
+  const [relTargetTypeId, setRelTargetTypeId] = useState<string>(
+    (field as { targetTypeId?: string })?.targetTypeId ?? "",
+  );
+  const [relCardinality, setRelCardinality] = useState<"one_to_one" | "one_to_many" | "many_to_many">(
+    ((field as { cardinality?: "one_to_one" | "one_to_many" | "many_to_many" })?.cardinality ?? "many_to_many"),
+  );
+  const { data: allBases } = trpc.schemas.list.useQuery({ search: undefined });
+  const [error, setError] = useState<string | null>(null);
+
+  const handleLabelChange = (v: string) => {
+    setLabel(v);
+    if (!field) setName(makeSlug(v));
+  };
+
+  const handleSave = () => {
+    if (!label.trim()) { setError("Le nom est requis"); return; }
+    if (!name.trim()) { setError("Le slug est requis"); return; }
+    if ((kind === "select" || kind === "multiselect" || kind === "status") && options.length === 0) {
+      setError("Au moins une option est requise");
+      return;
+    }
+    setError(null);
+
+    const base = { id: field?.id ?? newFieldId(), name: name.trim(), label: label.trim(), required, unique: field?.unique ?? false };
+    let extra: Record<string, unknown> = {};
+    if (kind === "select" || kind === "multiselect" || kind === "status") extra = { options };
+    else if (kind === "formula") extra = { expression: expression.trim(), outputKind };
+    else if (kind === "rollup") extra = { relationFieldId: "", targetFieldId: "", aggregation: "count" };
+    else if (kind === "lookup") extra = { relationFieldId: "", targetFieldId: "" };
+    else if (kind === "relation") {
+      if (!relTargetTypeId) { setError("Choisir une base cible"); return; }
+      extra = { targetTypeId: relTargetTypeId, cardinality: relCardinality };
+    }
+
+    onSave({ ...base, kind, ...extra } as Field);
+  };
+
+  const needsOptions = kind === "select" || kind === "multiselect" || kind === "status";
+
+  return (
+    <div className="flex flex-col gap-2.5">
+      <p className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+        {field ? "Modifier le champ" : "Nouveau champ"}
+      </p>
+
+      {/* Label */}
+      <div>
+        <label className="mb-1 block text-xs font-medium" style={{ color: "var(--text-secondary)" }}>Nom</label>
+        <Input
+          value={label}
+          onChange={(e) => handleLabelChange(e.target.value)}
+          placeholder="Ex : Montant"
+          className="w-full text-xs"
+          autoFocus
+          onKeyDown={(e) => { if (e.key === "Enter") handleSave(); if (e.key === "Escape") onCancel(); }}
+        />
+      </div>
+
+      {/* Slug */}
+      <div>
+        <label className="mb-1 block text-xs font-medium" style={{ color: "var(--text-secondary)" }}>Slug</label>
+        <Input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Ex : montant"
+          className="w-full font-mono text-xs"
+          onKeyDown={(e) => { if (e.key === "Enter") handleSave(); if (e.key === "Escape") onCancel(); }}
+        />
+      </div>
+
+      {/* Kind */}
+      <div>
+        <label className="mb-1 block text-xs font-medium" style={{ color: "var(--text-secondary)" }}>Type</label>
+        <SelectRoot
+          selectedKey={kind}
+          onSelectionChange={(key) => { if (key != null) setKind(key as FieldKind); }}
+          className="w-full text-xs"
+        >
+          <SelectTrigger className="w-full rounded border px-2 py-1.5 text-xs" style={{ borderColor: "var(--border)", backgroundColor: "var(--surface-1)", color: "var(--text-primary)" }}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectPopover>
+            <ListBox>
+              {FIELD_KINDS.map((k) => (
+                <ListBoxItem key={k.kind} id={k.kind}>{k.label}</ListBoxItem>
+              ))}
+            </ListBox>
+          </SelectPopover>
+        </SelectRoot>
+      </div>
+
+      {/* Options (select/multiselect/status) */}
+      {needsOptions && (
+        <div>
+          <label className="mb-1 block text-xs font-medium" style={{ color: "var(--text-secondary)" }}>Options</label>
+          <div className="flex flex-col gap-1">
+            {options.map((opt, i) => (
+              <div key={i} className="flex items-center gap-1.5">
+                <input
+                  type="color"
+                  value={opt.color ?? "#64748B"}
+                  onChange={(e) => setOptions(options.map((o, j) => j === i ? { ...o, color: e.target.value } : o))}
+                  className="h-5 w-5 cursor-pointer rounded border-0 bg-transparent"
+                />
+                <Input
+                  value={opt.label}
+                  onChange={(e) => setOptions(options.map((o, j) => j === i ? { ...o, label: e.target.value, value: makeSlug(e.target.value) || o.value } : o))}
+                  className="flex-1 text-xs"
+                  placeholder="Libellé"
+                />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onPress={() => setOptions(options.filter((_, j) => j !== i))}
+                  className="rounded p-0.5 hover:bg-[var(--surface-3)]"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  <X size={10} />
+                </Button>
+              </div>
+            ))}
+            <Button
+              variant="ghost"
+              size="sm"
+              onPress={() => setOptions([...options, { value: `opt${options.length}`, label: "Nouvelle option", color: "#64748B" }])}
+              className="mt-0.5 flex items-center gap-1 text-xs"
+              style={{ color: "var(--accent)" }}
+            >
+              <Plus size={10} /> Ajouter une option
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Formula expression + output kind */}
+      {kind === "formula" && (
+        <FormulaEditor
+          expression={expression}
+          onChangeExpression={setExpression}
+          outputKind={outputKind}
+          onChangeOutputKind={setOutputKind}
+        />
+      )}
+
+      {/* Relation: picker base cible + cardinalité */}
+      {kind === "relation" && (
+        <div className="flex flex-col gap-2 rounded border px-2 py-2" style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-0)" }}>
+          <label className="block text-[10px] font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+            Base cible
+          </label>
+          <SelectRoot
+            selectedKey={relTargetTypeId || null}
+            onSelectionChange={(key) => setRelTargetTypeId(key ? String(key) : "")}
+            className="w-full text-xs"
+          >
+            <SelectTrigger className="w-full rounded border px-2 py-1 text-xs" style={{ borderColor: "var(--border)", backgroundColor: "var(--surface-1)", color: "var(--text-primary)" }}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectPopover>
+              <ListBox>
+                {(allBases ?? []).filter((b) => b.id !== currentBaseId).map((b) => (
+                  <ListBoxItem key={b.id} id={b.id}>{b.plural || b.name}</ListBoxItem>
+                ))}
+                {(allBases ?? []).find((b) => b.id === currentBaseId) && (
+                  <ListBoxItem key={currentBaseId} id={currentBaseId}>{currentBasePlural} (auto-référence)</ListBoxItem>
+                )}
+              </ListBox>
+            </SelectPopover>
+          </SelectRoot>
+          <label className="mt-1 block text-[10px] font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+            Sélection
+          </label>
+          <div className="flex gap-1.5">
+            <Button
+              variant={relCardinality === "one_to_one" ? "primary" : "outline"}
+              size="sm"
+              onPress={() => setRelCardinality("one_to_one")}
+              className="flex-1 rounded border px-2 py-1 text-[11px]"
+              style={{
+                borderColor: relCardinality === "one_to_one" ? "var(--accent)" : "var(--border)",
+                backgroundColor: relCardinality === "one_to_one" ? "var(--accent)" : "transparent",
+                color: relCardinality === "one_to_one" ? "var(--accent-foreground)" : "var(--text-secondary)",
+              }}
+            >
+              Simple
+            </Button>
+            <Button
+              variant={relCardinality === "many_to_many" ? "primary" : "outline"}
+              size="sm"
+              onPress={() => setRelCardinality("many_to_many")}
+              className="flex-1 rounded border px-2 py-1 text-[11px]"
+              style={{
+                borderColor: relCardinality === "many_to_many" ? "var(--accent)" : "var(--border)",
+                backgroundColor: relCardinality === "many_to_many" ? "var(--accent)" : "transparent",
+                color: relCardinality === "many_to_many" ? "var(--accent-foreground)" : "var(--text-secondary)",
+              }}
+            >
+              Multiple
+            </Button>
+          </div>
+          <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>
+            Cellule affiche un picker de lignes dans la base cible.
+          </p>
+        </div>
+      )}
+
+      {/* Required */}
+      <label className="flex cursor-pointer items-center gap-2 text-xs" style={{ color: "var(--text-secondary)" }}>
+        <Checkbox
+          isSelected={required}
+          onChange={() => setRequired((v) => !v)}
+        />
+        Champ obligatoire
+      </label>
+
+      {/* Error */}
+      {error && <p className="text-[11px]" style={{ color: "var(--destructive)" }}>{error}</p>}
+
+      {/* Actions */}
+      <div className="flex items-center justify-end gap-1.5 pt-0.5">
+        <Button
+          variant="ghost"
+          size="sm"
+          onPress={onCancel}
+          className="rounded px-2 py-1 text-xs"
+          style={{ color: "var(--text-muted)" }}
+        >
+          Annuler
+        </Button>
+        <Button
+          variant="primary"
+          size="sm"
+          onPress={handleSave}
+          isPending={isSaving}
+          className="flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium"
+          style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
+        >
+          <Check size={10} /> {isSaving ? "…" : field ? "Mettre à jour" : "Créer"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// ── FormulaEditor ─────────────────────────────────────────────────────────────
+
+interface FormulaEditorProps {
+  expression: string;
+  onChangeExpression: (v: string) => void;
+  outputKind: FormulaOutputKind;
+  onChangeOutputKind: (v: FormulaOutputKind) => void;
+}
+
+const FORMULA_HINTS = [
+  "Concatenate(Left(Name, 3), \"-\", Year(Today()))",
+  "If(Amount > 100, \"high\", \"low\")",
+  "Round(Amount * 1.20, 2)",
+  "DateAdd(Today(), 7, \"day\")",
+  "thisRow.Title.Upper()",
+];
+
+function FormulaEditor({ expression, onChangeExpression, outputKind, onChangeOutputKind }: FormulaEditorProps) {
+  const parseError = (() => {
+    if (!expression.trim()) return null;
+    const r = parseFormula(expression);
+    return r.ok ? null : r.error.message;
+  })();
+  return (
+    <div className="flex flex-col gap-2 rounded border px-2 py-2" style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-0)" }}>
+      <label className="block text-[10px] font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+        Expression
+      </label>
+      <textarea
+        value={expression}
+        onChange={(e) => onChangeExpression(e.target.value)}
+        rows={3}
+        placeholder='Ex : Concatenate("€ ", Round(Amount, 2))'
+        spellCheck={false}
+        className="w-full resize-y rounded border bg-transparent px-2 py-1.5 font-mono text-[11px]"
+        style={{ borderColor: parseError ? "var(--destructive)" : "var(--border)", color: "var(--text-primary)" }}
+      />
+      {parseError && (
+        <p className="font-mono text-[10px]" style={{ color: "var(--destructive)" }}>
+          {parseError}
+        </p>
+      )}
+      <div className="flex items-center gap-2">
+        <label className="text-[11px]" style={{ color: "var(--text-secondary)" }}>Type de sortie</label>
+        <SelectRoot
+          selectedKey={outputKind}
+          onSelectionChange={(key) => { if (key != null) onChangeOutputKind(key as FormulaOutputKind); }}
+          className="text-[11px]"
+        >
+          <SelectTrigger className="rounded border px-1.5 py-1 text-[11px]" style={{ borderColor: "var(--border)", backgroundColor: "var(--surface-1)", color: "var(--text-primary)" }}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectPopover>
+            <ListBox>
+              <ListBoxItem id="text">Texte</ListBoxItem>
+              <ListBoxItem id="number">Nombre</ListBoxItem>
+              <ListBoxItem id="date">Date</ListBoxItem>
+              <ListBoxItem id="bool">Booléen</ListBoxItem>
+            </ListBox>
+          </SelectPopover>
+        </SelectRoot>
+      </div>
+      <details className="text-[10px]" style={{ color: "var(--text-muted)" }}>
+        <summary className="cursor-pointer select-none">Aide & exemples</summary>
+        <div className="mt-1 flex flex-col gap-1">
+          <p>
+            Référence un champ : <code>{"{slug}"}</code> ou <code>nom_de_champ</code> ou <code>thisRow.slug</code>.
+          </p>
+          <p className="font-medium" style={{ color: "var(--text-secondary)" }}>Texte</p>
+          <p>Concatenate, Format, Upper, Lower, Left, Right, Middle, Find, Contains, Replace, Trim, Length</p>
+          <p className="font-medium" style={{ color: "var(--text-secondary)" }}>Nombres</p>
+          <p>Sum, Avg, Round, RoundUp, RoundDown, Min, Max, Abs, Pow, Sqrt, Mod, Int, Sign, Log, Ln, Exp, Random</p>
+          <p className="font-medium" style={{ color: "var(--text-secondary)" }}>Dates</p>
+          <p>Today, Now, Date, Year, Month, Day, Hour, Weekday, MonthName, DateAdd, DateDiff, Format(d, &quot;YYYY-MM-DD&quot;)</p>
+          <p className="font-medium" style={{ color: "var(--text-secondary)" }}>Logique</p>
+          <p>If, IfElse, SwitchIf, Switch, And, Or, Not, IsBlank, IsNotBlank, IsNumber, IsText, IfBlank</p>
+          <p className="font-medium" style={{ color: "var(--text-secondary)" }}>Listes</p>
+          <p>Filter, Map, Reduce, Sort, Reverse, Unique, First, Last, Count, CountIf, Join, Contains, In</p>
+          <p className="font-medium pt-1" style={{ color: "var(--text-secondary)" }}>Exemples</p>
+          <ul className="flex flex-col gap-0.5 pl-3 font-mono">
+            {FORMULA_HINTS.map((h) => (
+              <li key={h}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onPress={() => onChangeExpression(h)}
+                  className="text-left hover:underline"
+                  style={{ color: "var(--accent)" }}
+                >
+                  {h}
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </details>
+    </div>
+  );
+}

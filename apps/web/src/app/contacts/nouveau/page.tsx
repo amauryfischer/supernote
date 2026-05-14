@@ -14,6 +14,7 @@ import { ArrowLeft, LinkedinLogo, TwitterLogo, GithubLogo, Plus, X, UploadSimple
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useRef, useEffect } from "react";
+import { Button, Input, TextArea } from "@heroui/react";
 import { trpc } from "@/lib/trpc/client";
 import { TagSelector } from "@/components/tags/TagSelector";
 
@@ -36,7 +37,7 @@ function TextInput({ value, onChange, placeholder, type = "text" }: {
   type?: string;
 }) {
   return (
-    <input
+    <Input
       type={type}
       value={value}
       onChange={(e) => onChange(e.target.value)}
@@ -204,15 +205,17 @@ export default function NouveauContactPage() {
           <div className="flex items-start gap-4">
             <div className="flex flex-col items-center gap-2">
               <ContactAvatar name={name || "?"} photoUrl={photoPreview} size={72} />
-              <button
+              <Button
                 type="button"
-                onClick={() => fileRef.current?.click()}
-                className="flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs transition-colors hover:bg-[var(--surface-2)]"
+                variant="outline"
+                size="sm"
+                onPress={() => fileRef.current?.click()}
+                className="flex items-center gap-1.5 text-xs"
                 style={{ borderColor: "var(--border-subtle)", color: "var(--text-muted)" }}
               >
                 <UploadSimple size={11} />
                 Photo
-              </button>
+              </Button>
               <input
                 ref={fileRef}
                 type="file"
@@ -235,15 +238,17 @@ export default function NouveauContactPage() {
             <FieldLabel>Type de relation</FieldLabel>
             <div className="flex flex-wrap gap-2">
               {ALL_RELATION_TYPES.map((type) => (
-                <button
+                <Button
                   key={type}
                   type="button"
-                  onClick={() => setRelationType(type)}
-                  className="transition-opacity focus:outline-none focus-visible:outline-none"
+                  variant="ghost"
+                  size="sm"
+                  onPress={() => setRelationType(type)}
+                  className="min-w-0 px-0 transition-opacity"
                   style={{ opacity: relationType === type ? 1 : 0.45, outline: relationType === type ? "2px solid var(--accent)" : "none", borderRadius: 99, outlineOffset: 2 }}
                 >
                   <RelationChip type={type} />
-                </button>
+                </Button>
               ))}
             </div>
           </div>
@@ -260,6 +265,7 @@ export default function NouveauContactPage() {
                     placeholder="email@exemple.fr"
                     type="email"
                   />
+                  {/* select justified: RAC Select requires compound structure — not suitable for a simple label dropdown */}
                   <select
                     value={email.label}
                     onChange={(e) => updateEmail(i, "label", e.target.value)}
@@ -271,26 +277,32 @@ export default function NouveauContactPage() {
                     <option value="autre">autre</option>
                   </select>
                   {emails.length > 1 && (
-                    <button
+                    <Button
                       type="button"
-                      onClick={() => removeEmail(i)}
-                      className="flex h-9 w-9 items-center justify-center rounded-md border transition-colors hover:bg-[var(--surface-2)]"
+                      isIconOnly
+                      variant="outline"
+                      size="sm"
+                      onPress={() => removeEmail(i)}
+                      aria-label="Supprimer cet email"
+                      className="h-9 w-9 shrink-0"
                       style={{ borderColor: "var(--border-subtle)", color: "var(--text-muted)" }}
                     >
                       <X size={13} />
-                    </button>
+                    </Button>
                   )}
                 </div>
               ))}
-              <button
+              <Button
                 type="button"
-                onClick={addEmail}
-                className="flex items-center gap-1.5 self-start rounded-md border px-2.5 py-1.5 text-xs transition-colors hover:bg-[var(--surface-2)]"
+                variant="outline"
+                size="sm"
+                onPress={addEmail}
+                className="flex items-center gap-1.5 self-start text-xs"
                 style={{ borderColor: "var(--border-subtle)", color: "var(--text-muted)" }}
               >
                 <Plus size={11} />
                 Ajouter email
-              </button>
+              </Button>
             </div>
           </div>
 
@@ -306,6 +318,7 @@ export default function NouveauContactPage() {
                     placeholder="+33 6 …"
                     type="tel"
                   />
+                  {/* select justified: RAC Select requires compound structure — not suitable for a simple label dropdown */}
                   <select
                     value={phone.label}
                     onChange={(e) => updatePhone(i, "label", e.target.value)}
@@ -317,37 +330,43 @@ export default function NouveauContactPage() {
                     <option value="pro">pro</option>
                   </select>
                   {phones.length > 1 && (
-                    <button
+                    <Button
                       type="button"
-                      onClick={() => removePhone(i)}
-                      className="flex h-9 w-9 items-center justify-center rounded-md border transition-colors hover:bg-[var(--surface-2)]"
+                      isIconOnly
+                      variant="outline"
+                      size="sm"
+                      onPress={() => removePhone(i)}
+                      aria-label="Supprimer ce téléphone"
+                      className="h-9 w-9 shrink-0"
                       style={{ borderColor: "var(--border-subtle)", color: "var(--text-muted)" }}
                     >
                       <X size={13} />
-                    </button>
+                    </Button>
                   )}
                 </div>
               ))}
-              <button
+              <Button
                 type="button"
-                onClick={addPhone}
-                className="flex items-center gap-1.5 self-start rounded-md border px-2.5 py-1.5 text-xs transition-colors hover:bg-[var(--surface-2)]"
+                variant="outline"
+                size="sm"
+                onPress={addPhone}
+                className="flex items-center gap-1.5 self-start text-xs"
                 style={{ borderColor: "var(--border-subtle)", color: "var(--text-muted)" }}
               >
                 <Plus size={11} />
                 Ajouter téléphone
-              </button>
+              </Button>
             </div>
           </div>
 
           {/* Birthday */}
           <div>
             <FieldLabel>Anniversaire</FieldLabel>
-            <input
+            <Input
               type="date"
               value={birthday}
               onChange={(e) => setBirthday(e.target.value)}
-              className="rounded-md border px-3 py-2 text-sm outline-none transition-colors focus:border-[var(--accent)]"
+              className="w-48 rounded-md border px-3 py-2 text-sm outline-none transition-colors focus:border-[var(--accent)]"
               style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-1)", color: "var(--text-primary)" }}
             />
           </div>
@@ -388,14 +407,17 @@ export default function NouveauContactPage() {
                   style={{ backgroundColor: "var(--surface-3)", color: "var(--text-muted)" }}
                 >
                   {tag}
-                  <button
+                  <Button
                     type="button"
-                    onClick={() => removeTag(tag)}
+                    isIconOnly
+                    variant="ghost"
+                    size="sm"
+                    onPress={() => removeTag(tag)}
                     aria-label={`Supprimer ${tag}`}
-                    className="outline-none focus:outline-none focus-visible:outline-none"
+                    className="h-4 w-4 min-w-0 p-0"
                   >
                     <X size={10} />
-                  </button>
+                  </Button>
                 </span>
               ))}
               <TagSelector value={tags} onChange={setTags} />
@@ -405,7 +427,7 @@ export default function NouveauContactPage() {
           {/* Notes */}
           <div>
             <FieldLabel>Notes</FieldLabel>
-            <textarea
+            <TextArea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               rows={6}
@@ -433,14 +455,15 @@ export default function NouveauContactPage() {
               backgroundColor: "color-mix(in srgb, var(--surface-1) 90%, transparent)",
             }}
           >
-            <button
+            <Button
               type="submit"
-              disabled={createMutation.isPending}
-              className="flex items-center gap-1.5 rounded-md px-5 py-2 text-sm font-medium transition-opacity hover:opacity-90 disabled:opacity-50"
+              isDisabled={createMutation.isPending}
+              size="sm"
+              className="px-5 text-sm font-medium"
               style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
             >
               {createMutation.isPending ? "Création…" : "Créer"}
-            </button>
+            </Button>
             <Link
               href="/contacts"
               className="flex items-center rounded-md border px-5 py-2 text-sm font-medium transition-colors hover:bg-[var(--surface-2)]"

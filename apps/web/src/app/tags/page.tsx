@@ -21,6 +21,7 @@
 
 import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { Button, Input, Checkbox } from "@heroui/react";
 import { Plus, Tag as TagIcon } from "@phosphor-icons/react";
 import {
   AppShell,
@@ -295,17 +296,18 @@ export default function TagsPage() {
               </span>
             </div>
             {/* "Nouveau tag" button hidden on mobile — FAB handles creation */}
-            <button
-              onClick={() => setCreateModal({ open: true, parent: "" })}
+            <Button
+              onPress={() => setCreateModal({ open: true, parent: "" })}
+              size="sm"
               className="hidden md:flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium"
               style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
             >
               <Plus size={12} /> Nouveau tag
-            </button>
+            </Button>
           </div>
 
           <div className="px-3 py-2 border-b" style={{ borderColor: subtle }}>
-            <input
+            <Input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Rechercher un tag…"
@@ -627,28 +629,29 @@ function TagPickerModal({
           ))}
         </datalist>
         <div className="mt-4 flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={onCancel}
-            className="rounded-md px-3 py-1.5 text-sm font-medium transition-colors hover:bg-[var(--surface-2)]"
+          <Button
+            variant="outline"
+            size="sm"
+            onPress={onCancel}
+            className="rounded-md px-3 py-1.5 text-sm font-medium"
             style={{
-              border: "1px solid var(--border-subtle)",
+              borderColor: "var(--border-subtle)",
               color: "var(--text-secondary)",
             }}
           >
             Annuler
-          </button>
-          <button
-            type="button"
-            onClick={() => onConfirm(value)}
-            className="rounded-md px-3 py-1.5 text-sm font-medium transition-opacity hover:opacity-90"
+          </Button>
+          <Button
+            size="sm"
+            onPress={() => onConfirm(value)}
+            className="rounded-md px-3 py-1.5 text-sm font-medium"
             style={{
               backgroundColor: "var(--accent)",
               color: "var(--accent-foreground)",
             }}
           >
             Valider
-          </button>
+          </Button>
         </div>
       </div>
     </div>
@@ -731,42 +734,42 @@ function DeleteTagModal({
           {!hasDescendants && " Aucun sous-tag à propager."}
         </p>
         {hasDescendants && (
-          <label
-            className="mt-3 flex items-center gap-2 text-sm"
-            style={{ color: "var(--text-secondary)" }}
-          >
-            <input
-              type="checkbox"
-              checked={state.cascade}
-              onChange={(e) => onToggleCascade(e.target.checked)}
-            />
-            <span>Cascade vers les sous-tags ?</span>
-          </label>
+          <div className="mt-3">
+            <Checkbox
+              isSelected={state.cascade}
+              onChange={onToggleCascade}
+              className="text-sm"
+              style={{ color: "var(--text-secondary)" }}
+            >
+              Cascade vers les sous-tags ?
+            </Checkbox>
+          </div>
         )}
         <div className="mt-4 flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={onCancel}
-            className="rounded-md px-3 py-1.5 text-sm font-medium transition-colors hover:bg-[var(--surface-2)]"
+          <Button
+            variant="outline"
+            size="sm"
+            onPress={onCancel}
+            className="rounded-md px-3 py-1.5 text-sm font-medium"
             style={{
-              border: "1px solid var(--border-subtle)",
+              borderColor: "var(--border-subtle)",
               color: "var(--text-secondary)",
             }}
           >
             Annuler
-          </button>
-          <button
-            type="button"
-            onClick={onConfirm}
+          </Button>
+          <Button
+            size="sm"
             autoFocus
-            className="rounded-md px-3 py-1.5 text-sm font-medium transition-opacity hover:opacity-90"
+            onPress={onConfirm}
+            className="rounded-md px-3 py-1.5 text-sm font-medium"
             style={{
               backgroundColor: "var(--color-red-500, #ef4444)",
               color: "#fff",
             }}
           >
             Supprimer
-          </button>
+          </Button>
         </div>
       </div>
     </div>

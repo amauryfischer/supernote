@@ -10,6 +10,7 @@
  */
 
 import { useEffect } from "react";
+import { Button } from "@supernote/ui";
 
 interface ConfirmModalProps {
   open: boolean;
@@ -83,30 +84,23 @@ export function ConfirmModal({
         )}
 
         <div className="mt-4 flex justify-end gap-2">
-          <button
+          <Button
             type="button"
+            variant="outline"
+            size="sm"
             onClick={onCancel}
-            className="rounded-md px-3 py-1.5 text-sm font-medium transition-colors hover:bg-[var(--surface-2)]"
-            style={{
-              border: "1px solid var(--border-subtle)",
-              color: "var(--text-secondary)",
-            }}
           >
             {cancelLabel}
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
-            onClick={onConfirm}
+            variant={destructive ? "danger" : "primary"}
+            size="sm"
             autoFocus
-            className="rounded-md px-3 py-1.5 text-sm font-medium transition-opacity hover:opacity-90"
-            style={
-              destructive
-                ? { backgroundColor: "var(--color-red-500, #ef4444)", color: "#fff" }
-                : { backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }
-            }
+            onClick={onConfirm}
           >
             {confirmLabel}
-          </button>
+          </Button>
         </div>
       </div>
     </div>

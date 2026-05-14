@@ -11,6 +11,7 @@
  */
 
 import { useEffect, useRef } from "react";
+import { Button, SelectRoot, SelectTrigger, SelectValue, SelectPopover, ListBox, ListBoxItem } from "@heroui/react";
 import { ArrowsDownUp, X, Plus, ArrowUp, ArrowDown, CaretUp, CaretDown } from "@phosphor-icons/react";
 import type { EntityType, SortClause } from "@supernote/core";
 import type { View } from "@supernote/ipc";
@@ -112,49 +113,53 @@ export function SortBuilder({ base, view, onClose }: SortBuilderProps) {
             <div key={`${index}:${sort.fieldId}`} className="flex items-center gap-1">
               {/* Reorder buttons */}
               <div className="flex flex-col">
-                <button
-                  type="button"
-                  onClick={() => move(index, -1)}
-                  disabled={index === 0}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onPress={() => move(index, -1)}
+                  isDisabled={index === 0}
                   className="rounded p-0.5 hover:bg-[var(--surface-2)] disabled:opacity-30"
                   style={{ color: "var(--text-muted)" }}
-                  title="Monter"
+                  aria-label="Monter"
                 >
                   <CaretUp size={10} />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => move(index, 1)}
-                  disabled={index === sorts.length - 1}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onPress={() => move(index, 1)}
+                  isDisabled={index === sorts.length - 1}
                   className="rounded p-0.5 hover:bg-[var(--surface-2)] disabled:opacity-30"
                   style={{ color: "var(--text-muted)" }}
-                  title="Descendre"
+                  aria-label="Descendre"
                 >
                   <CaretDown size={10} />
-                </button>
+                </Button>
               </div>
 
               {/* Field */}
-              <select
-                value={field.id}
-                onChange={(e) => updateSort(index, { fieldId: e.target.value })}
-                className="flex-1 rounded border bg-transparent px-1.5 py-1 text-xs"
-                style={{
-                  borderColor: "var(--border-subtle)",
-                  color: "var(--text-primary)",
-                }}
+              <SelectRoot
+                selectedKey={field.id}
+                onSelectionChange={(key) => { if (key != null) updateSort(index, { fieldId: String(key) }); }}
+                className="flex-1 text-xs"
               >
-                {base.fields.map((f) => (
-                  <option key={f.id} value={f.id}>
-                    {labelForField(f)}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger className="w-full rounded border px-1.5 py-1 text-xs" style={{ borderColor: "var(--border-subtle)", color: "var(--text-primary)" }}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectPopover>
+                  <ListBox>
+                    {base.fields.map((f) => (
+                      <ListBoxItem key={f.id} id={f.id}>{labelForField(f)}</ListBoxItem>
+                    ))}
+                  </ListBox>
+                </SelectPopover>
+              </SelectRoot>
 
               {/* Direction toggle */}
-              <button
-                type="button"
-                onClick={() =>
+              <Button
+                variant="outline"
+                size="sm"
+                onPress={() =>
                   updateSort(index, { direction: sort.direction === "asc" ? "desc" : "asc" })
                 }
                 className="flex items-center gap-1 rounded border px-1.5 py-1 text-xs hover:bg-[var(--surface-2)]"
@@ -162,21 +167,22 @@ export function SortBuilder({ base, view, onClose }: SortBuilderProps) {
                   borderColor: "var(--border-subtle)",
                   color: "var(--text-secondary)",
                 }}
-                title={sort.direction === "asc" ? "Tri ascendant" : "Tri descendant"}
+                aria-label={sort.direction === "asc" ? "Tri ascendant" : "Tri descendant"}
               >
                 {sort.direction === "asc" ? <ArrowUp size={10} /> : <ArrowDown size={10} />}
                 {sort.direction === "asc" ? "A→Z" : "Z→A"}
-              </button>
+              </Button>
 
-              <button
-                type="button"
-                onClick={() => removeSort(index)}
+              <Button
+                variant="ghost"
+                size="sm"
+                onPress={() => removeSort(index)}
                 className="rounded p-1 hover:bg-[var(--surface-2)]"
-                title="Supprimer le tri"
+                aria-label="Supprimer le tri"
                 style={{ color: "var(--text-muted)" }}
               >
                 <X size={12} />
-              </button>
+              </Button>
             </div>
           );
         })}
@@ -186,14 +192,15 @@ export function SortBuilder({ base, view, onClose }: SortBuilderProps) {
         className="border-t px-3 py-2"
         style={{ borderColor: "var(--border-subtle)" }}
       >
-        <button
-          type="button"
-          onClick={addSort}
+        <Button
+          variant="ghost"
+          size="sm"
+          onPress={addSort}
           className="flex items-center gap-1.5 rounded px-2 py-1 text-xs font-medium hover:bg-[var(--surface-2)]"
           style={{ color: "var(--text-secondary)" }}
         >
           <Plus size={11} /> Ajouter un tri
-        </button>
+        </Button>
       </div>
     </div>
   );

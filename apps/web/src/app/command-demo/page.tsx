@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Button } from "@heroui/react";
 import { Command } from "@phosphor-icons/react";
 
 import { SEED_COMMANDS } from "@/lib/commands/seed";
@@ -40,8 +41,8 @@ export default function CommandDemoPage() {
         </div>
 
         {/* Trigger button */}
-        <button
-          onClick={() => {
+        <Button
+          onPress={() => {
             // Dispatch a synthetic keyboard event to trigger the palette
             window.dispatchEvent(
               new KeyboardEvent("keydown", {
@@ -63,7 +64,7 @@ export default function CommandDemoPage() {
         >
           <Command size={16} />
           Ouvrir la palette
-        </button>
+        </Button>
 
         {/* Shortcut hints */}
         <div

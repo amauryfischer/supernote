@@ -290,8 +290,149 @@ html, body {
    `fullscreen-drawer` class on the wrapper bypasses both so the sheet
    truly fills the viewport edge-to-edge with no internal gutter — the
    wrapped page content owns its own padding. */
+/* ── DataGrid (Bases) micro-interactions ─────────────────────────────────── */
+
+.sn-datagrid-row {
+  transition: background-color 120ms ease;
+}
+.sn-datagrid-row:hover {
+  background-color: var(--surface-1);
+}
+.sn-datagrid-row[data-selected="true"] {
+  background-color: var(--surface-2);
+}
+
+.sn-datagrid-cell {
+  transition: box-shadow 100ms ease;
+}
+.sn-datagrid-cell:hover:not(.sn-datagrid-cell--editing) {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+@keyframes sn-row-enter {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.sn-datagrid-row--enter {
+  animation: sn-row-enter 160ms ease-out;
+}
+
+@keyframes sn-cell-edited-pulse {
+  0%   { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 60%, transparent); }
+  100% { box-shadow: inset 0 0 0 2px transparent; }
+}
+.sn-datagrid-cell--just-edited {
+  animation: sn-cell-edited-pulse 1400ms ease-out;
+}
+
+@keyframes sn-skeleton-pulse {
+  0%, 100% { opacity: 0.55; }
+  50%      { opacity: 0.95; }
+}
+.sn-datagrid-skeleton {
+  animation: sn-skeleton-pulse 1200ms ease-in-out infinite;
+  background: linear-gradient(
+    90deg,
+    var(--surface-1) 0%,
+    var(--surface-2) 50%,
+    var(--surface-1) 100%
+  );
+  border-radius: 4px;
+  height: 12px;
+}
+
 .fullscreen-drawer .drawer__dialog--bottom {
   height: 100% !important;
   max-height: 100% !important;
   padding: 0 !important;
+}
+
+/* ── DataGrid — resize de colonne ────────────────────────────────────────── */
+
+.sn-datagrid-resize-handle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 4px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 1;
+  background: transparent;
+  transition: background 100ms ease;
+}
+.sn-datagrid-resize-handle:hover,
+.sn-datagrid-resize-handle--active {
+  background: var(--accent);
+  opacity: 0.5;
+}
+
+/* ── DataGrid — drag-reorder colonnes ────────────────────────────────────── */
+
+.sn-datagrid-th--dragging {
+  opacity: 0.4;
+}
+.sn-datagrid-th--drop-before {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.sn-datagrid-th--drop-after {
+  box-shadow: inset -2px 0 0 var(--accent);
+}
+
+/* ── DataGrid — menu colonne ─────────────────────────────────────────────── */
+
+.sn-col-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  min-width: 180px;
+  background: var(--surface-0);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.10);
+  z-index: 50;
+  padding: 4px 0;
+  font-size: 12px;
+}
+.sn-col-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  transition: background 80ms ease;
+  border: none;
+  background: transparent;
+  width: 100%;
+  text-align: left;
+  white-space: nowrap;
+}
+.sn-col-menu-item:hover {
+  background: var(--surface-2);
+  color: var(--text-primary);
+}
+.sn-col-menu-item--danger {
+  color: #EF4444;
+}
+.sn-col-menu-item--danger:hover {
+  background: rgba(239,68,68,0.08);
+  color: #DC2626;
+}
+.sn-col-menu-separator {
+  height: 1px;
+  background: var(--border-subtle);
+  margin: 4px 0;
+}
+.sn-col-menu-rename-input {
+  width: 100%;
+  padding: 4px 8px;
+  margin: 4px 8px;
+  box-sizing: border-box;
+  width: calc(100% - 16px);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  font-size: 12px;
+  outline: none;
+  background: var(--surface-0);
+  color: var(--text-primary);
 }

@@ -12,6 +12,7 @@ import {
 import type { SearchResult } from "@supernote/ipc";
 import type { Icon } from "@phosphor-icons/react";
 import { useRouter } from "next/navigation";
+import { Button } from "@heroui/react";
 
 interface ResultCardProps {
   result: SearchResult;
@@ -68,21 +69,14 @@ export function ResultCard({ result, query, debugMode }: ResultCardProps) {
   const router = useRouter();
 
   return (
-    <button
-      type="button"
-      onClick={() => router.push(entityHref(result.entityId, result.typeId))}
-      className="w-full cursor-pointer rounded-lg border px-4 py-3 text-left transition-colors active:bg-[var(--surface-2)]"
+    <Button
+      variant="outline"
+      onPress={() => router.push(entityHref(result.entityId, result.typeId))}
+      className="h-auto w-full cursor-pointer rounded-lg border px-4 py-3 text-left transition-colors active:bg-[var(--surface-2)]"
       style={{
         backgroundColor: "var(--surface-1)",
         borderColor: "var(--border-subtle)",
-      }}
-      onMouseEnter={(e) => {
-        (e.currentTarget as HTMLButtonElement).style.backgroundColor = "var(--surface-2)";
-        (e.currentTarget as HTMLButtonElement).style.borderColor = "var(--accent)";
-      }}
-      onMouseLeave={(e) => {
-        (e.currentTarget as HTMLButtonElement).style.backgroundColor = "var(--surface-1)";
-        (e.currentTarget as HTMLButtonElement).style.borderColor = "var(--border-subtle)";
+        justifyContent: "flex-start",
       }}
     >
       <div className="flex items-start gap-3">
@@ -151,6 +145,6 @@ export function ResultCard({ result, query, debugMode }: ResultCardProps) {
           </div>
         </div>
       </div>
-    </button>
+    </Button>
   );
 }

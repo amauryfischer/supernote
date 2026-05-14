@@ -1,6 +1,7 @@
 "use client";
 
 import { Bell } from "@phosphor-icons/react";
+import { Button } from "@heroui/react";
 import { useSettings } from "../SettingsContext";
 import { SettingRow } from "../SettingRow";
 import { SettingSection } from "../SettingSection";
@@ -77,16 +78,18 @@ export function NotificationsTab() {
           label="Notification de test"
           description="Pousse une notification info dans le centre"
         >
-          <button
-            onClick={sendTestNotification}
-            className="rounded-md px-3 py-1.5 text-xs font-medium transition-colors hover:opacity-90"
+          <Button
+            variant="ghost"
+            size="sm"
+            onPress={sendTestNotification}
+            className="rounded-md px-3 py-1.5 text-xs font-medium"
             style={{
               backgroundColor: "var(--accent)",
               color: "var(--accent-foreground)",
             }}
           >
             Ajouter une notif test
-          </button>
+          </Button>
         </SettingRow>
       </SettingSection>
     </div>

@@ -7,6 +7,7 @@ import { RightPanel } from "./RightPanel";
 import { ShellChromeProvider, useShellChrome } from "./shell-chrome-context";
 import { Sidebar } from "./Sidebar";
 import { TopBar } from "./TopBar";
+import { ColumnEditorSidebar } from "@/components/bases/ColumnEditorSidebar";
 
 interface AppShellProps {
   children: React.ReactNode;
@@ -92,7 +93,7 @@ const RightPanelWrapper = memo(function RightPanelWrapper({
  * The user can also collapse the right panel manually.
  */
 function ShellLayout({ children }: AppShellProps) {
-  const { focusMode, rightPanelVisible, accentOverride } = useShellChrome();
+  const { focusMode, rightPanelVisible, accentOverride, columnEditor } = useShellChrome();
 
   // Folder-scoped accent override propagates through CSS-variable inheritance.
   // Setting `--accent` / `--accent-subtle` / … on the outermost shell element
@@ -118,7 +119,17 @@ function ShellLayout({ children }: AppShellProps) {
         </main>
       </div>
 
-      <RightPanelWrapper focusMode={focusMode} rightPanelVisible={rightPanelVisible} />
+      {/* Column editor sidebar — prioritaire sur le right panel normal */}
+      {columnEditor ? (
+        <ColumnEditorSidebar
+          base={columnEditor.base}
+          view={columnEditor.view}
+          focusFieldId={columnEditor.focusFieldId}
+          prefillFormula={columnEditor.prefillFormula}
+        />
+      ) : (
+        <RightPanelWrapper focusMode={focusMode} rightPanelVisible={rightPanelVisible} />
+      )}
     </div>
   );
 }

@@ -1,5 +1,6 @@
 "use client";
 
+import { Button } from "@heroui/react";
 import { MagnifyingGlass, Lightbulb } from "@phosphor-icons/react";
 
 interface EmptyStateProps {
@@ -64,19 +65,14 @@ export function EmptyState({ query, onExampleClick }: EmptyStateProps) {
         </h3>
         <div className="flex flex-wrap justify-center gap-2">
           {EXAMPLES.map((ex) => (
-            <button
+            <Button
               key={ex.query}
-              onClick={() => onExampleClick(ex.query)}
-              className="rounded-lg border px-3 py-2 text-left transition-colors"
+              variant="outline"
+              onPress={() => onExampleClick(ex.query)}
+              className="h-auto rounded-lg border px-3 py-2 text-left flex-col items-start"
               style={{
                 backgroundColor: "var(--surface-1)",
                 borderColor: "var(--border-subtle)",
-              }}
-              onMouseEnter={(e) => {
-                (e.currentTarget as HTMLButtonElement).style.borderColor = "var(--accent)";
-              }}
-              onMouseLeave={(e) => {
-                (e.currentTarget as HTMLButtonElement).style.borderColor = "var(--border-subtle)";
               }}
             >
               <p className="text-xs font-medium" style={{ color: "var(--text-primary)" }}>
@@ -85,7 +81,7 @@ export function EmptyState({ query, onExampleClick }: EmptyStateProps) {
               <p className="mt-0.5 font-mono text-[10px]" style={{ color: "var(--text-muted)" }}>
                 {ex.query}
               </p>
-            </button>
+            </Button>
           ))}
         </div>
       </div>

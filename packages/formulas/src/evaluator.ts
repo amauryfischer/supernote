@@ -82,10 +82,42 @@ export class Evaluator {
     const val = obj.value;
     if (val === null) return ok(null); // null propagation
 
-    if (typeof val === "object" && "_type" in val && (val as { _type: string })._type === "entity") {
+    if (typeof val === "object" && !Array.isArray(val) && "_type" in val && (val as { _type: string })._type === "entity") {
       const entity = (val as { _type: "entity"; entity: { fields: Record<string, unknown> } }).entity;
       const fieldVal = entity.fields[node.property];
       return ok(fieldVal !== undefined ? (fieldVal as Value) : null);
+    }
+
+    // Coda-style list aggregates as bare properties: `list.count`, `list.sum`...
+    if (Array.isArray(val)) {
+      const prop = node.property.toLowerCase();
+      const nums = val
+        .map((v) => (typeof v === "number" ? v : typeof v === "string" ? Number(v) : null))
+        .filter((n): n is number => n !== null && !isNaN(n));
+      switch (prop) {
+        case "count":
+        case "length": return ok(val.length);
+        case "sum": return ok(nums.reduce((a, b) => a + b, 0));
+        case "avg":
+        case "average": return ok(nums.length === 0 ? 0 : nums.reduce((a, b) => a + b, 0) / nums.length);
+        case "min": return ok(nums.length === 0 ? null : Math.min(...nums));
+        case "max": return ok(nums.length === 0 ? null : Math.max(...nums));
+        case "first": return ok(val[0] ?? null);
+        case "last": return ok(val[val.length - 1] ?? null);
+      }
+      // For lists of entities, project the property: `Contacts.email` → list of emails.
+      const projected: Value[] = [];
+      let anyEntity = false;
+      for (const item of val) {
+        if (item && typeof item === "object" && !Array.isArray(item) && "_type" in item && (item as { _type: string })._type === "entity") {
+          anyEntity = true;
+          const e = (item as { _type: "entity"; entity: { fields: Record<string, unknown> } }).entity;
+          const fv = e.fields[node.property];
+          projected.push(fv !== undefined ? (fv as Value) : null);
+        }
+      }
+      if (anyEntity) return ok(projected);
+      return err(makeEvalError(`Cannot access property '${node.property}' on list`, "PropertyAccess"));
     }
 
     return err(makeEvalError(`Cannot access property '${node.property}' on ${typeof val}`, "PropertyAccess"));

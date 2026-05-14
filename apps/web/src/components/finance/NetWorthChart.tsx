@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Button } from "@heroui/react";
 import {
   LineChart,
   Line,
@@ -42,10 +43,12 @@ export function NetWorthChart({ snapshots }: NetWorthChartProps) {
         </h3>
         <div className="flex gap-1 rounded-lg border p-0.5" style={{ borderColor: "var(--border-subtle)" }}>
           {(["total", "categorie"] as const).map((mode) => (
-            <button
+            <Button
               key={mode}
-              onClick={() => setStacked(mode === "categorie")}
-              className="rounded-md px-3 py-1 text-xs font-medium transition-colors"
+              variant={(mode === "categorie") === stacked ? "primary" : "ghost"}
+              size="sm"
+              onPress={() => setStacked(mode === "categorie")}
+              className="rounded-md px-3 py-1 text-xs font-medium"
               style={
                 (mode === "categorie") === stacked
                   ? { backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }
@@ -53,7 +56,7 @@ export function NetWorthChart({ snapshots }: NetWorthChartProps) {
               }
             >
               {mode === "total" ? "Total" : "Par catégorie"}
-            </button>
+            </Button>
           ))}
         </div>
       </div>

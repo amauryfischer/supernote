@@ -114,6 +114,19 @@ function parseInlineText(text: string): AnyInlineItem[] {
 
 /** Parse a single markdown line into a block */
 function parseLine(line: string): AnyBlock | null {
+  // databaseView block — sérialisé par serialize.ts en
+  // `[databaseView base="..." view="..."]`. Reconnu avant tout autre
+  // pattern pour qu'un round-trip markdown préserve les blocs Base
+  // insérés dans une note (sinon l'autosave drop les blocs).
+  const dbMatch = /^\[databaseView\s+base="((?:[^"\\]|\\.)*)"\s+view="((?:[^"\\]|\\.)*)"\]\s*$/.exec(line);
+  if (dbMatch) {
+    const unescape = (s: string) => s.replace(/\\(.)/g, "$1");
+    return {
+      type: "databaseView",
+      props: { baseId: unescape(dbMatch[1] ?? ""), viewId: unescape(dbMatch[2] ?? "") },
+    };
+  }
+
   // Embed: ![[target]] or ![[target|alias]]
   const embedMatch = /^!\[\[([^\]|]+)(?:\|([^\]]+))?\]\]$/.exec(line);
   if (embedMatch) {

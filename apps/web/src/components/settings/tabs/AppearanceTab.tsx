@@ -1,6 +1,7 @@
 "use client";
 
 import { useTheme } from "next-themes";
+import { Button } from "@heroui/react";
 import { useSettings } from "../SettingsContext";
 import { SettingRow } from "../SettingRow";
 import { SettingSection } from "../SettingSection";
@@ -44,9 +45,11 @@ export function AppearanceTab() {
         <SettingRow label={t("displayMode")}>
           <div className="flex gap-2">
             {(["light", "dark", "system"] as const).map((th) => (
-              <button
+              <Button
                 key={th}
-                onClick={() => setTheme(th)}
+                variant="ghost"
+                size="sm"
+                onPress={() => setTheme(th)}
                 className="rounded-md border px-3 py-1.5 text-sm transition-all"
                 style={{
                   borderColor: theme === th ? "var(--accent)" : "var(--border)",
@@ -56,7 +59,7 @@ export function AppearanceTab() {
                 }}
               >
                 {THEME_LABELS[th]}
-              </button>
+              </Button>
             ))}
           </div>
         </SettingRow>
@@ -66,11 +69,14 @@ export function AppearanceTab() {
         <SettingRow label={t("palette")}>
           <div className="flex flex-wrap gap-2">
             {ACCENT_COLORS.map((color) => (
-              <button
+              <Button
                 key={color.value}
-                title={color.label}
-                onClick={() => handleAccent(color.value)}
-                className="h-7 w-7 rounded-full transition-all"
+                isIconOnly
+                variant="ghost"
+                size="sm"
+                aria-label={color.label}
+                onPress={() => handleAccent(color.value)}
+                className="h-7 w-7 min-w-0 rounded-full p-0 transition-all"
                 style={{
                   backgroundColor: color.value,
                   outline:
@@ -89,9 +95,11 @@ export function AppearanceTab() {
         <SettingRow label={t("layout")}>
           <div className="flex gap-2">
             {(["compact", "normal", "spacious"] as const).map((d) => (
-              <button
+              <Button
                 key={d}
-                onClick={() => handleDensity(d)}
+                variant="ghost"
+                size="sm"
+                onPress={() => handleDensity(d)}
                 className="rounded-md border px-3 py-1.5 text-sm transition-all"
                 style={{
                   borderColor: appearance.density === d ? "var(--accent)" : "var(--border)",
@@ -101,7 +109,7 @@ export function AppearanceTab() {
                 }}
               >
                 {DENSITY_LABELS[d]}
-              </button>
+              </Button>
             ))}
           </div>
         </SettingRow>
@@ -111,9 +119,11 @@ export function AppearanceTab() {
         <SettingRow label={t("codeFont")}>
           <div className="flex gap-2">
             {(["sans", "mono"] as const).map((f) => (
-              <button
+              <Button
                 key={f}
-                onClick={() => handleCodeFont(f)}
+                variant="ghost"
+                size="sm"
+                onPress={() => handleCodeFont(f)}
                 className="rounded-md border px-3 py-1.5 text-sm transition-all"
                 style={{
                   fontFamily: f === "mono" ? "var(--font-mono)" : "var(--font-sans)",
@@ -124,7 +134,7 @@ export function AppearanceTab() {
                 }}
               >
                 {f === "sans" ? t("fontSans") : t("fontMono")}
-              </button>
+              </Button>
             ))}
           </div>
         </SettingRow>

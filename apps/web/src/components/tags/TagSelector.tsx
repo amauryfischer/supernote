@@ -24,6 +24,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Button, Input } from "@heroui/react";
 import { Plus, MagnifyingGlass, Check, Hash } from "@phosphor-icons/react";
 import { trpc } from "@/lib/trpc/client";
 import type { Tag } from "@supernote/ipc/schemas/tags";
@@ -51,16 +52,17 @@ export function TagSelector({ value, onChange, placeholder }: TagSelectorProps) 
 
   return (
     <>
-      <button
+      <Button
         ref={triggerRef}
-        type="button"
-        onClick={handleOpen}
+        variant="ghost"
+        size="sm"
+        onPress={handleOpen}
         className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium transition-opacity hover:opacity-80"
         style={{ color: "var(--text-muted)", border: "1px dashed var(--border)" }}
         aria-label={placeholder ?? "Ajouter un tag"}
       >
         <Plus size={10} weight="bold" /> {placeholder ?? "Ajouter un tag"}
-      </button>
+      </Button>
       <TagSelectorPopover
         open={open}
         anchorRect={anchorRect}
@@ -193,9 +195,8 @@ function TagSelectorPopover({ open, anchorRect, value, onChange, onClose }: Popo
         style={{ borderColor: "var(--border-subtle)" }}
       >
         <MagnifyingGlass size={12} style={{ color: "var(--text-muted)" }} />
-        <input
+        <Input
           autoFocus
-          type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Rechercher un tag…"
@@ -217,11 +218,11 @@ function TagSelectorPopover({ open, anchorRect, value, onChange, onClose }: Popo
           const depth = t.path.split("/").length - 1;
           const selected = value.includes(t.path);
           return (
-            <button
+            <Button
               key={t.path}
-              type="button"
-              onClick={() => toggle(t.path)}
-              className="flex w-full items-center gap-1.5 px-2 py-1 text-left text-xs transition-colors hover:bg-[var(--surface-2)]"
+              variant="ghost"
+              onPress={() => toggle(t.path)}
+              className="flex h-auto w-full items-center gap-1.5 px-2 py-1 text-left text-xs transition-colors hover:bg-[var(--surface-2)]"
               style={{ paddingLeft: 8 + depth * 14 }}
             >
               {t.color ? (
@@ -242,22 +243,22 @@ function TagSelectorPopover({ open, anchorRect, value, onChange, onClose }: Popo
                 {t.path}
               </span>
               {selected && <Check size={11} style={{ color: "var(--accent)" }} />}
-            </button>
+            </Button>
           );
         })}
       </div>
 
       {query.trim() && !exactMatch && (
-        <button
-          type="button"
-          onClick={handleCreate}
-          disabled={createMut.isPending}
-          className="flex items-center gap-1.5 border-t px-2 py-1.5 text-left text-xs transition-colors hover:bg-[var(--surface-2)] disabled:opacity-50"
+        <Button
+          variant="ghost"
+          onPress={handleCreate}
+          isDisabled={createMut.isPending}
+          className="flex h-auto items-center gap-1.5 border-t px-2 py-1.5 text-left text-xs transition-colors hover:bg-[var(--surface-2)]"
           style={{ borderColor: "var(--border-subtle)", color: "var(--accent)" }}
         >
           <Plus size={11} weight="bold" />
           {createMut.isPending ? "Création…" : <>Créer le tag &laquo;&nbsp;{query.trim()}&nbsp;&raquo;</>}
-        </button>
+        </Button>
       )}
     </div>
   );

@@ -12,7 +12,7 @@
 import {
   canvasToFileBridge,
   excalidrawSiblingPath,
-} from "@supernote/canvas";
+} from "@supernote/canvas/excalidraw";
 import type { Database } from "sql.js";
 import {
   parseFrontmatter,

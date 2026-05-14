@@ -88,6 +88,24 @@ async function initSqlite(handle: FileSystemDirectoryHandle): Promise<Database> 
     console.warn("[vault-worker] FTS5 migration failed (non-fatal)", e);
   }
 
+  // Migration: "view" table was redesigned for the Bases feature.
+  // Old schema had (entityTypeId, config, isDefault); new schema requires
+  // typeId NOT NULL plus filters/sorts/visibleFields/etc.
+  // CREATE TABLE IF NOT EXISTS won't add columns, so detect the old schema
+  // by checking for the missing typeId column and drop+recreate.
+  try {
+    const cols = database.exec(`PRAGMA table_info("view")`);
+    const hasTypeId =
+      cols.length > 0 &&
+      cols[0].values.some((row) => row[1] === "typeId");
+    if (!hasTypeId) {
+      console.info("[init.sqlite] migrating view table to Bases schema");
+      database.run(`DROP TABLE IF EXISTS "view";`);
+    }
+  } catch (e) {
+    console.warn("[vault-worker] view table migration failed (non-fatal)", e);
+  }
+
   console.info("[init.sqlite] running SCHEMA_SQL_BASE");
   database.run(SCHEMA_SQL_BASE);
   console.info("[init.sqlite] done");

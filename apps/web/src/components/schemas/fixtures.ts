@@ -198,7 +198,6 @@ export const ENTITY_TYPES: EntityType[] = [
     fields: personneFields,
     defaultPath: "/Contacts",
     fileNamePattern: "{name}",
-    defaultView: "table",
   },
   {
     id: "organisation",
@@ -209,7 +208,6 @@ export const ENTITY_TYPES: EntityType[] = [
     fields: orgaFields,
     defaultPath: "/Contacts/Organisations",
     fileNamePattern: "{name}",
-    defaultView: "table",
   },
   {
     id: "interaction",
@@ -220,7 +218,6 @@ export const ENTITY_TYPES: EntityType[] = [
     fields: interactionFields,
     defaultPath: "/Interactions",
     fileNamePattern: "{date}-{title}",
-    defaultView: "table",
   },
   {
     id: "note",
@@ -231,7 +228,6 @@ export const ENTITY_TYPES: EntityType[] = [
     fields: noteFields,
     defaultPath: "/Notes",
     fileNamePattern: "{title}",
-    defaultView: "table",
   },
   {
     id: "daily",
@@ -242,7 +238,6 @@ export const ENTITY_TYPES: EntityType[] = [
     fields: dailyFields,
     defaultPath: "/Daily",
     fileNamePattern: "{date}",
-    defaultView: "calendar",
   },
   {
     id: "tag",
@@ -253,7 +248,6 @@ export const ENTITY_TYPES: EntityType[] = [
     fields: tagFields,
     defaultPath: "/Tags",
     fileNamePattern: "{name}",
-    defaultView: "table",
   },
   {
     id: "account",
@@ -264,7 +258,6 @@ export const ENTITY_TYPES: EntityType[] = [
     fields: accountFields,
     defaultPath: "/Finance/Accounts",
     fileNamePattern: "{name}",
-    defaultView: "table",
   },
   {
     id: "asset",
@@ -275,7 +268,6 @@ export const ENTITY_TYPES: EntityType[] = [
     fields: assetFields,
     defaultPath: "/Finance/Assets",
     fileNamePattern: "{name}",
-    defaultView: "table",
   },
   {
     id: "loan",
@@ -286,7 +278,6 @@ export const ENTITY_TYPES: EntityType[] = [
     fields: loanFields,
     defaultPath: "/Finance/Loans",
     fileNamePattern: "{name}",
-    defaultView: "table",
   },
   {
     id: "snapshot",
@@ -297,7 +288,6 @@ export const ENTITY_TYPES: EntityType[] = [
     fields: snapshotFields,
     defaultPath: "/Finance/Snapshots",
     fileNamePattern: "{date}",
-    defaultView: "table",
   },
   {
     id: "goal",
@@ -308,7 +298,6 @@ export const ENTITY_TYPES: EntityType[] = [
     fields: goalFields,
     defaultPath: "/Finance/Goals",
     fileNamePattern: "{name}",
-    defaultView: "table",
   },
 ];
 

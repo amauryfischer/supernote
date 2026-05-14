@@ -2,6 +2,7 @@
 
 import { Archive, Upload, Download, FileZip, Clock, Trash, Play } from "@phosphor-icons/react";
 import { useState } from "react";
+import { Button } from "@heroui/react";
 import { SettingRow } from "../SettingRow";
 import { SettingSection } from "../SettingSection";
 import { localStore } from "@/lib/local-store";
@@ -88,11 +89,13 @@ export function BackupTab() {
       >
         <SettingRow label="Vault complet">
           <div className="flex flex-col gap-1.5">
-            <button
-              onClick={handleExport}
-              disabled
-              title="À implémenter — export via worker"
-              className="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm transition-all hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-50"
+            <Button
+              variant="ghost"
+              size="sm"
+              onPress={handleExport}
+              isDisabled
+              aria-label="À implémenter — export via worker"
+              className="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm"
               style={{
                 borderColor: "var(--accent)",
                 color: "var(--accent)",
@@ -101,7 +104,7 @@ export function BackupTab() {
             >
               <FileZip size={14} className={exporting ? "animate-pulse" : ""} />
               {exporting ? "Export en cours..." : "Exporter le vault en ZIP"}
-            </button>
+            </Button>
             <span className="text-xs" style={{ color: "var(--text-muted)" }}>
               À implémenter — export via worker
             </span>
@@ -117,9 +120,11 @@ export function BackupTab() {
         <SettingRow label="Charger des exemples">
           <div className="flex flex-col gap-3">
             <div className="flex items-center gap-3">
-              <button
-                onClick={handleLoadDemo}
-                className="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm transition-all hover:opacity-80"
+              <Button
+                variant="ghost"
+                size="sm"
+                onPress={handleLoadDemo}
+                className="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm"
                 style={{
                   borderColor: "var(--accent)",
                   color: "var(--accent)",
@@ -128,7 +133,7 @@ export function BackupTab() {
               >
                 <Play size={14} />
                 Charger des exemples (démo)
-              </button>
+              </Button>
               {demoLoaded && (
                 <span className="text-xs" style={{ color: "oklch(0.45 0.16 150)" }}>
                   Exemples chargés — rechargez la page pour voir les données.
@@ -143,9 +148,11 @@ export function BackupTab() {
 
         <SettingRow label="Vider le store local">
           <div className="flex items-center gap-3">
-            <button
-              onClick={handleResetDemo}
-              className="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm transition-all hover:opacity-80"
+            <Button
+              variant="ghost"
+              size="sm"
+              onPress={handleResetDemo}
+              className="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm"
               style={{
                 borderColor: "var(--danger)",
                 color: "var(--danger)",
@@ -154,7 +161,7 @@ export function BackupTab() {
             >
               <Trash size={14} />
               Vider les données locales
-            </button>
+            </Button>
             {resetDone && (
               <span className="text-xs" style={{ color: "var(--text-muted)" }}>
                 Données effacées.
@@ -172,11 +179,12 @@ export function BackupTab() {
         <SettingRow label="Sources">
           <div className="flex flex-wrap gap-2">
             {["Notion", "Obsidian", "vCard"].map((source) => (
-              <button
+              <Button
                 key={source}
-                disabled
-                title="À implémenter — import via worker"
-                className="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm transition-all hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-50"
+                isDisabled
+                variant="ghost"
+                size="sm"
+                className="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm"
                 style={{
                   borderColor: "var(--border)",
                   color: "var(--text-secondary)",
@@ -185,7 +193,7 @@ export function BackupTab() {
               >
                 <Download size={12} />
                 {source}
-              </button>
+              </Button>
             ))}
           </div>
           <p className="mt-1.5 text-xs" style={{ color: "var(--text-muted)" }}>

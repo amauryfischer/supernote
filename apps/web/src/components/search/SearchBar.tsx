@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { MagnifyingGlass, X } from "@phosphor-icons/react";
+import { Button } from "@heroui/react";
 
 interface SearchBarProps {
   value: string;
@@ -48,14 +49,17 @@ export function SearchBar({ value, onChange, isLoading }: SearchBarProps) {
         />
       )}
       {value && (
-        <button
-          onClick={() => onChange("")}
-          className="absolute right-4 rounded-md p-0.5 transition-colors hover:opacity-70"
+        <Button
+          isIconOnly
+          variant="ghost"
+          size="sm"
+          onPress={() => onChange("")}
+          className="absolute right-4 rounded-md p-0.5"
           style={{ color: "var(--text-muted)" }}
           aria-label="Effacer la recherche"
         >
           <X size={18} />
-        </button>
+        </Button>
       )}
     </div>
   );

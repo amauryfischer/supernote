@@ -1,6 +1,7 @@
 "use client";
 
 import { PuzzlePiece, Plus, Trash, Toolbox } from "@phosphor-icons/react";
+import { Button } from "@heroui/react";
 import { useSettings } from "../SettingsContext";
 import { SettingSection } from "../SettingSection";
 import { ToggleSwitch } from "../ToggleSwitch";
@@ -91,13 +92,16 @@ function PluginCard({
       </div>
       <div className="flex items-center gap-2">
         <ToggleSwitch checked={plugin.enabled} onChange={onToggle} />
-        <button
-          onClick={onRemove}
+        <Button
+          isIconOnly
+          variant="ghost"
+          size="sm"
+          onPress={onRemove}
           className="opacity-40 transition-opacity hover:opacity-100"
           style={{ color: "var(--danger)" }}
         >
           <Trash size={14} />
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -140,13 +144,15 @@ export function PluginsTab() {
         description="Gérez les extensions de Supernote"
         icon={<PuzzlePiece size={16} />}
         action={
-          <button
-            className="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm transition-all hover:opacity-80"
+          <Button
+            variant="ghost"
+            size="sm"
+            className="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm"
             style={{ borderColor: "var(--border)", color: "var(--text-secondary)", backgroundColor: "var(--surface-1)" }}
           >
             <Plus size={14} />
             Installer un plugin
-          </button>
+          </Button>
         }
       >
         {plugins.length === 0 ? (

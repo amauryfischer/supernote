@@ -118,4 +118,71 @@ export const dateFunctions: Record<string, (args: Value[], now: () => Date) => R
     if (isNaN(d.getTime())) return err(makeEvalError(`ParseDate: cannot parse '${s}'`));
     return ok(d);
   },
+  // ── Coda parity ──────────────────────────────────────────────
+  Date(args) {
+    const y = coerceToNumber(args[0] ?? null);
+    const m = coerceToNumber(args[1] ?? null);
+    const d = coerceToNumber(args[2] ?? null);
+    if (y === null || m === null || d === null) return err(makeEvalError("Date: expected (year, month, day)"));
+    return ok(new Date(y, m - 1, d));
+  },
+  Time(args) {
+    const h = coerceToNumber(args[0] ?? null) ?? 0;
+    const m = coerceToNumber(args[1] ?? null) ?? 0;
+    const s = coerceToNumber(args[2] ?? null) ?? 0;
+    const d = new Date(0); d.setHours(h, m, s, 0); return ok(d);
+  },
+  Second(args) {
+    const d = toDate(args[0] ?? null);
+    if (!d) return err(makeEvalError("Second: expected date"));
+    return ok(d.getSeconds());
+  },
+  Weekday(args) {
+    const d = toDate(args[0] ?? null);
+    if (!d) return err(makeEvalError("Weekday: expected date"));
+    return ok(d.getDay()); // 0=Sun .. 6=Sat
+  },
+  WeekdayName(args) {
+    const d = toDate(args[0] ?? null);
+    if (!d) return err(makeEvalError("WeekdayName: expected date"));
+    const names = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+    return ok(names[d.getDay()] ?? "");
+  },
+  MonthName(args) {
+    const d = toDate(args[0] ?? null);
+    if (!d) return err(makeEvalError("MonthName: expected date"));
+    const names = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+    return ok(names[d.getMonth()] ?? "");
+  },
+  Quarter(args) {
+    const d = toDate(args[0] ?? null);
+    if (!d) return err(makeEvalError("Quarter: expected date"));
+    return ok(Math.floor(d.getMonth() / 3) + 1);
+  },
+  IsDate(args) {
+    return ok(args[0] instanceof Date);
+  },
+  ToYearMonth(args) {
+    const d = toDate(args[0] ?? null);
+    if (!d) return err(makeEvalError("ToYearMonth: expected date"));
+    return ok(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+  },
+  Yesterday(_args, now) {
+    const d = now();
+    return ok(new Date(d.getFullYear(), d.getMonth(), d.getDate() - 1));
+  },
+  Tomorrow(_args, now) {
+    const d = now();
+    return ok(new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1));
+  },
+  StartOfMonth(args) {
+    const d = toDate(args[0] ?? null);
+    if (!d) return err(makeEvalError("StartOfMonth: expected date"));
+    return ok(new Date(d.getFullYear(), d.getMonth(), 1));
+  },
+  EndOfMonth(args) {
+    const d = toDate(args[0] ?? null);
+    if (!d) return err(makeEvalError("EndOfMonth: expected date"));
+    return ok(new Date(d.getFullYear(), d.getMonth() + 1, 0));
+  },
 };

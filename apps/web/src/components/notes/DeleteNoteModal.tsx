@@ -1,6 +1,7 @@
 "use client";
 
 import { Trash } from "@phosphor-icons/react";
+import { Button } from "@heroui/react";
 
 interface DeleteNoteModalProps {
   isOpen: boolean;
@@ -46,9 +47,9 @@ export function DeleteNoteModal({
           </div>
 
           <div className="flex w-full gap-3">
-            <button
-              onClick={onCancel}
-              disabled={isPending}
+            <Button
+              onPress={onCancel}
+              isDisabled={isPending}
               className="flex-1 rounded-lg py-2 text-sm font-medium transition-colors hover:bg-[var(--surface-2)]"
               style={{
                 border: "1px solid var(--border-subtle)",
@@ -56,10 +57,10 @@ export function DeleteNoteModal({
               }}
             >
               Annuler
-            </button>
-            <button
-              onClick={onConfirm}
-              disabled={isPending}
+            </Button>
+            <Button
+              onPress={onConfirm}
+              isDisabled={isPending}
               className="flex-1 rounded-lg py-2 text-sm font-medium transition-opacity hover:opacity-90 disabled:opacity-50"
               style={{
                 backgroundColor: "var(--color-red-500, #ef4444)",
@@ -67,7 +68,7 @@ export function DeleteNoteModal({
               }}
             >
               {isPending ? "Suppression…" : "Supprimer"}
-            </button>
+            </Button>
           </div>
         </div>
       </div>

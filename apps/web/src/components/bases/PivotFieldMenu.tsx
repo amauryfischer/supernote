@@ -11,6 +11,7 @@
  */
 
 import { useEffect, useRef } from "react";
+import { Button } from "@heroui/react";
 import { Check } from "@phosphor-icons/react";
 import type { EntityType, Field, FieldKind } from "@supernote/core";
 import type { View } from "@supernote/ipc";
@@ -84,10 +85,11 @@ export function PivotFieldMenu({ base, view, mode, onClose }: PivotFieldMenuProp
           candidates.map((f) => {
             const active = view.groupByField === f.id;
             return (
-              <button
+              <Button
                 key={f.id}
-                type="button"
-                onClick={() => pick(f.id)}
+                variant="ghost"
+                size="sm"
+                onPress={() => pick(f.id)}
                 className="flex items-center gap-1.5 rounded px-2 py-1 text-left text-xs hover:bg-[var(--surface-2)]"
                 style={{
                   color: active ? "var(--text-primary)" : "var(--text-secondary)",
@@ -97,14 +99,15 @@ export function PivotFieldMenu({ base, view, mode, onClose }: PivotFieldMenuProp
                 <FieldKindBadge kind={f.kind} />
                 <span className="flex-1">{labelForField(f)}</span>
                 {active && <Check size={11} />}
-              </button>
+              </Button>
             );
           })
         )}
         {view.groupByField && (
-          <button
-            type="button"
-            onClick={() => pick(null)}
+          <Button
+            variant="ghost"
+            size="sm"
+            onPress={() => pick(null)}
             className="mt-1 border-t px-3 py-1 text-left text-xs"
             style={{
               borderColor: "var(--border-subtle)",
@@ -112,7 +115,7 @@ export function PivotFieldMenu({ base, view, mode, onClose }: PivotFieldMenuProp
             }}
           >
             Effacer la sélection
-          </button>
+          </Button>
         )}
       </div>
     </div>

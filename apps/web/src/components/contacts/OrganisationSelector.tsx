@@ -30,6 +30,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Button, Input } from "@heroui/react";
 import {
   Buildings,
   CaretDown,
@@ -92,17 +93,17 @@ export function OrganisationSelector({
     setOpen(true);
   };
 
-  const clear = (e: React.MouseEvent) => {
-    e.stopPropagation();
+  const clear = () => {
     onChange(undefined);
   };
 
   return (
     <>
-      <button
+      <Button
         ref={triggerRef}
         type="button"
-        onClick={handleOpen}
+        variant="ghost"
+        onPress={handleOpen}
         className="flex w-full items-center gap-2 rounded-md border px-2.5 py-1.5 text-sm outline-none transition-colors focus:border-[var(--accent)] hover:bg-[var(--surface-2)]"
         style={{
           borderColor: "var(--border-subtle)",
@@ -126,18 +127,20 @@ export function OrganisationSelector({
           {selectedLabel}
         </span>
         {value && (
-          <button
+          <Button
             type="button"
-            onClick={clear}
-            className="flex h-4 w-4 items-center justify-center rounded hover:bg-[var(--surface-3)]"
+            isIconOnly
+            variant="ghost"
+            size="sm"
+            onPress={clear}
+            className="h-4 w-4 min-h-0 min-w-0 rounded p-0"
             aria-label="Retirer l'organisation"
-            tabIndex={-1}
           >
             <X size={11} style={{ color: "var(--text-muted)" }} />
-          </button>
+          </Button>
         )}
         <CaretDown size={11} style={{ color: "var(--text-muted)", flexShrink: 0 }} />
-      </button>
+      </Button>
       <OrganisationSelectorPopover
         open={open}
         anchorRect={anchorRect}
@@ -326,11 +329,12 @@ function OrganisationSelectorPopover({
               : "";
           const subtitle = sector || orgType;
           return (
-            <button
+            <Button
               key={entity.id}
               type="button"
-              onClick={() => onChange(entity.id)}
-              className="flex w-full items-center gap-2 px-2 py-1.5 text-left text-xs transition-colors hover:bg-[var(--surface-2)]"
+              variant="ghost"
+              onPress={() => onChange(entity.id)}
+              className="flex w-full items-center gap-2 px-2 py-1.5 text-left text-xs justify-start"
             >
               <Buildings
                 size={12}
@@ -355,17 +359,18 @@ function OrganisationSelectorPopover({
                 )}
               </span>
               {selected && <Check size={11} style={{ color: "var(--accent)" }} />}
-            </button>
+            </Button>
           );
         })}
       </div>
 
       {trimmed && !exactMatch && (
-        <button
+        <Button
           type="button"
-          onClick={handleCreate}
-          disabled={createMut.isPending}
-          className="flex items-center gap-1.5 border-t px-2 py-1.5 text-left text-xs transition-colors hover:bg-[var(--surface-2)] disabled:opacity-50"
+          variant="ghost"
+          onPress={handleCreate}
+          isDisabled={createMut.isPending}
+          className="flex items-center gap-1.5 border-t px-2 py-1.5 text-left text-xs justify-start"
           style={{ borderColor: "var(--border-subtle)", color: "var(--accent)" }}
         >
           <Plus size={11} weight="bold" />
@@ -374,7 +379,7 @@ function OrganisationSelectorPopover({
           ) : (
             <>Créer l&apos;organisation &laquo;&nbsp;{trimmed}&nbsp;&raquo;</>
           )}
-        </button>
+        </Button>
       )}
     </div>
   );

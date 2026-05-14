@@ -99,6 +99,8 @@ export interface FormulaField extends FieldBase {
   readonly kind: "formula";
   readonly expression: string;
   readonly outputKind: Exclude<FieldKind, "formula" | "rollup" | "lookup">;
+  /** Pattern d'affichage : "number" → decimals, "currency" → EUR, "percent", "date:YYYY-MM-DD". */
+  readonly outputFormat?: string;
 }
 
 export interface RollupField extends FieldBase {

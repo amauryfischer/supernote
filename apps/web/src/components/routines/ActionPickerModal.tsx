@@ -1,5 +1,6 @@
 "use client";
 
+import { Button } from "@heroui/react";
 import { X, EnvelopeSimple, FileText, PencilSimple, Link as LinkIcon, Bell, BellRinging, Globe, Brain, Code, Tray } from "@phosphor-icons/react";
 import type { ActionType } from "./fixtures";
 
@@ -59,13 +60,16 @@ export function ActionPickerModal({ open, onClose, onSelect }: ActionPickerModal
           <h2 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
             Choisir une action
           </h2>
-          <button
-            onClick={onClose}
+          <Button
+            isIconOnly
+            variant="ghost"
+            size="sm"
+            onPress={onClose}
             className="rounded p-1 transition-colors hover:bg-[var(--surface-2)]"
             style={{ color: "var(--text-muted)" }}
           >
             <X size={15} />
-          </button>
+          </Button>
         </div>
 
         {/* Action grid */}
@@ -73,10 +77,11 @@ export function ActionPickerModal({ open, onClose, onSelect }: ActionPickerModal
           {ACTION_OPTIONS.map((opt) => {
             const Icon = opt.icon;
             return (
-              <button
+              <Button
                 key={opt.type}
-                onClick={() => handleSelect(opt.type)}
-                className="flex items-start gap-2.5 rounded-lg border p-3 text-left transition-colors hover:bg-[var(--surface-2)]"
+                variant="ghost"
+                onPress={() => handleSelect(opt.type)}
+                className="flex h-auto items-start gap-2.5 rounded-lg border p-3 text-left transition-colors hover:bg-[var(--surface-2)]"
                 style={{ borderColor: "var(--border-subtle)" }}
               >
                 <div
@@ -93,7 +98,7 @@ export function ActionPickerModal({ open, onClose, onSelect }: ActionPickerModal
                     {opt.description}
                   </div>
                 </div>
-              </button>
+              </Button>
             );
           })}
         </div>

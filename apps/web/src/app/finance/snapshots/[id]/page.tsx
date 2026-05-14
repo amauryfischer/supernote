@@ -7,6 +7,7 @@
 import { AppShell, useMobileTitle, useMobileFab, useMobileHeaderActions } from "@/components/shell";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { ArrowLeft } from "@phosphor-icons/react";
+import { Input, TextArea } from "@heroui/react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -98,7 +99,7 @@ export default function SnapshotDetailPage() {
             <div className="flex flex-col gap-4">
               <div>
                 <FieldLabel>Date</FieldLabel>
-                <input
+                <Input
                   type="date"
                   value={date}
                   onChange={(e) => setDate(e.target.value)}
@@ -110,7 +111,7 @@ export default function SnapshotDetailPage() {
 
               <div>
                 <FieldLabel>Patrimoine net (EUR)</FieldLabel>
-                <input
+                <Input
                   type="text"
                   inputMode="decimal"
                   value={netWorth}
@@ -123,7 +124,7 @@ export default function SnapshotDetailPage() {
 
               <div>
                 <FieldLabel>Total actifs (EUR)</FieldLabel>
-                <input
+                <Input
                   type="text"
                   inputMode="decimal"
                   value={totalAssets}
@@ -136,7 +137,7 @@ export default function SnapshotDetailPage() {
 
               <div>
                 <FieldLabel>Total dettes (EUR)</FieldLabel>
-                <input
+                <Input
                   type="text"
                   inputMode="decimal"
                   value={totalDebts}
@@ -149,7 +150,7 @@ export default function SnapshotDetailPage() {
 
               <div>
                 <FieldLabel>Notes</FieldLabel>
-                <textarea
+                <TextArea
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                   onBlur={() => persist({ notes })}

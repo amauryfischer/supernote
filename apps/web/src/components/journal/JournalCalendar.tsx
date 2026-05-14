@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { Button } from "@heroui/react";
 import { CaretLeft, CaretRight } from "@phosphor-icons/react";
 
 interface JournalCalendarProps {
@@ -55,23 +56,29 @@ export function JournalCalendar({ selectedDate, datesWithNote, onSelectDate }: J
     <div className="select-none px-4 pb-4">
       {/* Month header */}
       <div className="mb-3 flex items-center justify-between">
-        <button
-          onClick={prevMonth}
+        <Button
+          isIconOnly
+          variant="ghost"
+          size="sm"
+          onPress={prevMonth}
           aria-label="Mois précédent"
-          className="flex h-6 w-6 items-center justify-center rounded transition-colors hover:bg-[var(--surface-2)]"
+          className="h-6 w-6 min-h-0 min-w-0 rounded"
         >
           <CaretLeft size={12} style={{ color: "var(--text-muted)" }} />
-        </button>
+        </Button>
         <span className="text-xs font-medium capitalize" style={{ color: "var(--text-secondary)" }}>
           {monthLabel}
         </span>
-        <button
-          onClick={nextMonth}
+        <Button
+          isIconOnly
+          variant="ghost"
+          size="sm"
+          onPress={nextMonth}
           aria-label="Mois suivant"
-          className="flex h-6 w-6 items-center justify-center rounded transition-colors hover:bg-[var(--surface-2)]"
+          className="h-6 w-6 min-h-0 min-w-0 rounded"
         >
           <CaretRight size={12} style={{ color: "var(--text-muted)" }} />
-        </button>
+        </Button>
       </div>
 
       {/* Weekday headers */}
@@ -93,13 +100,14 @@ export function JournalCalendar({ selectedDate, datesWithNote, onSelectDate }: J
           const hasNote = datesWithNote.has(ymd);
 
           return (
-            <button
+            <Button
               key={ymd}
-              onClick={() => onSelectDate(ymd)}
+              variant="ghost"
+              onPress={() => onSelectDate(ymd)}
               aria-label={ymd}
               aria-current={isToday ? "date" : undefined}
               aria-pressed={isSelected}
-              className="relative flex flex-col items-center justify-center rounded py-0.5 text-[11px] transition-colors"
+              className="relative flex flex-col items-center justify-center rounded py-0.5 text-[11px] min-h-0 min-w-0 h-auto w-full"
               style={{
                 color: isSelected
                   ? "var(--accent-foreground)"
@@ -118,7 +126,7 @@ export function JournalCalendar({ selectedDate, datesWithNote, onSelectDate }: J
                   style={{ backgroundColor: isSelected ? "var(--accent-foreground)" : "var(--accent)" }}
                 />
               )}
-            </button>
+            </Button>
           );
         })}
       </div>

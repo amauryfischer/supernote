@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { Button } from "@heroui/react";
 import { X, ArrowLeft, ArrowRight } from "@phosphor-icons/react";
 
 const STORAGE_KEY = "supernote.onboarding.completed";
@@ -178,14 +179,17 @@ export function OnboardingTour() {
           <span className="text-xs font-medium" style={{ color: "var(--text-muted)" }}>
             {step + 1}/{STEPS.length}
           </span>
-          <button
-            onClick={dismiss}
-            className="flex h-5 w-5 items-center justify-center rounded transition-colors hover:bg-[var(--surface-2)]"
+          <Button
+            isIconOnly
+            variant="ghost"
+            size="sm"
+            onPress={dismiss}
+            className="h-5 w-5 min-h-0 min-w-0 rounded"
             style={{ color: "var(--text-muted)" }}
             aria-label="Fermer le tour"
           >
             <X size={12} />
-          </button>
+          </Button>
         </div>
 
         <h3 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
@@ -211,32 +215,38 @@ export function OnboardingTour() {
 
         {/* Actions */}
         <div className="mt-3 flex items-center justify-between gap-2">
-          <button
-            onClick={dismiss}
-            className="text-xs transition-colors hover:underline"
+          <Button
+            variant="ghost"
+            size="sm"
+            onPress={dismiss}
+            className="text-xs"
             style={{ color: "var(--text-muted)" }}
           >
             Ignorer
-          </button>
+          </Button>
           <div className="flex items-center gap-1.5">
             {step > 0 && (
-              <button
-                onClick={goPrev}
-                className="flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--surface-2)]"
-                style={{ color: "var(--text-secondary)", border: "1px solid var(--border-subtle)" }}
+              <Button
+                variant="outline"
+                size="sm"
+                onPress={goPrev}
+                className="flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-medium"
+                style={{ color: "var(--text-secondary)", borderColor: "var(--border-subtle)" }}
               >
                 <ArrowLeft size={11} />
                 Précédent
-              </button>
+              </Button>
             )}
-            <button
-              onClick={goNext}
-              className="flex items-center gap-1 rounded-md px-3 py-1.5 text-xs font-medium transition-opacity hover:opacity-90"
+            <Button
+              variant="primary"
+              size="sm"
+              onPress={goNext}
+              className="flex items-center gap-1 rounded-md px-3 py-1.5 text-xs font-medium"
               style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
             >
               {isLast ? "Terminer" : "Suivant"}
               {!isLast && <ArrowRight size={11} />}
-            </button>
+            </Button>
           </div>
         </div>
       </div>

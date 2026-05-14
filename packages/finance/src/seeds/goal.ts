@@ -8,7 +8,6 @@ export const goalSeed: EntityTypeDefinition = {
   color: "#F59E0B",
   defaultPath: "/Finance/Goals",
   fileNamePattern: "{name}",
-  defaultView: "gallery",
   fields: [
     {
       id: "goal_name",

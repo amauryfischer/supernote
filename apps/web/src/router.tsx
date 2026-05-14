@@ -128,10 +128,6 @@ export const router: any = createBrowserRouter([
       { path: "routines/nouveau", lazy: lazyPage(() => import("./app/routines/nouveau/page")) },
       { path: "routines/:id", lazy: lazyPage(() => import("./app/routines/[id]/page")) },
 
-      // ── Canvas ────────────────────────────────────────────────────────
-      { path: "canvas", lazy: lazyPage(() => import("./app/canvas/page")) },
-      { path: "canvas/:id", lazy: lazyPage(() => import("./app/canvas/[id]/page")) },
-
       // ── Misc top-level routes ────────────────────────────────────────
       { path: "graph", lazy: lazyPage(() => import("./app/graph/page")) },
       { path: "tags", lazy: lazyPage(() => import("./app/tags/page")) },

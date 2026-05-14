@@ -38,9 +38,7 @@
     "schemas": "Schémas",
     "tags": "Tags",
     "templates": "Templates",
-    "views": "Vues",
     "routines": "Routines",
-    "canvas": "Canvas",
     "graph": "Graph",
     "settings": "Paramètres",
     "groups": {
@@ -64,7 +62,6 @@
       "projects": "Projets et tâches actives",
       "journal": "Notes quotidiennes",
       "schemas": "Types d'entités et champs",
-      "views": "Requêtes et vues sauvegardées",
       "routines": "Automations et rappels"
     }
   },

@@ -14,6 +14,7 @@
  */
 
 import { useMemo, useState } from "react";
+import { Button } from "@heroui/react";
 import { CaretLeft, CaretRight, CalendarBlank } from "@phosphor-icons/react";
 import type { EntityType } from "@supernote/core";
 import type { View } from "@supernote/ipc";
@@ -99,30 +100,33 @@ export function CalendarView({ base, view }: CalendarViewProps) {
         className="flex items-center gap-2 px-3 py-2"
         style={{ borderBottom: "1px solid var(--border-subtle)" }}
       >
-        <button
-          type="button"
-          onClick={() => moveMonth(-1)}
+        <Button
+          variant="ghost"
+          size="sm"
+          onPress={() => moveMonth(-1)}
           className="rounded p-1 hover:bg-[var(--surface-2)]"
           style={{ color: "var(--text-muted)" }}
-          title="Mois précédent"
+          aria-label="Mois précédent"
         >
           <CaretLeft size={12} />
-        </button>
+        </Button>
         <h3 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
           {monthLabel}
         </h3>
-        <button
-          type="button"
-          onClick={() => moveMonth(1)}
+        <Button
+          variant="ghost"
+          size="sm"
+          onPress={() => moveMonth(1)}
           className="rounded p-1 hover:bg-[var(--surface-2)]"
           style={{ color: "var(--text-muted)" }}
-          title="Mois suivant"
+          aria-label="Mois suivant"
         >
           <CaretRight size={12} />
-        </button>
-        <button
-          type="button"
-          onClick={() => {
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          onPress={() => {
             const now = new Date();
             setCursor(new Date(now.getFullYear(), now.getMonth(), 1));
           }}
@@ -130,7 +134,7 @@ export function CalendarView({ base, view }: CalendarViewProps) {
           style={{ color: "var(--text-secondary)" }}
         >
           Aujourd'hui
-        </button>
+        </Button>
         <span className="ml-auto text-xs" style={{ color: "var(--text-muted)" }}>
           <CalendarBlank size={11} className="inline" /> {dateField.label || dateField.name}
         </span>

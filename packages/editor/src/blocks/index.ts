@@ -22,3 +22,12 @@ export type {
 export { wikilinkInlineSpec } from "./wikilink.js";
 export { mentionInlineSpec } from "./mention.js";
 export { tagInlineSpec } from "./tag.js";
+
+// Formula
+export {
+  formulaBlockSpec,
+  formulaInlineSpec,
+  FormulaProvider,
+  useFormulaRenderer,
+} from "./formula.js";
+export type { FormulaRenderProps, FormulaRenderer } from "./formula.js";

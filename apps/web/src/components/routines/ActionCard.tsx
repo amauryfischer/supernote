@@ -1,6 +1,8 @@
 "use client";
 
-import { Trash, DotsSixVertical } from "@phosphor-icons/react";
+import { Trash, DotsSixVertical, CaretDown } from "@phosphor-icons/react";
+import { Button, Input, TextArea, Select, ListBox, ListBoxItem } from "@heroui/react";
+import type { Key } from "@heroui/react";
 import type { ActionConfig, ActionType } from "./fixtures";
 
 interface ActionCardProps {
@@ -23,12 +25,11 @@ const ACTION_LABELS: Record<ActionType, string> = {
   "create-inbox-note": "Note inbox",
 };
 
-function inputStyle() {
-  return { backgroundColor: "var(--surface-0)", borderColor: "var(--border)", color: "var(--text-primary)" };
-}
-
-function inputClass() {
-  return "w-full rounded border px-2.5 py-1.5 text-sm outline-none focus:border-[var(--accent)] transition-colors";
+interface SelectFieldProps {
+  label: string;
+  selectedKey: string;
+  onSelectionChange: (key: Key | null) => void;
+  options: Array<{ key: string; label: string }>;
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
@@ -42,6 +43,26 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
+function SelectField({ label, selectedKey, onSelectionChange, options }: SelectFieldProps) {
+  return (
+    <Field label={label}>
+      <Select selectedKey={selectedKey} onSelectionChange={onSelectionChange} aria-label={label}>
+        <Select.Trigger className="flex w-full items-center justify-between rounded border px-2.5 py-1.5 text-sm outline-none transition-colors" style={{ backgroundColor: "var(--surface-0)", borderColor: "var(--border)", color: "var(--text-primary)" }}>
+          <Select.Value />
+          <CaretDown size={12} />
+        </Select.Trigger>
+        <Select.Popover>
+          <ListBox>
+            {options.map(({ key, label: optLabel }) => (
+              <ListBoxItem key={key}>{optLabel}</ListBoxItem>
+            ))}
+          </ListBox>
+        </Select.Popover>
+      </Select>
+    </Field>
+  );
+}
+
 function MailDraftForm({ action, onChange }: { action: ActionConfig; onChange: (a: ActionConfig) => void }) {
   function set(key: string, value: string) {
     onChange({ ...action, [key]: value });
@@ -49,18 +70,40 @@ function MailDraftForm({ action, onChange }: { action: ActionConfig; onChange: (
   return (
     <div className="space-y-2">
       <Field label="À (to)">
-        <input className={inputClass()} style={inputStyle()} value={String(action.to ?? "")} onChange={(e) => set("to", e.target.value)} placeholder="contact@exemple.fr ou {{entity.fields.email}}" />
+        <Input
+          className="w-full"
+          value={String(action.to ?? "")}
+          onChange={(e) => set("to", e.target.value)}
+          placeholder="contact@exemple.fr ou {{entity.fields.email}}"
+        />
       </Field>
       <Field label="Objet">
-        <input className={inputClass()} style={inputStyle()} value={String(action.subject ?? "")} onChange={(e) => set("subject", e.target.value)} placeholder="Objet — {{now}}" />
+        <Input
+          className="w-full"
+          value={String(action.subject ?? "")}
+          onChange={(e) => set("subject", e.target.value)}
+          placeholder="Objet — {{now}}"
+        />
       </Field>
       <Field label="Corps du message">
-        <textarea className={`${inputClass()} resize-y`} style={inputStyle()} rows={4} value={String(action.body ?? "")} onChange={(e) => set("body", e.target.value)} placeholder="Corps du message…" />
+        <TextArea
+          className="w-full"
+          rows={4}
+          value={String(action.body ?? "")}
+          onChange={(e) => set("body", e.target.value)}
+          placeholder="Corps du message…"
+        />
         <p className="mt-0.5 text-[10px]" style={{ color: "var(--text-muted)" }}>Variables : {"{{now}}"}, {"{{entity.fields.name}}"}, {"{{entity.fields.email}}"}</p>
       </Field>
     </div>
   );
 }
+
+const LEVEL_OPTIONS = [
+  { key: "info", label: "Info" },
+  { key: "warning", label: "Avertissement" },
+  { key: "error", label: "Erreur" },
+];
 
 function NotifyForm({ action, onChange, hasLevel }: { action: ActionConfig; onChange: (a: ActionConfig) => void; hasLevel?: boolean }) {
   function set(key: string, value: string) {
@@ -69,19 +112,29 @@ function NotifyForm({ action, onChange, hasLevel }: { action: ActionConfig; onCh
   return (
     <div className="space-y-2">
       <Field label="Titre">
-        <input className={inputClass()} style={inputStyle()} value={String(action.title ?? "")} onChange={(e) => set("title", e.target.value)} placeholder="Titre de la notification" />
+        <Input
+          className="w-full"
+          value={String(action.title ?? "")}
+          onChange={(e) => set("title", e.target.value)}
+          placeholder="Titre de la notification"
+        />
       </Field>
       <Field label="Message">
-        <textarea className={`${inputClass()} resize-y`} style={inputStyle()} rows={2} value={String(action.body ?? "")} onChange={(e) => set("body", e.target.value)} placeholder="Message…" />
+        <TextArea
+          className="w-full"
+          rows={2}
+          value={String(action.body ?? "")}
+          onChange={(e) => set("body", e.target.value)}
+          placeholder="Message…"
+        />
       </Field>
       {hasLevel && (
-        <Field label="Niveau">
-          <select className={`${inputClass()} cursor-pointer`} style={inputStyle()} value={String(action.level ?? "info")} onChange={(e) => set("level", e.target.value)}>
-            <option value="info">Info</option>
-            <option value="warning">Avertissement</option>
-            <option value="error">Erreur</option>
-          </select>
-        </Field>
+        <SelectField
+          label="Niveau"
+          selectedKey={String(action.level ?? "info")}
+          onSelectionChange={(key) => { if (key != null) set("level", key as string); }}
+          options={LEVEL_OPTIONS}
+        />
       )}
     </div>
   );
@@ -94,17 +147,35 @@ function LlmPromptForm({ action, onChange }: { action: ActionConfig; onChange: (
   return (
     <div className="space-y-2">
       <Field label="Modèle">
-        <input className={inputClass()} style={inputStyle()} value={String(action.model ?? "llama3")} onChange={(e) => set("model", e.target.value)} placeholder="llama3, gpt-4o…" />
+        <Input
+          className="w-full"
+          value={String(action.model ?? "llama3")}
+          onChange={(e) => set("model", e.target.value)}
+          placeholder="llama3, gpt-4o…"
+        />
       </Field>
       <Field label="Prompt">
-        <textarea className={`${inputClass()} resize-y font-mono text-xs`} style={inputStyle()} rows={5} value={String(action.prompt ?? "")} onChange={(e) => set("prompt", e.target.value)} placeholder="Écris un résumé de…" />
+        <TextArea
+          className="w-full font-mono text-xs"
+          rows={5}
+          value={String(action.prompt ?? "")}
+          onChange={(e) => set("prompt", e.target.value)}
+          placeholder="Écris un résumé de…"
+        />
       </Field>
       <Field label="Stocker le résultat dans">
-        <input className={inputClass()} style={inputStyle()} value={String(action.storeResultAs ?? "")} onChange={(e) => set("storeResultAs", e.target.value)} placeholder="dailyBrief" />
+        <Input
+          className="w-full"
+          value={String(action.storeResultAs ?? "")}
+          onChange={(e) => set("storeResultAs", e.target.value)}
+          placeholder="dailyBrief"
+        />
       </Field>
     </div>
   );
 }
+
+const METHOD_OPTIONS = (["GET", "POST", "PUT", "PATCH"] as const).map((m) => ({ key: m, label: m }));
 
 function WebhookForm({ action, onChange }: { action: ActionConfig; onChange: (a: ActionConfig) => void }) {
   function set(key: string, value: string) {
@@ -113,15 +184,27 @@ function WebhookForm({ action, onChange }: { action: ActionConfig; onChange: (a:
   return (
     <div className="space-y-2">
       <Field label="URL">
-        <input className={inputClass()} style={inputStyle()} value={String(action.url ?? "")} onChange={(e) => set("url", e.target.value)} placeholder="https://hooks.example.com/endpoint" />
+        <Input
+          className="w-full"
+          value={String(action.url ?? "")}
+          onChange={(e) => set("url", e.target.value)}
+          placeholder="https://hooks.example.com/endpoint"
+        />
       </Field>
-      <Field label="Méthode">
-        <select className={`${inputClass()} cursor-pointer`} style={inputStyle()} value={String(action.method ?? "POST")} onChange={(e) => set("method", e.target.value)}>
-          {["GET", "POST", "PUT", "PATCH"].map((m) => <option key={m} value={m}>{m}</option>)}
-        </select>
-      </Field>
+      <SelectField
+        label="Méthode"
+        selectedKey={String(action.method ?? "POST")}
+        onSelectionChange={(key) => { if (key != null) set("method", key as string); }}
+        options={METHOD_OPTIONS}
+      />
       <Field label="Corps (JSON)">
-        <textarea className={`${inputClass()} resize-y font-mono text-xs`} style={inputStyle()} rows={3} value={String(action.body ?? "")} onChange={(e) => set("body", e.target.value)} placeholder='{"key": "{{entity.id}}"}' />
+        <TextArea
+          className="w-full font-mono text-xs"
+          rows={3}
+          value={String(action.body ?? "")}
+          onChange={(e) => set("body", e.target.value)}
+          placeholder='{"key": "{{entity.id}}"}'
+        />
       </Field>
     </div>
   );
@@ -134,10 +217,21 @@ function InboxNoteForm({ action, onChange }: { action: ActionConfig; onChange: (
   return (
     <div className="space-y-2">
       <Field label="Titre">
-        <input className={inputClass()} style={inputStyle()} value={String(action.title ?? "")} onChange={(e) => set("title", e.target.value)} placeholder="Titre de la note" />
+        <Input
+          className="w-full"
+          value={String(action.title ?? "")}
+          onChange={(e) => set("title", e.target.value)}
+          placeholder="Titre de la note"
+        />
       </Field>
       <Field label="Corps">
-        <textarea className={`${inputClass()} resize-y`} style={inputStyle()} rows={3} value={String(action.body ?? "")} onChange={(e) => set("body", e.target.value)} placeholder="Contenu de la note…" />
+        <TextArea
+          className="w-full"
+          rows={3}
+          value={String(action.body ?? "")}
+          onChange={(e) => set("body", e.target.value)}
+          placeholder="Contenu de la note…"
+        />
       </Field>
     </div>
   );
@@ -150,17 +244,21 @@ function CreateEntityForm({ action, onChange }: { action: ActionConfig; onChange
   return (
     <div className="space-y-2">
       <Field label="Type d'entité (typeId)">
-        <input className={inputClass()} style={inputStyle()} value={String(action.typeId ?? "")} onChange={(e) => set("typeId", e.target.value)} placeholder="person, note, task…" />
+        <Input
+          className="w-full"
+          value={String(action.typeId ?? "")}
+          onChange={(e) => set("typeId", e.target.value)}
+          placeholder="person, note, task…"
+        />
       </Field>
       <Field label="Champs (key=value, un par ligne)">
-        <textarea
-          className={`${inputClass()} resize-y font-mono text-xs`}
-          style={inputStyle()}
+        <TextArea
+          className="w-full font-mono text-xs"
           rows={4}
           value={Object.entries((action.fields as Record<string, string>) ?? {}).map(([k, v]) => `${k}=${v}`).join("\n")}
           onChange={(e) => {
             const fields = Object.fromEntries(
-              e.target.value.split("\n").filter(Boolean).map((l) => {
+              e.target.value.split("\n").filter(Boolean).map((l: string) => {
                 const eq = l.indexOf("=");
                 return [l.slice(0, eq).trim(), l.slice(eq + 1).trim()];
               })
@@ -181,9 +279,8 @@ function RunScriptForm({ action, onChange }: { action: ActionConfig; onChange: (
   return (
     <div className="space-y-2">
       <Field label="Script (JavaScript)">
-        <textarea
-          className={`${inputClass()} resize-y font-mono text-xs`}
-          style={inputStyle()}
+        <TextArea
+          className="w-full font-mono text-xs"
           rows={8}
           value={String(action.script ?? "")}
           onChange={(e) => set("script", e.target.value)}
@@ -234,14 +331,17 @@ export function ActionCard({ action, index, onChange, onRemove }: ActionCardProp
         <span className="flex-1 text-xs font-semibold" style={{ color: "var(--text-primary)" }}>
           {ACTION_LABELS[action.type] ?? action.type}
         </span>
-        <button
-          onClick={onRemove}
-          className="rounded p-0.5 transition-colors hover:bg-[oklch(0.93_0.10_28_/_0.15)]"
+        <Button
+          isIconOnly
+          size="sm"
+          variant="ghost"
+          onPress={onRemove}
+          className="h-6 w-6 min-w-0 rounded p-0.5"
           style={{ color: "var(--danger)" }}
           aria-label="Supprimer l'action"
         >
           <Trash size={13} />
-        </button>
+        </Button>
       </div>
 
       {/* Form */}

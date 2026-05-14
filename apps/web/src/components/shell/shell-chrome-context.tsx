@@ -10,6 +10,8 @@ import {
   useState,
 } from "react";
 import type { Icon as PhosphorIcon } from "@phosphor-icons/react";
+import type { EntityType } from "@supernote/core";
+import type { View } from "@supernote/ipc";
 
 /**
  * localStorage key for the user's right-panel visibility preference.
@@ -66,6 +68,15 @@ export interface MobileHeaderAction {
   active?: boolean;
 }
 
+export interface ColumnEditorState {
+  base: EntityType;
+  view: View;
+  /** Field id to open inline-edit on (optional). */
+  focusFieldId?: string;
+  /** Pre-fill formula expression when opening "new field" inline form. */
+  prefillFormula?: { expression: string; outputKind?: "text" | "number" | "date" | "bool" };
+}
+
 interface ShellChromeContextValue {
   /** When true, sidebar and right panel dim/collapse so the user can focus on writing. */
   focusMode: boolean;
@@ -111,6 +122,11 @@ interface ShellChromeContextValue {
   /** Header action buttons (right side of the mobile top bar). */
   mobileHeaderActions: MobileHeaderAction[];
   setMobileHeaderActions: (actions: MobileHeaderAction[]) => void;
+
+  /** Column editor sidebar — quand non-null, la sidebar s'affiche à droite. */
+  columnEditor: ColumnEditorState | null;
+  openColumnEditor: (base: EntityType, view: View, opts?: { focusFieldId?: string; prefillFormula?: ColumnEditorState["prefillFormula"] }) => void;
+  closeColumnEditor: () => void;
 }
 
 const ShellChromeContext = createContext<ShellChromeContextValue | null>(null);
@@ -123,6 +139,19 @@ export function ShellChromeProvider({ children }: { children: React.ReactNode })
   const [rightPanelVisible, setRightPanelVisibleState] = useState(true);
   const [accentOverride, setAccentOverrideState] = useState<Record<string, string> | null>(null);
   const [newNoteHandlers] = useState(() => new Set<() => void>());
+
+  const [columnEditor, setColumnEditor] = useState<ColumnEditorState | null>(null);
+
+  const openColumnEditor = useCallback(
+    (base: EntityType, view: View, opts?: { focusFieldId?: string; prefillFormula?: ColumnEditorState["prefillFormula"] }) => {
+      setColumnEditor({ base, view, focusFieldId: opts?.focusFieldId, prefillFormula: opts?.prefillFormula });
+    },
+    [],
+  );
+
+  const closeColumnEditor = useCallback(() => {
+    setColumnEditor(null);
+  }, []);
 
   // Mobile chrome state — ignored by the desktop shell but consumed by
   // `MobileShell` to populate the top bar and FAB.
@@ -276,6 +305,9 @@ export function ShellChromeProvider({ children }: { children: React.ReactNode })
       setMobileFab,
       mobileHeaderActions,
       setMobileHeaderActions,
+      columnEditor,
+      openColumnEditor,
+      closeColumnEditor,
     }),
     [
       focusMode,
@@ -296,6 +328,9 @@ export function ShellChromeProvider({ children }: { children: React.ReactNode })
       setMobileFab,
       mobileHeaderActions,
       setMobileHeaderActions,
+      columnEditor,
+      openColumnEditor,
+      closeColumnEditor,
     ],
   );
 

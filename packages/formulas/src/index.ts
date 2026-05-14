@@ -45,3 +45,4 @@ export type {
 export { parseFormula } from "./parser.js";
 export { evaluate, Evaluator } from "./evaluator.js";
 export { formulaDependencies } from "./dependencies.js";
+export { inferOutputKind, inferFormulaOutputKind, type InferredKind } from "./infer.js";

@@ -12,6 +12,7 @@ import {
   type SortingState,
 } from "@tanstack/react-table";
 import { Plus, ArrowsDownUp, ArrowLeft } from "@phosphor-icons/react";
+import { Button } from "@heroui/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useFinanceAccounts } from "@/components/finance/hooks";
@@ -158,14 +159,15 @@ export default function ComptesPage() {
             </span>
           )}
         </div>
-        <button
-          onClick={() => void handleNewAccount()}
-          disabled={createMutation.isPending}
-          className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-opacity disabled:opacity-50"
+        <Button
+          onPress={() => void handleNewAccount()}
+          isDisabled={createMutation.isPending}
+          size="sm"
+          className="flex items-center gap-2 font-medium"
           style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
         >
           <Plus size={14} /> Compte
-        </button>
+        </Button>
       </div>
 
       {isLoading ? (
@@ -184,13 +186,14 @@ export default function ComptesPage() {
           {/* Mobile: card list */}
           <div className="flex flex-col gap-3 md:hidden">
             {table.getRowModel().rows.map((row) => (
-              <button
+              <Button
                 key={row.id}
-                onClick={() => router.push(`/finance/comptes/${row.original.id}`)}
-                className="w-full rounded-xl border p-4 text-left transition-colors hover:bg-[var(--surface-2)]"
+                onPress={() => router.push(`/finance/comptes/${row.original.id}`)}
+                variant="ghost"
+                className="w-full h-auto rounded-xl border p-4 text-left transition-colors hover:bg-[var(--surface-2)] justify-start flex-col items-start"
                 style={{ backgroundColor: "var(--surface-1)", borderColor: "var(--border-subtle)" }}
               >
-                <div className="flex items-center justify-between">
+                <div className="flex w-full items-center justify-between">
                   <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
                     {row.original.name}
                   </span>
@@ -214,7 +217,7 @@ export default function ComptesPage() {
                     </span>
                   )}
                 </div>
-              </button>
+              </Button>
             ))}
           </div>
 
@@ -234,13 +237,15 @@ export default function ComptesPage() {
                         className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide"
                         style={{ color: "var(--text-muted)" }}
                       >
-                        <button
-                          className="flex items-center gap-1"
-                          onClick={header.column.getToggleSortingHandler()}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="flex items-center gap-1 h-auto min-w-0 p-0"
+                          onPress={header.column.getToggleSortingHandler() as (() => void) | undefined}
                         >
                           {flexRender(header.column.columnDef.header, header.getContext())}
                           <ArrowsDownUp size={10} />
-                        </button>
+                        </Button>
                       </th>
                     ))}
                   </tr>

@@ -11,6 +11,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useShellChrome, type MobileHeaderAction } from "../shell-chrome-context";
 import { OverflowMenu } from "./OverflowMenu";
 import { GitSyncIndicator } from "@/lib/git/GitSyncIndicator";
+import { Button } from "@supernote/ui";
 
 /**
  * Mobile top bar — 48 px header containing (in order):
@@ -37,9 +38,7 @@ const ROUTE_LABELS: Record<string, string> = {
   "/finance/prets": "Prêts",
   "/finance/snapshots": "Snapshots",
   "/schemas": "Schémas",
-  "/vues": "Vues",
   "/routines": "Routines",
-  "/canvas": "Canvas",
   "/graph": "Graph",
   "/tags": "Tags",
   "/templates": "Templates",
@@ -58,8 +57,6 @@ const TOP_LEVEL = new Set([
   "/contacts",
   "/finance",
   "/tags",
-  "/vues",
-  "/canvas",
   "/graph",
   "/routines",
   "/templates",
@@ -91,15 +88,17 @@ const IconButton = memo(function IconButton({
   active,
 }: IconButtonProps) {
   return (
-    <button
+    <Button
       type="button"
+      variant="ghost"
+      size="icon"
       onClick={onPress}
       aria-label={label}
-      className="relative flex h-10 w-10 items-center justify-center rounded-full transition-colors active:bg-[var(--surface-2)]"
+      className="relative flex h-10 w-10 items-center justify-center rounded-full"
       style={{ color: active ? "var(--accent)" : "var(--text-secondary)" }}
     >
       <Icon size={20} />
-    </button>
+    </Button>
   );
 });
 
@@ -156,15 +155,17 @@ export const MobileTopBar = memo(function MobileTopBar() {
         }}
       >
         {showBack ? (
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            size="icon"
             onClick={onBack}
             aria-label="Retour"
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition-colors active:bg-[var(--surface-2)]"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full"
             style={{ color: "var(--text-primary)" }}
           >
             <ArrowLeft size={22} />
-          </button>
+          </Button>
         ) : (
           <div className="w-2" />
         )}

@@ -194,5 +194,74 @@ export function makeListFunctions(apply: ApplyFn): Record<string, (args: Value[]
       }
       return ok(count);
     },
+    /** Coda-style `list.Contains(value)` */
+    ListContains(args) {
+      const list = requireList(args[0], "ListContains");
+      if (!list.ok) return list;
+      const target = args[1] ?? null;
+      const targetStr = coerceToString(target);
+      return ok(list.value.some((v) => v === target || coerceToString(v) === targetStr));
+    },
+    /** `In(value, list)` — Coda convention */
+    In(args) {
+      const target = args[0] ?? null;
+      const list = requireList(args[1], "In");
+      if (!list.ok) return list;
+      const targetStr = coerceToString(target);
+      return ok(list.value.some((v) => v === target || coerceToString(v) === targetStr));
+    },
+    RandomItem(args) {
+      const list = requireList(args[0], "RandomItem");
+      if (!list.ok) return list;
+      if (list.value.length === 0) return ok(null);
+      return ok(list.value[Math.floor(Math.random() * list.value.length)] ?? null);
+    },
+    /** Slice(list, start, end?) — 0-based, end exclusive */
+    Slice(args) {
+      const list = requireList(args[0], "Slice");
+      if (!list.ok) return list;
+      const start = coerceToNumber(args[1] ?? null) ?? 0;
+      const end = args.length > 2 ? coerceToNumber(args[2] ?? null) ?? list.value.length : list.value.length;
+      return ok(list.value.slice(start, end));
+    },
+    /** Coda-style chained sum: list.Sum() */
+    ListSum(args) {
+      const list = requireList(args[0], "ListSum");
+      if (!list.ok) return list;
+      let s = 0;
+      for (const v of list.value) {
+        const n = coerceToNumber(v);
+        if (n !== null) s += n;
+      }
+      return ok(s);
+    },
+    Pluck(args) {
+      const list = requireList(args[0], "Pluck");
+      if (!list.ok) return list;
+      const key = coerceToString(args[1] ?? null);
+      const out: Value[] = [];
+      for (const item of list.value) {
+        if (item && typeof item === "object" && !Array.isArray(item) && "_type" in item && (item as { _type: string })._type === "entity") {
+          const e = (item as { _type: "entity"; entity: { fields: Record<string, unknown> } }).entity;
+          const v = e.fields[key];
+          out.push(v !== undefined ? (v as Value) : null);
+        } else { out.push(null); }
+      }
+      return ok(out);
+    },
+    MapFlatten(args) {
+      const list = requireList(args[0], "MapFlatten");
+      if (!list.ok) return list;
+      const fn = requireLambda(args[1], "MapFlatten");
+      if (!fn.ok) return fn;
+      const out: Value[] = [];
+      for (const item of list.value) {
+        const r = apply(fn.value, [item]);
+        if (!r.ok) return r;
+        if (Array.isArray(r.value)) out.push(...r.value);
+        else out.push(r.value);
+      }
+      return ok(out);
+    },
   };
 }

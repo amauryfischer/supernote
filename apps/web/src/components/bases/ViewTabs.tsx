@@ -9,6 +9,7 @@
  */
 
 import { useState } from "react";
+import { Button } from "@heroui/react";
 import { Plus, DotsThree } from "@phosphor-icons/react";
 import type { View } from "@supernote/ipc";
 import { ViewKindIcon } from "./ViewKindIcon";
@@ -33,9 +34,10 @@ export function ViewTabs({ views, activeViewId, onSelect, onCreate }: ViewTabsPr
         const active = v.id === activeViewId;
         return (
           <div key={v.id} className="relative flex shrink-0 items-center">
-            <button
-              type="button"
-              onClick={() => onSelect(v.id)}
+            <Button
+              variant="ghost"
+              size="sm"
+              onPress={() => onSelect(v.id)}
               className="flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors"
               style={
                 active
@@ -45,20 +47,20 @@ export function ViewTabs({ views, activeViewId, onSelect, onCreate }: ViewTabsPr
             >
               <ViewKindIcon kind={v.kind} size={12} />
               <span>{v.name}</span>
-            </button>
+            </Button>
             {active && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
+              <Button
+                variant="ghost"
+                size="sm"
+                onPress={(e) => {
                   setMenuOpenFor((cur) => (cur === v.id ? null : v.id));
                 }}
                 className="ml-0.5 rounded p-1 hover:bg-[var(--surface-2)]"
                 style={{ color: "var(--text-muted)" }}
-                title="Options de la vue"
+                aria-label="Options de la vue"
               >
                 <DotsThree size={12} weight="bold" />
-              </button>
+              </Button>
             )}
             {menuOpenFor === v.id && activeView && (
               <ViewSettingsMenu
@@ -78,15 +80,16 @@ export function ViewTabs({ views, activeViewId, onSelect, onCreate }: ViewTabsPr
           </div>
         );
       })}
-      <button
-        type="button"
-        onClick={onCreate}
+      <Button
+        variant="ghost"
+        size="sm"
+        onPress={onCreate}
         className="ml-1 flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-colors hover:bg-[var(--surface-2)]"
         style={{ color: "var(--text-muted)" }}
-        title="Nouvelle vue"
+        aria-label="Nouvelle vue"
       >
         <Plus size={12} />
-      </button>
+      </Button>
     </div>
   );
 }

@@ -120,12 +120,6 @@ export const BUILT_IN_PLUGINS: BuiltInPlugin[] = [
     description: "Automatisations et workflows récurrents.",
   },
   {
-    slug: "canvas",
-    defaultOn: true,
-    name: "Canvas",
-    description: "Tableau libre pour organiser visuellement les notes.",
-  },
-  {
     slug: "graph",
     defaultOn: true,
     name: "Graphe",
@@ -142,7 +136,6 @@ export const BUILT_IN_PLUGINS: BuiltInPlugin[] = [
 export const PLUGIN_HREF_BY_SLUG = {
   journal: "/journal",
   routines: "/routines",
-  canvas: "/canvas",
   graph: "/graph",
 } as const satisfies Record<string, string>;
 

@@ -30,9 +30,11 @@ interface NoteListItemProps {
    * which menu item maps to which action when reading the JSX below.
    */
   onArchive?: (archived: boolean) => Promise<void>;
+  /** Called when a cross-panel drag towards the FileTree begins. */
+  onDragNote?: (noteId: string) => void;
 }
 
-export function NoteListItem({ note, isActive, onClick, onDelete, sortable, onRename, onArchive }: NoteListItemProps) {
+export function NoteListItem({ note, isActive, onClick, onDelete, sortable, onRename, onArchive, onDragNote }: NoteListItemProps) {
   const [hovered, setHovered] = useState(false);
   const [isRenaming, setIsRenaming] = useState(false);
   const t = useTranslations("notes");
@@ -134,6 +136,12 @@ export function NoteListItem({ note, isActive, onClick, onDelete, sortable, onRe
       )}
       <button
         onClick={isRenaming ? undefined : onClick}
+        draggable={!!onDragNote && !isRenaming}
+        onDragStart={onDragNote && !isRenaming ? (e) => {
+          e.dataTransfer.setData("text/plain", note.id);
+          e.dataTransfer.effectAllowed = "move";
+          onDragNote(note.id);
+        } : undefined}
         className="w-full text-left transition-colors focus-visible:outline-none"
         style={{
           borderLeft: isActive ? "2px solid var(--accent)" : "2px solid transparent",
@@ -146,6 +154,7 @@ export function NoteListItem({ note, isActive, onClick, onDelete, sortable, onRe
           // Archived rows are visible (when the toggle reveals them) but
           // visually demoted so they don't compete with active notes.
           opacity: isArchived ? 0.6 : 1,
+          cursor: onDragNote && !isRenaming ? "grab" : undefined,
         }}
       >
         <div className="px-4 py-3">
@@ -244,6 +253,7 @@ export function NoteListItem({ note, isActive, onClick, onDelete, sortable, onRe
           // Opaque idle state — covers the date pill underneath. Hover
           // bumps the icon to the accent color so the menu trigger is
           // visually distinct from the row's "selected" state.
+          // Justified native: context-menu positioning requires clientX/clientY.
           className="absolute right-3 top-3 flex h-6 w-6 items-center justify-center rounded-md border border-[var(--border-subtle)] bg-[var(--surface-1)] text-[var(--text-muted)] shadow-sm transition-colors hover:border-[var(--accent)] hover:bg-[var(--surface-2)] hover:text-[var(--accent)]"
         >
           <DotsThree size={16} weight="bold" />

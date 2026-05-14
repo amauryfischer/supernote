@@ -11,6 +11,7 @@
  */
 
 import { Archive, ArrowUUpLeft, FileText, Folder as FolderIcon, MagnifyingGlass } from "@phosphor-icons/react";
+import { Button, Input } from "@heroui/react";
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { AppShell, useMobileTitle } from "@/components/shell";
@@ -161,10 +162,10 @@ export default function ArchivePage() {
           <div className="relative w-72 max-w-full">
             <MagnifyingGlass
               size={13}
-              className="absolute left-2.5 top-1/2 -translate-y-1/2"
+              className="absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none"
               style={{ color: "var(--text-muted)" }}
             />
-            <input
+            <Input
               type="text"
               placeholder="Rechercher dans les archives…"
               value={query}
@@ -187,10 +188,10 @@ export default function ArchivePage() {
           <div className="relative">
             <MagnifyingGlass
               size={13}
-              className="absolute left-2.5 top-1/2 -translate-y-1/2"
+              className="absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none"
               style={{ color: "var(--text-muted)" }}
             />
-            <input
+            <Input
               type="text"
               placeholder="Rechercher dans les archives…"
               value={query}
@@ -236,19 +237,20 @@ export default function ArchivePage() {
                       </span>
                     </div>
                     {group.items.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={() => void handleUnarchiveGroup(group.items.map((n) => n.id))}
-                        disabled={isPending}
-                        className="flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors hover:bg-[var(--accent-subtle)] hover:text-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50"
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onPress={() => void handleUnarchiveGroup(group.items.map((n) => n.id))}
+                        isDisabled={isPending}
+                        className="flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium"
                         style={{
                           color: "var(--text-muted)",
-                          border: "1px solid var(--border-subtle)",
+                          borderColor: "var(--border-subtle)",
                         }}
                       >
                         <ArrowUUpLeft size={12} />
                         Tout désarchiver
-                      </button>
+                      </Button>
                     )}
                   </header>
 
@@ -295,21 +297,21 @@ export default function ArchivePage() {
                           {note.archivedAt ? formatFullDate(note.archivedAt) : "—"}
                         </div>
 
-                        <button
-                          type="button"
-                          onClick={() => void handleUnarchive(note.id)}
-                          disabled={isPending}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onPress={() => void handleUnarchive(note.id)}
+                          isDisabled={isPending}
                           aria-label="Désarchiver"
-                          title="Désarchiver"
-                          className="flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors hover:bg-[var(--accent-subtle)] hover:text-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50"
+                          className="flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium"
                           style={{
                             color: "var(--text-secondary)",
-                            border: "1px solid var(--border-subtle)",
+                            borderColor: "var(--border-subtle)",
                           }}
                         >
                           <ArrowUUpLeft size={12} />
                           Désarchiver
-                        </button>
+                        </Button>
                       </li>
                     ))}
                   </ul>

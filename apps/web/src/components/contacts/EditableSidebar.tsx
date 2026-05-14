@@ -12,6 +12,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Button, Input, Select, ListBox, ListBoxItem } from "@heroui/react";
 import {
   Buildings,
   Calendar,
@@ -23,6 +24,7 @@ import {
   TwitterLogo,
   UploadSimple,
   X,
+  CaretDown,
 } from "@phosphor-icons/react";
 import { trpc } from "@/lib/trpc/client";
 import type { FieldValue } from "@supernote/ipc";
@@ -44,13 +46,6 @@ import type {
   SocialLinks,
 } from "@/components/contacts";
 
-const inputClass =
-  "w-full rounded-md border px-2.5 py-1.5 text-sm outline-none transition-colors focus:border-[var(--accent)]";
-const inputStyle: React.CSSProperties = {
-  borderColor: "var(--border-subtle)",
-  backgroundColor: "var(--surface-1)",
-  color: "var(--text-primary)",
-};
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
   return (
@@ -270,10 +265,12 @@ export function EditableSidebar({ contact, hasLiveBackend }: EditableSidebarProp
     >
       {/* Avatar + name + relation chips */}
       <div className="flex flex-col items-center gap-3 text-center">
-        <button
+        <Button
           type="button"
-          onClick={() => fileRef.current?.click()}
-          className="group relative rounded-full transition-opacity hover:opacity-90"
+          variant="ghost"
+          isIconOnly
+          onPress={() => fileRef.current?.click()}
+          className="group relative rounded-full p-0 transition-opacity hover:opacity-90"
           aria-label="Modifier la photo"
         >
           <ContactAvatar name={name || "?"} photoUrl={photoUrl} size={88} />
@@ -286,7 +283,7 @@ export function EditableSidebar({ contact, hasLiveBackend }: EditableSidebarProp
           >
             <UploadSimple size={20} />
           </span>
-        </button>
+        </Button>
         <input
           ref={fileRef}
           type="file"
@@ -305,24 +302,24 @@ export function EditableSidebar({ contact, hasLiveBackend }: EditableSidebarProp
           />
           <div className="mt-1.5 flex flex-wrap justify-center gap-1.5">
             {ALL_RELATION_TYPES.map((type) => (
-              <button
+              <Button
                 key={type}
                 type="button"
-                onClick={() => {
+                variant="ghost"
+                onPress={() => {
                   setRelationType(type);
                   persist({ relationType: type });
                 }}
-                className="transition-opacity focus:outline-none focus-visible:outline-none"
+                className="min-w-0 p-0 transition-opacity focus:outline-none focus-visible:outline-none"
                 style={{
                   opacity: relationType === type ? 1 : 0.4,
-                  outline: "none",
                   borderRadius: 99,
                 }}
                 aria-pressed={relationType === type}
                 aria-label={`Type de relation : ${type}`}
               >
                 <RelationChip type={type} />
-              </button>
+              </Button>
             ))}
           </div>
         </div>
@@ -371,52 +368,60 @@ export function EditableSidebar({ contact, hasLiveBackend }: EditableSidebarProp
         <FieldLabel>Emails</FieldLabel>
         {emails.map((email, i) => (
           <div key={i} className="flex gap-1.5">
-            <input
+            <Input
               type="email"
               value={email.value}
               onChange={(e) => updateEmail(i, "value", e.target.value)}
               onBlur={() => commitEmails(emails)}
               placeholder="email@…"
-              className={inputClass}
-              style={inputStyle}
+              className="flex-1"
             />
-            <select
-              value={email.label}
-              onChange={(e) => {
-                const val = e.target.value as Email["label"];
+            <Select
+              selectedKey={email.label}
+              onSelectionChange={(key) => {
+                const val = String(key) as Email["label"];
                 commitEmails(emails.map((em, idx) => (idx === i ? { ...em, label: val } : em)));
               }}
-              className="rounded-md border px-1.5 py-1.5 text-xs outline-none"
-              style={{
-                borderColor: "var(--border-subtle)",
-                backgroundColor: "var(--surface-1)",
-                color: "var(--text-secondary)",
-              }}
+              aria-label="Label email"
+              className="w-20"
             >
-              <option value="perso">perso</option>
-              <option value="pro">pro</option>
-              <option value="autre">autre</option>
-            </select>
-            <button
+              <Select.Trigger className="rounded-md border px-1.5 py-1.5 text-xs outline-none" style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-1)", color: "var(--text-secondary)" }}>
+                <Select.Value />
+                <CaretDown size={10} />
+              </Select.Trigger>
+              <Select.Popover>
+                <ListBox>
+                  <ListBoxItem key="perso">perso</ListBoxItem>
+                  <ListBoxItem key="pro">pro</ListBoxItem>
+                  <ListBoxItem key="autre">autre</ListBoxItem>
+                </ListBox>
+              </Select.Popover>
+            </Select>
+            <Button
               type="button"
-              onClick={() => removeEmail(i)}
-              className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md border transition-colors hover:bg-[var(--surface-2)]"
+              isIconOnly
+              variant="ghost"
+              size="sm"
+              onPress={() => removeEmail(i)}
+              className="h-8 w-8 flex-shrink-0 rounded-md border"
               style={{ borderColor: "var(--border-subtle)", color: "var(--text-muted)" }}
               aria-label="Supprimer l'email"
             >
               <X size={12} />
-            </button>
+            </Button>
           </div>
         ))}
-        <button
+        <Button
           type="button"
-          onClick={addEmail}
-          className="flex items-center gap-1.5 self-start rounded-md border px-2 py-1 text-xs transition-colors hover:bg-[var(--surface-2)]"
+          variant="ghost"
+          size="sm"
+          onPress={addEmail}
+          className="flex items-center gap-1.5 self-start rounded-md border px-2 py-1 text-xs"
           style={{ borderColor: "var(--border-subtle)", color: "var(--text-muted)" }}
         >
           <Plus size={11} />
           Ajouter email
-        </button>
+        </Button>
       </div>
 
       {/* Phones */}
@@ -424,52 +429,60 @@ export function EditableSidebar({ contact, hasLiveBackend }: EditableSidebarProp
         <FieldLabel>Téléphones</FieldLabel>
         {phones.map((phone, i) => (
           <div key={i} className="flex gap-1.5">
-            <input
+            <Input
               type="tel"
               value={phone.value}
               onChange={(e) => updatePhone(i, "value", e.target.value)}
               onBlur={() => commitPhones(phones)}
               placeholder="+33 …"
-              className={inputClass}
-              style={inputStyle}
+              className="flex-1"
             />
-            <select
-              value={phone.label}
-              onChange={(e) => {
-                const val = e.target.value as Phone["label"];
+            <Select
+              selectedKey={phone.label}
+              onSelectionChange={(key) => {
+                const val = String(key) as Phone["label"];
                 commitPhones(phones.map((ph, idx) => (idx === i ? { ...ph, label: val } : ph)));
               }}
-              className="rounded-md border px-1.5 py-1.5 text-xs outline-none"
-              style={{
-                borderColor: "var(--border-subtle)",
-                backgroundColor: "var(--surface-1)",
-                color: "var(--text-secondary)",
-              }}
+              aria-label="Label téléphone"
+              className="w-20"
             >
-              <option value="mobile">mobile</option>
-              <option value="fixe">fixe</option>
-              <option value="pro">pro</option>
-            </select>
-            <button
+              <Select.Trigger className="rounded-md border px-1.5 py-1.5 text-xs outline-none" style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-1)", color: "var(--text-secondary)" }}>
+                <Select.Value />
+                <CaretDown size={10} />
+              </Select.Trigger>
+              <Select.Popover>
+                <ListBox>
+                  <ListBoxItem key="mobile">mobile</ListBoxItem>
+                  <ListBoxItem key="fixe">fixe</ListBoxItem>
+                  <ListBoxItem key="pro">pro</ListBoxItem>
+                </ListBox>
+              </Select.Popover>
+            </Select>
+            <Button
               type="button"
-              onClick={() => removePhone(i)}
-              className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md border transition-colors hover:bg-[var(--surface-2)]"
+              isIconOnly
+              variant="ghost"
+              size="sm"
+              onPress={() => removePhone(i)}
+              className="h-8 w-8 flex-shrink-0 rounded-md border"
               style={{ borderColor: "var(--border-subtle)", color: "var(--text-muted)" }}
               aria-label="Supprimer le téléphone"
             >
               <X size={12} />
-            </button>
+            </Button>
           </div>
         ))}
-        <button
+        <Button
           type="button"
-          onClick={addPhone}
-          className="flex items-center gap-1.5 self-start rounded-md border px-2 py-1 text-xs transition-colors hover:bg-[var(--surface-2)]"
+          variant="ghost"
+          size="sm"
+          onPress={addPhone}
+          className="flex items-center gap-1.5 self-start rounded-md border px-2 py-1 text-xs"
           style={{ borderColor: "var(--border-subtle)", color: "var(--text-muted)" }}
         >
           <Plus size={11} />
           Ajouter téléphone
-        </button>
+        </Button>
       </div>
 
       {/* Organisation — picker over real `organisation` entities. */}
@@ -481,13 +494,12 @@ export function EditableSidebar({ contact, hasLiveBackend }: EditableSidebarProp
       {/* Birthday */}
       <div className="flex flex-col gap-1.5">
         <FieldLabel>Anniversaire</FieldLabel>
-        <input
+        <Input
           type="date"
           value={birthday}
           onChange={(e) => setBirthday(e.target.value)}
           onBlur={() => persist({ birthday })}
-          className={inputClass}
-          style={inputStyle}
+          className="w-full"
         />
         {birthday && relBirthday && (
           <span
@@ -505,38 +517,35 @@ export function EditableSidebar({ contact, hasLiveBackend }: EditableSidebarProp
         <FieldLabel>Réseaux sociaux</FieldLabel>
         <div className="flex items-center gap-2">
           <LinkedinLogo size={14} style={{ color: "var(--text-muted)", flexShrink: 0 }} />
-          <input
+          <Input
             type="url"
             value={linkedin}
             onChange={(e) => setLinkedin(e.target.value)}
             onBlur={() => persistSocial({ linkedin, twitter, github })}
             placeholder="linkedin.com/in/…"
-            className={inputClass}
-            style={inputStyle}
+            className="flex-1"
           />
         </div>
         <div className="flex items-center gap-2">
           <TwitterLogo size={14} style={{ color: "var(--text-muted)", flexShrink: 0 }} />
-          <input
+          <Input
             type="url"
             value={twitter}
             onChange={(e) => setTwitter(e.target.value)}
             onBlur={() => persistSocial({ linkedin, twitter, github })}
             placeholder="twitter.com/…"
-            className={inputClass}
-            style={inputStyle}
+            className="flex-1"
           />
         </div>
         <div className="flex items-center gap-2">
           <GithubLogo size={14} style={{ color: "var(--text-muted)", flexShrink: 0 }} />
-          <input
+          <Input
             type="url"
             value={github}
             onChange={(e) => setGithub(e.target.value)}
             onBlur={() => persistSocial({ linkedin, twitter, github })}
             placeholder="github.com/…"
-            className={inputClass}
-            style={inputStyle}
+            className="flex-1"
           />
         </div>
       </div>
@@ -555,18 +564,22 @@ export function EditableSidebar({ contact, hasLiveBackend }: EditableSidebarProp
               }}
             >
               {alias}
-              <button
+              <Button
                 type="button"
-                onClick={() => removeAlias(alias)}
+                isIconOnly
+                variant="ghost"
+                size="sm"
+                onPress={() => removeAlias(alias)}
+                className="h-auto min-h-0 min-w-0 p-0"
                 aria-label={`Supprimer l'alias ${alias}`}
               >
                 <X size={10} />
-              </button>
+              </Button>
             </span>
           ))}
         </div>
         <div className="flex gap-1.5">
-          <input
+          <Input
             type="text"
             value={aliasInput}
             onChange={(e) => setAliasInput(e.target.value)}
@@ -577,18 +590,20 @@ export function EditableSidebar({ contact, hasLiveBackend }: EditableSidebarProp
               }
             }}
             placeholder="Ajouter un alias…"
-            className={inputClass}
-            style={inputStyle}
+            className="flex-1"
           />
-          <button
+          <Button
             type="button"
-            onClick={addAlias}
-            className="flex items-center gap-1 rounded-md border px-2 py-1 text-xs transition-colors hover:bg-[var(--surface-2)]"
+            isIconOnly
+            variant="ghost"
+            size="sm"
+            onPress={addAlias}
+            className="rounded-md border px-2 py-1"
             style={{ borderColor: "var(--border-subtle)", color: "var(--text-muted)" }}
             aria-label="Ajouter l'alias"
           >
             <Plus size={11} />
-          </button>
+          </Button>
         </div>
         <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>
           Reconnu dans les notes via @ (ex: @LD).
@@ -606,14 +621,17 @@ export function EditableSidebar({ contact, hasLiveBackend }: EditableSidebarProp
               style={{ backgroundColor: "var(--surface-3)", color: "var(--text-muted)" }}
             >
               {tag}
-              <button
+              <Button
                 type="button"
-                onClick={() => removeTag(tag)}
+                isIconOnly
+                variant="ghost"
+                size="sm"
+                onPress={() => removeTag(tag)}
+                className="h-auto min-h-0 min-w-0 p-0 outline-none focus:outline-none focus-visible:outline-none"
                 aria-label={`Supprimer ${tag}`}
-                className="outline-none focus:outline-none focus-visible:outline-none"
               >
                 <X size={10} />
-              </button>
+              </Button>
             </span>
           ))}
           <TagSelector value={tags} onChange={commitTags} />

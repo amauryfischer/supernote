@@ -85,10 +85,11 @@ import {
 } from "@phosphor-icons/react";
 import type { Icon as PhosphorIcon } from "@phosphor-icons/react";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { Button, Input } from "@heroui/react";
 import type { Folder as FolderType } from "./fixtures";
 import { useTranslations } from "next-intl";
 import { ContextMenu, useContextMenu, useToast } from "@supernote/ui";
-import { useUpdateFolder, useReorderFolders } from "./hooks";
+import { useUpdateFolder, useReorderFolders, useMoveFolder } from "./hooks";
 import { folderAccentVars } from "@/lib/folderAccent";
 import {
   DndContext,
@@ -97,7 +98,12 @@ import {
   PointerSensor,
   useSensor,
   useSensors,
+  useDroppable,
   type DragEndEvent,
+  type DragOverEvent,
+  type DragStartEvent,
+  type CollisionDetection,
+  type Collision,
 } from "@dnd-kit/core";
 import {
   SortableContext,
@@ -122,23 +128,32 @@ const EXPANDED_STORAGE_KEY = "supernote.notes.folderTree.expanded";
 // open folder stays open during the session); we only trim what hits disk.
 const EXPANDED_MAX_PERSISTED = 200;
 
-function readExpandedFromStorage(): Set<string> {
-  if (typeof window === "undefined") return new Set();
+function readExpandedFromStorage(): Map<string, boolean> {
+  if (typeof window === "undefined") return new Map();
   try {
     const raw = window.localStorage.getItem(EXPANDED_STORAGE_KEY);
-    if (!raw) return new Set();
+    if (!raw) return new Map();
     const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return new Set();
-    return new Set(parsed.filter((p): p is string => typeof p === "string"));
+    if (!Array.isArray(parsed)) return new Map();
+    // Legacy format: string[] where presence = open. Migrate transparently.
+    if (parsed.length === 0 || typeof parsed[0] === "string") {
+      return new Map((parsed as string[]).map((p) => [p, true] as [string, boolean]));
+    }
+    // Current format: [string, boolean][]
+    return new Map(
+      (parsed as [unknown, unknown][]).filter(
+        (e): e is [string, boolean] => typeof e[0] === "string" && typeof e[1] === "boolean",
+      ),
+    );
   } catch {
-    return new Set();
+    return new Map();
   }
 }
 
-function writeExpandedToStorage(set: Set<string>) {
+function writeExpandedToStorage(map: Map<string, boolean>) {
   if (typeof window === "undefined") return;
   try {
-    const arr = Array.from(set);
+    const arr = Array.from(map.entries());
     const trimmed = arr.length > EXPANDED_MAX_PERSISTED
       ? arr.slice(arr.length - EXPANDED_MAX_PERSISTED)
       : arr;
@@ -339,6 +354,137 @@ const FOLDER_COLOR_PALETTE: ReadonlyArray<string> = [
   "#ec4899", // pink
 ];
 
+// ── Tree DnD helpers ──────────────────────────────────────────────────────────
+
+/** Parent path of a folder path ("a/b/c" → "a/b", "a" → ""). */
+function getParentPath(path: string): string {
+  const i = path.lastIndexOf("/");
+  return i === -1 ? "" : path.slice(0, i);
+}
+
+/** Flatten all visible folders into a depth-first ordered array. */
+function flattenVisibleFolders(
+  folders: FolderType[],
+  isExpanded: (path: string) => boolean,
+  childOrders: Map<string, string[]>,
+): FolderType[] {
+  const result: FolderType[] = [];
+  function visit(list: FolderType[], parentKey: string) {
+    const order = childOrders.get(parentKey);
+    const sorted = order
+      ? [...list].sort((a, b) => {
+          const ia = order.indexOf(a.path);
+          const ib = order.indexOf(b.path);
+          return (ia === -1 ? 1e9 : ia) - (ib === -1 ? 1e9 : ib);
+        })
+      : list;
+    for (const f of sorted) {
+      result.push(f);
+      if (f.children?.length && isExpanded(f.path)) visit(f.children, f.path);
+    }
+  }
+  visit(folders, "");
+  return result;
+}
+
+/** Get sibling paths for a given folder (same parent, in current order). */
+function getSiblingPaths(
+  path: string,
+  rootFolders: FolderType[],
+  childOrders: Map<string, string[]>,
+): string[] {
+  const parent = getParentPath(path);
+  function findChildren(list: FolderType[], targetParent: string): FolderType[] | null {
+    for (const f of list) {
+      if (f.path === targetParent) return f.children ?? [];
+      if (f.children) {
+        const found = findChildren(f.children, targetParent);
+        if (found !== null) return found;
+      }
+    }
+    return null;
+  }
+  const siblings = parent === "" ? rootFolders : (findChildren(rootFolders, parent) ?? []);
+  const order = childOrders.get(parent);
+  if (!order) return siblings.map((f) => f.path);
+  return [...siblings]
+    .sort((a, b) => {
+      const ia = order.indexOf(a.path);
+      const ib = order.indexOf(b.path);
+      return (ia === -1 ? 1e9 : ia) - (ib === -1 ? 1e9 : ib);
+    })
+    .map((f) => f.path);
+}
+
+/**
+ * Custom collision detection for the folder tree.
+ *
+ * Two outcomes only:
+ *   "nest:path"  — pointer is in the middle 40% of a folder → drop INTO it.
+ *   "path"       — pointer is at the top/bottom of a SIBLING folder → reorder.
+ *
+ * Cross-level, non-center hovers return [] so the active item stays in place
+ * visually instead of jumping to an unrelated position in the flat DOM order.
+ */
+const folderTreeCollision: CollisionDetection = ({ active, droppableContainers, pointerCoordinates }) => {
+  if (!pointerCoordinates) return [];
+  const { y: py } = pointerCoordinates;
+  const activePath = String(active.id);
+  const activeParent = getParentPath(activePath);
+
+  const nestHits: Collision[] = [];
+  const sortHits: Collision[] = [];
+  const reparentHits: Collision[] = [];
+
+  for (const container of droppableContainers) {
+    const rect = container.rect.current;
+    if (!rect || py < rect.top || py > rect.bottom) continue;
+
+    const id = String(container.id);
+    if (id.startsWith("nest:")) {
+      const targetPath = id.slice(5);
+      if (
+        targetPath === activePath ||
+        targetPath.startsWith(activePath + "/") ||
+        targetPath === activeParent
+      ) continue;
+      const relY = (py - rect.top) / rect.height;
+      if (relY >= 0.3 && relY <= 0.7) nestHits.push({ id, data: { droppableContainer: container } });
+    } else if (id.startsWith("reparent:")) {
+      // Edge zone (top/bottom 30%) on a folder with a different parent → reparent.
+      const targetPath = id.slice(9);
+      const targetParent = getParentPath(targetPath);
+      if (targetParent === activeParent) continue; // same level → sort handles it
+      if (targetPath === activePath || targetPath.startsWith(activePath + "/")) continue;
+      const relY = (py - rect.top) / rect.height;
+      if (relY < 0.3 || relY > 0.7) reparentHits.push({ id, data: { droppableContainer: container } });
+    } else {
+      // Sort: same-parent siblings only (no cross-level visual jumps).
+      if (getParentPath(id) === activeParent && id !== activePath) {
+        sortHits.push({ id, data: { droppableContainer: container } });
+      }
+    }
+  }
+
+  return nestHits.length > 0 ? nestHits : sortHits.length > 0 ? sortHits : reparentHits;
+};
+
+// ── FolderDndContext — shared drag state ──────────────────────────────────────
+
+interface FolderDndContextValue {
+  nestTarget: string | null;
+  reparentTarget: string | null;
+  childOrders: Map<string, string[]>;
+}
+
+const FolderDndContext = createContext<FolderDndContextValue>({
+  nestTarget: null,
+  reparentTarget: null,
+  childOrders: new Map(),
+});
+
+// ── FileTreeProps ──────────────────────────────────────────────────────────────
+
 interface FileTreeProps {
   folders: FolderType[];
   selectedFolder: string | null;
@@ -371,6 +517,11 @@ interface FileTreeProps {
    * column. The parent owns the collapsed state (so it can persist it).
    */
   onCollapse?: () => void;
+  /**
+   * Called when the user drops a note (dragged from the NoteList) onto a
+   * folder. Receives the note ID and the target folder path.
+   */
+  onDropNote?: (noteId: string, folderPath: string) => void;
 }
 
 // Picker popover state lifted to the FileTree root so only one popover is
@@ -396,6 +547,7 @@ export function FileTree({
   onArchiveFolder,
   notes,
   onCollapse,
+  onDropNote,
 }: FileTreeProps) {
   const t = useTranslations("notes");
   // Single context-menu state shared by every FolderNode — only one can be
@@ -409,26 +561,27 @@ export function FileTree({
   };
   const closePicker = () => setPicker(null);
 
-  // Persisted expanded-folder set. Lazy-init from localStorage so the very
-  // first render already shows the previously open folders without a flicker.
-  // We seed root-level folders as expanded on the first ever visit (i.e. when
-  // storage is empty) so the UX matches the pre-bug default.
-  const [expandedSet, setExpandedSet] = useState<Set<string>>(() => {
-    if (typeof window === "undefined") return new Set();
+  // Persisted expanded-folder map. Keys are folder paths; values are explicit
+  // booleans (true = open, false = closed). Absence means "use default"
+  // (root folders open, sub-folders closed). Using a Map instead of a Set
+  // lets us distinguish "explicitly closed by the user" from "never seen yet"
+  // — a Set can only represent the open state, so removing a root folder from
+  // it would incorrectly fall back to the "default open" rule.
+  const [expandedMap, setExpandedMap] = useState<Map<string, boolean>>(() => {
+    if (typeof window === "undefined") return new Map();
     const stored = readExpandedFromStorage();
     if (stored.size > 0) return stored;
-    const seed = new Set<string>();
+    // First ever visit: seed root-level folders as explicitly open.
+    const seed = new Map<string, boolean>();
     for (const folder of folders) {
-      // Only depth-0 (root) folders. Path with no "/" means root.
-      if (!folder.path.includes("/")) seed.add(folder.path);
+      if (!folder.path.includes("/")) seed.set(folder.path, true);
     }
     return seed;
   });
 
-  // Whenever the root folder list changes (first hydration, freshly created
-  // root folder, …), make sure NEW root-level folders default to expanded.
-  // Folders already present in the persisted set keep whatever state the
-  // user chose; folders not yet known get a soft default.
+  // Whenever the root folder list changes, make sure NEW root-level folders
+  // default to expanded. Folders already tracked in the map keep whatever
+  // state the user chose; only truly unseen folders get the soft default.
   const seededRootsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     const candidates = folders
@@ -436,14 +589,12 @@ export function FileTree({
       .map((f) => f.path);
     if (candidates.length === 0) return;
     for (const path of candidates) seededRootsRef.current.add(path);
-    setExpandedSet((prev) => {
+    setExpandedMap((prev) => {
       let mutated = false;
-      const next = new Set(prev);
+      const next = new Map(prev);
       for (const path of candidates) {
-        // Only seed if this path was never persisted — respects user choice
-        // to collapse a root folder across reloads.
         if (!next.has(path)) {
-          next.add(path);
+          next.set(path, true);
           mutated = true;
         }
       }
@@ -451,18 +602,16 @@ export function FileTree({
     });
   }, [folders]);
 
-  // Persist on every change. Cheap (Set → Array → JSON) and infrequent.
+  // Persist on every change.
   useEffect(() => {
-    writeExpandedToStorage(expandedSet);
-  }, [expandedSet]);
+    writeExpandedToStorage(expandedMap);
+  }, [expandedMap]);
 
   const setExpanded = useCallback((path: string, value: boolean) => {
-    setExpandedSet((prev) => {
-      const has = prev.has(path);
-      if (value === has) return prev;
-      const next = new Set(prev);
-      if (value) next.add(path);
-      else next.delete(path);
+    setExpandedMap((prev) => {
+      if (prev.get(path) === value) return prev;
+      const next = new Map(prev);
+      next.set(path, value);
       return next;
     });
   }, []);
@@ -471,16 +620,14 @@ export function FileTree({
     if (!path) return;
     const segments = path.split("/").filter(Boolean);
     if (segments.length === 0) return;
-    setExpandedSet((prev) => {
-      const next = new Set(prev);
+    setExpandedMap((prev) => {
+      const next = new Map(prev);
       let acc = "";
       let mutated = false;
-      // Expand every ancestor AND the path itself so deep-linking to
-      // /foo/bar/baz reveals /foo and /foo/bar in the tree.
       for (const seg of segments) {
         acc = acc ? `${acc}/${seg}` : seg;
-        if (!next.has(acc)) {
-          next.add(acc);
+        if (next.get(acc) !== true) {
+          next.set(acc, true);
           mutated = true;
         }
       }
@@ -489,11 +636,12 @@ export function FileTree({
   }, []);
 
   const isExpanded = useCallback((path: string) => {
-    if (expandedSet.has(path)) return true;
-    // Default for unseen paths: root-level folders open, deeper folders
-    // closed. Mirrors the pre-bug per-node `useState(depth === 0)`.
+    const explicit = expandedMap.get(path);
+    // Explicit value set by the user always wins.
+    if (explicit !== undefined) return explicit;
+    // Default: root-level folders open, deeper folders closed.
     return !path.includes("/");
-  }, [expandedSet]);
+  }, [expandedMap]);
 
   // Auto-expand the parent chain whenever the externally-selected folder
   // changes. Covers: navigating via the URL (?folder=…), creating a folder
@@ -509,11 +657,15 @@ export function FileTree({
     [isExpanded, setExpanded, expandPath],
   );
 
-  // ── Folder DnD reordering ─────────────────────────────────────────────────
-  // Only root-level (depth=0) folders participate. Optimistic order state
-  // applied immediately; persisted in background via useReorderFolders.
+  // ── Unified folder DnD (reorder + reparent) ───────────────────────────────
+  // A single DndContext wraps the entire tree so folders can be dragged
+  // across levels. `childOrders` replaces the old per-node `localChildOrder`
+  // states; key "" = root, key "a/b" = children of folder "a/b".
   const { reorderFolders } = useReorderFolders();
-  const [folderOrder, setFolderOrder] = useState<string[] | null>(null);
+  const { moveFolder } = useMoveFolder();
+  const [childOrders, setChildOrders] = useState<Map<string, string[]>>(new Map());
+  const [nestTarget, setNestTarget] = useState<string | null>(null);
+  const [reparentTarget, setReparentTarget] = useState<string | null>(null);
 
   const dndSensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -521,28 +673,91 @@ export function FileTree({
   );
 
   const orderedFolders = useMemo(() => {
-    if (!folderOrder) return folders;
-    const idx = new Map(folderOrder.map((p, i) => [p, i]));
+    const order = childOrders.get("");
+    if (!order) return folders;
+    const idx = new Map(order.map((p, i) => [p, i]));
     return [...folders].sort((a, b) => {
       const ia = idx.get(a.path) ?? Infinity;
       const ib = idx.get(b.path) ?? Infinity;
       return ia !== ib ? ia - ib : a.path.localeCompare(b.path);
     });
-  }, [folders, folderOrder]);
+  }, [folders, childOrders]);
 
-  const handleFolderDragEnd = useCallback(
+  // Inbox is pinned to the top of the tree, visually separated from user
+  // folders by a divider. We split it out of the sortable list so it can't
+  // be dragged around with the rest.
+  const inboxFolder = useMemo(
+    () => orderedFolders.find((f) => f.path === "Inbox") ?? null,
+    [orderedFolders],
+  );
+  const otherFolders = useMemo(
+    () => orderedFolders.filter((f) => f.path !== "Inbox"),
+    [orderedFolders],
+  );
+
+  const handleDragStart = useCallback((_event: DragStartEvent) => {
+    setNestTarget(null);
+    setReparentTarget(null);
+  }, []);
+
+  const handleDragOver = useCallback((event: DragOverEvent) => {
+    const overId = event.over ? String(event.over.id) : null;
+    if (overId?.startsWith("nest:")) {
+      setNestTarget(overId.slice(5));
+      setReparentTarget(null);
+    } else if (overId?.startsWith("reparent:")) {
+      setNestTarget(null);
+      setReparentTarget(overId.slice(9));
+    } else {
+      setNestTarget(null);
+      setReparentTarget(null);
+    }
+  }, []);
+
+  const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
       const { active, over } = event;
+      setNestTarget(null);
+      setReparentTarget(null);
       if (!over || active.id === over.id) return;
-      const current = orderedFolders.map((f) => f.path);
-      const oldIdx = current.indexOf(active.id as string);
-      const newIdx = current.indexOf(over.id as string);
+
+      const activePath = String(active.id);
+      const overId = String(over.id);
+
+      if (overId.startsWith("nest:")) {
+        // Drop INTO another folder.
+        const targetPath = overId.slice(5);
+        const leaf = activePath.split("/").pop()!;
+        void moveFolder(activePath, `${targetPath}/${leaf}`);
+        setExpanded(targetPath, true);
+        return;
+      }
+
+      if (overId.startsWith("reparent:")) {
+        // Drop ADJACENT to another folder → move to that folder's parent level.
+        const siblingPath = overId.slice(9);
+        const newParent = getParentPath(siblingPath);
+        const leaf = activePath.split("/").pop()!;
+        const newPath = newParent ? `${newParent}/${leaf}` : leaf;
+        void moveFolder(activePath, newPath);
+        if (newParent) setExpanded(newParent, true);
+        return;
+      }
+
+      // Sort: same-parent siblings (collision guarantees this).
+      const activeParent = getParentPath(activePath);
+      const siblings = getSiblingPaths(activePath, orderedFolders, childOrders);
+      const oldIdx = siblings.indexOf(activePath);
+      const newIdx = siblings.indexOf(overId);
       if (oldIdx === -1 || newIdx === -1) return;
-      const next = arrayMove(current, oldIdx, newIdx);
-      setFolderOrder(next);
-      void reorderFolders(next).catch(() => setFolderOrder(current));
+      const next = arrayMove(siblings, oldIdx, newIdx);
+      const prev = [...siblings];
+      setChildOrders((m) => new Map(m).set(activeParent, next));
+      void reorderFolders(next).catch(() =>
+        setChildOrders((m) => new Map(m).set(activeParent, prev)),
+      );
     },
-    [orderedFolders, reorderFolders],
+    [orderedFolders, childOrders, reorderFolders, moveFolder, setExpanded],
   );
 
   return (
@@ -585,38 +800,76 @@ export function FileTree({
       </div>
 
       <ExpandedContext.Provider value={expandedCtx}>
-        <nav className="flex-1 overflow-y-auto p-2">
+        <FolderDndContext.Provider value={{ nestTarget, reparentTarget, childOrders }}>
           <DndContext
             sensors={dndSensors}
-            collisionDetection={closestCenter}
-            onDragEnd={handleFolderDragEnd}
+            collisionDetection={folderTreeCollision}
+            onDragStart={handleDragStart}
+            onDragOver={handleDragOver}
+            onDragEnd={handleDragEnd}
           >
-            <SortableContext
-              items={orderedFolders.map((f) => f.path)}
-              strategy={verticalListSortingStrategy}
-            >
-              {orderedFolders.map((folder) => (
-                <FolderNode
-                  key={folder.path}
-                  folder={folder}
-                  selectedFolder={selectedFolder}
-                  onSelectFolder={onSelectFolder}
-                  onNewFolder={onNewFolder}
-                  onNewNote={onNewNote}
-                  onRenameFolder={onRenameFolder}
-                  onRenameFolderInline={onRenameFolderInline}
-                  onDeleteFolder={onDeleteFolder}
-                  onArchiveFolder={onArchiveFolder}
-                  openContextMenu={ctx.open}
-                  openPicker={openPicker}
-                  depth={0}
-                  notes={notes}
-                  sortable
-                />
-              ))}
-            </SortableContext>
+            <nav className="flex-1 overflow-y-auto p-2">
+              {inboxFolder && (
+                <>
+                  <SortableContext
+                    items={[inboxFolder.path]}
+                    strategy={verticalListSortingStrategy}
+                  >
+                    <FolderNode
+                      key={inboxFolder.path}
+                      folder={inboxFolder}
+                      selectedFolder={selectedFolder}
+                      onSelectFolder={onSelectFolder}
+                      onNewFolder={onNewFolder}
+                      onNewNote={onNewNote}
+                      onRenameFolder={onRenameFolder}
+                      onRenameFolderInline={onRenameFolderInline}
+                      onDeleteFolder={onDeleteFolder}
+                      onArchiveFolder={onArchiveFolder}
+                      openContextMenu={ctx.open}
+                      openPicker={openPicker}
+                      depth={0}
+                      notes={notes}
+                      onDropNote={onDropNote}
+                      isPinned
+                    />
+                  </SortableContext>
+                  {otherFolders.length > 0 && (
+                    <div
+                      className="my-2 border-t"
+                      style={{ borderColor: "var(--border-subtle)" }}
+                      aria-hidden
+                    />
+                  )}
+                </>
+              )}
+              <SortableContext
+                items={otherFolders.map((f) => f.path)}
+                strategy={verticalListSortingStrategy}
+              >
+                {otherFolders.map((folder) => (
+                  <FolderNode
+                    key={folder.path}
+                    folder={folder}
+                    selectedFolder={selectedFolder}
+                    onSelectFolder={onSelectFolder}
+                    onNewFolder={onNewFolder}
+                    onNewNote={onNewNote}
+                    onRenameFolder={onRenameFolder}
+                    onRenameFolderInline={onRenameFolderInline}
+                    onDeleteFolder={onDeleteFolder}
+                    onArchiveFolder={onArchiveFolder}
+                    openContextMenu={ctx.open}
+                    openPicker={openPicker}
+                    depth={0}
+                    notes={notes}
+                    onDropNote={onDropNote}
+                  />
+                ))}
+              </SortableContext>
+            </nav>
           </DndContext>
-        </nav>
+        </FolderDndContext.Provider>
       </ExpandedContext.Provider>
 
       <ContextMenu state={ctx.state} onClose={ctx.close} />
@@ -626,14 +879,14 @@ export function FileTree({
         className="border-t p-2"
         style={{ borderColor: "var(--border-subtle)" }}
       >
-        <button
-          onClick={() => onNewFolder(null)}
+        <Button
+          onPress={() => onNewFolder(null)}
           className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-xs transition-colors hover:bg-[var(--surface-2)]"
           style={{ color: "var(--text-muted)" }}
         >
           <Plus size={12} />
           {t("newFolder")}
-        </button>
+        </Button>
       </div>
     </aside>
   );
@@ -648,23 +901,17 @@ interface FolderNodeProps {
   onRenameFolder?: (path: string) => void;
   onRenameFolderInline?: (oldPath: string, newName: string) => Promise<void>;
   onDeleteFolder?: (path: string) => void;
-  /**
-   * Bulk-archive every note in the folder. Returns the count so the caller
-   * can show a "12 notes archivées" toast. Resolves once the on-disk move
-   * + folder cleanup are committed.
-   */
   onArchiveFolder?: (path: string) => Promise<{ archivedCount: number }>;
-  /** Forwarded from FileTree's `useContextMenu().open` — opens the shared menu. */
   openContextMenu: (
     e: React.MouseEvent,
     items: import("@supernote/ui").ContextMenuItemDef[],
   ) => void;
-  /** Open the customization popover (color or icon) at the click position. */
   openPicker: (kind: PickerKind, path: string, e: React.MouseEvent) => void;
   depth: number;
   notes: { folderPath: string }[];
-  /** When true, this root-level folder participates in DnD reordering. */
-  sortable?: boolean;
+  onDropNote?: (noteId: string, folderPath: string) => void;
+  /** When true, hide the drag handle (used for the pinned Inbox row). */
+  isPinned?: boolean;
 }
 
 function FolderNode({
@@ -681,7 +928,8 @@ function FolderNode({
   openPicker,
   depth,
   notes,
-  sortable,
+  onDropNote,
+  isPinned = false,
 }: FolderNodeProps) {
   const hasChildren = !!folder.children?.length;
   // Expanded state is hoisted to FileTree (persisted in localStorage) so it
@@ -694,44 +942,26 @@ function FolderNode({
   // Track inline rename pending state to block single-click navigation during edit.
   const [isRenaming, setIsRenaming] = useState(false);
   const [hovered, setHovered] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const dragExpandTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // ── Subfolder DnD wiring ─────────────────────────────────────────────────
-  // Each FolderNode that has children renders its own DndContext +
-  // SortableContext below, so siblings at every level can be reordered
-  // independently. Optimistic order is held locally and propagates to the
-  // tree refetch via useReorderFolders.
-  const { reorderFolders: reorderSubfolders } = useReorderFolders();
-  const [localChildOrder, setLocalChildOrder] = useState<string[] | null>(null);
-  const childDndSensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
-  );
+  // ── DnD wiring (single context at FileTree level) ────────────────────────
+  // All folders participate in the single top-level SortableContext for
+  // reordering AND in their own "nest:" / "reparent:" droppable zones.
+  const { nestTarget, reparentTarget, childOrders } = useContext(FolderDndContext);
+  const isNestTarget = nestTarget === folder.path;
+  const isReparentTarget = reparentTarget === folder.path;
+
   const orderedChildren = useMemo(() => {
     const kids = folder.children ?? [];
-    if (!localChildOrder) return kids;
-    const idx = new Map(localChildOrder.map((p, i) => [p, i]));
+    const order = childOrders.get(folder.path);
+    if (!order) return kids;
+    const idx = new Map(order.map((p, i) => [p, i]));
     return [...kids].sort(
       (a, b) => (idx.get(a.path) ?? Infinity) - (idx.get(b.path) ?? Infinity),
     );
-  }, [folder.children, localChildOrder]);
-  const handleChildDragEnd = useCallback(
-    (e: DragEndEvent) => {
-      const { active, over } = e;
-      if (!over || active.id === over.id) return;
-      const current = orderedChildren.map((c) => c.path);
-      const oldIdx = current.indexOf(String(active.id));
-      const newIdx = current.indexOf(String(over.id));
-      if (oldIdx === -1 || newIdx === -1) return;
-      const next = arrayMove(current, oldIdx, newIdx);
-      setLocalChildOrder(next);
-      void reorderSubfolders(next).catch(() => setLocalChildOrder(current));
-    },
-    [orderedChildren, reorderSubfolders],
-  );
+  }, [folder.children, folder.path, childOrders]);
 
-  // DnD sortable — enabled when the parent passes `sortable={true}`. Now
-  // applies to every depth: the root level via FileTree's own SortableContext,
-  // and every subfolder list via the per-node SortableContext below.
   const {
     attributes: sortableAttributes,
     listeners: sortableListeners,
@@ -739,7 +969,12 @@ function FolderNode({
     transform: sortableTransform,
     transition: sortableTransition,
     isDragging: isSortDragging,
-  } = useSortable({ id: folder.path, disabled: !sortable });
+  } = useSortable({ id: folder.path });
+
+  // "nest:" droppable — center 30-70% zone → drop INTO this folder.
+  const { setNodeRef: nestNodeRef } = useDroppable({ id: `nest:${folder.path}` });
+  // "reparent:" droppable — edge zones (top/bottom 30%) when crossing parent levels.
+  const { setNodeRef: reparentRef } = useDroppable({ id: `reparent:${folder.path}` });
 
   // Recursive count: notes whose folderPath equals this folder OR begins with
   // "<folder.path>/" — i.e. notes nested at any depth underneath. Computed
@@ -854,6 +1089,46 @@ function FolderNode({
     openContextMenu(e, buildMenuItems({ clientX: e.clientX, clientY: e.clientY }));
   };
 
+  const handleDragOver = onDropNote ? (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    const innerFolder = (e.target as Element).closest("[data-folder-drop]");
+    if (innerFolder && innerFolder !== e.currentTarget) {
+      if (isDragOver) setIsDragOver(false);
+      return;
+    }
+    if (!isDragOver) {
+      setIsDragOver(true);
+      if (hasChildren && !expanded) {
+        dragExpandTimerRef.current = setTimeout(() => {
+          setExpanded(folder.path, true);
+        }, 600);
+      }
+    }
+  } : undefined;
+
+  const handleDragLeave = onDropNote ? (e: React.DragEvent) => {
+    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+      setIsDragOver(false);
+      if (dragExpandTimerRef.current) {
+        clearTimeout(dragExpandTimerRef.current);
+        dragExpandTimerRef.current = null;
+      }
+    }
+  } : undefined;
+
+  const handleDrop = onDropNote ? (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+    if (dragExpandTimerRef.current) {
+      clearTimeout(dragExpandTimerRef.current);
+      dragExpandTimerRef.current = null;
+    }
+    const noteId = e.dataTransfer.getData("text/plain");
+    if (noteId) onDropNote(noteId, folder.path);
+  } : undefined;
+
   const handleActionsClick = (e: React.MouseEvent) => {
     // Stop here so the row's onClick (folder selection) doesn't also fire.
     e.stopPropagation();
@@ -883,8 +1158,11 @@ function FolderNode({
     ? selectedAccent["--accent"]
     : isSelected ? "var(--accent)" : "var(--text-secondary)";
 
+  // At depth=0 the drag handle (left-0.5 + w-4 = x:2-18px) would overlap the
+  // chevron if paddingLeft were only 8px. Reserve 20px so the chevron starts
+  // at x=20px. At depth≥1, paddingLeft ≥ 24px already clears the handle.
   const sharedRowStyle: React.CSSProperties = {
-    paddingLeft: `${8 + depth * 16}px`,
+    paddingLeft: `${(depth === 0 ? 20 : 8) + depth * 16}px`,
     backgroundColor: selectedBg,
     color: selectedFg,
     fontWeight: isSelected ? 500 : 400,
@@ -904,29 +1182,47 @@ function FolderNode({
     </span>
   );
 
-  const sortableDndStyle: React.CSSProperties = sortable
-    ? {
-        transform: CSS.Transform.toString(sortableTransform),
-        transition: sortableTransition,
-        opacity: isSortDragging ? 0.4 : 1,
-        zIndex: isSortDragging ? 10 : undefined,
-      }
-    : {};
+  const sortableDndStyle: React.CSSProperties = {
+    transform: CSS.Transform.toString(sortableTransform),
+    transition: sortableTransition,
+    opacity: isSortDragging ? 0.4 : 1,
+    zIndex: isSortDragging ? 10 : undefined,
+  };
 
   return (
     <div
-      ref={sortable ? sortableNodeRef : undefined}
+      ref={sortableNodeRef}
+      data-folder-drop={folder.path}
       style={sortableDndStyle}
-      {...(sortable ? sortableAttributes : {})}
+      {...sortableAttributes}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
     >
       <div
+        ref={(el) => { nestNodeRef(el); reparentRef(el); }}
         className="group relative flex items-center"
         onContextMenu={handleContextMenu}
+        style={isNestTarget ? {
+          outline: "2px solid var(--accent)",
+          outlineOffset: "-1px",
+          borderRadius: "6px",
+          backgroundColor: "var(--accent-subtle)",
+        } : isReparentTarget ? {
+          outline: "2px dashed var(--accent)",
+          outlineOffset: "2px",
+          borderRadius: "6px",
+        } : isDragOver ? {
+          outline: "2px solid var(--accent)",
+          outlineOffset: "-1px",
+          borderRadius: "6px",
+          backgroundColor: "var(--accent-subtle)",
+        } : undefined}
       >
-        {/* Drag handle — only visible on hover for root-level sortable folders */}
-        {sortable && hovered && (
+        {/* Drag handle — visible on hover for all folders except pinned ones */}
+        {hovered && !isPinned && (
           <button
             {...sortableListeners}
             aria-label="Réordonner le dossier"
@@ -1002,6 +1298,7 @@ function FolderNode({
             onContextMenu={handleActionsClick}
             aria-label="Actions du dossier"
             title="Actions"
+            // Justified native: context-menu positioning requires clientX/clientY.
             className="absolute right-1.5 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md border border-[var(--border-subtle)] bg-[var(--surface-1)] text-[var(--text-muted)] opacity-0 shadow-sm transition-opacity hover:bg-[var(--surface-2)] hover:text-[var(--text-primary)] focus:opacity-100 focus-visible:opacity-100 group-hover:opacity-100"
           >
             <DotsThree size={14} weight="bold" />
@@ -1011,36 +1308,35 @@ function FolderNode({
 
       {hasChildren && expanded && (
         <div>
-          <DndContext
-            sensors={childDndSensors}
-            collisionDetection={closestCenter}
-            onDragEnd={handleChildDragEnd}
+          {/* SortableContext per level — shared DndContext is at FileTree root.
+              This prevents cross-level sort animations: verticalListSortingStrategy
+              only displaces items within its own context, never items in sibling
+              or ancestor contexts, so dragging across depths causes no visual jump. */}
+          <SortableContext
+            id={folder.path}
+            items={orderedChildren.map((c) => c.path)}
+            strategy={verticalListSortingStrategy}
           >
-            <SortableContext
-              items={orderedChildren.map((c) => c.path)}
-              strategy={verticalListSortingStrategy}
-            >
-              {orderedChildren.map((child) => (
-                <FolderNode
-                  key={child.path}
-                  folder={child}
-                  selectedFolder={selectedFolder}
-                  onSelectFolder={onSelectFolder}
-                  onNewFolder={onNewFolder}
-                  onNewNote={onNewNote}
-                  onRenameFolder={onRenameFolder}
-                  onRenameFolderInline={onRenameFolderInline}
-                  onDeleteFolder={onDeleteFolder}
-                  onArchiveFolder={onArchiveFolder}
-                  openContextMenu={openContextMenu}
-                  openPicker={openPicker}
-                  depth={depth + 1}
-                  notes={notes}
-                  sortable
-                />
-              ))}
-            </SortableContext>
-          </DndContext>
+            {orderedChildren.map((child) => (
+              <FolderNode
+                key={child.path}
+                folder={child}
+                selectedFolder={selectedFolder}
+                onSelectFolder={onSelectFolder}
+                onNewFolder={onNewFolder}
+                onNewNote={onNewNote}
+                onRenameFolder={onRenameFolder}
+                onRenameFolderInline={onRenameFolderInline}
+                onDeleteFolder={onDeleteFolder}
+                onArchiveFolder={onArchiveFolder}
+                openContextMenu={openContextMenu}
+                openPicker={openPicker}
+                depth={depth + 1}
+                notes={notes}
+                onDropNote={onDropNote}
+              />
+            ))}
+          </SortableContext>
         </div>
       )}
     </div>
@@ -1096,15 +1392,14 @@ interface ActionButtonProps {
 
 function ActionButton({ onClick, label, icon }: ActionButtonProps) {
   return (
-    <button
-      onClick={onClick}
+    <Button
+      onPress={onClick}
       aria-label={label}
-      title={label}
       className="flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-[var(--surface-2)]"
       style={{ color: "var(--text-muted)" }}
     >
       {icon}
-    </button>
+    </Button>
   );
 }
 
@@ -1213,12 +1508,10 @@ function ColorPickerGrid({ onPick, onReset }: ColorPickerGridProps) {
         }}
       >
         {FOLDER_COLOR_PALETTE.map((color) => (
-          <button
+          <Button
             key={color}
-            type="button"
-            onClick={() => onPick(color)}
+            onPress={() => onPick(color)}
             aria-label={`Couleur ${color}`}
-            title={color}
             style={{
               width: 28,
               height: 28,
@@ -1270,9 +1563,8 @@ function ColorPickerGrid({ onPick, onReset }: ColorPickerGridProps) {
           />
           Personnalisée
         </label>
-        <button
-          type="button"
-          onClick={onReset}
+        <Button
+          onPress={onReset}
           style={{
             fontSize: 12,
             color: "var(--text-muted, #6b7280)",
@@ -1284,7 +1576,7 @@ function ColorPickerGrid({ onPick, onReset }: ColorPickerGridProps) {
           }}
         >
           Réinitialiser
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -1313,10 +1605,10 @@ function IconPickerGrid({ onPick, onReset }: IconPickerGridProps) {
 
   return (
     <div style={{ width: 360 }}>
-      <input
+      <Input
         type="text"
         value={query}
-        onChange={(e) => setQuery(e.currentTarget.value)}
+        onChange={(e) => setQuery(e.target.value)}
         placeholder="Rechercher une icône…"
         aria-label="Rechercher une icône"
         autoFocus
@@ -1374,12 +1666,10 @@ function IconPickerGrid({ onPick, onReset }: IconPickerGridProps) {
                 }}
               >
                 {category.icons.map(({ key, Icon }) => (
-                  <button
+                  <Button
                     key={key}
-                    type="button"
-                    onClick={() => onPick(key)}
+                    onPress={() => onPick(key)}
                     aria-label={`Icône ${key}`}
-                    title={key}
                     style={{
                       width: 32,
                       height: 32,
@@ -1408,7 +1698,7 @@ function IconPickerGrid({ onPick, onReset }: IconPickerGridProps) {
                     }}
                   >
                     <Icon size={18} />
-                  </button>
+                  </Button>
                 ))}
               </div>
             </div>
@@ -1422,9 +1712,8 @@ function IconPickerGrid({ onPick, onReset }: IconPickerGridProps) {
           justifyContent: "flex-end",
         }}
       >
-        <button
-          type="button"
-          onClick={onReset}
+        <Button
+          onPress={onReset}
           style={{
             fontSize: 12,
             color: "var(--text-muted, #6b7280)",
@@ -1436,7 +1725,7 @@ function IconPickerGrid({ onPick, onReset }: IconPickerGridProps) {
           }}
         >
           Réinitialiser
-        </button>
+        </Button>
       </div>
     </div>
   );

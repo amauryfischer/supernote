@@ -1,5 +1,6 @@
 "use client";
 
+import { Button } from "@heroui/react";
 import { Plus, Trash } from "@phosphor-icons/react";
 import type { Template } from "@supernote/templates";
 
@@ -37,14 +38,15 @@ export function TemplateList({ templates, selectedId, onSelect, onNew, onDelete 
         <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
           Templates
         </span>
-        <button
-          onClick={onNew}
+        <Button
+          variant="ghost"
+          onPress={onNew}
           aria-label="Nouveau template"
-          className="flex h-6 w-6 items-center justify-center rounded transition-colors hover:bg-[var(--surface-2)]"
+          className="flex h-6 w-6 items-center justify-center rounded transition-colors hover:bg-[var(--surface-2)] min-w-0 p-0"
           style={{ color: "var(--text-muted)" }}
         >
           <Plus size={14} />
-        </button>
+        </Button>
       </div>
 
       <nav className="flex-1 overflow-y-auto p-2">
@@ -58,9 +60,10 @@ export function TemplateList({ templates, selectedId, onSelect, onNew, onDelete 
           const emoji = t.icon ? (ICON_MAP[t.icon] ?? "📄") : "📄";
           return (
             <div key={t.id} className="group relative">
-              <button
-                onClick={() => onSelect(t.id)}
-                className="flex w-full items-start gap-2.5 rounded-md px-3 py-2 text-left transition-colors pr-8"
+              <Button
+                variant="ghost"
+                onPress={() => onSelect(t.id)}
+                className="flex w-full items-start gap-2.5 rounded-md px-3 py-2 text-left transition-colors pr-8 h-auto justify-start"
                 style={{
                   backgroundColor: isActive ? "var(--accent-subtle)" : undefined,
                   color: isActive ? "var(--accent)" : "var(--text-secondary)",
@@ -80,20 +83,18 @@ export function TemplateList({ templates, selectedId, onSelect, onNew, onDelete 
                     </p>
                   )}
                 </div>
-              </button>
+              </Button>
 
               {onDelete && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onDelete(t.id);
-                  }}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 flex h-5 w-5 items-center justify-center rounded opacity-0 transition-opacity group-hover:opacity-100 hover:bg-[oklch(0.93_0.10_28_/_0.15)]"
+                <Button
+                  variant="ghost"
+                  onPress={() => onDelete(t.id)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 flex h-5 w-5 items-center justify-center rounded opacity-0 transition-opacity group-hover:opacity-100 hover:bg-[oklch(0.93_0.10_28_/_0.15)] min-w-0 p-0"
                   style={{ color: "var(--danger)" }}
                   aria-label="Supprimer le template"
                 >
                   <Trash size={12} />
-                </button>
+                </Button>
               )}
             </div>
           );

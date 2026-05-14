@@ -1,5 +1,6 @@
 "use client";
 
+import { Button, Switch } from "@heroui/react";
 import { Calendar, Lightning, Alarm, WebhooksLogo, PencilSimple, Play, Power, Trash } from "@phosphor-icons/react";
 import Link from "next/link";
 import type { RoutineFixture } from "./fixtures";
@@ -85,26 +86,12 @@ export function RoutineCard({ routine, onToggleEnabled, onDelete, onRun }: Routi
         </div>
 
         {/* Toggle switch */}
-        <label className="flex flex-shrink-0 cursor-pointer items-center gap-1.5">
-          <div className="relative">
-            <input
-              type="checkbox"
-              className="sr-only"
-              checked={routine.enabled}
-              onChange={(e) => onToggleEnabled(routine.id, e.target.checked)}
-            />
-            <div
-              className="h-5 w-9 rounded-full transition-colors"
-              style={{
-                backgroundColor: routine.enabled ? "var(--accent)" : "var(--surface-3)",
-              }}
-            />
-            <div
-              className="absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform"
-              style={{ left: routine.enabled ? "calc(100% - 18px)" : "2px" }}
-            />
-          </div>
-        </label>
+        <Switch
+          isSelected={routine.enabled}
+          onChange={(v) => onToggleEnabled(routine.id, v)}
+          size="sm"
+          className="flex-shrink-0"
+        />
       </div>
 
       {/* Actions bar */}
@@ -112,39 +99,48 @@ export function RoutineCard({ routine, onToggleEnabled, onDelete, onRun }: Routi
         className="mt-3 flex items-center gap-1 border-t pt-3"
         style={{ borderColor: "var(--border-subtle)" }}
       >
-        <Link
-          href={`/routines/${routine.id}`}
-          className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--surface-2)]"
-          style={{ color: "var(--text-secondary)" }}
-        >
-          <PencilSimple size={13} />
-          Modifier
+        <Link href={`/routines/${routine.id}`}>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--surface-2)]"
+            style={{ color: "var(--text-secondary)" }}
+          >
+            <PencilSimple size={13} />
+            Modifier
+          </Button>
         </Link>
-        <button
-          onClick={() => onRun(routine.id)}
+        <Button
+          variant="ghost"
+          size="sm"
+          onPress={() => onRun(routine.id)}
           className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--surface-2)]"
           style={{ color: "var(--text-secondary)" }}
         >
           <Play size={13} />
           Lancer
-        </button>
-        <button
-          onClick={() => onToggleEnabled(routine.id, !routine.enabled)}
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          onPress={() => onToggleEnabled(routine.id, !routine.enabled)}
           className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--surface-2)]"
           style={{ color: "var(--text-secondary)" }}
         >
           <Power size={13} />
           {routine.enabled ? "Désactiver" : "Activer"}
-        </button>
+        </Button>
         <div className="flex-1" />
-        <button
-          onClick={() => onDelete(routine.id)}
+        <Button
+          variant="ghost"
+          size="sm"
+          onPress={() => onDelete(routine.id)}
           className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors hover:bg-[oklch(0.93_0.10_28_/_0.15)]"
           style={{ color: "var(--danger)" }}
         >
           <Trash size={13} />
           Supprimer
-        </button>
+        </Button>
       </div>
     </div>
   );

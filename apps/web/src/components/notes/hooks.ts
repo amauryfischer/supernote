@@ -164,7 +164,11 @@ export function useFolderTree(): UseFolderTreeResult {
     // by their own pages and showing them in /notes lets the user wipe out
     // their typed entities by deleting what looks like a stray folder.
     const visible = query.data.filter((e) => !isSystemFolder(e.path));
-    const entries = visible.length > 0 ? visible : [{ path: "Inbox" }];
+    // Inbox is conceptually distinct from user folders — always render it,
+    // even when empty, so the user can drop notes into it without first
+    // creating the folder.
+    const hasInbox = visible.some((e) => e.path === "Inbox");
+    const entries = hasInbox ? visible : [{ path: "Inbox" }, ...visible];
     const folders = foldersFromPaths(entries);
     return { folders, isLoading: false, isFallback: false };
   }
@@ -465,6 +469,51 @@ export function useRenameNote() {
   return { renameNote, isPending: mutation.isPending };
 }
 
+// ── useMoveNote ───────────────────────────────────────────────────────────────
+
+export function useMoveNote() {
+  const hasBackend = useHasBackend();
+  const utils = trpc.useUtils();
+  const mutation = trpc.entities.update.useMutation({
+    onSuccess: (data) => {
+      void utils.entities.get.invalidate({ id: data.id });
+      void utils.entities.list.invalidate();
+    },
+  });
+
+  const moveNote = useCallback(
+    async (id: string, targetFolderPath: string): Promise<void> => {
+      if (!hasBackend) return;
+      let cached = utils.entities.get.getData({ id });
+      if (!cached) cached = await utils.entities.get.fetch({ id });
+      const currentPath = cached?.filePath ?? null;
+      if (!currentPath) return;
+      if (currentPath.startsWith(`${targetFolderPath}/`) &&
+          !currentPath.slice(targetFolderPath.length + 1).includes("/")) return;
+
+      const filename = currentPath.split("/").pop()!;
+      const base = filename.replace(/\.md$/, "");
+      const all = utils.entities.list.getData({ typeId: "note", limit: 500, offset: 0 });
+
+      // Find a non-colliding destination path.
+      let nextFilePath = `${targetFolderPath}/${filename}`;
+      if (nextFilePath !== currentPath) {
+        let counter = 0;
+        while (all?.items.some((e) => e.filePath === nextFilePath && e.id !== id)) {
+          counter++;
+          nextFilePath = `${targetFolderPath}/${base}-${counter}.md`;
+        }
+      }
+
+      if (nextFilePath === currentPath) return;
+      await mutation.mutateAsync({ id, filePath: nextFilePath });
+    },
+    [hasBackend, mutation, utils],
+  );
+
+  return { moveNote, isPending: mutation.isPending };
+}
+
 // ── useDeleteNote ─────────────────────────────────────────────────────────────
 
 export function useDeleteNote() {
@@ -739,6 +788,27 @@ export function useReorderNotes() {
   );
 
   return { reorderNotes };
+}
+
+// ── useMoveFolder ─────────────────────────────────────────────────────────────
+
+/**
+ * Move (reparent) a folder to a new path via `vault.folders.rename`.
+ * Handles moving all contained notes and cleaning up the old directory.
+ */
+export function useMoveFolder() {
+  const utils = trpc.useUtils();
+  const mutation = trpc.vault.folders.rename.useMutation();
+
+  const moveFolder = useCallback(
+    async (oldPath: string, newPath: string): Promise<void> => {
+      await mutation.mutateAsync({ oldPath, newPath });
+      await utils.vault.folders.list.refetch();
+    },
+    [mutation, utils],
+  );
+
+  return { moveFolder };
 }
 
 // ── useReorderFolders ─────────────────────────────────────────────────────────

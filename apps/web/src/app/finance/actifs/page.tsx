@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useMemo } from "react";
 import { ArrowLeft, Plus, TrendUp, TrendDown } from "@phosphor-icons/react";
+import { Button } from "@heroui/react";
 import Link from "next/link";
 import { AppShell, useMobileTitle, useMobileFab, useMobileHeaderActions } from "@/components/shell";
 import { useIsMobile } from "@/hooks/useIsMobile";
@@ -152,22 +153,25 @@ export default function ActifsPage() {
           )}
         </div>
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => void handleRefreshPrices()}
-            disabled={refreshing || isFallback}
-            className="flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition-colors hover:bg-[var(--surface-2)] disabled:opacity-50"
+          <Button
+            onPress={() => void handleRefreshPrices()}
+            isDisabled={refreshing || isFallback}
+            variant="outline"
+            size="sm"
+            className="flex items-center gap-2 font-medium"
             style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
           >
             {refreshing ? "Actualisation..." : "Refresh prix"}
-          </button>
-          <button
-            onClick={() => void handleNewAsset()}
-            disabled={createMutation.isPending}
-            className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-opacity disabled:opacity-50"
+          </Button>
+          <Button
+            onPress={() => void handleNewAsset()}
+            isDisabled={createMutation.isPending}
+            size="sm"
+            className="flex items-center gap-2 font-medium"
             style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
           >
             <Plus size={14} /> Actif
-          </button>
+          </Button>
         </div>
       </div>
 

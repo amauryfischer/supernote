@@ -10,6 +10,7 @@
  */
 
 import { useMemo } from "react";
+import { Button } from "@heroui/react";
 import { Plus } from "@phosphor-icons/react";
 import type { EntityType } from "@supernote/core";
 import type { View } from "@supernote/ipc";
@@ -61,19 +62,17 @@ export function GalleryView({ base, view }: GalleryViewProps) {
               visibleFieldIds={visibleFieldIds}
             />
           ))}
-          <button
-            type="button"
-            onClick={() => mut.create.mutate({ typeId: base.id, fields: {}, body: "" })}
+          <Button
+            variant="ghost"
+            onPress={() => mut.create.mutate({ typeId: base.id, fields: {}, body: "" })}
             className="flex min-h-[140px] items-center justify-center rounded-md border-2 border-dashed text-xs font-medium hover:bg-[var(--surface-1)]"
             style={{
               borderColor: "var(--border-subtle)",
               color: "var(--text-muted)",
             }}
           >
-            <span className="flex items-center gap-1.5">
-              <Plus size={12} /> Nouvelle entrée
-            </span>
-          </button>
+            <Plus size={12} /> Nouvelle entrée
+          </Button>
         </div>
       )}
     </div>

@@ -3,7 +3,6 @@
 import {
   Archive,
   Bell,
-  BookOpen,
   CaretRight,
   Calendar,
   FolderOpen,
@@ -11,7 +10,6 @@ import {
   Graph,
   Lightning,
   MagnifyingGlass,
-  SquaresFour,
   Tag,
   Users,
   Wallet,
@@ -19,7 +17,7 @@ import {
   type Icon as PhosphorIcon,
 } from "@phosphor-icons/react";
 import Link from "next/link";
-import { Drawer } from "@supernote/ui";
+import { Button, Drawer } from "@supernote/ui";
 import { memo } from "react";
 import { NotificationBadge, useNotifications } from "@supernote/notifications/renderer";
 import { useVault } from "@/lib/pwa/PwaVaultSetup";
@@ -49,14 +47,12 @@ const SECTIONS: MoreSection[] = [
       { label: "Contacts", href: "/contacts", icon: Users, tint: "oklch(0.62 0.20 220)" },
       { label: "Finance", href: "/finance", icon: Wallet, tint: "oklch(0.62 0.20 150)" },
       { label: "Tags", href: "/tags", icon: Tag, tint: "oklch(0.65 0.18 80)" },
-      { label: "Vues", href: "/vues", icon: BookOpen, tint: "oklch(0.62 0.20 200)" },
       { label: "Archive", href: "/archive", icon: Archive, tint: "oklch(0.55 0.05 260)" },
     ],
   },
   {
     title: "Outils",
     items: [
-      { label: "Canvas", href: "/canvas", icon: SquaresFour, tint: "oklch(0.62 0.22 320)" },
       { label: "Graph", href: "/graph", icon: Graph, tint: "oklch(0.62 0.18 180)" },
       { label: "Routines", href: "/routines", icon: Lightning, tint: "oklch(0.70 0.18 90)" },
     ],
@@ -119,18 +115,20 @@ export const MoreDrawer = memo(function MoreDrawer({
           >
             Plus
           </h1>
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            size="icon"
             onClick={onClose}
             aria-label="Fermer"
-            className="flex h-9 w-9 items-center justify-center rounded-full transition-colors active:bg-[var(--surface-2)]"
+            className="flex h-9 w-9 items-center justify-center rounded-full"
             style={{
               backgroundColor: "var(--surface-2)",
               color: "var(--text-secondary)",
             }}
           >
             <X size={18} weight="bold" />
-          </button>
+          </Button>
         </header>
 
         {/* Scrollable body */}
@@ -166,24 +164,28 @@ export const MoreDrawer = memo(function MoreDrawer({
               </div>
             </div>
             {canPickVault && (
-              <button
+              <Button
                 type="button"
+                variant="ghost"
+                size="icon"
                 onClick={() => void vault?.pickFolder()}
                 aria-label="Changer de vault"
-                className="flex h-10 w-10 items-center justify-center rounded-lg transition-colors active:bg-[var(--surface-3)]"
+                className="flex h-10 w-10 items-center justify-center rounded-lg"
                 style={{ color: "var(--text-secondary)" }}
               >
                 <FolderOpen size={20} />
-              </button>
+              </Button>
             )}
-            <button
+            <Button
               type="button"
+              variant="ghost"
+              size="icon"
               onClick={() => {
                 onClose();
                 onOpenNotifications();
               }}
               aria-label="Ouvrir le centre de notifications"
-              className="relative flex h-10 w-10 items-center justify-center rounded-lg transition-colors active:bg-[var(--surface-3)]"
+              className="relative flex h-10 w-10 items-center justify-center rounded-lg"
               style={{ color: "var(--text-secondary)" }}
             >
               <Bell size={20} />
@@ -191,7 +193,7 @@ export const MoreDrawer = memo(function MoreDrawer({
                 count={unreadCount}
                 className="absolute right-1 top-1"
               />
-            </button>
+            </Button>
           </div>
 
           {/* Sections — each rendered as a single rounded card containing

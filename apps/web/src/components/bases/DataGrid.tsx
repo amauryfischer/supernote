@@ -8,22 +8,29 @@
  * committed immediately via `entities.update`; the query is invalidated so
  * every other open view of the same Base re-renders.
  *
- * Phase 1: no virtualization, no multi-row selection, no column resizing.
- * Adding rows / columns is supported. Filters/sorts are honored if passed in
- * via `view` — the toolbar UI to edit them lives elsewhere.
+ * Phase 1: no virtualization, no column resizing.
+ * Phase 2: navigation clavier, copier/coller, multi-sélection lignes.
+ * Phase 3: menu colonne (⋯), resize, drag-reorder.
  */
 
-import { useMemo } from "react";
-import { Plus, Trash } from "@phosphor-icons/react";
-import type { EntityType, Field } from "@supernote/core";
-import type { View } from "@supernote/ipc";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { Button } from "@heroui/react";
+import { Plus, Trash, ArrowUp, ArrowDown } from "@phosphor-icons/react";
+import type { EntityType, Field, SelectOption } from "@supernote/core";
+import type { View, SortClause } from "@supernote/ipc";
+import { useToast } from "@supernote/ui";
+import { trpc } from "@/lib/trpc/client";
+import { coreFieldToIpc } from "@/components/schemas/adapters";
 import { Cell } from "./Cell";
-import { FieldKindBadge } from "@/components/schemas/FieldKindBadge";
 import {
   useEntitiesForView,
   useEntityMutations,
+  useViewMutations,
   resolveVisibleFieldIds,
 } from "./hooks";
+import { ColumnHeaderMenu } from "./ColumnHeaderMenu";
+import { useShellChrome } from "@/components/shell/shell-chrome-context";
 
 interface DataGridProps {
   base: EntityType;
@@ -31,6 +38,31 @@ interface DataGridProps {
   /** Bounded height. The grid scrolls within it; the page handles the chrome. */
   maxHeight?: string;
 }
+
+// ── Largeurs colonnes — localStorage ─────────────────────────────────────────
+
+function colWidthsKey(baseId: string, viewId: string): string {
+  return `supernote:datagrid:colWidths:${baseId}:${viewId}`;
+}
+
+function loadColWidths(baseId: string, viewId: string): Record<string, number> {
+  try {
+    const raw = localStorage.getItem(colWidthsKey(baseId, viewId));
+    return raw ? (JSON.parse(raw) as Record<string, number>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveColWidths(baseId: string, viewId: string, widths: Record<string, number>) {
+  try {
+    localStorage.setItem(colWidthsKey(baseId, viewId), JSON.stringify(widths));
+  } catch {
+    // localStorage plein ou désactivé — pas bloquant
+  }
+}
+
+// ── Composant principal ───────────────────────────────────────────────────────
 
 export function DataGrid({ base, view, maxHeight }: DataGridProps) {
   const allFieldIds = useMemo(() => base.fields.map((f) => f.id), [base.fields]);
@@ -50,8 +82,56 @@ export function DataGrid({ base, view, maxHeight }: DataGridProps) {
     view.sorts,
   );
   const mut = useEntityMutations(base.id);
+  const { update: updateView } = useViewMutations();
+  const { toast } = useToast();
+  const { openColumnEditor } = useShellChrome();
 
-  const items = data?.items ?? [];
+  // Mutation schéma (renommer colonne, supprimer colonne)
+  const utils = trpc.useUtils();
+  const updateSchema = trpc.schemas.update.useMutation({
+    onSuccess: () => {
+      void utils.schemas.list.invalidate();
+      void utils.schemas.get.invalidate({ id: base.id });
+    },
+  });
+
+  const items = useMemo(() => data?.items ?? [], [data?.items]);
+
+  // ── Largeurs colonnes (resize) ─────────────────────────────────────────────
+  // Hydratation depuis localStorage au montage (initializer = exécuté une fois).
+  const [colWidths, setColWidths] = useState<Record<string, number>>(() =>
+    loadColWidths(base.id, view.id),
+  );
+
+  // Sauvegarde dès que colWidths change (les writes sont sur mouseup, donc rares)
+  useEffect(() => {
+    saveColWidths(base.id, view.id, colWidths);
+  }, [colWidths, base.id, view.id]);
+
+  // ── Menu colonne ──────────────────────────────────────────────────────────
+  const [openMenuFid, setOpenMenuFid] = useState<string | null>(null);
+  const [openMenuAnchor, setOpenMenuAnchor] = useState<HTMLElement | null>(null);
+  const [rowMenu, setRowMenu] = useState<{ entityId: string; x: number; y: number } | null>(null);
+
+  // dragJustEndedRef : après un dragend, supprime le click suivant (qui sinon
+  // ouvrirait le menu alors qu'on vient de finir un drag-reorder).
+  const dragJustEndedRef = useRef(false);
+
+  const closeMenu = useCallback(() => { setOpenMenuFid(null); setOpenMenuAnchor(null); }, []);
+
+  // ── Multi-sélection lignes ─────────────────────────────────────────────────
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const lastSelectedIdRef = useRef<string | null>(null);
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
+
+  // Nettoyage IDs fantômes
+  useEffect(() => {
+    const currentIds = new Set(items.map((e) => e.id));
+    setSelectedIds((prev) => {
+      const pruned = new Set([...prev].filter((id) => currentIds.has(id)));
+      return pruned.size === prev.size ? prev : pruned;
+    });
+  }, [items]);
 
   const addRow = () => {
     mut.create.mutate({
@@ -61,21 +141,478 @@ export function DataGrid({ base, view, maxHeight }: DataGridProps) {
     });
   };
 
+  // ── Ajouter une colonne (text par défaut, label "Colonne N") ──────────────
+  // Le menu colonne reste accessible pour changer kind/nom après création.
+  const addColumn = useCallback(() => {
+    const id = `f_${crypto.randomUUID().slice(0, 8)}`;
+    // Nom interne unique : on dérive depuis un compteur basé sur les noms
+    // existants (évite collision si l'utilisateur a déjà supprimé/ajouté).
+    let n = base.fields.length + 1;
+    const existingNames = new Set(base.fields.map((f) => f.name));
+    while (existingNames.has(`field_${n}`)) n++;
+    const newField: Field = {
+      id,
+      name: `field_${n}`,
+      label: `Colonne ${n}`,
+      kind: "text",
+      required: false,
+      unique: false,
+    };
+    const nextFields = [...base.fields, newField];
+    updateSchema.mutate({ id: base.id, fields: nextFields.map(coreFieldToIpc) });
+    // Si la vue a un ordre explicite, l'étendre. Sinon resolveVisibleFieldIds
+    // dérivera automatiquement le nouvel id depuis base.fields.
+    if (view.visibleFields.length > 0) {
+      updateView.mutate({ id: view.id, visibleFields: [...view.visibleFields, id] });
+    }
+    // Ouvre directement le menu sur la nouvelle colonne pour pouvoir renommer.
+    setOpenMenuFid(id);
+  }, [base.fields, base.id, view.id, view.visibleFields, updateSchema, updateView]);
+
+  // Cache handlers stables (évite React.memo(Cell) cache miss)
+  const updateRef = useRef(mut.update);
+  updateRef.current = mut.update;
+  const handlerCacheRef = useRef(new Map<string, (next: unknown) => void>());
+  const [justEdited, setJustEdited] = useState<{ entityId: string; fieldId: string; ts: number } | null>(null);
+  const justEditedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const getCellHandler = useCallback(
+    (entityId: string, fieldId: string) => {
+      const key = `${entityId}::${fieldId}`;
+      const cache = handlerCacheRef.current;
+      const cached = cache.get(key);
+      if (cached) return cached;
+      const handler = (next: unknown) => {
+        updateRef.current.mutate({
+          id: entityId,
+          fields: { [fieldId]: next as never },
+        });
+        setJustEdited({ entityId, fieldId, ts: Date.now() });
+        if (justEditedTimer.current) clearTimeout(justEditedTimer.current);
+        justEditedTimer.current = setTimeout(() => setJustEdited(null), 1400);
+      };
+      cache.set(key, handler);
+      return handler;
+    },
+    [],
+  );
+
+  // Track rows déjà rendues → animation "enter" seulement sur nouvelles
+  const seenRowsRef = useRef<Set<string>>(new Set());
+  const isFreshRow = useCallback((id: string) => {
+    if (seenRowsRef.current.has(id)) return false;
+    seenRowsRef.current.add(id);
+    return true;
+  }, []);
+
+  // ── Tri colonnes ──────────────────────────────────────────────────────────
+  // sortByField(fieldId) : cycle asc → desc → none.
+  // sortByField(fieldId, "asc"|"desc") : force la direction.
+  // sortByField(fieldId, null) : efface le tri.
+  const sortByField = useCallback(
+    (fieldId: string, direction?: "asc" | "desc" | null) => {
+      const current = view.sorts.find((s) => s.fieldId === fieldId);
+      let next: SortClause[];
+      if (direction === null) {
+        // Effacer le tri
+        next = view.sorts.filter((s) => s.fieldId !== fieldId);
+      } else if (direction === "asc" || direction === "desc") {
+        // Forcer une direction
+        const without = view.sorts.filter((s) => s.fieldId !== fieldId);
+        next = [{ fieldId, direction }];
+        // Conserve les autres tris (le menu ne fait que changer ce champ)
+        // Note: on remplace tout par un tri unique sur ce champ pour
+        // rester cohérent avec la logique précédente.
+        void without;
+      } else {
+        // Cycle : none → asc → desc → none
+        if (!current) {
+          next = [{ fieldId, direction: "asc" }];
+        } else if (current.direction === "asc") {
+          next = [{ fieldId, direction: "desc" }];
+        } else {
+          next = view.sorts.filter((s) => s.fieldId !== fieldId);
+        }
+      }
+      updateView.mutate({ id: view.id, sorts: next });
+    },
+    [view.id, view.sorts, updateView],
+  );
+
+  // ── Renommer colonne ──────────────────────────────────────────────────────
+  const renameColumn = useCallback(
+    (fieldId: string, newLabel: string) => {
+      const nextFields = base.fields.map((f) =>
+        f.id === fieldId ? { ...f, label: newLabel } : f,
+      );
+      updateSchema.mutate({ id: base.id, fields: nextFields.map(coreFieldToIpc) });
+    },
+    [base.fields, base.id, updateSchema],
+  );
+
+  // ── Masquer colonne ───────────────────────────────────────────────────────
+  const hideColumn = useCallback(
+    (fieldId: string) => {
+      const nextVisible = visibleIds.filter((id) => id !== fieldId);
+      const currentHidden = view.hiddenFields ?? [];
+      const nextHidden = currentHidden.includes(fieldId)
+        ? currentHidden
+        : [...currentHidden, fieldId];
+      updateView.mutate({ id: view.id, visibleFields: nextVisible, hiddenFields: nextHidden });
+    },
+    [visibleIds, view.id, view.hiddenFields, updateView],
+  );
+
+  // ── Convertir colonne en formule ──────────────────────────────────────────
+  const convertToFormula = useCallback(
+    (fieldId: string, expression: string, outputKind: "text" | "number" | "date" | "bool", outputFormat?: string) => {
+      const nextFields = base.fields.map((f) =>
+        f.id === fieldId
+          ? {
+              id: f.id,
+              name: f.name,
+              label: f.label,
+              required: f.required ?? false,
+              unique: f.unique ?? false,
+              kind: "formula" as const,
+              expression,
+              outputKind,
+              outputFormat,
+            }
+          : f,
+      );
+      updateSchema.mutate({ id: base.id, fields: nextFields.map(coreFieldToIpc) });
+    },
+    [base.fields, base.id, updateSchema],
+  );
+
+  // ── Supprimer colonne ─────────────────────────────────────────────────────
+  const deleteColumn = useCallback(
+    (fieldId: string) => {
+      const nextFields = base.fields.filter((f) => f.id !== fieldId);
+      const nextVisible = visibleIds.filter((id) => id !== fieldId);
+      const currentHidden = view.hiddenFields ?? [];
+      const nextHidden = currentHidden.filter((id) => id !== fieldId);
+      updateSchema.mutate({ id: base.id, fields: nextFields.map(coreFieldToIpc) });
+      updateView.mutate({ id: view.id, visibleFields: nextVisible, hiddenFields: nextHidden });
+    },
+    [base.fields, base.id, visibleIds, view.id, view.hiddenFields, updateSchema, updateView],
+  );
+
+  // ── Suppression avec undo ─────────────────────────────────────────────────
+  const deleteWithUndo = useCallback(
+    (entityId: string) => {
+      const snapshot = items.find((e) => e.id === entityId);
+      if (!snapshot) return;
+      mut.delete.mutate({ id: entityId });
+      toast({
+        title: "Entrée supprimée",
+        duration: 5000,
+        action: {
+          label: "Annuler",
+          onClick: () => {
+            mut.create.mutate({
+              typeId: base.id,
+              fields: snapshot.fields as Record<string, never>,
+              body: "",
+            });
+          },
+        },
+      });
+    },
+    [items, mut.delete, mut.create, base.id, toast],
+  );
+
+  const bulkDeleteWithUndo = useCallback(
+    (ids: string[]) => {
+      const snapshots = ids
+        .map((id) => items.find((e) => e.id === id))
+        .filter(Boolean) as typeof items;
+      if (snapshots.length === 0) return;
+      for (const e of snapshots) {
+        mut.delete.mutate({ id: e.id });
+      }
+      toast({
+        title: `${snapshots.length} entrée${snapshots.length > 1 ? "s" : ""} supprimée${snapshots.length > 1 ? "s" : ""}`,
+        duration: 5000,
+        action: {
+          label: "Annuler",
+          onClick: () => {
+            for (const e of snapshots) {
+              mut.create.mutate({
+                typeId: base.id,
+                fields: e.fields as Record<string, never>,
+                body: "",
+              });
+            }
+          },
+        },
+      });
+    },
+    [items, mut.delete, mut.create, base.id, toast],
+  );
+
+  // ── Suppr / Backspace sur lignes sélectionnées ────────────────────────────
+  useEffect(() => {
+    if (selectedIds.size === 0) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Delete" && e.key !== "Backspace") return;
+      const active = document.activeElement as HTMLElement | null;
+      if (
+        active &&
+        (active.tagName === "INPUT" ||
+          active.tagName === "TEXTAREA" ||
+          active.tagName === "SELECT" ||
+          active.isContentEditable)
+      ) {
+        return;
+      }
+      if (!wrapperRef.current?.contains(active) && active !== document.body) {
+        return;
+      }
+      e.preventDefault();
+      const ids = Array.from(selectedIds);
+      setSelectedIds(new Set());
+      if (ids.length === 1 && ids[0]) {
+        deleteWithUndo(ids[0]);
+      } else {
+        bulkDeleteWithUndo(ids);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selectedIds, deleteWithUndo, bulkDeleteWithUndo]);
+
+  // ── Navigation + copier/coller clavier ───────────────────────────────────
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+  const fieldByIdRef = useRef(fieldById);
+  fieldByIdRef.current = fieldById;
+
+  const handleWrapperKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
+      const target = e.target as HTMLElement;
+
+      // ── Navigation flèches ────────────────────────────────────────────────
+      const isArrow = ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key);
+      if (isArrow && target.hasAttribute("data-cell-display")) {
+        const td = target.closest("td[data-cell-row]") as HTMLElement | null;
+        if (!td) return;
+        const rowIdx = Number(td.dataset.cellRow);
+        const colIdx = Number(td.dataset.cellCol);
+        const rowCount = itemsRef.current.length;
+        const colCount = visibleIds.length;
+
+        let nextRow = rowIdx;
+        let nextCol = colIdx;
+
+        if (e.key === "ArrowDown") {
+          nextRow = Math.min(rowIdx + 1, rowCount - 1);
+        } else if (e.key === "ArrowUp") {
+          nextRow = Math.max(rowIdx - 1, 0);
+        } else if (e.key === "ArrowRight") {
+          if (colIdx < colCount - 1) {
+            nextCol = colIdx + 1;
+          } else if (rowIdx < rowCount - 1) {
+            nextRow = rowIdx + 1;
+            nextCol = 0;
+          }
+        } else if (e.key === "ArrowLeft") {
+          if (colIdx > 0) {
+            nextCol = colIdx - 1;
+          } else if (rowIdx > 0) {
+            nextRow = rowIdx - 1;
+            nextCol = colCount - 1;
+          }
+        }
+
+        if (nextRow !== rowIdx || nextCol !== colIdx) {
+          e.preventDefault();
+          const nextTd = wrapperRef.current?.querySelector<HTMLElement>(
+            `td[data-cell-row="${nextRow}"][data-cell-col="${nextCol}"] [data-cell-display]`,
+          );
+          nextTd?.focus();
+        }
+        return;
+      }
+
+      // ── Copier Cmd/Ctrl+C ─────────────────────────────────────────────────
+      if ((e.metaKey || e.ctrlKey) && e.key === "c" && target.hasAttribute("data-cell-display")) {
+        const td = target.closest("td[data-field-id]") as HTMLElement | null;
+        if (!td) return;
+        const tr = td.closest("tr[data-row-id]") as HTMLElement | null;
+        if (!tr) return;
+        const entityId = tr.dataset.rowId!;
+        const fieldId = td.dataset.fieldId!;
+        const entity = itemsRef.current.find((e) => e.id === entityId);
+        if (!entity) return;
+        const value = entity.fields[fieldId];
+        const text = serializeCellValue(value);
+        e.preventDefault();
+        void navigator.clipboard.writeText(text);
+        return;
+      }
+
+      // ── Coller Cmd/Ctrl+V ─────────────────────────────────────────────────
+      if ((e.metaKey || e.ctrlKey) && e.key === "v" && target.hasAttribute("data-cell-display")) {
+        const td = target.closest("td[data-field-id]") as HTMLElement | null;
+        if (!td) return;
+        const tr = td.closest("tr[data-row-id]") as HTMLElement | null;
+        if (!tr) return;
+        const entityId = tr.dataset.rowId!;
+        const fieldId = td.dataset.fieldId!;
+        const field = fieldByIdRef.current.get(fieldId);
+        if (!field) return;
+        if (READONLY_PASTE_KINDS.has(field.kind)) return;
+        e.preventDefault();
+        void navigator.clipboard.readText().then((text) => {
+          const parsed = parsePasteValue(text, field);
+          if (parsed === SKIP) return;
+          const handler = getCellHandler(entityId, fieldId);
+          handler(parsed);
+        });
+        return;
+      }
+    },
+    [visibleIds.length, getCellHandler],
+  );
+
+  // ── Drag-reorder colonnes ─────────────────────────────────────────────────
+  // dragOverFid : fieldId du th survolé (null = aucun).
+  // dropSide : "before" | "after" selon la moitié du th survolée.
+  const [dragOverFid, setDragOverFid] = useState<string | null>(null);
+  const [dropSide, setDropSide] = useState<"before" | "after">("before");
+  const draggingFidRef = useRef<string | null>(null);
+
+  const handleDragStart = useCallback((e: React.DragEvent<HTMLTableCellElement>, fid: string) => {
+    draggingFidRef.current = fid;
+    e.dataTransfer.setData("text/plain", fid);
+    e.dataTransfer.effectAllowed = "move";
+    // Classe CSS ajoutée via state pour éviter de perdre la ref
+    (e.currentTarget as HTMLElement).classList.add("sn-datagrid-th--dragging");
+  }, []);
+
+  const handleDragEnd = useCallback((e: React.DragEvent<HTMLTableCellElement>) => {
+    (e.currentTarget as HTMLElement).classList.remove("sn-datagrid-th--dragging");
+    draggingFidRef.current = null;
+    setDragOverFid(null);
+    // Bloque le click suivant (qui sinon ouvrirait le menu)
+    dragJustEndedRef.current = true;
+    setTimeout(() => { dragJustEndedRef.current = false; }, 100);
+  }, []);
+
+  const handleDragOver = useCallback((e: React.DragEvent<HTMLTableCellElement>, fid: string) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const side = e.clientX < rect.left + rect.width / 2 ? "before" : "after";
+    setDragOverFid(fid);
+    setDropSide(side);
+  }, []);
+
+  const handleDragLeave = useCallback(() => {
+    setDragOverFid(null);
+  }, []);
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent<HTMLTableCellElement>, targetFid: string) => {
+      e.preventDefault();
+      const sourceFid = e.dataTransfer.getData("text/plain");
+      if (!sourceFid || sourceFid === targetFid) {
+        setDragOverFid(null);
+        return;
+      }
+      // Calcule le nouvel ordre
+      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+      const insertAfter = e.clientX >= rect.left + rect.width / 2;
+      const without = visibleIds.filter((id) => id !== sourceFid);
+      const targetIdx = without.indexOf(targetFid);
+      const insertAt = insertAfter ? targetIdx + 1 : targetIdx;
+      const nextOrder = [...without];
+      nextOrder.splice(insertAt, 0, sourceFid);
+      setDragOverFid(null);
+      updateView.mutate({ id: view.id, visibleFields: nextOrder });
+    },
+    [visibleIds, view.id, updateView],
+  );
+
+  // ── Resize colonnes ───────────────────────────────────────────────────────
+  // On attache les listeners sur document (mouseup global, mousemove global)
+  // pour que le drag fonctionne même si la souris sort du handle.
+  const resizeStateRef = useRef<{
+    fid: string;
+    startX: number;
+    startWidth: number;
+  } | null>(null);
+
+  const handleResizeMouseDown = useCallback(
+    (e: React.MouseEvent, fid: string, currentWidth: number) => {
+      e.stopPropagation(); // ne pas ouvrir le menu
+      e.preventDefault();
+      resizeStateRef.current = { fid, startX: e.clientX, startWidth: currentWidth };
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+
+      const onMove = (mv: MouseEvent) => {
+        if (!resizeStateRef.current) return;
+        const { fid: rFid, startX, startWidth } = resizeStateRef.current;
+        const delta = mv.clientX - startX;
+        const next = Math.max(60, Math.min(600, startWidth + delta));
+        setColWidths((prev) => ({ ...prev, [rFid]: next }));
+      };
+
+      const onUp = () => {
+        resizeStateRef.current = null;
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+      };
+
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    },
+    [],
+  );
+
+  // ── Rendu ─────────────────────────────────────────────────────────────────
+
   return (
     <div
+      ref={wrapperRef}
       className="overflow-auto"
       style={{
         maxHeight: maxHeight ?? "100%",
         backgroundColor: "var(--surface-0)",
       }}
+      onKeyDown={handleWrapperKeyDown}
+      onClick={(e) => {
+        const target = e.target as HTMLElement;
+        if (!target.closest("[data-row-id]")) setSelectedIds(new Set());
+      }}
     >
-      <table className="w-full border-collapse text-sm">
+      <table
+        className="w-full border-collapse text-sm"
+        style={{ userSelect: "none" }}
+        onMouseDown={(e) => {
+          const t = e.target as HTMLElement;
+          // Laisse les éléments éditables (input/textarea/contenteditable) faire leur sélection.
+          if (
+            t.tagName === "INPUT" ||
+            t.tagName === "TEXTAREA" ||
+            t.isContentEditable ||
+            t.closest("input, textarea, [contenteditable]")
+          ) return;
+          // Pas de double-click → on prévient la sélection texte du browser.
+          if (e.detail >= 2) return;
+          e.preventDefault();
+        }}
+      >
         <thead
           className="sticky top-0 z-10"
           style={{ backgroundColor: "var(--surface-1)" }}
         >
           <tr>
-            {/* Index column */}
+            {/* Colonne index */}
             <th
               className="sticky left-0 border-b border-r px-2 py-2 text-left text-xs font-medium"
               style={{
@@ -88,27 +625,118 @@ export function DataGrid({ base, view, maxHeight }: DataGridProps) {
             >
               #
             </th>
+
             {visibleIds.map((fid) => {
               const f = fieldById.get(fid);
               if (!f) return null;
+              const sort = view.sorts.find((s) => s.fieldId === fid);
+              const colW = colWidths[fid] ?? columnMinWidth(f);
+
+              // Classes CSS pour le drag-over visuel
+              let dropClass = "";
+              if (dragOverFid === fid && draggingFidRef.current !== fid) {
+                dropClass = dropSide === "before"
+                  ? " sn-datagrid-th--drop-before"
+                  : " sn-datagrid-th--drop-after";
+              }
+
               return (
                 <th
                   key={fid}
-                  className="border-b border-r px-2 py-2 text-left text-xs font-medium"
+                  draggable
+                  data-field-id={fid}
+                  className={`group/header relative cursor-pointer border-b border-r px-2 py-2 text-left text-xs font-medium hover:bg-[var(--surface-2)]${dropClass}`}
                   style={{
-                    minWidth: columnMinWidth(f),
+                    width: colW,
+                    minWidth: colW,
+                    maxWidth: colW,
                     borderColor: "var(--border-subtle)",
                     color: "var(--text-secondary)",
+                    position: "relative",
                   }}
+                  title="Clic ou clic droit pour les options de colonne"
+                  onClick={(e) => {
+                    // Ignore si on vient de finir un drag
+                    if (dragJustEndedRef.current) return;
+                    const th = e.currentTarget as HTMLElement;
+                    setOpenMenuFid((prev) => {
+                      if (prev === fid) { setOpenMenuAnchor(null); return null; }
+                      setOpenMenuAnchor(th);
+                      return fid;
+                    });
+                  }}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    if (dragJustEndedRef.current) return;
+                    setOpenMenuAnchor(e.currentTarget as HTMLElement);
+                    setOpenMenuFid(fid);
+                  }}
+                  onDragStart={(e) => handleDragStart(e, fid)}
+                  onDragEnd={handleDragEnd}
+                  onDragOver={(e) => handleDragOver(e, fid)}
+                  onDragLeave={handleDragLeave}
+                  onDrop={(e) => handleDrop(e, fid)}
                 >
-                  <div className="flex items-center gap-1.5">
-                    <FieldKindBadge kind={f.kind} />
-                    <span>{f.label || f.name}</span>
-                  </div>
+                  {/* Libellé + indicateur de tri */}
+                  <span className="inline-flex items-center gap-1 select-none">
+                    {f.label || f.name}
+                    {sort && (
+                      sort.direction === "asc" ? (
+                        <ArrowUp size={11} weight="bold" style={{ color: "var(--accent)" }} />
+                      ) : (
+                        <ArrowDown size={11} weight="bold" style={{ color: "var(--accent)" }} />
+                      )
+                    )}
+                  </span>
+
+                  {/* Menu popover */}
+                  {openMenuFid === fid && (
+                    <ColumnHeaderMenu
+                      anchorEl={openMenuAnchor}
+                      field={f}
+                      currentSort={sort}
+                      base={base}
+                      onSort={(dir) => sortByField(fid, dir)}
+                      onRename={(label) => renameColumn(fid, label)}
+                      onHide={() => hideColumn(fid)}
+                      onDelete={() => deleteColumn(fid)}
+                      onEditField={() => { openColumnEditor(base, view, { focusFieldId: fid }); closeMenu(); }}
+                      onConvertToFormula={(expression, outputKind, outputFormat) => {
+                        convertToFormula(fid, expression, outputKind, outputFormat);
+                        closeMenu();
+                      }}
+                      onClose={closeMenu}
+                    />
+                  )}
+
+                  {/* Handle resize (bord droit) */}
+                  <span
+                    className="sn-datagrid-resize-handle"
+                    onMouseDown={(e) => handleResizeMouseDown(e, fid, colW)}
+                    onClick={(e) => e.stopPropagation()}
+                    role="separator"
+                    aria-label="Redimensionner la colonne"
+                  />
                 </th>
               );
             })}
-            {/* Trailing actions column */}
+
+            {/* Bouton « + ajouter une colonne » */}
+            <th
+              className="border-b px-2 py-2 text-xs cursor-pointer hover:bg-[var(--surface-2)]"
+              style={{
+                width: 36,
+                minWidth: 36,
+                borderColor: "var(--border-subtle)",
+                color: "var(--text-muted)",
+              }}
+              title="Ajouter une colonne"
+              onClick={addColumn}
+            >
+              <Plus size={12} />
+            </th>
+
+            {/* Colonne actions (trailing) */}
             <th
               className="border-b px-1 py-2 text-xs"
               style={{
@@ -122,20 +750,37 @@ export function DataGrid({ base, view, maxHeight }: DataGridProps) {
 
         <tbody>
           {isLoading && (
-            <tr>
-              <td
-                colSpan={visibleIds.length + 2}
-                className="px-3 py-8 text-center text-xs"
-                style={{ color: "var(--text-muted)" }}
-              >
-                Chargement…
-              </td>
-            </tr>
+            <>
+              {[0, 1, 2, 3, 4].map((i) => (
+                <tr key={`skel-${i}`}>
+                  <td
+                    className="sticky left-0 border-r px-2 py-2"
+                    style={{
+                      borderColor: "var(--border-subtle)",
+                      backgroundColor: "var(--surface-0)",
+                    }}
+                  >
+                    <div className="sn-datagrid-skeleton" style={{ width: 14 }} />
+                  </td>
+                  {visibleIds.map((fid) => (
+                    <td
+                      key={fid}
+                      className="border-r px-2 py-2"
+                      style={{ borderColor: "var(--border-subtle)" }}
+                    >
+                      <div className="sn-datagrid-skeleton" style={{ width: `${40 + ((i * 13) % 50)}%` }} />
+                    </td>
+                  ))}
+                  <td />
+                  <td />
+                </tr>
+              ))}
+            </>
           )}
           {isError && (
             <tr>
               <td
-                colSpan={visibleIds.length + 2}
+                colSpan={visibleIds.length + 3}
                 className="px-3 py-8 text-center text-xs"
                 style={{ color: "#EF4444" }}
               >
@@ -146,7 +791,7 @@ export function DataGrid({ base, view, maxHeight }: DataGridProps) {
           {!isLoading && !isError && items.length === 0 && (
             <tr>
               <td
-                colSpan={visibleIds.length + 2}
+                colSpan={visibleIds.length + 3}
                 className="px-3 py-8 text-center text-xs"
                 style={{ color: "var(--text-muted)" }}
               >
@@ -154,87 +799,353 @@ export function DataGrid({ base, view, maxHeight }: DataGridProps) {
               </td>
             </tr>
           )}
-          {items.map((entity, idx) => (
-            <tr
-              key={entity.id}
-              className="group"
-              style={{ borderBottom: "1px solid var(--border-subtle)" }}
-            >
-              <td
-                className="sticky left-0 border-r px-2 py-1 text-xs"
-                style={{
-                  borderColor: "var(--border-subtle)",
-                  color: "var(--text-muted)",
-                  backgroundColor: "var(--surface-0)",
+          {items.map((entity, idx) => {
+            const isSelected = selectedIds.has(entity.id);
+            const fresh = isFreshRow(entity.id);
+            const isLastRow = idx === items.length - 1;
+            return (
+              <tr
+                key={entity.id}
+                className={`sn-datagrid-row group${fresh ? " sn-datagrid-row--enter" : ""}`}
+                data-row-id={entity.id}
+                data-selected={isSelected || undefined}
+                style={{ borderBottom: "1px solid var(--border-subtle)" }}
+                onContextMenu={(e) => {
+                  // Laisse le contextmenu natif sur les inputs/textareas (édition cellule).
+                  const t = e.target as HTMLElement;
+                  if (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable) return;
+                  e.preventDefault();
+                  setRowMenu({ entityId: entity.id, x: e.clientX, y: e.clientY });
                 }}
               >
-                {idx + 1}
-              </td>
-              {visibleIds.map((fid) => {
-                const f = fieldById.get(fid);
-                if (!f) return null;
-                return (
-                  <td
-                    key={fid}
-                    className="border-r p-0"
-                    style={{
-                      borderColor: "var(--border-subtle)",
-                      verticalAlign: "top",
-                    }}
-                  >
-                    <Cell
-                      field={f}
-                      value={entity.fields[fid]}
-                      onChange={(next) => {
-                        mut.update.mutate({
-                          id: entity.id,
-                          fields: { [fid]: next as never },
-                        });
-                      }}
-                    />
-                  </td>
-                );
-              })}
-              <td className="px-1">
-                <button
-                  type="button"
-                  className="invisible rounded p-1 hover:bg-[var(--surface-2)] group-hover:visible"
-                  title="Supprimer la ligne"
-                  onClick={() => {
-                    if (confirm("Supprimer cette entrée ?")) {
-                      mut.delete.mutate({ id: entity.id });
-                    }
+                <td
+                  className="sticky left-0 cursor-pointer border-r px-1 py-1 text-xs select-none"
+                  style={{
+                    borderColor: "var(--border-subtle)",
+                    color: isSelected ? "var(--accent)" : "var(--text-muted)",
+                    backgroundColor: isSelected ? "var(--surface-2)" : "var(--surface-0)",
+                    fontWeight: isSelected ? 600 : 400,
+                    width: 36,
+                    minWidth: 36,
+                    userSelect: "none",
                   }}
-                  style={{ color: "var(--text-muted)" }}
+                  onMouseDown={(e) => { e.preventDefault(); }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (e.shiftKey && lastSelectedIdRef.current) {
+                      const lastIdx = items.findIndex((i) => i.id === lastSelectedIdRef.current);
+                      const range = items
+                        .slice(Math.min(lastIdx, idx), Math.max(lastIdx, idx) + 1)
+                        .map((i) => i.id);
+                      setSelectedIds((prev) => new Set([...prev, ...range]));
+                    } else if (e.metaKey || e.ctrlKey) {
+                      setSelectedIds((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(entity.id)) next.delete(entity.id);
+                        else next.add(entity.id);
+                        return next;
+                      });
+                    } else {
+                      setSelectedIds((prev) => {
+                        if (prev.size === 1 && prev.has(entity.id)) return new Set();
+                        return new Set([entity.id]);
+                      });
+                    }
+                    lastSelectedIdRef.current = entity.id;
+                  }}
+                  title="Cliquer pour sélectionner · Shift/Ctrl pour multi-sélection · Suppr pour supprimer"
                 >
-                  <Trash size={14} />
-                </button>
-              </td>
-            </tr>
-          ))}
+                  <div className="flex h-full items-center justify-center">
+                    {isSelected ? (
+                      <span style={{ color: "var(--accent)" }}>✓</span>
+                    ) : (
+                      <span>{idx + 1}</span>
+                    )}
+                  </div>
+                </td>
 
-          {/* + Add row */}
-          <tr>
+                {visibleIds.map((fid, colIdx) => {
+                  const f = fieldById.get(fid);
+                  if (!f) return null;
+                  const isLastCol = colIdx === visibleIds.length - 1;
+                  const justEditedHere =
+                    justEdited?.entityId === entity.id && justEdited?.fieldId === fid;
+                  return (
+                    <td
+                      key={fid}
+                      data-cell-row={idx}
+                      data-cell-col={colIdx}
+                      data-field-id={fid}
+                      className={`sn-datagrid-cell border-r p-0${justEditedHere ? " sn-datagrid-cell--just-edited" : ""}`}
+                      style={{
+                        borderColor: "var(--border-subtle)",
+                        verticalAlign: "top",
+                      }}
+                      onKeyDown={(e) => {
+                        if (
+                          e.key === "Tab" &&
+                          !e.shiftKey &&
+                          isLastRow &&
+                          isLastCol
+                        ) {
+                          e.preventDefault();
+                          addRow();
+                        }
+                      }}
+                    >
+                      <Cell
+                        field={f}
+                        value={entity.fields[fid]}
+                        onChange={getCellHandler(entity.id, fid)}
+                      />
+                    </td>
+                  );
+                })}
+
+                {/* Cellule vide alignée sous la colonne « + » du header */}
+                <td />
+
+                <td className="px-1">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="rounded p-1 opacity-0 transition-opacity hover:bg-[var(--surface-2)] group-hover:opacity-100"
+                    aria-label="Supprimer la ligne"
+                    onPress={() => deleteWithUndo(entity.id)}
+                    style={{ color: "var(--text-muted)" }}
+                  >
+                    <Trash size={14} />
+                  </Button>
+                </td>
+              </tr>
+            );
+          })}
+
+          {/* + Nouvelle entrée — toute la ligne est cliquable */}
+          <tr
+            className="cursor-pointer hover:bg-[var(--surface-2)]"
+            onClick={addRow}
+          >
             <td
-              colSpan={visibleIds.length + 2}
+              colSpan={visibleIds.length + 3}
               className="px-2 py-2"
               style={{ borderTop: "1px solid var(--border-subtle)" }}
             >
-              <button
-                type="button"
-                onClick={addRow}
-                className="flex items-center gap-1.5 rounded px-2 py-1 text-xs font-medium hover:bg-[var(--surface-2)]"
+              <span
+                className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium"
                 style={{ color: "var(--text-secondary)" }}
               >
                 <Plus size={12} /> Nouvelle entrée
-              </button>
+              </span>
             </td>
           </tr>
+
+          {/* Footer compteur */}
+          {!isLoading && items.length > 0 && (
+            <tr>
+              <td
+                colSpan={visibleIds.length + 3}
+                className="px-2 py-1.5 text-[11px]"
+                style={{
+                  borderTop: "1px solid var(--border-subtle)",
+                  color: "var(--text-muted)",
+                  backgroundColor: "var(--surface-1)",
+                }}
+              >
+                {items.length} entrée{items.length > 1 ? "s" : ""}
+                {selectedIds.size > 0 && (
+                  <span style={{ marginLeft: 8, color: "var(--accent)" }}>
+                    · {selectedIds.size} sélectionnée{selectedIds.size > 1 ? "s" : ""}
+                  </span>
+                )}
+                {view.filters.length > 0 && (
+                  <span style={{ marginLeft: 8 }}>
+                    · {view.filters.length} filtre{view.filters.length > 1 ? "s" : ""} actif{view.filters.length > 1 ? "s" : ""}
+                  </span>
+                )}
+                {view.sorts.length > 0 && (
+                  <span style={{ marginLeft: 8 }}>
+                    · trié par {view.sorts.length} colonne{view.sorts.length > 1 ? "s" : ""}
+                  </span>
+                )}
+              </td>
+            </tr>
+          )}
         </tbody>
       </table>
+      {rowMenu && createPortal(
+        <RowContextMenu
+          x={rowMenu.x}
+          y={rowMenu.y}
+          isMultiSelected={selectedIds.size > 1 && selectedIds.has(rowMenu.entityId)}
+          selectedCount={selectedIds.size}
+          onDuplicate={() => {
+            const ent = items.find((e) => e.id === rowMenu.entityId);
+            if (ent) mut.create.mutate({ typeId: base.id, fields: ent.fields as Record<string, never>, body: "" });
+            setRowMenu(null);
+          }}
+          onDelete={() => {
+            if (selectedIds.size > 1 && selectedIds.has(rowMenu.entityId)) {
+              for (const id of selectedIds) deleteWithUndo(id);
+              setSelectedIds(new Set());
+            } else {
+              deleteWithUndo(rowMenu.entityId);
+            }
+            setRowMenu(null);
+          }}
+          onClose={() => setRowMenu(null)}
+        />,
+        document.body,
+      )}
     </div>
   );
 }
+
+// ── RowContextMenu ────────────────────────────────────────────────────────────
+
+function RowContextMenu({
+  x, y, isMultiSelected, selectedCount, onDuplicate, onDelete, onClose,
+}: {
+  x: number; y: number; isMultiSelected: boolean; selectedCount: number;
+  onDuplicate: () => void; onDelete: () => void; onClose: () => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [onClose]);
+  return (
+    <div
+      ref={ref}
+      onMouseDown={(e) => e.preventDefault()}
+      style={{
+        position: "fixed",
+        left: x,
+        top: y,
+        zIndex: 9999,
+        minWidth: 180,
+        backgroundColor: "var(--surface-0)",
+        border: "1px solid var(--border-subtle)",
+        borderRadius: 6,
+        boxShadow: "0 4px 16px rgba(0,0,0,0.10)",
+        padding: "4px 0",
+        fontSize: 12,
+      }}
+    >
+      <Button
+        variant="ghost"
+        size="sm"
+        onPress={onDuplicate}
+        className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-[var(--surface-2)]"
+        style={{ color: "var(--text-secondary)" }}
+      >
+        Dupliquer
+      </Button>
+      <div style={{ height: 1, backgroundColor: "var(--border-subtle)", margin: "2px 0" }} />
+      <Button
+        variant="ghost"
+        size="sm"
+        onPress={onDelete}
+        className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-[rgba(239,68,68,0.08)]"
+        style={{ color: "#EF4444" }}
+      >
+        {isMultiSelected ? `Supprimer ${selectedCount} entrées` : "Supprimer"}
+      </Button>
+    </div>
+  );
+}
+
+// ── Sérialisation valeur → texte (pour Cmd+C) ─────────────────────────────
+
+function serializeCellValue(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  if (Array.isArray(value)) return value.join(", ");
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+}
+
+// ── Parsing coller → valeur typée (pour Cmd+V) ────────────────────────────
+
+/** Sentinelle : signifie "ne pas coller" (parse échoué ou champ en lecture seule). */
+const SKIP = Symbol("SKIP");
+
+const READONLY_PASTE_KINDS = new Set<Field["kind"]>([
+  "createdAt",
+  "updatedAt",
+  "createdBy",
+  "autoNumber",
+  "formula",
+  "rollup",
+  "lookup",
+]);
+
+const BOOL_TRUTHY = new Set(["true", "1", "oui", "yes", "x", "✓"]);
+
+function parsePasteValue(text: string, field: Field): unknown | typeof SKIP {
+  const s = text.trim();
+  switch (field.kind) {
+    case "text":
+    case "longtext":
+    case "markdown":
+    case "url":
+    case "email":
+    case "phone":
+    case "color":
+      return s;
+
+    case "number":
+    case "currency":
+    case "percent":
+    case "duration":
+    case "rating":
+    case "progress": {
+      const n = Number(s);
+      return Number.isNaN(n) ? SKIP : n;
+    }
+
+    case "bool":
+      return BOOL_TRUTHY.has(s.toLowerCase());
+
+    case "date":
+    case "datetime": {
+      const d = new Date(s);
+      return d.toString() === "Invalid Date" ? SKIP : d.toISOString();
+    }
+
+    case "select":
+    case "status": {
+      const opts = (field as { options: SelectOption[] }).options;
+      const lower = s.toLowerCase();
+      const match = opts.find(
+        (o) => o.value.toLowerCase() === lower || o.label.toLowerCase() === lower,
+      );
+      return match ? match.value : SKIP;
+    }
+
+    case "multiselect": {
+      const opts = (field as { options: SelectOption[] }).options;
+      const parts = s.split(",").map((p) => p.trim().toLowerCase());
+      const values = parts
+        .map((p) => opts.find((o) => o.value.toLowerCase() === p || o.label.toLowerCase() === p))
+        .filter(Boolean)
+        .map((o) => o!.value);
+      return values.length > 0 ? values : SKIP;
+    }
+
+    default:
+      return SKIP;
+  }
+}
+
+// ── Largeur minimale colonnes ─────────────────────────────────────────────
 
 function columnMinWidth(field: Field): number {
   switch (field.kind) {

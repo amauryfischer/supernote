@@ -1,6 +1,7 @@
 "use client";
 
 import { Archive, ArrowsDownUp, CaretDoubleLeft, FileText, MagnifyingGlass, Plus, SortAscending, Warning } from "@phosphor-icons/react";
+import { Button, Input } from "@heroui/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Note } from "./fixtures";
 import { NoteListItem } from "./NoteListItem";
@@ -69,6 +70,8 @@ interface NoteListProps {
    * `Inbox`. When omitted, search stays scoped to `notes`.
    */
   allNotes?: Note[];
+  /** Called when the user starts dragging a note towards the FileTree. */
+  onDragNote?: (noteId: string) => void;
 }
 
 export function NoteList({
@@ -88,6 +91,7 @@ export function NoteList({
   onRenameFolderInline,
   onCollapse,
   allNotes,
+  onDragNote,
 }: NoteListProps) {
   const [query, setQuery] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("updatedAt");
@@ -288,19 +292,18 @@ export function NoteList({
         </div>
         <div className="flex items-center gap-1">
           {onNewNote && (
-            <button
-              onClick={onNewNote}
+            <Button
+              onPress={onNewNote}
               aria-label={t("newNote")}
               className="flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-[var(--surface-2)]"
               style={{ color: "var(--text-muted)" }}
             >
               <Plus size={13} />
-            </button>
+            </Button>
           )}
-          <button
-            onClick={() => setShowArchived((v) => !v)}
+          <Button
+            onPress={() => setShowArchived((v) => !v)}
             aria-label={showArchived ? "Masquer les notes archivées" : "Afficher les notes archivées"}
-            title={showArchived ? "Masquer les archives" : "Voir les archives"}
             className="flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-[var(--surface-2)]"
             style={{
               color: showArchived ? "var(--accent)" : "var(--text-muted)",
@@ -308,26 +311,25 @@ export function NoteList({
             }}
           >
             <Archive size={13} />
-          </button>
-          <button
-            onClick={toggleSort}
+          </Button>
+          <Button
+            onPress={toggleSort}
             aria-label={t("changeSort")}
             className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors hover:bg-[var(--surface-2)]"
             style={{ color: "var(--text-muted)" }}
           >
             {sortKey === "updatedAt" ? <ArrowsDownUp size={12} /> : <SortAscending size={12} />}
             {sortKey === "updatedAt" ? tCommon("date") : sortKey === "title" ? tCommon("title") : "Manuel"}
-          </button>
+          </Button>
           {onCollapse && (
-            <button
-              onClick={onCollapse}
+            <Button
+              onPress={onCollapse}
               aria-label="Réduire la liste"
-              title="Réduire la liste"
               className="flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-[var(--surface-2)]"
               style={{ color: "var(--text-muted)" }}
             >
               <CaretDoubleLeft size={13} />
-            </button>
+            </Button>
           )}
         </div>
       </div>
@@ -340,11 +342,12 @@ export function NoteList({
             className="absolute left-2.5 top-1/2 -translate-y-1/2"
             style={{ color: "var(--text-muted)" }}
           />
-          <input
+          <Input
             type="text"
             placeholder={tCommon("search")}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
+            aria-label={tCommon("search")}
             className="w-full rounded-md py-1.5 pl-8 pr-3 text-xs outline-none"
             style={{
               backgroundColor: "var(--surface-2)",
@@ -381,6 +384,7 @@ export function NoteList({
                   onDelete={onDeleteNote ? () => onDeleteNote(note.id) : undefined}
                   onRename={onRenameNote ? (t) => onRenameNote(note.id, t) : undefined}
                   onArchive={onArchiveNote ? (a) => onArchiveNote(note.id, a) : undefined}
+                  onDragNote={onDragNote}
                   sortable
                 />
               ))}
@@ -415,6 +419,7 @@ export function NoteList({
                   onDelete={onDeleteNote ? () => onDeleteNote(note.id) : undefined}
                   onRename={onRenameNote ? (t) => onRenameNote(note.id, t) : undefined}
                   onArchive={onArchiveNote ? (a) => onArchiveNote(note.id, a) : undefined}
+                  onDragNote={onDragNote}
                 />
               ))}
             </section>
@@ -516,14 +521,14 @@ function EmptyNoteList({
         </p>
       </div>
       {onNewNote && (
-        <button
-          onClick={onNewNote}
+        <Button
+          onPress={onNewNote}
           className="flex items-center gap-1.5 rounded-lg px-4 py-2 text-xs font-medium transition-opacity hover:opacity-90"
           style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
         >
           <Plus size={13} />
           {t("createFirstNote")}
-        </button>
+        </Button>
       )}
     </div>
   );
@@ -631,14 +636,13 @@ function FolderHeaderTitle({
   }
 
   return (
-    <button
-      type="button"
-      onClick={() => setEditing(true)}
+    <Button
+      onPress={() => setEditing(true)}
       className="cursor-text rounded px-1 -mx-1 text-sm font-semibold transition-colors hover:bg-[var(--surface-2)]"
       style={{ color: "var(--text-primary)" }}
-      title="Cliquer pour renommer le dossier"
+      aria-label="Cliquer pour renommer le dossier"
     >
       {folderName}
-    </button>
+    </Button>
   );
 }

@@ -12,6 +12,7 @@
  */
 
 import { useMemo, useState } from "react";
+import { Button } from "@heroui/react";
 import type { EntityType, SelectOption } from "@supernote/core";
 import type { View } from "@supernote/ipc";
 import {
@@ -214,15 +215,16 @@ function KanbanColumn({
             {count}
           </span>
         </div>
-        <button
-          type="button"
-          onClick={onAdd}
+        <Button
+          variant="ghost"
+          size="sm"
+          onPress={onAdd}
           className="rounded p-0.5 hover:bg-[var(--surface-2)]"
           style={{ color: "var(--text-muted)" }}
-          title="Ajouter une entrée"
+          aria-label="Ajouter une entrée"
         >
           <span aria-hidden="true">+</span>
-        </button>
+        </Button>
       </div>
 
       <div className="flex-1 overflow-y-auto p-2">

@@ -66,4 +66,10 @@ export interface SupernoteEditorProps {
     baseId: string;
     viewId: string;
   }) => React.ReactNode;
+  /** Renderer pour les formules inline/block. */
+  renderFormula?: (props: {
+    expression: string;
+    outputKind?: string;
+    onEdit?: () => void;
+  }) => React.ReactNode;
 }

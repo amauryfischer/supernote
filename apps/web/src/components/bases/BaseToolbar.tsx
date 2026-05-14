@@ -11,6 +11,7 @@
  */
 
 import { useState } from "react";
+import { Button } from "@heroui/react";
 import {
   Funnel,
   ArrowsDownUp,
@@ -23,10 +24,10 @@ import type { EntityType } from "@supernote/core";
 import type { View } from "@supernote/ipc";
 import { FilterBuilder } from "./FilterBuilder";
 import { SortBuilder } from "./SortBuilder";
-import { VisibleFieldsMenu } from "./VisibleFieldsMenu";
 import { PivotFieldMenu } from "./PivotFieldMenu";
+import { useShellChrome } from "@/components/shell/shell-chrome-context";
 
-type OpenMenu = "filters" | "sorts" | "fields" | "pivot" | null;
+type OpenMenu = "filters" | "sorts" | "pivot" | null;
 
 interface BaseToolbarProps {
   base: EntityType;
@@ -39,13 +40,20 @@ interface BaseToolbarProps {
 
 export function BaseToolbar({ base, view, onCreateEntry, extra }: BaseToolbarProps) {
   const [open, setOpen] = useState<OpenMenu>(null);
+  const { openColumnEditor, columnEditor, closeColumnEditor } = useShellChrome();
   const filterCount = view.filters.length;
   const sortCount = view.sorts.length;
   const hiddenCount = view.hiddenFields.length;
+  const columnEditorOpen = columnEditor?.view.id === view.id;
 
   // Helper so each trigger toggles its own menu and closes the others.
   const toggle = (next: OpenMenu) =>
     setOpen((current) => (current === next ? null : next));
+
+  const toggleColumnEditor = () => {
+    if (columnEditorOpen) closeColumnEditor();
+    else openColumnEditor(base, view);
+  };
 
   // Kanban / List need a "Group by" pivot field; Calendar needs a "Date"
   // pivot field. Both reuse the view's `groupByField` slot — the active
@@ -91,14 +99,11 @@ export function BaseToolbar({ base, view, onCreateEntry, extra }: BaseToolbarPro
         <ToolbarButton
           icon={<Eye size={11} />}
           label="Colonnes"
-          active={open === "fields"}
+          active={columnEditorOpen}
           count={hiddenCount > 0 ? hiddenCount : undefined}
           countTone="muted"
-          onClick={() => toggle("fields")}
+          onClick={toggleColumnEditor}
         />
-        {open === "fields" && (
-          <VisibleFieldsMenu base={base} view={view} onClose={() => setOpen(null)} />
-        )}
       </div>
 
       {(showGroupPivot || showDatePivot) && (
@@ -125,14 +130,15 @@ export function BaseToolbar({ base, view, onCreateEntry, extra }: BaseToolbarPro
       <div className="ml-auto flex items-center gap-1">
         {extra}
         {onCreateEntry && (
-          <button
-            type="button"
-            onClick={onCreateEntry}
+          <Button
+            size="sm"
+            variant="primary"
+            onPress={onCreateEntry}
             className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium"
             style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
           >
             <Plus size={11} /> Nouvelle entrée
-          </button>
+          </Button>
         )}
       </div>
     </div>
@@ -161,9 +167,10 @@ function ToolbarButton({
 }: ToolbarButtonProps) {
   const hasCount = typeof count === "number" && count > 0;
   return (
-    <button
-      type="button"
-      onClick={onClick}
+    <Button
+      variant="ghost"
+      size="sm"
+      onPress={onClick}
       className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition-colors"
       style={{
         backgroundColor: active ? "var(--surface-3)" : "transparent",
@@ -185,6 +192,6 @@ function ToolbarButton({
           {count}
         </span>
       )}
-    </button>
+    </Button>
   );
 }

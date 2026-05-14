@@ -1,6 +1,6 @@
 "use client";
 
-import { Drawer } from "@supernote/ui";
+import { Button, Drawer } from "@supernote/ui";
 import type { ReactNode } from "react";
 
 /**
@@ -55,15 +55,17 @@ export function MobileSheet({
           >
             {title}
           </h2>
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            size="icon"
             onClick={onClose}
-            className="flex h-8 w-8 items-center justify-center rounded-full transition-colors active:bg-[var(--surface-2)]"
+            className="flex h-8 w-8 items-center justify-center rounded-full"
             style={{ color: "var(--text-muted)" }}
             aria-label="Fermer"
           >
             ✕
-          </button>
+          </Button>
         </div>
         <div className="flex-1 overflow-y-auto p-4">{children}</div>
       </div>

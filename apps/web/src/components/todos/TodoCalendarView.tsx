@@ -28,6 +28,7 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
+import { Button } from "@heroui/react";
 import { CaretLeft, CaretRight } from "@phosphor-icons/react";
 import { importanceColor } from "./TodoRow";
 import type { TodoRowData } from "./TodoRow";
@@ -430,30 +431,30 @@ export function TodoCalendarView({ todos, onEdit, onUpdateDates }: TodoCalendarV
             className="flex items-center justify-between px-4 py-2 border-b shrink-0"
             style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-0)" }}
           >
-            <button
-              type="button"
-              onClick={prevMonth}
+            <Button
+              variant="ghost"
+              onPress={prevMonth}
               className="flex items-center justify-center rounded p-1 hover:bg-[var(--surface-2)] transition-colors"
               style={{ color: "var(--text-secondary)" }}
               aria-label="Mois précédent"
             >
               <CaretLeft size={16} />
-            </button>
+            </Button>
             <span
               className="text-sm font-semibold capitalize"
               style={{ color: "var(--text-primary)" }}
             >
               {monthLabel}
             </span>
-            <button
-              type="button"
-              onClick={nextMonth}
+            <Button
+              variant="ghost"
+              onPress={nextMonth}
               className="flex items-center justify-center rounded p-1 hover:bg-[var(--surface-2)] transition-colors"
               style={{ color: "var(--text-secondary)" }}
               aria-label="Mois suivant"
             >
               <CaretRight size={16} />
-            </button>
+            </Button>
           </div>
 
           {/* Weekday headers */}

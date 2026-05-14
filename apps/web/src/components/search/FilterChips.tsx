@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Plus, X, FunnelSimple } from "@phosphor-icons/react";
+import { Button } from "@heroui/react";
 import type { ActiveFilter, FilterKey } from "./types";
 
 interface FilterChipsProps {
@@ -51,22 +52,30 @@ export function FilterChips({ filters, onAdd, onRemove }: FilterChipsProps) {
           >
             <span className="opacity-70">{f.key}:</span>
             <span>{f.value}</span>
-            <button onClick={() => onRemove(i)} className="ml-0.5 hover:opacity-70">
+            <Button
+              isIconOnly
+              variant="ghost"
+              size="sm"
+              onPress={() => onRemove(i)}
+              className="ml-0.5 h-auto min-h-0 min-w-0 p-0 hover:opacity-70"
+            >
               <X size={10} />
-            </button>
+            </Button>
           </span>
         );
       })}
 
       <div className="relative">
-        <button
-          onClick={() => setPickerKey((k) => (k ? null : "type"))}
-          className="inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs transition-colors hover:opacity-70"
+        <Button
+          variant="outline"
+          size="sm"
+          onPress={() => setPickerKey((k) => (k ? null : "type"))}
+          className="rounded-full px-2.5 py-0.5 text-xs"
           style={{ borderColor: "var(--border-subtle)", color: "var(--text-secondary)" }}
         >
           <Plus size={10} />
           Filtre
-        </button>
+        </Button>
 
         {pickerKey === null && false && null}
 
@@ -79,10 +88,12 @@ export function FilterChips({ filters, onAdd, onRemove }: FilterChipsProps) {
               <>
                 <div className="mb-1 flex gap-1">
                   {FILTER_PRESETS.map((p) => (
-                    <button
+                    <Button
                       key={p.key}
-                      onClick={() => setPickerKey(p.key)}
-                      className="rounded px-2 py-0.5 text-xs transition-colors"
+                      variant="ghost"
+                      size="sm"
+                      onPress={() => setPickerKey(p.key)}
+                      className="rounded px-2 py-0.5 text-xs"
                       style={
                         pickerKey === p.key
                           ? { backgroundColor: "var(--accent-subtle)", color: "var(--accent)" }
@@ -90,20 +101,22 @@ export function FilterChips({ filters, onAdd, onRemove }: FilterChipsProps) {
                       }
                     >
                       {p.label}
-                    </button>
+                    </Button>
                   ))}
                 </div>
                 <div className="mt-2 flex flex-col gap-0.5">
                   {/* eslint-disable-next-line @typescript-eslint/no-non-null-assertion */}
                   {FILTER_PRESETS[0]!.values.map((v) => (
-                    <button
+                    <Button
                       key={v}
-                      onClick={() => handlePickerSelect("type", v)}
-                      className="rounded px-2 py-1 text-left text-xs transition-colors hover:opacity-70"
+                      variant="ghost"
+                      size="sm"
+                      onPress={() => handlePickerSelect("type", v)}
+                      className="w-full justify-start rounded px-2 py-1 text-xs"
                       style={{ color: "var(--text-primary)" }}
                     >
                       {v}
-                    </button>
+                    </Button>
                   ))}
                 </div>
               </>
@@ -111,10 +124,12 @@ export function FilterChips({ filters, onAdd, onRemove }: FilterChipsProps) {
               <>
                 <div className="mb-1 flex flex-wrap gap-1">
                   {FILTER_PRESETS.map((p) => (
-                    <button
+                    <Button
                       key={p.key}
-                      onClick={() => setPickerKey(p.key)}
-                      className="rounded px-2 py-0.5 text-xs transition-colors"
+                      variant="ghost"
+                      size="sm"
+                      onPress={() => setPickerKey(p.key)}
+                      className="rounded px-2 py-0.5 text-xs"
                       style={
                         pickerKey === p.key
                           ? { backgroundColor: "var(--accent-subtle)", color: "var(--accent)" }
@@ -122,19 +137,21 @@ export function FilterChips({ filters, onAdd, onRemove }: FilterChipsProps) {
                       }
                     >
                       {p.label}
-                    </button>
+                    </Button>
                   ))}
                 </div>
                 <div className="mt-2 flex flex-col gap-0.5">
                   {preset?.values.map((v) => (
-                    <button
+                    <Button
                       key={v}
-                      onClick={() => handlePickerSelect(pickerKey, v)}
-                      className="rounded px-2 py-1 text-left text-xs transition-colors hover:opacity-70"
+                      variant="ghost"
+                      size="sm"
+                      onPress={() => handlePickerSelect(pickerKey, v)}
+                      className="w-full justify-start rounded px-2 py-1 text-xs"
                       style={{ color: "var(--text-primary)" }}
                     >
                       {v}
-                    </button>
+                    </Button>
                   ))}
                 </div>
               </>
