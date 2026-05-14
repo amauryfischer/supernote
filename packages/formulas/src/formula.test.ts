@@ -40,6 +40,7 @@ function makeCtx(overrides: Partial<FormulaContext> = {}): FormulaContext {
     queryEntities: () => [],
     getRelations: () => [],
     now: () => FIXED_NOW,
+    resolveVariable: () => null,
     ...overrides,
   };
 }
@@ -967,6 +968,47 @@ describe('parser $variable', () => {
     const ast = res.value as any;
     expect(ast.kind).toBe('BinaryOp');
     expect(ast.left).toMatchObject({ kind: 'VariableRef', name: 'a' });
+  });
+});
+
+// ============================================================
+// evaluator $variable
+// ============================================================
+
+describe('evaluator $variable', () => {
+  function mkVarCtx(vars: Record<string, unknown>): FormulaContext {
+    return {
+      resolveEntity: () => null,
+      queryEntities: () => [],
+      getRelations: () => [],
+      now: () => new Date('2026-01-01T00:00:00Z'),
+      resolveVariable: (name) => (name in vars ? (vars[name] as Value) : null),
+    };
+  }
+
+  it('resolves $name via context', () => {
+    const ast = (parseFormula('$x + 1') as any).value;
+    const res = evaluate(ast, mkVarCtx({ x: 41 }));
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.value).toBe(42);
+  });
+
+  it('errors on unknown variable', () => {
+    const ast = (parseFormula('$missing') as any).value;
+    const res = evaluate(ast, mkVarCtx({}));
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    expect(res.error.message).toMatch(/unknown variable.*missing/i);
+  });
+
+  it('tracks variable dependency', () => {
+    const ast = (parseFormula('$x') as any).value;
+    const deps: any[] = [];
+    const ctx = mkVarCtx({ x: 1 });
+    const res = evaluate(ast, ctx, {}, { onDependency: (d: any) => deps.push(d) });
+    expect(res.ok).toBe(true);
+    expect(deps).toContainEqual({ kind: 'variable', id: 'x' });
   });
 });
 

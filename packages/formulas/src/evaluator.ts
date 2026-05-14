@@ -3,8 +3,12 @@
 // ============================================================
 
 import type { FormulaAST } from "./ast.js";
-import type { Value, FormulaContext, LambdaValue, Scope } from "./value.js";
+import type { Value, FormulaContext, LambdaValue, Scope, Dependency } from "./value.js";
 import { isLambda, coerceToNumber, coerceToBool, coerceToString } from "./value.js";
+
+export interface EvalOptions {
+  onDependency?: (dep: Dependency) => void;
+}
 import { makeEvalError, type EvalError } from "./errors.js";
 import type { Result } from "@supernote/core/result";
 import { ok, err } from "@supernote/core/result";
@@ -21,6 +25,7 @@ export class Evaluator {
 
   constructor(
     private readonly ctx: FormulaContext,
+    private readonly opts: EvalOptions = {},
   ) {
     this.listFns = makeListFunctions(this.applyLambda.bind(this));
     this.entityFns = makeEntityFunctions(ctx, this.applyLambda.bind(this));
@@ -43,6 +48,7 @@ export class Evaluator {
       case "UnaryOp": return this.evalUnaryOp(node, scope);
       case "FunctionCall": return this.evalFunctionCall(node, scope);
       case "Conditional": return this.evalConditional(node, scope);
+      case "VariableRef": return this.evalVariableRef(node);
     }
   }
 
@@ -61,6 +67,13 @@ export class Evaluator {
     const entity = this.ctx.resolveEntity(title);
     if (!entity) return ok(null);
     return ok({ _type: "entity", entity });
+  }
+
+  private evalVariableRef(node: { name: string }): Result<Value, EvalError> {
+    this.opts.onDependency?.({ kind: "variable", id: node.name });
+    const v = this.ctx.resolveVariable(node.name);
+    if (v === null) return err(makeEvalError(`unknown variable $${node.name}`, "VariableRef"));
+    return ok(v);
   }
 
   private evalList(elements: FormulaAST[], scope: Scope): Result<Value, EvalError> {
@@ -263,6 +276,7 @@ export function evaluate(
   ast: FormulaAST,
   context: FormulaContext,
   scope: Scope = {},
+  options: EvalOptions = {},
 ): Result<Value, EvalError> {
-  return new Evaluator(context).eval(ast, scope);
+  return new Evaluator(context, options).eval(ast, scope);
 }

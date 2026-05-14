@@ -39,6 +39,10 @@ function walk(node: FormulaAST, deps: Dependency[]): void {
       deps.push({ kind: "entity", id: node.title });
       return;
 
+    case "VariableRef":
+      deps.push({ kind: "variable", id: node.name });
+      return;
+
     case "PropertyAccess":
       walk(node.object, deps);
       return;

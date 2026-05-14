@@ -4,15 +4,13 @@
  * Implements the same procedure surface as the Electron main process:
  * vault.*, entities.*, schemas.*, tags.*, search.*
  *
- * Uses sql.js Database directly (no Prisma) and FSA for file I/O.
- *
- * Browser mode uses MiniSearch in-memory FTS instead of SQLite FTS5
- * (sql.js standard build doesn't include FTS5).
- * Trade-off acceptable for vaults < 5k entités.
+ * Drives sqlite-wasm directly (no Prisma) and FSA for file I/O. Full-text
+ * search uses the SQLite FTS5 module (shipped by `@sqlite.org/sqlite-wasm`)
+ * with manually managed `entity_fts` rows — see `ftsAdd` / `ftsRemove` /
+ * `ftsRebuild` below.
  */
 
-import MiniSearch from "minisearch";
-import type { Database } from "sql.js";
+import type { Database } from "./sqlite-adapter";
 import {
   parseFrontmatter,
   serializeFrontmatter,
@@ -42,7 +40,7 @@ interface EntityDoc {
   tags: string;
   /**
    * Folder + filename (minus `.md`) of the entity, with `/` replaced by
-   * spaces so MiniSearch tokenizes each segment. Lets users find a note by
+   * spaces so FTS5 tokenizes each segment. Lets users find a note by
    * any folder along its path — typing "leroy" matches every note in
    * `Maison VLM/Courses Leroy Merlin/...`, even ones whose own title and
    * body never mention the word.
@@ -67,34 +65,12 @@ function now(): string {
   return new Date().toISOString();
 }
 
-// ── MiniSearch index ──────────────────────────────────────────────────────────
-
-let miniSearch: MiniSearch<EntityDoc> | null = null;
-
-function createMiniSearch(): MiniSearch<EntityDoc> {
-  return new MiniSearch<EntityDoc>({
-    fields: ["title", "body", "tags", "path"],
-    storeFields: ["id", "typeId"],
-    // Lowercase every indexed term so partial / case-insensitive queries
-    // ("linh" vs "Linh Dan") match. MiniSearch's default tokenizer is
-    // case-sensitive unless `processTerm` is set.
-    processTerm: (term) => term.toLowerCase(),
-    searchOptions: {
-      prefix: true,
-      fuzzy: 0.2,
-      // `path` ranks above plain body matches but below the title — a folder
-      // hit is a strong relevance signal but shouldn't outrank a literal
-      // title match.
-      boost: { title: 2, path: 1.5 },
-      processTerm: (term) => term.toLowerCase(),
-    },
-  });
-}
+// ── FTS5 index helpers ────────────────────────────────────────────────────────
 
 /**
  * Tokenize a `filePath` (e.g. `Maison VLM/Courses Leroy Merlin/note.md`) into
  * a search-friendly string by stripping `.md`, splitting on `/`, and joining
- * with spaces so MiniSearch indexes each path segment as its own term.
+ * with spaces so FTS5 indexes each path segment as its own term.
  */
 function derivePath(filePath: string | null): string {
   if (!filePath) return "";
@@ -111,8 +87,8 @@ function derivePath(filePath: string | null): string {
  * field is present.
  *
  * Aliases (stored as a JSON-encoded string array under `fields.aliases`)
- * are appended to the returned string so MiniSearch indexes them in the
- * `title` field — i.e. "@LD" resolves to a contact whose canonical name
+ * are appended to the returned string so FTS5 indexes them under the
+ * `title` column — i.e. "@LD" resolves to a contact whose canonical name
  * is "Linh Dan" but who has "LD" listed as an alias.
  */
 function deriveTitle(fieldsJson: string | null, filePath: string | null): string {
@@ -163,7 +139,61 @@ function deriveTitle(fieldsJson: string | null, filePath: string | null): string
   return base ? `${base} ${aliases.join(" ")}` : aliases.join(" ");
 }
 
-function initMiniSearch(db: Database, vaultId: string): void {
+/**
+ * Build a safe FTS5 MATCH expression from raw user input.
+ *
+ * FTS5 has its own query syntax (AND OR NOT NEAR, quoted phrases, prefix
+ * `*`, column filters with `col:`). Forwarding raw user input would let a
+ * stray colon or unbalanced quote throw a syntax error AND would change
+ * semantics in surprising ways. We sanitize each whitespace-delimited
+ * token, wrap it as a quoted phrase, and append `*` for prefix matching —
+ * matching MiniSearch's old `prefix: true` behavior.
+ *
+ * Fuzzy matching (`fuzzy: 0.2` in the old MiniSearch config) is not
+ * supported by FTS5 natively. The prefix glob covers most of what fuzzy
+ * was actually used for in practice (typing "lin" to find "Linh").
+ *
+ * Returns `null` if the query has no usable tokens.
+ */
+function buildFtsMatch(raw: string): string | null {
+  const tokens = raw
+    .toLowerCase()
+    // Strip FTS5 special characters. Keep letters/digits/underscore — the
+    // unicode61 tokenizer with `remove_diacritics 2` does case-folding and
+    // diacritic removal at index time, so passing "lea" matches "Léa".
+    .split(/\s+/)
+    .map((t) => t.replace(/["():\-.\^*¬]/g, ""))
+    .filter((t) => t.length > 0);
+  if (tokens.length === 0) return null;
+  return tokens.map((t) => `"${t}"*`).join(" ");
+}
+
+function ftsAdd(db: Database, doc: EntityDoc): void {
+  // Defensive: a stale row from a previous indexing pass would lead to
+  // duplicate hits in the same query. FTS5 has no UNIQUE constraint on the
+  // UNINDEXED `id`, so we explicitly delete-then-insert.
+  db.run(`DELETE FROM entity_fts WHERE id = ?`, [doc.id]);
+  db.run(
+    `INSERT INTO entity_fts (id, title, body, tags, path) VALUES (?, ?, ?, ?, ?)`,
+    [doc.id, doc.title, doc.body, doc.tags, doc.path],
+  );
+}
+
+function ftsRemove(db: Database, id: string): void {
+  db.run(`DELETE FROM entity_fts WHERE id = ?`, [id]);
+}
+
+/**
+ * Rebuild the entity_fts index from scratch for the given vault. Called at
+ * router boot when the FTS table is empty (fresh vault, post-migration) and
+ * after `vault.reindex` completes so the index reflects the disk truth.
+ */
+function ftsRebuild(db: Database, vaultId: string): void {
+  // `entity_fts` is shared by all vaults in this DB — but in practice the
+  // worker only ever sees one vault. Wiping unconditionally keeps the
+  // rebuild logic simple and matches the old `initMiniSearch` behavior
+  // (which dropped and recreated the in-memory index on every call).
+  db.run(`DELETE FROM entity_fts`);
   const allEntities = rows(
     db.exec(
       `SELECT e.id, e.typeId, e.filePath, e.fields, e.body,
@@ -176,39 +206,17 @@ function initMiniSearch(db: Database, vaultId: string): void {
       [vaultId],
     ),
   );
-
-  const ms = createMiniSearch();
-  const docs: EntityDoc[] = allEntities.map((r) => ({
-    id: r["id"] as string,
-    typeId: r["typeId"] as string,
-    title: deriveTitle(r["fields"] as string | null, r["filePath"] as string | null),
-    body: (r["body"] as string) ?? "",
-    tags: (r["tagPaths"] as string) ?? "",
-    path: derivePath(r["filePath"] as string | null),
-  }));
-  ms.addAll(docs);
-  miniSearch = ms;
-  console.info("[search] initMiniSearch loaded", docs.length, "docs for vault", vaultId);
-}
-
-function miniSearchAdd(entity: EntityDoc): void {
-  if (!miniSearch) return;
-  try {
-    miniSearch.remove({ id: entity.id } as EntityDoc);
-  } catch {
-    // Not in index yet, that's fine
+  for (const r of allEntities) {
+    ftsAdd(db, {
+      id: r["id"] as string,
+      typeId: r["typeId"] as string,
+      title: deriveTitle(r["fields"] as string | null, r["filePath"] as string | null),
+      body: (r["body"] as string) ?? "",
+      tags: (r["tagPaths"] as string) ?? "",
+      path: derivePath(r["filePath"] as string | null),
+    });
   }
-  miniSearch.add(entity);
-  console.info("[search] indexed", entity.id, entity.title);
-}
-
-function miniSearchRemove(id: string): void {
-  if (!miniSearch) return;
-  try {
-    miniSearch.remove({ id } as EntityDoc);
-  } catch {
-    // Not found, ignore
-  }
+  console.info(`[search] ftsRebuild indexed ${allEntities.length} entit(y/ies) for vault ${vaultId}`);
 }
 
 function entityToDoc(r: SqlRow): EntityDoc {
@@ -231,8 +239,10 @@ export function buildRouter(
   vaultHandle: FileSystemDirectoryHandle,
   vaultId: string,
 ): Record<string, RouteHandler> {
-  // Populate MiniSearch index on router creation (after DB is ready)
-  initMiniSearch(db, vaultId);
+  // Populate FTS5 index from `entity` rows. Cheap when empty (post-init),
+  // O(n) on already-populated vaults — but the rebuild is just N inserts
+  // into FTS5, well under 100ms for a few thousand entities.
+  ftsRebuild(db, vaultId);
 
   // ── vault.* ────────────────────────────────────────────────────────────────
 
@@ -584,7 +594,7 @@ export function buildRouter(
         // File may already be gone; keep going so the DB stays consistent.
       }
       db.run(`DELETE FROM entity WHERE id = ?`, [id]);
-      miniSearchRemove(id);
+      ftsRemove(db, id);
     }
 
     // 3. Drop the folder + every nested folder from the explicit list.
@@ -774,8 +784,7 @@ export function buildRouter(
       await applyEntityTags(db, vaultId, id, tags, ts);
     }
 
-    // Update MiniSearch index
-    miniSearchAdd({
+    ftsAdd(db, {
       id,
       typeId,
       title: deriveTitle(JSON.stringify(fields), relativePath),
@@ -869,8 +878,7 @@ export function buildRouter(
       await applyEntityTags(db, vaultId, id, tags, ts);
     }
 
-    // Update MiniSearch index
-    miniSearchAdd({
+    ftsAdd(db, {
       id,
       typeId: existing["typeId"] as string,
       title: deriveTitle(JSON.stringify(newFields), effectivePath),
@@ -895,7 +903,7 @@ export function buildRouter(
       // Also remove the .excalidraw sibling if present.
       await deleteExcalidrawSibling(vaultHandle, filePath);
       db.run(`DELETE FROM entity WHERE id = ?`, [id]);
-      miniSearchRemove(id);
+      ftsRemove(db, id);
     }
     return { id, deleted: true };
   };
@@ -935,30 +943,36 @@ export function buildRouter(
       return { items: recent, total: recent.length };
     }
 
-    if (!miniSearch) return { items: [], total: 0 };
+    const match = buildFtsMatch(query);
+    if (!match) return { items: [], total: 0 };
 
-    const matches = miniSearch.search(query.toLowerCase(), {
-      prefix: true,
-      fuzzy: 0.2,
-      processTerm: (term) => term.toLowerCase(),
-    });
-    const filtered = typeId ? matches.filter((m) => m["typeId"] === typeId) : matches;
-    const paged = filtered.slice(0, lim);
-    if (!paged.length) return { items: [], total: 0 };
+    // bm25 weights: title=2 (literal name hit wins), body=1, tags=1, path=1.5
+    // (folder-segment match is a strong signal but shouldn't outrank a title
+    // hit). Column order in entity_fts: id UNINDEXED is skipped by bm25, so
+    // the four weights map to title/body/tags/path respectively.
+    let sql = `
+      SELECT e.id, e.typeId, et.name as typeName, e.filePath, e.fields, e.body,
+             e.createdAt, e.updatedAt
+      FROM entity_fts f
+      JOIN entity e ON e.id = f.id
+      JOIN entity_type et ON et.id = e.typeId
+      WHERE f MATCH ? AND e.vaultId = ?
+    `;
+    const params: SqlValue[] = [match, vaultId];
+    if (typeId) { sql += ` AND e.typeId = ?`; params.push(typeId); }
+    sql += ` ORDER BY bm25(entity_fts, 2.0, 1.0, 1.0, 1.5) LIMIT ?`;
+    params.push(lim);
 
-    const ids = paged.map((m) => `'${(m["id"] as string).replace(/'/g, "''")}'`).join(",");
-    const entityRows = rows(db.exec(
-      `SELECT e.id, e.typeId, et.name as typeName, e.filePath, e.fields, e.body, e.createdAt, e.updatedAt
-       FROM entity e
-       JOIN entity_type et ON et.id = e.typeId
-       WHERE e.id IN (${ids})`,
-    ));
-    // Preserve MiniSearch ordering (relevance) instead of SQL ordering.
-    const byId = new Map(entityRows.map((r) => [r["id"] as string, r]));
-    const items = paged
-      .map((m) => byId.get(m["id"] as string))
-      .filter((r): r is SqlRow => Boolean(r))
-      .map(entityRowToApi);
+    let entityRows: SqlRow[];
+    try {
+      entityRows = rows(db.exec(sql, params));
+    } catch (err) {
+      // FTS5 syntax errors on edge-case queries (e.g. all-special-char input
+      // that slipped past `buildFtsMatch`) shouldn't crash the picker.
+      console.warn("[search] entitiesSearch MATCH failed", err);
+      return { items: [], total: 0 };
+    }
+    const items = entityRows.map(entityRowToApi);
     return { items, total: items.length };
   };
 
@@ -1609,6 +1623,7 @@ export function buildRouter(
       queryEntities: (typeId) => loadEntitiesOfType(typeId) as never,
       getRelations: () => [],
       now: () => new Date(),
+      resolveVariable: () => null,
     };
 
     function toFormulaValue(v: unknown): FormulaValue {
@@ -2296,9 +2311,9 @@ export function buildRouter(
     const t0 = Date.now();
 
     // Empty query: list most recently updated entities for the typeId so the
-    // EntityPicker shows something before the user starts typing. We bypass
-    // MiniSearch and read from the DB directly because MiniSearch.search("")
-    // returns no results.
+    // EntityPicker shows something before the user starts typing. FTS5 MATCH
+    // with an empty pattern raises a syntax error, so we read from `entity`
+    // directly here instead of going through `entity_fts`.
     if (!query.trim()) {
       let listSql = `
         SELECT e.id, e.typeId, et.name as typeName, e.filePath, e.fields, e.body,
@@ -2330,55 +2345,77 @@ export function buildRouter(
       return { items, total: items.length, durationMs: Date.now() - t0 };
     }
 
-    if (!miniSearch) {
-      return { items: [], total: 0, durationMs: 0 };
+    const match = buildFtsMatch(query);
+    if (!match) {
+      return { items: [], total: 0, durationMs: Date.now() - t0 };
     }
 
-    const matches = miniSearch.search(query.toLowerCase(), {
-      prefix: true,
-      fuzzy: 0.2,
-      processTerm: (term) => term.toLowerCase(),
+    // Two-pass: a fast COUNT to populate `total` for the UI's pagination
+    // controls (matches the old MiniSearch behavior which returned the full
+    // filtered length), then the actual paged result. `total` is approximate
+    // when typeId narrows the set — same approximation the old code shipped.
+    let countSql = `
+      SELECT COUNT(*) as c
+      FROM entity_fts f
+      JOIN entity e ON e.id = f.id
+      WHERE f MATCH ? AND e.vaultId = ?
+    `;
+    const countParams: SqlValue[] = [match, vaultId];
+    if (typeId) { countSql += ` AND e.typeId = ?`; countParams.push(typeId); }
+
+    let pageSql = `
+      SELECT e.id, e.typeId, et.name as typeName, e.filePath, e.fields, e.body,
+             e.createdAt, e.updatedAt,
+             snippet(entity_fts, 2, '', '', '…', 16) as bodyExcerpt,
+             bm25(entity_fts, 2.0, 1.0, 1.0, 1.5) as bm25
+      FROM entity_fts
+      JOIN entity e ON e.id = entity_fts.id
+      JOIN entity_type et ON et.id = e.typeId
+      WHERE entity_fts MATCH ? AND e.vaultId = ?
+    `;
+    const pageParams: SqlValue[] = [match, vaultId];
+    if (typeId) { pageSql += ` AND e.typeId = ?`; pageParams.push(typeId); }
+    pageSql += ` ORDER BY bm25 LIMIT ? OFFSET ?`;
+    pageParams.push(lim, off);
+
+    let total = 0;
+    let matched: SqlRow[];
+    try {
+      const c = row(db.exec(countSql, countParams));
+      total = c ? Number(c["c"] ?? 0) : 0;
+      matched = rows(db.exec(pageSql, pageParams));
+    } catch (err) {
+      // Edge-case MATCH syntax errors → empty result, never crash the UI.
+      console.warn("[search] searchQuery MATCH failed", err);
+      return { items: [], total: 0, durationMs: Date.now() - t0 };
+    }
+
+    const items = matched.map((r) => {
+      const body = (r["body"] as string) ?? "";
+      const snippet = (r["bodyExcerpt"] as string) ?? "";
+      // Fall back to the body prefix when the FTS snippet is empty (e.g.
+      // the match landed in title/tags/path rather than body).
+      const excerpt = snippet.length > 0
+        ? snippet
+        : body.length > 120 ? body.slice(0, 120) + "..." : body;
+      // bm25 returns 0 (best) → +∞. Normalize to a roughly comparable
+      // 0..1 score so the UI's existing score bar stays meaningful.
+      const bm25Val = Number(r["bm25"] ?? 0);
+      const score = 1 / (1 + Math.max(0, bm25Val));
+      return {
+        entityId: r["id"],
+        typeId: r["typeId"],
+        typeName: r["typeName"],
+        filePath: r["filePath"],
+        title: deriveTitle(r["fields"] as string | null, r["filePath"] as string | null),
+        excerpts: excerpt ? [excerpt] : [],
+        score,
+        semantic: false,
+        tags: [],
+      };
     });
 
-    // Filter by typeId if requested, then page
-    const filtered = typeId ? matches.filter((m) => m["typeId"] === typeId) : matches;
-    const paged = filtered.slice(off, off + lim);
-
-    if (!paged.length) {
-      return { items: [], total: filtered.length, durationMs: Date.now() - t0 };
-    }
-
-    // Fetch full entity rows for the matched IDs
-    const ids = paged.map((m) => `'${(m["id"] as string).replace(/'/g, "''")}'`).join(",");
-    const entityRows = rows(db.exec(
-      `SELECT e.id, e.typeId, et.name as typeName, e.filePath, e.fields, e.body, e.createdAt, e.updatedAt
-       FROM entity e
-       JOIN entity_type et ON et.id = e.typeId
-       WHERE e.id IN (${ids})`,
-    ));
-
-    const entityById = new Map(entityRows.map((r) => [r["id"] as string, r]));
-    const items = paged
-      .map((m) => {
-        const r = entityById.get(m["id"] as string);
-        if (!r) return null;
-        const body = (r["body"] as string) ?? "";
-        const excerpt = body.length > 120 ? body.slice(0, 120) + "..." : body;
-        return {
-          entityId: r["id"],
-          typeId: r["typeId"],
-          typeName: r["typeName"],
-          filePath: r["filePath"],
-          title: deriveTitle(r["fields"] as string | null, r["filePath"] as string | null),
-          excerpts: excerpt ? [excerpt] : [],
-          score: Math.min(1, (m.score as number) / 10),
-          semantic: false,
-          tags: [],
-        };
-      })
-      .filter(Boolean);
-
-    return { items, total: filtered.length, durationMs: Date.now() - t0 };
+    return { items, total, durationMs: Date.now() - t0 };
   };
 
   // ── reindex ───────────────────────────────────────────────────────────────
@@ -2435,9 +2472,8 @@ export function buildRouter(
           [entityId, vaultId, typeId, file.relativePath, JSON.stringify(fields), body, hash, ts, ts],
         );
 
-        // Update MiniSearch
         const r = row(db.exec(`SELECT id, typeId, filePath, fields, body FROM entity WHERE id = ?`, [entityId]));
-        if (r) miniSearchAdd(entityToDoc(r));
+        if (r) ftsAdd(db, entityToDoc(r));
 
         indexed++;
       } catch {
@@ -2445,9 +2481,11 @@ export function buildRouter(
       }
     }
 
-    // Rebuild full index after reindex to stay in sync
+    // Full FTS5 rebuild after a reindex batch — cheaper than auditing each
+    // file's tag join state, and keeps tags consistent if a file's frontmatter
+    // changed since the last index pass.
     if (indexed > 0) {
-      initMiniSearch(db, vaultId);
+      ftsRebuild(db, vaultId);
     }
 
     return { indexed };

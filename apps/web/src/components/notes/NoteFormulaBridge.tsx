@@ -31,6 +31,7 @@ const minimalContext: FormulaContext = {
   queryEntities: () => [],
   getRelations: () => [],
   now: () => new Date(),
+  resolveVariable: () => null,
 };
 
 function evalExpr(expression: string): { ok: true; value: FormulaValue } | { ok: false; msg: string } {

@@ -42,11 +42,13 @@ export interface FormulaContext {
   getRelations(entityId: string, relationTypeId?: string): RelationEdge[];
   /** Stable current time (for deterministic evaluation) */
   now(): Date;
+  /** Resolve a $variable reference by name. Returns null if undefined. */
+  resolveVariable(name: string): Value | null;
 }
 
 // ------ Dependency tracking ----------------------------------
 
-export type DependencyKind = "entity" | "entityType" | "relation" | "time";
+export type DependencyKind = "entity" | "entityType" | "relation" | "time" | "variable";
 
 export interface Dependency {
   readonly kind: DependencyKind;

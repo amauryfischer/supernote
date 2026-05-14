@@ -82,6 +82,7 @@ export function inferOutputKind(ast: FormulaAST): InferredKind {
     case "Identifier":
     case "EntityRef":
     case "WikiLink":
+    case "VariableRef":
     case "Lambda":
       return "unknown";
   }
