@@ -17,3 +17,6 @@ export * from "./schema/index.js";
 
 // Markdown parsing/serialization
 export * from "./markdown/index.js";
+
+// Variable schemas
+export * from './variable/index.js';
