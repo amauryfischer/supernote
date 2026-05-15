@@ -23,12 +23,14 @@ import { PwaVaultSetup } from "@/lib/pwa/PwaVaultSetup";
 import { GitSyncProvider } from "@/lib/git/GitSyncProvider";
 import { PromptProvider } from "@/hooks/usePrompt";
 import { SettingsProvider } from "@/components/settings/SettingsContext";
+import { ConfirmProvider } from "@/lib/confirm";
 
 export function RootLayout() {
   return (
     <ThemeProvider defaultTheme="light" storageKey="supernote-theme">
       <ToastProvider>
-      <NotificationsProvider>
+        <ConfirmProvider>
+          <NotificationsProvider>
         <TrpcProvider>
           <LocaleProvider>
             <ShortcutProvider>
@@ -57,7 +59,8 @@ export function RootLayout() {
             </ShortcutProvider>
           </LocaleProvider>
         </TrpcProvider>
-      </NotificationsProvider>
+          </NotificationsProvider>
+        </ConfirmProvider>
       </ToastProvider>
     </ThemeProvider>
   );
