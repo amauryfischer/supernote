@@ -19,6 +19,7 @@ import {
   List,
 } from "@phosphor-icons/react";
 import type { View, ViewKind } from "@supernote/ipc";
+import { useConfirm } from "@/lib/confirm";
 import { useViewMutations } from "./hooks";
 import { VIEW_KIND_LABEL } from "./ViewKindIcon";
 
@@ -46,10 +47,10 @@ export function ViewSettingsMenu({
   onDeleted,
 }: ViewSettingsMenuProps) {
   const { create, update, delete: del } = useViewMutations();
+  const confirm = useConfirm();
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [nextName, setNextName] = useState(view.name);
-  const [confirmDelete, setConfirmDelete] = useState(false);
 
   useEffect(() => {
     const onDocMouseDown = (e: MouseEvent) => {
@@ -195,36 +196,27 @@ export function ViewSettingsMenu({
             className="border-t"
             style={{ borderColor: "var(--border-subtle)" }}
           />
-          {confirmDelete ? (
-            <div className="flex items-center gap-1 p-2 text-xs">
-              <span style={{ color: "var(--text-secondary)" }}>Confirmer ?</span>
-              <Button
-                variant="danger"
-                size="sm"
-                onPress={remove}
-                className="ml-auto rounded px-2 py-0.5"
-                style={{ backgroundColor: "#EF4444", color: "white" }}
-              >
-                Supprimer
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onPress={() => setConfirmDelete(false)}
-                className="rounded px-2 py-0.5"
-                style={{ color: "var(--text-muted)" }}
-              >
-                Annuler
-              </Button>
-            </div>
-          ) : (
-            <MenuButton
+          <MenuButton
               icon={<Trash size={12} />}
               label="Supprimer la vue"
-              onClick={() => setConfirmDelete(true)}
+              onClick={async () => {
+                const ok = await confirm({
+                  title: "Supprimer cette vue ?",
+                  body: (
+                    <>
+                      La vue <strong>{view.name}</strong> sera supprimée. Ses filtres, tris et configuration
+                      sont perdus. Les données des entités restent intactes. Cette action est irréversible.
+                    </>
+                  ),
+                  confirmLabel: "Supprimer la vue",
+                  variant: "danger",
+                });
+                if (ok) {
+                  remove();
+                }
+              }}
               danger
             />
-          )}
         </>
       )}
     </div>
