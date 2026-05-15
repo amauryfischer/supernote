@@ -1,17 +1,17 @@
 /**
- * db-schema — SQLite schema SQL to run inside sql.js worker.
+ * db-schema — SQLite schema SQL applied at vault-worker boot.
  *
- * This is the same DDL as packages/db/prisma/migrations/20260507104020_init/migration.sql
- * adapted for direct sql.js execution (no Prisma runtime needed in browser).
+ * Mirrors `packages/db/prisma/migrations/20260507104020_init/migration.sql`
+ * (Prisma migrations don't run in the browser — the worker drives sqlite-wasm
+ * directly).
  *
  * All CREATE statements use IF NOT EXISTS to be idempotent.
  *
- * Browser mode uses MiniSearch in-memory FTS instead of SQLite FTS5
- * (sql.js standard build doesn't include FTS5).
- * Trade-off acceptable for vaults < 5k entités.
- *
- * SCHEMA_SQL_BASE  — tables + indexes (no FTS5, safe in all environments)
- * SCHEMA_SQL_FTS5  — virtual table + triggers (Electron-only, requires FTS5)
+ * SCHEMA_SQL_BASE  — tables + indexes
+ * SCHEMA_SQL_FTS5  — entity_fts virtual table + sync triggers. The official
+ *                    `@sqlite.org/sqlite-wasm` build ships FTS5, so this is
+ *                    applied in the browser too.
+ * SCHEMA_SQL       — base + FTS5 concatenated. This is what the worker runs.
  */
 
 export const SCHEMA_SQL_BASE = `
@@ -188,6 +188,19 @@ CREATE TABLE IF NOT EXISTS "view" (
     FOREIGN KEY ("typeId") REFERENCES "entity_type" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS "variable" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "name" TEXT NOT NULL UNIQUE,
+    "type" TEXT NOT NULL CHECK ("type" IN ('number','string','boolean','date')),
+    "value_kind" TEXT NOT NULL CHECK ("value_kind" IN ('literal','formula')),
+    "literal_json" TEXT,
+    "formula_expr" TEXT,
+    "createdAt" INTEGER NOT NULL,
+    "updatedAt" INTEGER NOT NULL,
+    CHECK ((value_kind = 'literal' AND literal_json IS NOT NULL AND formula_expr IS NULL)
+         OR (value_kind = 'formula' AND formula_expr IS NOT NULL AND literal_json IS NULL))
+);
+
 -- Indexes
 CREATE UNIQUE INDEX IF NOT EXISTS "vault_rootPath_key" ON "vault"("rootPath");
 CREATE INDEX IF NOT EXISTS "entity_type_vaultId_idx" ON "entity_type"("vaultId");
@@ -198,37 +211,28 @@ CREATE UNIQUE INDEX IF NOT EXISTS "entity_vaultId_filePath_key" ON "entity"("vau
 CREATE INDEX IF NOT EXISTS "tag_vaultId_idx" ON "tag"("vaultId");
 CREATE UNIQUE INDEX IF NOT EXISTS "tag_vaultId_path_key" ON "tag"("vaultId", "path");
 CREATE INDEX IF NOT EXISTS "view_vaultId_typeId_idx" ON "view"("vaultId", "typeId");
+CREATE INDEX IF NOT EXISTS "idx_variable_name" ON "variable" ("name");
 `;
 
 /**
- * FTS5 schema — Electron-only (sql.js standard build doesn't include FTS5).
- * Apply this AFTER SCHEMA_SQL_BASE in environments that support FTS5.
+ * FTS5 schema. Apply AFTER SCHEMA_SQL_BASE.
  */
 export const SCHEMA_SQL_FTS5 = `
--- FTS5 virtual table for full-text search
+-- External-content-free FTS5 index. The vault worker writes rows here
+-- manually from worker-router.ts (ftsAdd/ftsRemove) because three of the
+-- four indexed columns (title/tags/path) are *derived* — they don't exist as
+-- physical columns on entity, so neither AFTER INSERT triggers nor an
+-- "content=entity" link could populate them. unicode61 + remove_diacritics
+-- replicates the MiniSearch behaviour of "linh" matching "Linh Dan" and
+-- "lea" matching "Léa".
 CREATE VIRTUAL TABLE IF NOT EXISTS "entity_fts" USING fts5(
     id UNINDEXED,
+    title,
     body,
-    content="entity",
-    content_rowid="rowid"
+    tags,
+    path,
+    tokenize = "unicode61 remove_diacritics 2"
 );
-
--- FTS triggers to keep index up-to-date
-CREATE TRIGGER IF NOT EXISTS entity_fts_ai AFTER INSERT ON "entity" BEGIN
-    INSERT INTO entity_fts(rowid, id, body) VALUES (new.rowid, new.id, new.body);
-END;
-
-CREATE TRIGGER IF NOT EXISTS entity_fts_ad AFTER DELETE ON "entity" BEGIN
-    INSERT INTO entity_fts(entity_fts, rowid, id, body) VALUES('delete', old.rowid, old.id, old.body);
-END;
-
-CREATE TRIGGER IF NOT EXISTS entity_fts_au AFTER UPDATE ON "entity" BEGIN
-    INSERT INTO entity_fts(entity_fts, rowid, id, body) VALUES('delete', old.rowid, old.id, old.body);
-    INSERT INTO entity_fts(rowid, id, body) VALUES (new.rowid, new.id, new.body);
-END;
 `;
 
-/**
- * Full schema (base + FTS5) — kept for backward compatibility in Electron context.
- */
 export const SCHEMA_SQL = SCHEMA_SQL_BASE + SCHEMA_SQL_FTS5;

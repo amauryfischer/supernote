@@ -28,6 +28,15 @@ import {
   deleteExcalidrawSibling,
 } from "./canvas-excalidraw-io";
 import { parseFormula, evaluate, type FormulaContext, type Value as FormulaValue, type Scope, type FormulaAST } from "@supernote/formulas";
+import type { VariableInput } from "@supernote/core";
+import {
+  listVariables,
+  getVariable,
+  insertVariable,
+  updateVariable,
+  deleteVariable,
+  makeVariableResolver,
+} from "./variables";
 
 type SqlValue = string | number | null | Uint8Array;
 type SqlRow = Record<string, SqlValue>;
@@ -1618,12 +1627,15 @@ export function buildRouter(
       });
     }
 
-    const formulaContext: FormulaContext = {
+    const baseFormulaContext: Omit<FormulaContext, "resolveVariable"> = {
       resolveEntity: (ref) => loadEntityByRef(ref) as never,
       queryEntities: (typeId) => loadEntitiesOfType(typeId) as never,
       getRelations: () => [],
       now: () => new Date(),
-      resolveVariable: () => null,
+    };
+    const formulaContext: FormulaContext = {
+      ...baseFormulaContext,
+      resolveVariable: makeVariableResolver(db, baseFormulaContext),
     };
 
     function toFormulaValue(v: unknown): FormulaValue {
@@ -2491,6 +2503,47 @@ export function buildRouter(
     return { indexed };
   };
 
+  // ── variables.* ───────────────────────────────────────────────────────────
+
+  const variablesList = async (): Promise<unknown> => listVariables(db);
+
+  const variablesGet = async (input: unknown): Promise<unknown> =>
+    getVariable(db, (input as { id: string }).id);
+
+  const variablesCreate = async (input: unknown): Promise<unknown> => {
+    const id = generateId();
+    return insertVariable(db, { id, ...(input as VariableInput) });
+  };
+
+  const variablesUpdate = async (input: unknown): Promise<unknown> => {
+    const { id, patch } = input as { id: string; patch: Partial<VariableInput> };
+    return updateVariable(db, id, patch);
+  };
+
+  const variablesDelete = async (input: unknown): Promise<unknown> => {
+    const { id } = input as { id: string };
+    deleteVariable(db, id);
+    return { id, deleted: true };
+  };
+
+  const variablesEvaluate = async (input: unknown): Promise<unknown> => {
+    const { id } = input as { id: string };
+    const v = getVariable(db, id);
+    if (!v) return { value: null, error: `variable ${id} not found` };
+    try {
+      const noopCtx: Omit<FormulaContext, 'resolveVariable'> = {
+        resolveEntity: () => null,
+        queryEntities: () => [],
+        getRelations: () => [],
+        now: () => new Date(),
+      };
+      const val = makeVariableResolver(db, noopCtx)(v.name);
+      return { value: JSON.stringify(val), error: null };
+    } catch (e) {
+      return { value: null, error: e instanceof Error ? e.message : String(e) };
+    }
+  };
+
   // ── system.* ──────────────────────────────────────────────────────────────
 
   const systemGetAppInfo = async (): Promise<unknown> => ({
@@ -2555,6 +2608,13 @@ export function buildRouter(
     "system.getAppInfo": systemGetAppInfo,
 
     "vault.reindex": reindexVault,
+
+    "variables.list": variablesList,
+    "variables.get": variablesGet,
+    "variables.create": variablesCreate,
+    "variables.update": variablesUpdate,
+    "variables.delete": variablesDelete,
+    "variables.evaluate": variablesEvaluate,
   };
 }
 
