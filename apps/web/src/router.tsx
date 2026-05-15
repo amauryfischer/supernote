@@ -126,6 +126,11 @@ export const router: any = createBrowserRouter([
       { path: "routines/nouveau", lazy: lazyPage(() => import("./app/routines/nouveau/page")) },
       { path: "routines/:id", lazy: lazyPage(() => import("./app/routines/[id]/page")) },
 
+      // ── Variables ─────────────────────────────────────────────────────────
+      { path: "variables", lazy: lazyPage(() => import("./app/variables/page")) },
+      { path: "variables/nouveau", lazy: lazyPage(() => import("./app/variables/nouveau/page")) },
+      { path: "variables/:id", lazy: lazyPage(() => import("./app/variables/[id]/page")) },
+
       // ── Misc top-level routes ────────────────────────────────────────
       { path: "tags", lazy: lazyPage(() => import("./app/tags/page")) },
       { path: "templates", lazy: lazyPage(() => import("./app/templates/page")) },
