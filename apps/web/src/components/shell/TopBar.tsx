@@ -18,7 +18,7 @@ const ROUTE_LABELS: Record<string, string> = {
   schemas: "Schémas",
   vues: "Vues",
   routines: "Routines",
-  graph: "Graph",
+  variables: "Variables",
   templates: "Templates",
   recherche: "Recherche",
   parametres: "Paramètres",

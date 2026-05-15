@@ -102,17 +102,15 @@ export const router: any = createBrowserRouter([
       { path: "contacts/:id", lazy: lazyPage(() => import("./app/contacts/[id]/page")) },
 
       // ── Finance ───────────────────────────────────────────────────────
+      // Section minimaliste réécrite from scratch après crash en boucle dans
+      // l'ancien code. On garde uniquement le dashboard + la liste de comptes
+      // + la page de détail ; les autres sous-routes (actifs, objectifs,
+      // prêts, snapshots) seront ré-introduites une par une si besoin.
       { path: "finance", lazy: lazyPage(() => import("./app/finance/page")) },
       { path: "finance/comptes", lazy: lazyPage(() => import("./app/finance/comptes/page")) },
       { path: "finance/comptes/:id", lazy: lazyPage(() => import("./app/finance/comptes/[id]/page")) },
       { path: "finance/actifs", lazy: lazyPage(() => import("./app/finance/actifs/page")) },
       { path: "finance/actifs/:id", lazy: lazyPage(() => import("./app/finance/actifs/[id]/page")) },
-      { path: "finance/objectifs", lazy: lazyPage(() => import("./app/finance/objectifs/page")) },
-      { path: "finance/objectifs/:id", lazy: lazyPage(() => import("./app/finance/objectifs/[id]/page")) },
-      { path: "finance/prets", lazy: lazyPage(() => import("./app/finance/prets/page")) },
-      { path: "finance/prets/:id", lazy: lazyPage(() => import("./app/finance/prets/[id]/page")) },
-      { path: "finance/snapshots", lazy: lazyPage(() => import("./app/finance/snapshots/page")) },
-      { path: "finance/snapshots/:id", lazy: lazyPage(() => import("./app/finance/snapshots/[id]/page")) },
 
       // ── Schemas ───────────────────────────────────────────────────────
       { path: "schemas", lazy: lazyPage(() => import("./app/schemas/page")) },
@@ -129,7 +127,6 @@ export const router: any = createBrowserRouter([
       { path: "routines/:id", lazy: lazyPage(() => import("./app/routines/[id]/page")) },
 
       // ── Misc top-level routes ────────────────────────────────────────
-      { path: "graph", lazy: lazyPage(() => import("./app/graph/page")) },
       { path: "tags", lazy: lazyPage(() => import("./app/tags/page")) },
       { path: "templates", lazy: lazyPage(() => import("./app/templates/page")) },
       { path: "recherche", lazy: lazyPage(() => import("./app/recherche/page")) },

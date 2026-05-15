@@ -75,7 +75,7 @@ export const MobileBottomNav = memo(function MobileBottomNav({
         // drawer — keeps the nav coherent when the user is deep in finance,
         // contacts, journal, etc.
         ["/contacts", "/finance", "/tags",
-          "/graph", "/routines", "/templates", "/recherche", "/parametres",
+          "/variables", "/routines", "/templates", "/parametres",
           "/schemas", "/capture", "/journal"].some((prefix) => p.startsWith(prefix)),
     },
   ];

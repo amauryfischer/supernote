@@ -119,12 +119,6 @@ export const BUILT_IN_PLUGINS: BuiltInPlugin[] = [
     name: "Routines",
     description: "Automatisations et workflows récurrents.",
   },
-  {
-    slug: "graph",
-    defaultOn: true,
-    name: "Graphe",
-    description: "Visualisation des liens entre notes.",
-  },
 ];
 
 /**
@@ -136,7 +130,6 @@ export const BUILT_IN_PLUGINS: BuiltInPlugin[] = [
 export const PLUGIN_HREF_BY_SLUG = {
   journal: "/journal",
   routines: "/routines",
-  graph: "/graph",
 } as const satisfies Record<string, string>;
 
 export type PluginSlug = keyof typeof PLUGIN_HREF_BY_SLUG;

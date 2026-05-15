@@ -9,12 +9,11 @@ import {
   CheckSquare,
   FileText,
   FolderOpen,
+  Function,
   GitBranch,
   Gear,
-  Graph,
   House,
   Lightning,
-  MagnifyingGlass,
   Tag,
   Trash,
   Users,
@@ -62,7 +61,6 @@ const NAV_GROUPS: NavGroup[] = [
     labelKey: "nav.groups.navigation",
     items: [
       { labelKey: "nav.home", icon: House, href: "/" },
-      { labelKey: "nav.search", icon: MagnifyingGlass, href: "/recherche" },
     ],
   },
   {
@@ -74,13 +72,13 @@ const NAV_GROUPS: NavGroup[] = [
       { labelKey: "nav.journal", icon: Calendar, href: "/journal" },
       { labelKey: "nav.contacts", icon: Users, href: "/contacts" },
       { labelKey: "nav.finance", icon: Wallet, href: "/finance" },
-      { labelKey: "nav.tags", icon: Tag, href: "/tags" },
     ],
   },
   {
     labelKey: "nav.groups.tools",
     items: [
-      { labelKey: "nav.graph", icon: Graph, href: "/graph" },
+      { labelKey: "nav.tags", icon: Tag, href: "/tags" },
+      { labelKey: "nav.variables", icon: Function, href: "/variables" },
       { labelKey: "nav.routines", icon: Lightning, href: "/routines" },
     ],
   },
@@ -145,11 +143,9 @@ export const Sidebar = memo(function Sidebar() {
   // href → enabled map that the render pass consults below.
   const journalEnabled = usePluginEnabled("journal", false);
   const routinesEnabled = usePluginEnabled("routines", true);
-  const graphEnabled = usePluginEnabled("graph", true);
   const pluginEnabledByHref: Record<string, boolean> = {
     [PLUGIN_HREF_BY_SLUG.journal]: journalEnabled,
     [PLUGIN_HREF_BY_SLUG.routines]: routinesEnabled,
-    [PLUGIN_HREF_BY_SLUG.graph]: graphEnabled,
   };
   // Reference BUILT_IN_PLUGINS so future additions surface a type error
   // here when the catalogue and hook calls drift apart.

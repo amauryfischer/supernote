@@ -6,10 +6,9 @@ import {
   CaretRight,
   Calendar,
   FolderOpen,
+  Function,
   Gear,
-  Graph,
   Lightning,
-  MagnifyingGlass,
   Tag,
   Users,
   Wallet,
@@ -42,18 +41,17 @@ const SECTIONS: MoreSection[] = [
   {
     title: "Connaissance",
     items: [
-      { label: "Recherche", href: "/recherche", icon: MagnifyingGlass, tint: "oklch(0.62 0.20 260)" },
       { label: "Journal", href: "/journal", icon: Calendar, tint: "oklch(0.65 0.20 30)" },
       { label: "Contacts", href: "/contacts", icon: Users, tint: "oklch(0.62 0.20 220)" },
       { label: "Finance", href: "/finance", icon: Wallet, tint: "oklch(0.62 0.20 150)" },
-      { label: "Tags", href: "/tags", icon: Tag, tint: "oklch(0.65 0.18 80)" },
       { label: "Archive", href: "/archive", icon: Archive, tint: "oklch(0.55 0.05 260)" },
     ],
   },
   {
     title: "Outils",
     items: [
-      { label: "Graph", href: "/graph", icon: Graph, tint: "oklch(0.62 0.18 180)" },
+      { label: "Tags", href: "/tags", icon: Tag, tint: "oklch(0.65 0.18 80)" },
+      { label: "Variables", href: "/variables", icon: Function, tint: "oklch(0.62 0.18 180)" },
       { label: "Routines", href: "/routines", icon: Lightning, tint: "oklch(0.70 0.18 90)" },
     ],
   },
