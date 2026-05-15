@@ -31,6 +31,7 @@ import { FieldKindBadge } from "@/components/schemas/FieldKindBadge";
 import { FIELD_KINDS } from "@/components/schemas/fixtures";
 import { coreFieldToIpc, ipcEntityTypeToCore } from "@/components/schemas/adapters";
 import { useShellChrome } from "@/components/shell/shell-chrome-context";
+import { useConfirm } from "@/lib/confirm";
 import { parseFormula } from "@supernote/formulas";
 import { useViewMutations, resolveVisibleFieldIds } from "./hooks";
 import { labelForField } from "./filter-ops";
@@ -319,7 +320,7 @@ function FieldRow({
   onSave,
   onCancelEdit,
 }: FieldRowProps) {
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  const confirm = useConfirm();
 
   return (
     <div>
@@ -384,29 +385,32 @@ function FieldRow({
           >
             <PencilSimple size={12} />
           </Button>
-          {!confirmDelete ? (
-            <Button
+          <Button
               variant="ghost"
               size="sm"
-              onPress={() => setConfirmDelete(true)}
+              onPress={async () => {
+                const fieldLabel = field.label || field.name;
+                const ok = await confirm({
+                  title: "Supprimer ce champ ?",
+                  body: (
+                    <>
+                      Le champ <strong>{fieldLabel}</strong> et toutes ses valeurs sur les entités existantes
+                      seront perdus. Cette action est irréversible.
+                    </>
+                  ),
+                  confirmLabel: "Supprimer",
+                  variant: "danger",
+                });
+                if (ok) {
+                  onDelete();
+                }
+              }}
               className="rounded p-1 hover:bg-[var(--surface-3)]"
               style={{ color: "var(--text-muted)" }}
               aria-label="Supprimer"
             >
               <Trash size={12} />
             </Button>
-          ) : (
-            <Button
-              variant="danger"
-              size="sm"
-              onPress={() => { onDelete(); setConfirmDelete(false); }}
-              className="rounded px-1.5 py-0.5 text-[10px] font-medium"
-              style={{ backgroundColor: "var(--destructive)", color: "#fff" }}
-              aria-label="Confirmer la suppression"
-            >
-              Suppr.
-            </Button>
-          )}
         </div>
       </div>
 
