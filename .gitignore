@@ -54,3 +54,5 @@ ruvector.db-*
 
 # Local Claude Code
 .claude/settings.local.json
+
+.worktrees/
