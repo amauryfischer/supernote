@@ -1,4 +1,5 @@
 import { router } from "./trpc.js";
+import { aiRouter } from "./ai.router.js";
 import { vaultRouter } from "./vault.router.js";
 import { entitiesRouter } from "./entities.router.js";
 import { schemasRouter } from "./schemas.router.js";
@@ -20,6 +21,7 @@ import { viewsRouter } from "./views.router.js";
  * apps/desktop.
  */
 export const appRouter = router({
+  ai: aiRouter,
   vault: vaultRouter,
   entities: entitiesRouter,
   schemas: schemasRouter,
@@ -37,6 +39,7 @@ export const appRouter = router({
 
 export type AppRouter = typeof appRouter;
 
+export { aiRouter, type AIRouter } from "./ai.router.js";
 export { router, type IpcContext } from "./trpc.js";
 export { vaultRouter, type VaultRouter } from "./vault.router.js";
 export { foldersRouter, type FoldersRouter } from "./folders.router.js";
