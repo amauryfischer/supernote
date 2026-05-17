@@ -28,6 +28,11 @@
       "import": "./dist/classifier/index.js",
       "default": "./dist/classifier/index.js"
     },
+    "./actions": {
+      "types": "./dist/actions/index.d.ts",
+      "import": "./dist/actions/index.js",
+      "default": "./dist/actions/index.js"
+    },
     "./extract": {
       "types": "./dist/extract/index.d.ts",
       "import": "./dist/extract/index.js",
