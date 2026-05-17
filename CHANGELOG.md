@@ -7,9 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Actions IA sur sélection texte dans l'éditeur (reformat, summarize, fix-spelling) avec streaming inline Ollama local. Toolbar, clic droit, raccourcis Cmd+K Cmd+R/S/C, palette via Cmd+K Cmd+P.
+
 <!-- Add new changes here under the appropriate heading:
 
-### Added
 ### Changed
 ### Deprecated
 ### Removed
