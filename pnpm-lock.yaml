@@ -59,6 +59,9 @@ importers:
       '@sqlite.org/sqlite-wasm':
         specifier: 3.53.0-build1
         version: 3.53.0-build1
+      '@supernote/ai':
+        specifier: workspace:*
+        version: link:../../packages/ai
       '@supernote/canvas':
         specifier: workspace:*
         version: link:../../packages/canvas
@@ -470,6 +473,9 @@ importers:
       '@heroui/react':
         specifier: ^3.0.0
         version: 3.0.3(@react-spectrum/provider@3.11.0(react-dom@19.2.5(react@19.2.5))(react@19.2.5))(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(tailwindcss@4.2.4)
+      '@supernote/ai':
+        specifier: workspace:*
+        version: link:../ai
       '@supernote/core':
         specifier: workspace:*
         version: link:../core
@@ -480,6 +486,9 @@ importers:
       '@supernote/tsconfig':
         specifier: workspace:*
         version: link:../tsconfig
+      '@testing-library/react':
+        specifier: ^16.0.0
+        version: 16.3.2(@testing-library/dom@10.4.1)(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
       '@types/node':
         specifier: ^22.10.0
         version: 22.19.17
@@ -625,6 +634,9 @@ importers:
 
   packages/ipc:
     dependencies:
+      '@supernote/ai':
+        specifier: workspace:*
+        version: link:../ai
       '@trpc/server':
         specifier: ^11.17.0
         version: 11.17.0(typescript@5.9.3)

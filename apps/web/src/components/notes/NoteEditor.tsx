@@ -10,6 +10,8 @@ import { TagSelector } from "@/components/tags/TagSelector";
 import { formatRelativeDate, type Note } from "./fixtures";
 import { useUpdateNote } from "./hooks";
 import type { SupernoteEditorProps, EntityRef } from "@supernote/editor";
+import { createOllamaClient } from "@supernote/ai/ollama";
+import type { AIActionId } from "@supernote/ai/actions";
 import { trpc, trpcVanillaClient } from "@/lib/trpc/client";
 import {
   isAutoTitleEnabled,
@@ -157,6 +159,31 @@ export function NoteEditor({ note }: NoteEditorProps) {
   // (Aujourd'hui / Hier / Il y a N jours) ignores it by design.
   const { settings } = useSettings();
   const dateFormatPref = settings.general.dateFormat;
+
+  // ── AI inline actions wiring ───────────────────────────────────────────────
+  const aiClient = useMemo(() => createOllamaClient({}), []);
+  const aiPromptResolver = useCallback(
+    async (id: AIActionId) => {
+      const res = await trpcVanillaClient.ai.getPrompt.query({ actionId: id });
+      return res.prompt;
+    },
+    [],
+  );
+  const onAIError = useCallback(
+    (err: { code: string; message: string }) => {
+      showToast(
+        err.code === "ollama_chat_failed"
+          ? "Ollama indisponible. Lancer `ollama serve`."
+          : err.message,
+      );
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+  const onAIWarning = useCallback((msg: string) => {
+    showToast(msg);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── Move-to-folder wiring ──────────────────────────────────────────────────
   const router = useRouter();
@@ -845,6 +872,11 @@ export function NoteEditor({ note }: NoteEditorProps) {
             onEditorReady={(insert) => { editorInsertRef.current = insert; }}
             renderDatabaseView={renderInlineDatabase}
             renderFormula={renderNoteFormula}
+            aiClient={aiClient}
+            aiPromptResolver={aiPromptResolver}
+            noteTitle={title}
+            onAIError={onAIError}
+            onAIWarning={onAIWarning}
           />
         </div>
         {/* Read-only summary of todos extracted from this note. Pure
