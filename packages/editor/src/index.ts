@@ -34,5 +34,10 @@ export type {
 // Serialization utilities
 export { markdownToBlocks, blocksToMarkdown } from "./serialization/index.js";
 
+// AI actions
+export { useAIAction, type UseAIActionDeps, type UseAIActionApi } from "./ai/useAIAction.js";
+export { AIActionsMenu, type AIActionsMenuProps } from "./ai/AIActionsMenu.js";
+export { extractSelection, type ExtractedSelection } from "./ai/extractSelection.js";
+
 // Demo (for development only)
 export { EditorDemo } from "./demo/EditorDemo.js";

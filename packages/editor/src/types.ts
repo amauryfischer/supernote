@@ -29,6 +29,16 @@ export interface EntityResolvers {
 
 /** Props for the main SupernoteEditor component */
 export interface SupernoteEditorProps {
+  /** Client Ollama pour les actions IA inline. Si absent, actions désactivées. */
+  aiClient?: import("@supernote/ai/ollama").OllamaClient;
+  /** Résolveur de prompts (typiquement tRPC `ai.getPrompt`). */
+  aiPromptResolver?: (id: import("@supernote/ai/actions").AIActionId) => Promise<string>;
+  /** Titre courant de la note, transmis à l'IA pour contexte. */
+  noteTitle?: string;
+  /** Callback toast erreur. */
+  onAIError?: (err: { code: string; message: string }) => void;
+  /** Callback toast warning. */
+  onAIWarning?: (msg: string) => void;
   /** Initial markdown content */
   initialMarkdown?: string;
   /** Called on every change with serialized markdown and raw blocks */

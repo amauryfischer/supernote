@@ -1,7 +1,7 @@
 // Main SupernoteEditor component
 // BlockNote wrapper with custom blocks, slash menu, and serialization
 
-import React, { useCallback, useEffect, useRef } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Block } from "@blocknote/core";
 import { fr as blocknoteFr } from "@blocknote/core/locales";
 import { useCreateBlockNote } from "@blocknote/react";
@@ -31,6 +31,9 @@ import {
   enterTagExtension,
 } from "./extensions/continueChecklistOnEnter.js";
 import type { SupernoteEditorProps } from "./types.js";
+import { useAIAction } from "./ai/useAIAction.js";
+import { AIActionsMenu } from "./ai/AIActionsMenu.js";
+import type { AIActionId } from "@supernote/ai/actions";
 
 /** Main Supernote rich-text editor */
 export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element {
@@ -46,6 +49,11 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
     placeholder,
     renderDatabaseView,
     renderFormula,
+    aiClient,
+    aiPromptResolver,
+    noteTitle,
+    onAIError,
+    onAIWarning,
   } = props;
 
   const onSaveRef = useRef(onSave);
@@ -241,6 +249,91 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
   const databaseRenderer = renderDatabaseView ?? (() => null);
   const formulaRenderer = renderFormula ?? (() => null);
 
+  // ── AI actions ──────────────────────────────────────────────────────────────
+  const aiEnabled = Boolean(aiClient && aiPromptResolver);
+  const [aiMenuOpen, setAiMenuOpen] = useState(false);
+  const [aiAnchor, setAiAnchor] = useState<{ x: number; y: number } | null>(null);
+
+  // Hook toujours appelé (règles React). Si IA désactivée, on passe des stubs
+  // no-op pour respecter l'invariant d'appel inconditionnel des hooks.
+  const noopOllama = useMemo(
+    () => ({
+      isAvailable: async () => false,
+      listModels: async () => [],
+      generate: async () => "",
+      embed: async () => new Float32Array(),
+      async *chat() {},
+    }),
+    [],
+  );
+  const noopResolver = useMemo(
+    () => async (_id: AIActionId) => "",
+    [],
+  );
+  const aiActionAlways = useAIAction({
+    editor: editor as never,
+    ollama: aiClient ?? (noopOllama as never),
+    promptResolver: aiPromptResolver ?? noopResolver,
+    noteTitle,
+    onError: onAIError,
+    onWarning: onAIWarning,
+  });
+  const aiAction = aiEnabled ? aiActionAlways : null;
+
+  // Hotkeys Cmd+K Cmd+R (reformat), Cmd+K Cmd+S (summarize),
+  //         Cmd+K Cmd+C (fix-spelling), Cmd+K Cmd+P (palette)
+  useEffect(() => {
+    if (!aiEnabled) return;
+    let prefixed = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const onKey = (e: KeyboardEvent) => {
+      const mod = e.metaKey || e.ctrlKey;
+      if (prefixed && mod) {
+        const k = e.key.toLowerCase();
+        const map: Record<string, AIActionId | "palette"> = {
+          r: "reformat",
+          s: "summarize",
+          c: "fix-spelling",
+          p: "palette",
+        };
+        if (map[k]) {
+          e.preventDefault();
+          prefixed = false;
+          if (timer) clearTimeout(timer);
+          if (map[k] === "palette") setAiMenuOpen(true);
+          else aiAction?.run(map[k] as AIActionId);
+        }
+      } else if (mod && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        prefixed = true;
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(() => {
+          prefixed = false;
+        }, 1500);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      if (timer) clearTimeout(timer);
+    };
+  }, [aiEnabled, aiAction]);
+
+  const onContextMenu = useCallback(
+    (e: React.MouseEvent) => {
+      if (!aiEnabled) return;
+      const hasSel =
+        (editor.getSelectedText?.() ?? "").length > 0 ||
+        (editor.getSelection()?.blocks?.length ?? 0) > 0;
+      if (!hasSel) return;
+      e.preventDefault();
+      setAiAnchor({ x: e.clientX, y: e.clientY });
+      setAiMenuOpen(true);
+    },
+    [aiEnabled, editor],
+  );
+  // ────────────────────────────────────────────────────────────────────────────
+
   // Click sur la zone vide sous le dernier block → focus le dernier block
   // éditable. Sans ce handler, BlockNote n'attrape que les clics *dans* la
   // zone d'un block — un clic sous le document (zone padding du wrapper)
@@ -288,6 +381,7 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
       className={`sn-editor-wrapper${className ? ` ${className}` : ""}`}
       data-readonly={readOnly || undefined}
       onClick={handleWrapperClick}
+      onContextMenu={onContextMenu}
     >
       <BlockNoteViewRaw
         editor={editor}
@@ -312,6 +406,19 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
       {/* Entity picker rendered as overlay; null when no item is being picked */}
       {pickerElement && (
         <div className="sn-entity-picker-overlay">{pickerElement}</div>
+      )}
+
+      {aiEnabled && (
+        <AIActionsMenu
+          isOpen={aiMenuOpen}
+          onOpenChange={(open) => {
+            setAiMenuOpen(open);
+            if (!open) setAiAnchor(null);
+          }}
+          anchorPosition={aiAnchor}
+          busy={aiAction?.busy ?? false}
+          onRun={(id) => aiAction?.run(id)}
+        />
       )}
     </div>
     </FormulaProvider>
