@@ -26,6 +26,7 @@
     "@blocknote/core": "0.50.0",
     "@blocknote/react": "0.50.0",
     "@heroui/react": "^3.0.0",
+    "@supernote/ai": "workspace:*",
     "@supernote/core": "workspace:*",
     "@tiptap/core": "3.22.5"
   },
@@ -35,6 +36,7 @@
   },
   "devDependencies": {
     "@supernote/tsconfig": "workspace:*",
+    "@testing-library/react": "^16.0.0",
     "@types/node": "^22.10.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
