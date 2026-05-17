@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Button, Input, TextArea, Select, ListBox, ListBoxItem, Spinner } from "@heroui/react";
+import { useEffect, useMemo, useState } from "react";
+import { Button, Input, Select, ListBox, ListBoxItem, Spinner } from "@heroui/react";
 import type { Key } from "@heroui/react";
 import type { Variable, VariableInput, VariableValue, VariableType } from "@supernote/ipc";
+import { FormulaInputEditor } from "@/components/bases/FormulaInputEditor";
+import { trpc } from "@/lib/trpc/client";
 
 interface EvaluatedPreview {
   value: string | null;
@@ -79,6 +81,16 @@ export function VariableForm({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Liste des autres variables pour autocomplétion $nom (on exclut la variable courante).
+  const { data: allVars } = trpc.variables.list.useQuery();
+  const variableNames = useMemo(
+    () =>
+      (allVars ?? [])
+        .filter((v) => v.id !== initial?.id)
+        .map((v) => v.name),
+    [allVars, initial?.id],
+  );
+
   useEffect(() => {
     if (!initial) return;
     const { vk, expr, bool, lit } = initFromVariable(initial);
@@ -90,8 +102,8 @@ export function VariableForm({
     setExpression(expr);
   }, [initial]);
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleSubmit(e?: React.FormEvent) {
+    e?.preventDefault();
     setError(null);
     setSubmitting(true);
     try {
@@ -153,7 +165,10 @@ export function VariableForm({
           </label>
           <Select
             selectedKey={type}
-            onSelectionChange={(k: Key | null) => setType((k as VariableType) ?? "string")}
+            onSelectionChange={(k: Key | null) => {
+              const key = k == null ? null : String(k);
+              if (key && (key in TYPE_LABELS)) setType(key as VariableType);
+            }}
             aria-label="Type de la variable"
           >
             <Select.Trigger
@@ -169,7 +184,7 @@ export function VariableForm({
             <Select.Popover>
               <ListBox>
                 {(Object.keys(TYPE_LABELS) as VariableType[]).map((t) => (
-                  <ListBoxItem key={t}>{TYPE_LABELS[t]}</ListBoxItem>
+                  <ListBoxItem key={t} id={t}>{TYPE_LABELS[t]}</ListBoxItem>
                 ))}
               </ListBox>
             </Select.Popover>
@@ -248,23 +263,18 @@ export function VariableForm({
       {/* Formula */}
       {valueKind === "formula" && (
         <div className="rounded-lg border p-4" style={{ borderColor: "var(--border)" }}>
-          <label className="mb-1 block text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
+          <label className="mb-2 block text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
             Expression
           </label>
-          <TextArea
-            value={expression}
-            onChange={(e) => setExpression(e.target.value)}
-            rows={3}
-            className="w-full rounded-lg border px-3 py-2 font-mono text-sm outline-none"
-            style={{
-              borderColor: "var(--border)",
-              backgroundColor: "var(--surface-1)",
-              color: "var(--text-primary)",
-            }}
-            placeholder={`if($autre > 0, $autre * 1.2, 0)`}
+          <FormulaInputEditor
+            inline
+            variables={variableNames}
+            initialExpression={expression}
+            onChange={setExpression}
+            placeholder="if($autre > 0, $autre * 1.2, 0)"
           />
-          <p className="mt-1 text-xs" style={{ color: "var(--text-muted)" }}>
-            Coda-flavored. Référencez d&apos;autres variables avec $autre.
+          <p className="mt-2 text-xs" style={{ color: "var(--text-muted)" }}>
+            Coda-flavored. Référencez d&apos;autres variables avec $autre, les bases via Contact.where(…), etc.
           </p>
         </div>
       )}
@@ -297,6 +307,7 @@ export function VariableForm({
         <Button
           type="submit"
           isDisabled={submitting}
+          onPress={() => { void handleSubmit(); }}
           variant="ghost"
           size="sm"
           className="rounded-lg px-4 py-2 text-sm font-medium transition-colors hover:opacity-90"

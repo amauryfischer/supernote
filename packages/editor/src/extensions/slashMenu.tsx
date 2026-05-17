@@ -264,12 +264,18 @@ export function getSupernoteSlashMenuItems(
       // Déclenche immédiatement l'édition pour que l'utilisateur tape.
       const newBlock = inserted?.[0];
       if (newBlock) {
+        const blockId = (newBlock as { id: string }).id;
         setTimeout(() => {
           window.dispatchEvent(new CustomEvent("supernote:formula-edit", {
             detail: {
-              blockId: (newBlock as { id: string }).id,
+              blockId,
               expression: "",
               outputKind: "text",
+              onUpdate: (next: { expression: string; outputKind: string }) => {
+                editor.updateBlock(blockId, {
+                  props: { expression: next.expression, outputKind: next.outputKind },
+                } as never);
+              },
             },
           }));
         }, 50);

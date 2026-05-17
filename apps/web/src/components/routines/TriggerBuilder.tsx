@@ -1,7 +1,9 @@
 "use client";
 
+import { useState } from "react";
 import { Button, Input, Select, ListBox, ListBoxItem } from "@heroui/react";
 import type { Key } from "@heroui/react";
+import { CaretDown } from "@phosphor-icons/react";
 import type { TriggerConfig, TriggerType } from "./fixtures";
 
 interface TriggerBuilderProps {
@@ -16,13 +18,73 @@ const TRIGGER_TYPES: { value: TriggerType; label: string }[] = [
   { value: "webhook", label: "Webhook" },
 ];
 
-const CRON_PRESETS = [
-  { label: "Chaque jour à 8h", value: "0 8 * * *" },
-  { label: "Chaque lundi à 9h", value: "0 9 * * MON" },
-  { label: "Chaque lundi à 8h", value: "0 8 * * MON" },
-  { label: "1er du mois à 9h", value: "0 9 1 * *" },
-  { label: "Toutes les heures", value: "0 * * * *" },
-  { label: "Personnalisé", value: "custom" },
+interface CronPreset {
+  label: string;
+  value: string;
+  group: "rapide" | "horaire" | "quotidien" | "hebdo" | "mensuel" | "annuel" | "custom";
+}
+
+const CRON_PRESETS: CronPreset[] = [
+  // Rapide — utiles pour tests + monitoring
+  { group: "rapide", label: "Toutes les minutes", value: "* * * * *" },
+  { group: "rapide", label: "Toutes les 5 minutes", value: "*/5 * * * *" },
+  { group: "rapide", label: "Toutes les 15 minutes", value: "*/15 * * * *" },
+  { group: "rapide", label: "Toutes les 30 minutes", value: "*/30 * * * *" },
+
+  // Horaire
+  { group: "horaire", label: "Toutes les heures", value: "0 * * * *" },
+  { group: "horaire", label: "Toutes les 2 heures", value: "0 */2 * * *" },
+  { group: "horaire", label: "Toutes les 6 heures", value: "0 */6 * * *" },
+  { group: "horaire", label: "Toutes les 12 heures", value: "0 */12 * * *" },
+
+  // Quotidien
+  { group: "quotidien", label: "Chaque jour à 7h", value: "0 7 * * *" },
+  { group: "quotidien", label: "Chaque jour à 8h", value: "0 8 * * *" },
+  { group: "quotidien", label: "Chaque jour à 9h", value: "0 9 * * *" },
+  { group: "quotidien", label: "Chaque jour à 12h", value: "0 12 * * *" },
+  { group: "quotidien", label: "Chaque jour à 18h", value: "0 18 * * *" },
+  { group: "quotidien", label: "Chaque jour à 21h", value: "0 21 * * *" },
+  { group: "quotidien", label: "Jours ouvrés à 9h", value: "0 9 * * MON-FRI" },
+  { group: "quotidien", label: "Week-end à 10h", value: "0 10 * * SAT,SUN" },
+
+  // Hebdo
+  { group: "hebdo", label: "Chaque lundi à 8h", value: "0 8 * * MON" },
+  { group: "hebdo", label: "Chaque lundi à 9h", value: "0 9 * * MON" },
+  { group: "hebdo", label: "Chaque vendredi à 17h", value: "0 17 * * FRI" },
+  { group: "hebdo", label: "Chaque dimanche à 20h", value: "0 20 * * SUN" },
+
+  // Mensuel
+  { group: "mensuel", label: "1er du mois à 9h", value: "0 9 1 * *" },
+  { group: "mensuel", label: "15 du mois à 9h", value: "0 9 15 * *" },
+  { group: "mensuel", label: "Dernier jour du mois à 18h", value: "0 18 L * *" },
+  { group: "mensuel", label: "Premier lundi du mois à 9h", value: "0 9 * * MON#1" },
+
+  // Annuel
+  { group: "annuel", label: "1er janvier à 9h", value: "0 9 1 1 *" },
+  { group: "annuel", label: "1er septembre à 9h (rentrée)", value: "0 9 1 9 *" },
+
+  // Custom escape hatch
+  { group: "custom", label: "Personnalisé…", value: "custom" },
+];
+
+const GROUP_LABELS: Record<CronPreset["group"], string> = {
+  rapide: "Rapide",
+  horaire: "Heure",
+  quotidien: "Quotidien",
+  hebdo: "Hebdomadaire",
+  mensuel: "Mensuel",
+  annuel: "Annuel",
+  custom: "Avancé",
+};
+
+const GROUP_ORDER: Array<CronPreset["group"]> = [
+  "rapide",
+  "horaire",
+  "quotidien",
+  "hebdo",
+  "mensuel",
+  "annuel",
+  "custom",
 ];
 
 const EVENT_TYPES = [
@@ -101,25 +163,113 @@ function SelectField({
   );
 }
 
+// Quick-pick chips shown above the disclosure. These cover the 80 % case so
+// the user rarely needs to expand the full grouped preset library.
+const QUICK_PICKS: CronPreset[] = [
+  { group: "horaire", label: "Chaque heure", value: "0 * * * *" },
+  { group: "quotidien", label: "Chaque jour 9h", value: "0 9 * * *" },
+  { group: "hebdo", label: "Chaque lundi 9h", value: "0 9 * * MON" },
+  { group: "mensuel", label: "1er du mois 9h", value: "0 9 1 * *" },
+];
+
 function CronBuilder({ trigger, onChange }: { trigger: TriggerConfig; onChange: (t: TriggerConfig) => void }) {
   const expr = trigger.expression ?? "0 9 * * MON";
-  const preset = CRON_PRESETS.find((p) => p.value === expr);
-  const isCustom = !preset || preset.value === "custom";
+  const matched = CRON_PRESETS.find((p) => p.value === expr && p.group !== "custom");
+  const [moreOpen, setMoreOpen] = useState(false);
 
-  function handlePreset(key: Key | null) {
-    const value = String(key ?? "");
-    if (value === "custom" || !value) return;
+  function applyPreset(value: string) {
     onChange({ ...trigger, expression: value });
   }
 
+  const byGroup = GROUP_ORDER.map((g) => ({
+    group: g,
+    items: CRON_PRESETS.filter((p) => p.group === g && p.group !== "custom"),
+  })).filter((b) => b.items.length > 0);
+
   return (
     <div className="space-y-3">
-      <SelectField
-        label="Fréquence"
-        selectedKey={isCustom ? "custom" : expr}
-        onSelectionChange={handlePreset}
-        options={CRON_PRESETS}
-      />
+      <Field label="Fréquence — choix rapide">
+        <div className="flex flex-wrap gap-1.5">
+          {QUICK_PICKS.map((p) => {
+            const active = p.value === expr;
+            return (
+              <Button
+                key={p.value}
+                size="sm"
+                variant="ghost"
+                onPress={() => applyPreset(p.value)}
+                className="rounded-md border px-2.5 py-1 text-xs font-medium transition-colors"
+                style={{
+                  borderColor: active ? "var(--accent)" : "var(--border)",
+                  backgroundColor: active ? "var(--accent-subtle)" : "transparent",
+                  color: active ? "var(--accent)" : "var(--text-secondary)",
+                }}
+              >
+                {p.label}
+              </Button>
+            );
+          })}
+          <Button
+            size="sm"
+            variant="ghost"
+            onPress={() => setMoreOpen((o) => !o)}
+            className="flex items-center gap-1 rounded-md border border-dashed px-2.5 py-1 text-xs font-medium transition-colors"
+            style={{ borderColor: "var(--border)", color: "var(--text-muted)" }}
+          >
+            {moreOpen ? "Moins de presets" : "Plus de presets…"}
+            <CaretDown size={10} className={`transition-transform ${moreOpen ? "rotate-180" : ""}`} />
+          </Button>
+        </div>
+        {matched && !QUICK_PICKS.some((q) => q.value === expr) && (
+          <p className="mt-2 text-[10px]" style={{ color: "var(--text-muted)" }}>
+            Preset actif : <span style={{ color: "var(--accent)" }}>{matched.label}</span>
+          </p>
+        )}
+      </Field>
+
+      {moreOpen && (
+        <div
+          className="space-y-3 rounded-lg border p-3"
+          style={{ backgroundColor: "var(--surface-1)", borderColor: "var(--border-subtle)" }}
+        >
+          {byGroup.map(({ group, items }) => (
+            <div key={group}>
+              <div
+                className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider"
+                style={{ color: "var(--text-muted)" }}
+              >
+                {GROUP_LABELS[group]}
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {items.map((p) => {
+                  const active = p.value === expr;
+                  return (
+                    <Button
+                      key={p.value}
+                      size="sm"
+                      variant="ghost"
+                      onPress={() => applyPreset(p.value)}
+                      className="rounded-md border px-2.5 py-1 text-xs transition-colors"
+                      style={{
+                        borderColor: active ? "var(--accent)" : "var(--border)",
+                        backgroundColor: active ? "var(--accent-subtle)" : "var(--surface-0)",
+                        color: active ? "var(--accent)" : "var(--text-secondary)",
+                      }}
+                    >
+                      {p.label}
+                    </Button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+          <p className="text-[10px] italic" style={{ color: "var(--text-muted)" }}>
+            Astuce — "Toutes les minutes" est utile pour tester une routine ; ne
+            la laisse pas active en prod (la PWA tournera l'engine sans pause).
+          </p>
+        </div>
+      )}
+
       <Field label="Expression cron">
         <Input
           value={expr}
@@ -130,7 +280,11 @@ function CronBuilder({ trigger, onChange }: { trigger: TriggerConfig; onChange: 
           style={inputStyle()}
         />
         <p className="mt-1 text-[10px]" style={{ color: "var(--text-muted)" }}>
-          Format : minute heure jour mois jour_semaine — ex : 0 9 * * MON
+          Format : minute heure jour mois jour_semaine — ex : 0 9 * * MON.
+          Caractères : <code>*</code> (tous), <code>*/n</code> (tous les n),
+          {" "}<code>n-m</code> (plage), <code>a,b,c</code> (liste),
+          {" "}<code>MON-FRI</code> (semaine), <code>L</code> (dernier jour),
+          {" "}<code>MON#1</code> (1er lundi du mois).
         </p>
       </Field>
       <Field label="Fuseau horaire">

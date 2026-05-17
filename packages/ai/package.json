@@ -42,6 +42,11 @@
       "types": "./dist/prompts/index.d.ts",
       "import": "./dist/prompts/index.js",
       "default": "./dist/prompts/index.js"
+    },
+    "./agent": {
+      "types": "./dist/agent/index.d.ts",
+      "import": "./dist/agent/index.js",
+      "default": "./dist/agent/index.js"
     }
   },
   "scripts": {

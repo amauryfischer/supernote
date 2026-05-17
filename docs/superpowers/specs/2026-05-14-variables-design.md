@@ -148,13 +148,51 @@ Enregistrer dans `router/index.ts` + worker-router handlers.
 
 ### 6. UI
 
-**Sidebar** (`apps/web/src/components/shell/Sidebar.tsx` ligne 75-76, et clones `MobileBottomNav`, `MoreDrawer`, `TopBar`) :
+**Sidebar** (`apps/web/src/components/shell/Sidebar.tsx`) — réorganisation des groupes :
+
 ```ts
-{ key: 'nav.contacts', icon: Users, href: '/contacts' },
-{ key: 'nav.variables', icon: Variable, href: '/variables' },  // lucide-react `Variable`
-{ key: 'nav.finance', icon: Wallet, href: '/finance' },
+const NAV_GROUPS: NavGroup[] = [
+  {
+    labelKey: 'nav.groups.navigation',
+    items: [
+      { labelKey: 'nav.home', icon: House, href: '/' },
+      // `nav.search` retiré — déjà accessible via la TopBar
+    ],
+  },
+  {
+    labelKey: 'nav.groups.knowledge',
+    items: [
+      { labelKey: 'nav.notes', icon: FileText, href: '/notes' },
+      { labelKey: 'nav.archive', icon: Archive, href: '/archive' },
+      { labelKey: 'nav.todos', icon: CheckSquare, href: '/todos' },
+      { labelKey: 'nav.journal', icon: Calendar, href: '/journal' },
+      { labelKey: 'nav.contacts', icon: Users, href: '/contacts' },
+      { labelKey: 'nav.finance', icon: Wallet, href: '/finance' },
+      // `nav.tags` déplacé dans tools
+    ],
+  },
+  {
+    labelKey: 'nav.groups.tools',
+    items: [
+      { labelKey: 'nav.tags', icon: Tag, href: '/tags' },
+      { labelKey: 'nav.variables', icon: Function, href: '/variables' },  // @phosphor-icons/react `Function`
+      { labelKey: 'nav.routines', icon: Lightning, href: '/routines' },
+      // `nav.graph` retiré
+    ],
+  },
+];
 ```
-Traductions FR/EN dans le fichier i18n correspondant.
+
+Imports : ajouter `Function` depuis `@phosphor-icons/react`, retirer `Graph`, `MagnifyingGlass` si plus utilisé ailleurs.
+
+**Clones mobiles** (alignement) :
+- `apps/web/src/components/shell/mobile/MoreDrawer.tsx` : retirer entrées `Recherche` (l.45) et `Graph` (l.56) ; déplacer `Tags` après `Finance` dans la section outils ; ajouter `Variables`.
+- `apps/web/src/components/shell/mobile/MobileBottomNav.tsx` : retirer `/recherche` et `/graph` de la liste `more`, ajouter `/variables`.
+- `apps/web/src/components/shell/TopBar.tsx` : retirer mapping `graph: "Graph"` et `recherche: "Recherche"` (l.21, l.23) ; ajouter `variables: "Variables"`.
+
+**Routes obsolètes** : retirer `/graph` et `/recherche` du `router.tsx` si plus accessibles (sinon laisser navigables au clavier). Décision : **garder** `/recherche` (toujours navigable via TopBar) et **retirer** `/graph` du router et supprimer `apps/web/src/app/graph/`.
+
+Traductions FR/EN : ajouter `nav.variables`, retirer `nav.graph`, garder `nav.search` (utilisée par TopBar).
 
 **Routes** (`apps/web/src/router.tsx`) :
 ```ts

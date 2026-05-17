@@ -19,6 +19,8 @@ export type TokenKind =
   | "And" | "Or" | "Not"
   | "LParen" | "RParen" | "LBracket" | "RBracket"
   | "Comma" | "Dot" | "At"
+  | "NullCoalesce"  // ??
+  | "OptionalDot"   // ?.
   | "LWikiLink" | "RWikiLink"  // [[ and ]]
   | "EOF";
 
@@ -99,6 +101,17 @@ export class Lexer {
     if (ch === "-" && this.peek(1) === ">") {
       this.advance(); this.advance();
       return ok({ kind: "Arrow", raw: "->", pos: start });
+    }
+
+    // ?? nullish coalescing
+    if (ch === "?" && this.peek(1) === "?") {
+      this.advance(); this.advance();
+      return ok({ kind: "NullCoalesce", raw: "??", pos: start });
+    }
+    // ?. optional chaining
+    if (ch === "?" && this.peek(1) === ".") {
+      this.advance(); this.advance();
+      return ok({ kind: "OptionalDot", raw: "?.", pos: start });
     }
 
     if (ch === "!" && this.peek(1) === "=") {

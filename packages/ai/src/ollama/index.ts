@@ -6,6 +6,9 @@ export type {
   ChatOptions,
   ChatMessage,
   ChatChunk,
+  ToolCall,
+  ToolDefinition,
+  ToolParametersSchema,
   Logger,
 } from "./types.js";
 export { PREFERRED_MODELS } from "./types.js";

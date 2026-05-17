@@ -1,229 +1,228 @@
 "use client";
 
-import { useState, useCallback, useMemo } from "react";
-import { ArrowLeft, Plus, TrendUp, TrendDown } from "@phosphor-icons/react";
-import { Button } from "@heroui/react";
-import Link from "next/link";
-import { AppShell, useMobileTitle, useMobileFab, useMobileHeaderActions } from "@/components/shell";
-import { useIsMobile } from "@/hooks/useIsMobile";
-import { useFinanceAssets, useFinanceAccounts } from "@/components/finance/hooks";
-import type { Asset } from "@/components/finance/fixtures";
-import { formatCurrency, CATEGORY_COLORS, CATEGORY_LABELS } from "@/components/finance/utils";
-import { trpc, trpcVanillaClient } from "@/lib/trpc/client";
+/**
+ * Assets list — mirrors the comptes page but for the `asset` entity type.
+ * Renders a single tRPC list, lets the user create a fresh asset, and
+ * navigates to the detail page for editing / price refresh.
+ */
 
-interface LivePrice {
-  price: number;
-  currency: string;
-  change24h?: number;
+import { ArrowLeft, Plus } from "@phosphor-icons/react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { AppShell } from "@/components/shell";
+import { trpc } from "@/lib/trpc/client";
+import { formatCurrency, formatDate } from "@/components/finance/utils";
+
+const CATEGORY_LABELS: Record<string, string> = {
+  immo: "Immobilier",
+  action: "Action",
+  crypto: "Crypto",
+  fond: "Fonds",
+};
+
+const CATEGORY_COLORS: Record<string, string> = {
+  immo: "#7C3AED",
+  action: "#2563EB",
+  crypto: "#D97706",
+  fond: "#0891B2",
+};
+
+interface Asset {
+  id: string;
+  name: string;
+  category: string;
+  symbol: string;
+  currentValue: number;
+  acquisitionValue: number;
+  updatedAt: string;
 }
 
-function AssetCard({ asset, accountName, livePrice }: { asset: Asset; accountName: string; livePrice?: LivePrice }) {
-  const currentValue = livePrice ? livePrice.price : asset.currentValue;
-  const gain = currentValue - asset.acquisitionValue;
-  const gainPct = asset.acquisitionValue > 0 ? (gain / asset.acquisitionValue) * 100 : 0;
-  const positive = gain >= 0;
-
-  return (
-    <div
-      className="rounded-xl border p-4 transition-shadow hover:shadow-sm"
-      style={{ backgroundColor: "var(--surface-1)", borderColor: "var(--border-subtle)" }}
-    >
-      <div className="mb-2 flex items-start justify-between gap-2">
-        <p className="text-sm font-semibold leading-tight" style={{ color: "var(--text-primary)" }}>
-          {asset.name}
-        </p>
-        {positive ? (
-          <TrendUp size={14} style={{ color: "var(--success)", flexShrink: 0 }} />
-        ) : (
-          <TrendDown size={14} style={{ color: "var(--danger)", flexShrink: 0 }} />
-        )}
-      </div>
-      <p className="text-lg font-bold" style={{ color: "var(--text-primary)" }}>
-        {formatCurrency(currentValue)}
-        {livePrice && (
-          <span className="ml-1.5 text-xs font-normal" style={{ color: "var(--success)" }}>live</span>
-        )}
-      </p>
-      <p
-        className="mt-0.5 text-xs font-medium"
-        style={{ color: positive ? "var(--success)" : "var(--danger)" }}
-      >
-        {positive ? "+" : ""}
-        {formatCurrency(gain)} ({gainPct > 0 ? "+" : ""}
-        {gainPct.toFixed(1).replace(".", ",")} %)
-      </p>
-      <div className="mt-3 border-t pt-2" style={{ borderColor: "var(--border-subtle)" }}>
-        <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-          Achat : {formatCurrency(asset.acquisitionValue)}
-        </p>
-        {accountName && (
-          <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-            Compte : {accountName}
-          </p>
-        )}
-        {asset.ticker && (
-          <p className="text-xs font-mono" style={{ color: "var(--accent)" }}>{asset.ticker}</p>
-        )}
-        {asset.symbol && !asset.ticker && (
-          <p className="text-xs font-mono" style={{ color: "var(--accent)" }}>{asset.symbol}</p>
-        )}
-      </div>
-    </div>
-  );
+function strField(f: Record<string, unknown>, key: string): string {
+  const v = f[key];
+  return typeof v === "string" ? v : "";
+}
+function numField(f: Record<string, unknown>, key: string): number {
+  const v = f[key];
+  if (typeof v === "number") return v;
+  if (typeof v === "string") {
+    const n = parseFloat(v);
+    return Number.isFinite(n) ? n : 0;
+  }
+  return 0;
 }
 
 export default function ActifsPage() {
-  const isMobile = useIsMobile();
-  const { assets, isLoading, isFallback } = useFinanceAssets();
-  const { accounts } = useFinanceAccounts();
-  const [livePrices, setLivePrices] = useState<Map<string, LivePrice>>(new Map());
-  const [refreshing, setRefreshing] = useState(false);
-
+  const router = useRouter();
   const utils = trpc.useUtils();
+  const query = trpc.entities.list.useQuery({ typeId: "asset", limit: 500, offset: 0 });
   const createMutation = trpc.entities.create.useMutation({
-    onSuccess: () => {
+    onSuccess: (data) => {
       void utils.entities.list.invalidate({ typeId: "asset" });
+      router.push(`/finance/actifs/${data.id}`);
     },
   });
-  const handleNewAsset = useCallback(async () => {
-    try {
-      await createMutation.mutateAsync({
-        typeId: "asset",
-        fields: { name: "Nouvel actif", current_value: 0, category: "action" },
-      });
-    } catch (err) {
-      console.error("[finance/actifs] create failed", err);
-    }
-  }, [createMutation]);
 
-  const accountNameMap = Object.fromEntries(accounts.map((a) => [a.id, a.name]));
+  const assets: Asset[] = (query.data?.items ?? []).map((e) => {
+    const f = e.fields as Record<string, unknown>;
+    return {
+      id: e.id,
+      name: strField(f, "name") || "Actif",
+      category: strField(f, "category") || "action",
+      symbol: strField(f, "symbol"),
+      currentValue: numField(f, "current_value"),
+      acquisitionValue: numField(f, "acquisition_value"),
+      updatedAt: e.updatedAt,
+    };
+  });
 
-  const byCategory = assets.reduce<Record<string, Asset[]>>((acc, asset) => {
-    const cat = asset.category;
-    if (!acc[cat]) acc[cat] = [];
-    acc[cat]!.push(asset);
-    return acc;
-  }, {});
+  const totalCurrent = assets.reduce((s, a) => s + a.currentValue, 0);
+  const totalCost = assets.reduce((s, a) => s + a.acquisitionValue, 0);
+  const pnl = totalCurrent - totalCost;
+  const pnlPct = totalCost > 0 ? (pnl / totalCost) * 100 : 0;
 
-  const handleRefreshPrices = useCallback(async () => {
-    setRefreshing(true);
-    const tickeredAssets = assets.filter((a) => a.ticker);
-    await Promise.allSettled(
-      tickeredAssets.map(async (asset) => {
-        try {
-          const r = await trpcVanillaClient.system.fetchPrice.query({
-            ticker: asset.ticker!,
-            isCrypto: asset.category === "crypto",
-          });
-          setLivePrices((prev) => new Map(prev).set(asset.id, {
-            price: r.price,
-            currency: r.currency,
-            change24h: r.change24h,
-          }));
-        } catch { /* non-fatal */ }
-      })
-    );
-    setRefreshing(false);
-  }, [assets]);
-
-  const categories = Object.entries(byCategory);
-
-  useMobileTitle(isMobile ? "Actifs" : null);
-  useMobileFab(
-    isMobile
-      ? { icon: Plus, label: "Nouvel actif", onPress: () => void handleNewAsset() }
-      : null
-  );
-  useMobileHeaderActions([]);
+  const handleCreate = () => {
+    createMutation.mutate({
+      typeId: "asset",
+      fields: { name: "Nouvel actif", category: "action", current_value: 0, acquisition_value: 0 },
+    });
+  };
 
   return (
     <AppShell>
-    <div className="flex flex-col gap-6 px-3 py-6 md:px-6">
-      <div className="hidden md:flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Link href="/finance" className="flex items-center gap-1 text-sm" style={{ color: "var(--text-muted)" }}>
-            <ArrowLeft size={14} /> Finance
-          </Link>
-          <span style={{ color: "var(--border)" }}>/</span>
-          <h1 className="text-xl font-bold" style={{ color: "var(--text-primary)" }}>Actifs</h1>
-          {isFallback && (
-            <span className="text-xs rounded-full px-2 py-0.5" style={{ backgroundColor: "var(--surface-2)", color: "var(--text-muted)" }}>
-              mode dégradé
-            </span>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            onPress={() => void handleRefreshPrices()}
-            isDisabled={refreshing || isFallback}
-            variant="outline"
-            size="sm"
-            className="flex items-center gap-2 font-medium"
-            style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
-          >
-            {refreshing ? "Actualisation..." : "Refresh prix"}
-          </Button>
-          <Button
-            onPress={() => void handleNewAsset()}
-            isDisabled={createMutation.isPending}
-            size="sm"
-            className="flex items-center gap-2 font-medium"
+      <div className="mx-auto max-w-5xl px-3 py-6 md:px-6 md:py-8">
+        <div className="mb-6 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Link
+              href="/finance"
+              className="flex items-center gap-1 text-sm hover:underline"
+              style={{ color: "var(--text-muted)" }}
+            >
+              <ArrowLeft size={14} /> Finance
+            </Link>
+            <span style={{ color: "var(--border)" }}>/</span>
+            <h1 className="text-xl font-bold" style={{ color: "var(--text-primary)" }}>Actifs</h1>
+          </div>
+          <button
+            type="button"
+            onClick={handleCreate}
+            disabled={createMutation.isPending}
+            className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium disabled:opacity-50"
             style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
           >
-            <Plus size={14} /> Actif
-          </Button>
+            <Plus size={12} /> Nouvel actif
+          </button>
         </div>
-      </div>
 
-      {isLoading ? (
-        <p className="text-sm" style={{ color: "var(--text-muted)" }}>Chargement...</p>
-      ) : assets.length === 0 ? (
-        <div
-          className="rounded-xl border border-dashed p-8 text-center"
-          style={{ borderColor: "var(--border)", backgroundColor: "var(--surface-0)" }}
-        >
-          <p className="text-sm" style={{ color: "var(--text-muted)" }}>
-            Pas encore de données financières. Importer OFX/CSV ou ajouter un actif.
-          </p>
-        </div>
-      ) : (
-        categories.map(([cat, catAssets]) => {
-          const total = catAssets.reduce((s, a) => {
-            const lp = livePrices.get(a.id);
-            return s + (lp ? lp.price : a.currentValue);
-          }, 0);
-          const color = CATEGORY_COLORS[cat] ?? "#94A3B8";
-          return (
-            <div key={cat}>
-              <div className="mb-3 flex items-center gap-2">
-                <div className="h-3 w-3 rounded-full" style={{ backgroundColor: color }} />
-                <h2 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
-                  {CATEGORY_LABELS[cat] ?? cat}
-                </h2>
-                <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-                  {catAssets.length} actif{catAssets.length > 1 ? "s" : ""} · {formatCurrency(total)}
-                </span>
-              </div>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3">
-                {catAssets.map((asset) => (
-                  <Link
-                    key={asset.id}
-                    href={`/finance/actifs/${asset.id}`}
-                    className="block transition-transform hover:-translate-y-0.5"
-                  >
-                    <AssetCard
-                      asset={asset}
-                      accountName={asset.accountId ? (accountNameMap[asset.accountId] ?? "—") : ""}
-                      livePrice={livePrices.get(asset.id)}
-                    />
-                  </Link>
-                ))}
-              </div>
+        {query.isLoading ? (
+          <p className="text-sm" style={{ color: "var(--text-muted)" }}>Chargement…</p>
+        ) : assets.length === 0 ? (
+          <EmptyList onCreate={handleCreate} pending={createMutation.isPending} />
+        ) : (
+          <>
+            <div
+              className="mb-4 grid grid-cols-3 gap-3 rounded-xl border p-4"
+              style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-1)" }}
+            >
+              <Stat label="Valeur actuelle" value={formatCurrency(totalCurrent)} />
+              <Stat label="Acquisition" value={formatCurrency(totalCost)} />
+              <Stat
+                label="Plus / moins value"
+                value={`${formatCurrency(pnl)} (${pnlPct.toFixed(2)} %)`}
+                tone={pnl >= 0 ? "positive" : "negative"}
+              />
             </div>
-          );
-        })
-      )}
-    </div>
+
+            <ul className="flex flex-col gap-2">
+              {assets.map((a) => {
+                const itemPnl = a.currentValue - a.acquisitionValue;
+                return (
+                  <li key={a.id}>
+                    <Link
+                      href={`/finance/actifs/${a.id}`}
+                      className="grid grid-cols-[1fr_auto_140px_120px_120px] items-center gap-4 rounded-lg border px-4 py-3 hover:bg-[var(--surface-2)]"
+                      style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-1)" }}
+                    >
+                      <span className="text-sm font-medium truncate" style={{ color: "var(--text-primary)" }}>
+                        {a.name}
+                      </span>
+                      <span
+                        className="rounded-full px-2 py-0.5 text-xs font-medium"
+                        style={{
+                          backgroundColor: (CATEGORY_COLORS[a.category] ?? "#94a3b8") + "20",
+                          color: CATEGORY_COLORS[a.category] ?? "#94a3b8",
+                        }}
+                      >
+                        {CATEGORY_LABELS[a.category] ?? a.category}
+                      </span>
+                      <span className="text-right text-sm font-semibold tabular-nums" style={{ color: "var(--text-primary)" }}>
+                        {formatCurrency(a.currentValue)}
+                      </span>
+                      <span
+                        className="text-right text-xs font-medium tabular-nums"
+                        style={{ color: itemPnl >= 0 ? "var(--success)" : "var(--danger)" }}
+                      >
+                        {a.acquisitionValue > 0 ? `${itemPnl >= 0 ? "+" : ""}${formatCurrency(itemPnl)}` : "—"}
+                      </span>
+                      <span className="text-right text-xs" style={{ color: "var(--text-muted)" }}>
+                        {a.symbol || formatDate(a.updatedAt)}
+                      </span>
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+
+            <p className="mt-4 text-xs" style={{ color: "var(--text-muted)" }}>
+              {assets.length} actif{assets.length > 1 ? "s" : ""}
+            </p>
+          </>
+        )}
+      </div>
     </AppShell>
+  );
+}
+
+function Stat({ label, value, tone }: { label: string; value: string; tone?: "positive" | "negative" }) {
+  return (
+    <div>
+      <p className="text-[10px] uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+        {label}
+      </p>
+      <p
+        className="mt-0.5 text-base font-semibold tabular-nums"
+        style={{
+          color:
+            tone === "positive"
+              ? "var(--success)"
+              : tone === "negative"
+                ? "var(--danger)"
+                : "var(--text-primary)",
+        }}
+      >
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function EmptyList({ onCreate, pending }: { onCreate: () => void; pending: boolean }) {
+  return (
+    <div
+      className="flex flex-col items-center gap-3 rounded-xl border border-dashed p-12 text-center"
+      style={{ borderColor: "var(--border-subtle)" }}
+    >
+      <p className="text-sm font-medium" style={{ color: "var(--text-secondary)" }}>
+        Aucun actif enregistré.
+      </p>
+      <button
+        type="button"
+        onClick={onCreate}
+        disabled={pending}
+        className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium disabled:opacity-50"
+        style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
+      >
+        <Plus size={12} /> Créer mon premier actif
+      </button>
+    </div>
   );
 }

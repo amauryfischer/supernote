@@ -10,7 +10,7 @@
  * worker bundle self-contained (no @/ alias resolution into client code).
  */
 
-import type { Database } from "sql.js";
+import type { Database } from "./sqlite-adapter";
 
 interface SeedField {
   id: string;
@@ -65,6 +65,9 @@ const personneFields: SeedField[] = [
     ],
   },
   { id: "per_linkedin", name: "linkedin", label: "LinkedIn", kind: "url" },
+  // Date d'anniversaire — utilisée par la routine système "Rappel
+  // anniversaires" (alarm trigger recurAnnually) pour notifier le jour-J.
+  { id: "per_birthday", name: "birthday", label: "Anniversaire", kind: "date" },
   { id: "per_avatar", name: "avatar", label: "Photo", kind: "image" },
   { id: "per_notes", name: "notes", label: "Notes", kind: "markdown" },
   { id: "per_created_at", name: "createdAt", label: "Créé le", kind: "createdAt" },
@@ -255,6 +258,13 @@ const todoFields: SeedField[] = [
       { value: "critical", label: "Critique", color: "#EF4444" },
     ],
   },
+  // Rappel one-shot: l'engine génère automatiquement une AutomationConfig
+  // `reminder:<id>` quand reminderAt est défini et reminderFiredAt vide. Une
+  // fois fire, reminderFiredAt est écrit côté worker pour empêcher tout
+  // rejeu (catch-up boot, hot reload, etc.).
+  { id: "todo_reminder_at", name: "reminderAt", label: "Rappel — date/heure", kind: "datetime" },
+  { id: "todo_reminder_text", name: "reminderText", label: "Rappel — message", kind: "longtext" },
+  { id: "todo_reminder_fired_at", name: "reminderFiredAt", label: "Rappel envoyé le", kind: "datetime" },
   { id: "todo_created_at", name: "createdAt", label: "Créé le", kind: "createdAt" },
   { id: "todo_updated_at", name: "updatedAt", label: "Modifié le", kind: "updatedAt" },
 ];

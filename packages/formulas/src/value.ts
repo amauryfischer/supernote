@@ -4,6 +4,7 @@
 
 import type { Entity, RelationEdge } from "@supernote/core/types";
 import type { FormulaAST } from "./ast.js";
+import type { DurationValue } from "./stdlib/dates.js";
 
 // ------ Value union ------------------------------------------
 
@@ -15,7 +16,8 @@ export type Value =
   | Date
   | Value[]
   | EntityValue
-  | LambdaValue;
+  | LambdaValue
+  | DurationValue;
 
 export interface EntityValue {
   readonly _type: "entity";

@@ -59,7 +59,15 @@ class Parser {
     const lambdaResult = this.tryLambda();
     if (lambdaResult !== null) return lambdaResult;
     this.pos = saved;
-    return this.parseOr();
+    return this.parseNullCoalesce();
+  }
+
+  private parseNullCoalesce(): Result<FormulaAST, ParseError> {
+    return this.parseBinary(
+      () => this.parseOr(),
+      ["NullCoalesce"],
+      { NullCoalesce: "??" },
+    );
   }
 
   private tryLambda(): Result<FormulaAST, ParseError> | null {
@@ -194,11 +202,12 @@ class Parser {
     return this.parsePostfix();
   }
 
-  /** Handles property access and Coda-style chaining: a.b.c, a.Fn(x) */
+  /** Handles property access and Coda-style chaining: a.b.c, a.Fn(x), a?.b */
   private parsePostfix(): Result<FormulaAST, ParseError> {
     let base = this.parsePrimary();
     if (!base.ok) return base;
-    while (this.check("Dot")) {
+    while (this.check("Dot") || this.check("OptionalDot")) {
+      const isOptional = this.check("OptionalDot");
       this.advance();
       if (!this.check("Identifier")) {
         return err(makeParseError("Expected property name after '.'", this.current().pos, this.source));
@@ -240,6 +249,7 @@ class Parser {
         kind: "PropertyAccess",
         object: base.value,
         property: prop.raw,
+        ...(isOptional ? { optional: true } : {}),
         span: span(base.value.span.start, prop.pos),
       });
     }

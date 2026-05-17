@@ -20,6 +20,7 @@ import { OnboardingTour } from "@/components/onboarding/OnboardingTour";
 import { VaultInitBanner } from "@/lib/vault/VaultInitBanner";
 import { PwaBootstrap } from "@/lib/pwa/PwaBootstrap";
 import { PwaVaultSetup } from "@/lib/pwa/PwaVaultSetup";
+import { AutomationNotificationBridge } from "@/lib/pwa/AutomationNotificationBridge";
 import { GitSyncProvider } from "@/lib/git/GitSyncProvider";
 import { PromptProvider } from "@/hooks/usePrompt";
 import { SettingsProvider } from "@/components/settings/SettingsContext";
@@ -40,6 +41,8 @@ export function RootLayout() {
                 <NavProgress />
                 {/* Register the Service Worker (no-op when not available) */}
                 <PwaBootstrap />
+                {/* Bridge worker AUTOMATION_NOTIFICATION → in-app drawer + OS */}
+                <AutomationNotificationBridge />
                 {/* Cmd+K command palette + seed commands */}
                 <CommandSurface />
                 {/* Vault auto-init status banner (only meaningful in Electron;

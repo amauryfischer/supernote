@@ -59,7 +59,8 @@ export interface BinaryOp {
 export type BinaryOperator =
   | "+" | "-" | "*" | "/" | "%"
   | "==" | "!=" | "<" | "<=" | ">" | ">="
-  | "and" | "or";
+  | "and" | "or"
+  | "??";
 
 export interface UnaryOp {
   readonly kind: "UnaryOp";
@@ -74,6 +75,7 @@ export interface PropertyAccess {
   readonly kind: "PropertyAccess";
   readonly object: FormulaAST;
   readonly property: string;
+  readonly optional?: boolean;
   readonly span: Span;
 }
 

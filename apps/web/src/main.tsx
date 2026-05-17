@@ -10,6 +10,18 @@ import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import "./globals.css";
 
+// Dev-only: React 19's DevTools render-timings instrumentation calls
+// performance.measure() with a structured-cloneable `detail` that occasionally
+// contains non-cloneable values (worker handles, FSA handles wired through
+// context). When that throws DataCloneError, the renderer commit phase
+// crashes and the tab freezes. Neutralise the measure call entirely in dev —
+// we don't rely on render-timing markers anywhere in the app.
+if (import.meta.env.DEV && typeof performance !== "undefined" && performance.measure) {
+  performance.measure = function noopMeasure() {
+    return {} as PerformanceMeasure;
+  } as Performance["measure"];
+}
+
 const container = document.getElementById("root");
 if (!container) {
   throw new Error('Root element <div id="root"></div> not found in index.html');

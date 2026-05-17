@@ -23,6 +23,12 @@ export interface EditTodoValues {
   importance: TodoImportance;
   startDate: string; // YYYY-MM-DD or "" when unset
   dueDate: string; // YYYY-MM-DD or "" when unset
+  /** ISO datetime-local (YYYY-MM-DDTHH:MM) or "" when no reminder set. */
+  reminderAt: string;
+  /** Custom reminder body; falls back to "Rappel : <text>" when empty. */
+  reminderText: string;
+  /** ISO datetime stamped when the one-shot fired. Read-only display. */
+  reminderFiredAt: string;
 }
 
 interface EditTodoModalProps {
@@ -57,6 +63,8 @@ export function EditTodoModal({
   const [importance, setImportance] = useState<TodoImportance>(initial.importance);
   const [startDate, setStartDate] = useState(initial.startDate);
   const [dueDate, setDueDate] = useState(initial.dueDate);
+  const [reminderAt, setReminderAt] = useState(initial.reminderAt);
+  const [reminderText, setReminderText] = useState(initial.reminderText);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Reset local state every time the dialog opens against a different todo.
@@ -70,6 +78,8 @@ export function EditTodoModal({
       setImportance(initial.importance);
       setStartDate(initial.startDate);
       setDueDate(initial.dueDate);
+      setReminderAt(initial.reminderAt);
+      setReminderText(initial.reminderText);
     }
   }, [open, initial]);
 
@@ -96,6 +106,7 @@ export function EditTodoModal({
   if (!open) return null;
 
   const submit = () => {
+    const trimmedReminder = reminderAt.trim();
     onSave({
       text: text.trim(),
       done,
@@ -103,6 +114,12 @@ export function EditTodoModal({
       importance,
       startDate: startDate.trim(),
       dueDate: dueDate.trim(),
+      reminderAt: trimmedReminder,
+      reminderText: reminderText.trim(),
+      // When the user clears or changes the reminder date, drop the fired
+      // marker so the engine re-registers a fresh one-shot on save.
+      reminderFiredAt:
+        trimmedReminder && trimmedReminder !== initial.reminderAt ? "" : initial.reminderFiredAt,
     });
   };
 
@@ -118,6 +135,10 @@ export function EditTodoModal({
         style={{
           backgroundColor: "var(--surface-1)",
           border: "1px solid var(--border-subtle)",
+          // The form has grown past one screen with the reminder block; let
+          // it scroll inside the modal rather than spill off-viewport.
+          maxHeight: "90vh",
+          overflowY: "auto",
         }}
         onClick={(e) => e.stopPropagation()}
         role="dialog"
@@ -247,6 +268,54 @@ export function EditTodoModal({
               );
             })}
           </div>
+        </div>
+
+        <div
+          className="mb-4 rounded-md border p-3"
+          style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-0)" }}
+        >
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-xs font-medium" style={{ color: "var(--text-muted)" }}>
+              Rappel
+            </span>
+            {reminderAt && (
+              <Button
+                variant="ghost"
+                onPress={() => { setReminderAt(""); setReminderText(""); }}
+                className="rounded px-2 py-0.5 text-[10px]"
+                style={{ color: "var(--text-muted)" }}
+              >
+                Effacer
+              </Button>
+            )}
+          </div>
+          <Input
+            type="datetime-local"
+            value={reminderAt}
+            onChange={(e) => setReminderAt(e.target.value)}
+            className="mb-2 w-full text-sm"
+            aria-label="Date et heure du rappel"
+          />
+          <Input
+            type="text"
+            value={reminderText}
+            onChange={(e) => setReminderText(e.target.value)}
+            placeholder={`Message (défaut : "Rappel : ${text || "…"}")`}
+            className="w-full text-sm"
+            aria-label="Message du rappel"
+            disabled={!reminderAt}
+          />
+          {initial.reminderFiredAt && (
+            <p className="mt-1.5 text-[10px]" style={{ color: "var(--text-muted)" }}>
+              Envoyé le {new Date(initial.reminderFiredAt).toLocaleString("fr-FR")}.
+              Modifier la date au-dessus pour reprogrammer.
+            </p>
+          )}
+          <p className="mt-1.5 text-[10px]" style={{ color: "var(--text-muted)" }}>
+            One-shot : la notification est envoyée à l&apos;heure choisie puis
+            désarmée. Fonctionne uniquement quand l&apos;app est ouverte (voir
+            doc PWA pour le rattrapage au démarrage).
+          </p>
         </div>
 
         <div className="mb-4 flex items-center gap-2">

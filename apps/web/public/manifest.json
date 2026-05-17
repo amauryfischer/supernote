@@ -1,9 +1,11 @@
 {
   "name": "Supernote",
   "short_name": "Supernote",
+  "id": "/?source=pwa",
   "description": "Système de connaissance local-first — notes, CRM, routines",
-  "start_url": "/",
+  "start_url": "/?source=pwa",
   "display": "standalone",
+  "launch_handler": { "client_mode": "navigate-existing" },
   "orientation": "portrait-primary",
   "background_color": "#ffffff",
   "theme_color": "#7c3aed",

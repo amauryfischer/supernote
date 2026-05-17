@@ -21,6 +21,10 @@ import {
   DeleteRoutineInput,
   GetNextRunsInput,
   GetNextRunsOutput,
+  RunRoutineInput,
+  GetRoutineRunsInput,
+  GetRoutineRunsOutput,
+  RoutineRunResultSchema,
 } from "../schemas/automations.js";
 import { z } from "zod";
 
@@ -129,6 +133,22 @@ export const routinesRouter = router({
     .output(GetNextRunsOutput)
     .query(() => {
       throw notImplemented("routines.getNextRuns");
+    }),
+
+  /** Manually fire a routine through the engine. */
+  run: publicProcedure
+    .input(RunRoutineInput)
+    .output(RoutineRunResultSchema)
+    .mutation(() => {
+      throw notImplemented("routines.run");
+    }),
+
+  /** Fetch persisted run history for a routine (most recent first). */
+  getRuns: publicProcedure
+    .input(GetRoutineRunsInput)
+    .output(GetRoutineRunsOutput)
+    .query(() => {
+      throw notImplemented("routines.getRuns");
     }),
 });
 

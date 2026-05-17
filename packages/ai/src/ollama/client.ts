@@ -37,7 +37,12 @@ interface OllamaEmbedResponse {
 }
 
 interface OllamaChatResponseChunk {
-  message?: { content: string };
+  message?: {
+    content: string;
+    tool_calls?: Array<{
+      function: { name: string; arguments: Record<string, unknown> };
+    }>;
+  };
   done: boolean;
 }
 
@@ -181,16 +186,27 @@ class OllamaClientImpl implements OllamaClient {
 
   async *chat(opts: ChatOptions): AsyncIterable<ChatChunk> {
     const model = opts.model ?? (await this.resolveModel());
+    // When `tools` is set we disable streaming. Ollama only emits
+    // tool_calls in a single final chunk and many model backends refuse
+    // tool calls in streaming mode altogether — non-streamed responses
+    // are the only reliable shape today.
+    const hasTools = Array.isArray(opts.tools) && opts.tools.length > 0;
+    const stream = !hasTools;
     const body: Record<string, unknown> = {
       model,
       messages: opts.messages,
-      stream: true,
+      stream,
     };
+    if (hasTools) body["tools"] = opts.tools;
     if (opts.format) body["format"] = opts.format;
     if (opts.temperature !== undefined) {
       body["options"] = { temperature: opts.temperature };
     }
 
+    // Tool-call turns can take much longer than plain chat (non-streamed,
+    // larger context). Give those calls a generous budget; streaming calls
+    // keep the default.
+    const timeoutMs = hasTools ? 120_000 : DEFAULT_TIMEOUT_MS;
     const res = await fetchWithTimeout(
       `${this.baseUrl}/api/chat`,
       {
@@ -198,10 +214,24 @@ class OllamaClientImpl implements OllamaClient {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       },
-      DEFAULT_TIMEOUT_MS,
+      timeoutMs,
     );
     if (!res.ok || !res.body) {
       throw new Error(`Ollama chat failed: ${res.status}`);
+    }
+
+    // Non-streamed path (tool calling): single JSON body.
+    if (!stream) {
+      const data = (await res.json()) as OllamaChatResponseChunk;
+      const toolCalls = data.message?.tool_calls?.map((c) => ({
+        function: { name: c.function.name, arguments: c.function.arguments },
+      }));
+      yield {
+        content: data.message?.content ?? "",
+        done: true,
+        ...(toolCalls && toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
+      };
+      return;
     }
 
     const reader = res.body.getReader();
@@ -219,9 +249,13 @@ class OllamaClientImpl implements OllamaClient {
           const trimmed = line.trim();
           if (!trimmed) continue;
           const chunk = JSON.parse(trimmed) as OllamaChatResponseChunk;
+          const toolCalls = chunk.message?.tool_calls?.map((c) => ({
+            function: { name: c.function.name, arguments: c.function.arguments },
+          }));
           yield {
             content: chunk.message?.content ?? "",
             done: chunk.done,
+            ...(toolCalls && toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
           };
           if (chunk.done) return;
         }

@@ -83,5 +83,83 @@ export function makeEntityFunctions(
       const ev = args[0] as EntityValue;
       return ok(ev.entity.tags ?? []);
     },
+
+    // ── Extension ─────────────────────────────────────────────
+
+    Get(args) {
+      const ev = args[0];
+      if (!ev || typeof ev !== "object" || !("_type" in ev) || (ev as EntityValue)._type !== "entity")
+        return err(makeEvalError("Get: expected entity as first arg"));
+      const field = typeof args[1] === "string" ? args[1] : null;
+      if (!field) return err(makeEvalError("Get: second arg must be field name string"));
+      const entity = (ev as EntityValue).entity;
+      const val = entity.fields[field];
+      if (val === null || val === undefined) return ok(args[2] ?? null);
+      return ok(val as Value);
+    },
+
+    Has(args) {
+      const ev = args[0];
+      if (!ev || typeof ev !== "object" || !("_type" in ev) || (ev as EntityValue)._type !== "entity")
+        return err(makeEvalError("Has: expected entity as first arg"));
+      const field = typeof args[1] === "string" ? args[1] : null;
+      if (!field) return err(makeEvalError("Has: second arg must be field name string"));
+      const entity = (ev as EntityValue).entity;
+      const val = entity.fields[field];
+      return ok(val !== null && val !== undefined && val !== "");
+    },
+
+    EntityId(args) {
+      const ev = args[0];
+      if (!ev || typeof ev !== "object" || !("_type" in ev) || (ev as EntityValue)._type !== "entity")
+        return err(makeEvalError("EntityId: expected entity"));
+      return ok((ev as EntityValue).entity.id);
+    },
+
+    CreatedAt(args) {
+      const ev = args[0];
+      if (!ev || typeof ev !== "object" || !("_type" in ev) || (ev as EntityValue)._type !== "entity")
+        return err(makeEvalError("CreatedAt: expected entity"));
+      return ok((ev as EntityValue).entity.createdAt ?? null);
+    },
+
+    UpdatedAt(args) {
+      const ev = args[0];
+      if (!ev || typeof ev !== "object" || !("_type" in ev) || (ev as EntityValue)._type !== "entity")
+        return err(makeEvalError("UpdatedAt: expected entity"));
+      return ok((ev as EntityValue).entity.updatedAt ?? null);
+    },
+
+    FindAll(args) {
+      const typeId = typeof args[0] === "string" ? args[0] : null;
+      if (!typeId) return err(makeEvalError("FindAll: first arg must be type name string"));
+      const pred = isLambda(args[1] ?? null) ? args[1] as LambdaValue : null;
+      const entities = ctx.queryEntities(typeId);
+      const wrapped: EntityValue[] = entities.map((e) => ({ _type: "entity", entity: e }));
+      if (!pred) return ok(wrapped);
+      const result: Value[] = [];
+      for (const ev of wrapped) {
+        const r = apply(pred, [ev]);
+        if (!r.ok) return r;
+        if (coerceToBool(r.value)) result.push(ev);
+      }
+      return ok(result);
+    },
+
+    CountOf(args) {
+      const typeId = typeof args[0] === "string" ? args[0] : null;
+      if (!typeId) return err(makeEvalError("CountOf: first arg must be type name string"));
+      const pred = isLambda(args[1] ?? null) ? args[1] as LambdaValue : null;
+      const entities = ctx.queryEntities(typeId);
+      if (!pred) return ok(entities.length);
+      const wrapped: EntityValue[] = entities.map((e) => ({ _type: "entity", entity: e }));
+      let count = 0;
+      for (const ev of wrapped) {
+        const r = apply(pred, [ev]);
+        if (!r.ok) return r;
+        if (coerceToBool(r.value)) count++;
+      }
+      return ok(count);
+    },
   };
 }

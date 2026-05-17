@@ -170,7 +170,9 @@ export function getTemplateRoutine(key: TemplateKey, id: string): RoutineFixture
       enabled: true,
       templateKey: "follow-up",
       trigger: { type: "cron", expression: "0 8 * * MON", timezone: "Europe/Paris" },
-      condition: "{{formula:daysAgo(now, entity.fields.lastInteraction) > 30}}",
+      // condition vide par défaut — l'utilisateur écrit sa formule via
+      // l'éditeur (autocomplétion des fonctions, validation à la saisie).
+      // Exemple à taper : DateDiff(Now(), entity.lastInteraction, 'day') > 30
       actions: [
         { type: "create-inbox-note", title: "Relances à faire", body: "Contacts inactifs depuis 30j+.", tags: ["follow-up"] },
         { type: "notify-app", title: "Rappel relances", body: "Des contacts n'ont pas été contactés depuis 30j+.", level: "info" },

@@ -14,6 +14,7 @@ import {
   Gear,
   House,
   Lightning,
+  Robot,
   Tag,
   Trash,
   Users,
@@ -61,6 +62,7 @@ const NAV_GROUPS: NavGroup[] = [
     labelKey: "nav.groups.navigation",
     items: [
       { labelKey: "nav.home", icon: House, href: "/" },
+      { labelKey: "nav.ai", icon: Robot, href: "/ai" },
     ],
   },
   {

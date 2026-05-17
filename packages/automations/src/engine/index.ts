@@ -26,6 +26,9 @@ type EngineEvents = {
   "run-started": [automationId: string, runId: string];
   "run-completed": [result: AutomationRunResult];
   "run-failed": [automationId: string, error: Error];
+  /** Fired after a one-shot automation completes and is auto-unregistered.
+   *  Hosts subscribe to update the source entity (e.g. mark reminder fired). */
+  "one-shot-fired": [automationId: string, sourceEntityId: string | undefined];
 };
 
 export class AutomationEngine extends EventEmitter<EngineEvents> {
@@ -67,7 +70,7 @@ export class AutomationEngine extends EventEmitter<EngineEvents> {
       const conditionPasses = evaluateCondition(
         automation.condition,
         ctx,
-        undefined,
+        this.opts.evaluator,
         this.logger
       );
       if (!conditionPasses) continue;
@@ -113,12 +116,24 @@ export class AutomationEngine extends EventEmitter<EngineEvents> {
         } catch {
           // skip invalid cron
         }
+      } else if (trigger.type === "one-shot") {
+        const fireAt = new Date(trigger.fireAt);
+        if (Number.isFinite(fireAt.getTime()) && fireAt.getTime() > now.getTime()) {
+          results.push({ automationId: automation.id, automationName: automation.name, nextRunAt: fireAt });
+        }
       }
     }
     return results;
   }
 
-  /** Called every minute by the scheduler to fire cron/alarm triggers. */
+  /** Force a single scheduler tick (cron + alarm evaluation). Public so an
+   *  external waker (Periodic Background Sync, OS-level scheduler proxy) can
+   *  drive evaluation without owning a setInterval. */
+  async tickNow(): Promise<void> {
+    return this.tick();
+  }
+
+  /** Called every minute by the scheduler to fire cron/alarm/one-shot triggers. */
   private async tick(): Promise<void> {
     const now = this.now();
     for (const automation of this.automations.values()) {
@@ -129,6 +144,20 @@ export class AutomationEngine extends EventEmitter<EngineEvents> {
         await this.executeAutomation(automation, { trigger: { type: "cron", firedAt: now } });
       } else if (trigger.type === "alarm") {
         await this.fireAlarmIfDue(automation, now);
+      } else if (trigger.type === "one-shot") {
+        const fireAt = new Date(trigger.fireAt);
+        if (Number.isFinite(fireAt.getTime()) && now.getTime() >= fireAt.getTime()) {
+          await this.executeAutomation(automation, {
+            trigger: { type: "one-shot", firedAt: now },
+            sourceEntityId: trigger.sourceEntityId,
+          });
+          this.automations.delete(automation.id);
+          this.emit("one-shot-fired", automation.id, trigger.sourceEntityId);
+          this.logger.info(
+            { id: automation.id, sourceEntityId: trigger.sourceEntityId },
+            "One-shot fired + auto-unregistered",
+          );
+        }
       }
     }
   }
@@ -172,7 +201,7 @@ export class AutomationEngine extends EventEmitter<EngineEvents> {
     const conditionPasses = evaluateCondition(
       automation.condition,
       ctx,
-      undefined,
+      this.opts.evaluator,
       this.logger
     );
 

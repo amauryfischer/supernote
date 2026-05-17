@@ -357,6 +357,9 @@ export default function TodosPage() {
           dueDate: typeof f["dueDate"] === "string" ? (f["dueDate"] as string) : null,
           priority: parseStandalonePriority(f["priority"]),
           importance: parseStandaloneImportance(f["importance"]),
+          reminderAt: typeof f["reminderAt"] === "string" ? (f["reminderAt"] as string) : null,
+          reminderText: typeof f["reminderText"] === "string" ? (f["reminderText"] as string) : null,
+          reminderFiredAt: typeof f["reminderFiredAt"] === "string" ? (f["reminderFiredAt"] as string) : null,
           sourceNoteTitle: null,
           sourceNoteTags: [],
           createdAt: e.createdAt,
@@ -578,6 +581,9 @@ export default function TodosPage() {
               importance: next.importance,
               startDate: next.startDate || null,
               dueDate: next.dueDate || null,
+              reminderAt: next.reminderAt || null,
+              reminderText: next.reminderText || null,
+              reminderFiredAt: next.reminderFiredAt || null,
             },
           });
           await utils.entities.list.invalidate({ typeId: TODO_TYPE_ID });
@@ -1326,6 +1332,9 @@ export default function TodosPage() {
             importance: editing.importance ?? "medium",
             startDate: editing.startDate ?? "",
             dueDate: editing.dueDate ?? "",
+            reminderAt: editing.reminderAt ?? "",
+            reminderText: editing.reminderText ?? "",
+            reminderFiredAt: editing.reminderFiredAt ?? "",
           }}
           readonlyText={editing.kind === "note"}
           onSave={(next) => void handleSaveEdit(editing, next)}

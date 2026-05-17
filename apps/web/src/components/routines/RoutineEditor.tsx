@@ -1,15 +1,17 @@
 "use client";
 
-import { useState } from "react";
-import { Button, Input, TextArea } from "@heroui/react";
+import { useMemo, useState } from "react";
+import { Button, Input } from "@heroui/react";
 import { Plus, FloppyDisk, X, Play, ArrowLeft, Question } from "@phosphor-icons/react";
 import Link from "next/link";
-import type { RoutineFixture, ActionConfig, ActionType } from "./fixtures";
+import type { RoutineFixture, ActionConfig, ActionType, RunRecord, RunStatus } from "./fixtures";
 import { TriggerBuilder } from "./TriggerBuilder";
 import { ActionCard } from "./ActionCard";
 import { ActionPickerModal } from "./ActionPickerModal";
 import { RunsHistoryTable } from "./RunsHistoryTable";
 import { ConditionDocsPanel } from "./ConditionDocsPanel";
+import { FormulaInputEditor } from "@/components/bases/FormulaInputEditor";
+import { trpc } from "@/lib/trpc/client";
 
 interface RoutineEditorProps {
   routine: RoutineFixture;
@@ -70,6 +72,23 @@ export function RoutineEditor({ routine, onSave, onCancel, onRunNow }: RoutineEd
   const [activeSection, setActiveSection] = useState<Section>("trigger");
   const [saved, setSaved] = useState(false);
   const [docsOpen, setDocsOpen] = useState(false);
+
+  // Fetch real run history from the engine. Skip for unsaved routines
+  // (the id starts with "routine-new-" until the create mutation lands).
+  const runsQuery = trpc.routines.getRuns.useQuery(
+    { automationId: routine.id, limit: 10 },
+    { enabled: !routine.id.startsWith("routine-new-") },
+  );
+  const runs: RunRecord[] = useMemo(() => {
+    const items = runsQuery.data?.items ?? [];
+    return items.map((r) => ({
+      id: r.id,
+      status: r.status as RunStatus,
+      startedAt: r.createdAt,
+      durationMs: r.durationMs,
+      error: r.errorMessage,
+    }));
+  }, [runsQuery.data]);
 
   function update(patch: Partial<RoutineFixture>) {
     setData((prev) => ({ ...prev, ...patch }));
@@ -264,22 +283,19 @@ export function RoutineEditor({ routine, onSave, onCancel, onRunNow }: RoutineEd
                       Voir la doc
                     </Button>
                   </div>
-                  <TextArea
-                    className="w-full resize-y rounded-md border px-3 py-2 font-mono text-sm outline-none focus:border-[var(--accent)]"
-                    style={{
-                      backgroundColor: "var(--surface-0)",
-                      borderColor: "var(--border)",
-                      color: "var(--text-primary)",
-                    }}
-                    rows={3}
-                    value={data.condition ?? ""}
-                    onChange={(e) => update({ condition: e.target.value || undefined })}
-                    placeholder="DateDiff(Now(), entity.lastInteraction, 'day') > 30"
+                  <FormulaInputEditor
+                    inline
+                    initialExpression={data.condition ?? ""}
+                    initialOutputKind="bool"
+                    placeholder="Vide = toujours vrai. Exemple : DateDiff(Now(), entity.lastInteraction, 'day') > 30"
+                    onChange={(expr) => update({ condition: expr.trim() ? expr : undefined })}
                   />
-                  <p className="mt-1 text-xs" style={{ color: "var(--text-muted)" }}>
-                    Exemples :{" "}
-                    <code className="rounded px-1" style={{ backgroundColor: "var(--surface-3)" }}>entity.status == &apos;active&apos;</code>{" "}
-                    <code className="rounded px-1" style={{ backgroundColor: "var(--surface-3)" }}>DateDiff(Now(), entity.lastInteraction, &apos;day&apos;) &gt; 30</code>
+                  <p className="mt-2 text-xs" style={{ color: "var(--text-muted)" }}>
+                    Même moteur que les formules des notes et variables — toutes
+                    les fonctions stdlib disponibles (DateDiff, Now, Contains,
+                    Year, IsToday, …). Tape un nom de fonction pour
+                    l&apos;autocomplétion. Laisse vide pour que la routine
+                    s&apos;exécute toujours.
                   </p>
                 </div>
               </>
@@ -338,7 +354,7 @@ export function RoutineEditor({ routine, onSave, onCancel, onRunNow }: RoutineEd
                 style={{ backgroundColor: "var(--surface-1)", borderColor: "var(--border-subtle)" }}
               >
                 <SectionHeader label="Historique des runs" sublabel="Les 10 derniers runs de cette routine" />
-                <RunsHistoryTable runs={routine.runs} />
+                <RunsHistoryTable runs={runs} />
               </div>
             )}
           </div>

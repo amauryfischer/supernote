@@ -29,6 +29,7 @@ import {
 } from "./canvas-excalidraw-io";
 import { parseFormula, evaluate, type FormulaContext, type Value as FormulaValue, type Scope, type FormulaAST } from "@supernote/formulas";
 import type { VariableInput } from "@supernote/core";
+import { VariableInputSchema } from "@supernote/ipc";
 import {
   listVariables,
   getVariable,
@@ -36,6 +37,7 @@ import {
   updateVariable,
   deleteVariable,
   makeVariableResolver,
+  buildVaultFormulaContext,
 } from "./variables";
 
 type SqlValue = string | number | null | Uint8Array;
@@ -243,10 +245,17 @@ function entityToDoc(r: SqlRow): EntityDoc {
 
 export type RouteHandler = (input: unknown) => Promise<unknown>;
 
+export interface RouterLifecycleHooks {
+  onEntityCreated?(entity: unknown): void;
+  onEntityUpdated?(entity: unknown, previous: unknown): void;
+  onEntityDeleted?(id: string, previous: unknown): void;
+}
+
 export function buildRouter(
   db: Database,
   vaultHandle: FileSystemDirectoryHandle,
   vaultId: string,
+  hooks: RouterLifecycleHooks = {},
 ): Record<string, RouteHandler> {
   // Populate FTS5 index from `entity` rows. Cheap when empty (post-init),
   // O(n) on already-populated vaults — but the rebuild is just N inserts
@@ -802,7 +811,9 @@ export function buildRouter(
       path: derivePath(relativePath),
     });
 
-    return entitiesGet({ id });
+    const created = await entitiesGet({ id });
+    try { hooks.onEntityCreated?.(created); } catch (e) { console.warn("[hook] onEntityCreated", e); }
+    return created;
   };
 
   const entitiesUpdate = async (input: unknown): Promise<unknown> => {
@@ -818,6 +829,7 @@ export function buildRouter(
       `SELECT fields, body, filePath, typeId FROM entity WHERE id = ?`, [id],
     ));
     if (!existing) throw new Error(`Entity not found: ${id}`);
+    const previousForHook = await entitiesGet({ id }).catch(() => null);
 
     // Defensive parse: strips character-index keys from prior corruption
     // and deep-unescapes string values. See safeParseFieldsBlob for details.
@@ -896,12 +908,15 @@ export function buildRouter(
       path: derivePath(effectivePath),
     });
 
-    return entitiesGet({ id });
+    const updated = await entitiesGet({ id });
+    try { hooks.onEntityUpdated?.(updated, previousForHook); } catch (e) { console.warn("[hook] onEntityUpdated", e); }
+    return updated;
   };
 
   const entitiesDelete = async (input: unknown): Promise<unknown> => {
     const { id } = input as { id: string };
     const existing = row(db.exec(`SELECT filePath FROM entity WHERE id = ?`, [id]));
+    const previousForHook = existing ? await entitiesGet({ id }).catch(() => null) : null;
     if (existing) {
       const filePath = (existing["filePath"] as string) ?? "";
       try {
@@ -914,6 +929,7 @@ export function buildRouter(
       db.run(`DELETE FROM entity WHERE id = ?`, [id]);
       ftsRemove(db, id);
     }
+    try { hooks.onEntityDeleted?.(id, previousForHook); } catch (e) { console.warn("[hook] onEntityDeleted", e); }
     return { id, deleted: true };
   };
 
@@ -1412,6 +1428,8 @@ export function buildRouter(
       relationFieldId?: string;
       targetFieldId?: string;
       aggregation?: string;
+      targetTypeId?: string;
+      cardinality?: 'one' | 'many';
     };
 
     const typeRow = rows(db.exec(
@@ -1431,21 +1449,32 @@ export function buildRouter(
       relationFieldId?: string;
       targetFieldId?: string;
       aggregation?: string;
+      targetTypeId?: string;
+      cardinality?: string;
     };
 
     // Normalise les 2 shapes possibles (core `kind`/`expression` ou
     // IPC `type`/`formulaExpr`) en un seul `DerivedFieldDef` interne.
     const allFieldDefs: DerivedFieldDef[] = typeRow
-      ? (JSON.parse((typeRow["fields"] as string) || "[]") as RawFieldDef[]).map((f): DerivedFieldDef => ({
-          id: f.id,
-          name: f.name,
-          kind: (f.kind ?? f.type ?? "") as string,
-          expression: f.expression ?? f.formulaExpr,
-          outputKind: f.outputKind ?? f.formulaOutputKind,
-          relationFieldId: f.relationFieldId,
-          targetFieldId: f.targetFieldId,
-          aggregation: f.aggregation,
-        }))
+      ? (JSON.parse((typeRow["fields"] as string) || "[]") as RawFieldDef[]).map((f): DerivedFieldDef => {
+          const rawCard = f.cardinality ?? '';
+          const cardinality: 'one' | 'many' =
+            rawCard === 'one_to_one' ? 'one' :
+            rawCard === 'one_to_many' || rawCard === 'many_to_many' ? 'many' :
+            'one';
+          return {
+            id: f.id,
+            name: f.name,
+            kind: (f.kind ?? f.type ?? "") as string,
+            expression: f.expression ?? f.formulaExpr,
+            outputKind: f.outputKind ?? f.formulaOutputKind,
+            relationFieldId: f.relationFieldId,
+            targetFieldId: f.targetFieldId,
+            aggregation: f.aggregation,
+            targetTypeId: f.targetTypeId,
+            cardinality,
+          };
+        })
       : [];
 
     const derivedDefs = allFieldDefs.filter(
@@ -1471,16 +1500,25 @@ export function buildRouter(
           fields: (() => {
             try {
               const raw = JSON.parse((r["fields"] as string) || "[]") as RawFieldDef[];
-              return raw.map((f): DerivedFieldDef => ({
-                id: f.id,
-                name: f.name,
-                kind: (f.kind ?? f.type ?? "") as string,
-                expression: f.expression ?? f.formulaExpr,
-                outputKind: f.outputKind ?? f.formulaOutputKind,
-                relationFieldId: f.relationFieldId,
-                targetFieldId: f.targetFieldId,
-                aggregation: f.aggregation,
-              }));
+              return raw.map((f): DerivedFieldDef => {
+                const rawCard = f.cardinality ?? '';
+                const cardinality: 'one' | 'many' =
+                  rawCard === 'one_to_one' ? 'one' :
+                  rawCard === 'one_to_many' || rawCard === 'many_to_many' ? 'many' :
+                  'one';
+                return {
+                  id: f.id,
+                  name: f.name,
+                  kind: (f.kind ?? f.type ?? "") as string,
+                  expression: f.expression ?? f.formulaExpr,
+                  outputKind: f.outputKind ?? f.formulaOutputKind,
+                  relationFieldId: f.relationFieldId,
+                  targetFieldId: f.targetFieldId,
+                  aggregation: f.aggregation,
+                  targetTypeId: f.targetTypeId,
+                  cardinality,
+                };
+              });
             } catch { return []; }
           })(),
         }))
@@ -1643,8 +1681,65 @@ export function buildRouter(
       if (typeof v === "number" || typeof v === "string" || typeof v === "boolean") return v;
       if (v instanceof Date) return v;
       if (Array.isArray(v)) return v.map(toFormulaValue);
+      // EntityValue — pass through
+      if (typeof v === "object" && v !== null && '_type' in v && (v as { _type: string })._type === 'entity') {
+        return v as FormulaValue;
+      }
       if (typeof v === "object") return String(v); // fall back to string repr
       return null;
+    }
+
+    /**
+     * Two-pass relation resolution for base entities.
+     * Mutates entity fields in-place (pass 2).
+     */
+    function resolveBaseEntities(): void {
+      // Pass 1: index all entities by id
+      const entityById = new Map<string, { id: string; fields: Record<string, unknown>; typeId: string }>();
+      for (const list of baseEntities.values()) {
+        for (const e of list) entityById.set(e.id, e);
+      }
+
+      // Pass 2: substitute relation values
+      const metaById = new Map<string, typeof baseInfos[number]>();
+      for (const b of baseInfos) metaById.set(b.id, b);
+
+      for (const [typeId, list] of baseEntities) {
+        const meta = metaById.get(typeId);
+        if (!meta) continue;
+        const relFields = meta.fields.filter((f) => f.kind === 'relation' && f.targetTypeId);
+        if (relFields.length === 0) continue;
+
+        for (const entity of list) {
+          for (const rf of relFields) {
+            const raw = entity.fields[rf.id];
+            if (rf.cardinality === 'many') {
+              let ids: string[] = [];
+              if (Array.isArray(raw)) ids = raw.map(String);
+              else if (typeof raw === 'string') {
+                if (raw.startsWith('[')) {
+                  try { ids = (JSON.parse(raw) as unknown[]).map(String); } catch { ids = raw ? [raw] : []; }
+                } else { ids = raw ? [raw] : []; }
+              }
+              (entity.fields as Record<string, unknown>)[rf.id] = ids
+                .map((id) => entityById.get(id))
+                .filter((e): e is NonNullable<typeof e> => e !== undefined)
+                .map((e): FormulaValue => ({ _type: 'entity', entity: { id: e.id, typeId: e.typeId, filePath: '', body: '', createdAt: new Date(), updatedAt: new Date(), fields: e.fields as Record<string, FormulaValue> } as never }));
+            } else {
+              const id = typeof raw === 'string' ? raw : null;
+              const target = id ? entityById.get(id) : undefined;
+              (entity.fields as Record<string, unknown>)[rf.id] = target
+                ? { _type: 'entity', entity: { id: target.id, typeId: target.typeId, filePath: '', body: '', createdAt: new Date(), updatedAt: new Date(), fields: target.fields as Record<string, FormulaValue> } as never }
+                : null;
+            }
+          }
+        }
+      }
+    }
+
+    // Two-pass relation resolution: resolve relation ids to EntityValues
+    if (baseEntities.size > 0 && baseInfos.length > 0) {
+      resolveBaseEntities();
     }
 
     // (safeIdent declared above, reused for cross-base identifier mapping)
@@ -2511,13 +2606,25 @@ export function buildRouter(
     getVariable(db, (input as { id: string }).id);
 
   const variablesCreate = async (input: unknown): Promise<unknown> => {
+    const parsed = VariableInputSchema.safeParse(input);
+    if (!parsed.success) {
+      throw new Error(
+        `variable invalide : ${parsed.error.issues.map((i) => `${i.path.join(".") || "input"} ${i.message}`).join("; ")}`,
+      );
+    }
     const id = generateId();
-    return insertVariable(db, { id, ...(input as VariableInput) });
+    return insertVariable(db, { id, ...(parsed.data as VariableInput) });
   };
 
   const variablesUpdate = async (input: unknown): Promise<unknown> => {
     const { id, patch } = input as { id: string; patch: Partial<VariableInput> };
-    return updateVariable(db, id, patch);
+    const parsed = VariableInputSchema.partial().safeParse(patch);
+    if (!parsed.success) {
+      throw new Error(
+        `variable invalide : ${parsed.error.issues.map((i) => `${i.path.join(".") || "input"} ${i.message}`).join("; ")}`,
+      );
+    }
+    return updateVariable(db, id, parsed.data as Partial<VariableInput>);
   };
 
   const variablesDelete = async (input: unknown): Promise<unknown> => {
@@ -2531,14 +2638,35 @@ export function buildRouter(
     const v = getVariable(db, id);
     if (!v) return { value: null, error: `variable ${id} not found` };
     try {
-      const noopCtx: Omit<FormulaContext, 'resolveVariable'> = {
-        resolveEntity: () => null,
-        queryEntities: () => [],
-        getRelations: () => [],
-        now: () => new Date(),
-      };
-      const val = makeVariableResolver(db, noopCtx)(v.name);
+      const { context, baseScope } = buildVaultFormulaContext(db, vaultId);
+      const val = makeVariableResolver(db, context, new Set(), baseScope)(v.name);
       return { value: JSON.stringify(val), error: null };
+    } catch (e) {
+      return { value: null, error: e instanceof Error ? e.message : String(e) };
+    }
+  };
+
+  // Évaluation libre d'une expression de formule (utilisée par le rendu des
+  // formules inline/block dans les notes). Donne accès aux bases via le scope
+  // et aux variables globales via le resolver.
+  const formulasEvaluate = async (input: unknown): Promise<unknown> => {
+    const { expression } = input as { expression: string };
+    if (!expression || !expression.trim()) {
+      return { value: null, error: "(vide)" };
+    }
+    const parsed = parseFormula(expression);
+    if (!parsed.ok) {
+      return { value: null, error: parsed.error.message };
+    }
+    try {
+      const { context, baseScope } = buildVaultFormulaContext(db, vaultId);
+      const fullCtx: FormulaContext = {
+        ...context,
+        resolveVariable: makeVariableResolver(db, context, new Set(), baseScope),
+      };
+      const result = evaluate(parsed.value, fullCtx, baseScope);
+      if (!result.ok) return { value: null, error: result.error.message };
+      return { value: JSON.stringify(result.value), error: null };
     } catch (e) {
       return { value: null, error: e instanceof Error ? e.message : String(e) };
     }
@@ -2615,6 +2743,8 @@ export function buildRouter(
     "variables.update": variablesUpdate,
     "variables.delete": variablesDelete,
     "variables.evaluate": variablesEvaluate,
+
+    "formulas.evaluate": formulasEvaluate,
   };
 }
 

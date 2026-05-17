@@ -7,6 +7,7 @@ import { relationsRouter } from "./relations.router.js";
 import { tagsRouter } from "./tags.router.js";
 import { automationsRouter, routinesRouter } from "./automations.router.js";
 import { variablesRouter } from "./variables.router.js";
+import { formulasRouter } from "./formulas.router.js";
 import { templatesRouter } from "./templates.router.js";
 import { gitRouter } from "./git.router.js";
 import { searchRouter } from "./search.router.js";
@@ -31,6 +32,7 @@ export const appRouter = router({
   automations: automationsRouter,
   routines: routinesRouter,
   variables: variablesRouter,
+  formulas: formulasRouter,
   templates: templatesRouter,
   git: gitRouter,
   search: searchRouter,
@@ -50,6 +52,7 @@ export { relationsRouter, type RelationsRouter } from "./relations.router.js";
 export { tagsRouter, type TagsRouter } from "./tags.router.js";
 export { automationsRouter, routinesRouter, type AutomationsRouter, type RoutinesRouter } from "./automations.router.js";
 export { variablesRouter, type VariablesRouter } from "./variables.router.js";
+export { formulasRouter, type FormulasRouter } from "./formulas.router.js";
 export { templatesRouter, type TemplatesRouter } from "./templates.router.js";
 export { gitRouter, type GitRouter } from "./git.router.js";
 export { searchRouter, type SearchRouter } from "./search.router.js";

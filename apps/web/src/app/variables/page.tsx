@@ -5,6 +5,7 @@ import { PencilSimple, Plus, Trash } from "@phosphor-icons/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { AppShell } from "@/components/shell";
 import { trpc } from "@/lib/trpc/client";
 import type { Variable } from "@supernote/ipc";
 import { DeleteVariableModal } from "@/components/variables/DeleteVariableModal";
@@ -93,14 +94,17 @@ export default function VariablesPage() {
 
   if (isLoading) {
     return (
-      <div className="flex h-full items-center justify-center">
-        <Spinner />
-      </div>
+      <AppShell>
+        <div className="flex h-full items-center justify-center">
+          <Spinner />
+        </div>
+      </AppShell>
     );
   }
 
   return (
-    <div className="mx-auto max-w-5xl p-6">
+    <AppShell>
+      <div className="mx-auto max-w-5xl p-6">
       {/* Header */}
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-2xl font-semibold" style={{ color: "var(--text-primary)" }}>
@@ -157,6 +161,7 @@ export default function VariablesPage() {
         onClose={() => setToDelete(null)}
         onDeleted={handleDeleted}
       />
-    </div>
+      </div>
+    </AppShell>
   );
 }

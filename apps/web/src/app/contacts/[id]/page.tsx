@@ -402,6 +402,13 @@ export default function ContactDetailPage() {
     { enabled: !!orgIdField, retry: false },
   );
 
+  // Call ALL hooks BEFORE the conditional early return below. Moving this
+  // after the `if (!contact)` branch made the hook count differ between the
+  // loading render (contact === undefined → early return, hook never called)
+  // and the loaded render (contact resolved → hook fires) → React errored
+  // with "Rendered more hooks than during the previous render".
+  useMobileTitle(isMobile && contact ? contact.name : null);
+
   if (!contact) {
     return (
       <AppShell>
@@ -437,8 +444,8 @@ export default function ContactDetailPage() {
     { id: "activite", label: "Activité" },
   ];
 
-  // Mobile chrome — publish contact name as title; hide desktop breadcrumb + sidebar.
-  useMobileTitle(isMobile ? contact.name : null);
+  // Mobile chrome publication moved BEFORE the `if (!contact)` early return
+  // above so React always sees the same hook order across renders.
 
   return (
     <AppShell>

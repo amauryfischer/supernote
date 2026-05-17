@@ -30,6 +30,7 @@ export const AlarmTriggerSchema = z.object({
   dateField: z.string().min(1),
   offset: z.string().regex(/^[+-]?\d+[smhdwMy]?$|^0$/, "Invalid offset format"),
   timezone: z.string().optional(),
+  recurAnnually: z.boolean().optional(),
 });
 
 export const WebhookTriggerSchema = z.object({
@@ -38,11 +39,18 @@ export const WebhookTriggerSchema = z.object({
   method: z.enum(["GET", "POST", "PUT", "PATCH"]).optional(),
 });
 
+export const OneShotTriggerSchema = z.object({
+  type: z.literal("one-shot"),
+  fireAt: z.string().min(1),
+  sourceEntityId: z.string().optional(),
+});
+
 export const TriggerConfigSchema = z.discriminatedUnion("type", [
   CronTriggerSchema,
   EventTriggerSchema,
   AlarmTriggerSchema,
   WebhookTriggerSchema,
+  OneShotTriggerSchema,
 ]);
 
 // ------ Action schemas ---------------------------------------

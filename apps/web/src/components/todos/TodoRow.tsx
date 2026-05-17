@@ -15,7 +15,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { Button } from "@heroui/react";
-import { FileText, Envelope } from "@phosphor-icons/react";
+import { FileText, Envelope, Bell } from "@phosphor-icons/react";
 import { useDateFormat } from "@/lib/dateFormat";
 import { InlineMarkdown } from "@/lib/inlineMarkdown";
 
@@ -34,6 +34,12 @@ export interface TodoRowData {
   priority: number | null;
   importance: TodoImportance | null;
   sourceNoteTitle?: string | null;
+  /** ISO datetime-local string (YYYY-MM-DDTHH:MM) or null. */
+  reminderAt?: string | null;
+  /** Custom reminder body (null = use default "Rappel : <text>"). */
+  reminderText?: string | null;
+  /** ISO datetime stamped by the engine when the one-shot fired. */
+  reminderFiredAt?: string | null;
 }
 
 interface TodoRowProps {
@@ -141,6 +147,21 @@ export function TodoRow({ row, onToggle, onEdit, onEmail, onContextMenu }: TodoR
       >
         <InlineMarkdown text={row.text} />
       </Button>
+
+      {/* Pending reminder badge */}
+      {row.reminderAt && !row.reminderFiredAt && (
+        <span
+          className="flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium"
+          style={{
+            backgroundColor: "oklch(0.93 0.10 60 / 0.20)",
+            color: "oklch(0.50 0.15 60)",
+          }}
+          title={`Rappel programmé : ${new Date(row.reminderAt).toLocaleString("fr-FR")}`}
+        >
+          <Bell size={10} weight="fill" />
+          {formatCompactDate(row.reminderAt)}
+        </span>
+      )}
 
       {/* Source note link */}
       {row.sourceNoteId && (

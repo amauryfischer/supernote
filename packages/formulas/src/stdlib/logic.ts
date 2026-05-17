@@ -101,4 +101,66 @@ export const logicFunctions: Record<string, (args: Value[]) => Result<Value, Eva
     }
     return ok(args.length % 2 === 1 ? (args[args.length - 1] ?? null) : null);
   },
+
+  // ── Extension ─────────────────────────────────────────────
+
+  /** IfNull — alias of IfBlank focused on null */
+  IfNull(args) {
+    const v = args[0] ?? null;
+    const fallback = args[1] ?? null;
+    return ok(v === null || v === undefined ? fallback : v);
+  },
+  Implies(args) {
+    const a = coerceToBool(args[0] ?? null);
+    const b = coerceToBool(args[1] ?? null);
+    return ok(!a || b);
+  },
+  Xor(args) {
+    const a = coerceToBool(args[0] ?? null);
+    const b = coerceToBool(args[1] ?? null);
+    return ok(a !== b);
+  },
+  Nand(args) {
+    const a = coerceToBool(args[0] ?? null);
+    const b = coerceToBool(args[1] ?? null);
+    return ok(!(a && b));
+  },
+  Nor(args) {
+    const a = coerceToBool(args[0] ?? null);
+    const b = coerceToBool(args[1] ?? null);
+    return ok(!(a || b));
+  },
+  ToBool(args) { return ok(coerceToBool(args[0] ?? null)); },
+  ToDate(args) {
+    const v = args[0] ?? null;
+    if (v instanceof Date) return ok(v);
+    if (typeof v === "number") return ok(new Date(v));
+    if (typeof v === "string") {
+      const d = new Date(v);
+      return ok(isNaN(d.getTime()) ? null : d);
+    }
+    return ok(null);
+  },
+  ToList(args) {
+    const v = args[0] ?? null;
+    if (Array.isArray(v)) return ok(v);
+    return ok([v]);
+  },
+  TypeOf(args) {
+    const v = args[0] ?? null;
+    if (v === null) return ok("null");
+    if (typeof v === "string") return ok("text");
+    if (typeof v === "number") return ok("number");
+    if (typeof v === "boolean") return ok("bool");
+    if (v instanceof Date) return ok("date");
+    if (Array.isArray(v)) return ok("list");
+    if (typeof v === "object" && "_type" in v) {
+      const t = (v as { _type: string })._type;
+      if (t === "entity") return ok("entity");
+      if (t === "duration") return ok("duration");
+      if (t === "lambda") return ok("lambda");
+    }
+    return ok("unknown");
+  },
+  IsDate(args) { return ok(args[0] instanceof Date); },
 };

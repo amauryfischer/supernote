@@ -97,6 +97,18 @@ function getWorker(): Worker {
       if (t === "VAULT_READY" || t === "VAULT_ERROR") {
         console.info("[vault-worker]", t, msg);
       }
+      if (t === "AUTOMATION_NOTIFICATION") {
+        // Forward worker-side notification dispatch to the UI. The
+        // NotificationsProvider bridge picks this up and pushes into the
+        // global notifications drawer + optionally fires an OS notification.
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(
+            new CustomEvent("supernote:automation-notification", {
+              detail: (msg as { notification: unknown }).notification,
+            }),
+          );
+        }
+      }
       if (t === "VAULT_READY") {
         const wasReady = vaultReady;
         vaultReady = true;

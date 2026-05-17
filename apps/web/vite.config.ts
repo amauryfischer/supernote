@@ -6,8 +6,10 @@
  *  - Tailwind v4 via the official Vite plugin (no PostCSS step)
  *  - tsconfig path aliases (`@/*`) resolved natively
  *  - Web Worker support is built-in: `new Worker(new URL(...), {type:"module"})`
- *  - sql.js WASM is served from `public/wasm/sql-wasm.wasm` — Vite copies the
- *    entire `public/` folder to the dist root verbatim, so paths stay stable.
+ *  - SQLite engine = `@sqlite.org/sqlite-wasm` (official build, FTS5 included,
+ *    OPFS SAH pool VFS). The `.wasm` binary ships inside the npm package and
+ *    is loaded by the worker through the ES module entry — no manual asset
+ *    copy needed.
  *  - `next/*` and `next-intl` are aliased to in-repo shims so the existing
  *    `app/**` page files compile unchanged.
  */
@@ -46,6 +48,30 @@ export default defineConfig({
     }),
   ],
   resolve: {
+    // Prosemirror packages register classes at module load (Selection.jsonID,
+    // Plugin keys, schema nodes). Loading two copies — one via BlockNote, one
+    // via prosemirror-tables — triggers `RangeError: Duplicate use of
+    // selection JSON ID cell`. Dedupe forces a single instance per package
+    // even if multiple transitive resolvers would otherwise produce two
+    // pre-bundled chunks.
+    dedupe: [
+      "prosemirror-state",
+      "prosemirror-model",
+      "prosemirror-view",
+      "prosemirror-transform",
+      "prosemirror-tables",
+      "prosemirror-commands",
+      "prosemirror-keymap",
+      "prosemirror-history",
+      "prosemirror-schema-list",
+      "prosemirror-inputrules",
+      "prosemirror-dropcursor",
+      "prosemirror-gapcursor",
+      "yjs",
+      "y-prosemirror",
+      "react",
+      "react-dom",
+    ],
     alias: {
       // ── Node built-ins → no-op browser shims ─────────────────────────────
       // The previous Next.js webpack config provided `false` fallbacks for
@@ -68,7 +94,7 @@ export default defineConfig({
       "node:util": path.resolve(SHIMS, "node-builtins.ts"),
       "node:buffer": path.resolve(SHIMS, "node-builtins.ts"),
       "node:assert": path.resolve(SHIMS, "node-builtins.ts"),
-      "node:events": path.resolve(SHIMS, "node-builtins.ts"),
+      "node:events": path.resolve(SHIMS, "node-events.ts"),
       "node:net": path.resolve(SHIMS, "node-builtins.ts"),
       "node:tls": path.resolve(SHIMS, "node-builtins.ts"),
       "node:http": path.resolve(SHIMS, "node-builtins.ts"),
@@ -96,6 +122,29 @@ export default defineConfig({
       // Workspaces — allow reading sibling packages.
       allow: [path.resolve(__dirname, "../../")],
     },
+    // Yahoo Finance's chart endpoint serves quote data without
+    // `Access-Control-Allow-Origin`, which makes browser fetches from a
+    // non-Yahoo origin fail. In dev we proxy `/_yahoo/*` through Vite so
+    // the dev origin sees a same-origin response. The production PWA falls
+    // back to `corsproxy.io` (see `lib/finance/price-fetch.ts`).
+    proxy: {
+      "/_yahoo": {
+        target: "https://query1.finance.yahoo.com",
+        changeOrigin: true,
+        secure: true,
+        rewrite: (p) => p.replace(/^\/_yahoo/, ""),
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+        },
+      },
+      "/_stooq": {
+        target: "https://stooq.com",
+        changeOrigin: true,
+        secure: true,
+        rewrite: (p) => p.replace(/^\/_stooq/, ""),
+      },
+    },
   },
   preview: {
     port: 3100,
@@ -117,8 +166,8 @@ export default defineConfig({
     },
   },
   // The vault Web Worker must build as ESM (it uses dynamic imports +
-  // top-level await for sql.js init). Vite's default is "iife" which would
-  // break the `import` syntax inside it.
+  // top-level await for sqlite-wasm init). Vite's default is "iife" which
+  // would break the `import` syntax inside it.
   worker: {
     format: "es",
   },
@@ -132,12 +181,20 @@ export default defineConfig({
       "@tanstack/react-query",
       "@trpc/client",
       "@trpc/react-query",
-      // sql.js is UMD/CJS — must go through esbuild's interop so the worker's
-      // `import initSqlJs from "sql.js"` resolves to a proper ES default export.
-      // Without pre-bundling, Vite serves the raw UMD file and the worker
-      // throws: "does not provide an export named 'default'".
-      "sql.js",
+      // Pre-bundle Prosemirror as one optimizer entry so every consumer
+      // (BlockNote, prosemirror-tables, custom blocks) resolves to the same
+      // pre-bundled chunk. Without this, table support pulls a second copy
+      // and re-registers "cell" → RangeError.
+      "prosemirror-state",
+      "prosemirror-model",
+      "prosemirror-view",
+      "prosemirror-transform",
+      "prosemirror-tables",
     ],
+    // sqlite-wasm ships a self-contained ES module with the .wasm binary as a
+    // sibling asset. Pre-bundling rewrites the wasm URL and breaks runtime
+    // loading — exclude it so Vite serves the package as-is.
+    exclude: ["@sqlite.org/sqlite-wasm"],
   },
   define: {
     // Compatibility shim: some libs (and our own code) historically read

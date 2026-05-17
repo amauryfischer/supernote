@@ -1,28 +1,22 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
-import { AppShell, useMobileTitle, useMobileFab, useMobileHeaderActions } from "@/components/shell";
-import { useIsMobile } from "@/hooks/useIsMobile";
-import {
-  useReactTable,
-  getCoreRowModel,
-  getSortedRowModel,
-  flexRender,
-  type ColumnDef,
-  type SortingState,
-} from "@tanstack/react-table";
-import { Plus, ArrowsDownUp, ArrowLeft } from "@phosphor-icons/react";
-import { Button } from "@heroui/react";
+/**
+ * Accounts list — minimal rewrite.
+ *
+ * Shows every entity of type "account" as a row. New account = single
+ * tRPC create + invalidate. Click a row → navigate to detail page.
+ */
+
+import { ArrowLeft, Plus } from "@phosphor-icons/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useFinanceAccounts } from "@/components/finance/hooks";
-import type { Account } from "@/components/finance/fixtures";
-import { formatCurrency, formatDate } from "@/components/finance/utils";
+import { AppShell } from "@/components/shell";
 import { trpc } from "@/lib/trpc/client";
+import { formatCurrency, formatDate } from "@/components/finance/utils";
 
 const KIND_LABELS: Record<string, string> = {
   checking: "Courant",
-  savings: "Epargne",
+  savings: "Épargne",
   livret: "Livret",
   pea: "PEA",
   cto: "CTO",
@@ -31,255 +25,144 @@ const KIND_LABELS: Record<string, string> = {
   other: "Autre",
 };
 
-const KIND_COLORS: Record<string, string> = {
-  checking: "#60A5FA",
-  savings: "#34D399",
-  livret: "#A78BFA",
-  pea: "#FBBF24",
-  cto: "#F97316",
-  assurance_vie: "#EC4899",
-  crypto: "#F59E0B",
-  other: "#94A3B8",
-};
+interface Account {
+  id: string;
+  name: string;
+  kind: string;
+  institution: string;
+  balance: number;
+  updatedAt: string;
+}
+
+function field<T>(f: Record<string, unknown>, key: string, coerce: (v: unknown) => T, fallback: T): T {
+  return key in f ? coerce(f[key]) : fallback;
+}
 
 export default function ComptesPage() {
   const router = useRouter();
-  const isMobile = useIsMobile();
-  const { accounts, isLoading, isFallback } = useFinanceAccounts();
-  const [sorting, setSorting] = useState<SortingState>([]);
-
   const utils = trpc.useUtils();
+  const query = trpc.entities.list.useQuery({ typeId: "account", limit: 500, offset: 0 });
   const createMutation = trpc.entities.create.useMutation({
-    onSuccess: () => {
+    onSuccess: (data) => {
       void utils.entities.list.invalidate({ typeId: "account" });
+      // Open the new account immediately so the user can fill it in.
+      router.push(`/finance/comptes/${data.id}`);
     },
   });
-  const handleNewAccount = useCallback(async () => {
-    try {
-      await createMutation.mutateAsync({
-        typeId: "account",
-        fields: { name: "Nouveau compte", current_balance: 0, kind: "checking" },
-      });
-    } catch (err) {
-      console.error("[finance/comptes] create failed", err);
-    }
-  }, [createMutation]);
 
-  const columns = useMemo<ColumnDef<Account>[]>(
-    () => [
-      {
-        accessorKey: "name",
-        header: "Nom",
-        cell: ({ row }) => (
-          <span className="font-medium" style={{ color: "var(--text-primary)" }}>
-            {row.original.name}
-          </span>
-        ),
-      },
-      {
-        accessorKey: "kind",
-        header: "Type",
-        cell: ({ row }) => (
-          <span
-            className="rounded-full px-2 py-0.5 text-xs font-medium"
-            style={{
-              backgroundColor: (KIND_COLORS[row.original.kind] ?? "#94A3B8") + "20",
-              color: KIND_COLORS[row.original.kind] ?? "#94A3B8",
-            }}
-          >
-            {KIND_LABELS[row.original.kind] ?? row.original.kind}
-          </span>
-        ),
-      },
-      {
-        accessorKey: "institution",
-        header: "Institution",
-        cell: ({ row }) => (
-          <span style={{ color: "var(--text-secondary)" }}>{row.original.institution}</span>
-        ),
-      },
-      {
-        accessorKey: "balance",
-        header: "Solde",
-        cell: ({ row }) => (
-          <span className="font-semibold tabular-nums" style={{ color: "var(--text-primary)" }}>
-            {formatCurrency(row.original.balance)}
-          </span>
-        ),
-      },
-      {
-        accessorKey: "lastSyncedAt",
-        header: "Derniere sync",
-        cell: ({ row }) => (
-          <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-            {row.original.lastSyncedAt ? formatDate(row.original.lastSyncedAt) : "—"}
-          </span>
-        ),
-      },
-    ],
-    []
-  );
-
-  const table = useReactTable({
-    data: accounts,
-    columns,
-    state: { sorting },
-    onSortingChange: setSorting,
-    getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
+  const accounts: Account[] = (query.data?.items ?? []).map((e) => {
+    const f = e.fields as Record<string, unknown>;
+    return {
+      id: e.id,
+      name: field(f, "name", (v) => (typeof v === "string" ? v : "Compte"), "Compte"),
+      kind: field(f, "kind", (v) => (typeof v === "string" ? v : "other"), "other"),
+      institution: field(f, "institution", (v) => (typeof v === "string" ? v : ""), ""),
+      balance: field(
+        f,
+        "current_balance",
+        (v) => (typeof v === "number" ? v : typeof v === "string" ? parseFloat(v) || 0 : 0),
+        0,
+      ),
+      updatedAt: e.updatedAt,
+    };
   });
 
-  useMobileTitle(isMobile ? "Comptes" : null);
-  useMobileFab(
-    isMobile
-      ? { icon: Plus, label: "Nouveau compte", onPress: () => void handleNewAccount() }
-      : null
-  );
-  useMobileHeaderActions([]);
+  const total = accounts.reduce((s, a) => s + a.balance, 0);
+
+  const handleCreate = () => {
+    createMutation.mutate({
+      typeId: "account",
+      fields: { name: "Nouveau compte", kind: "checking", current_balance: 0 },
+    });
+  };
 
   return (
     <AppShell>
-    <div className="flex flex-col gap-6 px-3 py-6 md:px-6">
-      <div className="hidden md:flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Link
-            href="/finance"
-            className="flex items-center gap-1 text-sm"
-            style={{ color: "var(--text-muted)" }}
+      <div className="mx-auto max-w-5xl px-3 py-6 md:px-6 md:py-8">
+        <div className="mb-6 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Link
+              href="/finance"
+              className="flex items-center gap-1 text-sm hover:underline"
+              style={{ color: "var(--text-muted)" }}
+            >
+              <ArrowLeft size={14} /> Finance
+            </Link>
+            <span style={{ color: "var(--border)" }}>/</span>
+            <h1 className="text-xl font-bold" style={{ color: "var(--text-primary)" }}>Comptes</h1>
+          </div>
+          <button
+            type="button"
+            onClick={handleCreate}
+            disabled={createMutation.isPending}
+            className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium disabled:opacity-50"
+            style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
           >
-            <ArrowLeft size={14} /> Finance
-          </Link>
-          <span style={{ color: "var(--border)" }}>/</span>
-          <h1 className="text-xl font-bold" style={{ color: "var(--text-primary)" }}>
-            Comptes
-          </h1>
-          {isFallback && (
-            <span className="text-xs rounded-full px-2 py-0.5" style={{ backgroundColor: "var(--surface-2)", color: "var(--text-muted)" }}>
-              mode dégradé
-            </span>
-          )}
+            <Plus size={12} /> Nouveau compte
+          </button>
         </div>
-        <Button
-          onPress={() => void handleNewAccount()}
-          isDisabled={createMutation.isPending}
-          size="sm"
-          className="flex items-center gap-2 font-medium"
-          style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
-        >
-          <Plus size={14} /> Compte
-        </Button>
-      </div>
 
-      {isLoading ? (
-        <p className="text-sm" style={{ color: "var(--text-muted)" }}>Chargement...</p>
-      ) : accounts.length === 0 ? (
-        <div
-          className="rounded-xl border border-dashed p-8 text-center"
-          style={{ borderColor: "var(--border)", backgroundColor: "var(--surface-0)" }}
-        >
-          <p className="text-sm" style={{ color: "var(--text-muted)" }}>
-            Pas encore de données financières. Importer OFX/CSV ou ajouter un compte.
-          </p>
-        </div>
-      ) : (
-        <>
-          {/* Mobile: card list */}
-          <div className="flex flex-col gap-3 md:hidden">
-            {table.getRowModel().rows.map((row) => (
-              <Button
-                key={row.id}
-                onPress={() => router.push(`/finance/comptes/${row.original.id}`)}
-                variant="ghost"
-                className="w-full h-auto rounded-xl border p-4 text-left transition-colors hover:bg-[var(--surface-2)] justify-start flex-col items-start"
-                style={{ backgroundColor: "var(--surface-1)", borderColor: "var(--border-subtle)" }}
-              >
-                <div className="flex w-full items-center justify-between">
-                  <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
-                    {row.original.name}
-                  </span>
-                  <span className="text-sm font-bold tabular-nums" style={{ color: "var(--text-primary)" }}>
-                    {formatCurrency(row.original.balance)}
-                  </span>
-                </div>
-                <div className="mt-1 flex items-center gap-2">
-                  <span
-                    className="rounded-full px-2 py-0.5 text-xs font-medium"
-                    style={{
-                      backgroundColor: (KIND_COLORS[row.original.kind] ?? "#94A3B8") + "20",
-                      color: KIND_COLORS[row.original.kind] ?? "#94A3B8",
-                    }}
+        {query.isLoading ? (
+          <p className="text-sm" style={{ color: "var(--text-muted)" }}>Chargement…</p>
+        ) : accounts.length === 0 ? (
+          <EmptyList onCreate={handleCreate} pending={createMutation.isPending} />
+        ) : (
+          <>
+            <ul className="flex flex-col gap-2">
+              {accounts.map((a) => (
+                <li key={a.id}>
+                  <Link
+                    href={`/finance/comptes/${a.id}`}
+                    className="grid grid-cols-[1fr_140px_140px_140px] items-center gap-4 rounded-lg border px-4 py-3 hover:bg-[var(--surface-2)]"
+                    style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-1)" }}
                   >
-                    {KIND_LABELS[row.original.kind] ?? row.original.kind}
-                  </span>
-                  {row.original.institution && (
-                    <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-                      {row.original.institution}
+                    <span className="text-sm font-medium truncate" style={{ color: "var(--text-primary)" }}>
+                      {a.name}
                     </span>
-                  )}
-                </div>
-              </Button>
-            ))}
-          </div>
-
-          {/* Desktop: table */}
-          <div className="hidden md:block overflow-hidden rounded-xl border" style={{ borderColor: "var(--border-subtle)" }}>
-            <table className="w-full">
-              <thead>
-                {table.getHeaderGroups().map((hg) => (
-                  <tr
-                    key={hg.id}
-                    className="border-b"
-                    style={{ backgroundColor: "var(--surface-2)", borderColor: "var(--border-subtle)" }}
-                  >
-                    {hg.headers.map((header) => (
-                      <th
-                        key={header.id}
-                        className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide"
-                        style={{ color: "var(--text-muted)" }}
-                      >
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="flex items-center gap-1 h-auto min-w-0 p-0"
-                          onPress={header.column.getToggleSortingHandler() as (() => void) | undefined}
-                        >
-                          {flexRender(header.column.columnDef.header, header.getContext())}
-                          <ArrowsDownUp size={10} />
-                        </Button>
-                      </th>
-                    ))}
-                  </tr>
-                ))}
-              </thead>
-              <tbody>
-                {table.getRowModel().rows.map((row, i) => (
-                  <tr
-                    key={row.id}
-                    onClick={() => router.push(`/finance/comptes/${row.original.id}`)}
-                    className="border-b cursor-pointer transition-colors hover:bg-[var(--surface-2)]"
-                    style={{
-                      backgroundColor: i % 2 === 0 ? "var(--surface-1)" : "var(--surface-0)",
-                      borderColor: "var(--border-subtle)",
-                    }}
-                  >
-                    {row.getVisibleCells().map((cell) => (
-                      <td key={cell.id} className="px-4 py-3 text-sm">
-                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-            {accounts.length} compte{accounts.length > 1 ? "s" : ""} · Total :{" "}
-            {formatCurrency(accounts.reduce((s, a) => s + a.balance, 0))}
-          </p>
-        </>
-      )}
-    </div>
+                    <span
+                      className="rounded-full px-2 py-0.5 text-xs font-medium justify-self-start"
+                      style={{ backgroundColor: "var(--accent-subtle)", color: "var(--accent)" }}
+                    >
+                      {KIND_LABELS[a.kind] ?? a.kind}
+                    </span>
+                    <span className="text-right text-sm font-semibold tabular-nums" style={{ color: "var(--text-primary)" }}>
+                      {formatCurrency(a.balance)}
+                    </span>
+                    <span className="text-right text-xs" style={{ color: "var(--text-muted)" }}>
+                      {formatDate(a.updatedAt)}
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-4 text-xs" style={{ color: "var(--text-muted)" }}>
+              {accounts.length} compte{accounts.length > 1 ? "s" : ""} · Total : {formatCurrency(total)}
+            </p>
+          </>
+        )}
+      </div>
     </AppShell>
+  );
+}
+
+function EmptyList({ onCreate, pending }: { onCreate: () => void; pending: boolean }) {
+  return (
+    <div
+      className="flex flex-col items-center gap-3 rounded-xl border border-dashed p-12 text-center"
+      style={{ borderColor: "var(--border-subtle)" }}
+    >
+      <p className="text-sm font-medium" style={{ color: "var(--text-secondary)" }}>
+        Aucun compte pour l'instant.
+      </p>
+      <button
+        type="button"
+        onClick={onCreate}
+        disabled={pending}
+        className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium disabled:opacity-50"
+        style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
+      >
+        <Plus size={12} /> Créer mon premier compte
+      </button>
+    </div>
   );
 }

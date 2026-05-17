@@ -3,7 +3,7 @@
 // ============================================================
 
 import type { Value } from "../value.js";
-import { coerceToNumber } from "../value.js";
+import { coerceToNumber, coerceToString } from "../value.js";
 import { makeEvalError, type EvalError } from "../errors.js";
 import type { Result } from "@supernote/core/result";
 import { ok, err } from "@supernote/core/result";
@@ -226,5 +226,185 @@ export const mathFunctions: Record<string, (args: Value[]) => Result<Value, Eval
     if (lo === hi) return ok(sorted[lo] ?? null);
     const frac = pos - lo;
     return ok((sorted[lo] ?? 0) * (1 - frac) + (sorted[hi] ?? 0) * frac);
+  },
+
+  // ── Extension ─────────────────────────────────────────────
+
+  Square(args) {
+    const n = coerceToNumber(args[0] ?? null);
+    if (n === null) return err(makeEvalError("Square: expected number"));
+    return ok(n * n);
+  },
+  Cube(args) {
+    const n = coerceToNumber(args[0] ?? null);
+    if (n === null) return err(makeEvalError("Cube: expected number"));
+    return ok(n * n * n);
+  },
+  Power(args) {
+    const base = coerceToNumber(args[0] ?? null);
+    const exp = coerceToNumber(args[1] ?? null);
+    if (base === null || exp === null) return err(makeEvalError("Power: expected numbers"));
+    return ok(Math.pow(base, exp));
+  },
+  IsInteger(args) {
+    const n = coerceToNumber(args[0] ?? null);
+    return ok(n !== null && Number.isInteger(n));
+  },
+  IsFinite(args) {
+    const n = coerceToNumber(args[0] ?? null);
+    return ok(n !== null && Number.isFinite(n));
+  },
+  IsNaN(args) {
+    const n = coerceToNumber(args[0] ?? null);
+    return ok(n === null || Number.isNaN(n));
+  },
+  IsPositive(args) {
+    const n = coerceToNumber(args[0] ?? null);
+    return ok(n !== null && n > 0);
+  },
+  IsNegative(args) {
+    const n = coerceToNumber(args[0] ?? null);
+    return ok(n !== null && n < 0);
+  },
+  IsZero(args) {
+    const n = coerceToNumber(args[0] ?? null);
+    return ok(n !== null && n === 0);
+  },
+  IsEven(args) {
+    const n = coerceToNumber(args[0] ?? null);
+    return ok(n !== null && Number.isInteger(n) && n % 2 === 0);
+  },
+  IsOdd(args) {
+    const n = coerceToNumber(args[0] ?? null);
+    return ok(n !== null && Number.isInteger(n) && Math.abs(n % 2) === 1);
+  },
+  Gcd(args) {
+    const a = coerceToNumber(args[0] ?? null);
+    const b = coerceToNumber(args[1] ?? null);
+    if (a === null || b === null) return err(makeEvalError("Gcd: expected numbers"));
+    let x = Math.abs(Math.floor(a)), y = Math.abs(Math.floor(b));
+    while (y !== 0) { const t = y; y = x % y; x = t; }
+    return ok(x);
+  },
+  Lcm(args) {
+    const a = coerceToNumber(args[0] ?? null);
+    const b = coerceToNumber(args[1] ?? null);
+    if (a === null || b === null) return err(makeEvalError("Lcm: expected numbers"));
+    const x = Math.abs(Math.floor(a)), y = Math.abs(Math.floor(b));
+    if (x === 0 || y === 0) return ok(0);
+    let p = x, q = y;
+    while (q !== 0) { const t = q; q = p % q; p = t; }
+    return ok((x / p) * y);
+  },
+  Factorial(args) {
+    const n = coerceToNumber(args[0] ?? null);
+    if (n === null || n < 0 || !Number.isInteger(n)) {
+      return err(makeEvalError("Factorial: expected non-negative integer"));
+    }
+    if (n > 170) return err(makeEvalError("Factorial: input too large"));
+    let result = 1;
+    for (let i = 2; i <= n; i++) result *= i;
+    return ok(result);
+  },
+  Clamp(args) {
+    const n = coerceToNumber(args[0] ?? null);
+    const lo = coerceToNumber(args[1] ?? null);
+    const hi = coerceToNumber(args[2] ?? null);
+    if (n === null || lo === null || hi === null) return err(makeEvalError("Clamp: expected numbers"));
+    return ok(Math.min(hi, Math.max(lo, n)));
+  },
+  Lerp(args) {
+    const a = coerceToNumber(args[0] ?? null);
+    const b = coerceToNumber(args[1] ?? null);
+    const t = coerceToNumber(args[2] ?? null);
+    if (a === null || b === null || t === null) return err(makeEvalError("Lerp: expected numbers"));
+    return ok(a + (b - a) * t);
+  },
+  MapRange(args) {
+    const n = coerceToNumber(args[0] ?? null);
+    const inMin = coerceToNumber(args[1] ?? null);
+    const inMax = coerceToNumber(args[2] ?? null);
+    const outMin = coerceToNumber(args[3] ?? null);
+    const outMax = coerceToNumber(args[4] ?? null);
+    if (n === null || inMin === null || inMax === null || outMin === null || outMax === null)
+      return err(makeEvalError("MapRange: expected 5 numbers"));
+    if (inMax === inMin) return err(makeEvalError("MapRange: inMin === inMax"));
+    return ok(outMin + ((n - inMin) / (inMax - inMin)) * (outMax - outMin));
+  },
+  Trunc(args) {
+    const n = coerceToNumber(args[0] ?? null);
+    if (n === null) return err(makeEvalError("Trunc: expected number"));
+    return ok(Math.trunc(n));
+  },
+  Frac(args) {
+    const n = coerceToNumber(args[0] ?? null);
+    if (n === null) return err(makeEvalError("Frac: expected number"));
+    return ok(n - Math.trunc(n));
+  },
+  Atan2(args) {
+    const y = coerceToNumber(args[0] ?? null);
+    const x = coerceToNumber(args[1] ?? null);
+    if (y === null || x === null) return err(makeEvalError("Atan2: expected numbers"));
+    return ok(Math.atan2(y, x));
+  },
+  Asin(args) {
+    const n = coerceToNumber(args[0] ?? null);
+    return n === null ? err(makeEvalError("Asin: number")) : ok(Math.asin(n));
+  },
+  Acos(args) {
+    const n = coerceToNumber(args[0] ?? null);
+    return n === null ? err(makeEvalError("Acos: number")) : ok(Math.acos(n));
+  },
+  Atan(args) {
+    const n = coerceToNumber(args[0] ?? null);
+    return n === null ? err(makeEvalError("Atan: number")) : ok(Math.atan(n));
+  },
+  Sinh(args) {
+    const n = coerceToNumber(args[0] ?? null);
+    return n === null ? err(makeEvalError("Sinh: number")) : ok(Math.sinh(n));
+  },
+  Cosh(args) {
+    const n = coerceToNumber(args[0] ?? null);
+    return n === null ? err(makeEvalError("Cosh: number")) : ok(Math.cosh(n));
+  },
+  Tanh(args) {
+    const n = coerceToNumber(args[0] ?? null);
+    return n === null ? err(makeEvalError("Tanh: number")) : ok(Math.tanh(n));
+  },
+  FormatBytes(args) {
+    const n = coerceToNumber(args[0] ?? null) ?? 0;
+    const units = ["o", "ko", "Mo", "Go", "To"];
+    let size = Math.abs(n), i = 0;
+    while (size >= 1024 && i < units.length - 1) { size /= 1024; i++; }
+    const formatted = i === 0 ? String(Math.floor(size)) : size.toFixed(1).replace(".", ",");
+    return ok(`${formatted} ${units[i]}`);
+  },
+  FormatOrdinal(args) {
+    const n = coerceToNumber(args[0] ?? null);
+    if (n === null) return err(makeEvalError("FormatOrdinal: expected number"));
+    const abs = Math.floor(Math.abs(n));
+    return ok(abs === 1 ? `${abs}er` : `${abs}e`);
+  },
+  FormatPercent(args) {
+    const n = coerceToNumber(args[0] ?? null);
+    if (n === null) return err(makeEvalError("FormatPercent: expected number"));
+    const decimals = args.length > 1 ? Math.floor(coerceToNumber(args[1] ?? null) ?? 0) : 0;
+    const pct = (n * 100).toFixed(decimals).replace(".", ",");
+    return ok(`${pct}%`);
+  },
+  FormatCurrency(args) {
+    const n = coerceToNumber(args[0] ?? null);
+    if (n === null) return err(makeEvalError("FormatCurrency: expected number"));
+    const code = args.length > 1 ? coerceToString(args[1] ?? "EUR") : "EUR";
+    try {
+      return ok(new Intl.NumberFormat("fr-FR", { style: "currency", currency: code }).format(n));
+    } catch {
+      return err(makeEvalError(`FormatCurrency: invalid currency code '${code}'`));
+    }
+  },
+  FormatNumber(args) {
+    const n = coerceToNumber(args[0] ?? null);
+    if (n === null) return err(makeEvalError("FormatNumber: expected number"));
+    return ok(new Intl.NumberFormat("fr-FR").format(n));
   },
 };

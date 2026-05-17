@@ -8,7 +8,6 @@ import { SettingSection } from "../SettingSection";
 import { localStore } from "@/lib/local-store";
 import { DEMO_NOTES } from "@/components/notes/demo-fixtures";
 import { DEMO_CONTACTS, DEMO_ORGANISATIONS } from "@/components/contacts/demo-fixtures";
-import { DEMO_ACCOUNTS, DEMO_ASSETS, DEMO_LOANS, DEMO_GOALS } from "@/components/finance/demo-fixtures";
 
 interface ExportRecord {
   id: string;
@@ -37,19 +36,7 @@ function loadDemoData(): void {
       notes: contact.notes,
     }, { tags: contact.tags });
   }
-  // Finance
-  for (const acc of DEMO_ACCOUNTS) {
-    localStore.create("account", { name: acc.name, kind: acc.kind, current_balance: acc.balance, currency: acc.currency });
-  }
-  for (const asset of DEMO_ASSETS) {
-    localStore.create("asset", { name: asset.name, category: asset.category, current_value: asset.currentValue, acquisition_value: asset.acquisitionValue });
-  }
-  for (const loan of DEMO_LOANS) {
-    localStore.create("loan", { name: loan.name, amount: loan.principal, rate: loan.annualRate, start_date: loan.startDate });
-  }
-  for (const goal of DEMO_GOALS) {
-    localStore.create("goal", { name: goal.name, target_amount: goal.targetAmount, current_progress: goal.currentAmount, target_date: goal.targetDate });
-  }
+  // Finance — fixtures supprimées avec la réécriture finance from scratch.
 }
 
 export function BackupTab() {

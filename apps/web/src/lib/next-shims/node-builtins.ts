@@ -95,3 +95,22 @@ export const pathToFileURL = proxy;
 export const exec = proxy;
 export const spawn = proxy;
 export const Buffer = (globalThis as { Buffer?: unknown }).Buffer ?? proxy;
+
+// `node:vm` — `runInNewContext` is used by @supernote/automations script
+// runner. In the browser we approximate the sandbox via `new Function(...)`:
+// it does NOT enforce a timeout and shares the global scope, so untrusted
+// scripts must still be refused upstream. This shim exists primarily so the
+// bundle resolves the named import.
+export const runInNewContext = (
+  code: string,
+  context: Record<string, unknown> = {},
+  _options?: unknown,
+): unknown => {
+  const keys = Object.keys(context);
+  const values = keys.map((k) => context[k]);
+  // eslint-disable-next-line no-new-func
+  const fn = new Function(...keys, `"use strict"; ${code}`);
+  return fn(...values);
+};
+export const Script = proxy;
+export const createContext = (init: Record<string, unknown> = {}) => init;

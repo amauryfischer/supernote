@@ -62,6 +62,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ) => (
     <HeroButton
       ref={ref}
+      variant="ghost"
       isDisabled={isDisabled ?? isLoading}
       className={cn(buttonVariants({ variant, size }), className)}
       {...props}

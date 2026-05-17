@@ -67,5 +67,14 @@ export interface IndexProgressMessage {
   total: number;
 }
 
-export type WorkerInboundMessage = WorkerRequest | InitVaultMessage | FlushMessage;
+/**
+ * Fired by PwaBootstrap when the Service Worker forwards a Periodic
+ * Background Sync nudge. The worker runs an immediate engine tick + cron
+ * catch-up so missed routines fire without waiting for the 60 s interval.
+ */
+export interface AutomationTickMessage {
+  type: "AUTOMATION_TICK";
+}
+
+export type WorkerInboundMessage = WorkerRequest | InitVaultMessage | FlushMessage | AutomationTickMessage;
 export type WorkerOutboundMessage = WorkerResponse | VaultReadyMessage | VaultErrorMessage | IndexProgressMessage;

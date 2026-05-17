@@ -112,6 +112,7 @@ export default function RoutinesPage() {
   const deleteMutation = trpc.entities.delete.useMutation({
     onSuccess: () => { void utils.entities.list.invalidate({ typeId: ROUTINE_TYPE_ID }); },
   });
+  const runMutation = trpc.routines.run.useMutation();
 
   const [localRoutines, setLocalRoutines] = useState<RoutineFixture[] | null>(null);
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
@@ -153,9 +154,25 @@ export default function RoutinesPage() {
 
   const handleRun = useCallback((id: string) => {
     const name = routines.find((r) => r.id === id)?.name ?? id;
-    // Manual run is not yet implemented in the worker — show a friendly toast.
-    showToast(`Routine "${name}" lancée (mode dégradé)`);
-  }, [routines]);
+    runMutation.mutate(
+      { id },
+      {
+        onSuccess: (result) => {
+          if (result.status === "SUCCESS") {
+            showToast(`Routine "${name}" exécutée (${result.durationMs}ms)`, true);
+          } else if (result.status === "SKIPPED") {
+            showToast(`Routine "${name}" ignorée (condition non satisfaite)`, true);
+          } else {
+            showToast(`Routine "${name}" en échec : ${result.errorMessage ?? "voir actions"}`, false);
+          }
+          void utils.routines.getRuns.invalidate({ automationId: id });
+        },
+        onError: (err) => {
+          showToast(`Échec routine "${name}" : ${err.message}`, false);
+        },
+      },
+    );
+  }, [routines, runMutation, utils]);
 
   const activeCount = routines.filter((r) => r.enabled).length;
 

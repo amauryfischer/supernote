@@ -160,3 +160,73 @@ self.addEventListener("fetch", (event) => {
     fetch(request).catch(() => caches.match(request).then((cached) => cached ?? Response.error())),
   );
 });
+
+// ── Periodic Background Sync ────────────────────────────────────────────────
+//
+// Chromium-only feature (Chrome / Edge / Brave on installed PWAs). The browser
+// wakes the SW at OS-chosen intervals — minimum 12 hours per the spec, in
+// practice 12h–24h on desktop Chrome. We CAN'T request a 1-minute tick: the
+// browser throttles aggressively to protect battery.
+//
+// When the periodicsync event fires we look for an open client and ask it to
+// drive an engine tick + catch-up. If no client is open, we fall back to a
+// notification inviting the user to open the app, which on click reopens the
+// PWA — the boot-time catch-up then handles missed runs.
+
+const PERIODIC_SYNC_TAG = "supernote-automation-tick";
+
+self.addEventListener("periodicsync", (event) => {
+  if (event.tag !== PERIODIC_SYNC_TAG) return;
+  event.waitUntil(handlePeriodicSync());
+});
+
+async function handlePeriodicSync() {
+  const clientsList = await self.clients.matchAll({
+    type: "window",
+    includeUncontrolled: true,
+  });
+
+  if (clientsList.length > 0) {
+    // A tab is open — even backgrounded. Ask it to nudge the vault worker.
+    for (const client of clientsList) {
+      client.postMessage({ type: "AUTOMATION_PERIODIC_TICK" });
+    }
+    return;
+  }
+
+  // No open client — show a low-priority notification that, on click, opens
+  // the PWA so the boot catch-up flow runs.
+  try {
+    await self.registration.showNotification("Supernote", {
+      body: "Routines à exécuter — ouvrir l'app pour rattraper.",
+      tag: "supernote-routines-pending",
+      silent: true,
+      requireInteraction: false,
+      data: { reason: "periodic-sync" },
+    });
+  } catch (err) {
+    // Notification permission not granted — nothing more we can do.
+    console.warn("[sw] showNotification refused", err);
+  }
+}
+
+self.addEventListener("notificationclick", (event) => {
+  if (event.notification.data?.reason !== "periodic-sync") return;
+  event.notification.close();
+  event.waitUntil(
+    (async () => {
+      const clientsList = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+      const existing = clientsList.find((c) => c.url.includes(self.location.origin));
+      if (existing) return existing.focus();
+      return self.clients.openWindow("/");
+    })(),
+  );
+});
+
+// Allow the client to query whether periodic sync is registered, so the UI
+// can show an enablement toggle without re-registering on every navigation.
+self.addEventListener("message", (event) => {
+  if (event.data?.type === "PING_PERIODIC_SYNC") {
+    event.ports[0]?.postMessage({ ok: true });
+  }
+});

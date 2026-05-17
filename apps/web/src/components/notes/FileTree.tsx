@@ -880,8 +880,10 @@ export function FileTree({
         style={{ borderColor: "var(--border-subtle)" }}
       >
         <Button
+          variant="ghost"
+          size="sm"
           onPress={() => onNewFolder(null)}
-          className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-xs transition-colors hover:bg-[var(--surface-2)]"
+          className="w-full justify-start gap-2 rounded-md px-3 text-xs hover:bg-[var(--surface-2)]"
           style={{ color: "var(--text-muted)" }}
         >
           <Plus size={12} />
@@ -1393,9 +1395,12 @@ interface ActionButtonProps {
 function ActionButton({ onClick, label, icon }: ActionButtonProps) {
   return (
     <Button
+      variant="ghost"
+      size="sm"
+      isIconOnly
       onPress={onClick}
       aria-label={label}
-      className="flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-[var(--surface-2)]"
+      className="h-6 w-6 min-w-0 rounded-md hover:bg-[var(--surface-2)]"
       style={{ color: "var(--text-muted)" }}
     >
       {icon}

@@ -1012,6 +1012,410 @@ describe('evaluator $variable', () => {
   });
 });
 
+// ============================================================
+// BLOC 1 — Date sugar + duration + predicates
+// ============================================================
+
+describe("Bloc 1 — date constructors (Start*/End*)", () => {
+  it("StartOfDay / EndOfDay", () => {
+    const start = evalSrc("StartOfDay(Today())");
+    expect(start instanceof Date).toBe(true);
+    expect((start as Date).getHours()).toBe(0);
+    const end = evalSrc("EndOfDay(Today())");
+    expect((end as Date).getHours()).toBe(23);
+    expect((end as Date).getSeconds()).toBe(59);
+  });
+
+  it("StartOfYear / EndOfYear", () => {
+    const s = evalSrc("StartOfYear(Date(2026, 5, 14))") as Date;
+    expect(s.getMonth()).toBe(0); expect(s.getDate()).toBe(1);
+    const e = evalSrc("EndOfYear(Date(2026, 5, 14))") as Date;
+    expect(e.getMonth()).toBe(11); expect(e.getDate()).toBe(31);
+  });
+
+  it("DateOnly strips time", () => {
+    const d = evalSrc("DateOnly(Now())") as Date;
+    expect(d.getHours()).toBe(0);
+  });
+
+  it("StartOfWeek / EndOfWeek (Mon default)", () => {
+    // 2026-05-07 is a Thursday (day=4)
+    const sow = evalSrc("StartOfWeek(Now())") as Date;
+    expect(sow.getDay()).toBe(1); // Monday
+    const eow = evalSrc("EndOfWeek(Now())") as Date;
+    expect(eow.getDay()).toBe(0); // Sunday (next)
+  });
+});
+
+describe("Bloc 1 — duration arithmetic", () => {
+  it("Date + Days(7) adds 7 days", () => {
+    const r = evalSrc("Date(2026, 5, 1) + Days(7)") as Date;
+    expect(r.getDate()).toBe(8);
+    expect(r.getMonth()).toBe(4); // May
+  });
+
+  it("Date + Months(1) adds 1 month", () => {
+    const r = evalSrc("Date(2026, 1, 31) + Months(1)") as Date;
+    // JS Date: 2026-02-31 → 2026-03-03 (overflow)
+    expect(r instanceof Date).toBe(true);
+  });
+
+  it("Date + Hours(2) adds 2 hours", () => {
+    const r = evalSrc("Date(2026, 5, 1) + Hours(2)") as Date;
+    expect(r.getHours()).toBe(2);
+  });
+
+  it("Date - Days(3) subtracts 3 days", () => {
+    const r = evalSrc("Date(2026, 5, 10) - Days(3)") as Date;
+    expect(r.getDate()).toBe(7);
+  });
+
+  it("Date + Years(1) adds 1 year", () => {
+    const r = evalSrc("Date(2026, 3, 15) + Years(1)") as Date;
+    expect(r.getFullYear()).toBe(2027);
+    expect(r.getMonth()).toBe(2);
+    expect(r.getDate()).toBe(15);
+  });
+});
+
+describe("Bloc 1 — date predicates", () => {
+  it("IsBefore / IsAfter", () => {
+    expect(evalSrc("IsBefore(Date(2026, 1, 1), Date(2026, 5, 1))")).toBe(true);
+    expect(evalSrc("IsAfter(Date(2026, 5, 1), Date(2026, 1, 1))")).toBe(true);
+  });
+
+  it("IsBetween", () => {
+    expect(evalSrc("IsBetween(Date(2026, 3, 1), Date(2026, 1, 1), Date(2026, 5, 1))")).toBe(true);
+    expect(evalSrc("IsBetween(Date(2025, 1, 1), Date(2026, 1, 1), Date(2026, 5, 1))")).toBe(false);
+  });
+
+  it("IsSameDay", () => {
+    expect(evalSrc("IsSameDay(Date(2026, 5, 7), Date(2026, 5, 7))")).toBe(true);
+    expect(evalSrc("IsSameDay(Date(2026, 5, 7), Date(2026, 5, 8))")).toBe(false);
+  });
+
+  it("IsToday", () => {
+    // FIXED_NOW = 2026-05-07
+    expect(evalSrc("IsToday(Date(2026, 5, 7))")).toBe(true);
+    expect(evalSrc("IsToday(Date(2026, 5, 8))")).toBe(false);
+  });
+
+  it("IsPast / IsFuture", () => {
+    expect(evalSrc("IsPast(Date(2020, 1, 1))")).toBe(true);
+    expect(evalSrc("IsFuture(Date(2030, 1, 1))")).toBe(true);
+  });
+
+  it("IsWeekend / IsWeekday", () => {
+    expect(evalSrc("IsWeekend(Date(2026, 5, 9))")).toBe(true);  // Saturday
+    expect(evalSrc("IsWeekday(Date(2026, 5, 7))")).toBe(true);  // Thursday
+  });
+
+  it("IsLeapYear", () => {
+    expect(evalSrc("IsLeapYear(Date(2024, 1, 1))")).toBe(true);
+    expect(evalSrc("IsLeapYear(Date(2026, 1, 1))")).toBe(false);
+  });
+});
+
+describe("Bloc 1 — date format helpers", () => {
+  it("FormatDate with tokens", () => {
+    expect(evalSrc('FormatDate(Date(2026, 5, 7), "YYYY-MM-DD")')).toBe("2026-05-07");
+  });
+
+  it("ToISO / ToUnix / FromUnix", () => {
+    const iso = evalSrc("ToISO(Now())") as string;
+    expect(typeof iso).toBe("string");
+    expect(iso).toContain("2026");
+    const unix = evalSrc("ToUnix(Now())") as number;
+    expect(typeof unix).toBe("number");
+    const back = evalSrc(`FromUnix(${unix})`) as Date;
+    expect(back instanceof Date).toBe(true);
+    // Roundtrip: unix → Date → same instant
+    expect(back.getTime()).toBe(FIXED_NOW.getTime());
+  });
+
+  it("FromISO", () => {
+    const d = evalSrc('FromISO("2026-05-07")') as Date;
+    expect(d instanceof Date).toBe(true);
+    expect(d.getFullYear()).toBe(2026);
+  });
+});
+
+describe("Bloc 1 — calendar helpers", () => {
+  it("BusinessDaysBetween", () => {
+    // Mon to Fri = 4 business days
+    const r = evalSrc("BusinessDaysBetween(Date(2026, 5, 4), Date(2026, 5, 8))");
+    expect(r).toBe(4);
+  });
+
+  it("AddBusinessDays", () => {
+    // Start Monday 2026-05-04, add 5 business days → 2026-05-11 (Monday)
+    const r = evalSrc("AddBusinessDays(Date(2026, 5, 4), 5)") as Date;
+    expect(r instanceof Date).toBe(true);
+    expect(r.getDay()).toBe(1); // Monday
+  });
+
+  it("DaysInMonth", () => {
+    expect(evalSrc("DaysInMonth(Date(2026, 2, 1))")).toBe(28);
+    expect(evalSrc("DaysInMonth(Date(2024, 2, 1))")).toBe(29);
+    expect(evalSrc("DaysInMonth(Date(2026, 1, 1))")).toBe(31);
+  });
+
+  it("DaysInYear", () => {
+    expect(evalSrc("DaysInYear(Date(2024, 1, 1))")).toBe(366);
+    expect(evalSrc("DaysInYear(Date(2026, 1, 1))")).toBe(365);
+  });
+});
+
+// ============================================================
+// BLOC 2 — String member access
+// ============================================================
+
+describe("Bloc 2 — string property access", () => {
+  it(".upper / .lower", () => {
+    expect(evalSrc('"hello".upper')).toBe("HELLO");
+    expect(evalSrc('"WORLD".lower')).toBe("world");
+  });
+
+  it(".trim / .trimStart / .trimEnd", () => {
+    expect(evalSrc('"  hi  ".trim')).toBe("hi");
+    expect(evalSrc('"  hi  ".trimStart')).toBe("hi  ");
+    expect(evalSrc('"  hi  ".trimEnd')).toBe("  hi");
+  });
+
+  it(".length", () => {
+    expect(evalSrc('"hello".length')).toBe(5);
+  });
+
+  it(".reverse", () => {
+    expect(evalSrc('"abc".reverse')).toBe("cba");
+  });
+
+  it(".slugify", () => {
+    expect(evalSrc('"Héllo Wörld!".slugify')).toBe("hello-world");
+  });
+
+  it(".isBlank / .isEmpty", () => {
+    expect(evalSrc('"   ".isBlank')).toBe(true);
+    expect(evalSrc('"hi".isBlank')).toBe(false);
+    expect(evalSrc('"".isEmpty')).toBe(true);
+  });
+
+  it(".isNotBlank / .isNotEmpty", () => {
+    expect(evalSrc('"hi".isNotBlank')).toBe(true);
+    expect(evalSrc('"   ".isNotBlank')).toBe(false);
+  });
+
+  it(".proper", () => {
+    expect(evalSrc('"hello world".proper')).toBe("Hello World");
+  });
+});
+
+describe("Bloc 2 — isNull / isNotNull on any value", () => {
+  it("null.isNull === true", () => {
+    expect(evalSrc("null.isNull")).toBe(true);
+  });
+  it("non-null.isNull === false", () => {
+    expect(evalSrc('"hello".isNull')).toBe(false);
+  });
+  it("null.isNotNull === false", () => {
+    expect(evalSrc("null.isNotNull")).toBe(false);
+  });
+  it("non-null.isNotNull === true", () => {
+    expect(evalSrc("42.isNotNull")).toBe(true);
+  });
+});
+
+// ============================================================
+// BLOC 3 — Coalesce / ?? / ?. / Try / NullIf
+// ============================================================
+
+describe("Bloc 3 — ?? nullish coalescing", () => {
+  it("null ?? fallback returns fallback", () => {
+    expect(evalSrc('null ?? "default"')).toBe("default");
+  });
+  it("value ?? fallback returns value", () => {
+    expect(evalSrc('42 ?? "default"')).toBe(42);
+  });
+  it("chained ?? picks first non-null", () => {
+    expect(evalSrc('null ?? null ?? "found"')).toBe("found");
+  });
+});
+
+describe("Bloc 3 — ?. optional chaining", () => {
+  it("null?.prop returns null without error", () => {
+    expect(evalSrc("null?.foo")).toBe(null);
+  });
+});
+
+describe("Bloc 3 — Try", () => {
+  it("Try returns value on success", () => {
+    expect(evalSrc('Try(1 + 1, 99)')).toBe(2);
+  });
+  it("Try returns fallback on error", () => {
+    expect(evalSrc('Try(UndefinedFunc(), 99)')).toBe(99);
+  });
+  it("Try returns null when no fallback and error", () => {
+    expect(evalSrc('Try(UndefinedFunc())')).toBe(null);
+  });
+});
+
+describe("Bloc 3 — NullIf", () => {
+  it("NullIf(5, 5) returns null", () => {
+    expect(evalSrc("NullIf(5, 5)")).toBe(null);
+  });
+  it("NullIf(5, 3) returns 5", () => {
+    expect(evalSrc("NullIf(5, 3)")).toBe(5);
+  });
+});
+
+describe("Bloc 3 — Coalesce (existing, already in logicFunctions)", () => {
+  it("Coalesce picks first non-null/empty", () => {
+    expect(evalSrc('Coalesce(null, "", "hello")')).toBe("hello");
+    expect(evalSrc('Coalesce(null, 42)')).toBe(42);
+  });
+});
+
+// ============================================================
+// BLOC 4 — List aggregates
+// ============================================================
+
+describe("Bloc 4 — Any / All / None", () => {
+  it("Any with predicate", () => {
+    expect(evalSrc("Any([1, 2, 3], x -> x > 2)")).toBe(true);
+    expect(evalSrc("Any([1, 2, 3], x -> x > 10)")).toBe(false);
+  });
+  it("All with predicate", () => {
+    expect(evalSrc("All([2, 4, 6], x -> x % 2 == 0)")).toBe(true);
+    expect(evalSrc("All([1, 2, 3], x -> x > 1)")).toBe(false);
+  });
+  it("None with predicate", () => {
+    expect(evalSrc("None([1, 2, 3], x -> x > 10)")).toBe(true);
+    expect(evalSrc("None([1, 2, 3], x -> x > 2)")).toBe(false);
+  });
+});
+
+describe("Bloc 4 — Includes / IndexOf", () => {
+  it("Includes", () => {
+    expect(evalSrc("Includes([1, 2, 3], 2)")).toBe(true);
+    expect(evalSrc("Includes([1, 2, 3], 9)")).toBe(false);
+  });
+  it("IndexOf", () => {
+    expect(evalSrc("IndexOf([10, 20, 30], 20)")).toBe(1);
+    expect(evalSrc("IndexOf([10, 20], 99)")).toBe(-1);
+  });
+});
+
+describe("Bloc 4 — Flatten / FlatMap / Compact", () => {
+  it("Flatten 1 level", () => {
+    // [[...]] parses as WikiLink — build nested list via scope
+    const scope: Scope = { nested: [[1, 2], [3, 4]] as Value };
+    expect(evalSrc("Flatten(nested)", undefined, scope)).toEqual([1, 2, 3, 4]);
+  });
+  it("FlatMap", () => {
+    expect(evalSrc("FlatMap([1, 2, 3], x -> [x, x * 2])")).toEqual([1, 2, 2, 4, 3, 6]);
+  });
+  it("Compact removes nulls", () => {
+    expect(evalSrc("Compact([1, null, 2, null, 3])")).toEqual([1, 2, 3]);
+  });
+});
+
+describe("Bloc 4 — Chunk / Zip / Partition", () => {
+  it("Chunk", () => {
+    expect(evalSrc("Chunk([1, 2, 3, 4, 5], 2)")).toEqual([[1, 2], [3, 4], [5]]);
+  });
+  it("Zip", () => {
+    expect(evalSrc('Zip([1, 2, 3], ["a", "b", "c"])')).toEqual([[1, "a"], [2, "b"], [3, "c"]]);
+  });
+  it("Partition", () => {
+    const r = evalSrc("Partition([1, 2, 3, 4], x -> x % 2 == 0)") as [number[], number[]];
+    expect(r[0]).toEqual([2, 4]);
+    expect(r[1]).toEqual([1, 3]);
+  });
+});
+
+describe("Bloc 4 — SortBy / SortByDesc / MaxBy / MinBy / SumBy / AvgBy", () => {
+  it("SortBy ascending", () => {
+    expect(evalSrc("SortBy([3, 1, 2], x -> x)")).toEqual([1, 2, 3]);
+  });
+  it("SortByDesc descending", () => {
+    expect(evalSrc("SortByDesc([3, 1, 2], x -> x)")).toEqual([3, 2, 1]);
+  });
+  it("MaxBy / MinBy", () => {
+    expect(evalSrc("MaxBy([3, 1, 4], x -> x)")).toBe(4);
+    expect(evalSrc("MinBy([3, 1, 4], x -> x)")).toBe(1);
+  });
+  it("SumBy", () => {
+    expect(evalSrc("SumBy([1, 2, 3], x -> x * 2)")).toBe(12);
+  });
+  it("AvgBy", () => {
+    expect(evalSrc("AvgBy([2, 4, 6], x -> x)")).toBe(4);
+  });
+});
+
+describe("Bloc 4 — DistinctBy / CountBy", () => {
+  it("DistinctBy", () => {
+    expect(evalSrc('DistinctBy(["a", "b", "a"], x -> x)')).toEqual(["a", "b"]);
+  });
+  it("CountBy returns {key, count} entries", () => {
+    const r = evalSrc('CountBy(["a", "b", "a"], x -> x)') as [string, number][];
+    expect(r.some(([k, v]) => k === "a" && v === 2)).toBe(true);
+  });
+});
+
+describe("Bloc 4 — Stddev / Variance / Mode / Range / Percentile", () => {
+  it("Stddev", () => {
+    const s = evalSrc("Stddev([2, 4, 4, 4, 5, 5, 7, 9])") as number;
+    expect(s).toBeCloseTo(2, 0);
+  });
+  it("Variance", () => {
+    const v = evalSrc("Variance([2, 4])") as number;
+    expect(v).toBe(1);
+  });
+  it("Mode", () => {
+    expect(evalSrc("Mode([1, 2, 2, 3])")).toBe(2);
+  });
+  it("Range", () => {
+    expect(evalSrc("Range([1, 5, 3])")).toBe(4);
+  });
+  it("Percentile", () => {
+    const p50 = evalSrc("Percentile([1, 2, 3, 4, 5], 50)");
+    expect(typeof p50).toBe("number");
+  });
+});
+
+describe("Bloc 4 — list property aliases", () => {
+  it(".any / .all / .none", () => {
+    expect(evalSrc("[1, 2, 3].any")).toBe(true);
+    expect(evalSrc("[].any")).toBe(false);
+    expect(evalSrc("[1, 2].all")).toBe(true);
+    expect(evalSrc("[].none")).toBe(true);
+  });
+  it(".isEmpty / .isNotEmpty", () => {
+    expect(evalSrc("[].isEmpty")).toBe(true);
+    expect(evalSrc("[1].isNotEmpty")).toBe(true);
+  });
+  it(".compact", () => {
+    expect(evalSrc("[1, null, 2].compact")).toEqual([1, 2]);
+  });
+  it(".flatten", () => {
+    // [[...]] parses as WikiLink — build nested list via scope
+    const scope: Scope = { nested: [[1, 2], [3]] as Value };
+    expect(evalSrc("nested.flatten", undefined, scope)).toEqual([1, 2, 3]);
+  });
+  it(".distinct", () => {
+    expect(evalSrc("[1, 2, 2, 3].distinct")).toEqual([1, 2, 3]);
+  });
+  it(".median", () => {
+    expect(evalSrc("[1, 2, 3].median")).toBe(2);
+  });
+  it(".stddev", () => {
+    expect(typeof evalSrc("[1, 2, 3, 4, 5].stddev")).toBe("number");
+  });
+  it(".variance", () => {
+    expect(typeof evalSrc("[1, 2, 3].variance")).toBe("number");
+  });
+});
+
 describe("Coda — entity projection from lists", () => {
   // Build a synthetic list of entity values via a Filter context
   const contacts: Entity[] = [
@@ -1031,5 +1435,560 @@ describe("Coda — entity projection from lists", () => {
   });
   it("aggregation pipeline: ages of matches summed", () => {
     expect(evalSrc("Contacts.where(currentValue.age >= 25).age.sum", undefined, scope)).toBe(60);
+  });
+});
+
+// ============================================================
+// STRING STDLIB — EXTENSION
+// ============================================================
+
+describe("String stdlib — extension", () => {
+  it("ContainsText case-insensitive", () => {
+    expect(evalSrc('ContainsText("Hello World", "world")')).toBe(true);
+    expect(evalSrc('ContainsText("Hello World", "xyz")')).toBe(false);
+  });
+  it("EqualsIgnoreCase", () => {
+    expect(evalSrc('EqualsIgnoreCase("Hello", "hello")')).toBe(true);
+    expect(evalSrc('EqualsIgnoreCase("Hello", "world")')).toBe(false);
+  });
+  it("StartsWithIgnoreCase", () => {
+    expect(evalSrc('StartsWithIgnoreCase("Hello", "hel")')).toBe(true);
+  });
+  it("EndsWithIgnoreCase", () => {
+    expect(evalSrc('EndsWithIgnoreCase("Hello", "LLO")')).toBe(true);
+  });
+  it("FindIgnoreCase", () => {
+    expect(evalSrc('FindIgnoreCase("Hello World", "WORLD")')).toBe(7);
+  });
+  it("Substitute all occurrences", () => {
+    expect(evalSrc('Substitute("aababc", "a", "x")')).toBe("xxbxbc");
+  });
+  it("Substitute Nth occurrence", () => {
+    expect(evalSrc('Substitute("aababc", "a", "x", 2)')).toBe("axbabc");
+  });
+  it("Char / Code", () => {
+    expect(evalSrc("Char(65)")).toBe("A");
+    expect(evalSrc('Code("A")')).toBe(65);
+  });
+  it("Repeat string alias", () => {
+    expect(evalSrc('Repeat("ab", 3)')).toBe("ababab");
+  });
+  it("Truncate", () => {
+    expect(evalSrc('Truncate("Hello World", 5)')).toBe("Hello…");
+    expect(evalSrc('Truncate("Hello World", 5, "...")')).toBe("Hello...");
+    expect(evalSrc('Truncate("Hi", 5)')).toBe("Hi");
+  });
+  it("Lines / LineCount", () => {
+    expect(evalSrc('Lines("a\\nb\\nc")')).toEqual(["a", "b", "c"]);
+    expect(evalSrc('LineCount("a\\nb\\nc")')).toBe(3);
+  });
+  it("Words / WordCount", () => {
+    expect(evalSrc('Words("hello world foo")')).toEqual(["hello", "world", "foo"]);
+    expect(evalSrc('WordCount("hello world foo")')).toBe(3);
+  });
+  it("StripHtml", () => {
+    expect(evalSrc('StripHtml("<b>Hello</b> <i>World</i>")')).toBe("Hello World");
+  });
+  it("EscapeHtml / UnescapeHtml", () => {
+    expect(evalSrc('EscapeHtml("<b>Hello & World</b>")')).toBe("&lt;b&gt;Hello &amp; World&lt;/b&gt;");
+    expect(evalSrc('UnescapeHtml("&lt;b&gt;Hello&lt;/b&gt;")')).toBe("<b>Hello</b>");
+  });
+  it("UrlEncode / UrlDecode", () => {
+    expect(evalSrc('UrlEncode("hello world")')).toBe("hello%20world");
+    expect(evalSrc('UrlDecode("hello%20world")')).toBe("hello world");
+  });
+  it("Base64Encode / Base64Decode ASCII", () => {
+    expect(evalSrc('Base64Encode("Hello")')).toBe("SGVsbG8=");
+    expect(evalSrc('Base64Decode("SGVsbG8=")')).toBe("Hello");
+  });
+  it("PadStart / PadEnd", () => {
+    expect(evalSrc('PadStart("5", 3, "0")')).toBe("005");
+    expect(evalSrc('PadEnd("hi", 5, "-")')).toBe("hi---");
+  });
+  it("CamelCase", () => {
+    expect(evalSrc('CamelCase("hello world foo")')).toBe("helloWorldFoo");
+  });
+  it("KebabCase", () => {
+    expect(evalSrc('KebabCase("Hello World Foo")')).toBe("hello-world-foo");
+  });
+  it("SnakeCase", () => {
+    expect(evalSrc('SnakeCase("Hello World Foo")')).toBe("hello_world_foo");
+  });
+  it("PascalCase", () => {
+    expect(evalSrc('PascalCase("hello world")')).toBe("HelloWorld");
+  });
+  it("TitleCase alias Proper", () => {
+    expect(evalSrc('TitleCase("hello world")')).toBe("Hello World");
+  });
+  it("LeftOf / RightOf / Between", () => {
+    expect(evalSrc('LeftOf("hello-world", "-")')).toBe("hello");
+    expect(evalSrc('RightOf("hello-world", "-")')).toBe("world");
+    expect(evalSrc('Between("(hello)", "(", ")")')).toBe("hello");
+  });
+  it("Pluralize", () => {
+    expect(evalSrc('Pluralize("item", 1)')).toBe("item");
+    expect(evalSrc('Pluralize("item", 2)')).toBe("items");
+  });
+  it("Hash returns hex string", () => {
+    const h = evalSrc('Hash("hello")') as string;
+    expect(typeof h).toBe("string");
+    expect(h.length).toBeGreaterThan(0);
+    expect(/^[0-9a-f]+$/.test(h)).toBe(true);
+  });
+  it("StripMarkdown", () => {
+    expect(evalSrc('StripMarkdown("**bold** and _italic_")')).toBe("bold and italic");
+  });
+  it("Reverse as function on string", () => {
+    expect(evalSrc('Reverse("abc")')).toBe("cba");
+  });
+  it("ParseNumber", () => {
+    expect(evalSrc('ParseNumber("3,14")')).toBe(3.14);
+    expect(evalSrc('ParseNumber("42")')).toBe(42);
+  });
+});
+
+// ============================================================
+// MATH STDLIB — EXTENSION
+// ============================================================
+
+describe("Math stdlib — extension", () => {
+  it("Square / Cube / Power", () => {
+    expect(evalSrc("Square(4)")).toBe(16);
+    expect(evalSrc("Cube(3)")).toBe(27);
+    expect(evalSrc("Power(2, 10)")).toBe(1024);
+  });
+  it("IsInteger / IsFinite / IsNaN", () => {
+    expect(evalSrc("IsInteger(3)")).toBe(true);
+    expect(evalSrc("IsInteger(3.5)")).toBe(false);
+    expect(evalSrc("IsFinite(1)")).toBe(true);
+    expect(evalSrc("IsNaN(0)")).toBe(false);
+  });
+  it("IsPositive / IsNegative / IsZero / IsEven / IsOdd", () => {
+    expect(evalSrc("IsPositive(1)")).toBe(true);
+    expect(evalSrc("IsNegative(-1)")).toBe(true);
+    expect(evalSrc("IsZero(0)")).toBe(true);
+    expect(evalSrc("IsEven(4)")).toBe(true);
+    expect(evalSrc("IsOdd(3)")).toBe(true);
+  });
+  it("Gcd / Lcm", () => {
+    expect(evalSrc("Gcd(12, 8)")).toBe(4);
+    expect(evalSrc("Lcm(4, 6)")).toBe(12);
+  });
+  it("Factorial", () => {
+    expect(evalSrc("Factorial(5)")).toBe(120);
+    expect(evalSrc("Factorial(0)")).toBe(1);
+  });
+  it("Clamp", () => {
+    expect(evalSrc("Clamp(5, 1, 10)")).toBe(5);
+    expect(evalSrc("Clamp(-5, 1, 10)")).toBe(1);
+    expect(evalSrc("Clamp(15, 1, 10)")).toBe(10);
+  });
+  it("Lerp", () => {
+    expect(evalSrc("Lerp(0, 100, 0.5)")).toBe(50);
+  });
+  it("MapRange", () => {
+    expect(evalSrc("MapRange(5, 0, 10, 0, 100)")).toBe(50);
+  });
+  it("Trunc / Frac", () => {
+    expect(evalSrc("Trunc(3.7)")).toBe(3);
+    expect(evalSrc("Trunc(-3.7)")).toBe(-3);
+    expect(evalSrc("Frac(3.75)")).toBeCloseTo(0.75);
+  });
+  it("Atan2 / Asin / Acos / Atan / Sinh / Cosh / Tanh", () => {
+    expect(evalSrc("Atan2(1, 1)")).toBeCloseTo(Math.atan2(1, 1));
+    expect(evalSrc("Asin(1)")).toBeCloseTo(Math.PI / 2);
+    expect(evalSrc("Acos(1)")).toBeCloseTo(0);
+    expect(evalSrc("Atan(1)")).toBeCloseTo(Math.PI / 4);
+    expect(evalSrc("Sinh(0)")).toBeCloseTo(0);
+    expect(evalSrc("Cosh(0)")).toBeCloseTo(1);
+    expect(evalSrc("Tanh(0)")).toBeCloseTo(0);
+  });
+  it("FormatBytes", () => {
+    expect(evalSrc("FormatBytes(0)")).toBe("0 o");
+    expect(evalSrc("FormatBytes(1024)")).toBe("1,0 ko");
+    expect(evalSrc("FormatBytes(1048576)")).toBe("1,0 Mo");
+  });
+  it("FormatOrdinal FR", () => {
+    expect(evalSrc("FormatOrdinal(1)")).toBe("1er");
+    expect(evalSrc("FormatOrdinal(2)")).toBe("2e");
+    expect(evalSrc("FormatOrdinal(21)")).toBe("21e");
+  });
+  it("FormatPercent", () => {
+    expect(evalSrc("FormatPercent(0.42)")).toBe("42%");
+    expect(evalSrc("FormatPercent(0.333, 1)")).toBe("33,3%");
+  });
+  it("FormatCurrency returns string with number", () => {
+    const r = evalSrc('FormatCurrency(1234.5, "EUR")') as string;
+    expect(typeof r).toBe("string");
+    expect(r).toMatch("1");
+  });
+  it("FormatNumber returns string", () => {
+    const r = evalSrc("FormatNumber(1234567.89)") as string;
+    expect(typeof r).toBe("string");
+    expect(r).toMatch("1");
+  });
+});
+
+// ============================================================
+// DATE STDLIB — EXTENSION
+// ============================================================
+
+describe("Date stdlib — extension", () => {
+  it("IsValidDate", () => {
+    expect(evalSrc("IsValidDate(Today())")).toBe(true);
+    expect(evalSrc('IsValidDate("not-a-date")')).toBe(false);
+    expect(evalSrc("IsValidDate(null)")).toBe(false);
+  });
+  it("DateMin / DateMax", () => {
+    expect(evalSrc("DateMin(Date(2026, 1, 1), Date(2026, 6, 1))")).toEqual(new Date(2026, 0, 1));
+    expect(evalSrc("DateMax(Date(2026, 1, 1), Date(2026, 6, 1))")).toEqual(new Date(2026, 5, 1));
+  });
+  it("ParseDuration", () => {
+    const d = evalSrc('ParseDuration("1h30m")') as { _type: string; ms: number };
+    expect(d._type).toBe("duration");
+    expect(d.ms).toBe(90 * 60 * 1000);
+  });
+  it("FormatDuration", () => {
+    expect(evalSrc("FormatDuration(3661000)")).toBe("1h 1min 1s");
+  });
+  it("HumanDuration", () => {
+    const result = evalSrc("HumanDuration(3600000)") as string;
+    expect(result).toMatch(/1\s*h/);
+  });
+  it("DateRange returns list of dates", () => {
+    const result = evalSrc("DateRange(Date(2026, 1, 1), Date(2026, 1, 3))") as Date[];
+    expect(result).toHaveLength(3);
+    expect(result[0]).toEqual(new Date(2026, 0, 1));
+    expect(result[2]).toEqual(new Date(2026, 0, 3));
+  });
+});
+
+// ============================================================
+// LIST STDLIB — EXTENSION
+// ============================================================
+
+describe("List stdlib — extension", () => {
+  it("TakeWhile", () => {
+    expect(evalSrc("TakeWhile([1, 2, 3, 4, 5], x -> x < 4)")).toEqual([1, 2, 3]);
+  });
+  it("DropWhile", () => {
+    expect(evalSrc("DropWhile([1, 2, 3, 4, 5], x -> x < 3)")).toEqual([3, 4, 5]);
+  });
+  it("Scan", () => {
+    expect(evalSrc("Scan([1, 2, 3], (acc, x) -> acc + x, 0)")).toEqual([1, 3, 6]);
+  });
+  it("Tally", () => {
+    const result = evalSrc('Tally(["a", "b", "a", "c", "b", "a"])') as Value[];
+    expect(result).toHaveLength(3);
+  });
+  it("RepeatList", () => {
+    expect(evalSrc("RepeatList(42, 3)")).toEqual([42, 42, 42]);
+  });
+  it("ConcatAll", () => {
+    expect(evalSrc("ConcatAll([1, 2], [3, 4], [5])")).toEqual([1, 2, 3, 4, 5]);
+  });
+  it("Union", () => {
+    expect(evalSrc("Union([1, 2, 3], [2, 3, 4])")).toEqual([1, 2, 3, 4]);
+  });
+  it("Intersect", () => {
+    expect(evalSrc("Intersect([1, 2, 3], [2, 3, 4])")).toEqual([2, 3]);
+  });
+  it("Difference", () => {
+    expect(evalSrc("Difference([1, 2, 3], [2, 3, 4])")).toEqual([1]);
+  });
+  it("Without", () => {
+    expect(evalSrc("Without([1, 2, 3, 4], 2, 4)")).toEqual([1, 3]);
+  });
+  it("Pairwise", () => {
+    expect(evalSrc("Pairwise([1, 2, 3])")).toEqual([[1, 2], [2, 3]]);
+  });
+  it("Unzip", () => {
+    const pairs: Value = [[1, 2], [3, 4]];
+    const result = evalSrc("Unzip(pairs)", undefined, { pairs }) as Value[][];
+    expect(result[0]).toEqual([1, 3]);
+    expect(result[1]).toEqual([2, 4]);
+  });
+  it("ContainsAll", () => {
+    expect(evalSrc("ContainsAll([1, 2, 3, 4], [2, 3])")).toBe(true);
+    expect(evalSrc("ContainsAll([1, 2, 3], [2, 5])")).toBe(false);
+  });
+  it("ContainsAny", () => {
+    expect(evalSrc("ContainsAny([1, 2, 3], [3, 4, 5])")).toBe(true);
+    expect(evalSrc("ContainsAny([1, 2, 3], [4, 5])")).toBe(false);
+  });
+  it("ContainsNone", () => {
+    expect(evalSrc("ContainsNone([1, 2, 3], [4, 5])")).toBe(true);
+  });
+  it("FindIndex", () => {
+    expect(evalSrc("FindIndex([1, 2, 3, 4], x -> x > 2)")).toBe(2);
+  });
+  it("ListFind", () => {
+    expect(evalSrc("ListFind([1, 2, 3, 4], x -> x > 2)")).toBe(3);
+  });
+});
+
+// ============================================================
+// LOGIC STDLIB — EXTENSION
+// ============================================================
+
+describe("Logic stdlib — extension", () => {
+  it("IfNull alias", () => {
+    expect(evalSrc("IfNull(null, 42)")).toBe(42);
+    expect(evalSrc("IfNull(5, 42)")).toBe(5);
+  });
+  it("Implies", () => {
+    expect(evalSrc("Implies(true, false)")).toBe(false);
+    expect(evalSrc("Implies(false, false)")).toBe(true);
+    expect(evalSrc("Implies(false, true)")).toBe(true);
+    expect(evalSrc("Implies(true, true)")).toBe(true);
+  });
+  it("Xor", () => {
+    expect(evalSrc("Xor(true, false)")).toBe(true);
+    expect(evalSrc("Xor(true, true)")).toBe(false);
+  });
+  it("Nand", () => {
+    expect(evalSrc("Nand(true, true)")).toBe(false);
+    expect(evalSrc("Nand(true, false)")).toBe(true);
+  });
+  it("Nor", () => {
+    expect(evalSrc("Nor(false, false)")).toBe(true);
+    expect(evalSrc("Nor(true, false)")).toBe(false);
+  });
+  it("ToBool", () => {
+    expect(evalSrc("ToBool(1)")).toBe(true);
+    expect(evalSrc("ToBool(0)")).toBe(false);
+    expect(evalSrc('ToBool("hello")')).toBe(true);
+    expect(evalSrc('ToBool("")')).toBe(false);
+  });
+  it("ToDate", () => {
+    const d = evalSrc('ToDate("2026-01-15")');
+    expect(d instanceof Date).toBe(true);
+  });
+  it("ToList wraps non-list in list", () => {
+    expect(evalSrc("ToList(42)")).toEqual([42]);
+    expect(evalSrc("ToList([1, 2])")).toEqual([1, 2]);
+  });
+  it("TypeOf", () => {
+    expect(evalSrc('TypeOf("hello")')).toBe("text");
+    expect(evalSrc("TypeOf(42)")).toBe("number");
+    expect(evalSrc("TypeOf(true)")).toBe("bool");
+    expect(evalSrc("TypeOf(Today())")).toBe("date");
+    expect(evalSrc("TypeOf([1, 2])")).toBe("list");
+    expect(evalSrc("TypeOf(null)")).toBe("null");
+  });
+  it("IsDate", () => {
+    expect(evalSrc("IsDate(Today())")).toBe(true);
+    expect(evalSrc('IsDate("2026-01-01")')).toBe(false);
+  });
+});
+
+// ============================================================
+// REGEX STDLIB
+// ============================================================
+
+describe("Regex stdlib", () => {
+  it("RegexExtract group 0", () => {
+    // formula string "\\w+" → after lexer escape: \w+
+    expect(evalSrc('RegexExtract("hello world", "\\\\w+")')).toBe("hello");
+  });
+  it("RegexExtract group 1", () => {
+    expect(evalSrc('RegexExtract("2026-05-16", "(\\\\d{4})-(\\\\d{2})-(\\\\d{2})", 1)')).toBe("2026");
+  });
+  it("RegexExtractAll", () => {
+    expect(evalSrc('RegexExtractAll("one two three", "\\\\w+")')).toEqual(["one", "two", "three"]);
+  });
+  it("RegexSplit", () => {
+    expect(evalSrc('RegexSplit("a1b2c3", "\\\\d")')).toEqual(["a", "b", "c", ""]);
+  });
+  it("RegexEscape", () => {
+    expect(evalSrc('RegexEscape("hello.world+1")')).toBe("hello\\.world\\+1");
+  });
+});
+
+// ============================================================
+// JSON STDLIB
+// ============================================================
+
+describe("JSON stdlib", () => {
+  it("ToJson / FromJson roundtrip", () => {
+    const json = evalSrc("ToJson([1, 2, 3])") as string;
+    expect(json).toBe("[1,2,3]");
+    expect(evalSrc(`FromJson('${json}')`)).toEqual([1, 2, 3]);
+  });
+  it("JsonPath simple", () => {
+    expect(evalSrc('JsonPath(FromJson(\'{"a":{"b":42}}\'), "a.b")')).toBe(42);
+  });
+  it("JsonPath array index", () => {
+    expect(evalSrc('JsonPath(FromJson(\'{"items":[10,20,30]}\'), "items[1]")')).toBe(20);
+  });
+});
+
+// ============================================================
+// ENTITY STDLIB — EXTENSION
+// ============================================================
+
+describe("Entity stdlib — extension", () => {
+  const entity = makeEntity("e1", { name: "Alice", age: 30 });
+  const ctx: Partial<FormulaContext> = {
+    resolveEntity: (ref) => ref === "e1" || ref === "Alice" ? entity : null,
+    queryEntities: () => [entity],
+  };
+
+  it("Get field safe", () => {
+    expect(evalSrc('Get(@e1, "age")', ctx)).toBe(30);
+    expect(evalSrc('Get(@e1, "missing", "default")', ctx)).toBe("default");
+  });
+  it("Has field", () => {
+    expect(evalSrc('Has(@e1, "age")', ctx)).toBe(true);
+    expect(evalSrc('Has(@e1, "missing")', ctx)).toBe(false);
+  });
+  it("EntityId returns entity id", () => {
+    expect(evalSrc("EntityId(@e1)", ctx)).toBe("e1");
+  });
+  it("CreatedAt / UpdatedAt", () => {
+    expect(evalSrc("CreatedAt(@e1)", ctx)).toEqual(FIXED_NOW);
+    expect(evalSrc("UpdatedAt(@e1)", ctx)).toEqual(FIXED_NOW);
+  });
+  it("CountOf", () => {
+    expect(evalSrc('CountOf("test")', ctx)).toBe(1);
+  });
+  it("FindAll", () => {
+    const result = evalSrc('FindAll("test")', ctx) as Value[];
+    expect(result).toHaveLength(1);
+  });
+});
+
+// ============================================================
+// CHAINABLE PROPERTIES — NUMBERS
+// ============================================================
+
+describe("Chainable properties — numbers", () => {
+  it("n.abs", () => expect(evalSrc("(-5).abs")).toBe(5));
+  it("n.round", () => expect(evalSrc("(3.7).round")).toBe(4));
+  it("n.ceil", () => expect(evalSrc("(3.2).ceil")).toBe(4));
+  it("n.floor", () => expect(evalSrc("(3.9).floor")).toBe(3));
+  it("n.sign", () => expect(evalSrc("(-5).sign")).toBe(-1));
+  it("n.sqrt", () => expect(evalSrc("(16).sqrt")).toBe(4));
+  it("n.isInteger", () => expect(evalSrc("(3).isInteger")).toBe(true));
+  it("n.isEven", () => expect(evalSrc("(4).isEven")).toBe(true));
+  it("n.isOdd", () => expect(evalSrc("(3).isOdd")).toBe(true));
+});
+
+// ============================================================
+// CHAINABLE PROPERTIES — DATES
+// ============================================================
+
+describe("Chainable properties — dates", () => {
+  const fixedLocal = new Date(FIXED_NOW.getFullYear(), FIXED_NOW.getMonth(), FIXED_NOW.getDate());
+  it("date.year", () => expect(evalSrc("Today().year")).toBe(fixedLocal.getFullYear()));
+  it("date.month", () => expect(evalSrc("Today().month")).toBe(fixedLocal.getMonth() + 1));
+  it("date.day", () => expect(evalSrc("Today().day")).toBe(fixedLocal.getDate()));
+  it("date.hour", () => expect(evalSrc("Now().hour")).toBe(FIXED_NOW.getHours()));
+  it("date.weekday", () => expect(typeof evalSrc("Today().weekday")).toBe("number"));
+  it("date.quarter", () => expect(evalSrc("Today().quarter")).toBe(2));
+  it("date.isToday", () => expect(evalSrc("Today().isToday")).toBe(true));
+  it("date.isPast", () => expect(evalSrc("Date(2020, 1, 1).isPast")).toBe(true));
+  it("date.isFuture", () => expect(evalSrc("Date(2030, 1, 1).isFuture")).toBe(true));
+  it("date.isWeekend", () => expect(typeof evalSrc("Today().isWeekend")).toBe("boolean"));
+  it("date.toISO", () => expect(typeof evalSrc("Today().toISO")).toBe("string"));
+  it("date.toUnix", () => expect(typeof evalSrc("Today().toUnix")).toBe("number"));
+});
+
+// ============================================================
+// RELATION CHAIN — EntityValue nested access
+// ============================================================
+
+describe("Evaluator — relation field chain", () => {
+  // Helper: cast a plain object with EntityValue fields to Entity (runtime shape matches)
+  function ent<T extends { id: string; typeId: string; filePath: string; body: string; createdAt: Date; updatedAt: Date; fields: Record<string, unknown> }>(e: T): Entity {
+    return e as unknown as Entity;
+  }
+
+  function makeRelatedEntities() {
+    const marques = [
+      ent({ id: "m1", typeId: "Marque", filePath: "/m1.md", body: "", createdAt: FIXED_NOW, updatedAt: FIXED_NOW, fields: { name: "BMW", type: "luxe" } }),
+      ent({ id: "m2", typeId: "Marque", filePath: "/m2.md", body: "", createdAt: FIXED_NOW, updatedAt: FIXED_NOW, fields: { name: "Dacia", type: "économique" } }),
+    ];
+
+    // After two-pass resolution, voitures.marque is an EntityValue pointing to a marque entity
+    const voitures = [
+      ent({ id: "v1", typeId: "Voiture", filePath: "/v1.md", body: "", createdAt: FIXED_NOW, updatedAt: FIXED_NOW,
+        fields: { name: "X5", marque: { _type: "entity" as const, entity: marques[0]! } } }),
+      ent({ id: "v2", typeId: "Voiture", filePath: "/v2.md", body: "", createdAt: FIXED_NOW, updatedAt: FIXED_NOW,
+        fields: { name: "Sandero", marque: { _type: "entity" as const, entity: marques[1]! } } }),
+    ];
+
+    const scope: Scope = {
+      Voitures: voitures.map((e) => ({ _type: "entity" as const, entity: e })),
+      thisRow: { _type: "entity" as const, entity: ent({ id: "__thisRow__", typeId: "Voiture", filePath: "", body: "", createdAt: FIXED_NOW, updatedAt: FIXED_NOW, fields: {} }) },
+    };
+
+    return scope;
+  }
+
+  it("accesses nested relation field via currentValue.marque.type", () => {
+    const scope = makeRelatedEntities();
+    const result = evalSrc(
+      'Voitures.where(currentValue.marque.type == "luxe").count',
+      undefined,
+      scope,
+    );
+    expect(result).toBe(1);
+  });
+
+  it("accesses nested relation field name", () => {
+    const scope = makeRelatedEntities();
+    // project the name field of the marque relation
+    const result = evalSrc(
+      "Voitures.Map(currentValue -> currentValue.marque.name)",
+      undefined,
+      scope,
+    );
+    expect(result).toEqual(["BMW", "Dacia"]);
+  });
+
+  it("returns null for missing relation target", () => {
+    const scope: Scope = {
+      Voitures: [
+        {
+          _type: "entity" as const,
+          entity: ent({ id: "v3", typeId: "Voiture", filePath: "/v3.md", body: "", createdAt: FIXED_NOW, updatedAt: FIXED_NOW, fields: { name: "Aucun", marque: null } }),
+        },
+      ],
+    };
+    const result = evalSrc("Voitures.Map(currentValue -> currentValue.marque)", undefined, scope);
+    expect(result).toEqual([null]);
+  });
+
+  it("handles many-cardinality: access to list of EntityValues", () => {
+    const tags = [
+      ent({ id: "t1", typeId: "Tag", filePath: "/t1.md", body: "", createdAt: FIXED_NOW, updatedAt: FIXED_NOW, fields: { name: "tech" } }),
+      ent({ id: "t2", typeId: "Tag", filePath: "/t2.md", body: "", createdAt: FIXED_NOW, updatedAt: FIXED_NOW, fields: { name: "news" } }),
+    ];
+    const entity = ent({
+      id: "e1",
+      typeId: "Article",
+      filePath: "/e1.md",
+      body: "",
+      createdAt: FIXED_NOW,
+      updatedAt: FIXED_NOW,
+      fields: {
+        title: "Hello",
+        // many-cardinality: list of EntityValues
+        tags: [
+          { _type: "entity" as const, entity: tags[0]! },
+          { _type: "entity" as const, entity: tags[1]! },
+        ],
+      },
+    });
+    const scope: Scope = {
+      Articles: [{ _type: "entity" as const, entity: entity }],
+    };
+    const result = evalSrc(
+      "Articles.first.tags.count",
+      undefined,
+      scope,
+    );
+    expect(result).toBe(2);
   });
 });

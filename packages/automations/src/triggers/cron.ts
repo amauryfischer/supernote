@@ -50,6 +50,26 @@ export function getNextCronDates(
 }
 
 /**
+ * Get the most recent scheduled Date strictly before `at`. Used for missed-run
+ * catch-up on engine boot: the engine compares the last persisted run time
+ * against this value to decide whether a fire was skipped while the app was
+ * closed.
+ */
+export function getPrevCronDate(
+  config: CronTriggerConfig,
+  at: Date = new Date(),
+): Date | null {
+  const options: { currentDate: Date; tz?: string } = { currentDate: at };
+  if (config.timezone) options.tz = config.timezone;
+  try {
+    const interval = cronParser.parseExpression(config.expression, options);
+    return interval.prev().toDate();
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Check if a cron trigger should fire at the given time (within 1-minute window).
  */
 export function cronShouldFireAt(config: CronTriggerConfig, at: Date): boolean {

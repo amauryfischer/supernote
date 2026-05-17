@@ -1,227 +1,162 @@
 "use client";
 
-import { useCallback, useMemo } from "react";
-import dynamic from "next/dynamic";
-import { useRouter } from "next/navigation";
-import { Camera, ArrowsClockwise, Wallet } from "@phosphor-icons/react";
-import { Button } from "@heroui/react";
-import { AppShell, useMobileTitle, useMobileFab, useMobileHeaderActions } from "@/components/shell";
-import { useIsMobile } from "@/hooks/useIsMobile";
-import { useTranslations } from "next-intl";
-import { EmptyState, SkeletonCard } from "@supernote/ui";
-import { MetricCard } from "@/components/finance/MetricCard";
-import { AccountsList, AssetsList, GoalsList } from "@/components/finance/QuickLists";
-import { LoanTimeline } from "@/components/finance/LoanTimeline";
-import {
-  computeCurrentNetWorth,
-  computeTotalCash,
-  computeTotalAssets,
-  computeTotalLoansRemaining,
-  getNetWorthVariation,
-  formatCurrency,
-  formatPercent,
-} from "@/components/finance/utils";
-import {
-  useFinanceAccounts,
-  useFinanceAssets,
-  useFinanceLoans,
-  useFinanceSnapshots,
-  useFinanceGoals,
-} from "@/components/finance/hooks";
-import { trpc } from "@/lib/trpc/client";
+/**
+ * Finance dashboard — minimal rewrite.
+ *
+ * Lists accounts with their current balance and a total. No charts, no
+ * snapshot timeline, no goals/loans cards (deleted with the section
+ * rewrite). The previous version triggered render loops on detail page nav.
+ */
 
-// Dynamic imports: recharts is ~500 kB; defer it until the Finance page mounts.
-const NetWorthChart = dynamic(
-  () => import("@/components/finance/NetWorthChart").then((m) => m.NetWorthChart),
-  { ssr: false, loading: () => <SkeletonCard className="h-[260px]" /> }
-);
-const CategoryDonut = dynamic(
-  () => import("@/components/finance/CategoryDonut").then((m) => m.CategoryDonut),
-  { ssr: false, loading: () => <SkeletonCard className="h-[220px]" /> }
-);
+import { Plus, Wallet } from "@phosphor-icons/react";
+import Link from "next/link";
+import { AppShell } from "@/components/shell";
+import { trpc } from "@/lib/trpc/client";
+import { formatCurrency } from "@/components/finance/utils";
+
+interface Account {
+  id: string;
+  name: string;
+  kind: string;
+  balance: number;
+}
+
+const KIND_LABELS: Record<string, string> = {
+  checking: "Courant",
+  savings: "Épargne",
+  livret: "Livret",
+  pea: "PEA",
+  cto: "CTO",
+  assurance_vie: "Assurance-vie",
+  crypto: "Crypto",
+  other: "Autre",
+};
+
+function fieldString(f: Record<string, unknown>, key: string): string {
+  const v = f[key];
+  return typeof v === "string" ? v : "";
+}
+function fieldNumber(f: Record<string, unknown>, key: string): number {
+  const v = f[key];
+  if (typeof v === "number") return v;
+  if (typeof v === "string") {
+    const n = parseFloat(v);
+    return Number.isFinite(n) ? n : 0;
+  }
+  return 0;
+}
 
 export default function FinancePage() {
-  const t = useTranslations("finance");
-  const router = useRouter();
-  const isMobile = useIsMobile();
-  const { accounts, isLoading: loadingAccounts } = useFinanceAccounts();
-  const { assets, isLoading: loadingAssets } = useFinanceAssets();
-  const { loans, isLoading: loadingLoans } = useFinanceLoans();
-  const { snapshots, isLoading: loadingSnapshots } = useFinanceSnapshots();
-  const { goals, isLoading: loadingGoals } = useFinanceGoals();
+  const query = trpc.entities.list.useQuery({ typeId: "account", limit: 500, offset: 0 });
 
-  const utils = trpc.useUtils();
-  const createSnapshotMutation = trpc.entities.create.useMutation({
-    onSuccess: () => {
-      void utils.entities.list.invalidate({ typeId: "snapshot" });
-    },
+  const accounts: Account[] = (query.data?.items ?? []).map((e) => {
+    const f = e.fields as Record<string, unknown>;
+    return {
+      id: e.id,
+      name: fieldString(f, "name") || "Compte",
+      kind: fieldString(f, "kind") || "other",
+      balance: fieldNumber(f, "current_balance"),
+    };
   });
 
-  const isLoading = loadingAccounts || loadingAssets || loadingLoans || loadingSnapshots || loadingGoals;
-
-  const today = new Date();
-  const totalCash = computeTotalCash(accounts);
-  const totalAssets = computeTotalAssets(assets);
-  const totalLoansRemaining = computeTotalLoansRemaining(loans, today);
-  const currentNetWorth = computeCurrentNetWorth(accounts, assets, loans, today);
-  const variation = getNetWorthVariation(snapshots);
-  const variationPositive = variation.absolute >= 0;
-  const latestSnapshot = snapshots.length > 0 ? snapshots[snapshots.length - 1]! : null;
-
-  const todayLabel = new Intl.DateTimeFormat("fr-FR", {
-    day: "2-digit",
-    month: "long",
-    year: "numeric",
-  }).format(today);
-
-  // Refresh prices and take-snapshot are disabled in PWA mode: live price
-  // fetching needs a CORS proxy (out of scope) and snapshot capture should
-  // be wired through the worker. Handlers are no-ops until then.
-  const handleRefreshPrices = useCallback(async () => {
-    /* À venir — proxy CORS requis pour récupérer les cours */
-  }, []);
-
-  const handleTakeSnapshot = useCallback(async () => {
-    /* À venir — pipeline snapshot via worker */
-  }, []);
-
-  useMobileTitle(isMobile ? t("title") : null, isMobile ? todayLabel : null);
-  useMobileFab(null);
-  useMobileHeaderActions(
-    useMemo(
-      () =>
-        isMobile
-          ? [
-              {
-                id: "snapshot",
-                icon: Camera,
-                label: t("takeSnapshot"),
-                onPress: () => void handleTakeSnapshot(),
-              },
-            ]
-          : [],
-      [isMobile, t, handleTakeSnapshot]
-    )
-  );
-
-  if (isLoading) {
-    return (
-      <AppShell>
-        <div className="flex flex-col gap-6 px-3 py-6 md:px-6">
-          <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-            {Array.from({ length: 4 }, (_, i) => <SkeletonCard key={i} />)}
-          </div>
-          <SkeletonCard className="h-48" />
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
-            {Array.from({ length: 3 }, (_, i) => <SkeletonCard key={i} />)}
-          </div>
-        </div>
-      </AppShell>
-    );
-  }
-
-  const hasData = accounts.length > 0 || assets.length > 0;
-
-  if (!hasData) {
-    return (
-      <AppShell>
-        <div className="flex h-full items-center justify-center">
-          <EmptyState
-            icon={<Wallet size={28} />}
-            title={t("noData")}
-            description={t("noDataHint")}
-            action={{ label: t("addAccount"), onClick: () => router.push("/finance/comptes") }}
-          />
-        </div>
-      </AppShell>
-    );
-  }
+  const total = accounts.reduce((s, a) => s + a.balance, 0);
 
   return (
     <AppShell>
-    <div className="flex flex-col gap-6 px-3 py-6 md:px-6">
-      {/* Header — desktop only */}
-      <div className="hidden md:flex items-start justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight" style={{ color: "var(--text-primary)" }}>
-            {t("title")}
-          </h1>
-          <p className="mt-0.5 text-sm" style={{ color: "var(--text-muted)" }}>
-            {t("overview", { date: todayLabel })}
+      <div className="mx-auto max-w-4xl px-3 py-6 md:px-6 md:py-8">
+        <div className="mb-6 flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight" style={{ color: "var(--text-primary)" }}>
+              Finance
+            </h1>
+            <p className="mt-0.5 text-sm" style={{ color: "var(--text-muted)" }}>
+              Vue d'ensemble de vos comptes.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Link
+              href="/finance/comptes"
+              className="rounded-lg border px-3 py-1.5 text-sm hover:bg-[var(--surface-2)]"
+              style={{ borderColor: "var(--border-subtle)", color: "var(--text-primary)" }}
+            >
+              Comptes
+            </Link>
+            <Link
+              href="/finance/actifs"
+              className="rounded-lg border px-3 py-1.5 text-sm hover:bg-[var(--surface-2)]"
+              style={{ borderColor: "var(--border-subtle)", color: "var(--text-primary)" }}
+            >
+              Actifs
+            </Link>
+          </div>
+        </div>
+
+        <div
+          className="mb-6 rounded-xl border p-5"
+          style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-1)" }}
+        >
+          <p className="text-xs uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+            Patrimoine total
+          </p>
+          <p className="mt-1 text-3xl font-bold tabular-nums" style={{ color: "var(--text-primary)" }}>
+            {formatCurrency(total)}
+          </p>
+          <p className="mt-1 text-xs" style={{ color: "var(--text-muted)" }}>
+            {accounts.length} compte{accounts.length !== 1 ? "s" : ""}
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Button
-            onPress={() => void handleRefreshPrices()}
-            isDisabled
-            aria-label="À venir (proxy CORS)"
-            variant="outline"
-            size="sm"
-            className="flex items-center gap-2 font-medium"
-            style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
-          >
-            <ArrowsClockwise size={14} />
-            {t("refreshPrices")}
-          </Button>
-          <Button
-            onPress={() => void handleTakeSnapshot()}
-            isDisabled
-            aria-label="À venir (proxy CORS)"
-            size="sm"
-            className="flex items-center gap-2 font-medium"
-            style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
-          >
-            <Camera size={14} />
-            {createSnapshotMutation.isPending ? t("savingSnapshot") : t("takeSnapshot")}
-          </Button>
-        </div>
+
+        {query.isLoading ? (
+          <p className="text-sm" style={{ color: "var(--text-muted)" }}>Chargement…</p>
+        ) : accounts.length === 0 ? (
+          <EmptyDashboard />
+        ) : (
+          <ul className="flex flex-col gap-2">
+            {accounts.map((a) => (
+              <li key={a.id}>
+                <Link
+                  href={`/finance/comptes/${a.id}`}
+                  className="flex items-center justify-between rounded-lg border px-4 py-3 hover:bg-[var(--surface-2)]"
+                  style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-1)" }}
+                >
+                  <div>
+                    <p className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
+                      {a.name}
+                    </p>
+                    <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+                      {KIND_LABELS[a.kind] ?? a.kind}
+                    </p>
+                  </div>
+                  <p className="text-base font-semibold tabular-nums" style={{ color: "var(--text-primary)" }}>
+                    {formatCurrency(a.balance)}
+                  </p>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
-
-      {/* Row 1 — Metric cards */}
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-        <MetricCard
-          label={t("metrics.netWorth")}
-          value={formatCurrency(currentNetWorth)}
-          delta={{
-            value: `${formatPercent(variation.percent)} (${formatCurrency(Math.abs(variation.absolute))}) sur 30j`,
-            positive: variationPositive,
-          }}
-          hero
-        />
-        <MetricCard
-          label={t("metrics.totalCash")}
-          value={formatCurrency(totalCash)}
-          sub={`${accounts.length} compte${accounts.length > 1 ? "s" : ""}`}
-        />
-        <MetricCard
-          label={t("metrics.totalAssets")}
-          value={formatCurrency(totalAssets)}
-          sub={`${assets.length} actif${assets.length > 1 ? "s" : ""}`}
-        />
-        <MetricCard
-          label={t("metrics.totalDebts")}
-          value={formatCurrency(totalLoansRemaining)}
-          sub={`${loans.length} prêt${loans.length > 1 ? "s" : ""}`}
-          delta={{ value: t("metrics.remainingCapital"), positive: false }}
-        />
-      </div>
-
-      {/* Row 2 — Evolution chart */}
-      <NetWorthChart snapshots={snapshots} />
-
-      {/* Row 3 — Breakdown */}
-      <CategoryDonut snapshot={latestSnapshot} />
-
-      {/* Row 4 — Quick lists */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
-        <AccountsList accounts={accounts} />
-        <AssetsList assets={assets} />
-        <GoalsList goals={goals} />
-      </div>
-
-      {/* Row 5 — Loan timeline */}
-      <LoanTimeline loans={loans} />
-    </div>
     </AppShell>
+  );
+}
+
+function EmptyDashboard() {
+  return (
+    <div
+      className="flex flex-col items-center gap-3 rounded-xl border border-dashed p-12 text-center"
+      style={{ borderColor: "var(--border-subtle)" }}
+    >
+      <Wallet size={28} style={{ color: "var(--text-muted)" }} />
+      <p className="text-sm font-medium" style={{ color: "var(--text-secondary)" }}>
+        Pas encore de comptes
+      </p>
+      <Link
+        href="/finance/comptes"
+        className="mt-1 inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium"
+        style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
+      >
+        <Plus size={12} /> Ajouter un compte
+      </Link>
+    </div>
   );
 }

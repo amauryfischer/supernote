@@ -15,59 +15,54 @@
 
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import {
-  parseFormula,
-  evaluate,
-  type FormulaContext,
-  type Value as FormulaValue,
-} from "@supernote/formulas";
 import { FormulaInputEditor } from "@/components/bases/FormulaInputEditor";
+import { trpc } from "@/lib/trpc/client";
 import type { EntityType } from "@supernote/core";
 
-// ── Eval helpers ─────────────────────────────────────────────────────────────
+// ── Format helpers ───────────────────────────────────────────────────────────
 
-const minimalContext: FormulaContext = {
-  resolveEntity: () => null,
-  queryEntities: () => [],
-  getRelations: () => [],
-  now: () => new Date(),
-  resolveVariable: () => null,
-};
-
-function evalExpr(expression: string): { ok: true; value: FormulaValue } | { ok: false; msg: string } {
-  if (!expression.trim()) return { ok: false, msg: "(vide)" };
-  const parsed = parseFormula(expression);
-  if (!parsed.ok) return { ok: false, msg: parsed.error.message };
-  const res = evaluate(parsed.value, minimalContext, {});
-  if (!res.ok) return { ok: false, msg: res.error.message };
-  return { ok: true, value: res.value };
+function formatJsonValue(raw: string | null, outputKind?: string): string {
+  if (raw === null) return "—";
+  let v: unknown;
+  try { v = JSON.parse(raw); } catch { return raw; }
+  return formatValue(v, outputKind);
 }
 
-function formatValue(v: FormulaValue, outputKind?: string): string {
+function formatValue(v: unknown, outputKind?: string): string {
   if (v === null || v === undefined) return "—";
-  if (v instanceof Date) {
-    if (outputKind === "date") return v.toLocaleDateString();
-    return v.toLocaleString();
+  if (typeof v === "string") {
+    // Une chaîne ISO de date est sérialisée telle quelle ; on n'essaie pas de
+    // la re-parse côté client pour rester déterministe.
+    return v;
   }
-  if (Array.isArray(v)) return v.map((x) => formatValue(x as FormulaValue)).join(", ");
   if (typeof v === "number") {
-    if (outputKind === "number") return v.toLocaleString();
-    return String(v);
+    return outputKind === "number" ? v.toLocaleString() : String(v);
   }
   if (typeof v === "boolean") return v ? "✓" : "✗";
-  if (typeof v === "object") return String(v);
+  if (Array.isArray(v)) return v.map((x) => formatValue(x)).join(", ");
+  if (typeof v === "object" && v !== null) {
+    // Cas entity ({_type:"entity", entity:{fields:{name?:...}}}) → name si dispo
+    const obj = v as { _type?: string; entity?: { fields?: Record<string, unknown> } };
+    if (obj._type === "entity" && obj.entity?.fields) {
+      const name = obj.entity.fields["name"];
+      if (typeof name === "string") return name;
+    }
+    return String(v);
+  }
   return String(v);
 }
 
 // ── Renderer pour FormulaProvider ────────────────────────────────────────────
 
-export function renderNoteFormula(props: {
-  expression: string;
-  outputKind?: string;
-  onEdit?: () => void;
-}): React.ReactNode {
-  const { expression, outputKind, onEdit } = props;
-  if (!expression) {
+function FormulaResult({
+  expression, outputKind, onEdit,
+}: { expression: string; outputKind?: string; onEdit?: () => void }): React.JSX.Element {
+  const enabled = !!expression.trim();
+  const { data, isLoading } = trpc.formulas.evaluate.useQuery(
+    { expression },
+    { enabled, staleTime: 1000 * 30 },
+  );
+  if (!enabled) {
     return (
       <span
         onClick={onEdit}
@@ -77,15 +72,29 @@ export function renderNoteFormula(props: {
       </span>
     );
   }
-  const r = evalExpr(expression);
-  if (!r.ok) {
+  if (isLoading || !data) return <span style={{ color: "var(--text-muted)" }}>…</span>;
+  if (data.error) {
     return (
-      <span title={r.msg} style={{ color: "var(--destructive)" }}>
+      <span title={data.error} style={{ color: "var(--destructive)" }}>
         #ERREUR
       </span>
     );
   }
-  return <span>{formatValue(r.value, outputKind)}</span>;
+  return <span>{formatJsonValue(data.value, outputKind)}</span>;
+}
+
+export function renderNoteFormula(props: {
+  expression: string;
+  outputKind?: string;
+  onEdit?: () => void;
+}): React.ReactNode {
+  return (
+    <FormulaResult
+      expression={props.expression}
+      outputKind={props.outputKind}
+      onEdit={props.onEdit}
+    />
+  );
 }
 
 // ── Modal host ───────────────────────────────────────────────────────────────

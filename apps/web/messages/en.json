@@ -27,6 +27,7 @@
   },
   "nav": {
     "home": "Home",
+    "ai": "AI Assistant",
     "search": "Search",
     "notes": "Notes",
     "todos": "Todos",

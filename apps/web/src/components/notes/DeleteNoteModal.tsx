@@ -48,9 +48,10 @@ export function DeleteNoteModal({
 
           <div className="flex w-full gap-3">
             <Button
+              variant="ghost"
               onPress={onCancel}
               isDisabled={isPending}
-              className="flex-1 rounded-lg py-2 text-sm font-medium transition-colors hover:bg-[var(--surface-2)]"
+              className="flex-1 rounded-lg bg-transparent py-2 text-sm font-medium hover:bg-[var(--surface-2)]"
               style={{
                 border: "1px solid var(--border-subtle)",
                 color: "var(--text-secondary)",
@@ -59,9 +60,10 @@ export function DeleteNoteModal({
               Annuler
             </Button>
             <Button
+              variant="ghost"
               onPress={onConfirm}
               isDisabled={isPending}
-              className="flex-1 rounded-lg py-2 text-sm font-medium transition-opacity hover:opacity-90 disabled:opacity-50"
+              className="flex-1 rounded-lg py-2 text-sm font-medium hover:opacity-90 disabled:opacity-50"
               style={{
                 backgroundColor: "var(--color-red-500, #ef4444)",
                 color: "#fff",

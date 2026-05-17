@@ -329,14 +329,22 @@ function TagNodeRow({
             ) : null}
           </span>
           {tag ? (
-            <button
-              type="button"
+            <span
+              role="button"
+              tabIndex={0}
               title="Changer la couleur"
               onClick={(e) => {
                 e.stopPropagation();
                 onCycleColor(tag);
               }}
-              className="h-2.5 w-2.5 shrink-0 rounded-full"
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onCycleColor(tag);
+                }
+              }}
+              className="h-2.5 w-2.5 shrink-0 cursor-pointer rounded-full"
               style={{
                 backgroundColor: node.color ?? "var(--text-muted)",
                 border: "1px solid var(--border-subtle)",

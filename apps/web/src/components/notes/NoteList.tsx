@@ -293,18 +293,24 @@ export function NoteList({
         <div className="flex items-center gap-1">
           {onNewNote && (
             <Button
+              variant="ghost"
+              size="sm"
+              isIconOnly
               onPress={onNewNote}
               aria-label={t("newNote")}
-              className="flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-[var(--surface-2)]"
+              className="h-6 w-6 min-w-0 rounded-md hover:bg-[var(--surface-2)]"
               style={{ color: "var(--text-muted)" }}
             >
               <Plus size={13} />
             </Button>
           )}
           <Button
+            variant="ghost"
+            size="sm"
+            isIconOnly
             onPress={() => setShowArchived((v) => !v)}
             aria-label={showArchived ? "Masquer les notes archivées" : "Afficher les notes archivées"}
-            className="flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-[var(--surface-2)]"
+            className="h-6 w-6 min-w-0 rounded-md hover:bg-[var(--surface-2)]"
             style={{
               color: showArchived ? "var(--accent)" : "var(--text-muted)",
               backgroundColor: showArchived ? "var(--accent-subtle)" : undefined,
@@ -313,9 +319,11 @@ export function NoteList({
             <Archive size={13} />
           </Button>
           <Button
+            variant="ghost"
+            size="sm"
             onPress={toggleSort}
             aria-label={t("changeSort")}
-            className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors hover:bg-[var(--surface-2)]"
+            className="h-6 min-w-0 gap-1.5 rounded-md px-2 text-xs hover:bg-[var(--surface-2)]"
             style={{ color: "var(--text-muted)" }}
           >
             {sortKey === "updatedAt" ? <ArrowsDownUp size={12} /> : <SortAscending size={12} />}
@@ -323,9 +331,12 @@ export function NoteList({
           </Button>
           {onCollapse && (
             <Button
+              variant="ghost"
+              size="sm"
+              isIconOnly
               onPress={onCollapse}
               aria-label="Réduire la liste"
-              className="flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-[var(--surface-2)]"
+              className="h-6 w-6 min-w-0 rounded-md hover:bg-[var(--surface-2)]"
               style={{ color: "var(--text-muted)" }}
             >
               <CaretDoubleLeft size={13} />
@@ -522,8 +533,10 @@ function EmptyNoteList({
       </div>
       {onNewNote && (
         <Button
+          variant="primary"
+          size="sm"
           onPress={onNewNote}
-          className="flex items-center gap-1.5 rounded-lg px-4 py-2 text-xs font-medium transition-opacity hover:opacity-90"
+          className="gap-1.5 rounded-lg px-4 text-xs font-medium"
           style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
         >
           <Plus size={13} />
@@ -637,8 +650,10 @@ function FolderHeaderTitle({
 
   return (
     <Button
+      variant="ghost"
+      size="sm"
       onPress={() => setEditing(true)}
-      className="cursor-text rounded px-1 -mx-1 text-sm font-semibold transition-colors hover:bg-[var(--surface-2)]"
+      className="h-auto cursor-text rounded px-1 -mx-1 text-sm font-semibold hover:bg-[var(--surface-2)]"
       style={{ color: "var(--text-primary)" }}
       aria-label="Cliquer pour renommer le dossier"
     >

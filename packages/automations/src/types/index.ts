@@ -6,7 +6,7 @@ import type { Entity, RelationEdge } from "@supernote/core/types";
 
 // ------ Trigger types ----------------------------------------
 
-export type TriggerType = "cron" | "event" | "alarm" | "webhook";
+export type TriggerType = "cron" | "event" | "alarm" | "webhook" | "one-shot";
 
 export interface CronTriggerConfig {
   readonly expression: string;
@@ -31,6 +31,13 @@ export interface AlarmTriggerConfig {
   /** Offset string, e.g. "-1d", "+2h", "0" */
   readonly offset: string;
   readonly timezone?: string;
+  /**
+   * When true the date field is treated as a month+day pattern: the engine
+   * projects it onto the current year (and rolls to next year once past).
+   * Required for birthday/anniversaire reminders where the persisted date
+   * year is the birth year, not the next-fire year.
+   */
+  readonly recurAnnually?: boolean;
 }
 
 export interface WebhookTriggerConfig {
@@ -38,11 +45,22 @@ export interface WebhookTriggerConfig {
   readonly method?: "GET" | "POST" | "PUT" | "PATCH";
 }
 
+/**
+ * One-shot trigger: fires exactly once at `fireAt`, then the engine
+ * auto-unregisters the automation. Optional `sourceEntityId` lets the host
+ * react to the fire (e.g. mark a reminder as triggered on the source todo).
+ */
+export interface OneShotTriggerConfig {
+  readonly fireAt: string;
+  readonly sourceEntityId?: string;
+}
+
 export type TriggerConfig =
   | ({ type: "cron" } & CronTriggerConfig)
   | ({ type: "event" } & EventTriggerConfig)
   | ({ type: "alarm" } & AlarmTriggerConfig)
-  | ({ type: "webhook" } & WebhookTriggerConfig);
+  | ({ type: "webhook" } & WebhookTriggerConfig)
+  | ({ type: "one-shot" } & OneShotTriggerConfig);
 
 // ------ Action types -----------------------------------------
 
@@ -241,9 +259,18 @@ export interface EngineResolvers {
   createMailDraft: (draft: MailDraft) => Promise<void>;
 }
 
+/**
+ * Optional formula evaluator the engine calls on the `condition` string of
+ * each automation. When undefined, conditions are skipped (treated as true).
+ * Plug the host's formula engine (e.g. @supernote/formulas) here so cron /
+ * event / alarm triggers can gate execution on data-driven predicates.
+ */
+export type ConditionEvaluator = (expr: string, ctx: FormulaContext) => unknown;
+
 export interface AutomationEngineOptions {
   readonly formulaContext: FormulaContext;
   readonly resolvers: EngineResolvers;
   readonly logger?: Logger;
   readonly now?: () => Date;
+  readonly evaluator?: ConditionEvaluator;
 }

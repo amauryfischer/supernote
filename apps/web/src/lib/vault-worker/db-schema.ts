@@ -154,6 +154,17 @@ CREATE TABLE IF NOT EXISTS "automation" (
     FOREIGN KEY ("vaultId") REFERENCES "vault" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS "automation_run" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "automationId" TEXT NOT NULL,
+    "status" TEXT NOT NULL,
+    "triggerPayload" TEXT,
+    "actionResults" TEXT NOT NULL DEFAULT '[]',
+    "errorMessage" TEXT,
+    "durationMs" INTEGER NOT NULL DEFAULT 0,
+    "createdAt" TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS "setting" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "vaultId" TEXT,
@@ -212,6 +223,8 @@ CREATE INDEX IF NOT EXISTS "tag_vaultId_idx" ON "tag"("vaultId");
 CREATE UNIQUE INDEX IF NOT EXISTS "tag_vaultId_path_key" ON "tag"("vaultId", "path");
 CREATE INDEX IF NOT EXISTS "view_vaultId_typeId_idx" ON "view"("vaultId", "typeId");
 CREATE INDEX IF NOT EXISTS "idx_variable_name" ON "variable" ("name");
+CREATE INDEX IF NOT EXISTS "idx_automation_run_automationId_createdAt"
+    ON "automation_run" ("automationId", "createdAt" DESC);
 `;
 
 /**

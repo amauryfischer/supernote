@@ -13,11 +13,13 @@ import { makeEvalError, type EvalError } from "./errors.js";
 import type { Result } from "@supernote/core/result";
 import { ok, err } from "@supernote/core/result";
 import { mathFunctions } from "./stdlib/math.js";
-import { dateFunctions } from "./stdlib/dates.js";
+import { dateFunctions, isDuration } from "./stdlib/dates.js";
 import { stringFunctions } from "./stdlib/strings.js";
 import { logicFunctions } from "./stdlib/logic.js";
 import { makeListFunctions } from "./stdlib/lists.js";
 import { makeEntityFunctions } from "./stdlib/entities.js";
+import { regexFunctions } from "./stdlib/regex.js";
+import { jsonFunctions } from "./stdlib/json.js";
 
 export class Evaluator {
   private readonly listFns: Record<string, (args: Value[]) => Result<Value, EvalError>>;
@@ -87,13 +89,22 @@ export class Evaluator {
   }
 
   private evalPropertyAccess(
-    node: { object: FormulaAST; property: string },
+    node: { object: FormulaAST; property: string; optional?: boolean },
     scope: Scope,
   ): Result<Value, EvalError> {
     const obj = this.eval(node.object, scope);
     if (!obj.ok) return obj;
     const val = obj.value;
-    if (val === null) return ok(null); // null propagation
+
+    // isNull / isNotNull work on any value including null — check before null propagation
+    const propLower = node.property.toLowerCase();
+    if (propLower === "isnull") return ok(val === null);
+    if (propLower === "isnotnull") return ok(val !== null);
+
+    if (val === null) {
+      if (node.optional) return ok(null); // ?. short-circuit
+      return ok(null); // null propagation
+    }
 
     if (typeof val === "object" && !Array.isArray(val) && "_type" in val && (val as { _type: string })._type === "entity") {
       const entity = (val as { _type: "entity"; entity: { fields: Record<string, unknown> } }).entity;
@@ -117,6 +128,51 @@ export class Evaluator {
         case "max": return ok(nums.length === 0 ? null : Math.max(...nums));
         case "first": return ok(val[0] ?? null);
         case "last": return ok(val[val.length - 1] ?? null);
+        case "any": return ok(val.length > 0);
+        case "all": return ok(val.every((v) => coerceToBool(v)));
+        case "none": return ok(val.length === 0);
+        case "isempty": return ok(val.length === 0);
+        case "isnotempty": return ok(val.length > 0);
+        case "compact": return ok(val.filter((v) => v !== null && v !== undefined));
+        case "flatten": {
+          const out: Value[] = [];
+          for (const item of val) {
+            if (Array.isArray(item)) out.push(...item);
+            else out.push(item);
+          }
+          return ok(out);
+        }
+        case "distinct":
+        case "unique": {
+          const seen = new Set<string>();
+          return ok(val.filter((v) => {
+            const k = JSON.stringify(v);
+            if (seen.has(k)) return false;
+            seen.add(k);
+            return true;
+          }));
+        }
+        case "median": {
+          if (nums.length === 0) return ok(null);
+          const sorted = [...nums].sort((a, b) => a - b);
+          const mid = Math.floor(sorted.length / 2);
+          return ok(sorted.length % 2 === 0 ? ((sorted[mid - 1]! + sorted[mid]!) / 2) : sorted[mid]!);
+        }
+        case "stddev": {
+          if (nums.length < 2) return ok(0);
+          const avg2 = nums.reduce((a, b) => a + b, 0) / nums.length;
+          return ok(Math.sqrt(nums.reduce((a, b) => a + Math.pow(b - avg2, 2), 0) / nums.length));
+        }
+        case "variance": {
+          if (nums.length < 2) return ok(0);
+          const avg3 = nums.reduce((a, b) => a + b, 0) / nums.length;
+          return ok(nums.reduce((a, b) => a + Math.pow(b - avg3, 2), 0) / nums.length);
+        }
+        case "includes":
+        case "indexof": {
+          // Without arguments, can't do much as a property — return undefined case
+          break;
+        }
       }
       // For lists of entities, project the property: `Contacts.email` → list of emails.
       const projected: Value[] = [];
@@ -131,6 +187,86 @@ export class Evaluator {
       }
       if (anyEntity) return ok(projected);
       return err(makeEvalError(`Cannot access property '${node.property}' on list`, "PropertyAccess"));
+    }
+
+    // String member methods
+    if (typeof val === "string") {
+      switch (propLower) {
+        case "upper": return ok(val.toUpperCase());
+        case "lower":
+        case "tolowercase": return ok(val.toLowerCase());
+        case "proper": return ok(val.replace(/\w\S*/g, (w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()));
+        case "trim": return ok(val.trim());
+        case "trimstart": return ok(val.trimStart());
+        case "trimend": return ok(val.trimEnd());
+        case "length": return ok(val.length);
+        case "reverse": return ok(val.split("").reverse().join(""));
+        case "slugify": return ok(val.toLowerCase().normalize("NFKD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""));
+        case "isblank":
+        case "isempty": return ok(val.trim() === "");
+        case "isnotblank":
+        case "isnotempty": return ok(val.trim() !== "");
+      }
+    }
+
+    // Number chainable properties
+    if (typeof val === "number") {
+      switch (propLower) {
+        case "abs": return ok(Math.abs(val));
+        case "round": return ok(Math.round(val));
+        case "ceil": return ok(Math.ceil(val));
+        case "floor": return ok(Math.floor(val));
+        case "sign": return ok(Math.sign(val));
+        case "sqrt": return ok(val >= 0 ? Math.sqrt(val) : NaN);
+        case "isinteger": return ok(Number.isInteger(val));
+        case "isfinite": return ok(Number.isFinite(val));
+        case "isnan": return ok(Number.isNaN(val));
+        case "ispositive": return ok(val > 0);
+        case "isnegative": return ok(val < 0);
+        case "iszero": return ok(val === 0);
+        case "iseven": return ok(Number.isInteger(val) && val % 2 === 0);
+        case "isodd": return ok(Number.isInteger(val) && Math.abs(val % 2) === 1);
+        case "trunc": return ok(Math.trunc(val));
+        case "frac": return ok(val - Math.trunc(val));
+      }
+    }
+
+    // Date chainable properties
+    if (val instanceof Date) {
+      const now = this.ctx.now();
+      switch (propLower) {
+        case "year": return ok(val.getFullYear());
+        case "month": return ok(val.getMonth() + 1);
+        case "day": return ok(val.getDate());
+        case "hour": return ok(val.getHours());
+        case "minute": return ok(val.getMinutes());
+        case "second": return ok(val.getSeconds());
+        case "weekday": return ok(val.getDay());
+        case "quarter": return ok(Math.ceil((val.getMonth() + 1) / 3));
+        case "weekofyear": {
+          const startOfYear = new Date(val.getFullYear(), 0, 1);
+          return ok(Math.ceil(((val.getTime() - startOfYear.getTime()) / 86400000 + startOfYear.getDay() + 1) / 7));
+        }
+        case "startofday": return ok(new Date(val.getFullYear(), val.getMonth(), val.getDate()));
+        case "endofday": return ok(new Date(val.getFullYear(), val.getMonth(), val.getDate(), 23, 59, 59, 999));
+        case "startofmonth": return ok(new Date(val.getFullYear(), val.getMonth(), 1));
+        case "endofmonth": return ok(new Date(val.getFullYear(), val.getMonth() + 1, 0));
+        case "startofyear": return ok(new Date(val.getFullYear(), 0, 1));
+        case "endofyear": return ok(new Date(val.getFullYear(), 11, 31));
+        case "toiso": return ok(val.toISOString());
+        case "tounix": return ok(val.getTime());
+        case "istoday": {
+          return ok(
+            val.getFullYear() === now.getFullYear() &&
+            val.getMonth() === now.getMonth() &&
+            val.getDate() === now.getDate(),
+          );
+        }
+        case "ispast": return ok(val.getTime() < now.getTime());
+        case "isfuture": return ok(val.getTime() > now.getTime());
+        case "isweekend": return ok(val.getDay() === 0 || val.getDay() === 6);
+        case "isweekday": return ok(val.getDay() !== 0 && val.getDay() !== 6);
+      }
     }
 
     return err(makeEvalError(`Cannot access property '${node.property}' on ${typeof val}`, "PropertyAccess"));
@@ -148,6 +284,9 @@ export class Evaluator {
   }
 
   private applyBinaryOp(op: string, lv: Value, rv: Value): Result<Value, EvalError> {
+    // Nullish coalescing — never null-propagate
+    if (op === "??") return ok(lv !== null ? lv : rv);
+
     // Null propagation for arithmetic
     if (op !== "==" && op !== "!=" && op !== "and" && op !== "or") {
       if (lv === null || rv === null) return ok(null);
@@ -155,6 +294,9 @@ export class Evaluator {
 
     switch (op) {
       case "+": {
+        // Date + duration
+        if (lv instanceof Date && isDuration(rv)) return ok(this.applyDuration(lv, rv, 1));
+        if (isDuration(lv) && rv instanceof Date) return ok(this.applyDuration(rv, lv, 1));
         // String concatenation if either side is a string
         if (typeof lv === "string" || typeof rv === "string") {
           return ok(coerceToString(lv) + coerceToString(rv));
@@ -163,7 +305,11 @@ export class Evaluator {
         if (l === null || r === null) return err(makeEvalError("'+' requires numbers or strings"));
         return ok(l + r);
       }
-      case "-": return this.arithmeticOp(lv, rv, (a, b) => a - b, "-");
+      case "-": {
+        // Date - duration
+        if (lv instanceof Date && isDuration(rv)) return ok(this.applyDuration(lv, rv, -1));
+        return this.arithmeticOp(lv, rv, (a, b) => a - b, "-");
+      }
       case "*": return this.arithmeticOp(lv, rv, (a, b) => a * b, "*");
       case "/": {
         const l = coerceToNumber(lv), r = coerceToNumber(rv);
@@ -187,6 +333,13 @@ export class Evaluator {
       case "or": return ok(coerceToBool(lv) || coerceToBool(rv));
       default: return err(makeEvalError(`Unknown operator '${op}'`));
     }
+  }
+
+  private applyDuration(date: Date, dur: import("./stdlib/dates.js").DurationValue, sign: 1 | -1): Date {
+    const result = new Date(date.getTime() + sign * dur.ms);
+    if (dur.months !== 0) result.setMonth(result.getMonth() + sign * dur.months);
+    if (dur.years !== 0) result.setFullYear(result.getFullYear() + sign * dur.years);
+    return result;
   }
 
   private arithmeticOp(lv: Value, rv: Value, fn: (a: number, b: number) => number, op: string): Result<Value, EvalError> {
@@ -227,6 +380,25 @@ export class Evaluator {
   }
 
   private evalFunctionCall(node: { name: string; args: FormulaAST[] }, scope: Scope): Result<Value, EvalError> {
+    // Try(expr, fallback) — evaluate expr; on error return fallback (unevaluated first arg semantics)
+    if (node.name === "Try" && node.args.length >= 1) {
+      const exprResult = this.eval(node.args[0]!, scope);
+      if (exprResult.ok) return exprResult;
+      // eval fallback (second arg), or null
+      if (node.args.length >= 2) return this.eval(node.args[1]!, scope);
+      return ok(null);
+    }
+
+    // NullIf(a, b) — null if a==b else a
+    if (node.name === "NullIf" && node.args.length >= 2) {
+      const a = this.eval(node.args[0]!, scope);
+      if (!a.ok) return a;
+      const b = this.eval(node.args[1]!, scope);
+      if (!b.ok) return b;
+      const equal = a.value === b.value || (a.value instanceof Date && b.value instanceof Date && a.value.getTime() === b.value.getTime());
+      return ok(equal ? null : a.value);
+    }
+
     // Evaluate args (lambdas stay as lambda values)
     const args: Value[] = [];
     for (const argNode of node.args) {
@@ -237,12 +409,14 @@ export class Evaluator {
 
     const name = node.name;
 
-    // Dispatch: entity fns first (Filter overloads), then lists, math, dates, strings, logic
+    // Dispatch: entity fns first (Filter overloads), then lists, math, dates, strings, logic, regex, json
     if (name in this.entityFns) return (this.entityFns[name]!)(args);
     if (name in this.listFns) return (this.listFns[name]!)(args);
     if (name in mathFunctions) return (mathFunctions[name]!)(args);
     if (name in stringFunctions) return (stringFunctions[name]!)(args);
     if (name in logicFunctions) return (logicFunctions[name]!)(args);
+    if (name in regexFunctions) return (regexFunctions[name]!)(args);
+    if (name in jsonFunctions) return (jsonFunctions[name]!)(args);
 
     // Date functions need "now" callback
     const dateFn = dateFunctions[name];

@@ -20,6 +20,7 @@
     "@phosphor-icons/react": "^2.1.10",
     "@sqlite.org/sqlite-wasm": "3.53.0-build1",
     "@supernote/ai": "workspace:*",
+    "@supernote/automations": "workspace:*",
     "@supernote/canvas": "workspace:*",
     "@supernote/core": "workspace:*",
     "@supernote/editor": "workspace:*",

@@ -774,9 +774,11 @@ export function NoteEditor({ note }: NoteEditorProps) {
           )}
           {ollamaAvailable && (
             <Button
+              variant="ghost"
+              size="sm"
               onPress={runSuggestTitle}
               isDisabled={isSuggesting}
-              className="flex shrink-0 items-center gap-1 rounded border px-2 py-1 text-xs transition-all hover:opacity-80 disabled:opacity-50"
+              className="h-7 min-w-0 shrink-0 gap-1 rounded border px-2 text-xs hover:opacity-80 disabled:opacity-50"
               style={{
                 borderColor: "var(--border)",
                 color: "var(--text-secondary)",
@@ -1097,9 +1099,11 @@ function FolderBreadcrumb({
             // always-editable note title input above). Keeps the segment
             // visually inert until the user actually clicks it.
             <Button
+              variant="ghost"
+              size="sm"
               onPress={() => beginEdit(i)}
               onDoubleClick={() => beginEdit(i)}
-              className="cursor-text rounded px-1 py-0.5 capitalize transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--text-primary)]"
+              className="h-auto min-w-0 cursor-text rounded bg-transparent px-1 py-0.5 capitalize hover:bg-[var(--surface-2)] hover:text-[var(--text-primary)]"
               style={{ color: "var(--text-secondary)", fontWeight: 500 }}
               aria-label={onRenameFolder ? "Cliquer pour renommer" : c.label}
             >
@@ -1293,31 +1297,34 @@ function EditableNoteDate({
           }}
           aria-label="Modifier la date affichée"
         />
-        <Button
-          onPress={() => void commit(draft || null)}
+        <button
+          type="button"
+          onClick={() => void commit(draft || null)}
           className="text-[10px] font-medium uppercase tracking-wide"
           style={{ color: "var(--accent)" }}
           aria-label="Enregistrer (Entrée)"
         >
           OK
-        </Button>
+        </button>
         {isOverridden && (
-          <Button
-            onPress={() => void commit(null)}
+          <button
+            type="button"
+            onClick={() => void commit(null)}
             className="text-[10px] underline"
             style={{ color: "var(--text-muted)" }}
             aria-label="Réinitialiser à la date de modification"
           >
             Réinitialiser
-          </Button>
+          </button>
         )}
       </div>
     );
   }
 
   return (
-    <Button
-      onPress={() => setEditing(true)}
+    <button
+      type="button"
+      onClick={() => setEditing(true)}
       className="flex items-center gap-1.5 rounded px-1 py-0.5 transition-colors hover:bg-[var(--surface-2)]"
       aria-label={
         isOverridden
@@ -1338,7 +1345,7 @@ function EditableNoteDate({
       >
         {displayLabel}
       </span>
-    </Button>
+    </button>
   );
 }
 
@@ -1392,9 +1399,12 @@ function NoteTagsInput({ noteId, tags, onTagsChange, aiBadge }: NoteTagsInputPro
           >
             #{tag}
             <Button
+              variant="ghost"
+              size="sm"
+              isIconOnly
               onPress={() => removeTag(tag)}
               aria-label={`Retirer le tag ${tag}`}
-              className="opacity-70 transition-opacity hover:opacity-100"
+              className="h-4 w-4 min-w-0 bg-transparent p-0 opacity-70 hover:opacity-100"
             >
               <X size={9} weight="bold" />
             </Button>

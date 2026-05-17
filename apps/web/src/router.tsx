@@ -131,6 +131,9 @@ export const router: any = createBrowserRouter([
       { path: "variables/nouveau", lazy: lazyPage(() => import("./app/variables/nouveau/page")) },
       { path: "variables/:id", lazy: lazyPage(() => import("./app/variables/[id]/page")) },
 
+      // ── AI Assistant (agentic chat with local Ollama) ────────────────
+      { path: "ai", lazy: lazyPage(() => import("./app/ai/page")) },
+
       // ── Misc top-level routes ────────────────────────────────────────
       { path: "tags", lazy: lazyPage(() => import("./app/tags/page")) },
       { path: "templates", lazy: lazyPage(() => import("./app/templates/page")) },

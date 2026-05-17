@@ -187,3 +187,43 @@ export type GetRunsOutput = z.infer<typeof GetRunsOutput>;
 
 export const GetNextRunsOutput = z.array(z.string().datetime());
 export type GetNextRunsOutput = z.infer<typeof GetNextRunsOutput>;
+
+// ── Routine engine execution ─────────────────────────────────────────────────
+
+export const RunRoutineInput = z.object({
+  id: z.string().min(1),
+  payload: z.record(z.string(), z.unknown()).optional(),
+});
+export type RunRoutineInput = z.infer<typeof RunRoutineInput>;
+
+export const ActionResultSchema = z.object({
+  actionType: z.string(),
+  success: z.boolean(),
+  output: z.unknown().optional(),
+  error: z.string().optional(),
+  durationMs: z.number().int().nonnegative(),
+});
+export type ActionResult = z.infer<typeof ActionResultSchema>;
+
+export const RoutineRunResultSchema = z.object({
+  id: z.string(),
+  automationId: z.string(),
+  status: z.enum(["RUNNING", "SUCCESS", "FAILURE", "SKIPPED"]),
+  triggerPayload: z.unknown().optional(),
+  actionResults: z.array(ActionResultSchema),
+  errorMessage: z.string().optional(),
+  durationMs: z.number().int().nonnegative(),
+  createdAt: z.string().datetime(),
+});
+export type RoutineRunResult = z.infer<typeof RoutineRunResultSchema>;
+
+export const GetRoutineRunsInput = z.object({
+  automationId: z.string().min(1),
+  limit: z.number().int().positive().max(200).default(10),
+});
+export type GetRoutineRunsInput = z.infer<typeof GetRoutineRunsInput>;
+
+export const GetRoutineRunsOutput = z.object({
+  items: z.array(RoutineRunResultSchema),
+});
+export type GetRoutineRunsOutput = z.infer<typeof GetRoutineRunsOutput>;
