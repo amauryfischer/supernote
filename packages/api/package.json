@@ -37,8 +37,8 @@
     "@modelcontextprotocol/sdk": "^1.12.0",
     "@supernote/core": "workspace:*",
     "@supernote/db": "workspace:*",
-    "hono": "^4.7.11",
-    "ws": "^8.20.0",
+    "hono": "^4.12.19",
+    "ws": "^8.20.1",
     "zod": "^3.24.0"
   },
   "devDependencies": {
