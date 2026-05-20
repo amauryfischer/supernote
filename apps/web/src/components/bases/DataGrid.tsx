@@ -16,13 +16,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Button } from "@heroui/react";
-import { Plus, Trash, ArrowUp, ArrowDown } from "@phosphor-icons/react";
+import { Plus, Trash, ArrowUp, ArrowDown, CaretDown } from "@phosphor-icons/react";
 import type { EntityType, Field, SelectOption } from "@supernote/core";
 import type { View, SortClause } from "@supernote/ipc";
 import { useToast } from "@supernote/ui";
 import { trpc } from "@/lib/trpc/client";
 import { coreFieldToIpc } from "@/components/schemas/adapters";
-import { Cell } from "./Cell";
+import { Cell, type AdvanceDir } from "./Cell";
 import {
   useEntitiesForView,
   useEntityMutations,
@@ -30,7 +30,11 @@ import {
   resolveVisibleFieldIds,
 } from "./hooks";
 import { ColumnHeaderMenu } from "./ColumnHeaderMenu";
+import { FooterSummarize } from "./FooterSummarize";
+import { resolveConditionalFormat, cfStyleToCss } from "./conditional-format";
 import { useShellChrome } from "@/components/shell/shell-chrome-context";
+
+type SummarizeOp = NonNullable<View["summarize"]>[string];
 
 interface DataGridProps {
   base: EntityType;
@@ -133,13 +137,90 @@ export function DataGrid({ base, view, maxHeight }: DataGridProps) {
     });
   }, [items]);
 
-  const addRow = () => {
-    mut.create.mutate({
-      typeId: base.id,
-      fields: {},
-      body: "",
-    });
-  };
+  // ── Auto-edit : nonce + target ─────────────────────────────────────────────
+  // pendingEditTarget : (entityId, fieldId) à passer en édition au prochain
+  // render qui inclut cette entité. Le nonce monotone force le useEffect
+  // côté Cell à se déclencher même si la cible précédente était la même.
+  const [editNonce, setEditNonce] = useState(0);
+  const [pendingEditTarget, setPendingEditTarget] = useState<
+    | { entityId: string; fieldId: string }
+    | null
+  >(null);
+  // Map (entityId::fieldId) → nonce courant ; le Cell de cette adresse
+  // recevra forceEditKey=nonce et passera en édition.
+  const forceEditKeys = useMemo(() => {
+    if (!pendingEditTarget) return new Map<string, number>();
+    return new Map<string, number>([
+      [`${pendingEditTarget.entityId}::${pendingEditTarget.fieldId}`, editNonce],
+    ]);
+  }, [pendingEditTarget, editNonce]);
+
+  // Demande d'auto-edit en attente d'une entité encore non rendue (création).
+  // Quand l'entité apparaît dans items, on déclenche pendingEditTarget.
+  const pendingNewEntityRef = useRef<{ entityId: string; fieldId: string } | null>(null);
+
+  useEffect(() => {
+    const pending = pendingNewEntityRef.current;
+    if (!pending) return;
+    if (items.some((e) => e.id === pending.entityId)) {
+      pendingNewEntityRef.current = null;
+      setPendingEditTarget(pending);
+      setEditNonce((n) => n + 1);
+    }
+  }, [items]);
+
+  // Scroll la cellule cible dans le viewport quand la cible change.
+  useEffect(() => {
+    if (!pendingEditTarget) return;
+    const wrap = wrapperRef.current;
+    if (!wrap) return;
+    const row = wrap.querySelector<HTMLElement>(
+      `tr[data-row-id="${pendingEditTarget.entityId}"]`,
+    );
+    row?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [pendingEditTarget, editNonce]);
+
+  // Première colonne éditable (skip readonly comme createdAt/formula/etc.).
+  const firstEditableFieldId = useMemo(() => {
+    const readonlyKinds = new Set([
+      "createdAt",
+      "updatedAt",
+      "createdBy",
+      "autoNumber",
+      "formula",
+      "rollup",
+      "lookup",
+    ]);
+    for (const fid of visibleIds) {
+      const f = fieldById.get(fid);
+      if (f && !readonlyKinds.has(f.kind)) return fid;
+    }
+    return visibleIds[0];
+  }, [visibleIds, fieldById]);
+
+  const addRow = useCallback(() => {
+    mut.create.mutate(
+      {
+        typeId: base.id,
+        fields: {},
+        body: "",
+      },
+      {
+        onSuccess: (created) => {
+          const id =
+            created && typeof created === "object" && "id" in created
+              ? (created as { id: string }).id
+              : null;
+          if (id && firstEditableFieldId) {
+            pendingNewEntityRef.current = {
+              entityId: id,
+              fieldId: firstEditableFieldId,
+            };
+          }
+        },
+      },
+    );
+  }, [mut.create, base.id, firstEditableFieldId]);
 
   // ── Ajouter une colonne (text par défaut, label "Colonne N") ──────────────
   // Le menu colonne reste accessible pour changer kind/nom après création.
@@ -172,16 +253,26 @@ export function DataGrid({ base, view, maxHeight }: DataGridProps) {
   // Cache handlers stables (évite React.memo(Cell) cache miss)
   const updateRef = useRef(mut.update);
   updateRef.current = mut.update;
-  const handlerCacheRef = useRef(new Map<string, (next: unknown) => void>());
+  const handlerCacheRef = useRef(
+    new Map<string, (next: unknown, advance?: AdvanceDir) => void>(),
+  );
   const [justEdited, setJustEdited] = useState<{ entityId: string; fieldId: string; ts: number } | null>(null);
   const justEditedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // computeAdvanceRef : indirection pour éviter d'invalider le cache de handlers
+  // quand items / visibleIds changent. Pointé vers la dernière fonction via
+  // l'effet plus bas — les handlers stables capturent juste la ref.
+  const computeAdvanceRef = useRef<
+    (entityId: string, fieldId: string, advance: AdvanceDir) => void
+  >(() => {});
+
   const getCellHandler = useCallback(
     (entityId: string, fieldId: string) => {
       const key = `${entityId}::${fieldId}`;
       const cache = handlerCacheRef.current;
       const cached = cache.get(key);
       if (cached) return cached;
-      const handler = (next: unknown) => {
+      const handler = (next: unknown, advance?: AdvanceDir) => {
         updateRef.current.mutate({
           id: entityId,
           fields: { [fieldId]: next as never },
@@ -189,6 +280,7 @@ export function DataGrid({ base, view, maxHeight }: DataGridProps) {
         setJustEdited({ entityId, fieldId, ts: Date.now() });
         if (justEditedTimer.current) clearTimeout(justEditedTimer.current);
         justEditedTimer.current = setTimeout(() => setJustEdited(null), 1400);
+        if (advance) computeAdvanceRef.current(entityId, fieldId, advance);
       };
       cache.set(key, handler);
       return handler;
@@ -387,6 +479,80 @@ export function DataGrid({ base, view, maxHeight }: DataGridProps) {
   itemsRef.current = items;
   const fieldByIdRef = useRef(fieldById);
   fieldByIdRef.current = fieldById;
+  const visibleIdsRef = useRef(visibleIds);
+  visibleIdsRef.current = visibleIds;
+
+  // Advance après commit (Tab / Shift+Tab / Enter / Shift+Enter).
+  // Cherche dynamiquement la prochaine cellule éditable et déclenche
+  // l'auto-edit. Si on dépasse la dernière ligne avec Tab, crée une row.
+  useEffect(() => {
+    const readonlyKinds = new Set([
+      "createdAt",
+      "updatedAt",
+      "createdBy",
+      "autoNumber",
+      "formula",
+      "rollup",
+      "lookup",
+    ]);
+    const isEditableAt = (col: number) => {
+      const fid = visibleIdsRef.current[col];
+      if (!fid) return false;
+      const f = fieldByIdRef.current.get(fid);
+      return !!f && !readonlyKinds.has(f.kind);
+    };
+    computeAdvanceRef.current = (entityId, fieldId, advance) => {
+      const currentItems = itemsRef.current;
+      const currentVisible = visibleIdsRef.current;
+      const rowIdx = currentItems.findIndex((e) => e.id === entityId);
+      const colIdx = currentVisible.indexOf(fieldId);
+      if (rowIdx < 0 || colIdx < 0) return;
+      const lastRow = currentItems.length - 1;
+      const lastCol = currentVisible.length - 1;
+      let nr = rowIdx;
+      let nc = colIdx;
+      const step = (): boolean => {
+        // Avance une fois selon `advance`. Retourne false si on est tombé
+        // hors grille (Tab après dernière col + dernière ligne, ou
+        // Shift+Tab avant première col + première ligne).
+        if (advance === "tab") {
+          nc += 1;
+          if (nc > lastCol) {
+            nc = 0;
+            nr += 1;
+          }
+        } else if (advance === "shift-tab") {
+          nc -= 1;
+          if (nc < 0) {
+            nc = lastCol;
+            nr -= 1;
+          }
+        } else if (advance === "enter") {
+          nr += 1;
+        } else if (advance === "shift-enter") {
+          nr -= 1;
+        }
+        return nr >= 0 && nr <= lastRow;
+      };
+      // Avance d'au moins une étape. Si la cible est readonly, continue.
+      let safety = currentVisible.length * 2 + 4;
+      do {
+        const ok = step();
+        if (!ok) {
+          if (advance === "tab" || advance === "enter") {
+            addRow();
+          }
+          return;
+        }
+      } while (!isEditableAt(nc) && --safety > 0);
+      if (safety <= 0) return;
+      const nextEntity = currentItems[nr];
+      const nextFid = currentVisible[nc];
+      if (!nextEntity || !nextFid) return;
+      setPendingEditTarget({ entityId: nextEntity.id, fieldId: nextFid });
+      setEditNonce((n) => n + 1);
+    };
+  }, [addRow]);
 
   const handleWrapperKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLDivElement>) => {
@@ -626,11 +792,12 @@ export function DataGrid({ base, view, maxHeight }: DataGridProps) {
               #
             </th>
 
-            {visibleIds.map((fid) => {
+            {visibleIds.map((fid, headerColIdx) => {
               const f = fieldById.get(fid);
               if (!f) return null;
               const sort = view.sorts.find((s) => s.fieldId === fid);
               const colW = colWidths[fid] ?? columnMinWidth(f);
+              const isPrimary = headerColIdx === 0;
 
               // Classes CSS pour le drag-over visuel
               let dropClass = "";
@@ -645,25 +812,26 @@ export function DataGrid({ base, view, maxHeight }: DataGridProps) {
                   key={fid}
                   draggable
                   data-field-id={fid}
-                  className={`group/header relative cursor-pointer border-b border-r px-2 py-2 text-left text-xs font-medium hover:bg-[var(--surface-2)]${dropClass}`}
+                  className={`group/header relative cursor-pointer border-b border-r px-2 py-2 text-left text-xs font-medium hover:bg-[var(--surface-2)]${dropClass}${isPrimary ? " sn-datagrid-primary-col" : ""}`}
                   style={{
                     width: colW,
                     minWidth: colW,
                     maxWidth: colW,
                     borderColor: "var(--border-subtle)",
                     color: "var(--text-secondary)",
-                    position: "relative",
+                    position: isPrimary ? "sticky" : "relative",
+                    left: isPrimary ? 36 : undefined,
+                    backgroundColor: isPrimary ? "var(--surface-1)" : undefined,
+                    zIndex: isPrimary ? 11 : undefined,
                   }}
-                  title="Clic ou clic droit pour les options de colonne"
+                  title="Clic gauche : trier (asc → desc → aucun) · Clic droit : options"
                   onClick={(e) => {
-                    // Ignore si on vient de finir un drag
                     if (dragJustEndedRef.current) return;
-                    const th = e.currentTarget as HTMLElement;
-                    setOpenMenuFid((prev) => {
-                      if (prev === fid) { setOpenMenuAnchor(null); return null; }
-                      setOpenMenuAnchor(th);
-                      return fid;
-                    });
+                    // Clic sur la caret ▼ : la propagation est stoppée par
+                    // le bouton lui-même (cf. plus bas). Donc ici on est
+                    // forcément sur le label → cycle de tri.
+                    void e;
+                    sortByField(fid);
                   }}
                   onContextMenu={(e) => {
                     e.preventDefault();
@@ -677,9 +845,9 @@ export function DataGrid({ base, view, maxHeight }: DataGridProps) {
                   onDragLeave={handleDragLeave}
                   onDrop={(e) => handleDrop(e, fid)}
                 >
-                  {/* Libellé + indicateur de tri */}
-                  <span className="inline-flex items-center gap-1 select-none">
-                    {f.label || f.name}
+                  {/* Libellé + indicateur de tri + bouton menu */}
+                  <span className="inline-flex w-full items-center gap-1 select-none">
+                    <span className="truncate">{f.label || f.name}</span>
                     {sort && (
                       sort.direction === "asc" ? (
                         <ArrowUp size={11} weight="bold" style={{ color: "var(--accent)" }} />
@@ -687,6 +855,23 @@ export function DataGrid({ base, view, maxHeight }: DataGridProps) {
                         <ArrowDown size={11} weight="bold" style={{ color: "var(--accent)" }} />
                       )
                     )}
+                    <button
+                      type="button"
+                      aria-label="Options de la colonne"
+                      className="ml-auto rounded p-0.5 opacity-0 transition-opacity hover:bg-[var(--surface-2)] group-hover/header:opacity-100 focus:opacity-100 focus:outline-none focus:ring-1 focus:ring-[var(--accent)]"
+                      style={{ color: "var(--text-muted)" }}
+                      draggable={false}
+                      onDragStart={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const th = (e.currentTarget as HTMLElement).closest("th");
+                        setOpenMenuAnchor(th as HTMLElement | null);
+                        setOpenMenuFid((prev) => (prev === fid ? null : fid));
+                      }}
+                    >
+                      <CaretDown size={10} weight="bold" />
+                    </button>
                   </span>
 
                   {/* Menu popover */}
@@ -868,18 +1053,35 @@ export function DataGrid({ base, view, maxHeight }: DataGridProps) {
                   const f = fieldById.get(fid);
                   if (!f) return null;
                   const isLastCol = colIdx === visibleIds.length - 1;
+                  const isPrimaryCol = colIdx === 0;
                   const justEditedHere =
                     justEdited?.entityId === entity.id && justEdited?.fieldId === fid;
+                  const cf = resolveConditionalFormat(
+                    entity.fields[fid],
+                    entity.fields,
+                    fid,
+                    (view.conditionalFormats ?? []) as never,
+                  );
+                  const cfCss = cfStyleToCss(cf.cellStyle ?? cf.rowStyle);
                   return (
                     <td
                       key={fid}
                       data-cell-row={idx}
                       data-cell-col={colIdx}
                       data-field-id={fid}
-                      className={`sn-datagrid-cell border-r p-0${justEditedHere ? " sn-datagrid-cell--just-edited" : ""}`}
+                      className={`sn-datagrid-cell border-r p-0${justEditedHere ? " sn-datagrid-cell--just-edited" : ""}${isPrimaryCol ? " sn-datagrid-primary-col" : ""}`}
                       style={{
                         borderColor: "var(--border-subtle)",
                         verticalAlign: "top",
+                        position: isPrimaryCol ? "sticky" : undefined,
+                        left: isPrimaryCol ? 36 : undefined,
+                        backgroundColor: cfCss.backgroundColor ?? (isPrimaryCol
+                          ? (isSelected ? "var(--surface-2)" : "var(--surface-0)")
+                          : undefined),
+                        color: cfCss.color,
+                        fontWeight: cfCss.fontWeight,
+                        fontStyle: cfCss.fontStyle,
+                        zIndex: isPrimaryCol ? 1 : undefined,
                       }}
                       onKeyDown={(e) => {
                         if (
@@ -897,6 +1099,9 @@ export function DataGrid({ base, view, maxHeight }: DataGridProps) {
                         field={f}
                         value={entity.fields[fid]}
                         onChange={getCellHandler(entity.id, fid)}
+                        forceEditKey={forceEditKeys.get(`${entity.id}::${fid}`)}
+                        rowFields={entity.fields}
+                        baseFields={base.fields as unknown as Field[]}
                       />
                     </td>
                   );
@@ -939,6 +1144,23 @@ export function DataGrid({ base, view, maxHeight }: DataGridProps) {
               </span>
             </td>
           </tr>
+
+          {/* Footer Summarize (par colonne) */}
+          {!isLoading && items.length > 0 && (
+            <FooterSummarize
+              view={view}
+              fields={base.fields as unknown as Field[]}
+              visibleIds={visibleIds}
+              colWidths={colWidths}
+              rows={items.map((e) => ({ fields: e.fields ?? {} }))}
+              onUpdate={(summarize) => {
+                updateView.mutate({
+                  id: view.id,
+                  summarize: summarize as Record<string, SummarizeOp>,
+                });
+              }}
+            />
+          )}
 
           {/* Footer compteur */}
           {!isLoading && items.length > 0 && (

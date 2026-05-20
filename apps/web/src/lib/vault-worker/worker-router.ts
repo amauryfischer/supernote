@@ -1117,22 +1117,42 @@ export function buildRouter(
   // `view.fields` columns are stored as JSON strings (filters/sorts/etc.) and
   // parsed on read, mirroring the same approach used by `entity_type.fields`.
 
-  const viewRowToApi = (r: SqlRow): unknown => ({
-    id: r["id"],
-    typeId: r["typeId"],
-    name: r["name"],
-    icon: (r["icon"] as string) ?? undefined,
-    kind: (r["kind"] as string) ?? "table",
-    filters: JSON.parse((r["filters"] as string) || "[]"),
-    sorts: JSON.parse((r["sorts"] as string) || "[]"),
-    visibleFields: JSON.parse((r["visibleFields"] as string) || "[]"),
-    hiddenFields: JSON.parse((r["hiddenFields"] as string) || "[]"),
-    groupByField: (r["groupByField"] as string) ?? undefined,
-    rowHeight: (r["rowHeight"] as string) ?? "normal",
-    isSystem: Boolean(r["isSystem"]),
-    createdAt: r["createdAt"],
-    updatedAt: r["updatedAt"],
-  });
+  const safeJson = <T,>(raw: unknown, fallback: T): T => {
+    if (raw === null || raw === undefined) return fallback;
+    if (typeof raw !== "string") return fallback;
+    try {
+      return JSON.parse(raw) as T;
+    } catch {
+      return fallback;
+    }
+  };
+
+  const viewRowToApi = (r: SqlRow): unknown => {
+    const chart = r["chartConfig"];
+    const form = r["formConfig"];
+    const timeline = r["timelineConfig"];
+    return {
+      id: r["id"],
+      typeId: r["typeId"],
+      name: r["name"],
+      icon: (r["icon"] as string) ?? undefined,
+      kind: (r["kind"] as string) ?? "table",
+      filters: safeJson(r["filters"], [] as unknown[]),
+      sorts: safeJson(r["sorts"], [] as unknown[]),
+      visibleFields: safeJson(r["visibleFields"], [] as string[]),
+      hiddenFields: safeJson(r["hiddenFields"], [] as string[]),
+      groupByField: (r["groupByField"] as string) ?? undefined,
+      rowHeight: (r["rowHeight"] as string) ?? "normal",
+      summarize: safeJson(r["summarize"], {} as Record<string, string>),
+      conditionalFormats: safeJson(r["conditionalFormats"], [] as unknown[]),
+      chartConfig: chart ? safeJson(chart, undefined) : undefined,
+      formConfig: form ? safeJson(form, undefined) : undefined,
+      timelineConfig: timeline ? safeJson(timeline, undefined) : undefined,
+      isSystem: Boolean(r["isSystem"]),
+      createdAt: r["createdAt"],
+      updatedAt: r["updatedAt"],
+    };
+  };
 
   const viewsList = async (input?: unknown): Promise<unknown> => {
     const { typeId } = (input ?? {}) as { typeId?: string };
@@ -1165,6 +1185,11 @@ export function buildRouter(
       hiddenFields?: string[];
       groupByField?: string;
       rowHeight?: string;
+      summarize?: Record<string, string>;
+      conditionalFormats?: unknown[];
+      chartConfig?: unknown;
+      formConfig?: unknown;
+      timelineConfig?: unknown;
       isSystem?: boolean;
     };
     const id = generateId();
@@ -1173,8 +1198,9 @@ export function buildRouter(
       `INSERT INTO view (
          id, vaultId, typeId, name, icon, kind,
          filters, sorts, visibleFields, hiddenFields,
-         groupByField, rowHeight, isSystem, createdAt, updatedAt
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         groupByField, rowHeight, summarize, conditionalFormats,
+         chartConfig, formConfig, timelineConfig, isSystem, createdAt, updatedAt
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         vaultId,
@@ -1188,6 +1214,11 @@ export function buildRouter(
         JSON.stringify(inp.hiddenFields ?? []),
         inp.groupByField ?? null,
         inp.rowHeight ?? "normal",
+        JSON.stringify(inp.summarize ?? {}),
+        JSON.stringify(inp.conditionalFormats ?? []),
+        inp.chartConfig == null ? null : JSON.stringify(inp.chartConfig),
+        inp.formConfig == null ? null : JSON.stringify(inp.formConfig),
+        inp.timelineConfig == null ? null : JSON.stringify(inp.timelineConfig),
         inp.isSystem ? 1 : 0,
         ts,
         ts,
@@ -1208,6 +1239,11 @@ export function buildRouter(
       hiddenFields?: string[];
       groupByField?: string | null;
       rowHeight?: string;
+      summarize?: Record<string, string>;
+      conditionalFormats?: unknown[];
+      chartConfig?: unknown;
+      formConfig?: unknown;
+      timelineConfig?: unknown;
     };
     const existing = row(db.exec(`SELECT * FROM view WHERE id = ?`, [id]));
     if (!existing) throw new Error(`View not found: ${id}`);
@@ -1215,36 +1251,64 @@ export function buildRouter(
 
     // Each column is either patched or carried over from the existing row.
     // groupByField is special: callers can pass `null` to clear it, which is
-    // different from omitting the field (= keep).
+    // different from omitting the field (= keep). Same for chartConfig /
+    // formConfig: null clears, undefined keeps existing value.
     const next = {
       name: patch.name ?? (existing["name"] as string),
       icon: patch.icon ?? (existing["icon"] as string | null),
       kind: patch.kind ?? (existing["kind"] as string),
       filters: JSON.stringify(
-        patch.filters ?? JSON.parse((existing["filters"] as string) || "[]"),
+        patch.filters ?? safeJson(existing["filters"], [] as unknown[]),
       ),
       sorts: JSON.stringify(
-        patch.sorts ?? JSON.parse((existing["sorts"] as string) || "[]"),
+        patch.sorts ?? safeJson(existing["sorts"], [] as unknown[]),
       ),
       visibleFields: JSON.stringify(
         patch.visibleFields ??
-          JSON.parse((existing["visibleFields"] as string) || "[]"),
+          safeJson(existing["visibleFields"], [] as string[]),
       ),
       hiddenFields: JSON.stringify(
         patch.hiddenFields ??
-          JSON.parse((existing["hiddenFields"] as string) || "[]"),
+          safeJson(existing["hiddenFields"], [] as string[]),
       ),
       groupByField:
         patch.groupByField === undefined
           ? (existing["groupByField"] as string | null)
           : patch.groupByField,
       rowHeight: patch.rowHeight ?? (existing["rowHeight"] as string),
+      summarize: JSON.stringify(
+        patch.summarize ??
+          safeJson(existing["summarize"], {} as Record<string, string>),
+      ),
+      conditionalFormats: JSON.stringify(
+        patch.conditionalFormats ??
+          safeJson(existing["conditionalFormats"], [] as unknown[]),
+      ),
+      chartConfig:
+        patch.chartConfig === undefined
+          ? (existing["chartConfig"] as string | null)
+          : patch.chartConfig === null
+            ? null
+            : JSON.stringify(patch.chartConfig),
+      formConfig:
+        patch.formConfig === undefined
+          ? (existing["formConfig"] as string | null)
+          : patch.formConfig === null
+            ? null
+            : JSON.stringify(patch.formConfig),
+      timelineConfig:
+        patch.timelineConfig === undefined
+          ? (existing["timelineConfig"] as string | null)
+          : patch.timelineConfig === null
+            ? null
+            : JSON.stringify(patch.timelineConfig),
     };
 
     db.run(
       `UPDATE view SET name = ?, icon = ?, kind = ?, filters = ?, sorts = ?,
          visibleFields = ?, hiddenFields = ?, groupByField = ?, rowHeight = ?,
-         updatedAt = ? WHERE id = ?`,
+         summarize = ?, conditionalFormats = ?, chartConfig = ?, formConfig = ?,
+         timelineConfig = ?, updatedAt = ? WHERE id = ?`,
       [
         next.name,
         next.icon ?? null,
@@ -1255,6 +1319,11 @@ export function buildRouter(
         next.hiddenFields,
         next.groupByField ?? null,
         next.rowHeight,
+        next.summarize,
+        next.conditionalFormats,
+        next.chartConfig ?? null,
+        next.formConfig ?? null,
+        next.timelineConfig ?? null,
         ts,
         id,
       ],

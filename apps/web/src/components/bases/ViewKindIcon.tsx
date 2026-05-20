@@ -6,6 +6,10 @@ import {
   GridFour,
   CalendarBlank,
   List,
+  ChartBar,
+  Article,
+  CardsThree,
+  Timer,
 } from "@phosphor-icons/react";
 import type { ViewKind } from "@supernote/ipc";
 
@@ -26,6 +30,14 @@ export function ViewKindIcon({ kind, size = 14 }: ViewKindIconProps) {
       return <CalendarBlank size={size} />;
     case "list":
       return <List size={size} />;
+    case "chart":
+      return <ChartBar size={size} />;
+    case "form":
+      return <Article size={size} />;
+    case "detail":
+      return <CardsThree size={size} />;
+    case "timeline":
+      return <Timer size={size} />;
     default:
       return <Table size={size} />;
   }
@@ -37,4 +49,8 @@ export const VIEW_KIND_LABEL: Record<ViewKind, string> = {
   gallery: "Galerie",
   calendar: "Calendrier",
   list: "Liste",
+  chart: "Graphique",
+  form: "Formulaire",
+  detail: "Fiche détail",
+  timeline: "Chronologie",
 };

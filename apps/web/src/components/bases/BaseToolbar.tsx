@@ -19,15 +19,17 @@ import {
   Plus,
   Stack,
   CalendarBlank,
+  PaintBrush,
 } from "@phosphor-icons/react";
 import type { EntityType } from "@supernote/core";
 import type { View } from "@supernote/ipc";
 import { FilterBuilder } from "./FilterBuilder";
 import { SortBuilder } from "./SortBuilder";
 import { PivotFieldMenu } from "./PivotFieldMenu";
+import { ConditionalFormatBuilder } from "./ConditionalFormatBuilder";
 import { useShellChrome } from "@/components/shell/shell-chrome-context";
 
-type OpenMenu = "filters" | "sorts" | "pivot" | null;
+type OpenMenu = "filters" | "sorts" | "pivot" | "cf" | null;
 
 interface BaseToolbarProps {
   base: EntityType;
@@ -44,6 +46,7 @@ export function BaseToolbar({ base, view, onCreateEntry, extra }: BaseToolbarPro
   const filterCount = view.filters.length;
   const sortCount = view.sorts.length;
   const hiddenCount = view.hiddenFields.length;
+  const cfCount = (view.conditionalFormats ?? []).length;
   const columnEditorOpen = columnEditor?.view.id === view.id;
 
   // Helper so each trigger toggles its own menu and closes the others.
@@ -104,6 +107,23 @@ export function BaseToolbar({ base, view, onCreateEntry, extra }: BaseToolbarPro
           countTone="muted"
           onClick={toggleColumnEditor}
         />
+      </div>
+
+      <div className="relative">
+        <ToolbarButton
+          icon={<PaintBrush size={11} />}
+          label="Format"
+          active={open === "cf"}
+          count={cfCount > 0 ? cfCount : undefined}
+          onClick={() => toggle("cf")}
+        />
+        {open === "cf" && (
+          <ConditionalFormatBuilder
+            base={base}
+            view={view}
+            onClose={() => setOpen(null)}
+          />
+        )}
       </div>
 
       {(showGroupPivot || showDatePivot) && (

@@ -33,7 +33,8 @@ export type FieldKind =
   | "updatedAt"
   | "createdBy"
   | "autoNumber"
-  | "status";
+  | "status"
+  | "ai";
 
 // ------ Select option ----------------------------------------
 
@@ -126,6 +127,18 @@ export interface StatusField extends FieldBase {
   readonly options: SelectOption[];
 }
 
+export interface AIField extends FieldBase {
+  readonly kind: "ai";
+  /** Prompt template, peut contenir `{fieldName}` pour interpoler les valeurs. */
+  readonly prompt: string;
+  /** Type cible de sortie pour le formatage / parsing. */
+  readonly outputKind: "text" | "longtext" | "number" | "bool" | "select";
+  /** Modèle Ollama à utiliser. Par défaut le modèle système. */
+  readonly model?: string;
+  /** Recalcul automatique au save sur changement d'un champ référencé. */
+  readonly autoRecompute?: boolean;
+}
+
 /** Discriminated union of all field definitions */
 export type Field =
   | TextField
@@ -139,7 +152,8 @@ export type Field =
   | RollupField
   | LookupField
   | AutoField
-  | StatusField;
+  | StatusField
+  | AIField;
 
 // ------ FieldValue -------------------------------------------
 

@@ -17,11 +17,22 @@ import type { Field, FieldValue, RelationField, SelectOption } from "@supernote/
 import { trpc } from "@/lib/trpc/client";
 import { RelationPicker } from "./RelationPicker";
 
+export type AdvanceDir = "tab" | "shift-tab" | "enter" | "shift-enter";
+
 interface CellProps {
   field: Field;
   value: unknown;
-  onChange: (next: unknown) => void;
+  onChange: (next: unknown, advance?: AdvanceDir) => void;
   readOnly?: boolean;
+  /** Nonce qui, lorsqu'il change, force le passage en mode édition. */
+  forceEditKey?: number;
+  /**
+   * Valeurs de la ligne entière + définitions des champs voisins. Nécessaires
+   * pour les colonnes "ai" qui interpolent `{fieldName}` dans leur prompt.
+   * Optionnel : si absent, le bouton "Regénérer" est désactivé.
+   */
+  rowFields?: Record<string, unknown>;
+  baseFields?: Field[];
 }
 
 const READONLY_KINDS = new Set<Field["kind"]>([
@@ -32,16 +43,38 @@ const READONLY_KINDS = new Set<Field["kind"]>([
   "formula",
   "rollup",
   "lookup",
+  "ai",
 ]);
 
-function CellInner({ field, value, onChange, readOnly }: CellProps) {
+function CellInner({ field, value, onChange, readOnly, forceEditKey, rowFields, baseFields }: CellProps) {
   const [editing, setEditing] = useState(false);
+  // initialChar : si on a démarré l'édition en tapant un caractère imprimable
+  // depuis le mode display, on l'utilise comme draft initial (UX type tableur).
+  const [initialChar, setInitialChar] = useState<string | undefined>(undefined);
   // Valeur "pending" : maintenue localement entre le commit et le moment où la
   // prop `value` rattrape (après invalidate+refetch de queryForView). Sans ça,
   // au blur le cell repasse en display mode avec l'ANCIENNE valeur de cache,
   // puis flash sur la nouvelle quand le refetch arrive.
   const [pending, setPending] = useState<{ value: unknown } | null>(null);
   const isReadOnly = readOnly || READONLY_KINDS.has(field.kind);
+
+  // forceEditKey change → ouvre le mode édition. Le parent (DataGrid)
+  // incrémente le nonce pour réclamer l'auto-edit après Tab/Enter ou
+  // après création de ligne.
+  const lastForceRef = useRef<number | undefined>(forceEditKey);
+  useEffect(() => {
+    if (
+      forceEditKey !== undefined &&
+      forceEditKey !== lastForceRef.current &&
+      !isReadOnly
+    ) {
+      lastForceRef.current = forceEditKey;
+      setInitialChar(undefined);
+      setEditing(true);
+    } else {
+      lastForceRef.current = forceEditKey;
+    }
+  }, [forceEditKey, isReadOnly]);
 
   // Efface le pending dès que la prop value reflète la valeur committée.
   useEffect(() => {
@@ -55,14 +88,22 @@ function CellInner({ field, value, onChange, readOnly }: CellProps) {
       <CellEditor
         field={field}
         value={effectiveValue}
-        onCommit={(next) => {
+        initialChar={initialChar}
+        onCommit={(next, advance) => {
           setEditing(false);
+          setInitialChar(undefined);
           if (!cellValueEq(next, effectiveValue)) {
             setPending({ value: next });
-            onChange(next);
+            onChange(next, advance);
+          } else if (advance) {
+            // Pas de mutation mais on signale l'advance pour la navigation.
+            onChange(effectiveValue, advance);
           }
         }}
-        onCancel={() => setEditing(false)}
+        onCancel={() => {
+          setEditing(false);
+          setInitialChar(undefined);
+        }}
       />
     );
   }
@@ -77,16 +118,113 @@ function CellInner({ field, value, onChange, readOnly }: CellProps) {
         if (!isReadOnly) setEditing(true);
       }}
       onKeyDown={(e) => {
-        if (e.key === "Enter" && !isReadOnly) {
+        if (isReadOnly) return;
+        if (e.key === "Enter" || e.key === "F2") {
           e.preventDefault();
+          setInitialChar(undefined);
+          setEditing(true);
+          return;
+        }
+        if (e.key === "Backspace" || e.key === "Delete") {
+          e.preventDefault();
+          onChange("" as unknown);
+          return;
+        }
+        // Caractère imprimable seul → entre en édition + remplace la valeur.
+        if (
+          e.key.length === 1 &&
+          !e.ctrlKey &&
+          !e.metaKey &&
+          !e.altKey
+        ) {
+          e.preventDefault();
+          setInitialChar(e.key);
           setEditing(true);
         }
       }}
       tabIndex={isReadOnly ? -1 : 0}
       style={{ color: "var(--text-primary)" }}
     >
-      <CellDisplay field={field} value={effectiveValue} />
+      {field.kind === "ai" ? (
+        <AICellDisplay
+          field={field}
+          value={effectiveValue}
+          rowFields={rowFields}
+          baseFields={baseFields}
+          onChange={onChange}
+        />
+      ) : (
+        <CellDisplay field={field} value={effectiveValue} />
+      )}
     </div>
+  );
+}
+
+// ── AI cell ──────────────────────────────────────────────────────────────────
+
+function AICellDisplay({
+  field,
+  value,
+  rowFields,
+  baseFields,
+  onChange,
+}: {
+  field: Field;
+  value: unknown;
+  rowFields?: Record<string, unknown>;
+  baseFields?: Field[];
+  onChange: (next: unknown) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const run = async () => {
+    if (busy) return;
+    if (!rowFields || !baseFields) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      const ai = field as { prompt: string; outputKind: "text" | "longtext" | "number" | "bool" | "select"; model?: string };
+      const { runAIColumn } = await import("@/lib/ai/run-ai-column");
+      const res = await runAIColumn({
+        prompt: ai.prompt,
+        outputKind: ai.outputKind,
+        model: ai.model,
+        rowFields,
+        fieldDefs: baseFields,
+      });
+      onChange(res.value);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const isEmpty = value === null || value === undefined || value === "";
+  return (
+    <span className="flex w-full items-center gap-1.5">
+      <span className="flex-1 truncate">
+        {isEmpty ? (
+          <span style={{ color: "var(--text-muted)" }}>—</span>
+        ) : (
+          <span>{Array.isArray(value) ? value.join(", ") : String(value)}</span>
+        )}
+      </span>
+      <button
+        type="button"
+        className="rounded px-1 py-0.5 text-[10px] hover:bg-[var(--surface-2)]"
+        style={{ color: "var(--accent)" }}
+        title={err ?? (busy ? "Génération…" : "Regénérer via Ollama")}
+        onClick={(e) => {
+          e.stopPropagation();
+          void run();
+        }}
+        disabled={busy || !rowFields || !baseFields}
+      >
+        {busy ? "…" : "✨"}
+      </button>
+    </span>
   );
 }
 
@@ -112,6 +250,7 @@ export const Cell = memo(CellInner, (a, b) => {
   if (a.value !== b.value) return false;
   if (a.readOnly !== b.readOnly) return false;
   if (a.onChange !== b.onChange) return false;
+  if (a.forceEditKey !== b.forceEditKey) return false;
   if (a.field === b.field) return true;
   // Comparaison shallow sur les attributs visibles d'un Field.
   return (
@@ -318,27 +457,41 @@ function CellDisplay({ field, value }: { field: Field; value: unknown }) {
 interface CellEditorProps {
   field: Field;
   value: unknown;
-  onCommit: (next: FieldValue) => void;
+  onCommit: (next: FieldValue, advance?: AdvanceDir) => void;
   onCancel: () => void;
+  initialChar?: string;
 }
 
-function CellEditor({ field, value, onCommit, onCancel }: CellEditorProps) {
-  const [draft, setDraft] = useState<unknown>(value ?? "");
+function CellEditor({ field, value, onCommit, onCancel, initialChar }: CellEditorProps) {
+  const [draft, setDraft] = useState<unknown>(() =>
+    initialChar !== undefined ? initialChar : (value ?? ""),
+  );
   const ref = useRef<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null>(null);
 
-  // Autofocus + select on enter so the user can type immediately, or arrow
-  // into a cell and press Enter to replace its content.
+  // Autofocus. Si initialChar fourni, place le caret en fin (user vient de
+  // taper le 1er caractère). Sinon, sélectionne tout (remplace facile).
   useEffect(() => {
-    if (ref.current) {
-      ref.current.focus();
-      if ("select" in ref.current) ref.current.select();
+    if (!ref.current) return;
+    ref.current.focus();
+    if (initialChar !== undefined) {
+      const el = ref.current;
+      if ("setSelectionRange" in el && typeof el.value === "string") {
+        const len = el.value.length;
+        try {
+          el.setSelectionRange(len, len);
+        } catch {
+          /* certains types d'input ne supportent pas setSelectionRange */
+        }
+      }
+    } else if ("select" in ref.current) {
+      ref.current.select();
     }
-  }, []);
+  }, [initialChar]);
 
-  const commit = () => onCommit(draft as FieldValue);
+  const commit = (advance?: AdvanceDir) => onCommit(draft as FieldValue, advance);
 
-  // Common keyboard handler: Enter commits (except in longtext where Enter
-  // is a newline and Shift+Enter / Cmd+Enter commits instead), Escape cancels.
+  // Common keyboard handler: Tab / Enter commit + advance ; Shift+Tab et
+  // Shift+Enter naviguent à l'envers ; Escape annule.
   const keyHandler = (
     e: React.KeyboardEvent<HTMLElement>,
     opts?: { multiline?: boolean },
@@ -348,10 +501,16 @@ function CellEditor({ field, value, onCommit, onCancel }: CellEditorProps) {
       onCancel();
       return;
     }
+    if (e.key === "Tab") {
+      e.preventDefault();
+      commit(e.shiftKey ? "shift-tab" : "tab");
+      return;
+    }
     if (e.key === "Enter") {
+      // En multiligne, Enter insère un \n ; Shift+Enter / Cmd+Enter commit.
       if (opts?.multiline && !e.metaKey && !e.ctrlKey && !e.shiftKey) return;
       e.preventDefault();
-      commit();
+      commit(e.shiftKey ? "shift-enter" : "enter");
     }
   };
 
@@ -370,7 +529,7 @@ function CellEditor({ field, value, onCommit, onCancel }: CellEditorProps) {
           rows={3}
           value={String(draft ?? "")}
           onChange={(e) => setDraft(e.target.value)}
-          onBlur={commit}
+          onBlur={() => commit()}
           onKeyDown={(e) => keyHandler(e, { multiline: true })}
         />
       );
@@ -390,7 +549,7 @@ function CellEditor({ field, value, onCommit, onCancel }: CellEditorProps) {
           className={baseInputClass}
           value={String(draft ?? "")}
           onChange={(e) => setDraft(e.target.value === "" ? "" : Number(e.target.value))}
-          onBlur={commit}
+          onBlur={() => commit()}
           onKeyDown={keyHandler}
         />
       );
@@ -423,7 +582,7 @@ function CellEditor({ field, value, onCommit, onCancel }: CellEditorProps) {
           className={baseInputClass}
           value={toInputDate(draft, field.kind === "datetime")}
           onChange={(e) => setDraft(e.target.value)}
-          onBlur={commit}
+          onBlur={() => commit()}
           onKeyDown={keyHandler}
         />
       );
@@ -441,7 +600,7 @@ function CellEditor({ field, value, onCommit, onCancel }: CellEditorProps) {
             setDraft(e.target.value);
             onCommit(e.target.value);
           }}
-          onBlur={commit}
+          onBlur={() => commit()}
           onKeyDown={keyHandler}
         >
           <option value="">—</option>
@@ -483,7 +642,7 @@ function CellEditor({ field, value, onCommit, onCancel }: CellEditorProps) {
           })}
           <button
             type="button"
-            onClick={commit}
+            onClick={() => commit()}
             className="ml-auto text-xs underline"
             style={{ color: "var(--accent)" }}
           >
@@ -528,7 +687,7 @@ function CellEditor({ field, value, onCommit, onCancel }: CellEditorProps) {
           className={baseInputClass}
           value={String(draft ?? "")}
           onChange={(e) => setDraft(e.target.value)}
-          onBlur={commit}
+          onBlur={() => commit()}
           onKeyDown={keyHandler}
         />
       );

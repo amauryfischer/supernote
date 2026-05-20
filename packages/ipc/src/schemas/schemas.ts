@@ -32,6 +32,7 @@ export const FieldTypeSchema = z.enum([
   "createdBy",
   "autoNumber",
   "status",
+  "ai",
 ]);
 export type FieldType = z.infer<typeof FieldTypeSchema>;
 
@@ -60,6 +61,10 @@ export const FieldDefinitionSchema = z.object({
   formulaExpr: z.string().optional(),
   formulaOutputKind: z.enum(["text", "number", "date", "bool"]).optional(),
   formulaOutputFormat: z.string().optional(),
+  aiPrompt: z.string().optional(),
+  aiOutputKind: z.enum(["text", "longtext", "number", "bool", "select"]).optional(),
+  aiModel: z.string().optional(),
+  aiAutoRecompute: z.boolean().optional(),
   helpText: z.string().optional(),
   group: z.string().optional(),
 });

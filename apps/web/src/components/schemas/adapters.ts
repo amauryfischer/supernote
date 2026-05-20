@@ -48,6 +48,16 @@ export function ipcFieldToCore(f: FieldDefinition): Field {
   if (kind === "lookup") {
     return { ...base, kind, relationFieldId: "", targetFieldId: "" };
   }
+  if (kind === "ai") {
+    return {
+      ...base,
+      kind,
+      prompt: f.aiPrompt ?? "",
+      outputKind: (f.aiOutputKind ?? "text") as "text" | "longtext" | "number" | "bool" | "select",
+      model: f.aiModel,
+      autoRecompute: f.aiAutoRecompute,
+    };
+  }
   // All other kinds (text, number, date, bool, relation, file, auto, etc.)
   return { ...base, kind } as Field;
 }
@@ -90,6 +100,12 @@ export function coreFieldToIpc(f: Field): FieldDefinition {
       base.formulaOutputKind = ok;
     }
     if (f.outputFormat) base.formulaOutputFormat = f.outputFormat;
+  }
+  if (f.kind === "ai") {
+    base.aiPrompt = f.prompt;
+    base.aiOutputKind = f.outputKind;
+    if (f.model) base.aiModel = f.model;
+    if (f.autoRecompute !== undefined) base.aiAutoRecompute = f.autoRecompute;
   }
   return base;
 }

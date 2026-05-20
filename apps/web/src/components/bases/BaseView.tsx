@@ -28,6 +28,10 @@ import { KanbanView } from "./KanbanView";
 import { GalleryView } from "./GalleryView";
 import { CalendarView } from "./CalendarView";
 import { ListView } from "./ListView";
+import { DetailView } from "./DetailView";
+import { ChartView } from "./ChartView";
+import { FormView } from "./FormView";
+import { TimelineView } from "./TimelineView";
 
 interface BaseViewProps {
   base: EntityType;
@@ -152,6 +156,14 @@ function ViewRenderer({
       return <CalendarView base={base} view={view} />;
     case "list":
       return <ListView base={base} view={view} />;
+    case "detail":
+      return <DetailView base={base} view={view} />;
+    case "chart":
+      return <ChartView base={base} view={view} />;
+    case "form":
+      return <FormView base={base} view={view} />;
+    case "timeline":
+      return <TimelineView base={base} view={view} />;
     default:
       return <DataGrid base={base} view={view} maxHeight={maxHeight} />;
   }

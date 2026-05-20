@@ -17,6 +17,10 @@ import {
   GridFour,
   CalendarBlank,
   List,
+  ChartBar,
+  Article,
+  CardsThree,
+  Timer,
 } from "@phosphor-icons/react";
 import type { View, ViewKind } from "@supernote/ipc";
 import { useConfirm } from "@/lib/confirm";
@@ -38,6 +42,10 @@ const KIND_ICONS: Record<ViewKind, React.ComponentType<{ size?: number }>> = {
   gallery: GridFour,
   calendar: CalendarBlank,
   list: List,
+  chart: ChartBar,
+  form: Article,
+  detail: CardsThree,
+  timeline: Timer,
 };
 
 export function ViewSettingsMenu({

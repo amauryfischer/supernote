@@ -79,6 +79,7 @@ function fieldToZod(field: Field): ZodTypeAny {
     case "createdAt":
     case "updatedAt":
     case "createdBy":
+    case "ai":
       schema = z.unknown();
       return z.optional(schema);
   }

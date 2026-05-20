@@ -121,6 +121,30 @@ async function initSqlite(handle: FileSystemDirectoryHandle): Promise<Database> 
     console.warn("[vault-worker] view table migration failed (non-fatal)", e);
   }
 
+  // Migration: ajoute les colonnes summarize / conditionalFormats / chartConfig /
+  // formConfig à "view" si elles manquent (sans drop, données préservées).
+  try {
+    const cols = database.exec(`PRAGMA table_info("view")`);
+    const names: string[] =
+      cols.length > 0 ? cols[0]!.values.map((row) => row[1] as string) : [];
+    const add = (col: string, ddl: string) => {
+      if (!names.includes(col)) {
+        try {
+          database.run(`ALTER TABLE "view" ADD COLUMN ${ddl};`);
+        } catch (e) {
+          console.warn(`[vault-worker] view.${col} add column failed`, e);
+        }
+      }
+    };
+    add("summarize", `"summarize" TEXT NOT NULL DEFAULT '{}'`);
+    add("conditionalFormats", `"conditionalFormats" TEXT NOT NULL DEFAULT '[]'`);
+    add("chartConfig", `"chartConfig" TEXT`);
+    add("formConfig", `"formConfig" TEXT`);
+    add("timelineConfig", `"timelineConfig" TEXT`);
+  } catch (e) {
+    console.warn("[vault-worker] view columns migration failed (non-fatal)", e);
+  }
+
   console.info("[init.sqlite] running SCHEMA_SQL (base + FTS5)");
   database.run(SCHEMA_SQL);
   console.info("[init.sqlite] done");
