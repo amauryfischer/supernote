@@ -292,6 +292,22 @@ html, body {
    wrapped page content owns its own padding. */
 /* ── DataGrid (Bases) micro-interactions ─────────────────────────────────── */
 
+/* Hauteurs de ligne (Coda-style : compact / normal / haut). Appliquées via
+   --sn-row-height sur le tableau ; chaque <td>/<th> hérite la min-height. */
+.sn-datagrid {
+  --sn-row-height: 36px;
+  --sn-cell-px: 12px;
+  --sn-cell-py: 8px;
+}
+.sn-datagrid--short { --sn-row-height: 28px; --sn-cell-py: 4px; }
+.sn-datagrid--normal { --sn-row-height: 36px; --sn-cell-py: 8px; }
+.sn-datagrid--tall { --sn-row-height: 60px; --sn-cell-py: 10px; }
+
+.sn-datagrid th,
+.sn-datagrid .sn-datagrid-cell {
+  height: var(--sn-row-height);
+}
+
 .sn-datagrid-row {
   transition: background-color 120ms ease;
 }
@@ -384,32 +400,54 @@ html, body {
   position: absolute;
   top: 100%;
   left: 0;
-  min-width: 180px;
+  min-width: 220px;
   background: var(--surface-0);
   border: 1px solid var(--border-subtle);
-  border-radius: 6px;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.10);
+  border-radius: 8px;
+  box-shadow: 0 8px 28px rgba(0,0,0,0.12), 0 2px 6px rgba(0,0,0,0.06);
   z-index: 50;
-  padding: 4px 0;
-  font-size: 12px;
+  padding: 6px;
+  font-size: 13px;
+  overflow: hidden;
+}
+.sn-col-menu-header {
+  padding: 8px 10px 6px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
 }
 .sn-col-menu-item {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 5px 12px;
+  gap: 9px;
+  padding: 7px 10px;
   cursor: pointer;
   color: var(--text-secondary);
-  transition: background 80ms ease;
+  transition: background 80ms ease, color 80ms ease;
   border: none;
   background: transparent;
   width: 100%;
   text-align: left;
   white-space: nowrap;
+  border-radius: 5px;
 }
 .sn-col-menu-item:hover {
   background: var(--surface-2);
   color: var(--text-primary);
+}
+.sn-col-menu-item-sub {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-left: auto;
+}
+.sn-col-menu-item-desc {
+  display: block;
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 1px;
+  font-weight: normal;
 }
 .sn-col-menu-item--danger {
   color: #EF4444;

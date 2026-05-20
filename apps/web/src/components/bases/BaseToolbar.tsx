@@ -66,7 +66,7 @@ export function BaseToolbar({ base, view, onCreateEntry, extra }: BaseToolbarPro
 
   return (
     <div
-      className="flex items-center gap-1 border-b px-3 py-1.5"
+      className="flex items-center gap-1.5 border-b px-4 py-2"
       style={{
         borderColor: "var(--border-subtle)",
         backgroundColor: "var(--surface-0)",
@@ -74,7 +74,7 @@ export function BaseToolbar({ base, view, onCreateEntry, extra }: BaseToolbarPro
     >
       <div className="relative">
         <ToolbarButton
-          icon={<Funnel size={11} />}
+          icon={<Funnel size={13} />}
           label="Filtrer"
           active={open === "filters"}
           count={filterCount}
@@ -87,7 +87,7 @@ export function BaseToolbar({ base, view, onCreateEntry, extra }: BaseToolbarPro
 
       <div className="relative">
         <ToolbarButton
-          icon={<ArrowsDownUp size={11} />}
+          icon={<ArrowsDownUp size={13} />}
           label="Trier"
           active={open === "sorts"}
           count={sortCount}
@@ -100,7 +100,7 @@ export function BaseToolbar({ base, view, onCreateEntry, extra }: BaseToolbarPro
 
       <div className="relative">
         <ToolbarButton
-          icon={<Eye size={11} />}
+          icon={<Eye size={13} />}
           label="Colonnes"
           active={columnEditorOpen}
           count={hiddenCount > 0 ? hiddenCount : undefined}
@@ -111,7 +111,7 @@ export function BaseToolbar({ base, view, onCreateEntry, extra }: BaseToolbarPro
 
       <div className="relative">
         <ToolbarButton
-          icon={<PaintBrush size={11} />}
+          icon={<PaintBrush size={13} />}
           label="Format"
           active={open === "cf"}
           count={cfCount > 0 ? cfCount : undefined}
@@ -129,7 +129,7 @@ export function BaseToolbar({ base, view, onCreateEntry, extra }: BaseToolbarPro
       {(showGroupPivot || showDatePivot) && (
         <div className="relative">
           <ToolbarButton
-            icon={showDatePivot ? <CalendarBlank size={11} /> : <Stack size={11} />}
+            icon={showDatePivot ? <CalendarBlank size={13} /> : <Stack size={13} />}
             label={showDatePivot ? "Date" : "Grouper"}
             active={open === "pivot"}
             count={view.groupByField ? 1 : undefined}
@@ -191,9 +191,9 @@ function ToolbarButton({
       variant="ghost"
       size="sm"
       onPress={onClick}
-      className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition-colors"
+      className="flex items-center gap-2 rounded-md px-3 py-1.5 text-[13px] font-medium transition-colors"
       style={{
-        backgroundColor: active ? "var(--surface-3)" : "transparent",
+        backgroundColor: active ? "var(--surface-2)" : "transparent",
         color: hasCount && countTone === "accent" ? "var(--accent)" : "var(--text-secondary)",
       }}
     >
@@ -201,7 +201,7 @@ function ToolbarButton({
       {label}
       {hasCount && (
         <span
-          className="rounded-full px-1.5 text-[10px]"
+          className="rounded-full px-1.5 text-[11px]"
           style={{
             backgroundColor:
               countTone === "accent" ? "var(--accent)" : "var(--surface-3)",

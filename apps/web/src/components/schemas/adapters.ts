@@ -25,7 +25,10 @@ export function ipcFieldToCore(f: FieldDefinition): Field {
     helpText: f.helpText,
     group: f.group,
   };
-  const kind = f.type as FieldKind;
+  // Rétro-compatibilité : les seeds historiques persistaient `kind` alors que
+  // le contrat IPC actuel utilise `type`. On accepte les deux pour que les
+  // vaults pré-existants continuent d'afficher le bon kind.
+  const kind = (f.type ?? (f as unknown as { kind?: string }).kind ?? "text") as FieldKind;
 
   if (kind === "select" || kind === "multiselect") {
     return { ...base, kind, options: (f.options ?? []) as SelectOption[] };

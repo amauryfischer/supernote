@@ -27,7 +27,7 @@ export function ViewTabs({ views, activeViewId, onSelect, onCreate }: ViewTabsPr
   const activeView = views.find((v) => v.id === menuOpenFor);
   return (
     <div
-      className="flex items-center gap-1 overflow-x-auto border-b px-3 py-1.5"
+      className="flex items-center gap-0.5 overflow-x-auto border-b px-4 py-2"
       style={{ borderColor: "var(--border-subtle)" }}
     >
       {views.map((v) => {
@@ -38,14 +38,14 @@ export function ViewTabs({ views, activeViewId, onSelect, onCreate }: ViewTabsPr
               variant="ghost"
               size="sm"
               onPress={() => onSelect(v.id)}
-              className="flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors"
+              className="flex items-center gap-2 rounded-md px-3 py-1.5 text-[13px] font-medium transition-colors"
               style={
                 active
-                  ? { backgroundColor: "var(--surface-3)", color: "var(--text-primary)" }
+                  ? { backgroundColor: "var(--surface-2)", color: "var(--text-primary)" }
                   : { color: "var(--text-muted)" }
               }
             >
-              <ViewKindIcon kind={v.kind} size={12} />
+              <ViewKindIcon kind={v.kind} size={13} />
               <span>{v.name}</span>
             </Button>
             {active && (

@@ -32,6 +32,7 @@ import {
 import { ColumnHeaderMenu } from "./ColumnHeaderMenu";
 import { FooterSummarize } from "./FooterSummarize";
 import { resolveConditionalFormat, cfStyleToCss } from "./conditional-format";
+import { FieldKindIcon } from "./FieldKindIcon";
 import { useShellChrome } from "@/components/shell/shell-chrome-context";
 
 type SummarizeOp = NonNullable<View["summarize"]>[string];
@@ -757,7 +758,7 @@ export function DataGrid({ base, view, maxHeight }: DataGridProps) {
       }}
     >
       <table
-        className="w-full border-collapse text-sm"
+        className={`sn-datagrid sn-datagrid--${view.rowHeight ?? "normal"} w-full border-collapse text-sm`}
         style={{ userSelect: "none" }}
         onMouseDown={(e) => {
           const t = e.target as HTMLElement;
@@ -812,7 +813,7 @@ export function DataGrid({ base, view, maxHeight }: DataGridProps) {
                   key={fid}
                   draggable
                   data-field-id={fid}
-                  className={`group/header relative cursor-pointer border-b border-r px-2 py-2 text-left text-xs font-medium hover:bg-[var(--surface-2)]${dropClass}${isPrimary ? " sn-datagrid-primary-col" : ""}`}
+                  className={`group/header relative cursor-pointer border-b border-r px-3 text-left text-[12px] font-semibold hover:bg-[var(--surface-2)]${dropClass}${isPrimary ? " sn-datagrid-primary-col" : ""}`}
                   style={{
                     width: colW,
                     minWidth: colW,
@@ -845,8 +846,15 @@ export function DataGrid({ base, view, maxHeight }: DataGridProps) {
                   onDragLeave={handleDragLeave}
                   onDrop={(e) => handleDrop(e, fid)}
                 >
-                  {/* Libellé + indicateur de tri + bouton menu */}
-                  <span className="inline-flex w-full items-center gap-1 select-none">
+                  {/* Libellé + icône type + indicateur tri + chevron menu */}
+                  <span className="inline-flex w-full items-center gap-1.5 select-none">
+                    <span
+                      className="inline-flex items-center justify-center"
+                      style={{ color: "var(--text-muted)" }}
+                      aria-hidden
+                    >
+                      <FieldKindIcon kind={f.kind} size={11} />
+                    </span>
                     <span className="truncate">{f.label || f.name}</span>
                     {sort && (
                       sort.direction === "asc" ? (
@@ -858,8 +866,8 @@ export function DataGrid({ base, view, maxHeight }: DataGridProps) {
                     <button
                       type="button"
                       aria-label="Options de la colonne"
-                      className="ml-auto rounded p-0.5 opacity-0 transition-opacity hover:bg-[var(--surface-2)] group-hover/header:opacity-100 focus:opacity-100 focus:outline-none focus:ring-1 focus:ring-[var(--accent)]"
-                      style={{ color: "var(--text-muted)" }}
+                      className="ml-auto rounded p-0.5 transition-opacity hover:bg-[var(--surface-2)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)]"
+                      style={{ color: "var(--text-muted)", opacity: 0.55 }}
                       draggable={false}
                       onDragStart={(e) => { e.preventDefault(); e.stopPropagation(); }}
                       onMouseDown={(e) => e.stopPropagation()}
