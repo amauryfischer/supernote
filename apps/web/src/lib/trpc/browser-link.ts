@@ -52,6 +52,10 @@ type QueuedMessage = {
 };
 let messageQueue: QueuedMessage[] = [];
 let vaultReady = false;
+// True while we're between `terminateVaultWorker()` and the next
+// VAULT_READY — used to tell the Provider that the upcoming refresh is a
+// SWITCH (drop all cache) rather than a first boot (just invalidate).
+let pendingSwitch = false;
 // Mirror of `vaultReady` exposed via setWorkerReady/isWorkerReady. Hoisted
 // up here so getWorker() can reset it on (re-)spawn without forward-reference
 // issues.
@@ -92,10 +96,33 @@ function getWorker(): Worker {
 
   workerInstance.addEventListener("message", (event: MessageEvent<WorkerResponse>) => {
     const msg = event.data as unknown;
+    // Forward worker-side console.info/warn/error to the main devtools console
+    // so MCP browser tooling can capture them — workers don't share the main
+    // console transport with the extension's read_console_messages.
+    if (msg && typeof msg === "object" && "__log" in (msg as object)) {
+      const line = (msg as { __log: string }).__log;
+      if (line.startsWith("[error]")) console.error("[worker]", line);
+      else if (line.startsWith("[warn]")) console.warn("[worker]", line);
+      else console.log("[worker]", line);
+      return;
+    }
     if (msg && typeof msg === "object" && "type" in (msg as object)) {
       const t = (msg as { type: string }).type;
       if (t === "VAULT_READY" || t === "VAULT_ERROR") {
         console.info("[vault-worker]", t, msg);
+      }
+      if (t === "INDEX_PROGRESS") {
+        // Background reindex adopted/swept rows AFTER VAULT_READY fired —
+        // the queries already refetched once with the just-hydrated DB and
+        // wouldn't pick up the newly indexed entities/folders without a
+        // nudge. Dispatch a follow-up event so the Provider invalidates
+        // the cache a second time and the sidebar/notes list catches up.
+        if (typeof window !== "undefined") {
+          console.info("[browser-link] INDEX_PROGRESS — re-invalidating queries", msg);
+          window.dispatchEvent(
+            new CustomEvent("supernote:index-progress", { detail: msg }),
+          );
+        }
       }
       if (t === "AUTOMATION_NOTIFICATION") {
         // Forward worker-side notification dispatch to the UI. The
@@ -110,7 +137,15 @@ function getWorker(): Worker {
         }
       }
       if (t === "VAULT_READY") {
-        const wasReady = vaultReady;
+        // `wasReady` is the historical "we had a ready worker before this"
+        // signal (post-init re-emit). On a vault switch we always go
+        // ready=false (via setWorkerReady or terminate), so `wasReady`
+        // alone can't distinguish "fresh boot" from "switch". The
+        // `pendingSwitch` flag (set in terminateVaultWorker) is the
+        // authoritative switch indicator and takes precedence.
+        const wasReady = vaultReady || pendingSwitch;
+        const isSwitch = pendingSwitch;
+        pendingSwitch = false;
         vaultReady = true;
         _workerReady = true;
         drainMessageQueue();
@@ -119,10 +154,11 @@ function getWorker(): Worker {
         // were rejected with "Vault not initialized") stay cached as errors
         // forever — `retry: false` in the QueryClient defaults means they
         // never auto-retry. The Provider listens for this event and calls
-        // `queryClient.invalidateQueries()` so failed queries refetch.
+        // `queryClient.invalidateQueries()` (or `removeQueries()` on a
+        // switch) so failed/stale queries refetch.
         if (typeof window !== "undefined") {
-          console.info("[browser-link] dispatching supernote:vault-ready", { wasReady });
-          window.dispatchEvent(new CustomEvent("supernote:vault-ready", { detail: { wasReady } }));
+          console.info("[browser-link] dispatching supernote:vault-ready", { wasReady, isSwitch });
+          window.dispatchEvent(new CustomEvent("supernote:vault-ready", { detail: { wasReady, isSwitch } }));
         }
       }
     }
@@ -214,11 +250,73 @@ export function browserVaultLink(): TRPCLink<AppRouter> {
 /**
  * Send INIT_VAULT message to the singleton worker.
  * Must be called after showDirectoryPicker() on the UI thread.
+ *
+ * Pass `opts.resetStorage = true` when switching to a different vault folder
+ * so the worker unlinks the OPFS-resident DB (via the SAH pool API) before
+ * booting the new vault. Otherwise the new worker reattaches to the previous
+ * vault's SAH-backed file and the old data resurfaces in /notes & co.
  */
-export function initWorkerVault(handle: FileSystemDirectoryHandle): void {
-  lastVaultHandle = handle;
+export function initWorkerVault(
+  handle: FileSystemDirectoryHandle,
+  opts: { resetStorage?: boolean } = {},
+): void {
+  // Order matters: getWorker() inspects `lastVaultHandle` to decide whether
+  // to AUTO-REPLAY a prior INIT_VAULT on a freshly-spawned worker (HMR /
+  // dev reload safety). If we set lastVaultHandle BEFORE spawning, the
+  // auto-replay fires for the new vault WITHOUT carrying our `resetStorage`
+  // flag, racing our proper INIT below — and the first init persists the
+  // still-polluted OPFS into the NEW vault's `.supernote/index.db` mirror
+  // before the reset path even runs. Spawn first → set state → post.
   const worker = getWorker();
-  worker.postMessage({ type: "INIT_VAULT", handle }, []);
+  lastVaultHandle = handle;
+  worker.postMessage(
+    { type: "INIT_VAULT", handle, resetStorage: opts.resetStorage === true },
+    [],
+  );
+}
+
+/**
+ * Tear down the singleton worker so the next call to `getWorker()` spawns a
+ * fresh one. Must be called before `clearOpfsDb()` when switching vaults —
+ * otherwise the live SAH file handles keep `.supernote-vfs` locked and the
+ * OPFS wipe silently fails, leaving the previous vault's DB in place.
+ */
+export function terminateVaultWorker(): void {
+  if (!workerInstance) return;
+  console.info("[browser-link] terminating vault worker (vault switch)");
+  try {
+    workerInstance.terminate();
+  } catch (err) {
+    console.warn("[browser-link] worker.terminate() threw", err);
+  }
+  workerInstance = null;
+  lastVaultHandle = null;
+  vaultReady = false;
+  _workerReady = false;
+  messageQueue = [];
+  // Flag the next VAULT_READY as a vault switch so the Provider knows to
+  // wipe TanStack Query cache (not just invalidate) — otherwise the user
+  // would see stale rows from the previous vault flash on screen until
+  // the refetch lands.
+  pendingSwitch = true;
+  // Tell hooks that depend on workerReady (useWorkerReady etc.) to flip
+  // back to "not ready" while the new worker boots. Without this, queries
+  // stay enabled and TanStack keeps surfacing the previous vault's cached
+  // result for the duration of the switch.
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("supernote:vault-unready"));
+  }
+  // Pending RPCs targeted the now-dead worker — reject so callers don't
+  // hang on the 15s timeout. The next vault will get fresh queries on
+  // VAULT_READY via the Provider's invalidate hook.
+  for (const [id, pending] of pendingRequests) {
+    pending.reject(new Error("vault worker terminated (vault switch)"));
+    pendingRequests.delete(id);
+  }
+  if (typeof window !== "undefined") {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    delete (window as any).__supernoteWorker;
+  }
 }
 
 /**

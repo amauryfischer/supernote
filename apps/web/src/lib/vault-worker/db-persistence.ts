@@ -97,12 +97,31 @@ export async function saveDbToFsa(
 export async function hydrateOpfsFromFsaIfNeeded(
   vaultHandle: FileSystemDirectoryHandle,
 ): Promise<boolean> {
-  if (await hasOpfsDb()) return false;
-  const bytes = await loadDbFromFsa(vaultHandle);
+  // Defensive wrapping: an uncaught error here (NotFoundError, lost FSA
+  // permission, malformed mirror, …) used to abort the whole init. Hydrate
+  // is an OPTIMISATION (load existing mirror into OPFS) — failure should
+  // gracefully fall back to a blank DB so the worker still boots.
+  try {
+    if (await hasOpfsDb()) return false;
+  } catch (err) {
+    console.warn("[persist] hasOpfsDb threw — assuming OPFS empty", err);
+  }
+  let bytes: Uint8Array | null = null;
+  try {
+    bytes = await loadDbFromFsa(vaultHandle);
+  } catch (err) {
+    console.warn("[persist] loadDbFromFsa threw — skipping hydrate", err);
+    return false;
+  }
   if (!bytes) return false;
-  await importBytes(bytes);
-  console.info(`[persist] hydrated OPFS from FSA (${bytes.byteLength} bytes)`);
-  return true;
+  try {
+    await importBytes(bytes);
+    console.info(`[persist] hydrated OPFS from FSA (${bytes.byteLength} bytes)`);
+    return true;
+  } catch (err) {
+    console.warn("[persist] importBytes failed — skipping hydrate", err);
+    return false;
+  }
 }
 
 /**
@@ -118,6 +137,33 @@ export async function hydrateOpfsFromFsaIfNeeded(
  * disconnected before invoking this — leftover SAH file handles would
  * otherwise keep the directory locked.
  */
+/**
+ * Delete the FSA-side mirror `.supernote/index.db` in the given vault
+ * folder. Called from the worker on a vault switch (resetStorage:true) to
+ * neutralise any pre-fix pollution left in the mirror — the next persist
+ * writes a fresh clean copy. Best-effort: missing file is fine.
+ */
+export async function deleteFsaMirror(
+  vaultHandle: FileSystemDirectoryHandle,
+): Promise<void> {
+  try {
+    const metaDir = await vaultHandle.getDirectoryHandle(VAULT_META_DIR);
+    await metaDir.removeEntry(VAULT_DB_FILE);
+    console.info(
+      `[persist] deleteFsaMirror: removed ${vaultHandle.name}/${VAULT_META_DIR}/${VAULT_DB_FILE}`,
+    );
+  } catch (err) {
+    const name = (err as DOMException)?.name;
+    if (name === "NotFoundError") {
+      console.info(
+        `[persist] deleteFsaMirror: no existing ${VAULT_META_DIR}/${VAULT_DB_FILE} to remove (fresh vault)`,
+      );
+      return;
+    }
+    console.warn("[persist] deleteFsaMirror failed (non-fatal)", err);
+  }
+}
+
 export async function clearOpfsDb(): Promise<void> {
   try {
     const root = await navigator.storage.getDirectory();

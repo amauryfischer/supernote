@@ -131,6 +131,27 @@ class SqliteWasmAdapter implements Database {
  * existing file at the target path, those bytes are imported first (used to
  * bootstrap from a vault folder's `.supernote/index.db` on a fresh device).
  */
+/**
+ * Build a valid "empty" SQLite database as a byte array. The SAH pool's
+ * `importDb` rejects 0-byte and otherwise-invalid payloads with
+ * "Byte array size is invalid for an SQLite db.", so we materialise a real
+ * fresh DB in memory (default page size, no user tables) and export its
+ * canonical bytes. Used to (re-)allocate a pool slot after `pool.unlink`.
+ */
+function freshEmptySqliteBytes(ctx: BootContext): Uint8Array {
+  // sqlite3.oo1.DB(":memory:") creates an in-memory DB on the heap; export
+  // dumps the page-1 header + any subsequent pages so the pool sees a
+  // canonical SQLite layout.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sqlite3 = ctx.sqlite3 as any;
+  const mem = new sqlite3.oo1.DB(":memory:", "ct");
+  try {
+    return sqlite3.capi.sqlite3_js_db_export(mem.pointer);
+  } finally {
+    mem.close();
+  }
+}
+
 export async function openDatabase(seedBytes?: Uint8Array | null): Promise<Database> {
   const ctx = await boot();
   const existing = ctx.pool.getFileNames().includes(ctx.dbPath);
@@ -139,6 +160,15 @@ export async function openDatabase(seedBytes?: Uint8Array | null): Promise<Datab
       `[sqlite-adapter] importing ${seedBytes.byteLength} seed bytes into ${ctx.dbPath}`,
     );
     await ctx.pool.importDb(ctx.dbPath, seedBytes);
+  } else if (!existing) {
+    // No slot allocated AND no seed bytes — happens right after `clearOpfsDb`
+    // (vault switch) when the FSA mirror is also absent. Allocate a fresh
+    // slot by importing a canonical empty SQLite DB so `OpfsSAHPoolDb` has
+    // something to open. (Without this, the constructor throws
+    // NotFoundError because the SAH pool requires a slot per filename.)
+    const empty = freshEmptySqliteBytes(ctx);
+    console.info(`[sqlite-adapter] seeding empty slot at ${ctx.dbPath} (${empty.byteLength} bytes)`);
+    await ctx.pool.importDb(ctx.dbPath, empty);
   }
   const db = new ctx.pool.OpfsSAHPoolDb(ctx.dbPath);
   return new SqliteWasmAdapter(ctx, db);
@@ -178,6 +208,12 @@ export async function hasOpfsDb(): Promise<boolean> {
  * Drop the OPFS-resident DB. Called when the user switches vaults so the new
  * vault's bytes don't co-exist with the previous one's. Safe to call when no
  * file exists.
+ *
+ * After unlink, the SAH slot is released. `openDatabase()` then sees the
+ * file is missing and re-allocates the slot via `pool.importDb` with empty
+ * bytes (see openDatabase) — that's required because the SAH pool VFS
+ * needs an allocated slot per filename before `new OpfsSAHPoolDb(path)`
+ * can succeed.
  */
 export async function clearOpfsDb(): Promise<void> {
   const ctx = await boot();

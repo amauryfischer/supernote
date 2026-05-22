@@ -7,6 +7,7 @@
 
 const EXCLUDE_DIRS = new Set([".supernote", "node_modules", ".git"]);
 const MARKDOWN_EXTS = new Set([".md", ".markdown"]);
+const EXCALIDRAW_EXT = ".excalidraw";
 
 function getExtension(name: string): string {
   const dot = name.lastIndexOf(".");
@@ -265,6 +266,58 @@ export async function walkMarkdownFiles(
     }
   }
   return results;
+}
+
+export interface DiscoveredFile {
+  name: string;
+  /** Path relative to vault root, using "/" separator */
+  relativePath: string;
+  /** Lowercased file extension including the dot ("" if none). */
+  ext: string;
+  /** Lazy reader so callers can skip large/binary content when not needed. */
+  read: () => Promise<string>;
+}
+
+/**
+ * Walk every file in the vault (excluding hidden/system dirs). Unlike
+ * `walkMarkdownFiles`, this does NOT pre-load file content — callers invoke
+ * `read()` only for files they care about. Used by the auto-import path to
+ * surface arbitrary user-supplied files (orphaned `.md`, `.excalidraw`, etc.)
+ * that were dropped into the folder before Supernote ever touched it.
+ */
+export async function walkAllFiles(
+  dir: FileSystemDirectoryHandle,
+  prefix = "",
+): Promise<DiscoveredFile[]> {
+  const results: DiscoveredFile[] = [];
+  for await (const [name, entry] of dir as unknown as AsyncIterable<[string, FileSystemHandle]>) {
+    if (entry.kind === "directory") {
+      if (EXCLUDE_DIRS.has(name)) continue;
+      const subDir = entry as FileSystemDirectoryHandle;
+      const subResults = await walkAllFiles(subDir, prefix ? `${prefix}/${name}` : name);
+      results.push(...subResults);
+    } else if (entry.kind === "file") {
+      const fileHandle = entry as FileSystemFileHandle;
+      results.push({
+        name,
+        relativePath: prefix ? `${prefix}/${name}` : name,
+        ext: getExtension(name),
+        read: async () => {
+          const file = await fileHandle.getFile();
+          return file.text();
+        },
+      });
+    }
+  }
+  return results;
+}
+
+export function isMarkdownExt(ext: string): boolean {
+  return MARKDOWN_EXTS.has(ext);
+}
+
+export function isExcalidrawExt(ext: string): boolean {
+  return ext === EXCALIDRAW_EXT;
 }
 
 /** Hash content using Web Crypto API (SHA-256). */

@@ -35,6 +35,16 @@ export type WorkerResponse = WorkerOkResponse | WorkerErrResponse;
 export interface InitVaultMessage {
   type: "INIT_VAULT";
   handle: FileSystemDirectoryHandle;
+  /**
+   * When true, the worker drops the OPFS-resident DB (via the SAH pool's
+   * unlink API) before booting the new vault. Set by the UI when the user
+   * switches to a different vault folder — without this, the new worker
+   * reattaches to the previous vault's SAH-backed file and "resurrects"
+   * the old data even when the main thread tried to clear OPFS (the
+   * main-thread `removeEntry` silently fails while any SAH handle is
+   * still being released by the browser).
+   */
+  resetStorage?: boolean;
 }
 
 /**

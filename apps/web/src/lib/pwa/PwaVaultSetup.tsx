@@ -37,12 +37,11 @@ import {
   setActiveVaultId,
   type VaultEntry,
 } from "@/lib/vault-worker/vault-handle-storage";
-import { initWorkerVault, onWorkerMessage, setWorkerReady, flushVaultWorker } from "@/lib/trpc/browser-link";
+import { initWorkerVault, onWorkerMessage, setWorkerReady, flushVaultWorker, terminateVaultWorker } from "@/lib/trpc/browser-link";
 import { isBrowserPwaMode } from "@/lib/trpc/client";
 import type { VaultReadyMessage, VaultErrorMessage } from "@/lib/vault-worker/worker-protocol";
 import { cloneIntoVault, initInVault, isLinked } from "@/lib/git/github-sync";
 import { saveGitConfig } from "@/lib/git/config-storage";
-import { clearOpfsDb } from "@/lib/vault-worker/db-persistence";
 
 const DEGRADED_STORAGE_KEY = "supernote.degraded";
 
@@ -252,8 +251,15 @@ export function usePwaVaultSetup(): VaultContextValue {
       // folder. Same-folder re-pick (e.g. re-authorising permission after
       // a session expiry) keeps the cache.
       const previous = await loadVaultHandle().catch(() => null);
-      if (!previous || !(await previous.isSameEntry(handle).catch(() => false))) {
-        await clearOpfsDb();
+      const isDifferentFolder =
+        !previous || !(await previous.isSameEntry(handle).catch(() => false));
+      if (isDifferentFolder) {
+        // Kill the current worker so its pending RPCs don't land on the new
+        // vault. The OPFS wipe itself is performed by the FRESH worker via
+        // the SAH-pool unlink API (see InitVaultMessage.resetStorage) —
+        // doing it on the main thread is unreliable because the previous
+        // worker's SAH handles are released asynchronously by the browser.
+        terminateVaultWorker();
       }
       await saveVaultHandle(handle);
       // Picking a folder explicitly opts out of degraded mode.
@@ -262,7 +268,7 @@ export function usePwaVaultSetup(): VaultContextValue {
       setVaultName(null);
       setState("loading");
       void refreshRecents();
-      startWorker(handle);
+      startWorker(handle, { resetStorage: isDifferentFolder });
     } catch (err) {
       // User cancelled
       if ((err as Error).name === "AbortError") {
@@ -320,7 +326,11 @@ export function usePwaVaultSetup(): VaultContextValue {
         // No-op — config is refreshed below.
       } else if (args.mode === "clone-into-empty") {
         step = "clear-opfs";
-        await clearOpfsDb();
+        // Clone-into-empty creates a fresh vault — kill the current worker
+        // and let the new one wipe OPFS via the SAH pool (see resetStorage
+        // below). Main-thread OPFS removal is unreliable because the prior
+        // worker's SAH handles release asynchronously.
+        terminateVaultWorker();
         step = "clone";
         const cloneResult = await cloneIntoVault(handle, {
           url: args.url,
@@ -355,7 +365,10 @@ export function usePwaVaultSetup(): VaultContextValue {
       setVaultName(null);
       setState("loading");
       void refreshRecents();
-      startWorker(handle);
+      // Only "clone-into-empty" reset the OPFS (and just terminated the
+      // worker above). "init-existing" keeps both the previous OPFS and the
+      // worker — feed the existing index into the new folder.
+      startWorker(handle, { resetStorage: args.mode === "clone-into-empty" });
     } catch (err) {
       // Label the failure with the step that was running so the user (and
       // the dev console) sees exactly which phase blew up. The raw FSA
@@ -392,17 +405,25 @@ export function usePwaVaultSetup(): VaultContextValue {
       return;
     }
 
-    // Different folder → wipe the OPFS-cached SQLite index so the worker
-    // doesn't resurrect the previous vault's data. Same dedup logic as
-    // `pickFolder`. Best-effort — if the handle was invalidated we still
-    // try to clear the cache so we start from a clean slate.
+    // Different folder → terminate the current worker so its in-flight RPCs
+    // don't land on the new vault, then ask the FRESH worker to unlink the
+    // OPFS-resident DB via the SAH pool API (resetStorage flag below).
+    // Doing the OPFS clear on the main thread is unreliable: SAH file
+    // handles are released asynchronously after worker termination, so
+    // `removeEntry("/supernote-vfs", { recursive: true })` silently fails
+    // and the previous vault's data leaks into the next session.
+    let isDifferentFolder = true;
     try {
       const previous = await loadVaultHandle().catch(() => null);
-      if (!previous || !(await previous.isSameEntry(entry.handle).catch(() => false))) {
-        await clearOpfsDb();
-      }
-    } catch (err) {
-      console.warn("[pwa-vault] OPFS clear skipped", err);
+      isDifferentFolder =
+        !previous || !(await previous.isSameEntry(entry.handle).catch(() => false));
+    } catch {
+      // Treat any failure to read the previous handle as "different", which
+      // is the conservative choice (wipe rather than risk a data mix).
+      isDifferentFolder = true;
+    }
+    if (isDifferentFolder) {
+      terminateVaultWorker();
     }
 
     await saveVaultHandle(entry.handle);
@@ -412,7 +433,7 @@ export function usePwaVaultSetup(): VaultContextValue {
     setVaultName(null);
     setState("loading");
     void refreshRecents();
-    startWorker(entry.handle);
+    startWorker(entry.handle, { resetStorage: isDifferentFolder });
   }, [activeVaultId, refreshRecents]);
 
   const forgetVault = useCallback(async (id: string) => {
@@ -438,8 +459,11 @@ export function usePwaVaultSetup(): VaultContextValue {
   };
 }
 
-function startWorker(handle: FileSystemDirectoryHandle): void {
-  initWorkerVault(handle);
+function startWorker(
+  handle: FileSystemDirectoryHandle,
+  opts: { resetStorage?: boolean } = {},
+): void {
+  initWorkerVault(handle, opts);
 }
 
 // ── UI Component ──────────────────────────────────────────────────────────────
@@ -852,6 +876,9 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 8,
     textAlign: "center",
     transition: "border-color 160ms, background 160ms, transform 80ms",
+    minWidth: 0,
+    width: "100%",
+    whiteSpace: "normal",
   },
   choiceIcon: {
     fontSize: 32,

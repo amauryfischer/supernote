@@ -38,11 +38,30 @@ export function TrpcProvider({ children }: TrpcProviderProps) {
   // invalidate so any UI that subscribed pre-init (and got "Vault not
   // initialized") refetches and surfaces fresh data. Mirrors the manual
   // refetch a user previously had to trigger via Ctrl+Shift+R.
+  //
+  // On a VAULT SWITCH (event.detail.wasReady === true) the cache must be
+  // wiped, not just invalidated — the queries we'd refetch were keyed on
+  // PREVIOUS vault state and their cached results (note lists, folder
+  // trees, schemas, …) still belong to the old vault. `invalidateQueries`
+  // alone would surface that stale payload while the refetch is in flight,
+  // exactly the "I switched vaults and still see the old one" symptom.
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const refresh = () => {
-      // Reset error queries so `enabled` queries that errored will refetch
-      // even if they're not currently "stale" (errors don't expire on time).
+    const refresh = (ev?: Event) => {
+      const isSwitch = (ev as CustomEvent | undefined)?.detail?.isSwitch === true;
+      if (isSwitch) {
+        // Vault switch: drop EVERY query's data AND force an immediate
+        // refetch on active observers. `resetQueries({})` (empty filter =
+        // all queries) clears data and re-triggers fetches; `removeQueries`
+        // alone would clear cache but observers keep their stale snapshot
+        // until their next mount, which is why the sidebar still showed
+        // the previous vault's folders post-switch.
+        void queryClient.resetQueries({});
+        return;
+      }
+      // First boot / re-grant: reset error queries so `enabled` queries
+      // that errored will refetch even if not "stale" yet (errors don't
+      // expire on time), then invalidate the rest.
       queryClient.resetQueries({
         predicate: (q) => q.state.status === "error",
       });
@@ -53,8 +72,20 @@ export function TrpcProvider({ children }: TrpcProviderProps) {
     // synchronously after init, often before any React effects run). If the
     // worker is already up at mount time, refresh immediately.
     if (isWorkerReady()) refresh();
+    // Also re-invalidate when the worker reports background-reindex progress
+    // (orphan files adopted, phantom rows swept). VAULT_READY fires BEFORE
+    // reindex runs, so the first refresh only sees the freshly-hydrated DB;
+    // without this follow-up, the sidebar wouldn't show the newly adopted
+    // folders until the next manual reload.
+    const onProgress = () => {
+      void queryClient.invalidateQueries();
+    };
     window.addEventListener("supernote:vault-ready", refresh);
-    return () => window.removeEventListener("supernote:vault-ready", refresh);
+    window.addEventListener("supernote:index-progress", onProgress);
+    return () => {
+      window.removeEventListener("supernote:vault-ready", refresh);
+      window.removeEventListener("supernote:index-progress", onProgress);
+    };
   }, [queryClient]);
 
   return (

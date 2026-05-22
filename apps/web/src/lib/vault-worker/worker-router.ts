@@ -14,7 +14,9 @@ import type { Database } from "./sqlite-adapter";
 import {
   parseFrontmatter,
   serializeFrontmatter,
-  walkMarkdownFiles,
+  walkAllFiles,
+  isMarkdownExt,
+  isExcalidrawExt,
   writeVaultFile,
   deleteVaultFile,
   deleteVaultDirectory,
@@ -2596,75 +2598,214 @@ export function buildRouter(
 
   // ── reindex ───────────────────────────────────────────────────────────────
 
-  const reindexVault = async (): Promise<{ indexed: number }> => {
-    const files = await walkMarkdownFiles(vaultHandle);
-    let indexed = 0;
-    for (const file of files) {
-      try {
-        const { frontmatter, body } = parseFrontmatter(file.content);
-        const entityId = frontmatter["id"] as string | undefined;
-        if (!entityId) continue;
-        const typeName = frontmatter["type"] as string | undefined;
-        if (!typeName) continue;
-        const typeRow = row(db.exec(
-          `SELECT id FROM entity_type WHERE vaultId = ? AND name = ?`, [vaultId, typeName],
-        ));
-        if (!typeRow) continue;
-        const typeId = typeRow["id"] as string;
-        // Fields are stored as TOP-LEVEL YAML keys (everything except the
-        // reserved `id` / `type` keys). For backward-compat with the old
-        // format that used a nested `fields: {...}` JSON blob, fall back
-        // to that when no top-level user keys are present, and merge top-
-        // level keys on top of it (top-level wins) when both exist.
-        const topLevelFields = Object.fromEntries(
-          Object.entries(frontmatter).filter(
-            ([k]) => k !== "id" && k !== "type" && k !== "fields",
-          ),
-        );
-        const nestedRaw = frontmatter["fields"];
-        let nestedFields: Record<string, unknown> = {};
-        if (nestedRaw && typeof nestedRaw === "object" && !Array.isArray(nestedRaw)) {
-          nestedFields = nestedRaw as Record<string, unknown>;
-        } else if (typeof nestedRaw === "string") {
-          // Parser fell back to raw string — try to recover the JSON.
+  const reindexVault = async (): Promise<{ indexed: number; removed?: number }> => {
+    // Walk the vault folder first — if this throws (no permission, handle
+    // expired, …) we abort BEFORE deleting anything so a transient FSA error
+    // can't wipe legitimate DB rows.
+    let files: Awaited<ReturnType<typeof walkAllFiles>>;
+    try {
+      files = await walkAllFiles(vaultHandle);
+    } catch (err) {
+      console.warn("[reindex] walkAllFiles failed — skipping reconciliation", err);
+      return { indexed: 0 };
+    }
+
+    // Snapshot filePaths already indexed so we don't double-import, and
+    // collect the set of `.excalidraw` paths that are owned by an indexed
+    // `.md` (so we don't materialise a standalone canvas entity that would
+    // shadow the note's sibling).
+    const existing = new Set<string>();
+    const claimedExcalidraw = new Set<string>();
+    try {
+      const allRows = rows(
+        db.exec(`SELECT filePath, fields FROM entity WHERE vaultId = ?`, [vaultId]),
+      );
+      for (const r of allRows) {
+        const fp = (r["filePath"] as string | null) ?? "";
+        if (!fp) continue;
+        existing.add(fp);
+        const lower = fp.toLowerCase();
+        if (lower.endsWith(".md") || lower.endsWith(".markdown")) {
+          // Canonical sibling: same basename + `.excalidraw`.
+          const stemMatch = fp.match(/^(.*)\.(md|markdown)$/i);
+          if (stemMatch) claimedExcalidraw.add(`${stemMatch[1]}.excalidraw`);
+          // Explicit canvasFile frontmatter override.
           try {
-            const parsed = JSON.parse(nestedRaw);
-            if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-              nestedFields = parsed as Record<string, unknown>;
+            const fields = JSON.parse((r["fields"] as string) || "{}") as Record<string, unknown>;
+            const cf = typeof fields["canvasFile"] === "string" ? (fields["canvasFile"] as string) : null;
+            if (cf) {
+              const dirEnd = fp.lastIndexOf("/");
+              const dir = dirEnd >= 0 ? fp.slice(0, dirEnd) : "";
+              claimedExcalidraw.add(dir ? `${dir}/${cf}` : cf);
             }
           } catch {
-            // Give up; nested stays empty.
+            // ignore malformed fields json
           }
         }
-        const fields = { ...nestedFields, ...topLevelFields };
-        const hash = await hashContent(file.content);
-        const ts = now();
-        db.run(
-          `INSERT INTO entity (id, vaultId, typeId, filePath, fields, body, fileHash, createdAt, updatedAt)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-           ON CONFLICT(id) DO UPDATE SET
-             filePath = excluded.filePath, fields = excluded.fields,
-             body = excluded.body, fileHash = excluded.fileHash, updatedAt = excluded.updatedAt`,
-          [entityId, vaultId, typeId, file.relativePath, JSON.stringify(fields), body, hash, ts, ts],
-        );
+      }
+    } catch {
+      // entity table not ready yet — treat as empty.
+    }
 
-        const r = row(db.exec(`SELECT id, typeId, filePath, fields, body FROM entity WHERE id = ?`, [entityId]));
-        if (r) ftsAdd(db, entityToDoc(r));
+    // Pre-build a set of relative paths for O(1) sibling-presence checks.
+    const allRelativePaths = new Set<string>(files.map((f) => f.relativePath));
 
-        indexed++;
+    let indexed = 0;
+    for (const file of files) {
+      if (existing.has(file.relativePath)) continue;
+      try {
+        if (isMarkdownExt(file.ext)) {
+          const content = await file.read();
+          const { frontmatter, body } = parseFrontmatter(content);
+          const fmId = frontmatter["id"] as string | undefined;
+          const typeName = frontmatter["type"] as string | undefined;
+
+          let typeId: string;
+          let id: string;
+          let fields: Record<string, unknown>;
+
+          if (fmId && typeName) {
+            // Supernote-native file: honour the declared type / id.
+            const typeRow = row(db.exec(
+              `SELECT id FROM entity_type WHERE vaultId = ? AND name = ?`, [vaultId, typeName],
+            ));
+            if (!typeRow) continue;
+            typeId = typeRow["id"] as string;
+            id = fmId;
+            const topLevelFields = Object.fromEntries(
+              Object.entries(frontmatter).filter(
+                ([k]) => k !== "id" && k !== "type" && k !== "fields",
+              ),
+            );
+            const nestedRaw = frontmatter["fields"];
+            let nestedFields: Record<string, unknown> = {};
+            if (nestedRaw && typeof nestedRaw === "object" && !Array.isArray(nestedRaw)) {
+              nestedFields = nestedRaw as Record<string, unknown>;
+            } else if (typeof nestedRaw === "string") {
+              try {
+                const parsed = JSON.parse(nestedRaw);
+                if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+                  nestedFields = parsed as Record<string, unknown>;
+                }
+              } catch {
+                // Give up; nested stays empty.
+              }
+            }
+            fields = { ...nestedFields, ...topLevelFields };
+          } else {
+            // Orphan markdown (user-supplied .md without Supernote frontmatter):
+            // adopt as a generic note so it's at least visible in the tree.
+            // Editing it later re-writes the file with proper frontmatter via
+            // the normal entity update path.
+            typeId = "note";
+            id = generateId();
+            const baseName = file.name.replace(/\.(md|markdown)$/i, "");
+            fields = { title: baseName };
+          }
+
+          const hash = await hashContent(content);
+          const ts = now();
+          db.run(
+            `INSERT INTO entity (id, vaultId, typeId, filePath, fields, body, fileHash, createdAt, updatedAt)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(id) DO UPDATE SET
+               filePath = excluded.filePath, fields = excluded.fields,
+               body = excluded.body, fileHash = excluded.fileHash, updatedAt = excluded.updatedAt`,
+            [id, vaultId, typeId, file.relativePath, JSON.stringify(fields), body, hash, ts, ts],
+          );
+          const r = row(db.exec(`SELECT id, typeId, filePath, fields, body FROM entity WHERE id = ?`, [id]));
+          if (r) ftsAdd(db, entityToDoc(r));
+          existing.add(file.relativePath);
+          if (typeId === "note") {
+            // Reserve the sibling path so a subsequent .excalidraw in the same
+            // pass doesn't get materialised as a duplicate standalone canvas.
+            const stemMatch = file.relativePath.match(/^(.*)\.(md|markdown)$/i);
+            if (stemMatch) claimedExcalidraw.add(`${stemMatch[1]}.excalidraw`);
+          }
+          indexed++;
+        } else if (isExcalidrawExt(file.ext)) {
+          // Skip excalidraws owned by an already-indexed (or freshly-imported)
+          // .md sibling — those load via readExcalidrawSibling on demand.
+          if (claimedExcalidraw.has(file.relativePath)) continue;
+          // Also skip if a sibling .md is present on disk: the markdown branch
+          // above (running in this same pass) will adopt it and claim the
+          // canvas. Order in `files` is not guaranteed, so check both.
+          const stem = file.relativePath.slice(0, -file.ext.length);
+          if (allRelativePaths.has(`${stem}.md`) || allRelativePaths.has(`${stem}.markdown`)) continue;
+
+          const content = await file.read();
+          const id = generateId();
+          const baseName = file.name.slice(0, -file.ext.length);
+          const fields = { name: baseName };
+          const hash = await hashContent(content);
+          const ts = now();
+          db.run(
+            `INSERT INTO entity (id, vaultId, typeId, filePath, fields, body, fileHash, createdAt, updatedAt)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(id) DO UPDATE SET
+               filePath = excluded.filePath, fields = excluded.fields,
+               body = excluded.body, fileHash = excluded.fileHash, updatedAt = excluded.updatedAt`,
+            [id, vaultId, "canvas", file.relativePath, JSON.stringify(fields), content, hash, ts, ts],
+          );
+          const r = row(db.exec(`SELECT id, typeId, filePath, fields, body FROM entity WHERE id = ?`, [id]));
+          if (r) ftsAdd(db, entityToDoc(r));
+          existing.add(file.relativePath);
+          indexed++;
+        }
+        // Other extensions: leave untouched for now.
       } catch {
         // Skip unparseable files
       }
     }
 
+    // Remove phantom entities — DB rows whose `filePath` no longer exists
+    // on disk. These accumulate when a previous (pre-fix) vault switch wrote
+    // the active vault's data into the new vault's `.supernote/index.db`
+    // mirror; on next open we'd hydrate from that polluted mirror and the
+    // sidebar would show folders that don't physically exist in the current
+    // vault folder. We only run this branch when the walk succeeded (we're
+    // inside the try/catch-protected path above) so a transient FSA error
+    // can't trigger a mass delete.
+    let removed = 0;
+    try {
+      // Build the authoritative set of on-disk paths the walk just produced.
+      const onDisk = allRelativePaths;
+      // Also tolerate `.excalidraw` siblings of indexed markdown files even
+      // if the user deleted just the sibling — keep the note entity, the
+      // canvas will simply read as null on next access.
+      const allRowsForSweep = rows(
+        db.exec(`SELECT id, filePath FROM entity WHERE vaultId = ?`, [vaultId]),
+      );
+      for (const r of allRowsForSweep) {
+        const fp = (r["filePath"] as string | null) ?? "";
+        if (!fp) continue;
+        if (onDisk.has(fp)) continue;
+        // Tolerate the markdown-vs-markdown-extension casing oddity.
+        const lower = fp.toLowerCase();
+        if (lower.endsWith(".md") || lower.endsWith(".markdown")) {
+          if (onDisk.has(fp.replace(/\.md$/i, ".markdown"))) continue;
+          if (onDisk.has(fp.replace(/\.markdown$/i, ".md"))) continue;
+        }
+        const id = r["id"] as string;
+        db.run(`DELETE FROM entity WHERE id = ?`, [id]);
+        ftsRemove(db, id);
+        removed++;
+      }
+      if (removed > 0) {
+        console.info(`[reindex] removed ${removed} phantom entit(y/ies) (filePath not on disk)`);
+      }
+    } catch (err) {
+      console.warn("[reindex] phantom sweep failed (non-fatal)", err);
+    }
+
     // Full FTS5 rebuild after a reindex batch — cheaper than auditing each
     // file's tag join state, and keeps tags consistent if a file's frontmatter
     // changed since the last index pass.
-    if (indexed > 0) {
+    if (indexed > 0 || removed > 0) {
       ftsRebuild(db, vaultId);
     }
 
-    return { indexed };
+    return { indexed, removed };
   };
 
   // ── variables.* ───────────────────────────────────────────────────────────

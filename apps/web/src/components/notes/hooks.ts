@@ -50,8 +50,16 @@ function useWorkerReady(): boolean {
     if (typeof window === "undefined") return;
     if (isWorkerReady()) setReady(true);
     const onReady = () => setReady(true);
+    // Flip back to false the moment the worker is torn down (vault switch)
+    // so dependent queries become `enabled: false` and stop returning the
+    // previous vault's cached payload while the new worker boots.
+    const onUnready = () => setReady(false);
     window.addEventListener("supernote:vault-ready", onReady);
-    return () => window.removeEventListener("supernote:vault-ready", onReady);
+    window.addEventListener("supernote:vault-unready", onUnready);
+    return () => {
+      window.removeEventListener("supernote:vault-ready", onReady);
+      window.removeEventListener("supernote:vault-unready", onUnready);
+    };
   }, []);
   return ready;
 }

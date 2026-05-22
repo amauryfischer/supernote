@@ -19,9 +19,9 @@
 
 /// <reference lib="webworker" />
 
-import { openDatabase, type Database } from "./sqlite-adapter";
+import { openDatabase, clearOpfsDb as clearOpfsDbViaPool, type Database } from "./sqlite-adapter";
 import { SCHEMA_SQL } from "./db-schema";
-import { saveDbToFsa, hydrateOpfsFromFsaIfNeeded } from "./db-persistence";
+import { saveDbToFsa, hydrateOpfsFromFsaIfNeeded, deleteFsaMirror } from "./db-persistence";
 import { seedDefaults } from "./seed-default-types";
 import { buildRouter, RouteHandler, type RouterLifecycleHooks } from "./worker-router";
 import { migrateCanvasesToExcalidraw } from "./migration-canvas-excalidraw";
@@ -47,6 +47,38 @@ import type {
   InitVaultMessage,
 } from "./worker-protocol";
 
+// ── Debug log forwarding ──────────────────────────────────────────────────────
+// Web Worker console messages don't always reach the main DevTools console
+// (and never reach MCP browser tooling), so we mirror every console.info /
+// warn / error onto the main thread via postMessage with a `__log` envelope.
+// Wrapped once at module init; idempotent because `wrapped` short-circuits.
+{
+  const origInfo = console.info;
+  const origWarn = console.warn;
+  const origError = console.error;
+  const forward = (level: string, args: unknown[]) => {
+    try {
+      const text = args
+        .map((a) => {
+          if (typeof a === "string") return a;
+          // DOMException / Error stringify as `{}` via JSON — surface the
+          // useful bits explicitly so the main thread sees what failed.
+          if (a instanceof Error) {
+            return `${a.name}: ${a.message}${a.stack ? "\n" + a.stack : ""}`;
+          }
+          try { return JSON.stringify(a); } catch { return String(a); }
+        })
+        .join(" ");
+      self.postMessage({ __log: `[${level}] ${text}` });
+    } catch {
+      /* never crash worker for logging */
+    }
+  };
+  console.info = (...args: unknown[]) => { forward("info", args); return origInfo.apply(console, args); };
+  console.warn = (...args: unknown[]) => { forward("warn", args); return origWarn.apply(console, args); };
+  console.error = (...args: unknown[]) => { forward("error", args); return origError.apply(console, args); };
+}
+
 // ── State ─────────────────────────────────────────────────────────────────────
 
 let db: Database | null = null;
@@ -69,6 +101,12 @@ async function initSqlite(handle: FileSystemDirectoryHandle): Promise<Database> 
   // Hydrate the OPFS SAH pool from the vault folder's mirror copy on first
   // launch (fresh device, new browser profile, …). No-op when the SAH pool
   // already has a DB — that's the authoritative copy.
+  //
+  // On vault switch (resetStorage:true) we DO still hydrate — the new
+  // vault's mirror is the authoritative source of its own state. Phantom
+  // pollution left by pre-fix sessions (entries pointing at files that
+  // aren't on disk in this vault) is reconciled by the background
+  // `vault.reindex` sweep after VAULT_READY.
   console.info("[init.sqlite] hydrateOpfsFromFsaIfNeeded…");
   await hydrateOpfsFromFsaIfNeeded(handle);
 
@@ -690,14 +728,21 @@ async function isSameVaultHandle(
   return current === next;
 }
 
-async function handleInitVault(handle: FileSystemDirectoryHandle): Promise<void> {
+async function handleInitVault(
+  handle: FileSystemDirectoryHandle,
+  resetStorage: boolean = false,
+): Promise<void> {
   try {
     // Idempotency: if the same vault is already initialized, just re-emit
     // VAULT_READY and bail. Without this, every navigation re-fires INIT
     // which reloads the DB from FSA — a debounced persist that hadn't
     // flushed yet would be silently dropped, making freshly created
     // entities disappear.
-    if (db && vaultId && (await isSameVaultHandle(vaultHandle, handle))) {
+    //
+    // `resetStorage` short-circuits the idempotency path: a vault switch
+    // explicitly demands a wipe even if (by some coincidence) the handle
+    // looks identical.
+    if (!resetStorage && db && vaultId && (await isSameVaultHandle(vaultHandle, handle))) {
       console.info("[init] reusing existing vault", handle.name, "vaultId=", vaultId);
       self.postMessage({
         type: "VAULT_READY",
@@ -708,8 +753,51 @@ async function handleInitVault(handle: FileSystemDirectoryHandle): Promise<void>
       return;
     }
 
-    console.info("[init] full re-init from FSA, handle.name=", handle.name);
+    console.info("[init] full re-init from FSA, handle.name=", handle.name, "resetStorage=", resetStorage);
     vaultHandle = handle;
+
+    if (resetStorage) {
+      // Vault switch: tear down the previous DB and unlink the SAH-backed
+      // OPFS file through the pool API (the pool owns the locks, so this
+      // succeeds where a main-thread `removeEntry` on `.supernote-vfs`
+      // would silently fail). After this, `hydrateOpfsFromFsaIfNeeded`
+      // sees an empty OPFS and seeds from the NEW vault's FSA mirror —
+      // or starts blank when the new folder is fresh.
+      if (db) {
+        try {
+          db.close();
+        } catch (err) {
+          console.warn("[init] db.close() before reset failed (non-fatal)", err);
+        }
+        db = null;
+      }
+      // Drop module-scope state from the previous vault so nothing stale
+      // leaks into the new init (router, engine, ids, …).
+      vaultId = null;
+      vaultName = null;
+      rootPath = null;
+      router = {};
+      automationEngine = null;
+      engineResolvers = null;
+      try {
+        await clearOpfsDbViaPool();
+        console.info("[init] resetStorage: OPFS DB unlinked via SAH pool");
+      } catch (err) {
+        console.warn("[init] resetStorage: OPFS unlink failed (non-fatal)", err);
+      }
+      // Also delete the FSA-side mirror so we don't re-hydrate a pre-fix
+      // polluted copy on the next initSqlite call. The clean DB we're about
+      // to build will be persisted back to FSA, restoring a coherent
+      // mirror. Any legitimate entity data is rebuilt by the reindex sweep
+      // from the actual `.md` / `.excalidraw` files on disk (their YAML
+      // frontmatter preserves stable IDs, so no real data is lost).
+      try {
+        await deleteFsaMirror(handle);
+      } catch (err) {
+        console.warn("[init] resetStorage: deleteFsaMirror failed (non-fatal)", err);
+      }
+    }
+
     console.info("[init] step=initSqlite");
     db = await initSqlite(handle);
     console.info("[init] step=initSqlite done");
@@ -814,39 +902,49 @@ async function handleInitVault(handle: FileSystemDirectoryHandle): Promise<void>
       rootPath,
     });
 
-    // Background recovery — if the DB came back empty (fresh profile,
-    // corrupted index.db, …) but the vault folder still holds .md files,
-    // rebuild the entity table from those files. Runs OUT-OF-BAND so it
-    // can't block VAULT_READY, and emits INDEX_PROGRESS so the UI sees
-    // entities populate live. Skipped silently when the DB already had
-    // rows on load (loadedCount > 0).
-    if (loadedCount === 0) {
-      void (async () => {
-        try {
-          const reindex = router["vault.reindex"];
-          if (!reindex) return;
-          const result = (await reindex(undefined)) as { indexed?: number };
-          const indexed = result?.indexed ?? 0;
-          if (indexed > 0) {
+    // Background reindex — always runs after init so user-supplied files
+    // dropped into the vault folder (orphan `.md` without Supernote
+    // frontmatter, standalone `.excalidraw`, etc.) get surfaced in the UI
+    // even when the DB already had rows. `reindexVault` is dedup-safe: it
+    // skips any filePath already present and never overwrites Supernote-
+    // native files (those keep their declared id/type).
+    //
+    // Runs OUT-OF-BAND so it can't block VAULT_READY, and emits
+    // INDEX_PROGRESS so the UI sees entities populate live.
+    void (async () => {
+      try {
+        const reindex = router["vault.reindex"];
+        if (!reindex) return;
+        const result = (await reindex(undefined)) as { indexed?: number; removed?: number };
+        const indexed = result?.indexed ?? 0;
+        const removed = result?.removed ?? 0;
+        if (indexed > 0) {
+          if (loadedCount === 0) {
             console.info(
-              `[init] empty DB recovered from disk: reindexed ${indexed} entit(y/ies) from .md files`,
+              `[init] empty DB recovered from disk: reindexed ${indexed} entit(y/ies) from vault files`,
             );
-            // Persist the recovered state immediately so a refresh after
-            // recovery sees the rebuilt entities without waiting for the
-            // 30 s poll cycle.
-            await schedulePersist();
-            self.postMessage({ type: "INDEX_PROGRESS", indexed, total: indexed });
+          } else {
+            console.info(
+              `[init] adopted ${indexed} orphan file(s) discovered in the vault folder`,
+            );
           }
-          await runCanvasMigration();
-        } catch (err) {
-          console.warn("[init] background reindex failed (non-fatal)", err);
         }
-      })();
-    } else {
-      // DB came up with rows already — still try to migrate any legacy
-      // canvases (idempotent: rows with canvasFile already set are skipped).
-      void runCanvasMigration();
-    }
+        if (removed > 0) {
+          console.info(
+            `[init] swept ${removed} phantom entit(y/ies) whose filePath is not on disk`,
+          );
+        }
+        if (indexed > 0 || removed > 0) {
+          // Persist the recovered/adopted/swept state immediately so a refresh
+          // doesn't have to wait for the 30 s poll cycle.
+          await schedulePersist();
+          self.postMessage({ type: "INDEX_PROGRESS", indexed, total: indexed });
+        }
+        await runCanvasMigration();
+      } catch (err) {
+        console.warn("[init] background reindex failed (non-fatal)", err);
+      }
+    })();
 
     async function runCanvasMigration() {
       if (!db || !vaultId) return;
@@ -948,7 +1046,8 @@ self.addEventListener("message", (event: MessageEvent<WorkerInboundMessage>) => 
   if (!msg) return;
 
   if ("type" in msg && msg.type === "INIT_VAULT") {
-    void handleInitVault((msg as InitVaultMessage).handle);
+    const initMsg = msg as InitVaultMessage;
+    void handleInitVault(initMsg.handle, initMsg.resetStorage === true);
     return;
   }
   if ("type" in msg && msg.type === "FLUSH") {
