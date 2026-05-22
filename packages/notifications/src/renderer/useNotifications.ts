@@ -6,7 +6,7 @@ import type { NotificationsContextValue } from "./NotificationsContext.js";
  * Must be used inside <NotificationsProvider>.
  */
 export function useNotifications(): Omit<NotificationsContextValue, "push"> {
-  const { notifications, unreadCount, markAsRead, markAllAsRead, clear } =
+  const { notifications, unreadCount, markAsRead, markAllAsRead, clear, clearAll } =
     useNotificationsContext();
-  return { notifications, unreadCount, markAsRead, markAllAsRead, clear };
+  return { notifications, unreadCount, markAsRead, markAllAsRead, clear, clearAll };
 }

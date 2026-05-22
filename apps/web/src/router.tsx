@@ -134,6 +134,9 @@ export const router: any = createBrowserRouter([
       // ── AI Assistant (agentic chat with local Ollama) ────────────────
       { path: "ai", lazy: lazyPage(() => import("./app/ai/page")) },
 
+      // ── Pomodoro ──────────────────────────────────────────────────────
+      { path: "pomodoro", lazy: lazyPage(() => import("./app/pomodoro/page")) },
+
       // ── Misc top-level routes ────────────────────────────────────────
       { path: "tags", lazy: lazyPage(() => import("./app/tags/page")) },
       { path: "templates", lazy: lazyPage(() => import("./app/templates/page")) },
@@ -148,4 +151,11 @@ export const router: any = createBrowserRouter([
       { path: "*", lazy: lazyPage(() => import("./app/page")) },
     ],
   },
-]);
+], {
+  // Opt-in v7 behaviour pour stopper le warning console et préparer la
+  // migration : tous les state updates router sont wrappés dans
+  // React.startTransition.
+  future: {
+    v7_startTransition: true,
+  },
+});

@@ -40,6 +40,7 @@
     "templates": "Templates",
     "routines": "Routines",
     "variables": "Variables",
+    "pomodoro": "Pomodoro",
     "settings": "Settings",
     "groups": {
       "navigation": "Navigation",
@@ -63,6 +64,47 @@
       "journal": "Daily notes",
       "schemas": "Entity types and fields",
       "routines": "Automations and reminders"
+    },
+    "hero": {
+      "greetings": {
+        "morning": "Good morning",
+        "afternoon": "Good afternoon",
+        "evening": "Good evening",
+        "night": "Good night"
+      },
+      "vaultDefault": "My vault"
+    },
+    "widgets": {
+      "today": {
+        "title": "Today",
+        "urgentCount": "{n} urgent",
+        "empty": "Nothing urgent. Have a great day 🌤️",
+        "viewAll": "View all →"
+      },
+      "continue": {
+        "title": "Resume",
+        "viewAll": "All notes →",
+        "empty": "No notes yet. Capture your first idea ↑",
+        "noBody": "Empty"
+      },
+      "stats": {
+        "title": "Vault",
+        "notes": "Notes",
+        "todos": "Open todos",
+        "contacts": "Contacts",
+        "schemas": "Schemas"
+      },
+      "actions": {
+        "title": "Quick capture",
+        "newNote": "New note",
+        "journal": "Today's journal",
+        "todo": "Quick todo",
+        "schema": "Schema"
+      },
+      "tags": {
+        "title": "Tags",
+        "empty": "No tags yet. Add #tag to your notes ✨"
+      }
     }
   },
   "notes": {

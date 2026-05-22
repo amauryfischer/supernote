@@ -41,6 +41,7 @@
     "templates": "Templates",
     "routines": "Routines",
     "variables": "Variables",
+    "pomodoro": "Pomodoro",
     "settings": "Paramètres",
     "groups": {
       "navigation": "Navigation",
@@ -64,6 +65,47 @@
       "journal": "Notes quotidiennes",
       "schemas": "Types d'entités et champs",
       "routines": "Automations et rappels"
+    },
+    "hero": {
+      "greetings": {
+        "morning": "Bonjour",
+        "afternoon": "Bel après-midi",
+        "evening": "Bonsoir",
+        "night": "Bonne nuit"
+      },
+      "vaultDefault": "Mon vault"
+    },
+    "widgets": {
+      "today": {
+        "title": "Aujourd'hui",
+        "urgentCount": "{n} urgents",
+        "empty": "Rien d'urgent. Belle journée 🌤️",
+        "viewAll": "Tout voir →"
+      },
+      "continue": {
+        "title": "Continuer",
+        "viewAll": "Toutes les notes →",
+        "empty": "Aucune note encore. Capturez votre première idée ↑",
+        "noBody": "Sans contenu"
+      },
+      "stats": {
+        "title": "Vault",
+        "notes": "Notes",
+        "todos": "Todos ouverts",
+        "contacts": "Contacts",
+        "schemas": "Schémas"
+      },
+      "actions": {
+        "title": "Capture rapide",
+        "newNote": "Nouvelle note",
+        "journal": "Journal du jour",
+        "todo": "Todo express",
+        "schema": "Schéma"
+      },
+      "tags": {
+        "title": "Tags",
+        "empty": "Pas encore de tags. Ajoutez #tag à vos notes ✨"
+      }
     }
   },
   "notes": {

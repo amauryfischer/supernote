@@ -289,6 +289,17 @@ const IconCaretDown = (
   </PhosphorIcon>
 );
 
+// Phosphor "Database" (regular) — for `base` (lien vers une Base / EntityType)
+const IconDatabase = (
+  <PhosphorIcon>
+    <path d="M128,24C74.17,24,32,48.6,32,80v96c0,31.4,42.17,56,96,56s96-24.6,96-56V80C224,48.6,181.83,24,128,24Zm80,104c0,9-7.81,18.41-21.43,25.83C170.78,162.43,150.21,168,128,168s-42.78-5.57-58.57-14.17C55.81,146.41,48,137,48,128V111.36C65.66,124.92,94.71,136,128,136s62.34-11.08,80-24.64Zm-21.43,73.83C170.78,210.43,150.21,216,128,216s-42.78-5.57-58.57-14.17C55.81,194.41,48,185,48,176v-8.64C65.66,180.92,94.71,192,128,192s62.34-11.08,80-24.64V176C208,185,200.19,194.41,186.57,201.83Z" />
+  </PhosphorIcon>
+);
+
+// Sentinel typeId for the base-link button: bases are EntityTypes (schemas),
+// not entity instances, so they take a separate picker path in the host.
+const BASE_LINK_TYPE_ID = "base";
+
 const PRIMARY_BUTTONS: readonly EntityLinkButton[] = [
   { typeId: "note", label: "Lier une note", icon: IconFileText },
   { typeId: "personne", label: "Lier un contact", icon: IconUser },
@@ -298,6 +309,7 @@ const PRIMARY_BUTTONS: readonly EntityLinkButton[] = [
 ];
 
 const OVERFLOW_BUTTONS: readonly EntityLinkButton[] = [
+  { typeId: BASE_LINK_TYPE_ID, label: "Lier une base", icon: IconDatabase },
   { typeId: "asset", label: "Lier un actif", icon: IconTrendUp },
   { typeId: "account", label: "Lier un compte", icon: IconWallet },
   { typeId: "goal", label: "Lier un objectif", icon: IconTarget },

@@ -7,6 +7,7 @@ export interface NotificationsContextValue {
   markAsRead: (id: string) => void;
   markAllAsRead: () => void;
   clear: (id: string) => void;
+  clearAll: () => void;
   /** Push a notification directly into the renderer state (used by IPC listener). */
   push: (notif: NotificationPayload) => void;
 }

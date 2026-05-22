@@ -1,15 +1,7 @@
 "use client";
 
 import { Button } from "@heroui/react";
-import {
-  Calendar,
-  FileText,
-  Hash,
-  Plus,
-  Users,
-  Lightning,
-  type Icon as PhosphorIcon,
-} from "@phosphor-icons/react";
+import { Plus } from "@phosphor-icons/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
@@ -18,6 +10,14 @@ import { useCreateInboxNote } from "@/hooks/useCreateInboxNote";
 import type { SupernoteEditorProps, EntityRef } from "@supernote/editor";
 import { trpc, trpcVanillaClient } from "@/lib/trpc/client";
 import { useTranslations } from "next-intl";
+import {
+  HomeHero,
+  TodayWidget,
+  ContinueWidget,
+  VaultStatsWidget,
+  QuickActionsStrip,
+  TagsCloud,
+} from "@/components/home";
 
 // Dynamic import: BlockNote uses browser-only APIs (ProseMirror, etc.)
 // SSR-safe, same pattern as NoteEditor.tsx
@@ -25,21 +25,6 @@ const SupernoteEditor = dynamic<SupernoteEditorProps>(
   () => import("@supernote/editor").then((m) => ({ default: m.SupernoteEditor })),
   { ssr: false, loading: () => <EditorPlaceholder /> }
 );
-
-interface QuickAccessItem {
-  labelKey: string;
-  descriptionKey: string;
-  icon: PhosphorIcon;
-  href: string;
-}
-
-const QUICK_ACCESS: QuickAccessItem[] = [
-  { labelKey: "nav.notes", descriptionKey: "home.descriptions.notes", icon: FileText, href: "/notes" },
-  { labelKey: "nav.contacts", descriptionKey: "home.descriptions.contacts", icon: Users, href: "/contacts" },
-  { labelKey: "nav.journal", descriptionKey: "home.descriptions.journal", icon: Calendar, href: "/journal" },
-  { labelKey: "nav.schemas", descriptionKey: "home.descriptions.schemas", icon: Hash, href: "/schemas" },
-  { labelKey: "nav.routines", descriptionKey: "home.descriptions.routines", icon: Lightning, href: "/routines" },
-];
 
 /**
  * The writing surface IS the homepage. The user can start typing immediately.
@@ -255,20 +240,28 @@ export function WritingSurface() {
       ref={surfaceRef}
       data-tour="writing-surface"
       data-just-reset={justReset ? "true" : undefined}
-      className="writing-surface-root relative mx-auto flex h-full max-w-3xl flex-col px-4 md:px-8"
+      className="writing-surface-root relative mx-auto flex h-full max-w-5xl flex-col px-4 md:px-8"
     >
-      {/* Writing canvas */}
+      {/* Hero greeting — hidden while writing */}
       <div
         className={`transition-all duration-300 ease-out ${
-          isWriting ? "pt-8 md:pt-20" : "pt-6 md:pt-16"
+          isWriting ? "pointer-events-none -translate-y-2 opacity-0 max-h-0 overflow-hidden" : "translate-y-0 opacity-100 pt-6 md:pt-10"
+        }`}
+      >
+        <HomeHero />
+      </div>
+
+      {/* Writing canvas */}
+      <div
+        className={`mx-auto w-full max-w-3xl transition-all duration-300 ease-out ${
+          isWriting ? "pt-8 md:pt-20" : "pt-2"
         }`}
       >
         {/* Title chip (subtle, derived from first line) */}
         <div
-          className={`mb-3 transition-opacity duration-200 ${
-            isWriting && truncatedTitle ? "opacity-100" : "opacity-0"
+          className={`transition-all duration-200 ${
+            isWriting && truncatedTitle ? "opacity-100 mb-3" : "opacity-0 max-h-0 overflow-hidden mb-0"
           }`}
-          style={{ minHeight: "1.25rem" }}
         >
           <span
             className="inline-flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider"
@@ -294,7 +287,7 @@ export function WritingSurface() {
             onSave={handleEditorSave}
             resolvers={resolvers}
             placeholder="Commencez à écrire ou tapez « / » pour les commandes…"
-            className="min-h-[8rem] w-full"
+            className={`w-full ${isWriting ? "min-h-[8rem]" : "min-h-[4rem]"}`}
           />
         </div>
       </div>
@@ -369,49 +362,29 @@ export function WritingSurface() {
         </div>
       </div>
 
-      {/* Quick access grid — fades out while writing */}
+      {/* Dashboard — fades out while writing */}
       <div
-        className={`mt-6 transition-all duration-300 ease-out md:mt-12 ${
+        className={`mt-8 transition-all duration-300 ease-out md:mt-12 ${
           isWriting
             ? "pointer-events-none -translate-y-2 opacity-0"
             : "translate-y-0 opacity-100"
         }`}
       >
-        <h2
-          className="mb-3 text-[10px] font-medium uppercase tracking-widest md:mb-4"
-          style={{ color: "var(--text-muted)" }}
-        >
-          {t("home.quickAccess")}
-        </h2>
-        <div className="grid grid-cols-2 gap-2 pb-24 md:gap-3 md:pb-12">
-          {QUICK_ACCESS.map((item) => (
-            <Button
-              key={item.labelKey}
-              variant="ghost"
-              onPress={() => router.push(item.href)}
-              className="quick-access-card group flex items-center gap-3 rounded-xl border p-4 text-left h-auto justify-start"
-            >
-              <div
-                className="quick-access-icon flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md"
-              >
-                <item.icon size={16} weight="duotone" />
-              </div>
-              <div className="min-w-0">
-                <p
-                  className="text-sm font-semibold"
-                  style={{ color: "var(--text-primary)" }}
-                >
-                  {t(item.labelKey)}
-                </p>
-                <p
-                  className="truncate text-xs"
-                  style={{ color: "var(--text-muted)" }}
-                >
-                  {t(item.descriptionKey)}
-                </p>
-              </div>
-            </Button>
-          ))}
+        <div className="mb-6">
+          <QuickActionsStrip />
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <TodayWidget />
+          <ContinueWidget />
+        </div>
+
+        <div className="mt-4">
+          <VaultStatsWidget />
+        </div>
+
+        <div className="mt-4 pb-24 md:pb-12">
+          <TagsCloud />
         </div>
       </div>
 

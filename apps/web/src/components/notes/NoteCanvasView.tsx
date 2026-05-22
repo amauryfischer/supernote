@@ -40,6 +40,8 @@ function entityHref(entityId: string, entityType: string): string {
   const t = entityType.toLowerCase();
   if (t === "contact" || t === "personne") return `/contacts/${entityId}`;
   if (t === "note") return `/notes/${entityId}`;
+  // Liens "Lier une base" : pointent vers la vue grille de la Base.
+  if (t === "base") return `/bases/${entityId}`;
   return `/notes/${entityId}`;
 }
 
@@ -360,6 +362,8 @@ export function NoteCanvasView({ note }: NoteCanvasViewProps) {
   }, [note.id, hadStoredCanvas, initialDocument]);
 
   // Resolver used by EntityCardNode to render real entity data on the canvas.
+  // Tente d'abord l'entité ; si introuvable, tente la résolution comme Base
+  // (schema/EntityType) pour les refs créées via le bouton "Lier une base".
   const resolveEntity = useCallback(
     async (id: string): Promise<CanvasEntityRef | null> => {
       try {
@@ -372,7 +376,18 @@ export function NoteCanvasView({ note }: NoteCanvasViewProps) {
           fields: e.fields,
         };
       } catch {
-        return null;
+        try {
+          const s = await utils.schemas.get.fetch({ id });
+          return {
+            id: s.id,
+            typeId: "base",
+            typeName: "base",
+            name: s.plural || s.name,
+            fields: {},
+          };
+        } catch {
+          return null;
+        }
       }
     },
     [utils],
@@ -416,6 +431,25 @@ export function NoteCanvasView({ note }: NoteCanvasViewProps) {
     ): Promise<
       Array<{ id: string; name: string; typeId: string; typeName: string }>
     > => {
+      // Branche dédiée pour "Lier une base" : on cherche dans les EntityTypes
+      // (schemas) au lieu des instances d'entités, parce qu'une Base = un
+      // schéma, pas une row.
+      if (typeFilter === "base") {
+        try {
+          const trimmed = query.trim();
+          const types = await trpcVanillaClient.schemas.list.query({
+            search: trimmed.length > 0 ? trimmed : undefined,
+          });
+          return types.slice(0, 20).map((t) => ({
+            id: t.id,
+            name: t.plural || t.name,
+            typeId: "base",
+            typeName: "base",
+          }));
+        } catch {
+          return [];
+        }
+      }
       try {
         // The IPC schema requires `query.min(1)`. When the user opens the
         // picker via a typed toolbar button and hasn't typed anything yet we

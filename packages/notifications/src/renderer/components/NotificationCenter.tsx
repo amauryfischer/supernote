@@ -21,7 +21,7 @@ export interface NotificationCenterProps {
  * Supports filtering by unread/all.
  */
 export function NotificationCenter({ open, onClose }: NotificationCenterProps) {
-  const { notifications, markAsRead, markAllAsRead, clear } = useNotificationsContext();
+  const { notifications, markAsRead, clear, clearAll } = useNotificationsContext();
   const [filter, setFilter] = React.useState<NotificationCenterFilter>("all");
 
   const visible = React.useMemo(() => {
@@ -74,8 +74,8 @@ export function NotificationCenter({ open, onClose }: NotificationCenterProps) {
         >
           <h2 style={{ margin: 0, fontSize: "1rem", fontWeight: 600 }}>Notifications</h2>
           <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
-            <button onClick={markAllAsRead} style={btnStyle} aria-label="Mark all as read">
-              Mark all read
+            <button onClick={clearAll} style={btnStyle} aria-label="Tout supprimer">
+              Tout supprimer
             </button>
             <button onClick={onClose} style={btnStyle} aria-label="Close notification center">
               Close

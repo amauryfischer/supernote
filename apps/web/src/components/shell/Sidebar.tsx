@@ -16,6 +16,7 @@ import {
   Lightning,
   Robot,
   Tag,
+  Timer,
   Trash,
   Users,
   Wallet,
@@ -82,6 +83,7 @@ const NAV_GROUPS: NavGroup[] = [
       { labelKey: "nav.tags", icon: Tag, href: "/tags" },
       { labelKey: "nav.variables", icon: Function, href: "/variables" },
       { labelKey: "nav.routines", icon: Lightning, href: "/routines" },
+      { labelKey: "nav.pomodoro", icon: Timer, href: "/pomodoro" },
     ],
   },
 ];

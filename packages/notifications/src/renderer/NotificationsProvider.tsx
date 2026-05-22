@@ -58,14 +58,18 @@ export function NotificationsProvider({
     setNotifications((prev) => prev.filter((n) => n.id !== id));
   }, []);
 
+  const clearAll = React.useCallback(() => {
+    setNotifications([]);
+  }, []);
+
   const unreadCount = React.useMemo(
     () => notifications.filter((n) => !n.readAt).length,
     [notifications]
   );
 
   const value = React.useMemo(
-    () => ({ notifications, unreadCount, markAsRead, markAllAsRead, clear, push }),
-    [notifications, unreadCount, markAsRead, markAllAsRead, clear, push]
+    () => ({ notifications, unreadCount, markAsRead, markAllAsRead, clear, clearAll, push }),
+    [notifications, unreadCount, markAsRead, markAllAsRead, clear, clearAll, push]
   );
 
   return (

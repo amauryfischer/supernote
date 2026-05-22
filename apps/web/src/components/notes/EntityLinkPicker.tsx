@@ -47,6 +47,7 @@ const TYPE_FILTER_LABELS: Record<string, string> = {
   goal: "Lier un objectif",
   loan: "Lier un prêt",
   canvas: "Lier un canvas",
+  base: "Lier une base",
 };
 
 export function EntityLinkPicker({

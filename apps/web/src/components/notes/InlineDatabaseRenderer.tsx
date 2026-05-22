@@ -68,7 +68,7 @@ function InlineDatabase({ baseId, viewId }: DatabaseViewBlockProps) {
         overflow: "hidden",
       }}
     >
-      <InlineBaseHeader baseId={baseId} base={base} viewId={viewId} />
+      <InlineBaseHeader base={base} />
       <div style={{ maxHeight: 480, overflow: "auto" }}>
         <BaseView
           base={base}
@@ -83,13 +83,9 @@ function InlineDatabase({ baseId, viewId }: DatabaseViewBlockProps) {
 // ── Header (Base name + picker affordance) ────────────────────────────────
 
 function InlineBaseHeader({
-  baseId,
   base,
-  viewId,
 }: {
-  baseId: string;
   base: { name: string; plural: string; icon?: string; color?: string };
-  viewId: string;
 }) {
   const Icon = getIcon(base.icon ?? "Database");
   return (
@@ -103,14 +99,6 @@ function InlineBaseHeader({
       <Icon size={12} style={{ color: base.color ?? "var(--accent)" }} weight="fill" />
       <span style={{ color: "var(--text-secondary)", fontWeight: 600 }}>{base.plural}</span>
       <span style={{ color: "var(--text-muted)" }}>· vue inline</span>
-      <Button
-        onPress={() => requestReconfigure(baseId, viewId)}
-        className="ml-auto rounded px-1.5 py-0.5 hover:bg-[var(--surface-2)]"
-        style={{ color: "var(--text-muted)" }}
-        aria-label="Changer de Base"
-      >
-        Changer
-      </Button>
     </div>
   );
 }
