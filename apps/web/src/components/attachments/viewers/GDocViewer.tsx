@@ -68,33 +68,46 @@ export function GDocViewer({ path }: AttachmentViewerProps) {
   const docType: GDocType = EXT_TO_TYPE[ext] ?? "document";
 
   const parsed = useMemo<{ docId: string; originalUrl: string } | null>(() => {
-    if (!text) return null;
+    if (!text) {
+      console.info(`[GDocViewer] no text yet (loading?) path=${path}`);
+      return null;
+    }
     // Strip a UTF-8 BOM up front — some Drive clients (older Windows
     // versions) prepend one and `JSON.parse` chokes on it.
     const stripped = text.replace(/^﻿/, "").trim();
+    console.info(
+      `[GDocViewer] raw text path=${path} len=${text.length} stripped=${stripped.length} preview=${JSON.stringify(stripped.slice(0, 300))}`,
+    );
     if (!stripped) return null;
     try {
       const pointer = JSON.parse(stripped) as GDocPointer;
+      console.info(`[GDocViewer] parsed pointer`, pointer);
       const docId: string | null =
         pointer.doc_id ??
         (pointer.url ? docIdFromUrl(pointer.url) : null);
-      if (!docId) return null;
+      if (!docId) {
+        console.warn(`[GDocViewer] no doc_id extracted from pointer`, pointer);
+        return null;
+      }
       const originalUrl =
         pointer.url ??
         `https://docs.google.com/${docType}/d/${docId}/edit`;
+      console.info(`[GDocViewer] resolved docId=${docId} originalUrl=${originalUrl}`);
       return { docId, originalUrl };
-    } catch {
+    } catch (err) {
       // Last-ditch: maybe the file is just a bare URL with no JSON wrapper.
       const id = docIdFromUrl(stripped);
       if (id) {
+        console.info(`[GDocViewer] bare-URL fallback succeeded id=${id}`);
         return {
           docId: id,
           originalUrl: `https://docs.google.com/${docType}/d/${id}/edit`,
         };
       }
+      console.warn(`[GDocViewer] JSON parse failed AND no URL found in body`, err);
       return null;
     }
-  }, [text, docType]);
+  }, [text, docType, path]);
 
   // Iframe load detection — Google's `/preview` returns 200 even for
   // private docs (you just see a sign-in page inside the frame). To give
@@ -107,7 +120,13 @@ export function GDocViewer({ path }: AttachmentViewerProps) {
     setIframeStatus("loading");
     if (iframeTimerRef.current) clearTimeout(iframeTimerRef.current);
     iframeTimerRef.current = setTimeout(() => {
-      setIframeStatus((s) => (s === "loading" ? "timeout" : s));
+      setIframeStatus((s) => {
+        if (s === "loading") {
+          console.warn(`[GDocViewer] iframe load timeout after 6s — docId=${parsed.docId}`);
+          return "timeout";
+        }
+        return s;
+      });
     }, 6000);
     return () => {
       if (iframeTimerRef.current) clearTimeout(iframeTimerRef.current);
@@ -182,7 +201,10 @@ export function GDocViewer({ path }: AttachmentViewerProps) {
           className="absolute inset-0 h-full w-full border-none"
           title={basename}
           referrerPolicy="no-referrer-when-downgrade"
-          onLoad={() => setIframeStatus("ok")}
+          onLoad={() => {
+            console.info(`[GDocViewer] iframe onLoad — ${embedUrl}`);
+            setIframeStatus("ok");
+          }}
         />
         {iframeStatus === "loading" && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center"
