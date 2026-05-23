@@ -63,8 +63,19 @@ function docIdFromUrl(url: string): string | null {
   return null;
 }
 
+/**
+ * Build the iframe URL. We use `/edit?embedded=true` — Google supports
+ * embedding the FULL EDITOR (not just read-only preview) inside an iframe
+ * via this URL shape. The user keeps their normal Google session cookies
+ * inside the frame, so editing works without any extra OAuth scope on
+ * our side (the iframe IS the editor; we don't write through Drive API).
+ *
+ * `/preview` is read-only — used previously. If the user wants strictly
+ * read-only (e.g. doc owner doesn't allow editing), Google's UI inside
+ * the editor will fall back gracefully.
+ */
 function buildEmbedUrl(docId: string, type: GDocType): string {
-  return `https://docs.google.com/${type}/d/${docId}/preview`;
+  return `https://docs.google.com/${type}/d/${docId}/edit?embedded=true&rm=embedded`;
 }
 
 export function GDocViewer({ note, path }: AttachmentViewerProps) {
