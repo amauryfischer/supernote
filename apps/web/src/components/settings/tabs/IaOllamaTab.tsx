@@ -1,8 +1,9 @@
 "use client";
 
-import { Robot, CircleNotch, CheckCircle, XCircle, Copy, Check } from "@phosphor-icons/react";
+import { Robot, CircleNotch, CheckCircle, XCircle, Copy, Check, Database } from "@phosphor-icons/react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Button, Input } from "@heroui/react";
+import { Button, Input, ProgressBar } from "@heroui/react";
+import { runIndex } from "@/lib/rag-indexer";
 import { useSettings } from "../SettingsContext";
 import { SettingRow } from "../SettingRow";
 import { SettingSection } from "../SettingSection";
@@ -513,6 +514,8 @@ export function IaOllamaTab() {
         </SettingRow>
       </SettingSection>
 
+      <RagIndexSection host={host} model={ia.ollamaModel} />
+
       <SettingSection
         title="Fonctionnalites IA"
         description="Activez ou desactivez chaque module"
@@ -539,5 +542,86 @@ export function IaOllamaTab() {
         </SettingRow>
       </SettingSection>
     </div>
+  );
+}
+
+// ── RAG Index Section ──────────────────────────────────────────────────────
+
+interface RagIndexSectionProps {
+  host: string;
+  model: string;
+}
+
+function RagIndexSection({ host, model }: RagIndexSectionProps) {
+  const [running, setRunning] = useState(false);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const [result, setResult] = useState<string | null>(null);
+
+  const handleIndex = async () => {
+    setRunning(true);
+    setResult(null);
+    setProgress(null);
+    try {
+      const res = await runIndex({
+        host,
+        onProgress: (done, total) => setProgress({ done, total }),
+      });
+      setResult(`Indexation terminée — ${res.indexed} indexées, ${res.skipped} ignorées, ${res.failed} échecs.`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setResult(`Erreur : ${msg}`);
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  const pct = progress ? Math.round((progress.done / progress.total) * 100) : 0;
+
+  return (
+    <SettingSection
+      title="Index RAG"
+      description="Indexez vos notes pour la recherche sémantique"
+      icon={<Database size={16} />}
+    >
+      <SettingRow
+        label="Indexer le vault"
+        description="Embed chaque note via Ollama (nomic-embed-text). Durée : ~0.5 s/note."
+      >
+        <Button
+          size="sm"
+          onPress={() => void handleIndex()}
+          isDisabled={running}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium"
+          style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
+        >
+          {running && <CircleNotch size={13} className="animate-spin" />}
+          {running ? "Indexation…" : "Indexer le vault"}
+        </Button>
+      </SettingRow>
+
+      {running && progress && (
+        <div className="space-y-1 px-1">
+          <ProgressBar
+            value={pct}
+            minValue={0}
+            maxValue={100}
+            aria-label="Progression indexation"
+          >
+            <ProgressBar.Track>
+              <ProgressBar.Fill />
+            </ProgressBar.Track>
+          </ProgressBar>
+          <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+            {progress.done} / {progress.total} notes ({pct}%)
+          </p>
+        </div>
+      )}
+
+      {result && (
+        <p className="text-xs px-1" style={{ color: "var(--text-secondary)" }}>
+          {result}
+        </p>
+      )}
+    </SettingSection>
   );
 }

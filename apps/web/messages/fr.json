@@ -28,6 +28,7 @@
   "nav": {
     "home": "Accueil",
     "ai": "Assistant IA",
+    "assistant": "Demander au vault",
     "search": "Recherche",
     "notes": "Notes",
     "archive": "Archive",

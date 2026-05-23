@@ -64,6 +64,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { labelKey: "nav.home", icon: House, href: "/" },
       { labelKey: "nav.ai", icon: Robot, href: "/ai" },
+      { labelKey: "nav.assistant", icon: Robot, href: "/assistant" },
     ],
   },
   {

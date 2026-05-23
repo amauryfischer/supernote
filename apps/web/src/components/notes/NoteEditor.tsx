@@ -26,6 +26,7 @@ import { isAutoTagEnabled, useAutoTag } from "@/hooks/useAutoTag";
 import { AssociatedTodos } from "@/components/todos/AssociatedTodos";
 import { renderInlineDatabase } from "./InlineDatabaseRenderer";
 import { renderNoteFormula, NoteFormulaModalHost } from "./NoteFormulaBridge";
+import { BacklinksPanel } from "./BacklinksPanel";
 import { ContextMenu, useContextMenu, type ContextMenuItemDef } from "@supernote/ui";
 import { MoveNoteModal } from "./MoveNoteModal";
 import { useFolderTree, useRenameFolder } from "./hooks";
@@ -85,6 +86,21 @@ function isImage(name: string): boolean {
   return IMAGE_EXTENSIONS.has(fileExt(name));
 }
 
+/** Map a MIME image type to a file extension for clipboard pastes. */
+function imageTypeToExt(mimeType: string): string {
+  const map: Record<string, string> = {
+    "image/png": "png",
+    "image/jpeg": "jpg",
+    "image/jpg": "jpg",
+    "image/gif": "gif",
+    "image/webp": "webp",
+    "image/bmp": "bmp",
+    "image/tiff": "tiff",
+    "image/svg+xml": "svg",
+  };
+  return map[mimeType] ?? mimeType.split("/")[1] ?? "png";
+}
+
 export function NoteEditor({ note }: NoteEditorProps) {
   const [title, setTitle] = useState(note.title);
   const [tags, setTags] = useState<string[]>(note.tags);
@@ -116,6 +132,7 @@ export function NoteEditor({ note }: NoteEditorProps) {
   // body and force a BlockNote remount that drops the in-flight keystrokes.
   const lastSavedBodyRef = useRef<string | null>(note.body);
   const editorInsertRef = useRef<((md: string) => void) | null>(null);
+  const editorContainerRef = useRef<HTMLDivElement | null>(null);
   // Mirror saveStatus into a ref so the external-body guard below can read
   // the latest status without re-running the effect on every status flip
   // (which would otherwise re-evaluate the remount decision the moment a
@@ -528,6 +545,62 @@ export function NoteEditor({ note }: NoteEditorProps) {
     [ollamaAvailable, suggestTags, tagsUpdateMutation, note.id, note.folderPath],
   );
 
+  // ── Clipboard image paste ─────────────────────────────────────────────────
+  //
+  // Listens for `paste` events on the editor container. When the clipboard
+  // contains an image item, saves it to <noteDir>/_attachments/img-<ts>.<ext>
+  // via vault.writeFile, then inserts a markdown image reference at the caret.
+  // We only handle image items — text/html pastes fall through to BlockNote.
+  const noteFilePathRef = useRef<string | undefined>(note.filePath);
+  useEffect(() => {
+    noteFilePathRef.current = note.filePath;
+  }, [note.filePath]);
+
+  useEffect(() => {
+    const container = editorContainerRef.current;
+    if (!container) return;
+
+    const handlePaste = (event: ClipboardEvent) => {
+      const items = Array.from(event.clipboardData?.items ?? []);
+      const imageItems = items.filter((item) => item.type.startsWith("image/"));
+      if (imageItems.length === 0) return;
+
+      event.preventDefault();
+
+      for (const item of imageItems) {
+        const file = item.getAsFile();
+        if (!file) continue;
+        const ext = imageTypeToExt(item.type);
+        const filePath = noteFilePathRef.current;
+        // Derive folder from filePath, fallback to folderPath from closure.
+        const noteDir = filePath
+          ? filePath.split("/").slice(0, -1).join("/") || "."
+          : note.folderPath || ".";
+        const attachmentPath = `${noteDir === "." ? "" : `${noteDir}/`}_attachments/img-${Date.now()}.${ext}`;
+        const markdownRef = `![](${attachmentPath})`;
+
+        void (async () => {
+          try {
+            const bytes = await file.arrayBuffer();
+            await trpcVanillaClient.vault.writeFile.mutate({ path: attachmentPath, bytes });
+            insertMarkdown(markdownRef);
+            showToast("Image collée");
+          } catch (err) {
+            console.error("[NoteEditor.paste] image write failed", err);
+            showToast(`Erreur: ${err instanceof Error ? err.message : String(err)}`);
+          }
+        })();
+      }
+    };
+
+    container.addEventListener("paste", handlePaste);
+    return () => container.removeEventListener("paste", handlePaste);
+  // note.folderPath is used inside closure — include it. insertMarkdown and
+  // showToast are stable callbacks (useCallback / plain function). We
+  // intentionally omit them from deps to avoid re-registering on every save.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [note.folderPath]);
+
   const handleEditorChange = useCallback(
     (markdown: string) => {
       bodyRef.current = markdown;
@@ -820,6 +893,7 @@ export function NoteEditor({ note }: NoteEditorProps) {
 
       {/* Editor area */}
       <div
+        ref={editorContainerRef}
         className="flex-1 overflow-y-auto"
         onMouseDown={(e) => {
           // Click dans la zone padding hors block : routé vers le caret.
@@ -885,6 +959,7 @@ export function NoteEditor({ note }: NoteEditorProps) {
             projection of the markdown body — no extra fetch, no entities. */}
         <AssociatedTodos noteId={note.id} body={note.body} />
       </div>
+      <BacklinksPanel noteId={note.id} />
       <NoteFormulaModalHost
         stubBase={{ id: "_note", name: "Note", plural: "Notes", fields: [], defaultPath: "", fileNamePattern: "{name}" }}
       />

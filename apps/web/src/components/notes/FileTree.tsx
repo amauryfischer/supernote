@@ -90,6 +90,7 @@ import type { Folder as FolderType } from "./fixtures";
 import { useTranslations } from "next-intl";
 import { ContextMenu, useContextMenu, useToast } from "@supernote/ui";
 import { useUpdateFolder, useReorderFolders, useMoveFolder } from "./hooks";
+import { trpc, trpcVanillaClient } from "@/lib/trpc/client";
 import { folderAccentVars } from "@/lib/folderAccent";
 import {
   DndContext,
@@ -941,6 +942,7 @@ function FolderNode({
   const expanded = isExpanded(folder.path);
   const isSelected = selectedFolder === folder.path;
   const { toast } = useToast();
+  const utils = trpc.useUtils();
   // Track inline rename pending state to block single-click navigation during edit.
   const [isRenaming, setIsRenaming] = useState(false);
   const [hovered, setHovered] = useState(false);
@@ -1091,9 +1093,56 @@ function FolderNode({
     openContextMenu(e, buildMenuItems({ clientX: e.clientX, clientY: e.clientY }));
   };
 
-  const handleDragOver = onDropNote ? (e: React.DragEvent) => {
+  // ── Desktop file drag-drop ─────────────────────────────────────────────────
+  //
+  // Sanitize a filename: strip characters forbidden on major OSes / URLs, then
+  // trim whitespace. Extension is preserved.
+  const sanitizeFilename = (name: string): string =>
+    name.replace(/[/\\<>:"|?*]/g, "").trim();
+
+  // Write each dropped file into the vault folder, then reindex + invalidate.
+  const handleFilesDrop = useCallback(
+    async (files: FileList): Promise<void> => {
+      const results = await Promise.allSettled(
+        Array.from(files).map(async (file) => {
+          const safeName = sanitizeFilename(file.name);
+          if (!safeName) throw new Error(`Nom de fichier invalide : "${file.name}"`);
+          const path = folder.path ? `${folder.path}/${safeName}` : safeName;
+          const bytes = await file.arrayBuffer();
+          await trpcVanillaClient.vault.writeFile.mutate({ path, bytes });
+          return safeName;
+        }),
+      );
+      for (const r of results) {
+        if (r.status === "fulfilled") {
+          toast({ title: `Importé : ${r.value}`, variant: "success" });
+        } else {
+          const msg = r.reason instanceof Error ? r.reason.message : String(r.reason);
+          toast({ title: `Erreur import : ${msg}`, variant: "danger" });
+        }
+      }
+      // Trigger background reindex via raw worker postMessage (vault.reindex
+      // is in the worker dispatch table but not in the typed IPC router).
+      try {
+        const worker = (window as { __supernoteWorker?: Worker }).__supernoteWorker;
+        if (worker) {
+          worker.postMessage({ id: `rpc-filedrop-${Date.now()}`, path: "vault.reindex", type: "mutation", input: undefined });
+        }
+      } catch {
+        // Best-effort — invalidation below will still surface new files.
+      }
+      void utils.entities.list.invalidate();
+    },
+    [folder.path, toast, utils],
+  );
+
+  const handleDragOver = (e: React.DragEvent) => {
+    // Accept native file drops OR note-card drags (text/plain).
+    const hasFiles = e.dataTransfer.types.includes("Files");
+    const hasNote = e.dataTransfer.types.includes("text/plain");
+    if (!hasFiles && !hasNote) return;
     e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
+    e.dataTransfer.dropEffect = hasFiles ? "copy" : "move";
     const innerFolder = (e.target as Element).closest("[data-folder-drop]");
     if (innerFolder && innerFolder !== e.currentTarget) {
       if (isDragOver) setIsDragOver(false);
@@ -1107,9 +1156,9 @@ function FolderNode({
         }, 600);
       }
     }
-  } : undefined;
+  };
 
-  const handleDragLeave = onDropNote ? (e: React.DragEvent) => {
+  const handleDragLeave = (e: React.DragEvent) => {
     if (!e.currentTarget.contains(e.relatedTarget as Node)) {
       setIsDragOver(false);
       if (dragExpandTimerRef.current) {
@@ -1117,9 +1166,9 @@ function FolderNode({
         dragExpandTimerRef.current = null;
       }
     }
-  } : undefined;
+  };
 
-  const handleDrop = onDropNote ? (e: React.DragEvent) => {
+  const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
     setIsDragOver(false);
@@ -1127,9 +1176,14 @@ function FolderNode({
       clearTimeout(dragExpandTimerRef.current);
       dragExpandTimerRef.current = null;
     }
+    // Native file drop takes priority over note-card drag.
+    if (e.dataTransfer.files.length > 0) {
+      void handleFilesDrop(e.dataTransfer.files);
+      return;
+    }
     const noteId = e.dataTransfer.getData("text/plain");
-    if (noteId) onDropNote(noteId, folder.path);
-  } : undefined;
+    if (noteId && onDropNote) onDropNote(noteId, folder.path);
+  };
 
   const handleActionsClick = (e: React.MouseEvent) => {
     // Stop here so the row's onClick (folder selection) doesn't also fire.

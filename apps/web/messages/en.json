@@ -28,6 +28,7 @@
   "nav": {
     "home": "Home",
     "ai": "AI Assistant",
+    "assistant": "Ask your vault",
     "search": "Search",
     "notes": "Notes",
     "todos": "Todos",
