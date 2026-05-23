@@ -3106,7 +3106,36 @@ export function buildRouter(
     vaultPath: "",
   });
 
-  // ── vault.readFile ────────────────────────────────────────────────────────
+  // ── vault.readFile / vault.writeFile ──────────────────────────────────────
+
+  /**
+   * Translate Chromium's terse FSA error messages into something the user
+   * can act on. The browser raises e.g. `NotReadableError: "The requested
+   * file could not be read, typically due to permission problems that have
+   * occurred after a reference to a file was acquired."` — accurate but
+   * unhelpful: 99 % of the time the file is cloud-synced (Google Drive
+   * Stream, OneDrive Files On-Demand) and hasn't been materialised
+   * locally yet, OR the vault folder permission was implicitly downgraded.
+   */
+  function friendlyFsaError(path: string, err: unknown): Error {
+    const name = (err as DOMException)?.name ?? "";
+    const msg = (err as Error)?.message ?? String(err);
+    if (name === "NotReadableError") {
+      return new Error(
+        `Fichier "${path}" illisible — souvent un fichier cloud (Google Drive / OneDrive) pas encore téléchargé localement, ou un .gdoc/.gsheet stocké comme placeholder. Marque-le "Disponible hors ligne" dans Google Drive, ou re-pick le dossier vault pour rafraîchir les permissions. [${name}: ${msg}]`,
+      );
+    }
+    if (name === "NotAllowedError") {
+      return new Error(
+        `Permission refusée sur "${path}". Re-pick le dossier vault pour ré-accorder l'accès. [${name}]`,
+      );
+    }
+    if (name === "NotFoundError") {
+      return new Error(`Fichier introuvable : "${path}". [${name}]`);
+    }
+    return new Error(`Lecture impossible "${path}" : ${msg}`);
+  }
+
   //
   // Stream raw file content from the vault back to the main thread. Used by
   // the attachment viewer layer (`AttachmentRouter` → image/pdf/csv/…) so
@@ -3122,7 +3151,26 @@ export function buildRouter(
     const clean = path.replace(/\.\./g, "").replace(/^\/+|\/+$/g, "").trim();
     if (!clean) throw new Error("vault.readFile: empty path");
     const segments = clean.split("/");
-    const bytes = await readVaultFileBinary(vaultHandle, segments);
+    // Single retry after 250ms — covers the common case of a cloud-synced
+    // file that's mid-download when we first hit it (Google Drive Stream,
+    // OneDrive Files On-Demand, etc.). FSA `NotReadableError` is what the
+    // browser raises before the placeholder is materialised.
+    let bytes: ArrayBuffer;
+    try {
+      bytes = await readVaultFileBinary(vaultHandle, segments);
+    } catch (err) {
+      const name = (err as DOMException)?.name ?? "";
+      if (name === "NotReadableError" || name === "NotAllowedError" || name === "NotFoundError") {
+        await new Promise((r) => setTimeout(r, 250));
+        try {
+          bytes = await readVaultFileBinary(vaultHandle, segments);
+        } catch (err2) {
+          throw friendlyFsaError(clean, err2);
+        }
+      } else {
+        throw friendlyFsaError(clean, err);
+      }
+    }
     // Try to decode as UTF-8 text — best-effort so binary files don't crash.
     // The caller decides whether `text` is meaningful for its file type.
     let text: string | null = null;
@@ -3154,7 +3202,11 @@ export function buildRouter(
     if (!clean) throw new Error("vault.writeFile: empty path");
     const segments = clean.split("/");
     return runSerialized(clean, async () => {
-      await writeVaultFileBinary(vaultHandle, segments, bytes);
+      try {
+        await writeVaultFileBinary(vaultHandle, segments, bytes);
+      } catch (err) {
+        throw friendlyFsaError(clean, err);
+      }
       // Refresh the SQL row's updatedAt + fileHash if this path is a known
       // entity (typically an attachment virtual note). Optional but keeps
       // the entity's timestamp in sync so the sidebar surfaces the change.

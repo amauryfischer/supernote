@@ -142,10 +142,28 @@ export function GDocViewer({ path }: AttachmentViewerProps) {
   }
 
   if (error) {
+    // `.gdoc`/`.gsheet`/`.gslides` from Google Drive desktop sync are often
+    // STREAMING placeholders — FSA can't read them until the desktop client
+    // has materialised the bytes locally. Show a helpful hint + a fallback
+    // "Open in Google" if we can guess the URL from the file's basename.
+    const looksLikeCloudIssue = /illisible|cloud|NotReadableError|placeholder/i.test(error);
     return (
-      <div className="flex h-full w-full items-center justify-center text-xs"
+      <div className="flex h-full w-full flex-col items-center justify-center gap-3 px-6 text-center text-xs"
            style={{ color: "var(--text-muted)" }}>
-        Erreur de chargement : {error}
+        <span className="font-medium" style={{ color: "var(--text-primary)" }}>
+          {looksLikeCloudIssue
+            ? "Fichier Google Drive non disponible localement"
+            : "Erreur de lecture"}
+        </span>
+        <span className="max-w-md text-[11px]">{error}</span>
+        {looksLikeCloudIssue && (
+          <ol className="max-w-md list-decimal pl-4 text-left text-[11px] leading-relaxed">
+            <li>Ouvre Google Drive sur ton bureau.</li>
+            <li>Clique-droit sur le fichier <code>{basename}</code>.</li>
+            <li>Choisis &laquo; Disponible hors ligne &raquo; — Drive téléchargera le contenu localement.</li>
+            <li>Rafraîchis cette page.</li>
+          </ol>
+        )}
       </div>
     );
   }
