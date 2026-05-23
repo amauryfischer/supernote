@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Button, Chip, Spinner } from "@heroui/react";
+import { Button, Chip, Input, Spinner } from "@heroui/react";
 import { ArrowSquareOut } from "@phosphor-icons/react";
 
 import type { AttachmentViewerProps } from "../AttachmentRouter";
 import { useAttachmentBlob } from "../useAttachmentBlob";
+import { trpc } from "@/lib/trpc/client";
 
 interface GDocPointer {
   url?: string;
@@ -60,14 +61,33 @@ function buildEmbedUrl(docId: string, type: GDocType): string {
   return `https://docs.google.com/${type}/d/${docId}/preview`;
 }
 
-export function GDocViewer({ path }: AttachmentViewerProps) {
+export function GDocViewer({ note, path }: AttachmentViewerProps) {
   const { loading, error, text } = useAttachmentBlob(path);
+  const updateMutation = trpc.entities.update.useMutation();
 
   const basename = path.split("/").pop() ?? path;
   const ext = getExt(path);
   const docType: GDocType = EXT_TO_TYPE[ext] ?? "document";
 
+  // User-pasted URL override — persisted on the entity via
+  // `fields.gdocOverrideUrl` so it survives refresh. Lets users bypass the
+  // FSA-can't-read-cloud-placeholder problem by pointing us straight at
+  // the doc URL.
+  const overrideUrl =
+    typeof note.fields?.["gdocOverrideUrl"] === "string"
+      ? (note.fields["gdocOverrideUrl"] as string)
+      : null;
+
   const parsed = useMemo<{ docId: string; originalUrl: string } | null>(() => {
+    // Override URL takes precedence — user-pasted URL when the .gdoc file
+    // couldn't be read (cloud placeholder, permission glitch, …).
+    if (overrideUrl) {
+      const id = docIdFromUrl(overrideUrl);
+      if (id) {
+        console.info(`[GDocViewer] using overrideUrl docId=${id}`);
+        return { docId: id, originalUrl: overrideUrl };
+      }
+    }
     if (!text) {
       console.info(`[GDocViewer] no text yet (loading?) path=${path}`);
       return null;
@@ -107,7 +127,8 @@ export function GDocViewer({ path }: AttachmentViewerProps) {
       console.warn(`[GDocViewer] JSON parse failed AND no URL found in body`, err);
       return null;
     }
-  }, [text, docType, path]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [text, docType, path, overrideUrl]);
 
   // Iframe load detection — Google's `/preview` returns 200 even for
   // private docs (you just see a sign-in page inside the frame). To give
@@ -141,30 +162,21 @@ export function GDocViewer({ path }: AttachmentViewerProps) {
     );
   }
 
-  if (error) {
-    // `.gdoc`/`.gsheet`/`.gslides` from Google Drive desktop sync are often
-    // STREAMING placeholders — FSA can't read them until the desktop client
-    // has materialised the bytes locally. Show a helpful hint + a fallback
-    // "Open in Google" if we can guess the URL from the file's basename.
-    const looksLikeCloudIssue = /illisible|cloud|NotReadableError|placeholder/i.test(error);
+  if (error && !overrideUrl) {
     return (
-      <div className="flex h-full w-full flex-col items-center justify-center gap-3 px-6 text-center text-xs"
-           style={{ color: "var(--text-muted)" }}>
-        <span className="font-medium" style={{ color: "var(--text-primary)" }}>
-          {looksLikeCloudIssue
-            ? "Fichier Google Drive non disponible localement"
-            : "Erreur de lecture"}
-        </span>
-        <span className="max-w-md text-[11px]">{error}</span>
-        {looksLikeCloudIssue && (
-          <ol className="max-w-md list-decimal pl-4 text-left text-[11px] leading-relaxed">
-            <li>Ouvre Google Drive sur ton bureau.</li>
-            <li>Clique-droit sur le fichier <code>{basename}</code>.</li>
-            <li>Choisis &laquo; Disponible hors ligne &raquo; — Drive téléchargera le contenu localement.</li>
-            <li>Rafraîchis cette page.</li>
-          </ol>
-        )}
-      </div>
+      <UrlOverridePrompt
+        note={note}
+        path={path}
+        basename={basename}
+        error={error}
+        docType={docType}
+        onSave={async (url) => {
+          await updateMutation.mutateAsync({
+            id: note.id,
+            fields: { gdocOverrideUrl: url },
+          });
+        }}
+      />
     );
   }
 
@@ -249,6 +261,111 @@ export function GDocViewer({ path }: AttachmentViewerProps) {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+interface UrlOverridePromptProps {
+  note: AttachmentViewerProps["note"];
+  path: string;
+  basename: string;
+  error: string;
+  docType: GDocType;
+  onSave: (url: string) => Promise<void>;
+}
+
+/**
+ * Fallback shown when the on-disk `.gdoc`/`.gsheet` file is unreadable
+ * (typically a Google Drive cloud placeholder). Lets the user paste the
+ * canonical Google URL directly — we save it on the entity via
+ * `fields.gdocOverrideUrl` so the iframe loads on this and every
+ * subsequent visit, no FSA read required.
+ */
+function UrlOverridePrompt({
+  path: _path,
+  basename,
+  error,
+  docType,
+  onSave,
+}: UrlOverridePromptProps) {
+  const [draft, setDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveErr, setSaveErr] = useState<string | null>(null);
+  const looksLikeCloudIssue = /illisible|cloud|NotReadableError|placeholder/i.test(error);
+  const trimmed = draft.trim();
+  const valid = /\/d\/[a-zA-Z0-9_-]{8,}/.test(trimmed) || /[?&]id=[a-zA-Z0-9_-]{8,}/.test(trimmed);
+
+  const submit = async () => {
+    if (!valid) return;
+    setSaving(true);
+    setSaveErr(null);
+    try {
+      await onSave(trimmed);
+    } catch (e) {
+      setSaveErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const typeLabel = TYPE_LABELS[docType];
+
+  return (
+    <div className="flex h-full w-full flex-col items-center justify-center gap-4 px-6 text-center text-xs"
+         style={{ color: "var(--text-muted)" }}>
+      <div className="flex flex-col items-center gap-1">
+        <span className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
+          {looksLikeCloudIssue
+            ? "Fichier Google Drive non disponible localement"
+            : `Impossible de lire ${basename}`}
+        </span>
+        <span className="max-w-md text-[11px]">{error}</span>
+      </div>
+
+      <div className="flex w-full max-w-md flex-col gap-2 rounded border p-3 text-left"
+           style={{ borderColor: "var(--border)", background: "var(--surface-1)" }}>
+        <span className="text-[11px] font-medium" style={{ color: "var(--text-primary)" }}>
+          Colle l&apos;URL {typeLabel} pour l&apos;afficher quand même :
+        </span>
+        <div className="flex gap-2">
+          <Input
+            type="text"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder="https://docs.google.com/…/d/…"
+            disabled={saving}
+          />
+          <Button
+            variant="primary"
+            isDisabled={!valid || saving}
+            onPress={submit}
+          >
+            {saving ? <Spinner size="sm" /> : "Embed"}
+          </Button>
+        </div>
+        {saveErr && (
+          <span className="text-[11px]" style={{ color: "var(--color-danger, #ef4444)" }}>
+            Erreur : {saveErr}
+          </span>
+        )}
+        <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>
+          L&apos;URL est sauvegardée sur la note ; tu n&apos;auras pas besoin de la recoller.
+        </span>
+      </div>
+
+      {looksLikeCloudIssue && (
+        <details className="max-w-md text-left">
+          <summary className="cursor-pointer text-[11px] underline-offset-2 hover:underline">
+            Ou rends le fichier disponible hors ligne dans Google Drive
+          </summary>
+          <ol className="mt-2 list-decimal pl-4 text-[11px] leading-relaxed">
+            <li>Ouvre Google Drive sur ton bureau.</li>
+            <li>Clique-droit sur <code>{basename}</code>.</li>
+            <li>Choisis &laquo; Disponible hors ligne &raquo;.</li>
+            <li>Rafraîchis cette page.</li>
+          </ol>
+        </details>
+      )}
     </div>
   );
 }
