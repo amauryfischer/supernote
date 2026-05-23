@@ -47,6 +47,27 @@ export function NoteListItem({ note, isActive, onClick, onDelete, sortable, onRe
   const canvasRaw = useMemo(() => note.fields?.["canvas"], [note.fields]);
   const canvasHref = `/notes/${note.id}?view=canvas`;
 
+  // Surface a small extension chip on the row when the note is an
+  // attachment-backed entity (image, pdf, xlsx, csv, gdoc, …) so the
+  // sidebar visually distinguishes file-backed entries from "real"
+  // markdown notes. Colour-coded by category for at-a-glance scanning.
+  const attachmentBadge = useMemo<
+    { label: string; bg: string; fg: string; title: string } | null
+  >(() => {
+    const af = note.fields?.["attachmentFile"];
+    if (typeof af !== "string" || !af) return null;
+    const dot = af.lastIndexOf(".");
+    const ext = dot >= 0 ? af.slice(dot + 1).toLowerCase() : "";
+    if (!ext) return null;
+    const palette = badgePalette(ext);
+    return {
+      label: ext,
+      bg: palette.bg,
+      fg: palette.fg,
+      title: `Fichier .${ext} — ${af}`,
+    };
+  }, [note.fields]);
+
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: note.id,
     disabled: !sortable,
@@ -201,8 +222,20 @@ export function NoteListItem({ note, isActive, onClick, onDelete, sortable, onRe
             </p>
           )}
 
-          {(isArchived || note.tags.length > 0) && !isRenaming && (
+          {(isArchived || note.tags.length > 0 || attachmentBadge) && !isRenaming && (
             <div className="mt-2 flex flex-wrap gap-1">
+              {attachmentBadge && (
+                <span
+                  className="rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
+                  style={{
+                    backgroundColor: attachmentBadge.bg,
+                    color: attachmentBadge.fg,
+                  }}
+                  title={attachmentBadge.title}
+                >
+                  {attachmentBadge.label}
+                </span>
+              )}
               {isArchived && (
                 <span
                   className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium"
@@ -263,6 +296,33 @@ export function NoteListItem({ note, isActive, onClick, onDelete, sortable, onRe
       <ContextMenu state={ctxMenu.state} onClose={ctxMenu.close} />
     </div>
   );
+}
+
+/**
+ * Pick a foreground/background pair for the extension chip based on the
+ * file category. Tuned against the app's light + dark themes — soft pastel
+ * backgrounds (10–15 % saturation) so the chip never out-shouts the title.
+ */
+function badgePalette(ext: string): { bg: string; fg: string } {
+  if (
+    ext === "png" || ext === "jpg" || ext === "jpeg" || ext === "gif" ||
+    ext === "webp" || ext === "svg" || ext === "avif" || ext === "bmp"
+  ) {
+    return { bg: "rgba(34,197,94,0.14)", fg: "#16a34a" };
+  }
+  if (ext === "pdf") {
+    return { bg: "rgba(239,68,68,0.14)", fg: "#dc2626" };
+  }
+  if (ext === "xlsx" || ext === "xls" || ext === "csv" || ext === "tsv" || ext === "gsheet") {
+    return { bg: "rgba(34,197,94,0.18)", fg: "#15803d" };
+  }
+  if (ext === "docx" || ext === "doc" || ext === "gdoc") {
+    return { bg: "rgba(59,130,246,0.14)", fg: "#2563eb" };
+  }
+  if (ext === "pptx" || ext === "ppt" || ext === "gslides") {
+    return { bg: "rgba(249,115,22,0.14)", fg: "#ea580c" };
+  }
+  return { bg: "var(--surface-3)", fg: "var(--text-muted)" };
 }
 
 // ── InlineNoteRenameInput ────────────────────────────────────────────────────
