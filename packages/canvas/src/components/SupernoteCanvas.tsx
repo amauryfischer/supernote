@@ -427,11 +427,44 @@ export function SupernoteCanvas({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [store, onSave]);
 
+  // Content-fingerprint dedup: Excalidraw fires `onChange` on every
+  // appState tick too (cursor hover, selection change, …) — relaying each
+  // of those to the parent's debounced save keeps "Enregistrement…" pinned
+  // forever because the 1-second timer is reset on every fire. We hash a
+  // minimal projection of each element (id + geometry + version) and skip
+  // the fire when the snapshot matches the previous one. The actual save
+  // payload still includes the full element list with all fields — this is
+  // just a no-op gate on changes that don't affect persistence.
+  const lastFireFingerprintRef = useRef<string>("");
   const handleExcalidrawChange = useCallback(
     (elements: readonly ExcalidrawElementLike[]) => {
-      console.info(`[SupernoteCanvas] handleExcalidrawChange — elements=${elements.length}`);
       const fire = onChangeRef.current;
       if (!fire) return;
+      const fingerprint = JSON.stringify(
+        elements.map((e) => {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const x = e as any;
+          return [
+            x.id,
+            x.type,
+            x.x,
+            x.y,
+            x.width,
+            x.height,
+            x.angle,
+            x.version,
+            x.isDeleted ? 1 : 0,
+            // Text content / link / customData drive visible state too.
+            x.text ?? null,
+            x.link ?? null,
+          ];
+        }),
+      );
+      if (fingerprint === lastFireFingerprintRef.current) {
+        return; // pure appState tick — nothing for the persistence layer
+      }
+      lastFireFingerprintRef.current = fingerprint;
+      console.info(`[SupernoteCanvas] handleExcalidrawChange — elements=${elements.length}`);
       // Snapshot the elements into a fresh array before handing them off:
       // Excalidraw is free to mutate its own array AFTER we return, which
       // would otherwise reach into the parent's debounced closures and
