@@ -9,6 +9,23 @@ const EXCLUDE_DIRS = new Set([".supernote", "node_modules", ".git"]);
 const MARKDOWN_EXTS = new Set([".md", ".markdown"]);
 const EXCALIDRAW_EXT = ".excalidraw";
 
+// Whitelist of extensions surfaced as attachment entities (virtual notes whose
+// `fields.attachmentFile` points back at the on-disk file). Restricted to
+// formats we know how to render — adding random extensions would clutter the
+// sidebar with files the user has no in-app way to open.
+const ATTACHMENT_EXTS = new Set([
+  // Images
+  ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".avif", ".bmp",
+  // Documents
+  ".pdf",
+  // Office
+  ".docx", ".doc", ".xlsx", ".xls", ".pptx", ".ppt",
+  // Data
+  ".csv", ".tsv",
+  // Google Workspace pointer files
+  ".gdoc", ".gsheet", ".gslides",
+]);
+
 function getExtension(name: string): string {
   const dot = name.lastIndexOf(".");
   return dot >= 0 ? name.slice(dot).toLowerCase() : "";
@@ -174,6 +191,25 @@ export async function readVaultFile(
   return file.text();
 }
 
+/**
+ * Read a file as raw bytes. Used by attachment viewers (PDF, image, XLSX, …)
+ * that need binary input. Returns the `ArrayBuffer` so it can be transferred
+ * across the worker boundary via `postMessage` without a copy.
+ */
+export async function readVaultFileBinary(
+  vaultHandle: FileSystemDirectoryHandle,
+  pathSegments: string[],
+): Promise<ArrayBuffer> {
+  let current: FileSystemDirectoryHandle = vaultHandle;
+  for (const seg of pathSegments.slice(0, -1)) {
+    current = await current.getDirectoryHandle(seg);
+  }
+  const fileName = pathSegments[pathSegments.length - 1]!;
+  const fileHandle = await current.getFileHandle(fileName);
+  const file = await fileHandle.getFile();
+  return file.arrayBuffer();
+}
+
 /** Write a file to the vault by relative path segments. */
 export async function writeVaultFile(
   vaultHandle: FileSystemDirectoryHandle,
@@ -318,6 +354,37 @@ export function isMarkdownExt(ext: string): boolean {
 
 export function isExcalidrawExt(ext: string): boolean {
   return ext === EXCALIDRAW_EXT;
+}
+
+/** True for extensions we surface as attachment entities. */
+export function isAttachmentExt(ext: string): boolean {
+  return ATTACHMENT_EXTS.has(ext);
+}
+
+/**
+ * Coarse content-type for an attachment extension. Used by viewer dispatch
+ * and by the worker's `readFile` route to decide whether to also return the
+ * decoded text (text formats) or just the binary bytes (everything else).
+ */
+export function attachmentCategory(
+  ext: string,
+): "image" | "pdf" | "office" | "csv" | "gdoc" | null {
+  if (!ATTACHMENT_EXTS.has(ext)) return null;
+  if (ext === ".png" || ext === ".jpg" || ext === ".jpeg" || ext === ".gif" || ext === ".webp" || ext === ".svg" || ext === ".avif" || ext === ".bmp") {
+    return "image";
+  }
+  if (ext === ".pdf") return "pdf";
+  if (ext === ".docx" || ext === ".doc" || ext === ".xlsx" || ext === ".xls" || ext === ".pptx" || ext === ".ppt") {
+    return "office";
+  }
+  if (ext === ".csv" || ext === ".tsv") return "csv";
+  if (ext === ".gdoc" || ext === ".gsheet" || ext === ".gslides") return "gdoc";
+  return null;
+}
+
+/** True if the attachment's content is human-readable text (CSV, GDoc pointer). */
+export function isTextAttachmentExt(ext: string): boolean {
+  return ext === ".csv" || ext === ".tsv" || ext === ".gdoc" || ext === ".gsheet" || ext === ".gslides" || ext === ".svg";
 }
 
 /** Hash content using Web Crypto API (SHA-256). */

@@ -8,6 +8,8 @@ import {
   VaultSchema,
   ListVaultsOutput,
   GetCurrentVaultOutput,
+  ReadFileInput,
+  ReadFileOutput,
 } from "../schemas/vault.js";
 import { foldersRouter } from "./folders.router.js";
 
@@ -59,6 +61,21 @@ export const vaultRouter = router({
     .output(VaultSchema)
     .mutation(() => {
       throw notImplemented("vault.removeVault");
+    }),
+
+  /**
+   * Read a file from the active vault by relative path. Used by the
+   * attachment viewer layer (image/pdf/csv/…) which can't reach the FSA
+   * handle directly — it lives inside the vault Web Worker.
+   *
+   * Returns the raw bytes plus, for text-encodable formats, the UTF-8
+   * decoded body. Caller picks whichever is appropriate for its viewer.
+   */
+  readFile: publicProcedure
+    .input(ReadFileInput)
+    .output(ReadFileOutput)
+    .query(() => {
+      throw notImplemented("vault.readFile");
     }),
 });
 

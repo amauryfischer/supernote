@@ -25,6 +25,7 @@ import {
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { DeleteNoteModal } from "@/components/notes/DeleteNoteModal";
+import { AttachmentRouter } from "@/components/attachments/AttachmentRouter";
 import { useConfirm, usePrompt } from "@/hooks/usePrompt";
 import { Button } from "@heroui/react";
 import {
@@ -581,7 +582,9 @@ function NoteDetailContent() {
                 onToggleFocusMode={handleToggleFocusMode}
               />
             )}
-            {viewMode === "note" ? (
+            {typeof note.fields?.["attachmentFile"] === "string" ? (
+              <AttachmentRouter note={note} />
+            ) : viewMode === "note" ? (
               <NoteEditor note={note} />
             ) : (
               <NoteCanvasView note={note} />

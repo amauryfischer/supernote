@@ -17,7 +17,10 @@ import {
   walkAllFiles,
   isMarkdownExt,
   isExcalidrawExt,
+  isAttachmentExt,
   writeVaultFile,
+  readVaultFile,
+  readVaultFileBinary,
   deleteVaultFile,
   deleteVaultDirectory,
   hashContent,
@@ -922,28 +925,50 @@ export function buildRouter(
       }
     }
 
-    // Rewrite the .md file
-    const typeRow = row(db.exec(`SELECT name FROM entity_type WHERE id = ?`, [existing["typeId"] ?? null]));
-    // See entitiesCreate: top-level keys, no nested `fields:` blob.
-    const frontmatter: Record<string, unknown> = {
-      id,
-      type: typeRow?.["name"] ?? "",
-      ...newFields,
-    };
-    const content = serializeFrontmatter(frontmatter, newBody);
-    await writeVaultFile(vaultHandle, effectivePath.split("/"), content);
-    const hash = await hashContent(content);
+    // Attachment guard: if this entity's filePath points at a non-markdown
+    // file (image, pdf, docx, xlsx, csv, gdoc, …) AND carries an
+    // `attachmentFile` reference, DON'T overwrite that file with markdown
+    // frontmatter — the file is the source of truth and serializing
+    // metadata onto it would corrupt the binary content. Persist metadata
+    // changes (tags, fields, body) in SQL only. Real edits to attachments
+    // go through dedicated paths (viewers / future editors), not through
+    // this generic update route.
+    const isAttachmentEntity =
+      typeof newFields["attachmentFile"] === "string" &&
+      !effectivePath.toLowerCase().endsWith(".md") &&
+      !effectivePath.toLowerCase().endsWith(".markdown");
 
-    if (isMove) {
-      // Delete the previous file AFTER writing the new one so a crash mid-
-      // move leaves the content reachable at the old path rather than gone.
-      try {
-        await deleteVaultFile(vaultHandle, oldPath.split("/"));
-      } catch {
-        // Old file may already be gone (e.g. concurrent move) — best-effort.
+    let hash: string | null = null;
+    if (!isAttachmentEntity) {
+      // Rewrite the .md file
+      const typeRow = row(db.exec(`SELECT name FROM entity_type WHERE id = ?`, [existing["typeId"] ?? null]));
+      // See entitiesCreate: top-level keys, no nested `fields:` blob.
+      const frontmatter: Record<string, unknown> = {
+        id,
+        type: typeRow?.["name"] ?? "",
+        ...newFields,
+      };
+      const content = serializeFrontmatter(frontmatter, newBody);
+      await writeVaultFile(vaultHandle, effectivePath.split("/"), content);
+      hash = await hashContent(content);
+
+      if (isMove) {
+        // Delete the previous file AFTER writing the new one so a crash mid-
+        // move leaves the content reachable at the old path rather than gone.
+        try {
+          await deleteVaultFile(vaultHandle, oldPath.split("/"));
+        } catch {
+          // Old file may already be gone (e.g. concurrent move) — best-effort.
+        }
+        // Move the .excalidraw sibling alongside the .md (best-effort).
+        await moveExcalidrawSibling(vaultHandle, oldPath, effectivePath);
       }
-      // Move the .excalidraw sibling alongside the .md (best-effort).
-      await moveExcalidrawSibling(vaultHandle, oldPath, effectivePath);
+    } else if (isMove) {
+      // Attachment rename: move the underlying attachment file itself.
+      // We don't go through writeVaultFile — that writes markdown.
+      console.info(
+        `[entitiesUpdate] attachment rename ${oldPath} → ${effectivePath} (binary move not implemented; SQL row updated, disk file left at old path)`,
+      );
     }
 
     db.run(
@@ -2892,6 +2917,34 @@ export function buildRouter(
           existing.add(virtualMdPath);
           claimedExcalidraw.add(file.relativePath);
           indexed++;
+        } else if (isAttachmentExt(file.ext)) {
+          // Adopt arbitrary attachment file (image, pdf, office, csv, gdoc, …)
+          // as a virtual `note` entity so it surfaces in the sidebar with its
+          // own clickable row. We DON'T allocate a `.md` sibling — the
+          // attachment IS the entity's source-of-truth file. Editing the
+          // note's body (notes about the attachment) materialises a `.md`
+          // sibling later through the standard update path.
+          //
+          // existing.has(file.relativePath) was checked at the top of the
+          // loop and would `continue` — but isExcalidrawExt overrides that,
+          // so we re-check explicitly here.
+          if (existing.has(file.relativePath)) continue;
+          const baseName = file.name.replace(/\.[^.]+$/, "");
+          const entityId = generateId();
+          const fields: Record<string, unknown> = {
+            title: baseName,
+            attachmentFile: file.name,
+          };
+          const ts = now();
+          db.run(
+            `INSERT INTO entity (id, vaultId, typeId, filePath, fields, body, fileHash, createdAt, updatedAt)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [entityId, vaultId, "note", file.relativePath, JSON.stringify(fields), "", null, ts, ts],
+          );
+          const r = row(db.exec(`SELECT id, typeId, filePath, fields, body FROM entity WHERE id = ?`, [entityId]));
+          if (r) ftsAdd(db, entityToDoc(r));
+          existing.add(file.relativePath);
+          indexed++;
         }
         // Other extensions: leave untouched for now.
       } catch {
@@ -3052,6 +3105,34 @@ export function buildRouter(
     vaultPath: "",
   });
 
+  // ── vault.readFile ────────────────────────────────────────────────────────
+  //
+  // Stream raw file content from the vault back to the main thread. Used by
+  // the attachment viewer layer (`AttachmentRouter` → image/pdf/csv/…) so
+  // those viewers don't need to talk to the FSA handle directly (it lives in
+  // this worker). Returns BOTH the binary bytes (ArrayBuffer) and, for text
+  // formats, the decoded text — the caller picks whichever it needs.
+  //
+  // Path normalisation matches the `entitiesUpdate` write path: strip
+  // leading slashes and `..` segments so a hostile caller can't escape the
+  // vault root.
+  const vaultReadFile = async (input: unknown): Promise<unknown> => {
+    const { path } = input as { path: string };
+    const clean = path.replace(/\.\./g, "").replace(/^\/+|\/+$/g, "").trim();
+    if (!clean) throw new Error("vault.readFile: empty path");
+    const segments = clean.split("/");
+    const bytes = await readVaultFileBinary(vaultHandle, segments);
+    // Try to decode as UTF-8 text — best-effort so binary files don't crash.
+    // The caller decides whether `text` is meaningful for its file type.
+    let text: string | null = null;
+    try {
+      text = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+    } catch {
+      text = null;
+    }
+    return { bytes, text, size: bytes.byteLength };
+  };
+
   // ── Dispatch table ─────────────────────────────────────────────────────────
 
   return {
@@ -3107,6 +3188,7 @@ export function buildRouter(
     "system.getAppInfo": systemGetAppInfo,
 
     "vault.reindex": reindexVault,
+    "vault.readFile": vaultReadFile,
 
     "variables.list": variablesList,
     "variables.get": variablesGet,
