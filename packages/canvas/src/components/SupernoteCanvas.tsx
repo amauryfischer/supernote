@@ -376,14 +376,6 @@ export function SupernoteCanvas({
 
   const [doc, setDoc] = useState(store.getState().document);
 
-  // Excalidraw elements live alongside the typed canvas document; they are
-  // serialized into `doc.excalidrawElements` whenever the parent is notified
-  // so a single `onChange` payload round-trips BOTH layers through the same
-  // persistence path. Without this the user's drawings vanish on reload.
-  const [excalidrawElements, setExcalidrawElements] = useState<
-    readonly ExcalidrawElementLike[]
-  >(() => initialMigrated.excalidrawElements as ExcalidrawElementLike[]);
-
   // Imperative handle from the DrawLayer so we can insert entity-ref elements
   // without round-tripping through React state (which would lose the user's
   // viewport during the same render cycle).
@@ -397,16 +389,31 @@ export function SupernoteCanvas({
     return unsub;
   }, [store]);
 
-  // Fire onChange when document OR excalidraw elements change. We merge the
-  // free-drawing layer into the document at the boundary so consumers only
-  // ever see a single CanvasDocument and don't need to know about the split.
+  // Hold the latest `doc` and `onChange` in refs so `handleExcalidrawChange`
+  // — fired from inside Excalidraw — can read the current value without
+  // forcing the parent component to re-render through the React state lane.
+  //
+  // Why not React state for the elements? Excalidraw MUTATES its elements
+  // array in place during a drag/resize (the same array reference, with the
+  // shape's width/height updated on the existing element object). If we feed
+  // that into setExcalidrawElements, React's identity check sees no change
+  // and skips the re-render — so the downstream effect never fires for the
+  // updated dimensions, and our debounced save persists the pointer-DOWN
+  // state (typically a 0×0 ghost rectangle). Cloning the array via
+  // `[...elements]` does force a re-render, but then Excalidraw's own
+  // internal effects observe the prop churn and re-fire onChange in a tight
+  // loop → "Maximum update depth exceeded". Bypassing React state entirely
+  // (call onChange directly on each Excalidraw fire) sidesteps both: every
+  // tick of dimension growth reaches the parent, and we never trigger a
+  // re-render that Excalidraw can echo back.
+  const docRef = useRef(doc);
   useEffect(() => {
-    if (!onChange) return;
-    onChange({
-      ...doc,
-      excalidrawElements: excalidrawElements as CanvasExcalidrawElement[],
-    });
-  }, [doc, excalidrawElements, onChange]);
+    docRef.current = doc;
+  }, [doc]);
+  const onChangeRef = useRef(onChange);
+  useEffect(() => {
+    onChangeRef.current = onChange;
+  }, [onChange]);
 
   // Keyboard shortcut: Cmd/Ctrl+S → onSave
   useEffect(() => {
@@ -422,7 +429,17 @@ export function SupernoteCanvas({
 
   const handleExcalidrawChange = useCallback(
     (elements: readonly ExcalidrawElementLike[]) => {
-      setExcalidrawElements(elements);
+      console.info(`[SupernoteCanvas] handleExcalidrawChange — elements=${elements.length}`);
+      const fire = onChangeRef.current;
+      if (!fire) return;
+      // Snapshot the elements into a fresh array before handing them off:
+      // Excalidraw is free to mutate its own array AFTER we return, which
+      // would otherwise reach into the parent's debounced closures and
+      // change the payload retroactively.
+      fire({
+        ...docRef.current,
+        excalidrawElements: [...elements] as CanvasExcalidrawElement[],
+      });
     },
     []
   );
@@ -464,7 +481,7 @@ export function SupernoteCanvas({
       <div style={{ position: "absolute", inset: 0, zIndex: 1 }}>
         <DrawLayer
           ref={drawLayerRef}
-          initialElements={excalidrawElements}
+          initialElements={initialMigrated.excalidrawElements as unknown as readonly ExcalidrawElementLike[]}
           onChange={handleExcalidrawChange}
           onLinkEntity={drawLayerOnLinkEntity}
           onEntityNavigate={onEntityNavigate}

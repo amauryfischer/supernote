@@ -264,6 +264,37 @@ export function buildRouter(
   // into FTS5, well under 100ms for a few thousand entities.
   ftsRebuild(db, vaultId);
 
+  // Per-entity write serialization.
+  //
+  // Background: the worker dispatches each RPC via `void handleRpcRequest(msg)`
+  // — handlers run concurrently as independent microtask chains. For mutations
+  // on the SAME entity (e.g. canvas saves firing back-to-back as the user
+  // draws multiple shapes), two parallel `entitiesUpdate` runs each read
+  // the existing row, compute newFields, and `await writeVaultFile` on the
+  // SAME `.md` and `.excalidraw` paths. FSA's `createWritable` does NOT take
+  // an exclusive lock — concurrent writables write to swap files, and
+  // whichever calls `close()` LAST wins. If save1 ([shape1]) finishes after
+  // save2 ([shape1, shape2]) the disk ends up with the stale payload and the
+  // user sees "second shape lost on refresh".
+  //
+  // Fix: queue same-entity mutations through a per-id promise chain. Different
+  // ids still run in parallel (saving entity A doesn't wait on entity B).
+  const entityWriteChains = new Map<string, Promise<unknown>>();
+  const runSerialized = <T>(id: string, fn: () => Promise<T>): Promise<T> => {
+    const prev = entityWriteChains.get(id) ?? Promise.resolve();
+    const next = prev.then(fn, fn);
+    // Swallow rejections so a single failed update doesn't poison the chain
+    // for every subsequent save on the same entity.
+    entityWriteChains.set(
+      id,
+      next.then(
+        () => undefined,
+        () => undefined,
+      ),
+    );
+    return next;
+  };
+
   // ── vault.* ────────────────────────────────────────────────────────────────
 
   const vaultGetCurrent = async (): Promise<unknown> => {
@@ -700,6 +731,16 @@ export function buildRouter(
       if (doc) {
         const targetField = api.typeName === "canvas" ? "data" : "canvas";
         api.fields[targetField] = JSON.stringify(doc);
+        const elementCount = Array.isArray((doc as { excalidrawElements?: unknown[] }).excalidrawElements)
+          ? ((doc as { excalidrawElements: unknown[] }).excalidrawElements).length
+          : 0;
+        console.info(
+          `[canvas-excalidraw] hydrate: read sibling for ${api.filePath} elements=${elementCount}`,
+        );
+      } else {
+        console.warn(
+          `[canvas-excalidraw] hydrate: readExcalidrawSibling returned null for ${api.filePath} (canvasFile=${api.fields["canvasFile"]})`,
+        );
       }
     }
     return api;
@@ -826,6 +867,7 @@ export function buildRouter(
       tags?: string[];
       filePath?: string;
     };
+    return runSerialized(id, async () => {
     const ts = now();
     const existing = row(db.exec(
       `SELECT fields, body, filePath, typeId FROM entity WHERE id = ?`, [id],
@@ -856,11 +898,24 @@ export function buildRouter(
     if (canvasFieldUpdate) {
       try {
         const doc = parseCanvasJson(canvasFieldUpdate.json);
+        const elementCount = Array.isArray((doc as { excalidrawElements?: unknown[] }).excalidrawElements)
+          ? ((doc as { excalidrawElements: unknown[] }).excalidrawElements).length
+          : 0;
+        console.info(
+          `[canvas-excalidraw] update: writing sibling for ${effectivePath} elements=${elementCount}`,
+        );
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const canvasFile = await writeExcalidrawSibling(vaultHandle, effectivePath, doc as any);
         if (canvasFile) {
           delete newFields[canvasFieldUpdate.fieldName];
           newFields["canvasFile"] = canvasFile;
+          console.info(
+            `[canvas-excalidraw] update: sibling written ${effectivePath} -> ${canvasFile}`,
+          );
+        } else {
+          console.warn(
+            `[canvas-excalidraw] update: writeExcalidrawSibling returned null for ${effectivePath} — canvas left INLINE in .md`,
+          );
         }
       } catch (err) {
         console.warn("[canvas-excalidraw] update: bridge skipped", err);
@@ -913,10 +968,12 @@ export function buildRouter(
     const updated = await entitiesGet({ id });
     try { hooks.onEntityUpdated?.(updated, previousForHook); } catch (e) { console.warn("[hook] onEntityUpdated", e); }
     return updated;
+    });
   };
 
   const entitiesDelete = async (input: unknown): Promise<unknown> => {
     const { id } = input as { id: string };
+    return runSerialized(id, async () => {
     const existing = row(db.exec(`SELECT filePath FROM entity WHERE id = ?`, [id]));
     const previousForHook = existing ? await entitiesGet({ id }).catch(() => null) : null;
     if (existing) {
@@ -933,6 +990,7 @@ export function buildRouter(
     }
     try { hooks.onEntityDeleted?.(id, previousForHook); } catch (e) { console.warn("[hook] onEntityDeleted", e); }
     return { id, deleted: true };
+    });
   };
 
   /**
@@ -2650,9 +2708,27 @@ export function buildRouter(
     // Pre-build a set of relative paths for O(1) sibling-presence checks.
     const allRelativePaths = new Set<string>(files.map((f) => f.relativePath));
 
+    // Index existing rows by filePath so the excalidraw branch can detect
+    // legacy `canvas` rows we now want to migrate to `note` virtuals.
+    const rowsByPath = new Map<string, { id: string; typeId: string }>();
+    try {
+      for (const r of rows(
+        db.exec(`SELECT id, typeId, filePath FROM entity WHERE vaultId = ?`, [vaultId]),
+      )) {
+        const fp = (r["filePath"] as string | null) ?? "";
+        if (fp) rowsByPath.set(fp, { id: r["id"] as string, typeId: r["typeId"] as string });
+      }
+    } catch {
+      // entity table not ready — leave the map empty.
+    }
+
     let indexed = 0;
+    let removedLegacyCanvas = 0;
     for (const file of files) {
-      if (existing.has(file.relativePath)) continue;
+      // For `.excalidraw` the branch below may need to UPDATE an existing
+      // legacy `canvas` row into a virtual `note`, so skip the early
+      // `existing.has` guard for that extension and let the branch decide.
+      if (existing.has(file.relativePath) && !isExcalidrawExt(file.ext)) continue;
       try {
         if (isMarkdownExt(file.ext)) {
           const content = await file.read();
@@ -2726,30 +2802,95 @@ export function buildRouter(
         } else if (isExcalidrawExt(file.ext)) {
           // Skip excalidraws owned by an already-indexed (or freshly-imported)
           // .md sibling — those load via readExcalidrawSibling on demand.
-          if (claimedExcalidraw.has(file.relativePath)) continue;
+          // BEFORE skipping, also drop any LEGACY standalone `canvas` row
+          // that still points at this excalidraw (artefact of a previous
+          // version which adopted `.excalidraw` as typeId=canvas before we
+          // started exposing them as virtual notes). Without this they'd
+          // remain as zombie rows in the DB.
+          if (claimedExcalidraw.has(file.relativePath)) {
+            const legacy = rowsByPath.get(file.relativePath);
+            if (legacy && legacy.typeId === "canvas") {
+              db.run(`DELETE FROM entity WHERE id = ?`, [legacy.id]);
+              ftsRemove(db, legacy.id);
+              rowsByPath.delete(file.relativePath);
+              existing.delete(file.relativePath);
+              removedLegacyCanvas++;
+            }
+            continue;
+          }
           // Also skip if a sibling .md is present on disk: the markdown branch
           // above (running in this same pass) will adopt it and claim the
           // canvas. Order in `files` is not guaranteed, so check both.
           const stem = file.relativePath.slice(0, -file.ext.length);
           if (allRelativePaths.has(`${stem}.md`) || allRelativePaths.has(`${stem}.markdown`)) continue;
+          // Don't re-adopt an excalidraw already claimed by a virtual note we
+          // created on a previous pass (its filePath is `${stem}.md` and
+          // `fields.canvasFile` points back here).
+          const virtualMdPath = `${stem}.md`;
+          if (existing.has(virtualMdPath)) {
+            // Note virtual déjà créée pour cet excalidraw. Si une LEGACY
+            // canvas standalone row coexiste (artefact d'une ancienne pass
+            // qui adoptait `.excalidraw` comme typeId=canvas), la supprimer
+            // pour qu'elle n'apparaisse pas comme entité dupliquée.
+            const legacy = rowsByPath.get(file.relativePath);
+            if (legacy && legacy.typeId === "canvas") {
+              db.run(`DELETE FROM entity WHERE id = ?`, [legacy.id]);
+              ftsRemove(db, legacy.id);
+              rowsByPath.delete(file.relativePath);
+              existing.delete(file.relativePath);
+              removedLegacyCanvas++;
+            }
+            claimedExcalidraw.add(file.relativePath);
+            continue;
+          }
 
-          const content = await file.read();
-          const id = generateId();
+          // Surface the orphan `.excalidraw` as a virtual `note` entity so it
+          // appears in the sidebar / notes list (typeId=note, filePath points
+          // at the not-yet-materialised `.md`). The body is empty until the
+          // user types in it — at that point the standard entity update flow
+          // writes the `.md` file via `writeVaultFile`, and `canvasFile`
+          // keeps the existing `.excalidraw` linked as the note's canvas
+          // sibling.
+          //
+          // Migrate legacy `canvas` standalone rows (created by a previous
+          // version of this code that adopted orphan `.excalidraw` as
+          // typeId=canvas with filePath=<excalidraw>) into the new shape so
+          // the sidebar shows a clickable note instead of an invisible
+          // canvas entry.
+          const legacyCanvas = rowsByPath.get(file.relativePath);
           const baseName = file.name.slice(0, -file.ext.length);
-          const fields = { name: baseName };
-          const hash = await hashContent(content);
+          const fields = { title: baseName, canvasFile: file.name };
           const ts = now();
-          db.run(
-            `INSERT INTO entity (id, vaultId, typeId, filePath, fields, body, fileHash, createdAt, updatedAt)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-             ON CONFLICT(id) DO UPDATE SET
-               filePath = excluded.filePath, fields = excluded.fields,
-               body = excluded.body, fileHash = excluded.fileHash, updatedAt = excluded.updatedAt`,
-            [id, vaultId, "canvas", file.relativePath, JSON.stringify(fields), content, hash, ts, ts],
-          );
-          const r = row(db.exec(`SELECT id, typeId, filePath, fields, body FROM entity WHERE id = ?`, [id]));
+          let entityId: string;
+          if (legacyCanvas && legacyCanvas.typeId === "canvas") {
+            entityId = legacyCanvas.id;
+            db.run(
+              `UPDATE entity SET typeId = ?, filePath = ?, fields = ?, body = ?, fileHash = NULL, updatedAt = ? WHERE id = ?`,
+              ["note", virtualMdPath, JSON.stringify(fields), "", ts, entityId],
+            );
+            // Drop the stale `existing` entry so the phantom sweep doesn't
+            // get confused — the row now lives at `virtualMdPath`.
+            existing.delete(file.relativePath);
+            rowsByPath.delete(file.relativePath);
+          } else if (existing.has(file.relativePath)) {
+            // Some other typeId already claims this path (rare); leave it.
+            claimedExcalidraw.add(file.relativePath);
+            continue;
+          } else {
+            entityId = generateId();
+            db.run(
+              `INSERT INTO entity (id, vaultId, typeId, filePath, fields, body, fileHash, createdAt, updatedAt)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              [entityId, vaultId, "note", virtualMdPath, JSON.stringify(fields), "", null, ts, ts],
+            );
+          }
+          const r = row(db.exec(`SELECT id, typeId, filePath, fields, body FROM entity WHERE id = ?`, [entityId]));
           if (r) ftsAdd(db, entityToDoc(r));
-          existing.add(file.relativePath);
+          // Mark BOTH the virtual md path AND the excalidraw as "claimed" so
+          // the phantom sweep below preserves the row even though no `.md`
+          // exists on disk (the canvasFile does).
+          existing.add(virtualMdPath);
+          claimedExcalidraw.add(file.relativePath);
           indexed++;
         }
         // Other extensions: leave untouched for now.
@@ -2774,7 +2915,7 @@ export function buildRouter(
       // if the user deleted just the sibling — keep the note entity, the
       // canvas will simply read as null on next access.
       const allRowsForSweep = rows(
-        db.exec(`SELECT id, filePath FROM entity WHERE vaultId = ?`, [vaultId]),
+        db.exec(`SELECT id, filePath, fields FROM entity WHERE vaultId = ?`, [vaultId]),
       );
       for (const r of allRowsForSweep) {
         const fp = (r["filePath"] as string | null) ?? "";
@@ -2785,6 +2926,22 @@ export function buildRouter(
         if (lower.endsWith(".md") || lower.endsWith(".markdown")) {
           if (onDisk.has(fp.replace(/\.md$/i, ".markdown"))) continue;
           if (onDisk.has(fp.replace(/\.markdown$/i, ".md"))) continue;
+        }
+        // Virtual `note` rows we created to surface an orphan `.excalidraw`
+        // file in the UI: the `.md` itself isn't on disk yet (will be
+        // materialised on first user edit) but the `canvasFile` IS — keep
+        // the row so the sidebar entry stays clickable.
+        try {
+          const fields = JSON.parse((r["fields"] as string) || "{}") as Record<string, unknown>;
+          const canvasFile = typeof fields["canvasFile"] === "string" ? (fields["canvasFile"] as string) : null;
+          if (canvasFile) {
+            const dirEnd = fp.lastIndexOf("/");
+            const dir = dirEnd >= 0 ? fp.slice(0, dirEnd) : "";
+            const canvasPath = dir ? `${dir}/${canvasFile}` : canvasFile;
+            if (onDisk.has(canvasPath)) continue;
+          }
+        } catch {
+          // malformed fields json — fall through to delete
         }
         const id = r["id"] as string;
         db.run(`DELETE FROM entity WHERE id = ?`, [id]);
@@ -2798,14 +2955,18 @@ export function buildRouter(
       console.warn("[reindex] phantom sweep failed (non-fatal)", err);
     }
 
+    if (removedLegacyCanvas > 0) {
+      console.info(`[reindex] removed ${removedLegacyCanvas} legacy canvas row(s) superseded by virtual note`);
+    }
+
     // Full FTS5 rebuild after a reindex batch — cheaper than auditing each
     // file's tag join state, and keeps tags consistent if a file's frontmatter
     // changed since the last index pass.
-    if (indexed > 0 || removed > 0) {
+    if (indexed > 0 || removed > 0 || removedLegacyCanvas > 0) {
       ftsRebuild(db, vaultId);
     }
 
-    return { indexed, removed };
+    return { indexed, removed: removed + removedLegacyCanvas };
   };
 
   // ── variables.* ───────────────────────────────────────────────────────────

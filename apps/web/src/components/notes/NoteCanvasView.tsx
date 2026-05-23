@@ -29,6 +29,7 @@ import type {
 } from "@supernote/canvas";
 import { trpc, trpcVanillaClient } from "@/lib/trpc/client";
 import type { Note } from "./fixtures";
+import { entityToNote } from "./adapters";
 import { EntityLinkPicker } from "./EntityLinkPicker";
 
 /**
@@ -210,9 +211,104 @@ function parseCanvasField(raw: unknown, note: Note): CanvasDocument {
 }
 
 export function NoteCanvasView({ note }: NoteCanvasViewProps) {
+  // Hydration race guard: when a note references a `.excalidraw` sibling
+  // (`canvasFile` set) but the worker hasn't injected `fields.canvas` yet
+  // (entitiesGet hydrates it asynchronously), mounting the canvas with a
+  // SEEDED initial doc would let the very first user edit overwrite the
+  // real `.excalidraw` content with the seed. Defer the actual mount until
+  // hydration lands.
+  const expectsHydration =
+    typeof note.fields?.["canvasFile"] === "string" &&
+    typeof note.fields["canvas"] !== "string";
+  if (expectsHydration) {
+    return (
+      <div
+        className="flex h-full w-full items-center justify-center text-xs"
+        style={{ color: "var(--text-muted)" }}
+      >
+        Chargement du canvas…
+      </div>
+    );
+  }
+  // Fetch the FRESH canvas blob from the worker before mounting the inner
+  // component. The TanStack Query cache backing `note` can serve a stale
+  // snapshot (default `staleTime: 30s`) — and the inner component pins its
+  // `initialDocument` via `useMemo([note.id])`, so whatever the cache hands
+  // us at FIRST mount becomes the canonical scene FOREVER. Mounting with a
+  // stale snapshot + the user's first edit produces `staleScene + newElement`,
+  // overwriting every disk change that landed in between. Round-tripping
+  // through the worker on every mount of the canvas view guarantees we start
+  // from disk truth, not whatever the cache happened to remember.
+  return <NoteCanvasViewBoot note={note} />;
+}
+
+/**
+ * Round-trip the note id through the worker once per mount so the inner
+ * component sees the disk-truth canvas blob, not the (potentially stale)
+ * TanStack Query cache. Re-fetches whenever the user switches notes.
+ *
+ * We deliberately don't gate on the existing `entities.get.useQuery` —
+ * that query's `placeholderData: (prev) => prev` keeps surfacing the stale
+ * blob during the refetch, and the inner component would still mount with
+ * the placeholder before fresh data lands.
+ */
+function NoteCanvasViewBoot({ note }: NoteCanvasViewProps) {
+  const utils = trpc.useUtils();
+  const [freshNote, setFreshNote] = useState<Note | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    // Force a worker hit (skip the React Query cache entirely) so the
+    // initialDocument is built from disk-truth even if the cache is stale.
+    void utils.entities.get
+      .fetch({ id: note.id }, { staleTime: 0 })
+      .then((fresh) => {
+        if (cancelled) return;
+        setFreshNote(entityToNote(fresh));
+      })
+      .catch(() => {
+        if (cancelled) return;
+        // Worker call failed — fall back to the cached snapshot so the
+        // canvas at least opens. The user can manually retry by switching
+        // views; we don't want to leave them stranded on a spinner.
+        setFreshNote(note);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [note.id]);
+  if (!freshNote) {
+    return (
+      <div
+        className="flex h-full w-full items-center justify-center text-xs"
+        style={{ color: "var(--text-muted)" }}
+      >
+        Chargement du canvas…
+      </div>
+    );
+  }
+  return <NoteCanvasViewInner note={freshNote} />;
+}
+
+function NoteCanvasViewInner({ note }: NoteCanvasViewProps) {
   const router = useRouter();
   const utils = trpc.useUtils();
   const updateMutation = trpc.entities.update.useMutation();
+  // `updateMutation` is a NEW object on every render (TanStack mutation state
+  // ticks between idle/pending/success). The canvas `onChange` callback used
+  // to capture it via useCallback deps, which made the callback identity
+  // change DURING the save itself — SupernoteCanvas re-fired onChange from
+  // its `[onChange]` useEffect, reset the 1-second debounce, and the "saving"
+  // indicator never resolved. We pin the mutation in a ref so handleChange
+  // stays referentially stable across renders.
+  const updateMutationRef = useRef(updateMutation);
+  useEffect(() => {
+    updateMutationRef.current = updateMutation;
+  }, [updateMutation]);
+  const utilsRef = useRef(utils);
+  useEffect(() => {
+    utilsRef.current = utils;
+  }, [utils]);
 
   // Initial doc: we intentionally key off note.id only. If we re-derived
   // every render and the parent re-fetched the entity, the canvas store
@@ -256,6 +352,15 @@ export function NoteCanvasView({ note }: NoteCanvasViewProps) {
   const addEntityNodeRef = useRef<((entityId: string) => void) | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSerializedRef = useRef<string>("");
+  // Client-side single-flight. While a save is in flight we don't fire a
+  // second mutateAsync — we stash the latest serialized payload in `pendingRef`
+  // and re-fire ONCE after the current save resolves. Without this, rapid
+  // edits (multiple shapes drawn in quick succession) queued multiple parallel
+  // mutateAsync calls. Even though the worker now serializes per-entity (so
+  // the disk content is correct), the redundant in-flight saves kept the
+  // "Enregistrement…" indicator pinned and racked up extra FSA writes.
+  const inFlightRef = useRef<boolean>(false);
+  const pendingSerializedRef = useRef<string | null>(null);
   // Latches to true on the first onChange that represents a real user
   // modification. Until then we don't persist anything — opening the canvas
   // view of an empty note must NOT mark it "has data" (would inflate the
@@ -274,7 +379,8 @@ export function NoteCanvasView({ note }: NoteCanvasViewProps) {
 
   // 1s debounce — Excalidraw fires onChange ~60 ×/sec while dragging.
   const handleChange = useCallback(
-    (doc: CanvasDocument) => {
+    (docArg: CanvasDocument) => {
+      const doc = docArg;
       const serialized = JSON.stringify(doc);
       // First-modification gate: until the user actually changes something,
       // SupernoteCanvas may emit several onChange events as Excalidraw
@@ -318,32 +424,105 @@ export function NoteCanvasView({ note }: NoteCanvasViewProps) {
         userHasModifiedRef.current = true;
       }
 
+      // Degenerate-element filter REMOVED. The previous heuristic stripped any
+      // shape whose width AND height were both 0/undefined, intended to drop
+      // ghost rectangles from a tap-without-drag. In practice it interacted
+      // badly with the real shape lifecycle: Excalidraw fires `onChange`
+      // intermediately during pointer-down with w=h=0, and our filter would
+      // strip the shape before its dimensions settled. Even if a later
+      // onChange replaced the cleaned snapshot, certain refresh / re-render
+      // orderings could leave the persisted payload missing the shape the
+      // user just drew. Trust Excalidraw to keep its scene consistent — its
+      // own restore pipeline drops degenerate elements at the boundary.
+
       if (debounceRef.current) clearTimeout(debounceRef.current);
       setSaveStatus((prev) => (prev === "saving" ? prev : "saving"));
-      debounceRef.current = setTimeout(async () => {
+      {
+        const ex = doc.excalidrawElements ?? [];
+        const summary = ex.slice(-3).map((e) => ({
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          id: (e as any).id?.slice(0, 8),
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          type: (e as any).type,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          isDeleted: (e as any).isDeleted,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          w: (e as any).width,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          h: (e as any).height,
+        }));
+        console.info(
+          `[NoteCanvasView] handleChange queued — elements=${ex.length} last3=${JSON.stringify(summary)}`,
+        );
+      }
+      debounceRef.current = setTimeout(() => {
         if (serialized === lastSerializedRef.current) {
           // No actual content change (probably a no-op re-render) — clear
           // the optimistic "Saving…" indicator so it doesn't get stuck.
           setSaveStatus("idle");
           return;
         }
+        if (inFlightRef.current) {
+          // A save is already mid-flight for this entity. Stash the latest
+          // payload so it runs ONCE after the in-flight save completes —
+          // skipping any intermediate snapshots the user has since super-
+          // seded. Without this, rapid drawing piled up parallel mutate-
+          // Async calls that all targeted the same entity, leaving the
+          // "Enregistrement…" indicator pinned until every redundant save
+          // resolved.
+          pendingSerializedRef.current = serialized;
+          return;
+        }
+        void runSave(serialized);
+      }, 1000);
+
+      async function runSave(payload: string): Promise<void> {
+        inFlightRef.current = true;
         try {
-          await updateMutation.mutateAsync({
+          let exCount = -1;
+          try {
+            exCount = (JSON.parse(payload) as { excalidrawElements?: unknown[] })
+              .excalidrawElements?.length ?? 0;
+          } catch {
+            // best-effort logging — fall through with exCount=-1
+          }
+          console.info(
+            `[NoteCanvasView] save fire — exCount=${exCount} len=${payload.length} id=${note.id}`,
+          );
+          await updateMutationRef.current.mutateAsync({
             id: note.id,
-            fields: { canvas: serialized },
+            fields: { canvas: payload },
           });
-          lastSerializedRef.current = serialized;
+          lastSerializedRef.current = payload;
           setSaveStatus("saved");
-          void utils.entities.get.invalidate({ id: note.id });
+          console.info(`[NoteCanvasView] save complete id=${note.id}`);
+          void utilsRef.current.entities.get.invalidate({ id: note.id });
           setTimeout(() => setSaveStatus("idle"), 2000);
         } catch (err) {
           console.error("[NoteCanvasView] save failed", err);
           setSaveStatus("error");
           setTimeout(() => setSaveStatus("idle"), 3000);
+        } finally {
+          inFlightRef.current = false;
+          // Drain the queued payload, if any. We only ever keep the LATEST
+          // queued snapshot (pendingSerializedRef is a single slot), so this
+          // recurses at most once per intervening user edit.
+          const queued = pendingSerializedRef.current;
+          pendingSerializedRef.current = null;
+          if (queued && queued !== lastSerializedRef.current) {
+            await runSave(queued);
+          }
         }
-      }, 1000);
+      }
     },
-    [note.id, updateMutation, utils],
+    // Deliberately empty so handleChange is referentially stable. We read
+    // the mutation/utils through refs (updated by the effects above) — the
+    // alternative (depending on `updateMutation`) creates a feedback loop
+    // because SupernoteCanvas's `useEffect(..., [onChange])` re-fires
+    // whenever this callback's identity changes, resetting the debounce
+    // mid-save and locking the "Enregistrement…" indicator forever.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [note.id],
   );
 
   // Flush pending save on unmount or note switch — otherwise the very last
@@ -355,7 +534,22 @@ export function NoteCanvasView({ note }: NoteCanvasViewProps) {
     seedElementIdRef.current = !hadStoredCanvas
       ? (initialDocument.excalidrawElements?.[0]?.id ?? null)
       : null;
-    lastSerializedRef.current = "";
+    // Pre-stash the canonical mount payload so the FIRST onChange fired by
+    // SupernoteCanvas's mount-effect (which carries the just-loaded scene,
+    // not a user edit) matches via the dedup check and SKIPS the save.
+    // Without this, every canvas mount triggered a redundant write of the
+    // already-on-disk data and — worse — could race with an in-flight user
+    // edit fired in the same tick, persisting the pre-edit snapshot last.
+    // The shape must mirror SupernoteCanvas's own spread:
+    //   `{ ...storeDoc, excalidrawElements: stateElements }`
+    // where storeDoc = `{ ...initialData, nodes: [], edges: [], excalidrawElements }`.
+    lastSerializedRef.current = JSON.stringify({
+      ...initialDocument,
+      nodes: [],
+      edges: [],
+      excalidrawElements: initialDocument.excalidrawElements ?? [],
+    });
+    pendingSerializedRef.current = null;
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };

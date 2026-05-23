@@ -37,7 +37,7 @@
 // We use dynamic import to avoid SSR issues and reduce initial bundle size.
 // ============================================================
 
-import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
+import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 
 // Excalidraw ships its stylesheet separately. Without this import the toolbar
 // is invisible and pointer-events on the canvas surface are broken — drawing
@@ -397,6 +397,32 @@ export const DrawLayer = forwardRef<DrawLayerHandle, DrawLayerProps>(function Dr
   ref
 ) {
   const apiRef = useRef<ExcalidrawImperativeLike | null>(null);
+  // Pin `initialData` to the elements captured at FIRST render of this
+  // DrawLayer mount. Two failure modes we're avoiding:
+  //   1. Recreating the object on every render — Excalidraw re-syncs its
+  //      scene to `initialData.elements` whenever the prop identity
+  //      changes, which fires phantom `onChange` events with the
+  //      previously-captured elements and races the parent's debounced
+  //      save, reverting fresh edits.
+  //   2. Passing an empty `elements: []` and seeding via `updateScene`
+  //      after mount — Excalidraw's internal restore still treats
+  //      `initialData.elements` as the canonical scene and re-emits
+  //      `onChange` with elements=0 immediately after our seed, blowing
+  //      everything away.
+  // Capturing the live elements once via useMemo([]) gives Excalidraw a
+  // stable canonical reference that already contains the saved scene —
+  // nothing further to reconcile, no spurious onChange, no isDeleted tags
+  // on freshly drawn shapes.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const initialDataMemo = useMemo<{ elements: any; scrollToContent: true }>(
+    () => ({
+      elements: (initialElements ?? []) as never,
+      scrollToContent: true,
+    }),
+    // Deliberately empty: capture the first-render value and never recompute.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
   // Track the toolbar's offsetParent (the canvas wrapper) width so we can
   // collapse labels when the available room is tight. ResizeObserver keeps
   // the layout reactive as the user toggles focus mode / collapses columns.
@@ -429,7 +455,10 @@ export const DrawLayer = forwardRef<DrawLayerHandle, DrawLayerProps>(function Dr
 
   const handleChange = useCallback(
     // Excalidraw passes (elements, appState, files) to onChange
-    (elements: unknown) => {
+    (elements: unknown, appState: unknown) => {
+      const len = Array.isArray(elements) ? elements.length : -1;
+      const apType = (appState as { type?: string } | undefined)?.type ?? "?";
+      console.info(`[DrawLayer] excalidraw onChange — elements=${len} appStateType=${apType}`);
       onChange?.(elements as ExcalidrawElementLike[]);
     },
     [onChange]
@@ -666,15 +695,22 @@ export const DrawLayer = forwardRef<DrawLayerHandle, DrawLayerProps>(function Dr
         <ExcalidrawComponent
           excalidrawAPI={(api: unknown) => {
             apiRef.current = api as ExcalidrawImperativeLike;
+            // Seed the scene ONCE from `initialElements`. We can't use
+            // `initialData.elements` for this (see comment above) — instead
+            // we drive `updateScene` through the imperative API the very
+            // moment Excalidraw hands it to us. Subsequent prop changes are
+            // intentionally ignored; the scene then evolves purely through
+            // user interaction + onChange round-trips.
+            // Expose for dev diagnostics so tests can drive `updateScene`
+            // imperatively (browser MCP, manual console). No-op in prod.
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (window as any).__excalidrawAPI = api;
           }}
           onChange={handleChange as never}
           onLinkOpen={handleLinkOpen as never}
           validateEmbeddable={validateEmbeddable}
           viewModeEnabled={readOnly}
-          initialData={{
-            elements: (initialElements ?? []) as never,
-            scrollToContent: true,
-          }}
+          initialData={initialDataMemo}
           theme="light"
         />
       </React.Suspense>
