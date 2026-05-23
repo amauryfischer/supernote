@@ -210,6 +210,30 @@ export async function readVaultFileBinary(
   return file.arrayBuffer();
 }
 
+/**
+ * Write raw bytes to a vault file. Used by attachment editors (CSV, XLSX)
+ * to save edited content back to the original binary file. Creates parent
+ * directories if missing (mirrors `writeVaultFile`).
+ */
+export async function writeVaultFileBinary(
+  vaultHandle: FileSystemDirectoryHandle,
+  pathSegments: string[],
+  bytes: ArrayBuffer | Uint8Array,
+): Promise<void> {
+  let current: FileSystemDirectoryHandle = vaultHandle;
+  for (const seg of pathSegments.slice(0, -1)) {
+    current = await current.getDirectoryHandle(seg, { create: true });
+  }
+  const fileName = pathSegments[pathSegments.length - 1]!;
+  const fileHandle = await current.getFileHandle(fileName, { create: true });
+  const writable = await fileHandle.createWritable();
+  // `write` expects a BufferSource / Blob / string. `Uint8Array` is a
+  // valid BufferSource at runtime but TS narrows it weirdly — cast to
+  // `BufferSource` to satisfy the overload.
+  await writable.write(bytes as BufferSource);
+  await writable.close();
+}
+
 /** Write a file to the vault by relative path segments. */
 export async function writeVaultFile(
   vaultHandle: FileSystemDirectoryHandle,

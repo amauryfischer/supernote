@@ -64,3 +64,18 @@ export const ReadFileOutput = z.object({
   size: z.number().int().nonnegative(),
 });
 export type ReadFileOutput = z.infer<typeof ReadFileOutput>;
+
+// ── vault.writeFile ───────────────────────────────────────────────────────────
+
+export const WriteFileInput = z.object({
+  path: z.string().min(1),
+  // ArrayBuffer / Uint8Array transferred via structured-clone.
+  bytes: z.unknown(),
+});
+export type WriteFileInput = z.infer<typeof WriteFileInput>;
+
+export const WriteFileOutput = z.object({
+  path: z.string(),
+  size: z.number().int().nonnegative(),
+});
+export type WriteFileOutput = z.infer<typeof WriteFileOutput>;

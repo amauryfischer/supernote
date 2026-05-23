@@ -21,6 +21,7 @@ import {
   writeVaultFile,
   readVaultFile,
   readVaultFileBinary,
+  writeVaultFileBinary,
   deleteVaultFile,
   deleteVaultDirectory,
   hashContent,
@@ -3133,6 +3134,58 @@ export function buildRouter(
     return { bytes, text, size: bytes.byteLength };
   };
 
+  // ── vault.writeFile ───────────────────────────────────────────────────────
+  //
+  // Symmetric write-side: save raw bytes back to a vault file. Used by the
+  // attachment editor layer (CSV, XLSX) to persist edits to the original
+  // binary file. Serialised per-path through `runSerialized` so concurrent
+  // saves from the same editor (rapid typing → debounced flushes) don't race
+  // on FSA `createWritable` — exactly the same race condition we already
+  // fixed for `entitiesUpdate` (commit 6faa8e1). After the write, also
+  // updates the entity's `fileHash` and `updatedAt` if the path matches an
+  // attachment entity row (best-effort: missing row is fine, write still
+  // succeeds).
+  const vaultWriteFile = async (input: unknown): Promise<unknown> => {
+    const { path, bytes } = input as {
+      path: string;
+      bytes: ArrayBuffer | Uint8Array;
+    };
+    const clean = path.replace(/\.\./g, "").replace(/^\/+|\/+$/g, "").trim();
+    if (!clean) throw new Error("vault.writeFile: empty path");
+    const segments = clean.split("/");
+    return runSerialized(clean, async () => {
+      await writeVaultFileBinary(vaultHandle, segments, bytes);
+      // Refresh the SQL row's updatedAt + fileHash if this path is a known
+      // entity (typically an attachment virtual note). Optional but keeps
+      // the entity's timestamp in sync so the sidebar surfaces the change.
+      try {
+        const u8 =
+          bytes instanceof Uint8Array
+            ? bytes
+            : new Uint8Array(bytes as ArrayBuffer);
+        // hashContent expects string; cheap detour via Blob → arrayBuffer
+        // would re-allocate, so we hash the bytes directly here. Cast to
+        // BufferSource: `subtle.digest` expects BufferSource, and TS narrows
+        // `Uint8Array` weirdly against the overload signature.
+        const hashBuf = await crypto.subtle.digest("SHA-256", u8 as BufferSource);
+        const hash = Array.from(new Uint8Array(hashBuf))
+          .map((b) => b.toString(16).padStart(2, "0"))
+          .join("");
+        const ts = now();
+        db.run(
+          `UPDATE entity SET fileHash = ?, updatedAt = ? WHERE vaultId = ? AND filePath = ?`,
+          [hash, ts, vaultId, clean],
+        );
+      } catch (err) {
+        console.warn(
+          `[vault.writeFile] hash/sql update failed for ${clean} (write itself succeeded)`,
+          err,
+        );
+      }
+      return { path: clean, size: (bytes as ArrayBuffer).byteLength ?? (bytes as Uint8Array).byteLength };
+    });
+  };
+
   // ── Dispatch table ─────────────────────────────────────────────────────────
 
   return {
@@ -3189,6 +3242,7 @@ export function buildRouter(
 
     "vault.reindex": reindexVault,
     "vault.readFile": vaultReadFile,
+    "vault.writeFile": vaultWriteFile,
 
     "variables.list": variablesList,
     "variables.get": variablesGet,

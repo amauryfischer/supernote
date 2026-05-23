@@ -10,6 +10,8 @@ import {
   GetCurrentVaultOutput,
   ReadFileInput,
   ReadFileOutput,
+  WriteFileInput,
+  WriteFileOutput,
 } from "../schemas/vault.js";
 import { foldersRouter } from "./folders.router.js";
 
@@ -76,6 +78,21 @@ export const vaultRouter = router({
     .output(ReadFileOutput)
     .query(() => {
       throw notImplemented("vault.readFile");
+    }),
+
+  /**
+   * Write raw bytes back to a vault file. Used by attachment editors
+   * (CSV, XLSX) to persist user edits to the original binary file.
+   *
+   * Concurrency-safe: the worker serialises per-path through the same
+   * mutex that protects `entitiesUpdate`, so back-to-back debounced saves
+   * from a fast-typing user don't race on FSA `createWritable`.
+   */
+  writeFile: publicProcedure
+    .input(WriteFileInput)
+    .output(WriteFileOutput)
+    .mutation(() => {
+      throw notImplemented("vault.writeFile");
     }),
 });
 
