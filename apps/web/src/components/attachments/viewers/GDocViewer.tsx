@@ -106,20 +106,39 @@ export function GDocViewer({ note, path }: AttachmentViewerProps) {
   const [autoResolveError, setAutoResolveError] = useState<string | null>(null);
   const [autoMatches, setAutoMatches] = useState<DriveFile[]>([]);
 
+  // Trigger auto-resolution when the local file is unreadable OR its
+  // content is empty/garbage — both result in `parsed` being null but we
+  // can still try to find the doc in Drive by name.
+  const readSucceededButParseFailed =
+    !loading && !error && (!text || text.trim().length === 0);
+  const shouldAutoResolve =
+    !loading &&
+    !overrideUrl &&
+    !resolvedId &&
+    !!driveClientId &&
+    driveConnected &&
+    (!!error || readSucceededButParseFailed);
+
   useEffect(() => {
-    if (!error) return;
-    if (overrideUrl || resolvedId) return;
-    if (!driveClientId || !driveConnected) return;
+    console.info(
+      `[GDocViewer] auto-resolve gate path=${path} error=${!!error} readSucceededButParseFailed=${readSucceededButParseFailed} driveClientId=${!!driveClientId} driveConnected=${driveConnected} overrideUrl=${!!overrideUrl} resolvedId=${!!resolvedId} -> shouldAutoResolve=${shouldAutoResolve}`,
+    );
+    if (!shouldAutoResolve) return;
     const mimeType = gdocMimeType(ext);
-    if (!mimeType) return;
+    if (!mimeType) {
+      console.warn(`[GDocViewer] no mimeType for ext=${ext}`);
+      return;
+    }
     // Strip the extension so the Drive query matches the doc title.
     const stem = basename.replace(/\.[^.]+$/, "");
     let cancelled = false;
     setAutoResolveStatus("searching");
     setAutoResolveError(null);
+    console.info(`[GDocViewer] searching Drive for name="${stem}" mimeType=${mimeType}`);
     void (async () => {
       try {
         const files = await searchFiles(driveClientId, stem, mimeType);
+        console.info(`[GDocViewer] Drive returned ${files.length} match(es)`, files);
         if (cancelled) return;
         if (files.length === 0) {
           setAutoResolveStatus("no-match");
@@ -138,6 +157,7 @@ export function GDocViewer({ note, path }: AttachmentViewerProps) {
         if (cancelled) return;
         setAutoResolveStatus("done");
       } catch (err) {
+        console.error(`[GDocViewer] Drive search failed`, err);
         if (cancelled) return;
         setAutoResolveError(err instanceof Error ? err.message : String(err));
         setAutoResolveStatus("error");
@@ -147,7 +167,7 @@ export function GDocViewer({ note, path }: AttachmentViewerProps) {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [error, overrideUrl, resolvedId, driveClientId, driveConnected, basename, ext, note.id]);
+  }, [shouldAutoResolve, basename, ext, note.id]);
 
   const pickMatch = async (file: DriveFile) => {
     try {
@@ -255,7 +275,12 @@ export function GDocViewer({ note, path }: AttachmentViewerProps) {
     );
   }
 
-  if (error && !overrideUrl && !resolvedId) {
+  // Show the auto-resolve UI / paste prompt whenever we DON'T have a usable
+  // docId yet — covers both the "read failed" path and the "read succeeded
+  // but content is empty/garbage" path. `parsed` only exists when we've
+  // managed to extract a docId from somewhere (cache, override, file
+  // content, or a successful resolve).
+  if (!parsed && !overrideUrl && !resolvedId) {
     // Drive auto-resolve in flight — show a richer loading state with what
     // we're doing, so the user knows we're not just stuck.
     if (autoResolveStatus === "searching") {
@@ -304,7 +329,7 @@ export function GDocViewer({ note, path }: AttachmentViewerProps) {
         note={note}
         path={path}
         basename={basename}
-        error={autoResolveError ?? error}
+        error={autoResolveError ?? error ?? "Le contenu du fichier ne contient pas d'URL Google reconnaissable."}
         docType={docType}
         autoResolveStatus={autoResolveStatus}
         driveConnected={driveConnected}
