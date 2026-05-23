@@ -48,6 +48,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
     persistence: false,
     toastDuration: 4,
   },
+  googleDrive: {
+    clientId: "",
+    connectedEmail: "",
+  },
 };
 
 export const ACCENT_COLORS = [

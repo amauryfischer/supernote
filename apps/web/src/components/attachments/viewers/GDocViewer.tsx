@@ -7,6 +7,12 @@ import { ArrowSquareOut } from "@phosphor-icons/react";
 import type { AttachmentViewerProps } from "../AttachmentRouter";
 import { useAttachmentBlob } from "../useAttachmentBlob";
 import { trpc } from "@/lib/trpc/client";
+import { useSettings } from "@/components/settings/SettingsContext";
+import {
+  searchFiles,
+  gdocMimeType,
+  type DriveFile,
+} from "@/lib/google-drive";
 
 interface GDocPointer {
   url?: string;
@@ -78,7 +84,94 @@ export function GDocViewer({ note, path }: AttachmentViewerProps) {
       ? (note.fields["gdocOverrideUrl"] as string)
       : null;
 
+  // Auto-resolved doc id from Google Drive search — once we've matched
+  // a Drive file by name we cache its id here so subsequent loads skip
+  // the search entirely. Set by the resolution effect below.
+  const resolvedId =
+    typeof note.fields?.["gdocResolvedId"] === "string"
+      ? (note.fields["gdocResolvedId"] as string)
+      : null;
+
+  // ── Drive auto-resolution effect ───────────────────────────────────────
+  // Triggered when the file read failed AND the user has Drive connected
+  // AND we don't already have an override or a cached resolved id. Calls
+  // Drive's `files.list` to find a doc with the matching name + mimeType,
+  // then persists the id on the entity so subsequent loads skip the API.
+  const { settings } = useSettings();
+  const driveClientId = settings.googleDrive?.clientId?.trim() ?? "";
+  const driveConnected = !!settings.googleDrive?.connectedEmail;
+  const [autoResolveStatus, setAutoResolveStatus] = useState<
+    "idle" | "searching" | "no-match" | "multi-match" | "error" | "done"
+  >("idle");
+  const [autoResolveError, setAutoResolveError] = useState<string | null>(null);
+  const [autoMatches, setAutoMatches] = useState<DriveFile[]>([]);
+
+  useEffect(() => {
+    if (!error) return;
+    if (overrideUrl || resolvedId) return;
+    if (!driveClientId || !driveConnected) return;
+    const mimeType = gdocMimeType(ext);
+    if (!mimeType) return;
+    // Strip the extension so the Drive query matches the doc title.
+    const stem = basename.replace(/\.[^.]+$/, "");
+    let cancelled = false;
+    setAutoResolveStatus("searching");
+    setAutoResolveError(null);
+    void (async () => {
+      try {
+        const files = await searchFiles(driveClientId, stem, mimeType);
+        if (cancelled) return;
+        if (files.length === 0) {
+          setAutoResolveStatus("no-match");
+          return;
+        }
+        if (files.length > 1) {
+          setAutoMatches(files);
+          setAutoResolveStatus("multi-match");
+          return;
+        }
+        const winner = files[0]!;
+        await updateMutation.mutateAsync({
+          id: note.id,
+          fields: { gdocResolvedId: winner.id },
+        });
+        if (cancelled) return;
+        setAutoResolveStatus("done");
+      } catch (err) {
+        if (cancelled) return;
+        setAutoResolveError(err instanceof Error ? err.message : String(err));
+        setAutoResolveStatus("error");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [error, overrideUrl, resolvedId, driveClientId, driveConnected, basename, ext, note.id]);
+
+  const pickMatch = async (file: DriveFile) => {
+    try {
+      await updateMutation.mutateAsync({
+        id: note.id,
+        fields: { gdocResolvedId: file.id },
+      });
+      setAutoResolveStatus("done");
+    } catch (err) {
+      setAutoResolveError(err instanceof Error ? err.message : String(err));
+      setAutoResolveStatus("error");
+    }
+  };
+
   const parsed = useMemo<{ docId: string; originalUrl: string } | null>(() => {
+    // Cached resolved id (Drive auto-search) wins — fastest path on
+    // every visit after the first one.
+    if (resolvedId) {
+      console.info(`[GDocViewer] using resolvedId=${resolvedId}`);
+      return {
+        docId: resolvedId,
+        originalUrl: `https://docs.google.com/${docType}/d/${resolvedId}/edit`,
+      };
+    }
     // Override URL takes precedence — user-pasted URL when the .gdoc file
     // couldn't be read (cloud placeholder, permission glitch, …).
     if (overrideUrl) {
@@ -128,7 +221,7 @@ export function GDocViewer({ note, path }: AttachmentViewerProps) {
       return null;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [text, docType, path, overrideUrl]);
+  }, [text, docType, path, overrideUrl, resolvedId]);
 
   // Iframe load detection — Google's `/preview` returns 200 even for
   // private docs (you just see a sign-in page inside the frame). To give
@@ -162,14 +255,59 @@ export function GDocViewer({ note, path }: AttachmentViewerProps) {
     );
   }
 
-  if (error && !overrideUrl) {
+  if (error && !overrideUrl && !resolvedId) {
+    // Drive auto-resolve in flight — show a richer loading state with what
+    // we're doing, so the user knows we're not just stuck.
+    if (autoResolveStatus === "searching") {
+      return (
+        <div className="flex h-full w-full flex-col items-center justify-center gap-3 text-xs"
+             style={{ color: "var(--text-muted)" }}>
+          <Spinner size="md" />
+          <span>Recherche du fichier dans Google Drive…</span>
+          <span className="text-[10px]">{basename.replace(/\.[^.]+$/, "")}</span>
+        </div>
+      );
+    }
+    // Multiple Drive files match the name — let the user pick.
+    if (autoResolveStatus === "multi-match") {
+      return (
+        <div className="flex h-full w-full flex-col items-center justify-center gap-3 px-6 text-center text-xs"
+             style={{ color: "var(--text-muted)" }}>
+          <span className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
+            Plusieurs fichiers Drive correspondent à ce nom
+          </span>
+          <span className="text-[11px]">Sélectionne le bon :</span>
+          <div className="flex w-full max-w-md flex-col gap-1">
+            {autoMatches.map((file) => (
+              <Button
+                key={file.id}
+                variant="ghost"
+                size="sm"
+                onPress={() => void pickMatch(file)}
+                className="justify-start"
+              >
+                <span className="truncate">{file.name}</span>
+                <span className="ml-auto text-[10px]" style={{ color: "var(--text-muted)" }}>
+                  {file.id.slice(0, 12)}…
+                </span>
+              </Button>
+            ))}
+          </div>
+        </div>
+      );
+    }
+    // No Drive match (or error / Drive disabled) — fall through to the
+    // paste-URL prompt. Show the auto-resolve error in the prompt if
+    // there was one.
     return (
       <UrlOverridePrompt
         note={note}
         path={path}
         basename={basename}
-        error={error}
+        error={autoResolveError ?? error}
         docType={docType}
+        autoResolveStatus={autoResolveStatus}
+        driveConnected={driveConnected}
         onSave={async (url) => {
           await updateMutation.mutateAsync({
             id: note.id,
@@ -271,6 +409,8 @@ interface UrlOverridePromptProps {
   basename: string;
   error: string;
   docType: GDocType;
+  autoResolveStatus?: "idle" | "searching" | "no-match" | "multi-match" | "error" | "done";
+  driveConnected?: boolean;
   onSave: (url: string) => Promise<void>;
 }
 
@@ -286,6 +426,8 @@ function UrlOverridePrompt({
   basename,
   error,
   docType,
+  autoResolveStatus,
+  driveConnected,
   onSave,
 }: UrlOverridePromptProps) {
   const [draft, setDraft] = useState("");
@@ -310,16 +452,27 @@ function UrlOverridePrompt({
 
   const typeLabel = TYPE_LABELS[docType];
 
+  const headline =
+    autoResolveStatus === "no-match"
+      ? "Aucun fichier Drive ne correspond à ce nom"
+      : looksLikeCloudIssue
+        ? "Fichier Google Drive non disponible localement"
+        : `Impossible de lire ${basename}`;
+
   return (
     <div className="flex h-full w-full flex-col items-center justify-center gap-4 px-6 text-center text-xs"
          style={{ color: "var(--text-muted)" }}>
       <div className="flex flex-col items-center gap-1">
         <span className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
-          {looksLikeCloudIssue
-            ? "Fichier Google Drive non disponible localement"
-            : `Impossible de lire ${basename}`}
+          {headline}
         </span>
         <span className="max-w-md text-[11px]">{error}</span>
+        {!driveConnected && (
+          <span className="mt-1 max-w-md text-[10px]">
+            Astuce : configure Google Drive dans <em>Paramètres → Google Drive</em>{" "}
+            pour résoudre automatiquement les .gdoc/.gsheet sans coller d&apos;URL.
+          </span>
+        )}
       </div>
 
       <div className="flex w-full max-w-md flex-col gap-2 rounded border p-3 text-left"

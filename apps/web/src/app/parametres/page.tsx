@@ -35,6 +35,7 @@ import {
   SecurityTab,
   TemplatesTab,
   SchemasTab,
+  GoogleDriveTab,
 } from "@/components/settings";
 import type { SettingsTab } from "@/components/settings";
 import { useTranslations } from "next-intl";
@@ -58,6 +59,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: "securite", labelKey: "settings.tabs.securite", icon: ShieldCheck },
   { id: "templates", labelKey: "settings.tabs.templates", icon: BookmarkSimple },
   { id: "schemas", labelKey: "settings.tabs.schemas", icon: Database },
+  { id: "google-drive", labelKey: "settings.tabs.googleDrive", icon: Database },
   { id: "about", labelKey: "settings.tabs.about", icon: Info },
 ];
 
@@ -75,6 +77,7 @@ function TabContent({ active }: { active: SettingsTab }) {
     case "securite": return <SecurityTab />;
     case "templates": return <TemplatesTab />;
     case "schemas": return <SchemasTab />;
+    case "google-drive": return <GoogleDriveTab />;
     case "about": return <AboutTab />;
   }
 }

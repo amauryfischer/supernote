@@ -11,6 +11,7 @@ export type SettingsTab =
   | "securite"
   | "templates"
   | "schemas"
+  | "google-drive"
   | "about";
 
 export interface GeneralSettings {
@@ -70,6 +71,22 @@ export interface NotificationSettings {
   toastDuration: number;
 }
 
+export interface GoogleDriveSettings {
+  /**
+   * Google Cloud OAuth 2.0 client ID. Set up at
+   * https://console.cloud.google.com/apis/credentials by creating an
+   * "OAuth 2.0 Client ID" for a Web application with the app's origin
+   * (e.g. `http://localhost:3101`) as an authorized JavaScript origin.
+   * Empty = Drive auto-resolution disabled.
+   */
+  clientId: string;
+  /**
+   * Email of the connected Google account — displayed in settings + used
+   * to decide whether to show "Connect" vs "Disconnect" buttons.
+   */
+  connectedEmail: string;
+}
+
 export interface AppSettings {
   general: GeneralSettings;
   appearance: AppearanceSettings;
@@ -79,4 +96,5 @@ export interface AppSettings {
   api: ApiSettings;
   shortcuts: Shortcut[];
   notifications: NotificationSettings;
+  googleDrive: GoogleDriveSettings;
 }
