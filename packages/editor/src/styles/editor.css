@@ -142,6 +142,39 @@
   text-decoration-color: var(--text-muted, #6b7280);
 }
 
+/* ── Quick Eisenhower controls (importance dot + urgent flame) ──── */
+
+.sn-checkitem__meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.0625rem;
+  flex-shrink: 0;
+  padding-top: 0.1rem;
+  user-select: none;
+  /* Hidden until the row is hovered/focused so the editor stays clean. */
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.sn-checkitem:hover .sn-checkitem__meta,
+.sn-checkitem:focus-within .sn-checkitem__meta {
+  opacity: 1;
+}
+
+.sn-checkitem__meta-btn {
+  min-width: 0 !important;
+  width: 1.25rem;
+  height: 1.25rem;
+  padding: 0 !important;
+}
+
+.sn-checkitem__dot {
+  display: inline-block;
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 9999px;
+}
+
 /* ── Wikilink pill ──────────────────────────────────────────── */
 
 .sn-wikilink {

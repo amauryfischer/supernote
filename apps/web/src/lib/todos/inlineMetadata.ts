@@ -6,6 +6,7 @@
  *   `!P1`–`!P9`             priority 1–9  (default 5 = absent)
  *   `🔴` / `🟠` / `🟡` / `🔵`   importance critical / high / medium / low
  *                              (medium is the default — emit nothing)
+ *   `🔥`                      urgent flag (Eisenhower urgency axis; absent = not urgent)
  *   `🟢 YYYY-MM-DD`           start date (ISO calendar date, green = "go")
  *   `📅 YYYY-MM-DD`           due date (ISO calendar date)
  *
@@ -16,7 +17,7 @@
  *   `Plage 🟢 2026-05-01 📅 2026-05-15`   → start 2026-05-01, due 2026-05-15
  *   `Tout !P3 🟠 📅 2026-12-31`           → priority 3,  high,  due 2026-12-31
  *
- * Canonical token order: `!P{n} <importance> 🟢 startDate 📅 dueDate`
+ * Canonical token order: `!P{n} <importance> 🔥 🟢 startDate 📅 dueDate`
  * (start before due, chronological reading order).
  *
  * Round-trip guarantee: `format(parse(s)) === s.trimEnd()` for any input
@@ -37,6 +38,8 @@ export interface TodoMetadata {
   priority: number;
   /** Defaults to "medium" when no importance emoji is present. */
   importance: TodoImportance;
+  /** Eisenhower urgency axis — true when the `🔥` token is present. */
+  urgent: boolean;
   /** ISO YYYY-MM-DD or null when no `🟢` token is present. */
   startDate: string | null;
   /** ISO YYYY-MM-DD or null when no `📅` token is present. */
@@ -62,6 +65,7 @@ const EMOJI_BY_IMPORTANCE: Record<TodoImportance, string> = {
 
 const PRIORITY_RE = /(?:^|\s)!P([1-9])(?=\s|$)/u;
 const IMPORTANCE_RE = /(?:^|\s)(🔴|🟠|🟡|🔵)(?=\s|$)/u;
+const URGENT_RE = /(?:^|\s)🔥(?=\s|$)/u;
 const STARTDATE_RE = /(?:^|\s)🟢\s+(\d{4}-\d{2}-\d{2})(?=\s|$)/u;
 const DUEDATE_RE = /(?:^|\s)📅\s+(\d{4}-\d{2}-\d{2})(?=\s|$)/u;
 
@@ -88,6 +92,12 @@ export function parseInlineMetadata(text: string): TodoMetadata {
     working = working.replace(IMPORTANCE_RE, "");
   }
 
+  let urgent = false;
+  if (URGENT_RE.test(working)) {
+    urgent = true;
+    working = working.replace(URGENT_RE, "");
+  }
+
   let startDate: string | null = null;
   const sm = STARTDATE_RE.exec(working);
   if (sm) {
@@ -106,6 +116,7 @@ export function parseInlineMetadata(text: string): TodoMetadata {
     cleanText: working.replace(/\s{2,}/g, " ").trim(),
     priority,
     importance,
+    urgent,
     startDate,
     dueDate,
   };
@@ -124,6 +135,7 @@ export function formatInlineMetadata(
   meta: {
     priority: number;
     importance: TodoImportance;
+    urgent?: boolean;
     startDate?: string | null;
     dueDate: string | null;
   },
@@ -135,6 +147,7 @@ export function formatInlineMetadata(
   if (meta.importance !== DEFAULT_IMPORTANCE) {
     tokens.push(EMOJI_BY_IMPORTANCE[meta.importance]);
   }
+  if (meta.urgent) tokens.push("🔥");
   // Canonical order: startDate before dueDate (chronological reading)
   if (meta.startDate && /^\d{4}-\d{2}-\d{2}$/.test(meta.startDate)) {
     tokens.push(`🟢 ${meta.startDate}`);
@@ -150,6 +163,7 @@ export function formatInlineMetadata(
 export const TODO_METADATA_DEFAULTS = {
   priority: DEFAULT_PRIORITY,
   importance: DEFAULT_IMPORTANCE,
+  urgent: false,
   startDate: null as string | null,
   dueDate: null as string | null,
 };

@@ -71,15 +71,17 @@ export async function updateTodoMetadata(args: {
   line: number;
   priority: number;
   importance: TodoImportance;
+  urgent?: boolean;
   startDate?: string | null;
   dueDate: string | null;
 }): Promise<void> {
-  const { sourceNoteId, cleanText, line, priority, importance, startDate, dueDate } = args;
+  const { sourceNoteId, cleanText, line, priority, importance, urgent, startDate, dueDate } = args;
 
   const note = await trpcVanillaClient.entities.get.query({ id: sourceNoteId });
   const nextRawText = formatInlineMetadata(cleanText, {
     priority,
     importance,
+    urgent: urgent ?? false,
     startDate: startDate || null,
     dueDate: dueDate || null,
   });

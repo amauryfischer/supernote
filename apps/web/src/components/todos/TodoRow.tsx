@@ -33,6 +33,8 @@ export interface TodoRowData {
   dueDate: string | null;
   priority: number | null;
   importance: TodoImportance | null;
+  /** Eisenhower urgency axis. true = urgent. null/false = not urgent. */
+  urgent?: boolean | null;
   sourceNoteTitle?: string | null;
   /** ISO datetime-local string (YYYY-MM-DDTHH:MM) or null. */
   reminderAt?: string | null;
@@ -72,6 +74,25 @@ export function importanceLabel(level: TodoImportance | null): string {
   return level ? IMPORTANCE_LABEL[level] : IMPORTANCE_LABEL.medium;
 }
 
+/** Eisenhower importance axis — collapse the 4-level scale to a binary.
+ *  high/critical = important, low/medium = not important. */
+export function isImportant(level: TodoImportance | null | undefined): boolean {
+  return level === "high" || level === "critical";
+}
+
+/** Pick the importance level to write when a todo is dragged across the
+ *  importance axis in the matrix. We preserve granularity within each half
+ *  (critical stays critical, low stays low) and only bump across the border:
+ *    → important : low/medium become "high"
+ *    → not important : high/critical become "medium" */
+export function importanceForAxis(
+  current: TodoImportance | null | undefined,
+  important: boolean,
+): TodoImportance {
+  if (important) return isImportant(current) ? (current as TodoImportance) : "high";
+  return isImportant(current) ? "medium" : (current ?? "medium");
+}
+
 export function TodoRow({ row, onToggle, onEdit, onEmail, onContextMenu }: TodoRowProps) {
   const isCritical = row.importance === "critical";
   const dotColor = importanceColor(row.importance);
@@ -105,6 +126,17 @@ export function TodoRow({ row, onToggle, onEdit, onEmail, onContextMenu }: TodoR
       >
         P{priority}
       </span>
+
+      {/* Urgent flag (Eisenhower urgency axis) */}
+      {row.urgent && (
+        <span
+          className="mt-0.5 shrink-0 text-[11px] leading-4"
+          title="Urgent"
+          aria-label="Urgent"
+        >
+          🔥
+        </span>
+      )}
 
       {/* Checkbox */}
       <Button

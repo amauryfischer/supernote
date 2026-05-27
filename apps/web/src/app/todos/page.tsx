@@ -48,7 +48,7 @@ import {
   List,
 } from "@phosphor-icons/react";
 import { EmptyState, ContextMenu, useContextMenu, type ContextMenuItemDef } from "@supernote/ui";
-import { importanceColor, importanceLabel } from "@/components/todos/TodoRow";
+import { importanceColor, importanceLabel, importanceForAxis } from "@/components/todos/TodoRow";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -80,6 +80,8 @@ import { PromptModal } from "@/components/shell/PromptModal";
 import { TodoRow, type TodoImportance, type TodoRowData } from "@/components/todos/TodoRow";
 import { EditTodoModal, type EditTodoValues } from "@/components/todos/EditTodoModal";
 import { TodoCalendarView } from "@/components/todos/TodoCalendarView";
+import { TodoMatrix } from "@/components/todos/TodoMatrix";
+import { GridFour } from "@phosphor-icons/react";
 import {
   composeTodoMailto,
   composeAllTodosMailto,
@@ -89,7 +91,7 @@ import {
 
 type Filter = "all" | "pending" | "done" | "today" | "urgent" | "thisWeek";
 type SortKey = "priority" | "importance" | "dueDate" | "createdAt" | "manual";
-type ViewMode = "list" | "calendar";
+type ViewMode = "matrix" | "list" | "calendar";
 
 interface UiTodoRow extends TodoRowData {
   /** "note" → row materialized from a checklist line in a note's body.
@@ -201,17 +203,26 @@ export default function TodosPage() {
   const [editing, setEditing] = useState<UiTodoRow | null>(null);
   const [tagFilter, setTagFilter] = useState<Set<string>>(() => new Set());
   const [viewMode, setViewMode] = useState<ViewMode>(() => {
-    if (typeof window === "undefined") return "list";
+    if (typeof window === "undefined") return "matrix";
     try {
       const v = window.localStorage.getItem("supernote.todos.viewMode");
-      return v === "calendar" ? "calendar" : "list";
+      return v === "calendar" || v === "list" || v === "matrix" ? v : "matrix";
     } catch {
-      return "list";
+      return "matrix";
     }
   });
-  const toggleViewMode = useCallback(() => {
+  const selectViewMode = useCallback((next: ViewMode) => {
+    setViewMode(next);
+    try {
+      window.localStorage.setItem("supernote.todos.viewMode", next);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+  // Mobile header action cycles matrix → list → calendar → matrix.
+  const cycleViewMode = useCallback(() => {
     setViewMode((v) => {
-      const next = v === "list" ? "calendar" : "list";
+      const next: ViewMode = v === "matrix" ? "list" : v === "list" ? "calendar" : "matrix";
       try {
         window.localStorage.setItem("supernote.todos.viewMode", next);
       } catch {
@@ -322,6 +333,7 @@ export default function TodosPage() {
           dueDate: it.dueDate,
           priority: it.priority,
           importance: it.importance,
+          urgent: it.urgent,
           sourceNoteTitle: title,
           sourceNoteTags: tags,
           createdAt: n.updatedAt,
@@ -357,6 +369,7 @@ export default function TodosPage() {
           dueDate: typeof f["dueDate"] === "string" ? (f["dueDate"] as string) : null,
           priority: parseStandalonePriority(f["priority"]),
           importance: parseStandaloneImportance(f["importance"]),
+          urgent: f["urgent"] === true || f["urgent"] === "true",
           reminderAt: typeof f["reminderAt"] === "string" ? (f["reminderAt"] as string) : null,
           reminderText: typeof f["reminderText"] === "string" ? (f["reminderText"] as string) : null,
           reminderFiredAt: typeof f["reminderFiredAt"] === "string" ? (f["reminderFiredAt"] as string) : null,
@@ -471,6 +484,20 @@ export default function TodosPage() {
     return arr;
   }, [filteredTodos, sortKey, manualTodoOrder]);
 
+  // Matrix view shows only actionable (pending) todos; the tag filter still
+  // applies, but the list-only filter tabs / sort do not.
+  const matrixTodos = useMemo(
+    () =>
+      allTodos.filter((t) => {
+        if (t.done) return false;
+        if (tagFilter.size > 0 && !t.sourceNoteTags.some((tag) => tagFilter.has(tag))) {
+          return false;
+        }
+        return true;
+      }),
+    [allTodos, tagFilter],
+  );
+
   const invalidateAll = useCallback(async () => {
     await Promise.all([
       utils.entities.list.invalidate({ typeId: "note" }),
@@ -557,6 +584,7 @@ export default function TodosPage() {
             done: false,
             priority: 5,
             importance: "medium",
+            urgent: false,
           },
         });
         await utils.entities.list.invalidate({ typeId: TODO_TYPE_ID });
@@ -579,6 +607,7 @@ export default function TodosPage() {
               done: next.done,
               priority: next.priority,
               importance: next.importance,
+              urgent: next.urgent,
               startDate: next.startDate || null,
               dueDate: next.dueDate || null,
               reminderAt: next.reminderAt || null,
@@ -595,6 +624,7 @@ export default function TodosPage() {
             line: row.line,
             priority: next.priority,
             importance: next.importance,
+            urgent: next.urgent,
             startDate: next.startDate || null,
             dueDate: next.dueDate || null,
           });
@@ -650,6 +680,7 @@ export default function TodosPage() {
             line: row.line,
             priority: row.priority ?? 5,
             importance,
+            urgent: row.urgent ?? false,
             dueDate: row.dueDate,
           });
           await utils.entities.list.invalidate({ typeId: "note" });
@@ -657,6 +688,40 @@ export default function TodosPage() {
         }
       } catch (err) {
         showToast(err instanceof Error ? err.message : "Erreur lors de la mise à jour");
+      }
+    },
+    [utils, showToast],
+  );
+
+  // Eisenhower matrix drag — a card dropped in another quadrant rewrites its
+  // urgency flag and (when it crossed the importance axis) its importance.
+  const handleMatrixMove = useCallback(
+    async (rowArg: TodoRowData, target: { urgent: boolean; important: boolean }) => {
+      const row = rowArg as UiTodoRow;
+      const nextImportance = importanceForAxis(row.importance, target.important);
+      try {
+        if (row.kind === "standalone") {
+          await trpcVanillaClient.entities.update.mutate({
+            id: row.id,
+            fields: { urgent: target.urgent, importance: nextImportance },
+          });
+          await utils.entities.list.invalidate({ typeId: TODO_TYPE_ID });
+        } else if (row.sourceNoteId && row.line !== null) {
+          await updateTodoMetadata({
+            sourceNoteId: row.sourceNoteId,
+            cleanText: row.text,
+            line: row.line,
+            priority: row.priority ?? 5,
+            importance: nextImportance,
+            urgent: target.urgent,
+            startDate: row.startDate,
+            dueDate: row.dueDate,
+          });
+          await utils.entities.list.invalidate({ typeId: "note" });
+          await utils.entities.get.invalidate({ id: row.sourceNoteId });
+        }
+      } catch (err) {
+        showToast(err instanceof Error ? err.message : "Erreur lors du déplacement");
       }
     },
     [utils, showToast],
@@ -839,9 +904,14 @@ export default function TodosPage() {
     const actions: MobileHeaderAction[] = [];
     actions.push({
       id: "view-toggle",
-      icon: viewMode === "list" ? CalendarBlank : List,
-      label: viewMode === "list" ? "Vue calendrier" : "Vue liste",
-      onPress: toggleViewMode,
+      icon: viewMode === "matrix" ? GridFour : viewMode === "list" ? List : CalendarBlank,
+      label:
+        viewMode === "matrix"
+          ? "Vue matrice (cliquer pour liste)"
+          : viewMode === "list"
+            ? "Vue liste (cliquer pour calendrier)"
+            : "Vue calendrier (cliquer pour matrice)",
+      onPress: cycleViewMode,
     });
     if (viewMode === "list") {
       actions.push({
@@ -865,7 +935,7 @@ export default function TodosPage() {
       onPress: handleEmailAll,
     });
     return actions;
-  }, [isMobile, viewMode, toggleViewMode, groupByNote, toggleGroupByNote, handleRefresh, handleEmailAll]);
+  }, [isMobile, viewMode, cycleViewMode, groupByNote, toggleGroupByNote, handleRefresh, handleEmailAll]);
   useMobileHeaderActions(mobileActions);
 
   return (
@@ -896,34 +966,27 @@ export default function TodosPage() {
               className="flex items-center gap-0.5 rounded-md p-0.5"
               style={{ backgroundColor: "var(--surface-2)" }}
             >
-              <Button
-                size="sm"
-                variant="ghost"
-                onPress={() => viewMode !== "list" && toggleViewMode()}
-                className="flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-colors min-w-0 h-auto"
-                style={
-                  viewMode === "list"
-                    ? { backgroundColor: "var(--surface-0)", color: "var(--text-primary)" }
-                    : { color: "var(--text-muted)" }
-                }
-              >
-                <List size={12} />
-                Liste
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                onPress={() => viewMode !== "calendar" && toggleViewMode()}
-                className="flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-colors min-w-0 h-auto"
-                style={
-                  viewMode === "calendar"
-                    ? { backgroundColor: "var(--surface-0)", color: "var(--text-primary)" }
-                    : { color: "var(--text-muted)" }
-                }
-              >
-                <CalendarBlank size={12} />
-                Calendrier
-              </Button>
+              {([
+                { mode: "matrix" as const, icon: GridFour, label: "Matrice" },
+                { mode: "list" as const, icon: List, label: "Liste" },
+                { mode: "calendar" as const, icon: CalendarBlank, label: "Calendrier" },
+              ]).map(({ mode, icon: Icon, label }) => (
+                <Button
+                  key={mode}
+                  size="sm"
+                  variant="ghost"
+                  onPress={() => viewMode !== mode && selectViewMode(mode)}
+                  className="flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-colors min-w-0 h-auto"
+                  style={
+                    viewMode === mode
+                      ? { backgroundColor: "var(--surface-0)", color: "var(--text-primary)" }
+                      : { color: "var(--text-muted)" }
+                  }
+                >
+                  <Icon size={12} />
+                  {label}
+                </Button>
+              ))}
             </div>
             {viewMode === "list" && (
               <FilterTabs
@@ -1136,6 +1199,32 @@ export default function TodosPage() {
           </div>
         )}
 
+        {/* Matrix view (Eisenhower) */}
+        {viewMode === "matrix" && (
+          <div className="flex-1 overflow-y-auto px-6 py-6">
+            {notesQuery.isLoading || todosQuery.isLoading ? (
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <div
+                    key={i}
+                    className="h-44 animate-pulse rounded-xl"
+                    style={{ backgroundColor: "var(--surface-3)" }}
+                  />
+                ))}
+              </div>
+            ) : (
+              <TodoMatrix
+                todos={matrixTodos}
+                onMove={(row, target) => void handleMatrixMove(row, target)}
+                onToggle={(row) => void handleToggle(row as UiTodoRow)}
+                onEdit={(row) => setEditing(row as UiTodoRow)}
+                onEmail={(row) => handleEmailOne(row as UiTodoRow)}
+                onContextMenu={(e, row) => openTodoContextMenu(e, row as UiTodoRow)}
+              />
+            )}
+          </div>
+        )}
+
         {/* Calendar view */}
         {viewMode === "calendar" && (
           <div className="flex flex-1 overflow-hidden">
@@ -1159,6 +1248,7 @@ export default function TodosPage() {
                       line: r.line,
                       priority: r.priority ?? 5,
                       importance: r.importance ?? "medium",
+                      urgent: r.urgent ?? false,
                       startDate: sd,
                       dueDate: dd,
                     });
@@ -1174,7 +1264,7 @@ export default function TodosPage() {
         )}
 
         {/* List view content */}
-        <div className={`flex-1 overflow-y-auto px-6 py-6 ${viewMode === "calendar" ? "hidden" : ""}`}>
+        <div className={`flex-1 overflow-y-auto px-6 py-6 ${viewMode !== "list" ? "hidden" : ""}`}>
           {notesQuery.isLoading || todosQuery.isLoading ? (
             <div className="mx-auto max-w-3xl space-y-2">
               {Array.from({ length: 4 }).map((_, i) => (
@@ -1330,6 +1420,7 @@ export default function TodosPage() {
             done: editing.done,
             priority: editing.priority ?? 5,
             importance: editing.importance ?? "medium",
+            urgent: editing.urgent ?? false,
             startDate: editing.startDate ?? "",
             dueDate: editing.dueDate ?? "",
             reminderAt: editing.reminderAt ?? "",

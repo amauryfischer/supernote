@@ -12,7 +12,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { Button, Input, Checkbox } from "@heroui/react";
+import { Button, Input, Checkbox, Switch } from "@heroui/react";
 import type { TodoImportance } from "./TodoRow";
 import { importanceColor } from "./TodoRow";
 
@@ -21,6 +21,8 @@ export interface EditTodoValues {
   done: boolean;
   priority: number;
   importance: TodoImportance;
+  /** Eisenhower urgency axis. */
+  urgent: boolean;
   startDate: string; // YYYY-MM-DD or "" when unset
   dueDate: string; // YYYY-MM-DD or "" when unset
   /** ISO datetime-local (YYYY-MM-DDTHH:MM) or "" when no reminder set. */
@@ -61,6 +63,7 @@ export function EditTodoModal({
   const [done, setDone] = useState(initial.done);
   const [priority, setPriority] = useState(initial.priority);
   const [importance, setImportance] = useState<TodoImportance>(initial.importance);
+  const [urgent, setUrgent] = useState(initial.urgent);
   const [startDate, setStartDate] = useState(initial.startDate);
   const [dueDate, setDueDate] = useState(initial.dueDate);
   const [reminderAt, setReminderAt] = useState(initial.reminderAt);
@@ -76,6 +79,7 @@ export function EditTodoModal({
       setDone(initial.done);
       setPriority(initial.priority);
       setImportance(initial.importance);
+      setUrgent(initial.urgent);
       setStartDate(initial.startDate);
       setDueDate(initial.dueDate);
       setReminderAt(initial.reminderAt);
@@ -112,6 +116,7 @@ export function EditTodoModal({
       done,
       priority: clampPriority(priority),
       importance,
+      urgent,
       startDate: startDate.trim(),
       dueDate: dueDate.trim(),
       reminderAt: trimmedReminder,
@@ -268,6 +273,20 @@ export function EditTodoModal({
               );
             })}
           </div>
+        </div>
+
+        <div className="mb-4 flex items-center justify-between rounded-md border p-3"
+          style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-0)" }}
+        >
+          <div>
+            <span className="block text-sm font-medium" style={{ color: "var(--text-primary)" }}>
+              🔥 Urgent
+            </span>
+            <span className="block text-[10px]" style={{ color: "var(--text-muted)" }}>
+              Axe « urgence » de la matrice d&apos;Eisenhower.
+            </span>
+          </div>
+          <Switch isSelected={urgent} onChange={setUrgent} aria-label="Urgent" />
         </div>
 
         <div

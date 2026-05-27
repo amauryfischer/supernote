@@ -44,6 +44,8 @@ export interface ChecklistItem {
   priority: number;
   /** Defaults to "medium" when no importance emoji is present. */
   importance: TodoImportance;
+  /** Eisenhower urgency axis — true when the `🔥` token is present. */
+  urgent: boolean;
   /** ISO YYYY-MM-DD or null when no `🟢` token is present. */
   startDate: string | null;
   /** ISO YYYY-MM-DD or null when no `📅` token is present. */
@@ -110,6 +112,7 @@ export function extractChecklists(body: string): ChecklistItem[] {
       done: mark.toLowerCase() === "x",
       priority: meta.priority,
       importance: meta.importance,
+      urgent: meta.urgent,
       startDate: meta.startDate,
       dueDate: meta.dueDate,
       blockId: `${i}:${djb2(meta.cleanText.toLowerCase())}`,
