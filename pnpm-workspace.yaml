@@ -14,5 +14,5 @@ allowBuilds:
   tesseract.js: true
   '@parcel/watcher': true
   '@swc/core': true
-  electron: set this to true or false
-  electron-winstaller: set this to true or false
+  electron: false
+  electron-winstaller: false
