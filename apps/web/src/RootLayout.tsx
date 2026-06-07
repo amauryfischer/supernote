@@ -22,6 +22,7 @@ import { PwaBootstrap } from "@/lib/pwa/PwaBootstrap";
 import { PwaVaultSetup } from "@/lib/pwa/PwaVaultSetup";
 import { AutomationNotificationBridge } from "@/lib/pwa/AutomationNotificationBridge";
 import { GitSyncProvider } from "@/lib/git/GitSyncProvider";
+import { OnlineSyncProvider } from "@/lib/online-sync/OnlineSyncProvider";
 import { PromptProvider } from "@/hooks/usePrompt";
 import { SettingsProvider } from "@/components/settings/SettingsContext";
 import { ConfirmProvider } from "@/lib/confirm";
@@ -54,7 +55,9 @@ export function RootLayout() {
                     read the active vault handle through `useVault()`. */}
                 <PwaVaultSetup>
                   <GitSyncProvider>
-                    <Outlet />
+                    <OnlineSyncProvider>
+                      <Outlet />
+                    </OnlineSyncProvider>
                   </GitSyncProvider>
                 </PwaVaultSetup>
               </PromptProvider>

@@ -89,6 +89,9 @@ importers:
       '@supernote/search':
         specifier: workspace:*
         version: link:../../packages/search
+      '@supernote/sync':
+        specifier: workspace:*
+        version: link:../../packages/sync
       '@supernote/templates':
         specifier: workspace:*
         version: link:../../packages/templates
@@ -110,6 +113,9 @@ importers:
       '@xyflow/react':
         specifier: ^12.10.2
         version: 12.10.2(@types/react@19.2.14)(immer@11.1.6)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+      better-sqlite3:
+        specifier: ^11.9.1
+        version: 11.10.0
       cmdk:
         specifier: ^1.1.1
         version: 1.1.1(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
@@ -837,6 +843,21 @@ importers:
       better-sqlite3:
         specifier: ^11.0.0
         version: 11.10.0
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.0
+        version: 3.2.4(@types/debug@4.1.13)(@types/node@22.19.17)(@vitest/ui@3.2.4)(jiti@2.7.0)(jsdom@26.1.0)(lightningcss@1.32.0)(sass@1.51.0)(terser@5.47.1)(tsx@4.21.0)
+
+  packages/sync:
+    devDependencies:
+      '@supernote/tsconfig':
+        specifier: workspace:*
+        version: link:../tsconfig
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.19.17
       typescript:
         specifier: ^5.7.2
         version: 5.9.3
@@ -7046,6 +7067,7 @@ packages:
 
   sliced@1.0.1:
     resolution: {integrity: sha512-VZBmZP8WU3sMOZm1bdgTadsQbcscK0UM8oKxKVBs4XAhUo2Xxzm/OFMGBkPusxw9xL3Uy8LrzEqGqJhclsr0yA==}
+    deprecated: Unsupported
 
   smob@1.6.1:
     resolution: {integrity: sha512-KAkBqZl3c2GvNgNhcoyJae1aKldDW0LO279wF9bk1PnluRTETKBq0WyzRXxEhoQLk56yHaOY4JCBEKDuJIET5g==}

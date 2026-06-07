@@ -78,6 +78,17 @@ export interface IndexProgressMessage {
 }
 
 /**
+ * Broadcast after a LOCAL entity mutation (create / update / delete) so the
+ * main-thread online-sync client can forward it to the remote op-log. Carries
+ * an `EntityOp` (see `@supernote/sync`). NOT emitted while the worker is
+ * applying remote ops — that would echo a peer's write straight back.
+ */
+export interface EntityChangeMessage {
+  type: "ENTITY_CHANGE";
+  op: import("@supernote/sync").EntityOp;
+}
+
+/**
  * Fired by PwaBootstrap when the Service Worker forwards a Periodic
  * Background Sync nudge. The worker runs an immediate engine tick + cron
  * catch-up so missed routines fire without waiting for the 60 s interval.
@@ -87,4 +98,4 @@ export interface AutomationTickMessage {
 }
 
 export type WorkerInboundMessage = WorkerRequest | InitVaultMessage | FlushMessage | AutomationTickMessage;
-export type WorkerOutboundMessage = WorkerResponse | VaultReadyMessage | VaultErrorMessage | IndexProgressMessage;
+export type WorkerOutboundMessage = WorkerResponse | VaultReadyMessage | VaultErrorMessage | IndexProgressMessage | EntityChangeMessage;

@@ -1,12 +1,154 @@
 "use client";
 
-import { GitBranch, ArrowsClockwise, CheckCircle } from "@phosphor-icons/react";
-import { useState } from "react";
-import { Button, Input } from "@heroui/react";
+import { GitBranch, ArrowsClockwise, CheckCircle, CloudCheck } from "@phosphor-icons/react";
+import { useEffect, useState } from "react";
+import { Button, Input, Switch, Chip } from "@heroui/react";
 import { useSettings } from "../SettingsContext";
 import { SettingRow } from "../SettingRow";
 import { SettingSection } from "../SettingSection";
 import { RangeSlider } from "../RangeSlider";
+import { useOnlineSync } from "@/lib/online-sync/OnlineSyncProvider";
+import type { OnlineSyncStatus } from "@/lib/online-sync/client";
+
+const STATUS_META: Record<
+  OnlineSyncStatus,
+  { label: string; color: "default" | "success" | "warning" | "danger" }
+> = {
+  disabled: { label: "Désactivé", color: "default" },
+  connecting: { label: "Connexion…", color: "warning" },
+  connected: { label: "Connecté — temps réel", color: "success" },
+  offline: { label: "Hors ligne (reconnexion…)", color: "warning" },
+  error: { label: "Indisponible", color: "danger" },
+};
+
+function OnlineSyncSection() {
+  const online = useOnlineSync();
+  const [serverUrl, setServerUrl] = useState("");
+  const [vaultKey, setVaultKey] = useState("");
+  const [token, setToken] = useState("");
+
+  // Seed the form from the persisted config once it's available.
+  useEffect(() => {
+    if (!online) return;
+    setServerUrl(online.config.serverUrl);
+    setVaultKey(online.config.vaultKey);
+    setToken(online.config.token);
+  }, [online?.config.serverUrl, online?.config.vaultKey, online?.config.token]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (!online) {
+    return (
+      <SettingSection
+        title="Synchronisation en ligne"
+        description="Disponible une fois un coffre ouvert."
+        icon={<CloudCheck size={16} />}
+      >
+        <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+          Ouvrez un coffre pour configurer la synchronisation temps réel.
+        </p>
+      </SettingSection>
+    );
+  }
+
+  const { status, config, lastError } = online;
+  const meta = STATUS_META[status];
+  const enabled = config.enabled;
+
+  const handleConnect = () => {
+    if (!vaultKey.trim()) return;
+    online.enable({
+      serverUrl: serverUrl.trim(),
+      vaultKey: vaultKey.trim(),
+      token: token.trim(),
+    });
+  };
+
+  return (
+    <SettingSection
+      title="Synchronisation en ligne (temps réel)"
+      description="Alternative à Git : synchronise le coffre entre vos appareils (web et Android) dès qu'un serveur avec base de données est disponible."
+      icon={<CloudCheck size={16} />}
+      action={
+        <Chip size="sm" variant="soft" color={meta.color}>
+          {meta.label}
+        </Chip>
+      }
+    >
+      <SettingRow
+        label="Activer"
+        description="Réplique chaque note via le serveur, en direct."
+      >
+        <Switch
+          isSelected={enabled}
+          onChange={(selected: boolean) => {
+            if (selected) handleConnect();
+            else online.disable();
+          }}
+          aria-label="Activer la synchronisation en ligne"
+        />
+      </SettingRow>
+
+      <SettingRow
+        label="Serveur"
+        description="Laisser vide = même serveur que l'application."
+      >
+        <Input
+          type="url"
+          placeholder="Même origine (par défaut)"
+          value={serverUrl}
+          onChange={(e) => setServerUrl(e.target.value)}
+          className="w-72"
+        />
+      </SettingRow>
+
+      <SettingRow
+        label="Clé de salon"
+        description="Même clé sur tous vos appareils pour les apparier."
+      >
+        <Input
+          type="text"
+          placeholder="mon-coffre-perso"
+          value={vaultKey}
+          onChange={(e) => setVaultKey(e.target.value)}
+          className="w-72"
+        />
+      </SettingRow>
+
+      <SettingRow label="Jeton (optionnel)" description="Si le serveur exige un secret partagé.">
+        <Input
+          type="password"
+          placeholder="••••••••"
+          value={token}
+          onChange={(e) => setToken(e.target.value)}
+          className="w-72"
+        />
+      </SettingRow>
+
+      <SettingRow label="Connexion">
+        <Button
+          variant="ghost"
+          size="sm"
+          onPress={handleConnect}
+          isDisabled={!vaultKey.trim()}
+          className="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm"
+          style={{
+            borderColor: "var(--accent)",
+            color: "var(--accent)",
+            backgroundColor: "var(--accent-subtle)",
+          }}
+        >
+          <ArrowsClockwise size={14} />
+          {enabled ? "Reconnecter" : "Connecter"}
+        </Button>
+      </SettingRow>
+
+      {lastError && status === "error" && (
+        <p className="mt-2 text-xs" style={{ color: "var(--danger)" }}>
+          {lastError}
+        </p>
+      )}
+    </SettingSection>
+  );
+}
 
 export function SyncTab() {
   const { settings, updateSettings } = useSettings();
@@ -25,6 +167,8 @@ export function SyncTab() {
 
   return (
     <div className="space-y-6">
+      <OnlineSyncSection />
+
       <SettingSection
         title="Git Remote"
         description="Synchronisation avec un dépôt git distant"

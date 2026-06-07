@@ -63,6 +63,11 @@
       "import": "./dist/schemas/git.js",
       "default": "./dist/schemas/git.js"
     },
+    "./schemas/sync": {
+      "types": "./dist/schemas/sync.d.ts",
+      "import": "./dist/schemas/sync.js",
+      "default": "./dist/schemas/sync.js"
+    },
     "./schemas/search": {
       "types": "./dist/schemas/search.d.ts",
       "import": "./dist/schemas/search.js",

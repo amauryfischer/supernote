@@ -294,6 +294,72 @@ function emitDomainEvent(
   });
 }
 
+// ── Online-sync change emission ───────────────────────────────────────────────
+// Every LOCAL entity mutation is broadcast to the main thread as an
+// `ENTITY_CHANGE` message carrying an `EntityOp`. The online-sync client picks
+// these up (via `onWorkerMessage`) and forwards them to the remote op-log.
+// `op.clientId` is left blank here — the main thread stamps the persistent
+// device id before pushing. Remote ops applied via `sync.applyOps` go through
+// the router WITHOUT firing the lifecycle hooks, so they never reach this path
+// and can't echo back.
+
+function genOpId(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return `${Date.now().toString(36)}-${crypto.randomUUID()}`;
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
+function emitEntityChange(kind: "upsert" | "delete", entity: unknown, entityId?: string): void {
+  try {
+    const ts = Date.now();
+    if (kind === "delete") {
+      if (!entityId) return;
+      self.postMessage({
+        type: "ENTITY_CHANGE",
+        op: { opId: genOpId(), clientId: "", kind: "delete", entityId, ts },
+      });
+      return;
+    }
+    const e = entity as {
+      id?: string;
+      typeId?: string;
+      typeName?: string;
+      filePath?: string;
+      fields?: Record<string, unknown>;
+      body?: string;
+      tags?: string[];
+      createdAt?: string;
+      updatedAt?: string;
+    } | null;
+    if (!e || !e.id) return;
+    const iso = new Date(ts).toISOString();
+    self.postMessage({
+      type: "ENTITY_CHANGE",
+      op: {
+        opId: genOpId(),
+        clientId: "",
+        kind: "upsert",
+        entityId: e.id,
+        ts,
+        payload: {
+          id: e.id,
+          typeId: e.typeId ?? "",
+          typeName: e.typeName ?? "",
+          filePath: e.filePath ?? "",
+          fields: e.fields ?? {},
+          body: e.body ?? "",
+          tags: e.tags ?? [],
+          createdAt: e.createdAt ?? iso,
+          updatedAt: e.updatedAt ?? iso,
+        },
+      },
+    });
+  } catch (err) {
+    console.warn("[sync] emitEntityChange failed", err);
+  }
+}
+
 /**
  * Catch-up policy on engine boot: for every enabled cron routine, look at the
  * most recent expected fire time strictly before `now`. If no persisted run
@@ -846,6 +912,7 @@ async function handleInitVault(
         registerRoutineEntity(e);
         registerTodoReminderEntity(e);
         emitDomainEvent("entity.created", e);
+        emitEntityChange("upsert", entity);
       },
       onEntityUpdated: (entity, previous) => {
         const e = entity as { id: string; typeId: string; fields: Record<string, unknown> } | null;
@@ -854,12 +921,14 @@ async function handleInitVault(
         registerRoutineEntity(e);
         registerTodoReminderEntity(e);
         emitDomainEvent("entity.updated", e, p);
+        emitEntityChange("upsert", entity);
       },
       onEntityDeleted: (id, previous) => {
         const p = previous as { id: string; typeId: string; fields: Record<string, unknown> } | null;
         if (p?.typeId === ROUTINE_TYPE_ID) automationEngine?.unregisterAutomation(id);
         if (p?.typeId === TODO_TYPE_ID) unregisterTodoReminderEntity(id);
         emitDomainEvent("entity.deleted", null, p);
+        emitEntityChange("delete", null, id);
       },
     };
 
