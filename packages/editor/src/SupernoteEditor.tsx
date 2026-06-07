@@ -7,6 +7,7 @@ import { fr as blocknoteFr } from "@blocknote/core/locales";
 import { useCreateBlockNote } from "@blocknote/react";
 import {
   BlockNoteViewRaw,
+  SideMenuController,
   SuggestionMenuController,
   type DefaultReactSuggestionItem,
 } from "@blocknote/react";
@@ -33,7 +34,15 @@ import {
 import type { SupernoteEditorProps } from "./types.js";
 import { useAIAction } from "./ai/useAIAction.js";
 import { AIActionsMenu } from "./ai/AIActionsMenu.js";
+import { SmoothCaret } from "./SmoothCaret.js";
+import {
+  FloatingFormattingToolbar,
+  SupernoteSideMenu,
+  WikilinkHoverPreview,
+} from "./extensions/editorChrome.js";
+import { FixedToolbar } from "./extensions/fixedToolbar.js";
 import type { AIActionId } from "@supernote/ai/actions";
+import type { StreamingInsertHandle } from "./types.js";
 
 /** Main Supernote rich-text editor */
 export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element {
@@ -46,6 +55,9 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
     resolvers,
     onAskAi,
     onEditorReady,
+    onStreamingInsertReady,
+    dimInactiveBlocks = false,
+    topToolbar = false,
     placeholder,
     renderDatabaseView,
     renderFormula,
@@ -67,6 +79,19 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
 
   const onEditorReadyRef = useRef(onEditorReady);
   onEditorReadyRef.current = onEditorReady;
+
+  // Wrapper element — anchor for the SmoothCaret overlay (and any future
+  // editor-relative chrome).
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
+
+  // Kept for CSS hooks that must not fire during the initial render
+  // (e.g. future entry effects). Block-entry animation itself is JS-driven
+  // below — see the new-block tracker.
+  const [live, setLive] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setLive(true), 250);
+    return () => clearTimeout(t);
+  }, []);
 
   const handleSave = useCallback(() => {
     onSaveRef.current?.(editor.document ? blocksToMarkdown(editor.document as Block[]) : "");
@@ -165,6 +190,27 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
     return editor.onChange(ensureTrailingParagraph);
   }, [editor]);
 
+  // Flash freshly inserted blocks (accent tint fading out) so the user sees
+  // exactly what just landed — used by both the one-shot insert below and
+  // the streaming-insert end() path.
+  const flashBlocks = useCallback((ids: Array<string | undefined>) => {
+    requestAnimationFrame(() => {
+      const wrapper = wrapperRef.current;
+      if (!wrapper) return;
+      for (const id of ids) {
+        if (!id) continue;
+        const el = wrapper.querySelector(`[data-id="${id}"]`);
+        if (!el) continue;
+        el.classList.add("sn-block-flash");
+        el.addEventListener(
+          "animationend",
+          () => el.classList.remove("sn-block-flash"),
+          { once: true },
+        );
+      }
+    });
+  }, []);
+
   // Expose an imperative insert function to the host once the editor mounts.
   useEffect(() => {
     if (!onEditorReadyRef.current) return;
@@ -179,14 +225,187 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
         }
       });
       if (blocks.length === 0) return;
-      editor.insertBlocks(
+      const inserted = editor.insertBlocks(
         blocks as any[],
         editor.getTextCursorPosition().block,
         "after"
       );
+      flashBlocks(((inserted ?? []) as Array<{ id?: string }>).map((b) => b.id));
     };
     onEditorReadyRef.current(insertAtCursor);
   }, [editor]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Streaming insert — used by the host's "Demander à l'IA" flow to write
+  // the model's answer token by token instead of dumping it at the end.
+  // The live block holds the raw accumulated text (cheap plain-text updates,
+  // rAF-coalesced); end() re-parses it as markdown so headings/lists/etc.
+  // get their final rich rendering, then flashes the result.
+  const onStreamingInsertReadyRef = useRef(onStreamingInsertReady);
+  onStreamingInsertReadyRef.current = onStreamingInsertReady;
+  useEffect(() => {
+    if (!onStreamingInsertReadyRef.current) return;
+    const begin = (): StreamingInsertHandle => {
+      const target = editor.getTextCursorPosition().block;
+      const inserted = editor.insertBlocks(
+        [{ type: "paragraph" } as any],
+        target as any,
+        "after",
+      );
+      const live = inserted?.[0] as { id: string } | undefined;
+      let buffer = "";
+      let raf: number | null = null;
+      let closed = false;
+      const flush = () => {
+        raf = null;
+        if (closed || !live) return;
+        try {
+          editor.updateBlock(live as any, { content: buffer } as any);
+        } catch {
+          /* block may be gone (undo) — stop pushing */
+        }
+      };
+      return {
+        append(chunk: string) {
+          if (closed) return;
+          buffer += chunk;
+          if (raf === null) raf = requestAnimationFrame(flush);
+        },
+        end() {
+          if (closed) return;
+          closed = true;
+          if (raf !== null) cancelAnimationFrame(raf);
+          if (!live) return;
+          try {
+            const blocks = markdownToBlocks(buffer) as any[];
+            if (blocks.length > 0) {
+              const replaced = editor.replaceBlocks([live as any], blocks);
+              flashBlocks(
+                ((replaced?.insertedBlocks ?? blocks) as Array<{ id?: string }>).map(
+                  (b) => b.id,
+                ),
+              );
+            }
+          } catch {
+            /* keep the plain-text block as-is */
+          }
+        },
+        cancel() {
+          if (closed) return;
+          closed = true;
+          if (raf !== null) cancelAnimationFrame(raf);
+          if (!live) return;
+          try {
+            editor.removeBlocks([live as any]);
+          } catch {
+            /* already gone */
+          }
+        },
+      };
+    };
+    onStreamingInsertReadyRef.current(begin);
+  }, [editor, flashBlocks]);
+
+  // ── New-block entry animation ──────────────────────────────────────────────
+  // Diff the document's block IDs on every transaction; IDs absent from the
+  // previous snapshot are genuinely NEW blocks (Enter, slash insert, `# `
+  // transform creating a node, paste). Only those get the `.sn-block-enter`
+  // class. A blanket CSS animation on .bn-block-outer is NOT an option:
+  // ProseMirror recreates block DOM during plain typing, which replayed the
+  // fade on every keystroke (text visibly blinking while typing).
+  useEffect(() => {
+    const collectIds = (blocks: Block[]): string[] => {
+      const out: string[] = [];
+      for (const b of blocks) {
+        out.push(b.id);
+        if (b.children?.length) out.push(...collectIds(b.children as Block[]));
+      }
+      return out;
+    };
+    let known = new Set(collectIds(editor.document as Block[]));
+    return editor.onChange(() => {
+      const ids = collectIds(editor.document as Block[]);
+      const fresh = ids.filter((id) => !known.has(id));
+      known = new Set(ids);
+      // Bulk arrivals (big paste, undo of a mass delete) would strobe —
+      // animate small batches only.
+      if (fresh.length === 0 || fresh.length > 8) return;
+      requestAnimationFrame(() => {
+        const wrapper = wrapperRef.current;
+        if (!wrapper) return;
+        for (const id of fresh) {
+          const el = wrapper.querySelector(`[data-id="${id}"]`);
+          if (!el) continue;
+          el.classList.add("sn-block-enter");
+          el.addEventListener(
+            "animationend",
+            () => el.classList.remove("sn-block-enter"),
+            { once: true },
+          );
+        }
+      });
+    });
+  }, [editor]);
+
+  // ── Active-block tracking ──────────────────────────────────────────────────
+  // Tracks the OUTERMOST `.bn-block-outer` containing the caret and exposes
+  // it to the typewriter-focus CSS (`.sn-dim-blocks`) through a dynamic
+  // stylesheet keyed on the block's data-id. Top-level only — dimming nested
+  // children would multiply opacities.
+  //
+  // CRITICAL: do NOT mark the block by mutating an attribute on the block
+  // element itself (the previous data-sn-active approach). ProseMirror's
+  // MutationObserver watches the whole editor subtree including attributes;
+  // an attribute write that lands right after a block type swap (e.g. the
+  // `x ` → checkListItem conversion) makes PM re-read a block whose React
+  // NodeView contentDOM hasn't mounted yet, and the DOM selection gets
+  // re-resolved to the blockGroup boundary — every following keystroke then
+  // lands in the NEXT block. Writing a rule into a <style> tag in <head>
+  // never touches the observed subtree.
+  useEffect(() => {
+    const styleEl = document.createElement("style");
+    document.head.appendChild(styleEl);
+    let lastId: string | null = null;
+    const onSelectionChange = () => {
+      const wrapper = wrapperRef.current;
+      if (!wrapper) return;
+      const sel = document.getSelection();
+      const node = sel?.anchorNode;
+      let active: Element | null = null;
+      if (node && wrapper.contains(node)) {
+        // Walk up to the wrapper, remembering the LAST (outermost) block.
+        let el: Element | null =
+          node instanceof Element ? node : node.parentElement;
+        while (el && el !== wrapper) {
+          if (el.classList.contains("bn-block-outer")) active = el;
+          el = el.parentElement;
+        }
+      }
+      const activeId = active?.getAttribute("data-id") ?? null;
+      if (activeId !== lastId) {
+        lastId = activeId;
+        // data-id is a BlockNote-generated UUID — safe to inline.
+        styleEl.textContent = activeId
+          ? `.sn-dim-blocks .bn-editor > .bn-block-group > .bn-block-outer[data-id="${activeId}"] { opacity: 1; }`
+          : "";
+      }
+    };
+    document.addEventListener("selectionchange", onSelectionChange);
+    return () => {
+      document.removeEventListener("selectionchange", onSelectionChange);
+      styleEl.remove();
+    };
+  }, []);
+
+  // ── Celebration (all todos checked) ────────────────────────────────────────
+  // heroCheckListItem dispatches "supernote:celebrate" on the document when
+  // the LAST unchecked checkbox of the doc gets checked. We answer with a
+  // full-width confetti burst over the editor.
+  const [celebrateKey, setCelebrateKey] = useState(0);
+  useEffect(() => {
+    const onCelebrate = () => setCelebrateKey((k) => k + 1);
+    document.addEventListener("supernote:celebrate", onCelebrate);
+    return () => document.removeEventListener("supernote:celebrate", onCelebrate);
+  }, []);
 
   const { openPicker, pickerElement } = useEntityPickerState(editor, resolvers);
 
@@ -378,11 +597,21 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
     <DatabaseViewProvider renderer={databaseRenderer}>
     <FormulaProvider renderer={formulaRenderer}>
     <div
-      className={`sn-editor-wrapper${className ? ` ${className}` : ""}`}
+      ref={wrapperRef}
+      className={`sn-editor-wrapper${live ? " sn-editor-live" : ""}${dimInactiveBlocks ? " sn-dim-blocks" : ""}${className ? ` ${className}` : ""}`}
       data-readonly={readOnly || undefined}
       onClick={handleWrapperClick}
       onContextMenu={onContextMenu}
     >
+      {/* Word-style mini toolbox — sticky above the note while writing.
+          Rendered OUTSIDE BlockNoteViewRaw (it takes the editor instance as
+          a prop) so it precedes the content in the DOM and can stick to the
+          top of the note's scroll container. */}
+      {topToolbar && !readOnly && (
+        <FixedToolbar
+          editor={editor as unknown as Parameters<typeof FixedToolbar>[0]["editor"]}
+        />
+      )}
       <BlockNoteViewRaw
         editor={editor}
         editable={!readOnly}
@@ -401,7 +630,34 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
           suggestionMenuComponent={SupernoteSuggestionMenu}
           getItems={getMentionItems}
         />
+        {/* Per-block side menu (⠿ drag + "+" insert) and floating
+            formatting toolbar — both are no-shows with BlockNoteViewRaw
+            unless we provide our own components. Hidden in read-only. */}
+        {!readOnly && <SideMenuController sideMenu={SupernoteSideMenu} />}
+        {!readOnly && <FloatingFormattingToolbar wrapperRef={wrapperRef} />}
       </BlockNoteViewRaw>
+
+      {/* Animated caret overlay — hides the native caret while active and
+          glides between positions. No-op (native caret kept) when the user
+          prefers reduced motion, on touch devices, or in read-only mode. */}
+      {!readOnly && <SmoothCaret wrapperRef={wrapperRef} />}
+
+      {/* Wikilink hover card — only when the host wires a preview resolver. */}
+      {resolvers?.previewEntity && (
+        <WikilinkHoverPreview
+          wrapperRef={wrapperRef}
+          previewEntity={resolvers.previewEntity}
+        />
+      )}
+
+      {/* Full-width confetti when the last todo of the note gets checked. */}
+      {celebrateKey > 0 && (
+        <div key={celebrateKey} className="sn-celebrate" aria-hidden>
+          {Array.from({ length: 14 }, (_, i) => (
+            <i key={i} />
+          ))}
+        </div>
+      )}
 
       {/* Entity picker rendered as overlay; null when no item is being picked */}
       {pickerElement && (

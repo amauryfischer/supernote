@@ -177,6 +177,53 @@ function CheckItemControls({ content, onChange }: CheckItemControlsProps) {
   );
 }
 
+// Fixed particle directions for the confetti burst — precomputed (no
+// Math.random at render) so the burst is deterministic and cheap. Roughly a
+// circle with some radius jitter for an organic feel.
+const BURST_PARTICLES: Array<{ dx: number; dy: number }> = [
+  { dx: 14, dy: -10 },
+  { dx: 18, dy: 2 },
+  { dx: 10, dy: 14 },
+  { dx: -2, dy: 18 },
+  { dx: -14, dy: 12 },
+  { dx: -18, dy: -2 },
+  { dx: -10, dy: -14 },
+  { dx: 2, dy: -18 },
+];
+
+/** Recursively collect every checkListItem block (any nesting depth). */
+function collectCheckItems(
+  blocks: Array<{ type?: string; id?: string; props?: Record<string, unknown>; children?: unknown[] }>,
+): Array<{ id?: string; checked: boolean }> {
+  const out: Array<{ id?: string; checked: boolean }> = [];
+  for (const b of blocks) {
+    if (b.type === "checkListItem") {
+      out.push({ id: b.id, checked: !!(b.props as { checked?: boolean } | undefined)?.checked });
+    }
+    if (Array.isArray(b.children) && b.children.length > 0) {
+      out.push(...collectCheckItems(b.children as typeof blocks));
+    }
+  }
+  return out;
+}
+
+/** Confetti burst around the checkbox. Re-keyed on every check so the CSS
+ *  animation restarts; particles are invisible by default and only appear
+ *  through the (reduced-motion-gated) animation. */
+function CheckBurst({ burstKey }: { burstKey: number }) {
+  if (burstKey === 0) return null;
+  return (
+    <span key={burstKey} className="sn-check-burst" aria-hidden contentEditable={false}>
+      {BURST_PARTICLES.map((p, i) => (
+        <i
+          key={i}
+          style={{ "--dx": `${p.dx}px`, "--dy": `${p.dy}px` } as React.CSSProperties}
+        />
+      ))}
+    </span>
+  );
+}
+
 export const heroCheckListItemSpec = createReactBlockSpec(
   {
     type: "checkListItem" as const,
@@ -192,6 +239,16 @@ export const heroCheckListItemSpec = createReactBlockSpec(
     render: ({ block, editor, contentRef }) => {
       const checked = !!block.props.checked;
       const content = (block.content as unknown as Inline[]) ?? [];
+      // Bumped each time the user CHECKS (not unchecks) — keys the confetti
+      // burst so its animation restarts on every completion. Auto-cleared
+      // after the animation so the burst span (which also gates the
+      // checkbox pop in CSS via :has) doesn't linger in the DOM.
+      const [burstKey, setBurstKey] = React.useState(0);
+      React.useEffect(() => {
+        if (burstKey === 0) return;
+        const t = setTimeout(() => setBurstKey(0), 700);
+        return () => clearTimeout(t);
+      }, [burstKey]);
       return (
         <div className="sn-checkitem" data-checked={checked ? "true" : "false"}>
           {/* contentEditable=false keeps ProseMirror from intercepting clicks
@@ -202,6 +259,25 @@ export const heroCheckListItemSpec = createReactBlockSpec(
               variant="secondary"
               isSelected={checked}
               onChange={(next: boolean) => {
+                if (next) {
+                  setBurstKey((k) => k + 1);
+                  document.dispatchEvent(
+                    new CustomEvent("supernote:ui-sound", { detail: { kind: "check" } }),
+                  );
+                  // Last unchecked todo of the document? → full celebration.
+                  // Checked AFTER the local burst so the small pop still
+                  // plays under the big one.
+                  const all = collectCheckItems(
+                    editor.document as unknown as Parameters<typeof collectCheckItems>[0],
+                  );
+                  const others = all.filter((c) => c.id !== block.id);
+                  if (others.length > 0 && others.every((c) => c.checked)) {
+                    document.dispatchEvent(new CustomEvent("supernote:celebrate"));
+                    document.dispatchEvent(
+                      new CustomEvent("supernote:ui-sound", { detail: { kind: "celebrate" } }),
+                    );
+                  }
+                }
                 editor.updateBlock(block, { props: { checked: next } });
               }}
               aria-label={checked ? "Marquer comme non faite" : "Marquer comme faite"}
@@ -210,6 +286,7 @@ export const heroCheckListItemSpec = createReactBlockSpec(
                 <Checkbox.Indicator />
               </Checkbox.Control>
             </Checkbox>
+            <CheckBurst burstKey={burstKey} />
           </span>
           {/* Block-level container — span used to be inline, which left
               ProseMirror's caret without a renderable box right after the

@@ -1363,7 +1363,12 @@ function FolderNode({
       </div>
 
       {hasChildren && expanded && (
-        <div>
+        // `.sn-tree-expand` plays a one-shot grid-rows unfold on mount so
+        // opening a folder slides its children in instead of snapping
+        // (collapse stays instant — children unmount, keeping DnD contexts
+        // clean). See globals.css.
+        <div className="sn-tree-expand">
+          <div className="sn-tree-expand__inner">
           {/* SortableContext per level — shared DndContext is at FileTree root.
               This prevents cross-level sort animations: verticalListSortingStrategy
               only displaces items within its own context, never items in sibling
@@ -1393,6 +1398,7 @@ function FolderNode({
               />
             ))}
           </SortableContext>
+          </div>
         </div>
       )}
     </div>

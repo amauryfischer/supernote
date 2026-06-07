@@ -3,6 +3,7 @@
 
 import type { PartialBlock } from "@blocknote/core";
 import type { CalloutVariant } from "../types.js";
+import { textColorFromHex, highlightColorFromHex } from "./colors.js";
 
 // We use `any` for the inline content array type because BlockNote's
 // PartialInlineContent generic is too strict for our intermediate representation.
@@ -36,7 +37,43 @@ function parseInlineText(text: string): AnyInlineItem[] {
   const items: AnyInlineItem[] = [];
   let remaining = text;
 
+  // Parse a wrapped HTML segment (e.g. the inside of <span style=…>…</span>)
+  // recursively and merge the wrapper's style onto every produced text item
+  // — nested constructs like `<mark><span>**bold**</span></mark>` keep all
+  // their styles this way.
+  const pushStyled = (inner: string, styles: Record<string, unknown>) => {
+    for (const it of parseInlineText(inner)) {
+      if (it.type === "text") it.styles = { ...it.styles, ...styles };
+      items.push(it);
+    }
+  };
+
   while (remaining.length > 0) {
+    // Underline: <u>text</u> (serialized by serialize.ts — no markdown form)
+    const underlineMatch = /^<u>(.+?)<\/u>/.exec(remaining);
+    if (underlineMatch) {
+      pushStyled(underlineMatch[1] ?? "", { underline: true });
+      remaining = remaining.slice(underlineMatch[0].length);
+      continue;
+    }
+
+    // Text color: <span style="color:#hex">text</span>
+    const colorMatch = /^<span style="color:\s*([^">]+)">(.+?)<\/span>/.exec(remaining);
+    if (colorMatch) {
+      const name = textColorFromHex(colorMatch[1] ?? "");
+      pushStyled(colorMatch[2] ?? "", name ? { textColor: name } : {});
+      remaining = remaining.slice(colorMatch[0].length);
+      continue;
+    }
+
+    // Highlight: <mark style="background-color:#hex">text</mark>
+    const markMatch = /^<mark style="background-color:\s*([^">]+)">(.+?)<\/mark>/.exec(remaining);
+    if (markMatch) {
+      const name = highlightColorFromHex(markMatch[1] ?? "");
+      pushStyled(markMatch[2] ?? "", name ? { backgroundColor: name } : {});
+      remaining = remaining.slice(markMatch[0].length);
+      continue;
+    }
     // Wikilink: [[target]] or [[target|alias]]
     const wikilinkMatch = /^\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/.exec(remaining);
     if (wikilinkMatch) {
@@ -101,8 +138,9 @@ function parseInlineText(text: string): AnyInlineItem[] {
       continue;
     }
 
-    // Plain text — consume until next special char
-    const plainMatch = /^[^[\]@#*_`]+/.exec(remaining) ?? /^./.exec(remaining);
+    // Plain text — consume until next special char (`<` included so the
+    // styled-HTML matchers above get a chance mid-line)
+    const plainMatch = /^[^[\]@#*_`<]+/.exec(remaining) ?? /^./.exec(remaining);
     if (plainMatch) {
       items.push({ type: "text", text: plainMatch[0], styles: {} });
       remaining = remaining.slice(plainMatch[0].length);

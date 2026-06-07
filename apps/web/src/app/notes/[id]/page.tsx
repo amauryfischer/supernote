@@ -507,61 +507,73 @@ function NoteDetailContent() {
     : [];
   useMobileHeaderActions(mobileActions);
 
+  // Column widths drive the collapse ANIMATION (width transition on the
+  // `.sn-anim-col` wrappers) — the conditional render inside each wrapper
+  // still decides between the full component and the thin restore strip.
+  // Desktop-only: on mobile both columns are unconditionally hidden (width
+  // 0, nothing rendered inside), matching the previous behaviour.
+  const fileTreeColWidth = showFileTree ? 280 : showCollapsedFileTree ? 24 : 0;
+  const noteListColWidth = showNoteList ? 320 : showCollapsedNoteList ? 24 : 0;
+
   return (
     <div className="flex h-full overflow-hidden">
-      {showFileTree ? (
-        <FileTree
-          folders={foldersLoading ? [] : folders}
-          selectedFolder={selectedFolder}
-          onSelectFolder={handleSelectFolder}
-          onNewFolder={handleNewFolder}
-          onNewNote={handleNewNote}
-          onRenameFolder={handleRenameFolder}
-          onRenameFolderInline={handleRenameFolderInline}
-          onDeleteFolder={handleDeleteFolder}
-          onArchiveFolder={handleArchiveFolder}
-          notes={allNotes.filter((n) => !n.archivedAt)}
-          onCollapse={handleToggleFileTreeCollapsed}
-          onDropNote={handleMoveNote}
-        />
-      ) : showCollapsedFileTree ? (
-        // Restore strip — only shown when the user collapsed THIS column
-        // individually. In focus mode we hide the entire row so the canvas
-        // gets the full width without any visual debris.
-        <CollapsedColumnStrip
-          label="Vault"
-          icon={<FolderSimple size={14} />}
-          onExpand={handleToggleFileTreeCollapsed}
-        />
-      ) : null}
+      <div className="sn-anim-col" style={{ width: fileTreeColWidth }}>
+        {showFileTree ? (
+          <FileTree
+            folders={foldersLoading ? [] : folders}
+            selectedFolder={selectedFolder}
+            onSelectFolder={handleSelectFolder}
+            onNewFolder={handleNewFolder}
+            onNewNote={handleNewNote}
+            onRenameFolder={handleRenameFolder}
+            onRenameFolderInline={handleRenameFolderInline}
+            onDeleteFolder={handleDeleteFolder}
+            onArchiveFolder={handleArchiveFolder}
+            notes={allNotes.filter((n) => !n.archivedAt)}
+            onCollapse={handleToggleFileTreeCollapsed}
+            onDropNote={handleMoveNote}
+          />
+        ) : showCollapsedFileTree ? (
+          // Restore strip — only shown when the user collapsed THIS column
+          // individually. In focus mode we hide the entire row so the canvas
+          // gets the full width without any visual debris.
+          <CollapsedColumnStrip
+            label="Vault"
+            icon={<FolderSimple size={14} />}
+            onExpand={handleToggleFileTreeCollapsed}
+          />
+        ) : null}
+      </div>
 
-      {showNoteList ? (
-        <NoteList
-          notes={notes}
-          allNotes={allNotes}
-          selectedNoteId={params.id}
-          folderName={folderName}
-          selectedFolder={selectedFolder}
-          onSelectNote={handleSelectNote}
-          isLoading={isLoading}
-          isError={isError}
-          errorMessage={errorMessage}
-          isFallback={isFallback}
-          onNewNote={handleNewNote}
-          onDeleteNote={handleDeleteRequest}
-          onRenameNote={handleRenameNote}
-          onArchiveNote={handleArchiveNote}
-          onRenameFolderInline={handleRenameFolderInline}
-          onCollapse={handleToggleNoteListCollapsed}
-          onDragNote={() => {}}
-        />
-      ) : showCollapsedNoteList ? (
-        <CollapsedColumnStrip
-          label="Notes"
-          icon={<ListBullets size={14} />}
-          onExpand={handleToggleNoteListCollapsed}
-        />
-      ) : null}
+      <div className="sn-anim-col" style={{ width: noteListColWidth }}>
+        {showNoteList ? (
+          <NoteList
+            notes={notes}
+            allNotes={allNotes}
+            selectedNoteId={params.id}
+            folderName={folderName}
+            selectedFolder={selectedFolder}
+            onSelectNote={handleSelectNote}
+            isLoading={isLoading}
+            isError={isError}
+            errorMessage={errorMessage}
+            isFallback={isFallback}
+            onNewNote={handleNewNote}
+            onDeleteNote={handleDeleteRequest}
+            onRenameNote={handleRenameNote}
+            onArchiveNote={handleArchiveNote}
+            onRenameFolderInline={handleRenameFolderInline}
+            onCollapse={handleToggleNoteListCollapsed}
+            onDragNote={() => {}}
+          />
+        ) : showCollapsedNoteList ? (
+          <CollapsedColumnStrip
+            label="Notes"
+            icon={<ListBullets size={14} />}
+            onExpand={handleToggleNoteListCollapsed}
+          />
+        ) : null}
+      </div>
 
       <div
         className="flex flex-1 flex-col overflow-hidden"
@@ -582,13 +594,24 @@ function NoteDetailContent() {
                 onToggleFocusMode={handleToggleFocusMode}
               />
             )}
-            {typeof note.fields?.["attachmentFile"] === "string" ? (
-              <AttachmentRouter note={note} />
-            ) : viewMode === "note" ? (
-              <NoteEditor note={note} />
-            ) : (
-              <NoteCanvasView note={note} />
-            )}
+            {/* Keyed on note id + view mode so switching note OR note↔canvas
+                plays a quick fade/slide-in instead of snapping. The key also
+                matches what already forces a remount (new note = new editor
+                instance), so the animation simply dresses an existing cost. */}
+            <div
+              key={`${note.id}:${viewMode}`}
+              className="sn-view-enter flex min-h-0 flex-1 flex-col overflow-hidden"
+            >
+              {typeof note.fields?.["attachmentFile"] === "string" ? (
+                <AttachmentRouter note={note} />
+              ) : viewMode === "note" ? (
+                // Typewriter focus : en mode focus, les blocs hors caret
+                // sont atténués pour garder l'œil sur la ligne d'écriture.
+                <NoteEditor note={note} dimBlocks={focusMode} />
+              ) : (
+                <NoteCanvasView note={note} />
+              )}
+            </div>
           </>
         ) : (
           <EmptyEditor onNewNote={handleNewNote} />
@@ -756,14 +779,14 @@ function ViewToggleButton({
 function NoteLoadingSkeleton() {
   return (
     <div className="flex h-full flex-col overflow-hidden px-10 py-6">
-      <div className="animate-pulse space-y-4">
-        <div className="h-8 w-3/4 rounded" style={{ backgroundColor: "var(--surface-2)" }} />
-        <div className="h-4 w-1/2 rounded" style={{ backgroundColor: "var(--surface-2)" }} />
+      <div className="space-y-4">
+        <div className="sn-shimmer h-8 w-3/4 rounded" style={{ backgroundColor: "var(--surface-2)" }} />
+        <div className="sn-shimmer h-4 w-1/2 rounded" style={{ backgroundColor: "var(--surface-2)" }} />
         <div className="mt-8 space-y-3">
           {[100, 85, 90, 70].map((w, i) => (
             <div
               key={i}
-              className="h-4 rounded"
+              className="sn-shimmer h-4 rounded"
               style={{ width: `${w}%`, backgroundColor: "var(--surface-2)" }}
             />
           ))}

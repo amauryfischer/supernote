@@ -38,7 +38,10 @@ export interface UseCreateInboxNoteReturn extends NoteState {
 }
 
 const NOTE_TYPE_ID = "note";
-const AUTO_SAVE_DELAY_MS = 5_000;
+// 2.5s (was 5s): the previous window left up to 5s of typing unsaved on an
+// accidental refresh / tab close. The visibility-flush below catches the
+// tab-switch case, the shorter debounce shrinks the crash window.
+const AUTO_SAVE_DELAY_MS = 2_500;
 const INITIAL_CREATE_DELAY_MS = 2_000;
 const AUTO_TITLE_DEBOUNCE_MS = 2_000;
 const AUTO_TITLE_MIN_CHARS = 30;
@@ -156,7 +159,10 @@ export function useCreateInboxNote(): UseCreateInboxNoteReturn {
   const saveNote = useCallback(
     (content: string) => {
       contentRef.current = content;
-      if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+      if (autoSaveTimer.current) {
+        clearTimeout(autoSaveTimer.current);
+        autoSaveTimer.current = null;
+      }
       persist(content);
     },
     [persist],
@@ -170,13 +176,16 @@ export function useCreateInboxNote(): UseCreateInboxNoteReturn {
       if (!entityIdRef.current) {
         if (initialCreateTimer.current) clearTimeout(initialCreateTimer.current);
         initialCreateTimer.current = setTimeout(() => {
+          // Null the ref so the visibility-flush knows nothing is pending.
+          initialCreateTimer.current = null;
           if (contentRef.current.trim()) persist(contentRef.current);
         }, INITIAL_CREATE_DELAY_MS);
       }
 
-      // Schedule auto-save every 5s during typing
+      // Schedule auto-save (debounced) during typing
       if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
       autoSaveTimer.current = setTimeout(() => {
+        autoSaveTimer.current = null;
         if (contentRef.current.trim()) persist(contentRef.current);
       }, AUTO_SAVE_DELAY_MS);
 
@@ -207,6 +216,35 @@ export function useCreateInboxNote(): UseCreateInboxNoteReturn {
       if (autoTitleTimer.current) clearTimeout(autoTitleTimer.current);
     };
   }, []);
+
+  // Flush pending writes when the tab goes hidden or the page unloads —
+  // the home WritingSurface is exactly where the user types a quick thought
+  // and immediately switches away, which used to lose the debounce window.
+  useEffect(() => {
+    const flush = () => {
+      const pending =
+        autoSaveTimer.current !== null || initialCreateTimer.current !== null;
+      if (!pending || !contentRef.current.trim()) return;
+      if (autoSaveTimer.current) {
+        clearTimeout(autoSaveTimer.current);
+        autoSaveTimer.current = null;
+      }
+      if (initialCreateTimer.current) {
+        clearTimeout(initialCreateTimer.current);
+        initialCreateTimer.current = null;
+      }
+      persist(contentRef.current);
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") flush();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("pagehide", flush);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("pagehide", flush);
+    };
+  }, [persist]);
 
   return {
     entityId,

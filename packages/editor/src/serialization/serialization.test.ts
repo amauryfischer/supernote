@@ -192,3 +192,98 @@ describe("standard markdown blocks", () => {
     expect((blocks[0] as any).type).toBe("divider");
   });
 });
+
+// ── Couleurs & souligné (HTML inline) ─────────────────────────
+
+describe("text color / highlight / underline round-trip", () => {
+  it("serializes textColor style to an inline span with hex", () => {
+    const blocks = [
+      {
+        type: "paragraph",
+        props: {},
+        content: [
+          { type: "text", text: "alerte", styles: { textColor: "red" } },
+        ],
+        children: [],
+      },
+    ];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const md = blocksToMarkdown(blocks as any);
+    expect(md).toBe('<span style="color:#e03e3e">alerte</span>');
+  });
+
+  it("serializes backgroundColor style to <mark>", () => {
+    const blocks = [
+      {
+        type: "paragraph",
+        props: {},
+        content: [
+          { type: "text", text: "important", styles: { backgroundColor: "yellow" } },
+        ],
+        children: [],
+      },
+    ];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const md = blocksToMarkdown(blocks as any);
+    expect(md).toBe('<mark style="background-color:#fbf3db">important</mark>');
+  });
+
+  it("round-trips text color through markdown", () => {
+    const md = 'Avant <span style="color:#e03e3e">rouge</span> après';
+    const blocks = markdownToBlocks(md);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const content = (blocks[0] as any).content;
+    const colored = content.find((c: { text?: string }) => c.text === "rouge");
+    expect(colored.styles.textColor).toBe("red");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect(blocksToMarkdown(blocks as any)).toBe(md);
+  });
+
+  it("round-trips highlight through markdown", () => {
+    const md = '<mark style="background-color:#fbf3db">surligné</mark>';
+    const blocks = markdownToBlocks(md);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const content = (blocks[0] as any).content;
+    expect(content[0].styles.backgroundColor).toBe("yellow");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect(blocksToMarkdown(blocks as any)).toBe(md);
+  });
+
+  it("round-trips underline through markdown", () => {
+    const md = "Un mot <u>souligné</u> ici";
+    const out = roundTrip(md);
+    expect(out).toBe(md);
+  });
+
+  it("keeps nested styles inside a colored span (bold + color)", () => {
+    const md = '<span style="color:#0b6e99">**gras bleu**</span>';
+    const blocks = markdownToBlocks(md);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const item = (blocks[0] as any).content[0];
+    expect(item.styles.bold).toBe(true);
+    expect(item.styles.textColor).toBe("blue");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect(blocksToMarkdown(blocks as any)).toBe(md);
+  });
+
+  it("combines highlight wrapping a colored span", () => {
+    const md =
+      '<mark style="background-color:#fbf3db"><span style="color:#e03e3e">alerte</span></mark>';
+    const blocks = markdownToBlocks(md);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const item = (blocks[0] as any).content[0];
+    expect(item.styles.textColor).toBe("red");
+    expect(item.styles.backgroundColor).toBe("yellow");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect(blocksToMarkdown(blocks as any)).toBe(md);
+  });
+
+  it("drops the style but keeps the text for unknown hex values", () => {
+    const md = '<span style="color:#123456">texte</span>';
+    const blocks = markdownToBlocks(md);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const item = (blocks[0] as any).content[0];
+    expect(item.text).toBe("texte");
+    expect(item.styles.textColor).toBeUndefined();
+  });
+});

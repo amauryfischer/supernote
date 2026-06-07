@@ -27,7 +27,10 @@ import {
   KeyboardSensor,
   useSensor,
   useSensors,
+  pointerWithin,
+  closestCenter,
   type DragEndEvent,
+  type CollisionDetection,
 } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import { TodoRow, isImportant, type TodoRowData } from "./TodoRow";
@@ -66,6 +69,22 @@ function quadrantOf(row: TodoRowData): QuadrantKey {
   if (urg && !imp) return "delegate";
   return "eliminate";
 }
+
+/**
+ * Pointer-first collision: the quadrant whose full (padded) rectangle is under
+ * the cursor wins — the entire visible card area is a valid drop target, not
+ * just where the dragged card's rect happens to overlap. Falls back to the
+ * nearest quadrant center so a release in the inter-quadrant gap (or just past
+ * an edge) still resolves to the closest quadrant instead of silently failing.
+ *
+ * The default `rectIntersection` measures the dragged element's rect overlap,
+ * which made drops near padding/edges land on the source quadrant (no-op) or
+ * nothing (`over === null`) — felt like the drop zone wasn't the whole tile.
+ */
+const matrixCollision: CollisionDetection = (args) => {
+  const hits = pointerWithin(args);
+  return hits.length > 0 ? hits : closestCenter(args);
+};
 
 interface TodoMatrixProps {
   todos: TodoRowData[];
@@ -114,7 +133,7 @@ export function TodoMatrix({
   };
 
   return (
-    <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+    <DndContext sensors={sensors} collisionDetection={matrixCollision} onDragEnd={handleDragEnd}>
       <div className="grid h-full grid-cols-1 gap-3 md:grid-cols-2">
         {QUADRANTS.map((q) => (
           <Quadrant
@@ -216,6 +235,7 @@ function MatrixCard({ row, onToggle, onEdit, onEmail, onContextMenu }: MatrixCar
     <li ref={setNodeRef} style={style} {...attributes} {...listeners}>
       <TodoRow
         row={row}
+        multiline
         onToggle={onToggle}
         onEdit={onEdit}
         onEmail={onEmail}

@@ -79,11 +79,15 @@ const Link = React.forwardRef<HTMLAnchorElement, NextLinkProps>(function Link(
   // react-router-dom's Link only accepts string/Path for `to`; we already
   // have a string above. `replace` carries through as the only meaningful
   // Next-side flag since the rest don't apply (no SSR, no prefetch model).
+  // `viewTransition` opte pour le cross-fade natif du navigateur (View
+  // Transitions API) — react-router no-ope proprement quand l'API manque,
+  // et l'animation est désactivée via prefers-reduced-motion en CSS.
   return (
     <RRLink
       ref={ref}
       to={target}
       replace={replace}
+      viewTransition
       {...(rest as Omit<RRLinkProps, "to" | "replace">)}
     />
   );

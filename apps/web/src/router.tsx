@@ -151,11 +151,6 @@ export const router: any = createBrowserRouter([
       { path: "*", lazy: lazyPage(() => import("./app/page")) },
     ],
   },
-], {
-  // Opt-in v7 behaviour pour stopper le warning console et préparer la
-  // migration : tous les state updates router sont wrappés dans
-  // React.startTransition.
-  future: {
-    v7_startTransition: true,
-  },
-});
+]);
+// Note : le flag `v7_startTransition` n'existe pas au niveau du routeur en
+// 6.30.x — c'est une prop de <RouterProvider future={...}> (voir App.tsx).

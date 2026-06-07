@@ -25,6 +25,7 @@ import { GitSyncProvider } from "@/lib/git/GitSyncProvider";
 import { OnlineSyncProvider } from "@/lib/online-sync/OnlineSyncProvider";
 import { PromptProvider } from "@/hooks/usePrompt";
 import { SettingsProvider } from "@/components/settings/SettingsContext";
+import { UiSoundBridge } from "@/lib/uiSounds";
 import { ConfirmProvider } from "@/lib/confirm";
 
 export function RootLayout() {
@@ -46,6 +47,10 @@ export function RootLayout() {
                 <AutomationNotificationBridge />
                 {/* Cmd+K command palette + seed commands */}
                 <CommandSurface />
+                {/* Sons d'interface (check, save, celebration) — joue les
+                    CustomEvents "supernote:ui-sound" si le réglage
+                    Notifications → sons est actif. */}
+                <UiSoundBridge />
                 {/* Vault auto-init status banner (only meaningful in Electron;
                     in PWA mode it stays silent). */}
                 <VaultInitBanner />

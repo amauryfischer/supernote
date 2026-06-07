@@ -50,6 +50,9 @@ interface TodoRowProps {
   onEdit?: () => void;
   onEmail?: () => void;
   onContextMenu?: (e: React.MouseEvent) => void;
+  /** Wrap the text on several lines (matrix cards) instead of the
+   *  single-line truncate used by the full-width list view. */
+  multiline?: boolean;
 }
 
 const IMPORTANCE_COLOR: Record<TodoImportance, string> = {
@@ -93,7 +96,7 @@ export function importanceForAxis(
   return isImportant(current) ? "medium" : (current ?? "medium");
 }
 
-export function TodoRow({ row, onToggle, onEdit, onEmail, onContextMenu }: TodoRowProps) {
+export function TodoRow({ row, onToggle, onEdit, onEmail, onContextMenu, multiline }: TodoRowProps) {
   const isCritical = row.importance === "critical";
   const dotColor = importanceColor(row.importance);
   const priority = row.priority ?? 5;
@@ -165,11 +168,13 @@ export function TodoRow({ row, onToggle, onEdit, onEmail, onContextMenu }: TodoR
         )}
       </Button>
 
-      {/* Main text — clickable to open the edit modal. */}
+      {/* Main text — clickable to open the edit modal. The Button is a flex
+          container, so `text-overflow: ellipsis` must live on an inner block
+          element (flex children clip without the "…" otherwise). */}
       <Button
         variant="ghost"
         onPress={onEdit}
-        className="flex-1 min-w-0 truncate text-left leading-tight hover:underline p-0 h-auto justify-start"
+        className="flex-1 min-w-0 text-left leading-tight hover:underline p-0 h-auto justify-start"
         style={{
           color: row.done ? "var(--text-muted)" : "var(--text-primary)",
           textDecoration: row.done ? "line-through" : undefined,
@@ -177,7 +182,16 @@ export function TodoRow({ row, onToggle, onEdit, onEmail, onContextMenu }: TodoR
           fontWeight: isCritical ? 600 : 400,
         }}
       >
-        <InlineMarkdown text={row.text} />
+        <span
+          title={row.text}
+          className={
+            multiline
+              ? "line-clamp-3 min-w-0 whitespace-normal [overflow-wrap:anywhere]"
+              : "block min-w-0 truncate"
+          }
+        >
+          <InlineMarkdown text={row.text} />
+        </span>
       </Button>
 
       {/* Pending reminder badge */}

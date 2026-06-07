@@ -21,6 +21,8 @@
   font-family: var(--font-sans, system-ui, sans-serif);
   color: var(--text-primary, #1a1a2e);
   background: transparent;
+  /* Anchor for the SmoothCaret overlay (and entity-picker overlay). */
+  position: relative;
 }
 
 /* Force the BlockNote container/editor to use our light tokens — its default
@@ -83,6 +85,773 @@
   background: var(--accent-subtle, rgb(124 58 237 / 0.2));
 }
 
+/* ── Smooth caret overlay ───────────────────────────────────── */
+
+/* Hide the native caret ONLY while the overlay is actively tracking it.
+ * Every bail-out path in SmoothCaret.tsx (IME composition, range selection,
+ * unmeasurable caret, reduced-motion, touch) flips the attribute back to
+ * "off" so the user is never left without a visible caret. */
+.sn-editor-wrapper[data-smooth-caret="on"] .ProseMirror {
+  caret-color: transparent !important;
+}
+
+.sn-smooth-caret {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 2px;
+  height: 1.4em;
+  border-radius: 1px;
+  pointer-events: none;
+  opacity: 0;
+  z-index: 40;
+  will-change: transform;
+  /* Movement is driven by a rAF lerp loop in SmoothCaret.tsx (CSS
+   * transitions restart their easing on every retarget → jerky during
+   * fast typing). Only the show/hide fade lives here. */
+  transition: opacity 80ms ease;
+}
+
+.sn-smooth-caret__blink {
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent, #7c3aed);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--accent, #7c3aed) 45%, transparent);
+  /* Solid for the first ~60% of the cycle, then off — JS restarts the
+   * animation on every caret move so the bar never blinks mid-typing,
+   * matching native caret behaviour. */
+  animation: sn-caret-blink 1.2s steps(1, end) infinite;
+  animation-delay: 420ms;
+}
+
+@keyframes sn-caret-blink {
+  0%, 55% { opacity: 1; }
+  56%, 100% { opacity: 0; }
+}
+
+/* Comet trail left behind on fast caret jumps (click, Enter, arrows).
+ * Positioned/rotated by SmoothCaret.tsx; the gradient keeps the head
+ * (destination) bright and lets the tail dissolve. */
+.sn-smooth-caret-trail {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 2px;
+  border-radius: 1px;
+  pointer-events: none;
+  opacity: 0;
+  z-index: 39;
+  transform-origin: 0 50%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--accent, #7c3aed) 70%, transparent)
+  );
+}
+
+/* ── Typing micro-interactions ──────────────────────────────── */
+
+@media (prefers-reduced-motion: no-preference) {
+  /* New blocks ease in. The class is added imperatively by SupernoteEditor
+   * to blocks whose ID was absent from the previous transaction — NEVER as
+   * a blanket rule on .bn-block-outer: ProseMirror/BlockNote recreates a
+   * block's DOM node on ordinary typing, so a CSS-wide animation replayed
+   * on every keystroke (the "text blinks while I type" bug). */
+  .sn-block-enter {
+    animation: sn-block-in 140ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  /* Checking a todo: the box pops. Keyed on the transient burst span (only
+   * mounted ~700ms after a fresh user check) — NOT on data-checked, which
+   * would replay the pop every time ProseMirror recreates the block while
+   * typing inside an already-checked item. */
+  .sn-checkitem__control:has(.sn-check-burst) {
+    animation: sn-check-pop 240ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+
+  /* Slash menu / mention menu / entity picker pop in from their anchor. */
+  .sn-slash-menu,
+  .sn-entity-picker,
+  .bn-suggestion-menu,
+  .bn-formatting-toolbar {
+    animation: sn-menu-in 130ms cubic-bezier(0.16, 1, 0.3, 1);
+    transform-origin: top left;
+  }
+
+  /* NOTE : pas d'animation CSS globale sur les pills (wikilink/mention/tag)
+   * — même piège que les blocs : ProseMirror recrée le DOM inline pendant
+   * la frappe, l'animation rejouerait à chaque caractère tapé à côté
+   * d'une pill. Le pop de création viendra d'un marquage JS ciblé si on
+   * le réintroduit. */
+
+  /* Placeholder ("Entrez du texte…") fades in instead of popping. BlockNote
+   * renders it as an ::after pseudo-element injected per block type —
+   * an animation (not a transition) is required because the pseudo-element
+   * is *created* when the rule matches, so there is no previous state to
+   * transition from. */
+  .sn-editor-wrapper .bn-block-content:has(.ProseMirror-trailingBreak:only-child)::after {
+    animation: sn-fade-in 300ms ease;
+  }
+}
+
+@keyframes sn-pill-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.85);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes sn-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Freshly inserted content (AI answer, transcription, paste-from-toolbar)
+ * flashes accent-tinted then settles — the user sees exactly what landed.
+ * Class added imperatively by SupernoteEditor.insertAtCursor. */
+.sn-block-flash {
+  animation: sn-block-flash 900ms ease-out;
+  border-radius: 4px;
+}
+
+@keyframes sn-block-flash {
+  0% { background-color: color-mix(in srgb, var(--accent, #7c3aed) 14%, transparent); }
+  100% { background-color: transparent; }
+}
+
+/* ── Checkbox confetti burst ────────────────────────────────── */
+
+/* Particles default to invisible — when reduced-motion disables the
+ * animation they simply never appear. */
+.sn-check-burst {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.sn-check-burst i {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 5px;
+  height: 5px;
+  border-radius: 9999px;
+  opacity: 0;
+  background: var(--accent, #7c3aed);
+}
+
+.sn-check-burst i:nth-child(2) { background: #f59e0b; }
+.sn-check-burst i:nth-child(4) { background: #22c55e; }
+.sn-check-burst i:nth-child(6) { background: #ec4899; }
+.sn-check-burst i:nth-child(8) { background: #3b82f6; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .sn-check-burst i {
+    animation: sn-burst 480ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+}
+
+@keyframes sn-burst {
+  0% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) scale(0.3);
+  }
+}
+
+@keyframes sn-block-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes sn-check-pop {
+  0% { transform: scale(0.8); }
+  55% { transform: scale(1.15); }
+  100% { transform: scale(1); }
+}
+
+@keyframes sn-menu-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97) translateY(-3px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Drag-and-drop target line — accent-colored instead of ProseMirror's
+ * default black, with soft rounded ends. */
+.sn-editor-wrapper .prosemirror-dropcursor-block,
+.sn-editor-wrapper .prosemirror-dropcursor-inline {
+  background: var(--accent, #7c3aed) !important;
+  border-radius: 2px;
+}
+
+/* ── Typewriter focus (dim inactive blocks) ─────────────────── */
+
+/* Top-level blocks only — dimming nested children would multiply
+ * opacities. The active block's full-opacity rule is injected as a dynamic
+ * stylesheet (keyed on data-id) by the selectionchange tracker in
+ * SupernoteEditor — NOT as an attribute on the block element, which would
+ * trip ProseMirror's MutationObserver mid block-conversion and break caret
+ * placement. */
+.sn-dim-blocks .bn-editor > .bn-block-group > .bn-block-outer {
+  opacity: 0.45;
+  transition: opacity 300ms ease;
+}
+
+.sn-dim-blocks .bn-editor > .bn-block-group > .bn-block-outer:hover {
+  opacity: 1;
+}
+
+/* ── Celebration burst (all todos checked) ──────────────────── */
+
+.sn-celebrate {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 45;
+}
+
+.sn-celebrate i {
+  position: absolute;
+  top: -10px;
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  opacity: 0;
+  background: var(--accent, #7c3aed);
+}
+
+/* Spread positions/colors/delays — deterministic via nth-child. */
+.sn-celebrate i:nth-child(1)  { left: 6%;  background: #f59e0b; }
+.sn-celebrate i:nth-child(2)  { left: 14%; background: #22c55e; animation-delay: 60ms; }
+.sn-celebrate i:nth-child(3)  { left: 22%; background: #ec4899; animation-delay: 120ms; }
+.sn-celebrate i:nth-child(4)  { left: 30%; animation-delay: 30ms; }
+.sn-celebrate i:nth-child(5)  { left: 38%; background: #3b82f6; animation-delay: 150ms; }
+.sn-celebrate i:nth-child(6)  { left: 46%; background: #f59e0b; animation-delay: 90ms; }
+.sn-celebrate i:nth-child(7)  { left: 54%; background: #22c55e; }
+.sn-celebrate i:nth-child(8)  { left: 62%; background: #ec4899; animation-delay: 140ms; }
+.sn-celebrate i:nth-child(9)  { left: 70%; animation-delay: 50ms; }
+.sn-celebrate i:nth-child(10) { left: 78%; background: #3b82f6; animation-delay: 110ms; }
+.sn-celebrate i:nth-child(11) { left: 86%; background: #f59e0b; animation-delay: 20ms; }
+.sn-celebrate i:nth-child(12) { left: 94%; background: #22c55e; animation-delay: 130ms; }
+.sn-celebrate i:nth-child(13) { left: 26%; background: #3b82f6; animation-delay: 200ms; }
+.sn-celebrate i:nth-child(14) { left: 66%; background: #ec4899; animation-delay: 180ms; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .sn-celebrate i {
+    animation: sn-celebrate-fall 1100ms cubic-bezier(0.25, 0.8, 0.5, 1) forwards;
+  }
+}
+
+@keyframes sn-celebrate-fall {
+  0% {
+    opacity: 1;
+    transform: translateY(0) rotate(0deg);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(220px) rotate(260deg);
+  }
+}
+
+/* ── Wikilink hover preview card ────────────────────────────── */
+
+.sn-wikilink-preview {
+  position: absolute;
+  z-index: 70;
+  max-width: 320px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--surface-1, #fff);
+  border: 1px solid var(--border-subtle, #e5e7eb);
+  box-shadow: 0 6px 28px rgba(0, 0, 0, 0.14);
+  font-family: var(--font-sans, system-ui, sans-serif);
+  pointer-events: auto;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .sn-wikilink-preview {
+    animation: sn-menu-in 130ms cubic-bezier(0.16, 1, 0.3, 1);
+    transform-origin: top left;
+  }
+}
+
+.sn-wikilink-preview__title {
+  margin: 0 0 4px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-primary, #111827);
+}
+
+.sn-wikilink-preview__excerpt {
+  margin: 0;
+  font-size: 0.76rem;
+  line-height: 1.5;
+  color: var(--text-secondary, #4b5563);
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ── Floating formatting toolbar ────────────────────────────── */
+
+.sn-fmt-toolbar {
+  position: absolute;
+  /* left/top set inline by the component; translate centers it above
+   * the selection box. */
+  transform: translate(-50%, -100%);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 8px;
+  background: var(--surface-1, #fff);
+  border: 1px solid var(--border-subtle, #e5e7eb);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.14);
+  z-index: 60;
+  font-family: var(--font-sans, system-ui, sans-serif);
+  user-select: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .sn-fmt-toolbar {
+    animation: sn-menu-in 130ms cubic-bezier(0.16, 1, 0.3, 1);
+    transform-origin: bottom center;
+  }
+}
+
+/* Flipped variant — selection too close to the top: toolbar sits below the
+ * text instead. The color palette keeps opening downward (free space). */
+.sn-fmt-toolbar--below {
+  transform: translate(-50%, 0);
+}
+
+.sn-fmt-toolbar__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-secondary, #4b5563);
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: background 100ms ease, color 100ms ease, transform 80ms ease;
+}
+
+.sn-fmt-toolbar__btn:hover {
+  background: var(--surface-2, #f3f4f6);
+  color: var(--text-primary, #111827);
+}
+
+.sn-fmt-toolbar__btn:active {
+  transform: scale(0.92);
+}
+
+.sn-fmt-toolbar__btn[data-active="true"] {
+  background: var(--accent-subtle, rgba(124, 58, 237, 0.1));
+  color: var(--accent, #7c3aed);
+}
+
+.sn-fmt-toolbar__sep {
+  width: 1px;
+  height: 16px;
+  margin: 0 2px;
+  background: var(--border-subtle, #e5e7eb);
+}
+
+/* "A" color button — the letter wears the active text color, the small ink
+ * bar under it doubles as a live swatch (Word's classic affordance). */
+.sn-fmt-toolbar__color,
+.sn-top-toolbar__color-btn {
+  flex-direction: column;
+  gap: 1px;
+  line-height: 1;
+}
+
+.sn-fmt-toolbar__color-a,
+.sn-top-toolbar__color-a {
+  font-weight: 700;
+  font-size: 0.78rem;
+  line-height: 1;
+}
+
+.sn-fmt-toolbar__color-bar,
+.sn-top-toolbar__color-bar {
+  width: 12px;
+  height: 3px;
+  border-radius: 2px;
+  opacity: 0.9;
+}
+
+/* Color palette anchored under the floating toolbar. Centered with
+ * left/right+margin auto (NOT translateX): sn-menu-in animates `transform`
+ * and would override a translate-based centering mid-animation. */
+.sn-fmt-toolbar__colors {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: -50%;
+  right: -50%;
+  margin: 0 auto;
+  width: fit-content;
+  z-index: 70;
+  border-radius: 12px;
+  background: var(--surface-1, #fff);
+  border: 1px solid var(--border-subtle, #e5e7eb);
+  box-shadow: var(--shadow-lg, 0 8px 32px rgba(0, 0, 0, 0.1), 0 4px 8px rgba(0, 0, 0, 0.06));
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .sn-fmt-toolbar__colors {
+    animation: sn-menu-in 130ms cubic-bezier(0.16, 1, 0.3, 1);
+    transform-origin: top center;
+  }
+}
+
+/* ── Fixed top toolbar (Word-style mini toolbox) ────────────── */
+
+.sn-top-toolbar {
+  position: sticky;
+  top: 0.625rem;
+  z-index: 55; /* under the floating selection toolbar (60) */
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  width: fit-content;
+  margin: 0 auto 1.25rem;
+  padding: 4px 6px;
+  border-radius: 14px;
+  /* Glassy pill: translucent surface + blur so note content sliding under
+   * it stays readable as atmosphere, not noise. */
+  background: color-mix(in srgb, var(--surface-1, #fff) 78%, transparent);
+  -webkit-backdrop-filter: blur(14px) saturate(1.5);
+  backdrop-filter: blur(14px) saturate(1.5);
+  border: 1px solid var(--border-subtle, #e5e7eb);
+  box-shadow:
+    0 1px 1px oklch(0 0 0 / 0.03),
+    0 6px 24px oklch(0 0 0 / 0.07),
+    inset 0 1px 0 oklch(1 0 0 / 0.6);
+  font-family: var(--font-sans, system-ui, sans-serif);
+  user-select: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .sn-top-toolbar {
+    animation: sn-toolbar-drop 320ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+}
+
+@keyframes sn-toolbar-drop {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.sn-top-toolbar__group {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.sn-top-toolbar__sep {
+  width: 1px;
+  height: 18px;
+  margin: 0 5px;
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    var(--border-subtle, #e5e7eb) 30%,
+    var(--border-subtle, #e5e7eb) 70%,
+    transparent
+  );
+}
+
+.sn-top-toolbar__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 27px;
+  height: 27px;
+  padding: 0 5px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary, #4b5563);
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: background 110ms ease, color 110ms ease, transform 90ms ease;
+}
+
+.sn-top-toolbar__btn:hover {
+  background: var(--surface-2, #f3f4f6);
+  color: var(--text-primary, #111827);
+}
+
+.sn-top-toolbar__btn:active {
+  transform: scale(0.92);
+}
+
+.sn-top-toolbar__btn[data-active="true"] {
+  background: var(--accent-subtle, rgba(124, 58, 237, 0.1));
+  color: var(--accent, #7c3aed);
+}
+
+/* Block type trigger — glyph chip + label + caret. */
+.sn-top-toolbar__type {
+  gap: 6px;
+  padding: 0 8px 0 4px;
+}
+
+.sn-top-toolbar__type-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 19px;
+  height: 19px;
+  border-radius: 5px;
+  background: var(--surface-2, #f3f4f6);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.sn-top-toolbar__type-label {
+  font-size: 0.78rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.sn-top-toolbar__caret {
+  font-size: 0.55rem;
+  opacity: 0.55;
+  transform: translateY(1px);
+}
+
+/* Dropdown panel shared by the block-type menu and the color palette. */
+.sn-top-toolbar__menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 70;
+  min-width: 11.5rem;
+  padding: 5px;
+  border-radius: 12px;
+  background: var(--surface-1, #fff);
+  border: 1px solid var(--border-subtle, #e5e7eb);
+  box-shadow: var(--shadow-lg, 0 8px 32px rgba(0, 0, 0, 0.1), 0 4px 8px rgba(0, 0, 0, 0.06));
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .sn-top-toolbar__menu {
+    animation: sn-menu-in 130ms cubic-bezier(0.16, 1, 0.3, 1);
+    transform-origin: top left;
+  }
+}
+
+.sn-top-toolbar__menu--colors {
+  min-width: 0;
+}
+
+.sn-top-toolbar__menu-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-primary, #111827);
+  font-size: 0.8rem;
+  text-align: left;
+  cursor: pointer;
+  transition: background 100ms ease;
+}
+
+.sn-top-toolbar__menu-item:hover {
+  background: var(--surface-2, #f3f4f6);
+}
+
+.sn-top-toolbar__menu-item[data-active="true"] {
+  color: var(--accent, #7c3aed);
+}
+
+.sn-top-toolbar__menu-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: var(--surface-2, #f3f4f6);
+  color: var(--text-secondary, #4b5563);
+  font-size: 0.66rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.sn-top-toolbar__menu-item[data-active="true"] .sn-top-toolbar__menu-glyph {
+  background: var(--accent-subtle, rgba(124, 58, 237, 0.1));
+  color: var(--accent, #7c3aed);
+}
+
+.sn-top-toolbar__menu-check {
+  margin-left: auto;
+  font-size: 0.7rem;
+  color: var(--accent, #7c3aed);
+}
+
+/* ── Color palette menu (texte + surlignage) ────────────────── */
+
+.sn-color-menu {
+  padding: 8px 9px 9px;
+}
+
+.sn-color-menu__label {
+  margin: 0 0 5px;
+  font-size: 0.6rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted, #6b7280);
+}
+
+.sn-color-menu__label + .sn-color-menu__label,
+.sn-color-menu__row + .sn-color-menu__label {
+  margin-top: 9px;
+}
+
+.sn-color-menu__row {
+  display: grid;
+  grid-template-columns: repeat(5, 24px);
+  gap: 5px;
+}
+
+.sn-color-menu__swatch {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--border-subtle, #e5e7eb);
+  border-radius: 8px;
+  background: var(--surface-1, #fff);
+  font-size: 0.74rem;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  transition: transform 90ms ease, box-shadow 90ms ease, border-color 90ms ease;
+}
+
+.sn-color-menu__swatch:hover {
+  transform: scale(1.14);
+  box-shadow: 0 2px 8px oklch(0 0 0 / 0.12);
+}
+
+.sn-color-menu__swatch[data-active] {
+  border-color: var(--accent, #7c3aed);
+  box-shadow: 0 0 0 2px var(--accent-subtle, rgba(124, 58, 237, 0.18));
+}
+
+/* Highlight swatches are solid color dots — keep an inner hairline so the
+ * pale pastels still read as buttons on white. */
+.sn-color-menu__swatch--bg {
+  border-color: oklch(0 0 0 / 0.08);
+}
+
+/* "None" swatch — default letter / slashed dot. */
+.sn-color-menu__swatch--none {
+  color: var(--text-secondary, #4b5563);
+  position: relative;
+}
+
+.sn-color-menu__slash {
+  width: 14px;
+  height: 1.5px;
+  border-radius: 1px;
+  background: var(--text-muted, #6b7280);
+  transform: rotate(-45deg);
+}
+
+/* ── Block side menu (drag handle + add) ────────────────────── */
+
+.sn-side-menu {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding-right: 4px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .sn-side-menu {
+    animation: sn-fade-in 120ms ease;
+  }
+}
+
+.sn-side-menu__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 22px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted, #9ca3af);
+  font-size: 0.95rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 100ms ease, color 100ms ease;
+  padding: 0;
+}
+
+.sn-side-menu__btn:hover {
+  background: var(--surface-2, #f3f4f6);
+  color: var(--text-primary, #111827);
+}
+
+.sn-side-menu__drag {
+  cursor: grab;
+  font-size: 0.8rem;
+}
+
+.sn-side-menu__drag:active {
+  cursor: grabbing;
+}
+
 /* ── Hero checklist item ────────────────────────────────────── */
 
 .sn-checkitem {
@@ -108,6 +877,8 @@
    * aligns with the first text line at the editor's default font-size. */
   padding-top: 0.15rem;
   user-select: none;
+  /* Anchor for the confetti burst overlay. */
+  position: relative;
 }
 
 /* HeroUI's Checkbox label slot is empty here — collapse it so the box
@@ -126,6 +897,12 @@
    * a block to operate on. */
   display: block;
   min-height: 1.5em;
+  /* NOTE: do NOT use the "always-on line-through with transparent color"
+   * fade-in trick here. Chrome paints the supposedly-transparent strike in
+   * the editor's contentEditable subtree (anonymous inline wrapper), which
+   * showed up as a black bar through unchecked todo text. The strike now
+   * only exists in the checked state below; color still transitions. */
+  transition: color 200ms ease;
 }
 
 /* Zero-width-space fallback: covers the rare frame after a block

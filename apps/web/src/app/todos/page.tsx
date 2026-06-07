@@ -201,6 +201,13 @@ export default function TodosPage() {
   const [migrationDismissed, setMigrationDismissed] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [editing, setEditing] = useState<UiTodoRow | null>(null);
+  // Optimistic quadrant override for the Eisenhower matrix — applied instantly
+  // on drop so the card jumps to the target quadrant without waiting for the
+  // mutation + refetch round-trip. Cleared once the data settles (the refetched
+  // row already carries the new urgency/importance) or rolled back on error.
+  const [matrixOverride, setMatrixOverride] = useState<
+    Map<string, { urgent: boolean; importance: TodoImportance }>
+  >(() => new Map());
   const [tagFilter, setTagFilter] = useState<Set<string>>(() => new Set());
   const [viewMode, setViewMode] = useState<ViewMode>(() => {
     if (typeof window === "undefined") return "matrix";
@@ -488,14 +495,19 @@ export default function TodosPage() {
   // applies, but the list-only filter tabs / sort do not.
   const matrixTodos = useMemo(
     () =>
-      allTodos.filter((t) => {
-        if (t.done) return false;
-        if (tagFilter.size > 0 && !t.sourceNoteTags.some((tag) => tagFilter.has(tag))) {
-          return false;
-        }
-        return true;
-      }),
-    [allTodos, tagFilter],
+      allTodos
+        .filter((t) => {
+          if (t.done) return false;
+          if (tagFilter.size > 0 && !t.sourceNoteTags.some((tag) => tagFilter.has(tag))) {
+            return false;
+          }
+          return true;
+        })
+        .map((t) => {
+          const ov = matrixOverride.get(t.id);
+          return ov ? { ...t, urgent: ov.urgent, importance: ov.importance } : t;
+        }),
+    [allTodos, tagFilter, matrixOverride],
   );
 
   const invalidateAll = useCallback(async () => {
@@ -699,6 +711,25 @@ export default function TodosPage() {
     async (rowArg: TodoRowData, target: { urgent: boolean; important: boolean }) => {
       const row = rowArg as UiTodoRow;
       const nextImportance = importanceForAxis(row.importance, target.important);
+      // Drop the card into the target quadrant immediately.
+      setMatrixOverride((prev) => {
+        const next = new Map(prev);
+        next.set(row.id, { urgent: target.urgent, importance: nextImportance });
+        return next;
+      });
+      // Clear only if the override still matches THIS move — guards against a
+      // rapid second drag of the same card clobbering its newer optimistic
+      // placement when an earlier mutation settles.
+      const clearOverride = () =>
+        setMatrixOverride((prev) => {
+          const cur = prev.get(row.id);
+          if (!cur || cur.urgent !== target.urgent || cur.importance !== nextImportance) {
+            return prev;
+          }
+          const next = new Map(prev);
+          next.delete(row.id);
+          return next;
+        });
       try {
         if (row.kind === "standalone") {
           await trpcVanillaClient.entities.update.mutate({
@@ -722,6 +753,10 @@ export default function TodosPage() {
         }
       } catch (err) {
         showToast(err instanceof Error ? err.message : "Erreur lors du déplacement");
+      } finally {
+        // On success the refetched row already carries the new fields, so
+        // dropping the override is visually a no-op; on error it rolls back.
+        clearOverride();
       }
     },
     [utils, showToast],

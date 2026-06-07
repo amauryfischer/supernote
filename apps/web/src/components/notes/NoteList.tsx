@@ -22,6 +22,7 @@ import {
   arrayMove,
 } from "@dnd-kit/sortable";
 import { useReorderNotes } from "./hooks";
+import { trpc } from "@/lib/trpc/client";
 
 type SortKey = "updatedAt" | "title" | "manual";
 
@@ -112,6 +113,35 @@ export function NoteList({
   const t = useTranslations("notes");
   const tCommon = useTranslations("common");
   const { reorderNotes } = useReorderNotes();
+
+  // Hover prefetch — warms the `entities.get` cache before the click so the
+  // editor opens instantly instead of flashing a skeleton. Skipped in demo /
+  // fallback mode where there is no worker to answer the query.
+  const utils = trpc.useUtils();
+  const prefetchNote = useCallback(
+    (id: string) => {
+      if (isFallback) return;
+      void utils.entities.get.prefetch({ id }, { staleTime: 30_000 });
+    },
+    [utils, isFallback],
+  );
+
+  // Hover preview — body complet pour la carte d'aperçu (les items de liste
+  // n'embarquent pas de body). Réutilise le cache chauffé par le prefetch
+  // ci-dessus : dans le cas nominal c'est un hit immédiat.
+  const fetchNotePreview = useCallback(
+    async (id: string): Promise<string | null> => {
+      if (isFallback) return null;
+      try {
+        const e = await utils.entities.get.fetch({ id });
+        const body = (e as { body?: unknown }).body;
+        return typeof body === "string" ? body : "";
+      } catch {
+        return null;
+      }
+    },
+    [utils, isFallback],
+  );
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -392,6 +422,8 @@ export function NoteList({
                   note={note}
                   isActive={note.id === selectedNoteId}
                   onClick={() => onSelectNote(note.id)}
+                  onHover={() => prefetchNote(note.id)}
+                  getPreview={fetchNotePreview}
                   onDelete={onDeleteNote ? () => onDeleteNote(note.id) : undefined}
                   onRename={onRenameNote ? (t) => onRenameNote(note.id, t) : undefined}
                   onArchive={onArchiveNote ? (a) => onArchiveNote(note.id, a) : undefined}
@@ -427,6 +459,8 @@ export function NoteList({
                   note={note}
                   isActive={note.id === selectedNoteId}
                   onClick={() => onSelectNote(note.id)}
+                  onHover={() => prefetchNote(note.id)}
+                  getPreview={fetchNotePreview}
                   onDelete={onDeleteNote ? () => onDeleteNote(note.id) : undefined}
                   onRename={onRenameNote ? (t) => onRenameNote(note.id, t) : undefined}
                   onArchive={onArchiveNote ? (a) => onArchiveNote(note.id, a) : undefined}
@@ -455,13 +489,13 @@ function NoteListSkeleton() {
   return (
     <div className="space-y-0">
       {[1, 2, 3, 4].map((i) => (
-        <div key={i} className="animate-pulse px-4 py-3" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
+        <div key={i} className="px-4 py-3" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
           <div className="flex justify-between gap-2">
-            <div className="h-4 w-2/3 rounded" style={{ backgroundColor: "var(--surface-2)" }} />
-            <div className="h-3 w-10 rounded" style={{ backgroundColor: "var(--surface-2)" }} />
+            <div className="sn-shimmer h-4 w-2/3 rounded" style={{ backgroundColor: "var(--surface-2)" }} />
+            <div className="sn-shimmer h-3 w-10 rounded" style={{ backgroundColor: "var(--surface-2)" }} />
           </div>
-          <div className="mt-2 h-3 w-full rounded" style={{ backgroundColor: "var(--surface-2)" }} />
-          <div className="mt-1 h-3 w-4/5 rounded" style={{ backgroundColor: "var(--surface-2)" }} />
+          <div className="sn-shimmer mt-2 h-3 w-full rounded" style={{ backgroundColor: "var(--surface-2)" }} />
+          <div className="sn-shimmer mt-1 h-3 w-4/5 rounded" style={{ backgroundColor: "var(--surface-2)" }} />
         </div>
       ))}
     </div>

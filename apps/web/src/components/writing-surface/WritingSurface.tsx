@@ -153,9 +153,10 @@ export function WritingSurface() {
     let done = false;
     const tryFocus = (): boolean => {
       const el = surface.querySelector<HTMLElement>(
-        ".bn-editor [contenteditable=\"true\"]",
+        '.bn-editor[contenteditable="true"]',
       );
       if (!el) return false;
+      el.scrollIntoView({ block: "center", behavior: "smooth" });
       el.focus();
       setIsFocused(true);
       done = true;
@@ -286,6 +287,7 @@ export function WritingSurface() {
             onChange={handleEditorChange}
             onSave={handleEditorSave}
             resolvers={resolvers}
+            topToolbar={isWriting}
             placeholder="Commencez à écrire ou tapez « / » pour les commandes…"
             className={`w-full ${isWriting ? "min-h-[8rem]" : "min-h-[4rem]"}`}
           />

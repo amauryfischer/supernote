@@ -1,7 +1,8 @@
 "use client";
 
 import { Archive, ArrowUUpLeft, DotsThree, DotsSixVertical, Trash } from "@phosphor-icons/react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { formatRelativeDate, type Note } from "./fixtures";
 import { useTranslations } from "next-intl";
 import {
@@ -19,6 +20,10 @@ interface NoteListItemProps {
   note: Note;
   isActive: boolean;
   onClick: () => void;
+  /** Fired on mouse-enter / focus — used by the parent to prefetch the note. */
+  onHover?: () => void;
+  /** Fetch the full body for the hover-preview card (null = unavailable). */
+  getPreview?: (id: string) => Promise<string | null>;
   onDelete?: () => void;
   /** When true, wraps with useSortable for DnD reordering in manual sort mode. */
   sortable?: boolean;
@@ -34,7 +39,7 @@ interface NoteListItemProps {
   onDragNote?: (noteId: string) => void;
 }
 
-export function NoteListItem({ note, isActive, onClick, onDelete, sortable, onRename, onArchive, onDragNote }: NoteListItemProps) {
+export function NoteListItem({ note, isActive, onClick, onHover, getPreview, onDelete, sortable, onRename, onArchive, onDragNote }: NoteListItemProps) {
   const [hovered, setHovered] = useState(false);
   const [isRenaming, setIsRenaming] = useState(false);
   const t = useTranslations("notes");
@@ -74,6 +79,51 @@ export function NoteListItem({ note, isActive, onClick, onDelete, sortable, onRe
   });
 
   const isArchived = !!note.archivedAt;
+
+  // ── Hover preview card ──────────────────────────────────────────────────
+  // 500ms d'intention au survol → carte fixe à droite de la liste (portal,
+  // pour échapper à l'overflow de la colonne) avec extrait du body.
+  // Desktop seulement — au tactile le survol n'existe pas.
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const previewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [hoverPreview, setHoverPreview] = useState<{ top: number; left: number; excerpt: string } | null>(null);
+
+  const cancelPreview = useCallback(() => {
+    if (previewTimer.current) {
+      clearTimeout(previewTimer.current);
+      previewTimer.current = null;
+    }
+    setHoverPreview(null);
+  }, []);
+
+  const schedulePreview = useCallback(() => {
+    if (!getPreview) return;
+    if (typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches) return;
+    if (previewTimer.current) clearTimeout(previewTimer.current);
+    previewTimer.current = setTimeout(() => {
+      previewTimer.current = null;
+      void (async () => {
+        const body = await getPreview(note.id);
+        const el = containerRef.current;
+        if (body === null || !el) return;
+        const rect = el.getBoundingClientRect();
+        const excerpt = body
+          .replace(/[#>*`~_\[\]|-]/g, " ")
+          .replace(/\s+/g, " ")
+          .trim()
+          .slice(0, 320);
+        setHoverPreview({
+          top: Math.max(8, Math.min(rect.top, window.innerHeight - 260)),
+          left: rect.right + 8,
+          excerpt,
+        });
+      })();
+    }, 500);
+  }, [getPreview, note.id]);
+
+  useEffect(() => () => {
+    if (previewTimer.current) clearTimeout(previewTimer.current);
+  }, []);
 
   // Single source of actions — used by both the visible "..." button and a
   // right-click anywhere on the row. Archive sits BEFORE delete so a misclick
@@ -135,12 +185,24 @@ export function NoteListItem({ note, isActive, onClick, onDelete, sortable, onRe
 
   return (
     <div
-      ref={sortable ? setNodeRef : undefined}
+      ref={(el) => {
+        containerRef.current = el;
+        if (sortable) setNodeRef(el);
+      }}
       style={dndStyle}
       {...(sortable ? attributes : {})}
       className="relative"
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
+      onMouseEnter={() => {
+        setHovered(true);
+        onHover?.();
+        if (!isRenaming) schedulePreview();
+      }}
+      onMouseLeave={() => {
+        setHovered(false);
+        cancelPreview();
+      }}
+      onMouseDown={cancelPreview}
+      onFocus={() => onHover?.()}
       onContextMenu={openActions}
     >
       {/* Drag handle — only visible on hover when sortable */}
@@ -294,6 +356,43 @@ export function NoteListItem({ note, isActive, onClick, onDelete, sortable, onRe
       )}
 
       <ContextMenu state={ctxMenu.state} onClose={ctxMenu.close} />
+
+      {/* Carte d'aperçu — portal vers body pour échapper à l'overflow
+          de la colonne. Position fixe calculée depuis le rect de la ligne. */}
+      {hoverPreview &&
+        createPortal(
+          <div
+            className="sn-note-preview"
+            style={{ top: hoverPreview.top, left: hoverPreview.left }}
+            role="tooltip"
+          >
+            <p className="sn-note-preview__title">{note.title}</p>
+            <p className="sn-note-preview__meta">
+              {formatRelativeDate(note.updatedAt, dateFormat)}
+            </p>
+            {hoverPreview.excerpt ? (
+              <p className="sn-note-preview__excerpt">{hoverPreview.excerpt}</p>
+            ) : (
+              <p className="sn-note-preview__excerpt" style={{ fontStyle: "italic" }}>
+                Note vide
+              </p>
+            )}
+            {note.tags.length > 0 && (
+              <div className="mt-1.5 flex flex-wrap gap-1">
+                {note.tags.slice(0, 6).map((tag) => (
+                  <span
+                    key={tag}
+                    className="rounded px-1.5 py-0.5 text-[10px] font-medium"
+                    style={{ backgroundColor: "var(--surface-3)", color: "var(--text-muted)" }}
+                  >
+                    #{tag}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }

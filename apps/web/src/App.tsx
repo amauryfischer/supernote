@@ -7,5 +7,7 @@ import { RouterProvider } from "react-router-dom";
 import { router } from "./router";
 
 export function App() {
-  return <RouterProvider router={router} />;
+  // v7_startTransition : opt-in v7 (stoppe le warning console, prépare la
+  // migration) — tous les state updates router passent par React.startTransition.
+  return <RouterProvider router={router} future={{ v7_startTransition: true }} />;
 }

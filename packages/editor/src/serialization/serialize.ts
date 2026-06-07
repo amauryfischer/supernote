@@ -3,6 +3,7 @@
 
 import type { Block } from "@blocknote/core";
 import type { CalloutVariant } from "../types.js";
+import { TEXT_COLOR_HEX, HIGHLIGHT_COLOR_HEX } from "./colors.js";
 
 // We use a loose block type for our serializer since we need to handle
 // both default BlockNote blocks and our custom block types.
@@ -45,6 +46,15 @@ function serializeInlineContent(content: AnyInlineItem): string {
           if (item.styles.italic) text = `_${text}_`;
           if (item.styles.code) text = `\`${text}\``;
           if (item.styles.strike) text = `~~${text}~~`;
+          // No-markdown-equivalent styles → inline HTML, which Obsidian
+          // renders natively. Colors use the hex values from colors.ts so
+          // the note looks the same outside Supernote; parse.ts maps the
+          // hex back to the BlockNote color name on load.
+          if (item.styles.underline) text = `<u>${text}</u>`;
+          const colorHex = TEXT_COLOR_HEX[item.styles.textColor as string];
+          if (colorHex) text = `<span style="color:${colorHex}">${text}</span>`;
+          const bgHex = HIGHLIGHT_COLOR_HEX[item.styles.backgroundColor as string];
+          if (bgHex) text = `<mark style="background-color:${bgHex}">${text}</mark>`;
         }
         return text;
       }

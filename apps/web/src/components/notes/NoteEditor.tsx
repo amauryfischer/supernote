@@ -3,13 +3,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@heroui/react";
 import dynamic from "next/dynamic";
-import { CaretRight, Calendar, Tag, FloppyDisk, Microphone, Image, Sparkle, X } from "@phosphor-icons/react";
+import { CaretRight, Calendar, Tag, FloppyDisk, Microphone, Image, Sparkle, X, CheckCircle, WarningCircle } from "@phosphor-icons/react";
 import Link from "next/link";
 import { Fragment } from "react";
 import { TagSelector } from "@/components/tags/TagSelector";
 import { formatRelativeDate, type Note } from "./fixtures";
 import { useUpdateNote } from "./hooks";
-import type { SupernoteEditorProps, EntityRef } from "@supernote/editor";
+import type { SupernoteEditorProps, EntityRef, StreamingInsertHandle } from "@supernote/editor";
 import { createOllamaClient } from "@supernote/ai/ollama";
 import type { AIActionId } from "@supernote/ai/actions";
 import { trpc, trpcVanillaClient } from "@/lib/trpc/client";
@@ -18,7 +18,6 @@ import {
   isDefaultTitle,
   useAutoTitle,
   resolveModel,
-  fetchWithTimeout,
   readOllamaHost,
 } from "@/hooks/useAutoTitle";
 import { PromptModal } from "@/components/shell/PromptModal";
@@ -52,6 +51,9 @@ function entityDisplayName(entity: { fields: Record<string, unknown>; filePath: 
 
 interface NoteEditorProps {
   note: Note;
+  /** Typewriter focus — dim every block except the one holding the caret.
+   *  Wired by the page to its focus mode. */
+  dimBlocks?: boolean;
 }
 
 type SaveStatus = "idle" | "saving" | "saved" | "error";
@@ -101,7 +103,7 @@ function imageTypeToExt(mimeType: string): string {
   return map[mimeType] ?? mimeType.split("/")[1] ?? "png";
 }
 
-export function NoteEditor({ note }: NoteEditorProps) {
+export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
   const [title, setTitle] = useState(note.title);
   const [tags, setTags] = useState<string[]>(note.tags);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
@@ -132,6 +134,8 @@ export function NoteEditor({ note }: NoteEditorProps) {
   // body and force a BlockNote remount that drops the in-flight keystrokes.
   const lastSavedBodyRef = useRef<string | null>(note.body);
   const editorInsertRef = useRef<((md: string) => void) | null>(null);
+  // Factory exposed by SupernoteEditor to insert AI answers token by token.
+  const editorStreamRef = useRef<(() => StreamingInsertHandle) | null>(null);
   const editorContainerRef = useRef<HTMLDivElement | null>(null);
   // Mirror saveStatus into a ref so the external-body guard below can read
   // the latest status without re-running the effect on every status flip
@@ -367,6 +371,28 @@ export function NoteEditor({ note }: NoteEditorProps) {
     };
   }, [updateNote, note.id]);
 
+  // Flush a pending debounced save the moment the tab is hidden or the page
+  // is being torn down (refresh, close, PWA switch). Without this, up to
+  // DEBOUNCE_MS of typing silently dies with the tab.
+  useEffect(() => {
+    const flush = () => {
+      if (debounceRef.current === null) return;
+      clearTimeout(debounceRef.current);
+      debounceRef.current = null;
+      lastSavedBodyRef.current = bodyRef.current;
+      void updateNote(note.id, titleRef.current, bodyRef.current);
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") flush();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("pagehide", flush);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("pagehide", flush);
+    };
+  }, [note.id, updateNote]);
+
   const transcribeAudio = trpc.system.transcribeAudio.useMutation();
   const ocrImage = trpc.system.ocrImage.useMutation();
 
@@ -403,6 +429,28 @@ export function NoteEditor({ note }: NoteEditorProps) {
           return null;
         }
       },
+      // Hover-preview d'un [[wikilink]] : résout le nom → entité, puis lit
+      // le body complet pour en tirer un extrait plein-texte (la recherche
+      // ne renvoie que des résumés sans body).
+      previewEntity: async (name: string) => {
+        try {
+          const res = await utils.entities.search.fetch({ query: name, limit: 1 });
+          const hit = res.items[0];
+          if (!hit) return null;
+          const full = await utils.entities.get.fetch({ id: hit.id });
+          const body = typeof (full as { body?: unknown }).body === "string"
+            ? ((full as { body: string }).body)
+            : "";
+          const excerpt = body
+            .replace(/[#>*`~_\[\]|-]/g, " ")
+            .replace(/\s+/g, " ")
+            .trim()
+            .slice(0, 280);
+          return { title: entityDisplayName(full), excerpt };
+        } catch {
+          return null;
+        }
+      },
     }),
     [utils]
   );
@@ -430,10 +478,15 @@ export function NoteEditor({ note }: NoteEditorProps) {
         try {
           await updateNote(note.id, updatedTitle, markdown);
           setSaveStatus("saved");
+          document.dispatchEvent(
+            new CustomEvent("supernote:ui-sound", { detail: { kind: "save" } }),
+          );
           setTimeout(() => setSaveStatus("idle"), 2000);
         } catch {
+          // Persistent — an unsaved-note error must stay visible until the
+          // next save attempt clears it, not vanish after 3s while the user
+          // is looking elsewhere.
           setSaveStatus("error");
-          setTimeout(() => setSaveStatus("idle"), 3000);
         }
       }, DEBOUNCE_MS);
     },
@@ -616,13 +669,31 @@ export function NoteEditor({ note }: NoteEditorProps) {
       const next = e.target.value;
       titleRef.current = next;
       setTitle(next);
+      // Live-sync the title into the notes list cache so the middle column
+      // follows each keystroke instead of waiting for the debounced save +
+      // refetch round-trip. Order/updatedAt left untouched — resorting the
+      // list under the user's cursor mid-typing would be jarring.
+      utilsForTags.entities.list.setData(
+        { typeId: "note", limit: 500, offset: 0 },
+        (old) =>
+          old
+            ? {
+                ...old,
+                items: old.items.map((it) =>
+                  it.id === note.id
+                    ? { ...it, fields: { ...it.fields, title: next } }
+                    : it,
+                ),
+              }
+            : old,
+      );
       // User is editing the title — drop the AI badge.
       if (titleAiBadge) setTitleAiBadge(false);
       // Cancel any pending auto-title since the user just took control.
       if (autoTitleTimer.current) clearTimeout(autoTitleTimer.current);
       triggerAutoSave(bodyRef.current, next);
     },
-    [triggerAutoSave, titleAiBadge],
+    [triggerAutoSave, titleAiBadge, utilsForTags, note.id],
   );
 
   const handleManualSave = useCallback(
@@ -638,8 +709,8 @@ export function NoteEditor({ note }: NoteEditorProps) {
         setSaveStatus("saved");
         setTimeout(() => setSaveStatus("idle"), 2000);
       } catch {
+        // Persistent until the next save attempt — see triggerAutoSave.
         setSaveStatus("error");
-        setTimeout(() => setSaveStatus("idle"), 3000);
       }
     },
     [note.id, title, updateNote],
@@ -679,26 +750,81 @@ export function NoteEditor({ note }: NoteEditorProps) {
       const prompt = contextSnippet
         ? `Tu es un assistant. Réponds en français.\n\nContexte de la note (titre: "${titleRef.current}"):\n${contextSnippet}\n\nQuestion ou instruction:\n${trimmed}`
         : `Tu es un assistant. Réponds en français.\n\nQuestion ou instruction:\n${trimmed}`;
-      const res = await fetchWithTimeout(
-        `${host}/api/generate`,
-        {
+
+      // Streaming : la réponse s'écrit mot à mot dans la note au lieu
+      // d'atterrir d'un bloc à la fin. fetch direct (pas fetchWithTimeout :
+      // un timeout qui aborte couperait le stream en cours) — l'AbortController
+      // borne le temps TOTAL à 90s, largement au-delà d'une réponse normale.
+      const canStream = !!editorStreamRef.current;
+      const controller = new AbortController();
+      const abortTimer = setTimeout(() => controller.abort(), 90_000);
+      try {
+        const res = await fetch(`${host}/api/generate`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ model, prompt, stream: false, options: { temperature: 0.7 } }),
-        },
-        30_000,
-      );
-      if (!res.ok) {
-        showToast(`Erreur Ollama (${res.status})`);
-        return;
+          body: JSON.stringify({
+            model,
+            prompt,
+            stream: canStream,
+            options: { temperature: 0.7 },
+          }),
+          signal: controller.signal,
+        });
+        if (!res.ok) {
+          showToast(`Erreur Ollama (${res.status})`);
+          return;
+        }
+        if (!canStream || !res.body) {
+          // Fallback non-stream (éditeur pas prêt) — comportement historique.
+          const data = (await res.json()) as { response?: string };
+          const text = (data.response ?? "").trim();
+          if (!text) {
+            showToast("Ollama n'a retourné aucune réponse");
+            return;
+          }
+          insertMarkdown(text);
+          return;
+        }
+        const handle = editorStreamRef.current!();
+        setAiLoading(false); // le texte arrive — plus besoin du toast "réfléchit"
+        let received = false;
+        try {
+          const reader = res.body.getReader();
+          const decoder = new TextDecoder();
+          let pending = "";
+          for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            pending += decoder.decode(value, { stream: true });
+            // Ollama répond en NDJSON — un objet {response, done} par ligne.
+            const lines = pending.split("\n");
+            pending = lines.pop() ?? "";
+            for (const line of lines) {
+              if (!line.trim()) continue;
+              try {
+                const data = JSON.parse(line) as { response?: string };
+                if (data.response) {
+                  handle.append(data.response);
+                  received = true;
+                }
+              } catch {
+                /* ligne partielle / bruit — ignorée */
+              }
+            }
+          }
+          if (received) {
+            handle.end();
+          } else {
+            handle.cancel();
+            showToast("Ollama n'a retourné aucune réponse");
+          }
+        } catch (err) {
+          handle.cancel();
+          throw err;
+        }
+      } finally {
+        clearTimeout(abortTimer);
       }
-      const data = (await res.json()) as { response?: string };
-      const text = (data.response ?? "").trim();
-      if (!text) {
-        showToast("Ollama n'a retourné aucune réponse");
-        return;
-      }
-      insertMarkdown(text);
     } catch (err) {
       console.warn("[askAi]", err);
       showToast("Ollama indisponible — démarrez avec OLLAMA_ORIGINS=* ollama serve");
@@ -945,7 +1071,10 @@ export function NoteEditor({ note }: NoteEditorProps) {
             resolvers={resolvers}
             className="min-h-[60vh] w-full"
             onAskAi={handleAskAi}
+            dimInactiveBlocks={dimBlocks}
+            topToolbar
             onEditorReady={(insert) => { editorInsertRef.current = insert; }}
+            onStreamingInsertReady={(begin) => { editorStreamRef.current = begin; }}
             renderDatabaseView={renderInlineDatabase}
             renderFormula={renderNoteFormula}
             aiClient={aiClient}
@@ -1039,13 +1168,28 @@ interface SaveIndicatorProps {
 }
 
 function SaveIndicator({ status }: SaveIndicatorProps) {
-  if (status === "idle") return null;
+  // Always mounted (even idle, at opacity 0) so state changes fade/slide
+  // through CSS transitions instead of popping in and out of the DOM.
+  // Styling lives in globals.css under `.sn-save-indicator`.
   const label =
-    status === "saving" ? "Sauvegarde..." : status === "saved" ? "Sauvegarde" : "Erreur";
-  const color = status === "error" ? "var(--color-red-500, #ef4444)" : "var(--text-muted)";
+    status === "saving"
+      ? "Sauvegarde…"
+      : status === "saved"
+        ? "Enregistré"
+        : status === "error"
+          ? "Erreur de sauvegarde"
+          : "";
   return (
-    <div className="flex items-center gap-1" style={{ color }}>
-      <FloppyDisk size={11} />
+    <div className="sn-save-indicator" data-status={status} aria-live="polite">
+      <span className="sn-save-indicator__icon">
+        {status === "error" ? (
+          <WarningCircle size={12} weight="bold" />
+        ) : status === "saved" ? (
+          <CheckCircle size={12} weight="bold" />
+        ) : (
+          <FloppyDisk size={11} />
+        )}
+      </span>
       <span className="text-[10px]">{label}</span>
     </div>
   );
@@ -1071,11 +1215,11 @@ function DropHint({ status }: { status: DropStatus }) {
 
 function EditorSkeleton() {
   return (
-    <div className="animate-pulse space-y-3 pt-2">
+    <div className="space-y-3 pt-2">
       {[100, 80, 90, 60].map((w, i) => (
         <div
           key={i}
-          className="h-4 rounded"
+          className="sn-shimmer h-4 rounded"
           style={{ width: `${w}%`, backgroundColor: "var(--surface-2)" }}
         />
       ))}

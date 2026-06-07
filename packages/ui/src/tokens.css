@@ -215,3 +215,23 @@
   --shadow-xl:  0 8px 32px oklch(0 0 0 / 0.44);
   --shadow-2xl: 0 16px 48px oklch(0 0 0 / 0.52);
 }
+
+/* ── Toast entrance (spring) ─────────────────────────────────────────────── */
+
+/* Slide-up avec léger overshoot — appliqué par <SingleToast> (Toast.tsx). */
+@media (prefers-reduced-motion: no-preference) {
+  .sn-toast-in {
+    animation: sn-toast-in 320ms cubic-bezier(0.34, 1.4, 0.64, 1);
+  }
+}
+
+@keyframes sn-toast-in {
+  0% {
+    opacity: 0;
+    transform: translateY(18px) scale(0.97);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}

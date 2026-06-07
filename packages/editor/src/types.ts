@@ -25,6 +25,26 @@ export interface EntityResolvers {
   createEntity?: (typeId: string, name: string) => Promise<EntityRef>;
   /** Fetch a single entity by id */
   getEntity?: (id: string) => Promise<EntityRef | null>;
+  /**
+   * Resolve a hover-preview for a wikilink target (entity NAME, not id).
+   * Returns the display title and a short plain-text excerpt of the body,
+   * or null when the target doesn't resolve. Enables the wikilink hover
+   * card when provided.
+   */
+  previewEntity?: (
+    name: string,
+  ) => Promise<{ title: string; excerpt: string } | null>;
+}
+
+/**
+ * Handle returned by the streaming-insert API. `append` adds raw text chunks
+ * to a live block; `end` re-parses the accumulated text as markdown and
+ * replaces the live block with the final rich blocks; `cancel` removes it.
+ */
+export interface StreamingInsertHandle {
+  append: (chunk: string) => void;
+  end: () => void;
+  cancel: () => void;
 }
 
 /** Props for the main SupernoteEditor component */
@@ -67,6 +87,22 @@ export interface SupernoteEditorProps {
    * position as one paragraph block per double-newline-separated section.
    */
   onEditorReady?: (insert: (md: string) => void) => void;
+  /**
+   * Called once the editor is ready with a factory that starts a streaming
+   * insertion at the cursor (AI responses arriving token by token). Each
+   * call to the factory inserts a live block and returns a handle.
+   */
+  onStreamingInsertReady?: (begin: () => StreamingInsertHandle) => void;
+  /**
+   * Dim every block except the one holding the caret (typewriter focus).
+   * Wired by the host to its focus mode.
+   */
+  dimInactiveBlocks?: boolean;
+  /**
+   * Show the Word-style mini toolbox pinned above the note (block type,
+   * marks, colors, link, undo/redo). Hidden in read-only mode.
+   */
+  topToolbar?: boolean;
   /**
    * Renderer for inline database blocks. When provided, every `databaseView`
    * block in the document calls this renderer with its (baseId, viewId).

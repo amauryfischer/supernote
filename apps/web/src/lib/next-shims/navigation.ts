@@ -39,19 +39,33 @@ export interface AppRouterInstance {
  * across renders thanks to `useCallback` so consumers can include them in
  * effect dependency arrays without thrashing.
  */
+/**
+ * View Transitions API : cross-fade natif du navigateur entre deux routes.
+ * react-router (>= 6.30) orchestre `document.startViewTransition` lui-même
+ * via l'option `viewTransition` — flushSync inclus. No-op (navigation
+ * classique) sur navigateurs sans support ou si l'utilisateur préfère
+ * réduire les animations. Durées réglées dans globals.css
+ * (::view-transition-old/new).
+ */
+function wantsViewTransition(): boolean {
+  if (typeof document === "undefined") return false;
+  if (!("startViewTransition" in document)) return false;
+  return !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
 export function useRouter(): AppRouterInstance {
   const navigate = useNavigate();
 
   const push = useCallback(
     (href: string, _options?: NavigateOptions) => {
-      navigate(href);
+      navigate(href, { viewTransition: wantsViewTransition() });
     },
     [navigate],
   );
 
   const replace = useCallback(
     (href: string, _options?: NavigateOptions) => {
-      navigate(href, { replace: true });
+      navigate(href, { replace: true, viewTransition: wantsViewTransition() });
     },
     [navigate],
   );

@@ -89,8 +89,10 @@ function SingleToast({ data, onDismiss }: SingleToastProps) {
   return (
     <div
       role="alert"
+      // sn-toast-in: slide-up avec léger rebond (keyframes dans tokens.css,
+      // gated prefers-reduced-motion).
       className={cn(
-        "pointer-events-auto w-80 rounded-[var(--radius-lg)] border p-4 [box-shadow:var(--shadow-lg)] transition-all",
+        "sn-toast-in pointer-events-auto w-80 rounded-[var(--radius-lg)] border p-4 [box-shadow:var(--shadow-lg)] transition-all",
         variantClass[variant]
       )}
     >

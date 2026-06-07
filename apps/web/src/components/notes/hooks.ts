@@ -409,12 +409,18 @@ export function useCreateNote() {
         body: "",
         tags: [],
       });
-      // Force-refetch the exact list query the UI subscribes to BEFORE we
-      // return, so the caller can navigate / re-render with fresh data
-      // already in cache. `invalidate()` alone schedules a refetch but does
-      // not wait — the redirect would race the refetch and the destination
-      // page would still render an empty list.
-      await utils.entities.list.refetch({ typeId: "note", limit: 500, offset: 0 });
+      // Optimistic insert: patch the created entity straight into the list
+      // cache so the caller can navigate immediately with the note already
+      // visible — no 500-row refetch on the critical path (it previously
+      // added a visible pause between the click and the editor opening).
+      // The created Entity is a superset of the EntitySummary the list
+      // stores; the background invalidate reconciles authoritatively.
+      utils.entities.list.setData(
+        { typeId: "note", limit: 500, offset: 0 },
+        (old) =>
+          old ? { ...old, items: [entity, ...old.items] } : old,
+      );
+      void utils.entities.list.invalidate();
       return entity.id;
     },
     [mutation, utils],

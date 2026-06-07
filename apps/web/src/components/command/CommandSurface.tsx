@@ -39,13 +39,21 @@ export function CommandSurface() {
     return () => window.removeEventListener("supernote:open-command-palette", handler);
   }, []);
 
-  // Cmd+K / Ctrl+K — open command palette
+  // Cmd+K / Ctrl+K — open command palette.
+  // Exception : du texte sélectionné DANS l'éditeur → Cmd+K est le préfixe
+  // du chord IA (Cmd+K Cmd+R reformater, etc.). On rend la main (return
+  // false → pas de stopPropagation) pour que le listener de l'éditeur
+  // reçoive l'événement et arme le chord.
   useShortcut({
     id: "palette.open",
     keys: "mod+k",
     scope: "global",
     description: "Ouvrir la palette de commandes",
-    handler: () => {
+    handler: (e) => {
+      const target = e.target as HTMLElement | null;
+      const inEditor = !!target?.closest?.(".sn-editor-wrapper");
+      const hasTextSelection = !(window.getSelection()?.isCollapsed ?? true);
+      if (inEditor && hasTextSelection) return false;
       setPaletteOpen((prev) => !prev);
       return true;
     },

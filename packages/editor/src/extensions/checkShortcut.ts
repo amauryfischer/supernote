@@ -33,6 +33,7 @@ interface BlockNoteEditorLike {
     block: BlockLike | string,
     placement?: "start" | "end",
   ) => void;
+  focus: () => void;
   onChange: (cb: () => void) => () => void;
 }
 
@@ -78,12 +79,41 @@ export function attachCheckShortcut(editor: BlockNoteEditorLike): () => void {
         // block. Re-anchor to the converted block (same id, refreshed via
         // start placement) on the next tick so the user can immediately
         // type the todo text.
-        setTimeout(() => {
+        const reanchor = () => {
           try {
             editor.setTextCursorPosition(block.id, "start");
           } catch {
-            /* ignore */
+            /* ignore — block may have been removed mid-flight */
           }
+        };
+        setTimeout(() => {
+          reanchor();
+          // The converted block is a React NodeView whose contentDOM mounts
+          // asynchronously. If it wasn't committed yet, ProseMirror leaves
+          // the DOM selection at the blockGroup boundary — the visible
+          // caret sits before the checkbox and ProseMirror may later adopt
+          // the boundary as state, sending keystrokes to the WRONG block.
+          // After two animation frames (React has committed by then), if
+          // the editor still thinks the cursor is in the converted block
+          // but the DOM selection disagrees, re-sync DOM ← state via
+          // focus(). NEVER re-set the cursor position here: by now the
+          // user may have typed — resetting to "start" would teleport the
+          // caret mid-word.
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              try {
+                if (editor.getTextCursorPosition().block.id !== block.id) return;
+                const sel = document.getSelection();
+                const target = document.querySelector(`[data-id="${block.id}"]`);
+                if (!target) return;
+                if (!sel?.anchorNode || !target.contains(sel.anchorNode)) {
+                  editor.focus();
+                }
+              } catch {
+                /* editor torn down mid-flight */
+              }
+            });
+          });
         }, 0);
       } catch {
         /* block may have been removed mid-flight; ignore */

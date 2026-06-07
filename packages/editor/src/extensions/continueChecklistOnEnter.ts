@@ -60,6 +60,7 @@ interface BlockNoteEditorLike {
     block: BlockLike | string,
     placement?: "start" | "end",
   ) => void;
+  focus: () => void;
   onChange: (cb: () => void) => () => void;
 }
 
@@ -123,17 +124,41 @@ export function attachContinueChecklistOnEnter(
         // Re-anchor the caret AT THE START of the converted block. After
         // a type swap BlockNote sometimes parks the cursor at the document
         // end; without this the user has to click back into the new item.
-        // Empty content → start, has content → start (it'd land mid-text
-        // otherwise which is jarring after a split).
-        setTimeout(() => {
+        const reanchor = () => {
           try {
-            editor.setTextCursorPosition(
-              block.id,
-              isBlockEmpty(block) ? "start" : "start",
-            );
+            editor.setTextCursorPosition(block.id, "start");
           } catch {
             /* ignore — block may have been removed mid-flight */
           }
+        };
+        setTimeout(() => {
+          reanchor();
+          // The converted block is a React NodeView whose contentDOM mounts
+          // asynchronously. If it wasn't committed yet, ProseMirror leaves
+          // the DOM selection at the blockGroup boundary — the visible
+          // caret sits before the checkbox and ProseMirror may later adopt
+          // the boundary as state, sending keystrokes to the WRONG block.
+          // After two animation frames (React has committed by then), if
+          // the editor still thinks the cursor is in the converted block
+          // but the DOM selection disagrees, re-sync DOM ← state via
+          // focus(). NEVER re-set the cursor position here: by now the
+          // user may have typed — resetting to "start" would teleport the
+          // caret mid-word.
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              try {
+                if (editor.getTextCursorPosition().block.id !== block.id) return;
+                const sel = document.getSelection();
+                const target = document.querySelector(`[data-id="${block.id}"]`);
+                if (!target) return;
+                if (!sel?.anchorNode || !target.contains(sel.anchorNode)) {
+                  editor.focus();
+                }
+              } catch {
+                /* editor torn down mid-flight */
+              }
+            });
+          });
           // Drop the guard on the next tick so a real subsequent Enter
           // can be processed.
           setTimeout(() => {
