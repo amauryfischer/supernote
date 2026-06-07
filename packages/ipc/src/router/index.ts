@@ -10,6 +10,7 @@ import { variablesRouter } from "./variables.router.js";
 import { formulasRouter } from "./formulas.router.js";
 import { templatesRouter } from "./templates.router.js";
 import { gitRouter } from "./git.router.js";
+import { syncRouter } from "./sync.router.js";
 import { searchRouter } from "./search.router.js";
 import { systemRouter } from "./system.router.js";
 import { viewsRouter } from "./views.router.js";
@@ -35,6 +36,7 @@ export const appRouter = router({
   formulas: formulasRouter,
   templates: templatesRouter,
   git: gitRouter,
+  sync: syncRouter,
   search: searchRouter,
   system: systemRouter,
 });
@@ -55,5 +57,6 @@ export { variablesRouter, type VariablesRouter } from "./variables.router.js";
 export { formulasRouter, type FormulasRouter } from "./formulas.router.js";
 export { templatesRouter, type TemplatesRouter } from "./templates.router.js";
 export { gitRouter, type GitRouter } from "./git.router.js";
+export { syncRouter, type SyncRouter } from "./sync.router.js";
 export { searchRouter, type SearchRouter } from "./search.router.js";
 export { systemRouter, type SystemRouter } from "./system.router.js";

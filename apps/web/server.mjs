@@ -1,11 +1,16 @@
 /**
  * Production static server for the Supernote PWA (client-only Vite SPA).
  *
- * Zero dependencies — runs on the Node runtime always present on Scalingo,
- * so it survives any devDependency pruning (vite/turbo are build-time only).
- * Serves the prebuilt `dist/` with history-API fallback to index.html for
- * client-side routes, and the correct MIME types for the wasm / module /
- * font assets the app loads at runtime.
+ * Stays dependency-free for the static-serving path — runs on the Node runtime
+ * always present on Scalingo, so it survives any devDependency pruning
+ * (vite/turbo are build-time only). Serves the prebuilt `dist/` with
+ * history-API fallback to index.html for client-side routes, and the correct
+ * MIME types for the wasm / module / font assets the app loads at runtime.
+ *
+ * Optional realtime online sync: when `DATABASE_URL` is set, the server also
+ * mounts the SSE/POST sync backend under `/api/sync/*` (see `sync-backend.mjs`).
+ * That path lazily pulls in `better-sqlite3`; without `DATABASE_URL` it's never
+ * imported, so the default deployment keeps its zero-dependency guarantee.
  */
 import { createServer } from "node:http";
 import { readFile, stat } from "node:fs/promises";
@@ -15,6 +20,18 @@ import { fileURLToPath } from "node:url";
 const DIST = join(fileURLToPath(new URL(".", import.meta.url)), "dist");
 const PORT = Number(process.env.PORT) || 3100;
 const HOST = "0.0.0.0";
+
+// Optional realtime online-sync backend. Built only when a database is
+// configured; a load failure must never take down static serving.
+let syncBackend = { enabled: false, handle: () => false };
+if (process.env.DATABASE_URL) {
+  try {
+    const { createSyncBackend } = await import("./sync-backend.mjs");
+    syncBackend = createSyncBackend();
+  } catch (err) {
+    console.error("[server] online sync backend failed to load (static serving continues):", err);
+  }
+}
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -55,6 +72,12 @@ function send(res, status, body, headers = {}) {
 
 const server = createServer(async (req, res) => {
   try {
+    // Realtime sync routes take precedence over static serving.
+    if (syncBackend.enabled && (req.url ?? "").startsWith("/api/sync/")) {
+      const handled = await syncBackend.handle(req, res);
+      if (handled) return;
+    }
+
     const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
     let pathname = decodeURIComponent(url.pathname);
     if (pathname.endsWith("/")) pathname += "index.html";

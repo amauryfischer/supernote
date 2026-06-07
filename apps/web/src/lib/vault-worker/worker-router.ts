@@ -3238,6 +3238,218 @@ export function buildRouter(
     });
   };
 
+  // ── sync.* (online realtime sync) ────────────────────────────────────────────
+  //
+  // The online-sync client (main thread) bridges these handlers to a remote
+  // op-log. `snapshot` seeds the server with the whole vault; `applyOps`
+  // materialises peers' ops into the local SQLite + FSA. Crucially `applyOps`
+  // does NOT invoke the lifecycle hooks: those drive the ENTITY_CHANGE
+  // emission, and re-emitting a freshly-applied remote op would echo it
+  // straight back to the server, creating an infinite loop.
+
+  type SyncOp = {
+    opId: string;
+    clientId: string;
+    kind: "upsert" | "delete";
+    entityId: string;
+    ts: number;
+    payload?: {
+      id: string;
+      typeId: string;
+      typeName: string;
+      filePath: string;
+      fields: Record<string, unknown>;
+      body: string;
+      tags: string[];
+      createdAt: string;
+      updatedAt: string;
+    };
+  };
+
+  const isMarkdownPath = (p: string): boolean => {
+    const lower = p.toLowerCase();
+    return lower.endsWith(".md") || lower.endsWith(".markdown");
+  };
+
+  /** Full snapshot of the vault as one `upsert` op per entity. */
+  const syncSnapshot = async (): Promise<unknown> => {
+    const res = db.exec(
+      `SELECT e.id, e.typeId, et.name AS typeName, e.filePath, e.fields, e.body,
+              e.createdAt, e.updatedAt,
+              (SELECT GROUP_CONCAT(t.path, char(31))
+                 FROM entity_tag etag JOIN tag t ON t.id = etag.tagId
+                WHERE etag.entityId = e.id) AS tagPaths
+         FROM entity e JOIN entity_type et ON et.id = e.typeId
+        WHERE e.vaultId = ?`,
+      [vaultId],
+    );
+    const ops: SyncOp[] = rows(res).map((r) => {
+      const updatedAt = (r["updatedAt"] as string) ?? now();
+      const tagPaths = r["tagPaths"] as string | null;
+      return {
+        opId: generateId(),
+        clientId: "",
+        kind: "upsert",
+        entityId: r["id"] as string,
+        ts: Date.parse(updatedAt) || Date.now(),
+        payload: {
+          id: r["id"] as string,
+          typeId: r["typeId"] as string,
+          typeName: (r["typeName"] as string) ?? "",
+          filePath: (r["filePath"] as string) ?? "",
+          fields: safeParseFieldsBlob((r["fields"] as string) || "{}"),
+          body: (r["body"] as string) ?? "",
+          tags: tagPaths ? tagPaths.split("").filter(Boolean) : [],
+          createdAt: (r["createdAt"] as string) ?? updatedAt,
+          updatedAt,
+        },
+      };
+    });
+    return { ops, generatedAt: Date.now() };
+  };
+
+  /** Local state summary for the sync UI. */
+  const syncHead = async (): Promise<unknown> => {
+    const r = row(db.exec(`SELECT COUNT(*) AS c FROM entity WHERE vaultId = ?`, [vaultId]));
+    return { vaultId, entityCount: r ? Number(r["c"]) : 0 };
+  };
+
+  /** Materialise a batch of remote ops into the local vault. LWW, no echo. */
+  const syncApplyOps = async (input: unknown): Promise<unknown> => {
+    const { ops } = (input as { ops?: SyncOp[] }) ?? {};
+    let applied = 0;
+    let skipped = 0;
+    for (const op of ops ?? []) {
+      try {
+        const existing = row(db.exec(
+          `SELECT id, filePath, updatedAt FROM entity WHERE id = ?`,
+          [op.entityId],
+        ));
+        const existingTs = existing ? Date.parse(existing["updatedAt"] as string) || 0 : 0;
+        const opTs = op.payload ? Date.parse(op.payload.updatedAt) || op.ts : op.ts;
+        // Last-write-wins: ignore ops not strictly newer than local state.
+        if (existing && opTs < existingTs) {
+          skipped++;
+          continue;
+        }
+
+        if (op.kind === "delete") {
+          if (existing) {
+            const filePath = (existing["filePath"] as string) ?? "";
+            if (filePath) {
+              try {
+                await deleteVaultFile(vaultHandle, filePath.split("/"));
+              } catch {
+                /* already gone */
+              }
+              await deleteExcalidrawSibling(vaultHandle, filePath);
+            }
+            db.run(`DELETE FROM entity WHERE id = ?`, [op.entityId]);
+            ftsRemove(db, op.entityId);
+            applied++;
+          } else {
+            skipped++;
+          }
+          continue;
+        }
+
+        // upsert
+        const payload = op.payload;
+        if (!payload) {
+          skipped++;
+          continue;
+        }
+        const typeRow = row(db.exec(`SELECT name FROM entity_type WHERE id = ?`, [payload.typeId]));
+        if (!typeRow) {
+          // Unknown entity type on this device — can't satisfy the FK. Skip
+          // rather than corrupt the DB; a later schema sync may unblock it.
+          console.warn(`[sync.applyOps] skip ${op.entityId}: unknown typeId ${payload.typeId}`);
+          skipped++;
+          continue;
+        }
+        // Guard against filePath collisions with a DIFFERENT entity (the
+        // unique(vaultId, filePath) constraint). Don't clobber a local note.
+        const pathOwner = row(db.exec(
+          `SELECT id FROM entity WHERE vaultId = ? AND filePath = ? LIMIT 1`,
+          [vaultId, payload.filePath],
+        ));
+        if (pathOwner && (pathOwner["id"] as string) !== op.entityId) {
+          console.warn(
+            `[sync.applyOps] skip ${op.entityId}: filePath ${payload.filePath} owned by ${pathOwner["id"]}`,
+          );
+          skipped++;
+          continue;
+        }
+
+        const fields = { ...payload.fields };
+        // Strip a stray filePath key so it isn't double-stored in the blob.
+        delete (fields as Record<string, unknown>)["filePath"];
+        let hash = "";
+        // Only markdown entities round-trip to a file. Attachments / canvas
+        // siblings aren't transported in this MVP — we still upsert the DB
+        // row so metadata stays in sync.
+        if (isMarkdownPath(payload.filePath)) {
+          const frontmatter: Record<string, unknown> = {
+            id: op.entityId,
+            type: typeRow["name"],
+            ...fields,
+          };
+          const content = serializeFrontmatter(frontmatter, payload.body ?? "");
+          await writeVaultFile(vaultHandle, payload.filePath.split("/"), content);
+          hash = await hashContent(content);
+        }
+
+        if (existing) {
+          db.run(
+            `UPDATE entity SET typeId = ?, filePath = ?, fields = ?, body = ?, fileHash = ?, createdAt = ?, updatedAt = ? WHERE id = ?`,
+            [
+              payload.typeId,
+              payload.filePath,
+              JSON.stringify(fields),
+              payload.body ?? "",
+              hash,
+              payload.createdAt,
+              payload.updatedAt,
+              op.entityId,
+            ],
+          );
+        } else {
+          db.run(
+            `INSERT INTO entity (id, vaultId, typeId, filePath, fields, body, fileHash, createdAt, updatedAt)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+              op.entityId,
+              vaultId,
+              payload.typeId,
+              payload.filePath,
+              JSON.stringify(fields),
+              payload.body ?? "",
+              hash,
+              payload.createdAt,
+              payload.updatedAt,
+            ],
+          );
+        }
+
+        db.run(`DELETE FROM entity_tag WHERE entityId = ?`, [op.entityId]);
+        await applyEntityTags(db, vaultId, op.entityId, payload.tags ?? [], payload.updatedAt);
+        ftsAdd(db, {
+          id: op.entityId,
+          typeId: payload.typeId,
+          title: deriveTitle(JSON.stringify(fields), payload.filePath),
+          body: payload.body ?? "",
+          tags: (payload.tags ?? []).join(" "),
+          path: derivePath(payload.filePath),
+        });
+        applied++;
+      } catch (err) {
+        console.warn(`[sync.applyOps] op ${op.opId} failed (non-fatal)`, err);
+        skipped++;
+      }
+    }
+    return { applied, skipped };
+  };
+
   // ── Dispatch table ─────────────────────────────────────────────────────────
 
   return {
@@ -3304,6 +3516,10 @@ export function buildRouter(
     "variables.evaluate": variablesEvaluate,
 
     "formulas.evaluate": formulasEvaluate,
+
+    "sync.snapshot": syncSnapshot,
+    "sync.head": syncHead,
+    "sync.applyOps": syncApplyOps,
   };
 }
 
