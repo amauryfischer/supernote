@@ -851,6 +851,188 @@ html, body {
   .sn-ambiance-zen .bn-editor { animation: none; }
 }
 
+/* ── Nuit — indigo profond, sombre feutré ───────────────────────────────── */
+.sn-ambiance-midnight {
+  --surface-0: #0f1226;
+  --surface-1: #151935;
+  --surface-2: #1d2247;
+  --text-primary: #dfe3ff;
+  --text-secondary: #aab1e6;
+  --text-muted: #6f76a8;
+  --border-subtle: #262c54;
+  --accent: #8b9bff;
+  --accent-subtle: #1c2148;
+  background-color: #0f1226;
+  background-image:
+    radial-gradient(ellipse at 20% 15%, rgba(120, 140, 255, 0.08), transparent 55%),
+    radial-gradient(ellipse at 85% 80%, rgba(150, 110, 255, 0.06), transparent 55%);
+}
+.sn-ambiance-midnight ::selection { background: rgba(139, 155, 255, 0.28); }
+
+/* ── Océan — bleu calme, clair ──────────────────────────────────────────── */
+.sn-ambiance-ocean {
+  --surface-0: #eef6fb;
+  --surface-1: #e4f0f8;
+  --surface-2: #d6e8f3;
+  --text-primary: #173a52;
+  --text-secondary: #355d76;
+  --text-muted: #6f93a8;
+  --border-subtle: #cfe2ee;
+  --accent: #1f7aa6;
+  --accent-subtle: #dceef6;
+  background-color: #eef6fb;
+  background-image:
+    radial-gradient(ellipse at 50% -10%, rgba(31, 122, 166, 0.07), transparent 60%);
+}
+.sn-ambiance-ocean .bn-editor { line-height: 1.7; }
+.sn-ambiance-ocean ::selection { background: rgba(31, 122, 166, 0.2); }
+
+/* ── Forêt — vert sauge, serif nature ───────────────────────────────────── */
+.sn-ambiance-forest {
+  --surface-0: #eef3ec;
+  --surface-1: #e7efe4;
+  --surface-2: #dde8d9;
+  --text-primary: #283a2c;
+  --text-secondary: #455c40;
+  --text-muted: #748a6d;
+  --border-subtle: #d6e2d1;
+  --accent: #4a7a4f;
+  --accent-subtle: #e0ebdd;
+  background-color: #eef3ec;
+  background-image:
+    radial-gradient(ellipse at 15% 20%, rgba(74, 122, 79, 0.06), transparent 55%),
+    radial-gradient(ellipse at 85% 75%, rgba(74, 122, 79, 0.05), transparent 55%);
+}
+.sn-ambiance-forest .bn-editor,
+.sn-ambiance-forest .sn-note-title {
+  font-family: "Iowan Old Style", Georgia, "Times New Roman", serif;
+}
+.sn-ambiance-forest .bn-editor { line-height: 1.72; }
+.sn-ambiance-forest ::selection { background: rgba(74, 122, 79, 0.2); }
+
+/* ── Rose poudré — blush tendre ─────────────────────────────────────────── */
+.sn-ambiance-blush {
+  --surface-0: #fbf0f2;
+  --surface-1: #f8e8ec;
+  --surface-2: #f3dde3;
+  --text-primary: #5e3543;
+  --text-secondary: #835060;
+  --text-muted: #b08793;
+  --border-subtle: #f0d6dd;
+  --accent: #c06b86;
+  --accent-subtle: #f6e2e8;
+  background-color: #fbf0f2;
+  background-image:
+    radial-gradient(ellipse at 80% 10%, rgba(192, 107, 134, 0.07), transparent 55%);
+}
+.sn-ambiance-blush ::selection { background: rgba(192, 107, 134, 0.22); }
+
+/* ── Solarisé — palette dev chaude, mono ────────────────────────────────── */
+.sn-ambiance-solarized {
+  --surface-0: #fdf6e3;
+  --surface-1: #f7f0d8;
+  --surface-2: #eee8d5;
+  --text-primary: #586e75;
+  --text-secondary: #657b83;
+  --text-muted: #93a1a1;
+  --border-subtle: #e6dfc6;
+  --accent: #b58900;
+  --accent-subtle: #f0e7c8;
+  background-color: #fdf6e3;
+}
+.sn-ambiance-solarized .bn-editor,
+.sn-ambiance-solarized .sn-note-title {
+  font-family: ui-monospace, "JetBrains Mono", "Fira Code", Menlo, monospace;
+}
+.sn-ambiance-solarized .bn-editor { font-size: 0.95em; }
+.sn-ambiance-solarized ::selection { background: rgba(181, 137, 0, 0.2); }
+
+/* ── Lavande — violet posé ──────────────────────────────────────────────── */
+.sn-ambiance-lavender {
+  --surface-0: #f3f0fb;
+  --surface-1: #ece8f7;
+  --surface-2: #e2dcf2;
+  --text-primary: #3f3563;
+  --text-secondary: #5d5083;
+  --text-muted: #8e83b3;
+  --border-subtle: #ddd5f0;
+  --accent: #7c5cc4;
+  --accent-subtle: #e8e1f6;
+  background-color: #f3f0fb;
+  background-image:
+    radial-gradient(ellipse at 25% 15%, rgba(124, 92, 196, 0.06), transparent 55%);
+}
+.sn-ambiance-lavender ::selection { background: rgba(124, 92, 196, 0.2); }
+
+/* ── Encre — éditorial noir & blanc, serif haute lisibilité ─────────────── */
+.sn-ambiance-ink {
+  --surface-0: #fbfbf9;
+  --surface-1: #f4f4f1;
+  --surface-2: #ebebe7;
+  --text-primary: #16160f;
+  --text-secondary: #3a3a32;
+  --text-muted: #76766c;
+  --border-subtle: #e3e3dc;
+  --accent: #1a1a1a;
+  --accent-subtle: #ededea;
+  background-color: #fbfbf9;
+}
+.sn-ambiance-ink .bn-editor,
+.sn-ambiance-ink .sn-note-title {
+  font-family: "Iowan Old Style", "Palatino Linotype", Georgia, "Times New Roman", serif;
+}
+.sn-ambiance-ink .bn-editor { line-height: 1.75; }
+.sn-ambiance-ink .sn-note-title { letter-spacing: -0.01em; }
+.sn-ambiance-ink ::selection { background: rgba(0, 0, 0, 0.14); }
+
+/* ── Ardoise — graphite froid, sombre minimal ──────────────────────────── */
+.sn-ambiance-slate {
+  --surface-0: #1b1f24;
+  --surface-1: #21262d;
+  --surface-2: #2a313a;
+  --text-primary: #d6dee8;
+  --text-secondary: #a3aebc;
+  --text-muted: #6b7682;
+  --border-subtle: #2e353f;
+  --accent: #7aa2c2;
+  --accent-subtle: #232c36;
+  background-color: #1b1f24;
+}
+.sn-ambiance-slate ::selection { background: rgba(122, 162, 194, 0.26); }
+
+/* ── Synthwave — néon rétro magenta/cyan, mono ──────────────────────────── */
+.sn-ambiance-synthwave {
+  --surface-0: #1a1030;
+  --surface-1: #21143c;
+  --surface-2: #2b1b4d;
+  --text-primary: #f5d6ff;
+  --text-secondary: #c79bf0;
+  --text-muted: #8b6bb5;
+  --border-subtle: #34225a;
+  --accent: #ff6ad5;
+  --accent-subtle: #2a1748;
+  position: relative;
+  background-color: #1a1030;
+  background-image:
+    radial-gradient(ellipse at 50% 120%, rgba(255, 106, 213, 0.12), transparent 60%),
+    radial-gradient(ellipse at 50% -20%, rgba(95, 220, 255, 0.1), transparent 55%);
+}
+.sn-ambiance-synthwave .bn-editor,
+.sn-ambiance-synthwave .sn-note-title {
+  font-family: ui-monospace, "JetBrains Mono", "Fira Code", Menlo, monospace;
+}
+.sn-ambiance-synthwave .bn-editor { caret-color: #ff6ad5; }
+.sn-ambiance-synthwave ::selection { background: rgba(255, 106, 213, 0.3); }
+/* Lueur horizon décorative — pointer-events none, purement visuel. */
+.sn-ambiance-synthwave::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background: linear-gradient(180deg, transparent 60%, rgba(95, 220, 255, 0.05) 100%);
+}
+
 /* ── Typographie par note — override fin, cumulable avec une ambiance ────── */
 .sn-typo-serif .bn-editor { font-family: "Iowan Old Style", Georgia, "Times New Roman", serif; }
 .sn-typo-sans .bn-editor { font-family: Inter, system-ui, -apple-system, sans-serif; }
@@ -1002,6 +1184,31 @@ html, body {
   }
   .sn-pressable:active { transform: none; }
   .sn-hover-lift:hover { transform: none; }
+}
+
+/* ── Couverture de note en arrière-plan du bloc titre ───────────────────────
+ * Quand une couverture est posée, le hero (breadcrumb + titre) est rendu PAR-
+ * DESSUS le fond + scrim (cf. CoverBackdrop). Le texte passe en clair pour
+ * rester lisible quel que soit l'ambiance/le thème. */
+.sn-note-hero--cover {
+  min-height: 11rem;
+  color: #fff;
+}
+@media (min-width: 768px) {
+  .sn-note-hero--cover {
+    min-height: 15rem;
+  }
+}
+.sn-note-hero--cover .sn-note-title {
+  color: #fff !important;
+}
+.sn-note-hero--cover .sn-note-title::placeholder {
+  color: rgba(255, 255, 255, 0.72) !important;
+}
+/* Breadcrumb (nav[aria-label="Dossier"]) — texte clair sur le scrim. */
+.sn-note-hero--cover nav[aria-label="Dossier"],
+.sn-note-hero--cover nav[aria-label="Dossier"] * {
+  color: rgba(255, 255, 255, 0.92) !important;
 }
 
 /* Universal vestibular safety net. Surfaces across the app animate via inline

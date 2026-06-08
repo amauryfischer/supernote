@@ -13,11 +13,42 @@ import { Button } from "@heroui/react";
 import { Check, Palette } from "@phosphor-icons/react";
 import { trpc } from "@/lib/trpc/client";
 
-export type NoteAmbiance = "none" | "paper" | "terminal" | "zen";
+export type NoteAmbiance =
+  | "none"
+  | "paper"
+  | "terminal"
+  | "zen"
+  | "midnight"
+  | "ocean"
+  | "forest"
+  | "blush"
+  | "solarized"
+  | "lavender"
+  | "ink"
+  | "slate"
+  | "synthwave";
 export type NoteTypo = "default" | "serif" | "sans" | "mono";
 
+/** Ids d'ambiance valides (hors « none »). Source de vérité pour le narrowing. */
+const AMBIANCE_IDS = new Set<NoteAmbiance>([
+  "paper",
+  "terminal",
+  "zen",
+  "midnight",
+  "ocean",
+  "forest",
+  "blush",
+  "solarized",
+  "lavender",
+  "ink",
+  "slate",
+  "synthwave",
+]);
+
 export function asAmbiance(v: unknown): NoteAmbiance {
-  return v === "paper" || v === "terminal" || v === "zen" ? v : "none";
+  return typeof v === "string" && AMBIANCE_IDS.has(v as NoteAmbiance)
+    ? (v as NoteAmbiance)
+    : "none";
 }
 
 export function asTypo(v: unknown): NoteTypo {
@@ -88,6 +119,100 @@ const PRESETS: PresetDef[] = [
       color: "#5a6b5d",
       letterSpacing: 2,
       border: "1px solid #e3e7e0",
+    },
+  },
+  {
+    id: "midnight",
+    label: "Nuit",
+    hint: "Indigo profond, feutré",
+    swatch: {
+      background: "#0f1226",
+      color: "#c7d2fe",
+      border: "1px solid #262c54",
+    },
+  },
+  {
+    id: "ocean",
+    label: "Océan",
+    hint: "Bleu calme, aéré",
+    swatch: {
+      background: "#eef6fb",
+      color: "#234e6b",
+      border: "1px solid #cfe2ee",
+    },
+  },
+  {
+    id: "forest",
+    label: "Forêt",
+    hint: "Vert sauge, serif",
+    swatch: {
+      background: "#eef3ec",
+      color: "#2f4632",
+      fontFamily: "Georgia, 'Times New Roman', serif",
+      border: "1px solid #d6e2d1",
+    },
+  },
+  {
+    id: "blush",
+    label: "Rose poudré",
+    hint: "Rose tendre, doux",
+    swatch: {
+      background: "#fbf0f2",
+      color: "#7a3b4e",
+      border: "1px solid #f0d6dd",
+    },
+  },
+  {
+    id: "solarized",
+    label: "Solarisé",
+    hint: "Tons chauds, mono",
+    swatch: {
+      background: "#fdf6e3",
+      color: "#586e75",
+      fontFamily: "ui-monospace, monospace",
+      border: "1px solid #eee8d5",
+    },
+  },
+  {
+    id: "lavender",
+    label: "Lavande",
+    hint: "Violet posé, calme",
+    swatch: {
+      background: "#f3f0fb",
+      color: "#4c3f6b",
+      border: "1px solid #e2dcf2",
+    },
+  },
+  {
+    id: "ink",
+    label: "Encre",
+    hint: "Noir & blanc, éditorial",
+    swatch: {
+      background: "#fbfbf9",
+      color: "#16160f",
+      fontFamily: "Georgia, 'Times New Roman', serif",
+      border: "1px solid #e3e3dc",
+    },
+  },
+  {
+    id: "slate",
+    label: "Ardoise",
+    hint: "Graphite froid, net",
+    swatch: {
+      background: "#1b1f24",
+      color: "#cdd6e0",
+      border: "1px solid #2e353f",
+    },
+  },
+  {
+    id: "synthwave",
+    label: "Synthwave",
+    hint: "Néon rétro, sombre",
+    swatch: {
+      background: "#1a1030",
+      color: "#ff7ce5",
+      fontFamily: "ui-monospace, monospace",
+      border: "1px solid #34225a",
     },
   },
 ];
@@ -163,6 +288,8 @@ export function AmbianceSelector({
             right: 0,
             zIndex: 50,
             width: 240,
+            maxHeight: "min(70vh, 460px)",
+            overflowY: "auto",
             padding: 6,
             borderRadius: 10,
             backgroundColor: "var(--surface-1)",

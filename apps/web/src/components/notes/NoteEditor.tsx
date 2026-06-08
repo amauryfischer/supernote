@@ -31,7 +31,7 @@ import { renderNoteFormula, NoteFormulaModalHost } from "./NoteFormulaBridge";
 import { renderNotePortal } from "./NotePortal";
 import { renderDoodle } from "./DoodleRenderer";
 import { AmbianceSelector, ambianceClass, asAmbiance, asTypo, type NoteAmbiance, type NoteTypo } from "./AmbianceSelector";
-import { NoteCover, CoverButton, asCover } from "./NoteCover";
+import { CoverBackdrop, CoverButton, asCover } from "./NoteCover";
 import { NoteIcon, IconButton, asIcon } from "./NoteIcon";
 import { AiMarginsPanel } from "./AiMarginsPanel";
 import { bestBlockMatchIndex } from "@/lib/ai/blockComments";
@@ -121,10 +121,13 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
   const keyboardOpen = useKeyboardOpen();
   const hideToolbarForKeyboard = isMobile && keyboardOpen;
   const [title, setTitle] = useState(note.title);
+  // Couverture posée → sert de fond au bloc titre (cf. CoverBackdrop). Repliée
+  // pendant l'édition clavier mobile (focus = espace maximal).
   const [tags, setTags] = useState<string[]>(note.tags);
   const [ambiance, setAmbiance] = useState<NoteAmbiance>(() => asAmbiance(note.fields?.["ambiance"]));
   const [typo, setTypo] = useState<NoteTypo>(() => asTypo(note.fields?.["typo"]));
   const [cover, setCover] = useState<string | null>(() => asCover(note.fields?.["cover"]));
+  const coverActive = Boolean(cover) && !hideToolbarForKeyboard;
   const [icon, setIcon] = useState<string | null>(() => asIcon(note.fields?.["icon"]));
 
   const handleCoverChange = useCallback(
@@ -365,6 +368,17 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
     setTitleAiBadge(false);
     setTagsAiBadge(false);
     setPendingBody(null);
+    // Réglages visuels par note (persistés dans `fields`) : les useState
+    // initializers ne tournent qu'au mount, or l'éditeur ne remonte PAS quand
+    // on passe d'une note à l'autre. Sans ce re-sync, le thème/couverture de la
+    // note précédente reste affiché → effet « non enregistré » alors que la
+    // valeur est bien sur disque. On relit donc depuis note.fields à chaque
+    // changement de note.id.
+    setAmbiance(asAmbiance(note.fields?.["ambiance"]));
+    setTypo(asTypo(note.fields?.["typo"]));
+    setCover(asCover(note.fields?.["cover"]));
+    setIcon(asIcon(note.fields?.["icon"]));
+    setAiMargins(note.fields?.["aiMargins"] === true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [note.id]);
 
@@ -1049,24 +1063,27 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
         onCancel={() => setAiModalOpen(false)}
       />
 
-      {/* Cover banner (façon Notion) — pleine largeur, au-dessus de l'en-tête.
-          Masqué pendant l'édition clavier mobile (focus = espace maximal). */}
-      {!hideToolbarForKeyboard && <NoteCover coverId={cover} onChange={handleCoverChange} />}
-
-      {/* Header — masqué pendant l'édition clavier mobile (cf. focus clavier). */}
+      {/* Header — la couverture sert de FOND au bloc titre (breadcrumb + titre),
+          façon Notion : « en background », pas en bandeau séparé au-dessus.
+          Masqué pendant l'édition clavier mobile (cf. focus clavier). */}
       <div
-        className="sn-no-print px-4 py-4 md:px-10 md:py-6"
-        style={{
-          borderBottom: "1px solid var(--border-subtle)",
-          display: hideToolbarForKeyboard ? "none" : undefined,
-        }}
+        className="sn-no-print"
+        style={{ display: hideToolbarForKeyboard ? "none" : undefined }}
       >
-        <FolderBreadcrumb
-          path={note.folderPath}
-          onContextMenu={openBreadcrumbContextMenu}
-          onRenameFolder={handleRenameBreadcrumbFolder}
-        />
-        <div className="flex items-center gap-2">
+        {/* Hero : breadcrumb + titre posés SUR la couverture (si présente). */}
+        <div
+          className={`sn-note-hero group relative px-4 pb-4 pt-4 md:px-10 md:pb-5 md:pt-6${
+            coverActive ? " sn-note-hero--cover flex flex-col justify-end" : ""
+          }`}
+        >
+          {coverActive && <CoverBackdrop coverId={cover} onChange={handleCoverChange} />}
+          <div className="relative z-10">
+            <FolderBreadcrumb
+              path={note.folderPath}
+              onContextMenu={openBreadcrumbContextMenu}
+              onRenameFolder={handleRenameBreadcrumbFolder}
+            />
+            <div className="flex items-center gap-2">
           {icon && <NoteIcon icon={icon} onChange={handleIconChange} />}
           <input
             type="text"
@@ -1104,9 +1121,16 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
               {isSuggesting ? "..." : "Suggérer un titre"}
             </Button>
           )}
+            </div>
+          </div>
         </div>
 
-        <div className="mt-1.5 flex flex-wrap items-center gap-3">
+        {/* Métadonnées (date, tags, ambiance, actions) — fond solide, sous le hero. */}
+        <div
+          className="px-4 pb-4 pt-3 md:px-10 md:pb-6"
+          style={{ borderBottom: "1px solid var(--border-subtle)" }}
+        >
+          <div className="flex flex-wrap items-center gap-3">
           <EditableNoteDate
             noteId={note.id}
             fallbackDate={note.updatedAt}
@@ -1179,6 +1203,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
           </Button>
           <DropHint status={dropStatus} />
           <SaveIndicator status={saveStatus} />
+          </div>
         </div>
       </div>
 
@@ -1250,7 +1275,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
               className="min-h-[60vh] w-full"
               onAskAi={handleAskAi}
               dimInactiveBlocks={dimBlocks}
-              topToolbar={!hideToolbarForKeyboard}
+              topToolbar={!isMobile}
               onEditorReady={(insert) => { editorInsertRef.current = insert; }}
               onStreamingInsertReady={(begin) => { editorStreamRef.current = begin; }}
               renderDatabaseView={renderInlineDatabase}

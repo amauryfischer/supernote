@@ -1,17 +1,30 @@
 "use client";
 
 /**
- * NoteCover — bannière de couverture par note (façon Notion/Coda).
+ * NoteCover — couverture par note (façon Notion/Coda).
  *
- * Une couverture = un fond (gradient ou couleur unie) appliqué en bandeau
- * pleine largeur au-dessus de l'en-tête de la note. Persistée dans
- * `fields.cover` de la note (id de preset). Voir aussi NoteIcon (icône) et
+ * Une couverture = un fond appliqué EN ARRIÈRE-PLAN du bloc titre de la note
+ * (breadcrumb + titre posés par-dessus, cf. `CoverBackdrop`). Deux formes :
+ *  - un preset (gradient ou couleur unie, identifié par son `id`) ;
+ *  - une URL d'image (photo Unsplash, cf. `lib/unsplash.ts`).
+ * Persistée dans `fields.cover` de la note. Voir aussi NoteIcon (icône) et
  * AmbianceSelector (ambiance) qui partagent le même bag `fields`.
  */
 
 import { useEffect, useRef, useState } from "react";
-import { Button } from "@heroui/react";
-import { Check, Image as ImageIcon, Trash } from "@phosphor-icons/react";
+import { Button, Input, Spinner } from "@heroui/react";
+import {
+  Check,
+  Image as ImageIcon,
+  MagnifyingGlass,
+  Trash,
+} from "@phosphor-icons/react";
+import {
+  hasUnsplashKey,
+  searchUnsplash,
+  triggerUnsplashDownload,
+  type UnsplashPhoto,
+} from "@/lib/unsplash";
 
 interface CoverPreset {
   id: string;
@@ -37,19 +50,27 @@ export const COVER_PRESETS: CoverPreset[] = [
   { id: "graphite", label: "Graphite", bg: "#4b4f55" },
 ];
 
-/** Normalise une valeur brute issue de `fields.cover`. */
-export function asCover(v: unknown): string | null {
-  if (typeof v !== "string" || v.length === 0) return null;
-  return COVER_PRESETS.some((p) => p.id === v) ? v : null;
+/** Vrai si la valeur de couverture est une URL d'image (vs. un preset). */
+export function isImageCover(id: string | null): boolean {
+  return typeof id === "string" && /^https?:\/\//.test(id);
 }
 
-/** CSS `background` d'un id de couverture, ou undefined si inconnu. */
+/** Normalise une valeur brute issue de `fields.cover` (preset id OU URL image). */
+export function asCover(v: unknown): string | null {
+  if (typeof v !== "string" || v.length === 0) return null;
+  if (COVER_PRESETS.some((p) => p.id === v)) return v;
+  if (isImageCover(v)) return v;
+  return null;
+}
+
+/** CSS `background` d'une couverture, ou undefined si inconnue. */
 export function coverBackground(id: string | null): string | undefined {
   if (!id) return undefined;
+  if (isImageCover(id)) return `center / cover no-repeat url("${id}")`;
   return COVER_PRESETS.find((p) => p.id === id)?.bg;
 }
 
-/** Galerie en popover — partagée par la bannière et le bouton « Couverture ». */
+/** Galerie en popover — partagée par la couverture et le bouton « Couverture ». */
 function CoverGallery({
   value,
   onPick,
@@ -62,6 +83,11 @@ function CoverGallery({
   anchor: "left" | "right";
 }): React.JSX.Element {
   const rootRef = useRef<HTMLDivElement>(null);
+  const [query, setQuery] = useState("");
+  const [photos, setPhotos] = useState<UnsplashPhoto[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(false);
+  const hasKey = hasUnsplashKey();
 
   useEffect(() => {
     const onDown = (e: MouseEvent): void => {
@@ -78,6 +104,38 @@ function CoverGallery({
     };
   }, [onClose]);
 
+  // Recherche Unsplash — debouncée et abortable. Requête vide → curated random.
+  useEffect(() => {
+    if (!hasKey) return;
+    const ctrl = new AbortController();
+    setLoading(true);
+    setError(false);
+    const t = setTimeout(
+      () => {
+        searchUnsplash(query, ctrl.signal)
+          .then((res) => {
+            if (!ctrl.signal.aborted) setPhotos(res);
+          })
+          .catch(() => {
+            if (!ctrl.signal.aborted) setError(true);
+          })
+          .finally(() => {
+            if (!ctrl.signal.aborted) setLoading(false);
+          });
+      },
+      query ? 350 : 0,
+    );
+    return () => {
+      ctrl.abort();
+      clearTimeout(t);
+    };
+  }, [query, hasKey]);
+
+  const pickImage = (photo: UnsplashPhoto): void => {
+    triggerUnsplashDownload(photo);
+    onPick(photo.coverUrl);
+  };
+
   return (
     <div
       ref={rootRef}
@@ -88,14 +146,22 @@ function CoverGallery({
         top: "calc(100% + 6px)",
         [anchor]: 0,
         zIndex: 50,
-        width: "min(300px, calc(100vw - 32px))",
-        padding: 8,
+        width: "min(360px, calc(100vw - 32px))",
+        maxHeight: "min(70vh, 460px)",
+        overflowY: "auto",
+        padding: 10,
         borderRadius: 10,
         backgroundColor: "var(--surface-1)",
         border: "1px solid var(--border-subtle)",
         boxShadow: "0 8px 24px rgba(0,0,0,0.14)",
       }}
     >
+      <p
+        className="mb-1.5 text-[11px] font-medium uppercase tracking-wide"
+        style={{ color: "var(--text-muted)" }}
+      >
+        Couleurs
+      </p>
       <div className="grid grid-cols-3 gap-2">
         {COVER_PRESETS.map((p) => (
           <button
@@ -117,16 +183,95 @@ function CoverGallery({
           </button>
         ))}
       </div>
+
+      <p
+        className="mb-1.5 mt-3 text-[11px] font-medium uppercase tracking-wide"
+        style={{ color: "var(--text-muted)" }}
+      >
+        Unsplash
+      </p>
+      {hasKey ? (
+        <>
+          <div
+            className="flex items-center gap-1.5 rounded-md px-2 py-1.5"
+            style={{
+              backgroundColor: "var(--surface-0)",
+              border: "1px solid var(--border-subtle)",
+            }}
+          >
+            <MagnifyingGlass
+              size={14}
+              style={{ color: "var(--text-muted)", flexShrink: 0 }}
+            />
+            <Input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Rechercher des photos…"
+              aria-label="Rechercher des photos Unsplash"
+              className="w-full bg-transparent text-sm outline-none"
+              style={{ color: "var(--text-primary)" }}
+            />
+          </div>
+          {loading && (
+            <div className="flex justify-center py-4">
+              <Spinner size="sm" />
+            </div>
+          )}
+          {error && !loading && (
+            <p className="py-3 text-center text-xs" style={{ color: "var(--text-muted)" }}>
+              Recherche indisponible.
+            </p>
+          )}
+          {!loading && !error && photos.length > 0 && (
+            <div className="mt-2 grid grid-cols-3 gap-2">
+              {photos.map((photo) => (
+                <button
+                  key={photo.id}
+                  type="button"
+                  onClick={() => pickImage(photo)}
+                  title={`Photo : ${photo.authorName} (Unsplash)`}
+                  aria-label={`Couverture : ${photo.alt}`}
+                  className="relative h-12 overflow-hidden rounded-md outline-none ring-offset-1 transition hover:opacity-90 focus-visible:ring-2"
+                  style={{ border: "1px solid var(--border-subtle)" }}
+                >
+                  <img
+                    src={photo.thumbUrl}
+                    alt={photo.alt}
+                    loading="lazy"
+                    className="h-full w-full object-cover"
+                  />
+                  {value === photo.coverUrl && (
+                    <span
+                      className="absolute inset-0 flex items-center justify-center"
+                      style={{ backgroundColor: "rgba(0,0,0,0.25)" }}
+                    >
+                      <Check size={16} color="#fff" weight="bold" />
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+        </>
+      ) : (
+        <p className="text-xs leading-relaxed" style={{ color: "var(--text-muted)" }}>
+          Définissez <code>VITE_UNSPLASH_ACCESS_KEY</code> pour activer la recherche
+          de photos.
+        </p>
+      )}
     </div>
   );
 }
 
 /**
- * Bannière de couverture. Rend `null` si aucune couverture. Contrôles
- * (changer / supprimer) en survol sur desktop, toujours visibles sur mobile
- * (pas de hover tactile).
+ * Arrière-plan de couverture — à rendre comme fond du bloc titre (le parent
+ * doit être `position: relative`). Rend le fond (gradient/couleur ou image) +
+ * un scrim pour la lisibilité du texte clair + les contrôles (changer /
+ * supprimer), en survol sur desktop, toujours visibles sur mobile.
+ *
+ * Rend `null` si aucune couverture.
  */
-export function NoteCover({
+export function CoverBackdrop({
   coverId,
   onChange,
 }: {
@@ -136,11 +281,23 @@ export function NoteCover({
   const [open, setOpen] = useState(false);
   if (!coverId) return null;
   const bg = coverBackground(coverId) ?? COVER_PRESETS[0]!.bg;
+  const image = isImageCover(coverId);
 
   return (
-    <div className="sn-no-print group relative w-full shrink-0" style={{ background: bg }}>
-      <div className="h-28 w-full md:h-44" />
-      <div className="absolute bottom-2 right-2 flex gap-1.5 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100">
+    <>
+      <div aria-hidden className="absolute inset-0" style={{ background: bg }} />
+      {/* Scrim : assombrit le bas (où vit le titre) pour garder le texte lisible.
+          Plus marqué sur photo que sur gradient. */}
+      <div
+        aria-hidden
+        className="absolute inset-0"
+        style={{
+          background: image
+            ? "linear-gradient(to bottom, rgba(0,0,0,0.18) 0%, rgba(0,0,0,0) 45%, rgba(0,0,0,0.6) 100%)"
+            : "linear-gradient(to bottom, rgba(0,0,0,0) 45%, rgba(0,0,0,0.22) 100%)",
+        }}
+      />
+      <div className="absolute right-2 top-2 z-20 flex gap-1.5 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100">
         <div style={{ position: "relative" }}>
           <Button
             variant="ghost"
@@ -175,7 +332,7 @@ export function NoteCover({
           <Trash size={13} />
         </Button>
       </div>
-    </div>
+    </>
   );
 }
 
