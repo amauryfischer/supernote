@@ -20,6 +20,8 @@ export interface IndexResult {
   indexed: number;
   skipped: number;
   failed: number;
+  /** Message de la première erreur d'embedding (diagnostic UI). */
+  firstError?: string;
 }
 
 function resolveHost(override?: string): string {
@@ -34,19 +36,24 @@ function resolveHost(override?: string): string {
   return DEFAULT_OLLAMA_HOST;
 }
 
+type IndexOutcome =
+  | { kind: "indexed" }
+  | { kind: "skipped" }
+  | { kind: "failed"; error: string };
+
 async function indexNote(
   note: EntitySummary,
   host: string,
   model: string,
   force: boolean,
-): Promise<"indexed" | "skipped" | "failed"> {
+): Promise<IndexOutcome> {
   const existing = parseEmbeddingField(note.fields["embedding"]);
-  if (existing && !force) return "skipped";
+  if (existing && !force) return { kind: "skipped" };
 
   const titleField = note.fields["title"];
   const title = typeof titleField === "string" ? titleField : note.filePath;
   const text = [title, note.body ?? ""].filter(Boolean).join("\n\n");
-  if (!text.trim()) return "skipped";
+  if (!text.trim()) return { kind: "skipped" };
 
   try {
     const vec = await embedQuery(text, host, model);
@@ -54,9 +61,9 @@ async function indexNote(
       id: note.id,
       fields: { ...note.fields, embedding: encodeEmbeddingField(vec) },
     });
-    return "indexed";
-  } catch {
-    return "failed";
+    return { kind: "indexed" };
+  } catch (e) {
+    return { kind: "failed", error: e instanceof Error ? e.message : String(e) };
   }
 }
 
@@ -75,6 +82,7 @@ export async function runIndex(opts: RunIndexOptions = {}): Promise<IndexResult>
   let indexed = 0;
   let skipped = 0;
   let failed = 0;
+  let firstError: string | undefined;
 
   for (let i = 0; i < notes.length; i++) {
     const note = notes[i];
@@ -85,12 +93,15 @@ export async function runIndex(opts: RunIndexOptions = {}): Promise<IndexResult>
     }
 
     const outcome = await indexNote(note, host, model, force);
-    if (outcome === "indexed") indexed++;
-    else if (outcome === "skipped") skipped++;
-    else failed++;
+    if (outcome.kind === "indexed") indexed++;
+    else if (outcome.kind === "skipped") skipped++;
+    else {
+      failed++;
+      if (!firstError) firstError = outcome.error;
+    }
 
     onProgress?.(i + 1, total);
   }
 
-  return { indexed, skipped, failed };
+  return { indexed, skipped, failed, firstError };
 }

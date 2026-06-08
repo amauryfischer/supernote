@@ -29,6 +29,7 @@ import { renderNotePortal } from "./NotePortal";
 import { renderDoodle } from "./DoodleRenderer";
 import { AmbianceSelector, ambianceClass, asAmbiance, asTypo, type NoteAmbiance, type NoteTypo } from "./AmbianceSelector";
 import { AiMarginsPanel } from "./AiMarginsPanel";
+import { bestBlockMatchIndex } from "@/lib/ai/blockComments";
 import { PresentationMode } from "./PresentationMode";
 import { ContextMenu, useContextMenu, type ContextMenuItemDef } from "@supernote/ui";
 import { MoveNoteModal } from "./MoveNoteModal";
@@ -115,6 +116,15 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
   const [aiMargins, setAiMargins] = useState<boolean>(() => note.fields?.["aiMargins"] === true);
   const [bodyVersion, setBodyVersion] = useState(0);
   const [presenting, setPresenting] = useState(false);
+  // Surlignage du bloc correspondant au commentaire IA survolé (overlay hors
+  // subtree ProseMirror — jamais de mutation d'attribut dans l'éditeur).
+  const editorColRef = useRef<HTMLDivElement>(null);
+  const [blockHighlight, setBlockHighlight] = useState<{ top: number; height: number } | null>(null);
+  // Texte du bloc contenant le caret → le panneau surligne le commentaire lié.
+  const [activeBlockText, setActiveBlockText] = useState<string | null>(null);
+  // Corps appliqué localement (correction IA) — sert d'initialMarkdown au
+  // remount pour refléter le fix immédiatement, avant le round-trip de save.
+  const [pendingBody, setPendingBody] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [dropStatus, setDropStatus] = useState<DropStatus>("idle");
   const [toastMsg, setToastMsg] = useState<string | null>(null);
@@ -326,6 +336,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
     setTags(note.tags);
     setTitleAiBadge(false);
     setTagsAiBadge(false);
+    setPendingBody(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [note.id]);
 
@@ -358,6 +369,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
     }
     if (note.body !== bodyRef.current) {
       bodyRef.current = note.body;
+      setPendingBody(null); // un vrai changement externe prime sur un fix local
       setExternalBodyVersion((v) => v + 1);
     }
   }, [note.body]);
@@ -736,6 +748,58 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
       bodyRef.current = updated;
       triggerAutoSave(updated, title);
     }
+  }, [triggerAutoSave, title]);
+
+  // Survol d'un commentaire IA → retrouve le bloc dans l'éditeur (matching
+  // texte), le centre et positionne un overlay de surlignage. Lecture DOM
+  // seule + overlay sibling : aucune mutation du subtree observé par PM.
+  const handleHoverBlock = useCallback((blockText: string | null) => {
+    if (!blockText) { setBlockHighlight(null); return; }
+    const col = editorColRef.current;
+    if (!col) return;
+    const els = Array.from(col.querySelectorAll<HTMLElement>(".bn-block-content"));
+    if (els.length === 0) return;
+    const idx = bestBlockMatchIndex(blockText, els.map((e) => e.textContent ?? ""));
+    if (idx < 0) { setBlockHighlight(null); return; }
+    const el = els[idx]!;
+    const colRect = col.getBoundingClientRect();
+    const elRect = el.getBoundingClientRect();
+    setBlockHighlight({ top: elRect.top - colRect.top, height: elRect.height });
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, []);
+
+  // Suit le bloc actif (caret) pour surligner son commentaire dans la marge.
+  // Lecture DOM seule (selectionchange) — aucune mutation du subtree PM.
+  useEffect(() => {
+    if (!aiMargins) { setActiveBlockText(null); return undefined; }
+    const onSel = () => {
+      const col = editorColRef.current;
+      const sel = document.getSelection();
+      const node = sel?.anchorNode;
+      if (!col || !node || !col.contains(node)) return;
+      let el: Element | null = node instanceof Element ? node : node.parentElement;
+      while (el && el !== col && !el.classList?.contains("bn-block-content")) {
+        el = el.parentElement;
+      }
+      const text = el?.classList?.contains("bn-block-content") ? (el.textContent ?? "") : null;
+      setActiveBlockText((prev) => (prev === text ? prev : text));
+    };
+    document.addEventListener("selectionchange", onSel);
+    return () => document.removeEventListener("selectionchange", onSel);
+  }, [aiMargins]);
+
+  // Applique une correction IA : remplace le bloc dans le markdown, force le
+  // remount de l'éditeur avec le nouveau contenu, et persiste.
+  const handleApplyFix = useCallback((oldText: string, newText: string) => {
+    const body = bodyRef.current;
+    const idx = body.indexOf(oldText);
+    if (idx === -1) return; // bloc déplacé/modifié entre-temps — abandon silencieux
+    const updated = body.slice(0, idx) + newText + body.slice(idx + oldText.length);
+    bodyRef.current = updated;
+    setBlockHighlight(null);
+    setPendingBody(updated);
+    setExternalBodyVersion((v) => v + 1); // remount BlockNote avec le fix
+    triggerAutoSave(updated, title);
   }, [triggerAutoSave, title]);
 
   const handleAskAi = useCallback(() => {
@@ -1122,10 +1186,22 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
         }}
       >
         <div className="flex gap-2 px-10 pb-6 pt-3">
-          <div className="min-w-0 flex-1">
+          <div ref={editorColRef} className="relative min-w-0 flex-1">
+            {blockHighlight && (
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute left-0 right-0 z-10 rounded-md transition-all duration-200"
+                style={{
+                  top: blockHighlight.top - 4,
+                  height: blockHighlight.height + 8,
+                  background: "color-mix(in srgb, var(--accent) 12%, transparent)",
+                  border: "1px solid color-mix(in srgb, var(--accent) 35%, transparent)",
+                }}
+              />
+            )}
             <SupernoteEditor
               key={`${note.id}:${externalBodyVersion}`}
-              initialMarkdown={note.body}
+              initialMarkdown={pendingBody ?? note.body}
               onChange={handleEditorChange}
               onSave={handleManualSave}
               resolvers={resolvers}
@@ -1156,7 +1232,9 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
                 noteTitle={title}
                 getBody={() => bodyRef.current}
                 bodyVersion={bodyVersion}
-                onInsertLink={(t) => insertMarkdown(`[[${t}]]`)}
+                activeBlockText={activeBlockText}
+                onHoverBlock={handleHoverBlock}
+                onApplyFix={handleApplyFix}
               />
             </div>
           )}

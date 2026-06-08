@@ -39,6 +39,11 @@ let lastVaultHandle: FileSystemDirectoryHandle | null = null;
 // alongside `lastVaultHandle` so an HMR re-spawn keeps the cloud semantics
 // (no FSA mirror, "Coffre cloud" label) instead of degrading to a folder init.
 let lastInitCloud = false;
+// Last VAULT_READY payload, stashed so a consumer that subscribes AFTER the
+// worker already emitted READY can recover the vault identity instead of
+// hanging forever (the `supernote:vault-ready` window event already fired and
+// won't replay). Mirrors how `isWorkerReady()` guards the same mount race.
+let lastVaultReady: { vaultId: string; vaultName: string } | null = null;
 const pendingRequests = new Map<
   string,
   { resolve: (value: unknown) => void; reject: (err: Error) => void }
@@ -115,6 +120,20 @@ function getWorker(): Worker {
       if (t === "VAULT_READY" || t === "VAULT_ERROR") {
         console.info("[vault-worker]", t, msg);
       }
+      if (t === "VAULT_ERROR") {
+        // Surface init failures to UI consumers via a window event — the same
+        // worker-instance-agnostic channel as VAULT_READY. A listener bound to
+        // the worker port directly would miss this if the port was re-spawned
+        // (e.g. PwaVaultSetup's loading overlay after a vault switch).
+        if (typeof window !== "undefined") {
+          const error =
+            (msg as { error?: string }).error ??
+            "Erreur d'initialisation du coffre.";
+          window.dispatchEvent(
+            new CustomEvent("supernote:vault-error", { detail: { error } }),
+          );
+        }
+      }
       if (t === "INDEX_PROGRESS") {
         // Background reindex adopted/swept rows AFTER VAULT_READY fired —
         // the queries already refetched once with the just-hydrated DB and
@@ -152,6 +171,10 @@ function getWorker(): Worker {
         pendingSwitch = false;
         vaultReady = true;
         _workerReady = true;
+        lastVaultReady = {
+          vaultId: (msg as { vaultId?: string }).vaultId ?? "",
+          vaultName: (msg as { vaultName?: string }).vaultName ?? "",
+        };
         drainMessageQueue();
         // Tell any TanStack Query subscribers that the worker is now ready.
         // Without this, queries that fired BEFORE the worker booted (and
@@ -162,7 +185,11 @@ function getWorker(): Worker {
         // switch) so failed/stale queries refetch.
         if (typeof window !== "undefined") {
           console.info("[browser-link] dispatching supernote:vault-ready", { wasReady, isSwitch });
-          window.dispatchEvent(new CustomEvent("supernote:vault-ready", { detail: { wasReady, isSwitch } }));
+          window.dispatchEvent(
+            new CustomEvent("supernote:vault-ready", {
+              detail: { wasReady, isSwitch, ...lastVaultReady },
+            }),
+          );
         }
       }
     }
@@ -305,6 +332,7 @@ export function terminateVaultWorker(): void {
   workerInstance = null;
   lastVaultHandle = null;
   lastInitCloud = false;
+  lastVaultReady = null;
   vaultReady = false;
   _workerReady = false;
   messageQueue = [];
@@ -391,4 +419,14 @@ export function setWorkerReady(ready: boolean): void {
 }
 export function isWorkerReady(): boolean {
   return _workerReady;
+}
+
+/**
+ * The identity of the currently-mounted vault, captured from the last
+ * VAULT_READY. Null before the first ready / after a terminate. Lets a
+ * consumer that subscribes once the worker is ALREADY up (so it missed the
+ * `supernote:vault-ready` event) recover the vault name without a replay.
+ */
+export function getLastVaultReady(): { vaultId: string; vaultName: string } | null {
+  return lastVaultReady;
 }

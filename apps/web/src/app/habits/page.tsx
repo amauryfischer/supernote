@@ -247,7 +247,7 @@ export default function HabitsPage() {
         </div>
 
         <div className="flex-1 overflow-y-auto">
-          <div className="mx-auto flex max-w-3xl flex-col gap-3 p-4 md:p-6">
+          <div className="mx-auto flex max-w-5xl flex-col gap-3 p-4 md:p-6">
             {source.isLoading ? (
               <p className="py-12 text-center text-sm" style={{ color: "var(--text-muted)" }}>
                 Chargement…
@@ -273,17 +273,19 @@ export default function HabitsPage() {
                 </Button>
               </div>
             ) : (
-              habits.map((h) => (
-                <HabitCard
-                  key={h.id}
-                  habit={h}
-                  poppingKey={
-                    popping?.startsWith(`${h.id}:`) ? popping.slice(h.id.length + 1) : null
-                  }
-                  onCycleDay={(habit, dateKey) => void handleCycleDay(habit, dateKey)}
-                  onEdit={setEditing}
-                />
-              ))
+              <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                {habits.map((h) => (
+                  <HabitCard
+                    key={h.id}
+                    habit={h}
+                    poppingKey={
+                      popping?.startsWith(`${h.id}:`) ? popping.slice(h.id.length + 1) : null
+                    }
+                    onCycleDay={(habit, dateKey) => void handleCycleDay(habit, dateKey)}
+                    onEdit={setEditing}
+                  />
+                ))}
+              </div>
             )}
 
             {archivedHabits.length > 0 && (
@@ -298,7 +300,7 @@ export default function HabitsPage() {
                   {showArchived ? "Masquer" : "Afficher"} les archivées ({archivedHabits.length})
                 </Button>
                 {showArchived && (
-                  <div className="mt-3 flex flex-col gap-3 opacity-70">
+                  <div className="mt-3 grid grid-cols-1 gap-3 opacity-70 lg:grid-cols-2">
                     {archivedHabits.map((h) => (
                       <HabitCard
                         key={h.id}

@@ -101,7 +101,7 @@ export const PixelGrid = memo(function PixelGrid({
       {/* Pas de `flex-1` : le conteneur prend la largeur de la grille (jeune
           habitude = bloc compact à droite) et shrink/scrolle quand l'année
           dépasse la carte (`min-w-0` autorise le shrink sous le contenu). */}
-      <div ref={scrollRef} className="min-w-0 max-w-full overflow-x-auto pb-1">
+      <div ref={scrollRef} className="min-w-0 max-w-full overflow-x-auto px-[3px] pb-1">
         <div style={{ width: weeks * colWidth - GAP }}>
           {/* Rangée des mois */}
           <div

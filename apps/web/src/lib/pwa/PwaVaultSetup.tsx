@@ -37,9 +37,8 @@ import {
   setActiveVaultId,
   type VaultEntry,
 } from "@/lib/vault-worker/vault-handle-storage";
-import { initWorkerVault, onWorkerMessage, setWorkerReady, flushVaultWorker, terminateVaultWorker } from "@/lib/trpc/browser-link";
+import { initWorkerVault, setWorkerReady, flushVaultWorker, terminateVaultWorker, isWorkerReady, getLastVaultReady } from "@/lib/trpc/browser-link";
 import { isBrowserPwaMode, isCloudCapable, CLOUD_VAULT_KEY } from "@/lib/trpc/client";
-import type { VaultReadyMessage, VaultErrorMessage } from "@/lib/vault-worker/worker-protocol";
 import { cloneIntoVault, initInVault, isLinked } from "@/lib/git/github-sync";
 import { saveGitConfig } from "@/lib/git/config-storage";
 import {
@@ -257,22 +256,42 @@ export function usePwaVaultSetup(): VaultContextValue {
 
   useEffect(() => {
     if (state !== "loading") return;
-    const cleanup = onWorkerMessage((msg) => {
-      const m = msg as VaultReadyMessage | VaultErrorMessage;
-      if (m.type === "VAULT_READY") {
-        setVaultName((m as VaultReadyMessage).vaultName);
-        setWorkerReady(true);
-        setState("ready");
-        // The worker just finished mounting a handle — make sure the
-        // recents list and active id reflect that (covers the bootstrap
-        // path where the registry hadn't been touched yet).
-        void refreshRecents();
-      } else if (m.type === "VAULT_ERROR") {
-        setErrorMsg((m as VaultErrorMessage).error);
-        setState("error");
-      }
-    });
-    return cleanup;
+    if (typeof window === "undefined") return;
+    const onReady = (ev?: Event) => {
+      const detail = (ev as CustomEvent | undefined)?.detail as
+        | { vaultName?: string }
+        | undefined;
+      const name = detail?.vaultName ?? getLastVaultReady()?.vaultName ?? null;
+      if (name) setVaultName(name);
+      setState("ready");
+      // The worker just finished mounting a handle — make sure the recents
+      // list and active id reflect that (covers the bootstrap path where the
+      // registry hadn't been touched yet).
+      void refreshRecents();
+    };
+    const onError = (ev?: Event) => {
+      const detail = (ev as CustomEvent | undefined)?.detail as
+        | { error?: string }
+        | undefined;
+      setErrorMsg(detail?.error ?? "Erreur d'initialisation du coffre.");
+      setState("error");
+    };
+    // Listen on the worker-instance-agnostic window events dispatched by the
+    // browser-link singleton, NOT on the worker port directly. A vault switch
+    // (e.g. choosing "Cloud") terminates the worker a port-bound listener was
+    // attached to and spawns a fresh one — a direct listener would never see
+    // the new worker's VAULT_READY, leaving the overlay stuck on "Ouverture du
+    // vault…" forever.
+    window.addEventListener("supernote:vault-ready", onReady);
+    window.addEventListener("supernote:vault-error", onError);
+    // Cover the race where VAULT_READY fired before this listener attached
+    // (the window event does not replay): if the worker is already up, resolve
+    // immediately from the stashed identity.
+    if (isWorkerReady()) onReady();
+    return () => {
+      window.removeEventListener("supernote:vault-ready", onReady);
+      window.removeEventListener("supernote:vault-error", onError);
+    };
   }, [state]);
 
   // Flush any pending worker writes when the page is hidden / unloaded

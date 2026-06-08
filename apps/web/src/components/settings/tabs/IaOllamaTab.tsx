@@ -566,7 +566,8 @@ function RagIndexSection({ host, model }: RagIndexSectionProps) {
         host,
         onProgress: (done, total) => setProgress({ done, total }),
       });
-      setResult(`Indexation terminée — ${res.indexed} indexées, ${res.skipped} ignorées, ${res.failed} échecs.`);
+      const base = `Indexation terminée — ${res.indexed} indexées, ${res.skipped} ignorées, ${res.failed} échecs.`;
+      setResult(res.failed > 0 && res.firstError ? `${base}\nCause : ${res.firstError}` : base);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setResult(`Erreur : ${msg}`);
@@ -618,7 +619,7 @@ function RagIndexSection({ host, model }: RagIndexSectionProps) {
       )}
 
       {result && (
-        <p className="text-xs px-1" style={{ color: "var(--text-secondary)" }}>
+        <p className="whitespace-pre-line px-1 text-xs" style={{ color: "var(--text-secondary)" }}>
           {result}
         </p>
       )}
