@@ -14,6 +14,24 @@ Tous les composants UI **DOIVENT** utiliser `@heroui/react` v3.
 
 **Migration** : tout fichier existant qui utilise HTML nu doit être migré progressivement quand on y touche. Les nouveaux fichiers : v3 d'emblée.
 
+### Mobile en même temps que desktop
+
+Toute amélioration UI **DOIT** traiter le mobile dans le même mouvement — pas
+de feature desktop-only qu'on « rattrapera plus tard ».
+
+- Le shell mobile dédié vit dans `apps/web/src/components/shell/mobile/` et
+  s'active sous 768px (`useIsMobile`, breakpoint = `md:` Tailwind).
+- Quand on ajoute/modifie une surface (toolbar, panneau latéral, table, FAB,
+  action de header…), vérifier qu'elle est **accessible et utilisable** sur
+  téléphone : pas de débordement horizontal, hit-targets tactiles (~32px+),
+  padding réduit (`px-4 md:px-10`), panneaux desktop (sidebars 320px) exposés
+  en drawer/overlay côté mobile.
+- Les pages publient leur chrome mobile via `useMobileTitle`, `useMobileFab`,
+  `useMobileHeaderActions` (cf. `shell-chrome-context.tsx`). Une nouvelle page
+  avec une action « créer » → publier un FAB.
+- Un affordance global ajouté au `TopBar` desktop doit avoir son équivalent
+  mobile (top bar, `MoreDrawer`, ou bottom nav).
+
 ### TypeScript strict
 
 - `pnpm typecheck` doit toujours passer avant commit.

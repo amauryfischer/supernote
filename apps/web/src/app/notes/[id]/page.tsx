@@ -37,6 +37,7 @@ import {
 } from "@phosphor-icons/react";
 import { folderAccentVars, folderColorFromTree } from "@/lib/folderAccent";
 import {
+  useMobileFab,
   useMobileHeaderActions,
   useMobileTitle,
   useShellChrome,
@@ -44,7 +45,7 @@ import {
 } from "@/components/shell/shell-chrome-context";
 import { useShortcuts } from "@/lib/keyboard";
 import { useIsMobile } from "@/hooks/useIsMobile";
-import { Article, SquareSplitHorizontal } from "@phosphor-icons/react";
+import { Article, Plus, SquareSplitHorizontal } from "@phosphor-icons/react";
 
 type NoteViewMode = "note" | "canvas";
 
@@ -506,6 +507,13 @@ function NoteDetailContent() {
       ]
     : [];
   useMobileHeaderActions(mobileActions);
+  // Mobile FAB — quick "new note" in the current folder, mirroring the
+  // desktop topbar "Nouveau" so the create verb is one tap away from a note.
+  useMobileFab(
+    isMobile
+      ? { icon: Plus, label: "Nouvelle note", onPress: () => void handleNewNote(null) }
+      : null,
+  );
 
   // Column widths drive the collapse ANIMATION (width transition on the
   // `.sn-anim-col` wrappers) — the conditional render inside each wrapper
