@@ -27,6 +27,7 @@ import { PromptProvider } from "@/hooks/usePrompt";
 import { SettingsProvider } from "@/components/settings/SettingsContext";
 import { UiSoundBridge } from "@/lib/uiSounds";
 import { ConfirmProvider } from "@/lib/confirm";
+import { FreezeReportBanner } from "@/lib/diagnostics/FreezeReportBanner";
 
 export function RootLayout() {
   return (
@@ -39,6 +40,9 @@ export function RootLayout() {
             <ShortcutProvider>
               <SettingsProvider>
               <PromptProvider>
+                {/* Watchdog anti-freeze : breadcrumb de route + bannière de
+                    rapport si la session précédente a gelé (cf. diagnostics). */}
+                <FreezeReportBanner />
                 {/* Global top-of-viewport navigation progress bar */}
                 <NavProgress />
                 {/* Register the Service Worker (no-op when not available) */}

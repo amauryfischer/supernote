@@ -9,6 +9,7 @@ import { useShellChrome, useMobileFab, useMobileTitle } from "@/components/shell
 import { useCreateInboxNote } from "@/hooks/useCreateInboxNote";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useKeyboardOpen } from "@/hooks/useKeyboardOpen";
+import { breadcrumb } from "@/lib/diagnostics/freeze-watchdog";
 import type { SupernoteEditorProps, EntityRef } from "@supernote/editor";
 import { trpc, trpcVanillaClient } from "@/lib/trpc/client";
 import { useTranslations } from "next-intl";
@@ -203,6 +204,7 @@ export function WritingSurface() {
 
   const handleEditorChange = useCallback(
     (markdown: string) => {
+      breadcrumb("edit:home");
       setContent(markdown);
       onContentChange(markdown);
     },

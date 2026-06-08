@@ -19,6 +19,7 @@ import type { EntityType, Field } from "@supernote/core";
 import { parseFormula, inferFormulaOutputKind, type FormulaAST } from "@supernote/formulas";
 import { trpc } from "@/lib/trpc/client";
 import { ipcEntityTypeToCore } from "@/components/schemas/adapters";
+import { breadcrumb } from "@/lib/diagnostics/freeze-watchdog";
 
 // ── Catalogue stdlib ─────────────────────────────────────────────────────────
 
@@ -1800,6 +1801,7 @@ export function FormulaInputEditor({
           ref={taRef}
           value={expression}
           onChange={(e) => {
+            breadcrumb("formula:edit");
             const next = e.target.value;
             setExpression(next);
             setCursor(e.target.selectionStart);

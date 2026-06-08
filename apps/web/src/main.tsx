@@ -8,7 +8,13 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
+import { installFreezeWatchdog } from "./lib/diagnostics/freeze-watchdog";
 import "./globals.css";
+
+// Capture des indices sur les freezes du thread principal (figé/tactile mort)
+// pour diagnostiquer un hang intermittent en prod. Installé avant React pour
+// dater la session au plus tôt. Cf. lib/diagnostics/freeze-watchdog.ts.
+installFreezeWatchdog();
 
 // Dev-only: React 19's DevTools render-timings instrumentation calls
 // performance.measure() with a structured-cloneable `detail` that occasionally

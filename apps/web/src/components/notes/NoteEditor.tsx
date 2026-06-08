@@ -24,6 +24,7 @@ import { PromptModal } from "@/components/shell/PromptModal";
 import { isAutoTagEnabled, useAutoTag } from "@/hooks/useAutoTag";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useKeyboardOpen } from "@/hooks/useKeyboardOpen";
+import { breadcrumb } from "@/lib/diagnostics/freeze-watchdog";
 import { AssociatedTodos } from "@/components/todos/AssociatedTodos";
 import { renderInlineDatabase } from "./InlineDatabaseRenderer";
 import { renderNoteFormula, NoteFormulaModalHost } from "./NoteFormulaBridge";
@@ -685,6 +686,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
 
   const handleEditorChange = useCallback(
     (markdown: string) => {
+      breadcrumb("edit:note");
       bodyRef.current = markdown;
       triggerAutoSave(markdown, title);
       scheduleAutoTitle(markdown);
