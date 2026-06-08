@@ -15,6 +15,7 @@
 // post-commit watcher only acts when the flag is set.
 
 import { Extension } from "@tiptap/core";
+import { trace } from "../freeze-trace.js";
 
 // Module-scope flag — set by the Enter keymap extension below, read+cleared
 // by the post-commit watcher. Set to a timestamp so a stale flag from
@@ -132,6 +133,7 @@ export function attachContinueChecklistOnEnter(
       lastEnterAt = 0;
 
       converting = true;
+      trace("editor:continueChecklist");
       try {
         editor.updateBlock(block, {
           type: "checkListItem",

@@ -20,6 +20,7 @@ import {
   DoodleProvider,
 } from "./blocks/index.js";
 import { markdownToBlocks, blocksToMarkdown } from "./serialization/index.js";
+import { trace } from "./freeze-trace.js";
 import {
   SupernoteSuggestionMenu,
   getSupernoteSlashMenuItems,
@@ -184,8 +185,12 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
   // Wire up onChange
   useEffect(() => {
     return editor.onChange(() => {
-      const md = blocksToMarkdown(editor.document as Block[]);
-      onChangeRef.current?.(md, editor.document as Block[]);
+      const doc = editor.document as Block[];
+      // Breadcrumb anti-freeze : sérialisation full-doc à chaque frappe. Le
+      // compteur de blocs aide à juger si un gel est lié à la taille de la note.
+      trace(`editor:serialize:${doc.length}`);
+      const md = blocksToMarkdown(doc);
+      onChangeRef.current?.(md, doc);
     });
   }, [editor]);
 
@@ -347,6 +352,7 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
     };
     let known = new Set(collectIds(editor.document as Block[]));
     return editor.onChange(() => {
+      trace("editor:block-enter");
       const ids = collectIds(editor.document as Block[]);
       const fresh = ids.filter((id) => !known.has(id));
       known = new Set(ids);

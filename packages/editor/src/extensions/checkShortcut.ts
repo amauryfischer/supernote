@@ -12,6 +12,8 @@
 // AFTER the user's keystroke has fully committed, so the BlockNote state
 // is consistent and `updateBlock` always takes effect.
 
+import { trace } from "../freeze-trace.js";
+
 interface BlockLike {
   id: string;
   type: string;
@@ -91,6 +93,7 @@ export function attachCheckShortcut(editor: BlockNoteEditorLike): () => void {
       if (!first || first.type !== "text") return;
       if (first.text !== "x ") return;
       converting = true;
+      trace("editor:checkShortcut");
       try {
         editor.updateBlock(block, {
           type: "checkListItem",
