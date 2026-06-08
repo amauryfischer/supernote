@@ -21,7 +21,7 @@ import {
 } from "@phosphor-icons/react";
 import Link from "next/link";
 import { Button, Drawer, useAppTheme, type ThemeValue } from "@supernote/ui";
-import { memo, useCallback, useState } from "react";
+import { memo, useCallback, useEffect, useState } from "react";
 import { NotificationBadge, useNotifications } from "@supernote/notifications/renderer";
 import { useVault } from "@/lib/pwa/PwaVaultSetup";
 import { MobileVaultSwitcher } from "./MobileVaultSwitcher";
@@ -137,6 +137,12 @@ export const MoreDrawer = memo(function MoreDrawer({
   const { unreadCount } = useNotifications();
   const vault = useVault();
   const [switcherOpen, setSwitcherOpen] = useState(false);
+  // Reset to the menu whenever the drawer closes, so reopening "Plus" never
+  // lands back on the switcher sub-view (the X / backdrop / Bell paths close
+  // the drawer without touching switcherOpen).
+  useEffect(() => {
+    if (!isOpen) setSwitcherOpen(false);
+  }, [isOpen]);
   // A device can host folder vaults (FSA) and/or cloud vaults (OPFS — phones).
   // The card opens the switcher whenever either is possible. For a cloud vault
   // the worker reports a generic name, so we override with the room key (the
@@ -195,8 +201,20 @@ export const MoreDrawer = memo(function MoreDrawer({
           </Button>
         </header>
 
-        {/* Scrollable body */}
+        {/* Scrollable body. Tapping the vault card pushes the switcher as an
+            in-place sub-view (NOT a nested drawer — two stacked modal overlays
+            blanked the surface on phones), iOS-Settings style. */}
         <div className="flex-1 overflow-y-auto px-4 pb-8">
+          {switcherOpen ? (
+            <MobileVaultSwitcher
+              onBack={() => setSwitcherOpen(false)}
+              onCloseDrawer={() => {
+                setSwitcherOpen(false);
+                onClose();
+              }}
+            />
+          ) : (
+            <>
           {/* Vault card — quick access to the active vault, folder picker,
               and notifications. Mirrors the iOS "Apple ID card" pattern at
               the top of Settings. */}
@@ -269,11 +287,6 @@ export const MoreDrawer = memo(function MoreDrawer({
             </Button>
           </div>
 
-          <MobileVaultSwitcher
-            isOpen={switcherOpen}
-            onClose={() => setSwitcherOpen(false)}
-          />
-
           {/* Sections — each rendered as a single rounded card containing
               its rows, with a small uppercase label above. Rows separated
               by a 1 px hairline so the card reads as a list, not a stack of
@@ -330,6 +343,8 @@ export const MoreDrawer = memo(function MoreDrawer({
               </div>
             </div>
           ))}
+            </>
+          )}
         </div>
       </div>
     </Drawer>
