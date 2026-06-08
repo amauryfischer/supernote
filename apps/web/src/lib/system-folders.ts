@@ -19,6 +19,10 @@ export const SYSTEM_FOLDER_ROOTS: readonly string[] = [
   "Canvas",
   "Routines",
   "Todos",
+  // Habits (type `habit`, defaultPath "Habitudes") are managed by the /habits
+  // pixel-garden page like todos are by /todos — keep their folder out of
+  // /notes so it isn't mistaken for a stray note folder (and deletable).
+  "Habitudes",
   // `_archive` is the bucket where useArchiveFolder relocates notes when
   // the user archives a whole folder. Hidden from the FileTree so the
   // archived subtree never competes visually with active folders, and so
