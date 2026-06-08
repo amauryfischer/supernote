@@ -13,7 +13,7 @@
     "dev": "pnpm dev:web",
     "dev:web": "pnpm --filter @supernote/web dev",
     "build": "turbo run build",
-    "scalingo-postbuild": "turbo run build --filter=@supernote/web",
+    "scalingo-postbuild": "NODE_OPTIONS=--max-old-space-size=4096 turbo run build --filter=@supernote/web",
     "build:packages": "pnpm -r --filter \"./packages/**\" build",
     "build:web": "pnpm --filter @supernote/web build",
     "lint": "turbo run lint",

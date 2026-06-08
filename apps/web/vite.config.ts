@@ -13,7 +13,7 @@
  *  - `next/*` and `next-intl` are aliased to in-repo shims so the existing
  *    `app/**` page files compile unchanged.
  */
-import { defineConfig } from "vite";
+import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 import tsconfigPaths from "vite-tsconfig-paths";
 import tailwindcss from "@tailwindcss/vite";
@@ -22,6 +22,17 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// Hydrate process.env from `.env` / `.env.local` so the SERVER-SIDE plugin
+// below (the online-sync dev backend, which gates on `process.env.DATABASE_URL`)
+// picks up the database URL during `pnpm dev`. Vite normally only exposes
+// `VITE_`-prefixed vars to the client and never mutates process.env — the
+// empty prefix loads every key. Set `DATABASE_URL=file:./sync-dev.db` in
+// `apps/web/.env.local` to exercise realtime cloud sync locally.
+Object.assign(
+  process.env,
+  loadEnv(process.env.NODE_ENV || "development", process.cwd(), ""),
+);
 const SHIMS = path.resolve(__dirname, "src/lib/next-shims");
 
 /**
@@ -37,7 +48,7 @@ function onlineSyncDevServer() {
       if (!process.env.DATABASE_URL) return;
       try {
         const { createSyncBackend } = await import("./sync-backend.mjs");
-        const backend = createSyncBackend();
+        const backend = await createSyncBackend();
         if (!backend.enabled) return;
         server.middlewares.use((req, res, next) => {
           const url = (req as { url?: string }).url ?? "";
@@ -186,8 +197,20 @@ export default defineConfig({
   },
   build: {
     target: "esnext",
-    sourcemap: true,
+    // Production sourcemaps désactivées par défaut : elles pèsent 25+ MB
+    // (SupernoteEditor.js.map ≈ 11 MB à lui seul) et Rollup les garde en
+    // mémoire pendant `rendering chunks` → OOM sur le container de build
+    // Scalingo (heap plafonné ~2.5 GB). N'affecte pas le dev server (maps
+    // toujours actives en dev). Réactivables ponctuellement avec
+    // `VITE_SOURCEMAP=true` pour débugger un bundle de prod.
+    sourcemap: process.env["VITE_SOURCEMAP"] === "true",
     rollupOptions: {
+      // Plafonne le nombre de fichiers que Rollup transforme/écrit en
+      // parallèle (défaut 20). Sur un gros bundle, chaque opération garde son
+      // AST + source en mémoire ; 20 en parallèle fait exploser le pic et
+      // déclenche l'OOM sur le container de build Scalingo. 4 suffit à garder
+      // un débit correct (~+10s) tout en divisant le pic mémoire.
+      maxParallelFileOps: 4,
       output: {
         manualChunks: {
           // Split heavy libs so the shell paint doesn't drag them in.
