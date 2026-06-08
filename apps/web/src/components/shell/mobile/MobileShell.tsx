@@ -5,6 +5,8 @@ import { MobileBottomNav } from "./MobileBottomNav";
 import { MobileFab } from "./MobileFab";
 import { MobileTopBar } from "./MobileTopBar";
 import { MoreDrawer } from "./MoreDrawer";
+import { useShellChrome } from "../shell-chrome-context";
+import { ColumnEditorSidebar } from "@/components/bases/ColumnEditorSidebar";
 import dynamic from "next/dynamic";
 
 // Lazy-load the notification center so it's not in the critical mobile bundle.
@@ -41,6 +43,7 @@ export const MobileShell = memo(function MobileShell({
 }) {
   const [moreOpen, setMoreOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
+  const { columnEditor, closeColumnEditor } = useShellChrome();
 
   return (
     <div
@@ -68,6 +71,35 @@ export const MobileShell = memo(function MobileShell({
 
       {notifOpen && (
         <NotificationCenter open={notifOpen} onClose={() => setNotifOpen(false)} />
+      )}
+
+      {/* Column editor — on desktop this is a third shell column; on mobile we
+          surface it as a right-anchored sliding overlay so editing a Base's
+          columns is reachable instead of silently no-op'ing. */}
+      {columnEditor && (
+        <div className="fixed inset-0 z-[var(--z-modal,90)] flex">
+          <button
+            type="button"
+            aria-label="Fermer l'éditeur de colonnes"
+            onClick={closeColumnEditor}
+            className="flex-1"
+            style={{ backgroundColor: "color-mix(in srgb, var(--surface-0) 60%, transparent)" }}
+          />
+          <div
+            className="h-full w-full max-w-[380px] sn-col-editor-enter"
+            style={{
+              paddingTop: "env(safe-area-inset-top, 0px)",
+              backgroundColor: "var(--surface-1)",
+            }}
+          >
+            <ColumnEditorSidebar
+              base={columnEditor.base}
+              view={columnEditor.view}
+              focusFieldId={columnEditor.focusFieldId}
+              prefillFormula={columnEditor.prefillFormula}
+            />
+          </div>
+        </div>
       )}
     </div>
   );

@@ -31,6 +31,7 @@ import { FieldKindBadge } from "@/components/schemas/FieldKindBadge";
 import { FIELD_KINDS } from "@/components/schemas/fixtures";
 import { coreFieldToIpc, ipcEntityTypeToCore } from "@/components/schemas/adapters";
 import { useShellChrome } from "@/components/shell/shell-chrome-context";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { useConfirm } from "@/lib/confirm";
 import { parseFormula } from "@supernote/formulas";
 import { useViewMutations, resolveVisibleFieldIds } from "./hooks";
@@ -57,6 +58,7 @@ interface ColumnEditorSidebarProps {
 
 export function ColumnEditorSidebar({ base: baseSnapshot, view: viewSnapshot, focusFieldId, prefillFormula }: ColumnEditorSidebarProps) {
   const { closeColumnEditor } = useShellChrome();
+  const isMobile = useIsMobile();
   const { update: updateView } = useViewMutations();
   const utils = trpc.useUtils();
 
@@ -148,8 +150,8 @@ export function ColumnEditorSidebar({ base: baseSnapshot, view: viewSnapshot, fo
     <aside
       className="flex h-full flex-col border-l"
       style={{
-        width: 320,
-        minWidth: 320,
+        width: isMobile ? "100%" : 320,
+        minWidth: isMobile ? 0 : 320,
         borderColor: "var(--border-subtle)",
         backgroundColor: "var(--surface-1)",
       }}
