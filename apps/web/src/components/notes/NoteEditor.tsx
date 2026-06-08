@@ -31,6 +31,8 @@ import { renderNoteFormula, NoteFormulaModalHost } from "./NoteFormulaBridge";
 import { renderNotePortal } from "./NotePortal";
 import { renderDoodle } from "./DoodleRenderer";
 import { AmbianceSelector, ambianceClass, asAmbiance, asTypo, type NoteAmbiance, type NoteTypo } from "./AmbianceSelector";
+import { NoteCover, CoverButton, asCover } from "./NoteCover";
+import { NoteIcon, IconButton, asIcon } from "./NoteIcon";
 import { AiMarginsPanel } from "./AiMarginsPanel";
 import { bestBlockMatchIndex } from "@/lib/ai/blockComments";
 import { PresentationMode } from "./PresentationMode";
@@ -122,6 +124,23 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
   const [tags, setTags] = useState<string[]>(note.tags);
   const [ambiance, setAmbiance] = useState<NoteAmbiance>(() => asAmbiance(note.fields?.["ambiance"]));
   const [typo, setTypo] = useState<NoteTypo>(() => asTypo(note.fields?.["typo"]));
+  const [cover, setCover] = useState<string | null>(() => asCover(note.fields?.["cover"]));
+  const [icon, setIcon] = useState<string | null>(() => asIcon(note.fields?.["icon"]));
+
+  const handleCoverChange = useCallback(
+    (next: string | null): void => {
+      setCover(next);
+      void trpcVanillaClient.entities.update.mutate({ id: note.id, fields: { cover: next ?? "" } });
+    },
+    [note.id],
+  );
+  const handleIconChange = useCallback(
+    (next: string | null): void => {
+      setIcon(next);
+      void trpcVanillaClient.entities.update.mutate({ id: note.id, fields: { icon: next ?? "" } });
+    },
+    [note.id],
+  );
   const [aiMargins, setAiMargins] = useState<boolean>(() => note.fields?.["aiMargins"] === true);
   const [bodyVersion, setBodyVersion] = useState(0);
   const [presenting, setPresenting] = useState(false);
@@ -1030,14 +1049,25 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
         onCancel={() => setAiModalOpen(false)}
       />
 
-      {/* Header */}
-      <div className="sn-no-print px-4 py-4 md:px-10 md:py-6" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
+      {/* Cover banner (façon Notion) — pleine largeur, au-dessus de l'en-tête.
+          Masqué pendant l'édition clavier mobile (focus = espace maximal). */}
+      {!hideToolbarForKeyboard && <NoteCover coverId={cover} onChange={handleCoverChange} />}
+
+      {/* Header — masqué pendant l'édition clavier mobile (cf. focus clavier). */}
+      <div
+        className="sn-no-print px-4 py-4 md:px-10 md:py-6"
+        style={{
+          borderBottom: "1px solid var(--border-subtle)",
+          display: hideToolbarForKeyboard ? "none" : undefined,
+        }}
+      >
         <FolderBreadcrumb
           path={note.folderPath}
           onContextMenu={openBreadcrumbContextMenu}
           onRenameFolder={handleRenameBreadcrumbFolder}
         />
         <div className="flex items-center gap-2">
+          {icon && <NoteIcon icon={icon} onChange={handleIconChange} />}
           <input
             type="text"
             value={title}
@@ -1104,6 +1134,8 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
             onChange={setAmbiance}
             onTypoChange={setTypo}
           />
+          {!icon && <IconButton onChange={handleIconChange} />}
+          {!cover && <CoverButton onChange={handleCoverChange} />}
           {ollamaAvailable && (
             <Button
               variant="ghost"

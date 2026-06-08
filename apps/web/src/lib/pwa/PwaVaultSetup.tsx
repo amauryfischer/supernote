@@ -38,13 +38,19 @@ import {
   type VaultEntry,
 } from "@/lib/vault-worker/vault-handle-storage";
 import { initWorkerVault, setWorkerReady, flushVaultWorker, terminateVaultWorker, isWorkerReady, getLastVaultReady } from "@/lib/trpc/browser-link";
-import { isBrowserPwaMode, isCloudCapable, CLOUD_VAULT_KEY } from "@/lib/trpc/client";
+import { isBrowserPwaMode, isCloudCapable, isCloudVaultActive, CLOUD_VAULT_KEY } from "@/lib/trpc/client";
 import { cloneIntoVault, initInVault, isLinked } from "@/lib/git/github-sync";
 import { saveGitConfig } from "@/lib/git/config-storage";
 import {
   saveOnlineSyncConfig,
+  loadOnlineSyncConfig,
   DEFAULT_ONLINE_SYNC_CONFIG,
   normalizeVaultKey,
+  listCloudVaults,
+  getCloudVault,
+  upsertCloudVault,
+  removeCloudVault,
+  cloudVaultId,
 } from "@/lib/online-sync/config-storage";
 
 const DEGRADED_STORAGE_KEY = "supernote.degraded";
@@ -100,11 +106,15 @@ export interface CloudSetupArgs {
   token: string;
 }
 
-/** Lightweight projection of {@link VaultEntry} exposed to UI consumers. */
+/** Lightweight projection of a known vault exposed to UI consumers. */
 export interface RecentVault {
   id: string;
   name: string;
   lastOpenedAt: number;
+  /** Storage backend behind this vault — drives the switcher icon. */
+  kind: "folder" | "cloud";
+  /** Cloud entries only: sync server ("" = same origin), for disambiguation. */
+  serverUrl?: string;
 }
 
 interface VaultContextValue {
@@ -173,17 +183,39 @@ export function usePwaVaultSetup(): VaultContextValue {
   // a cloud vault is possible even without the folder picker.
   const canCloud = isCloudCapable();
 
-  // Refresh the in-memory recents projection from IDB. Cheap (≤ a handful of
-  // entries) so we call it from any code path that mutates the registry.
+  // Refresh the in-memory recents projection. Merges two registries: FSA folder
+  // vaults (IndexedDB) and cloud vaults (localStorage). Cheap (≤ a handful of
+  // entries) so we call it from any code path that mutates either registry.
   const refreshRecents = useCallback(async () => {
     try {
-      const [entries, active] = await Promise.all([
+      const [folderEntries, folderActive] = await Promise.all([
         listVaults(),
         getActiveVaultId(),
       ]);
-      setRecentVaults(
-        entries.map((e) => ({ id: e.id, name: e.name, lastOpenedAt: e.lastOpenedAt })),
+      const folderRecents: RecentVault[] = folderEntries.map((e) => ({
+        id: e.id,
+        name: e.name,
+        lastOpenedAt: e.lastOpenedAt,
+        kind: "folder",
+      }));
+      const cloudRecents: RecentVault[] = listCloudVaults().map((e) => ({
+        id: e.id,
+        name: e.vaultKey,
+        lastOpenedAt: e.lastOpenedAt,
+        kind: "cloud",
+        serverUrl: e.serverUrl,
+      }));
+      const merged = [...folderRecents, ...cloudRecents].sort(
+        (a, b) => b.lastOpenedAt - a.lastOpenedAt,
       );
+      // When a cloud vault is mounted, the active id is the cloud entry matching
+      // the live online-sync config — NOT the (now stale) FSA active id.
+      let active: string | null = folderActive;
+      if (isCloudVaultActive()) {
+        const cfg = loadOnlineSyncConfig();
+        if (cfg.vaultKey) active = cloudVaultId(cfg.serverUrl, cfg.vaultKey);
+      }
+      setRecentVaults(merged);
       setActiveVaultIdState(active);
     } catch (err) {
       console.warn("[pwa-vault] refreshRecents failed", err);
@@ -211,6 +243,14 @@ export function usePwaVaultSetup(): VaultContextValue {
     // the op-log, so the vault is rehydrated from the server.
     if (ls?.getItem(CLOUD_VAULT_KEY) === "1") {
       setState("loading");
+      // Make sure the active cloud config is in the registry so the switcher
+      // lists it (covers users who set up a cloud vault before the registry
+      // existed — they'd otherwise see no cloud entry to switch back to).
+      const cfg = loadOnlineSyncConfig();
+      if (cfg.vaultKey) {
+        upsertCloudVault({ serverUrl: cfg.serverUrl, vaultKey: cfg.vaultKey, token: cfg.token });
+      }
+      void refreshRecents();
       void (async () => {
         try {
           const handle = await getCloudVaultHandle();
@@ -352,9 +392,10 @@ export function usePwaVaultSetup(): VaultContextValue {
       await saveVaultHandle(handle);
       // Picking a folder explicitly opts out of degraded mode.
       if (typeof window !== "undefined") {
-        // Picking a folder / git repo opts out of both degraded and cloud modes.
+        // Picking a folder / git repo opts out of degraded mode and leaves
+        // cloud mode (disables online sync so it can't push into the room).
         window.localStorage.removeItem(DEGRADED_STORAGE_KEY);
-        window.localStorage.removeItem(CLOUD_VAULT_KEY);
+        leaveCloudMode();
       }
       setWorkerReady(false);
       setVaultName(null);
@@ -459,6 +500,8 @@ export function usePwaVaultSetup(): VaultContextValue {
       window.localStorage.setItem(CLOUD_VAULT_KEY, "1");
       window.localStorage.removeItem(DEGRADED_STORAGE_KEY);
     }
+    // Remember this room so it shows up in the switcher alongside other vaults.
+    upsertCloudVault({ serverUrl, vaultKey, token });
 
     setWorkerReady(false);
     setVaultName(null);
@@ -544,9 +587,10 @@ export function usePwaVaultSetup(): VaultContextValue {
       });
       await saveVaultHandle(handle);
       if (typeof window !== "undefined") {
-        // Picking a folder / git repo opts out of both degraded and cloud modes.
+        // Picking a folder / git repo opts out of degraded mode and leaves
+        // cloud mode (disables online sync so it can't push into the room).
         window.localStorage.removeItem(DEGRADED_STORAGE_KEY);
-        window.localStorage.removeItem(CLOUD_VAULT_KEY);
+        leaveCloudMode();
       }
       setWorkerReady(false);
       setVaultName(null);
@@ -569,7 +613,62 @@ export function usePwaVaultSetup(): VaultContextValue {
     }
   }, []);
 
+  // Activate a cloud vault from the registry: point online-sync at its room,
+  // reboot the OPFS-backed worker from a clean slate, and let OnlineSyncProvider
+  // reconnect + reseed from that room's op-log on the next "ready".
+  const switchToCloudVault = useCallback(async (id: string) => {
+    setErrorMsg(null);
+    const entry = getCloudVault(id);
+    if (!entry) {
+      setErrorMsg("Ce coffre cloud n'existe plus dans l'historique.");
+      return;
+    }
+    const cfg = loadOnlineSyncConfig();
+    const activeCloudId = isCloudVaultActive()
+      ? cloudVaultId(cfg.serverUrl, cfg.vaultKey)
+      : null;
+    // Already mounted → just bump recency, no reboot.
+    if (id === activeCloudId) {
+      upsertCloudVault({ serverUrl: entry.serverUrl, vaultKey: entry.vaultKey, token: entry.token });
+      void refreshRecents();
+      return;
+    }
+    // Reset the cursor/seed so the new room replays + re-seeds from scratch.
+    saveOnlineSyncConfig({
+      ...DEFAULT_ONLINE_SYNC_CONFIG,
+      enabled: true,
+      serverUrl: entry.serverUrl,
+      vaultKey: entry.vaultKey,
+      token: entry.token,
+    });
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(CLOUD_VAULT_KEY, "1");
+      window.localStorage.removeItem(DEGRADED_STORAGE_KEY);
+    }
+    upsertCloudVault({ serverUrl: entry.serverUrl, vaultKey: entry.vaultKey, token: entry.token });
+    setWorkerReady(false);
+    setVaultName(null);
+    try {
+      // Tear down the current worker (it may hold the shared OPFS SAH pool) and
+      // boot the cloud vault from a CLEAN OPFS so it's seeded purely from the
+      // chosen room's server op-log — never inheriting the previous index.
+      terminateVaultWorker();
+      const handle = await getCloudVaultHandle();
+      setState("loading");
+      void refreshRecents();
+      startWorker(handle, { cloud: true, resetStorage: true });
+    } catch (err) {
+      setErrorMsg(`Impossible d'ouvrir le coffre cloud : ${String(err)}`);
+      setState("error");
+    }
+  }, [refreshRecents]);
+
   const switchToVault = useCallback(async (id: string) => {
+    // Cloud vaults carry a `cloud:` id and live in a separate registry/flow.
+    if (id.startsWith("cloud:")) {
+      await switchToCloudVault(id);
+      return;
+    }
     setErrorMsg(null);
     const entry = await getVaultEntry(id);
     if (!entry) {
@@ -616,16 +715,22 @@ export function usePwaVaultSetup(): VaultContextValue {
     await saveVaultHandle(entry.handle);
     await setActiveVaultId(entry.id);
     if (typeof window !== "undefined") window.localStorage.removeItem(DEGRADED_STORAGE_KEY);
+    // Switching to a folder vault leaves cloud mode (disables online sync).
+    leaveCloudMode();
     setWorkerReady(false);
     setVaultName(null);
     setState("loading");
     void refreshRecents();
     startWorker(entry.handle, { resetStorage: isDifferentFolder });
-  }, [activeVaultId, refreshRecents]);
+  }, [activeVaultId, refreshRecents, switchToCloudVault]);
 
   const forgetVault = useCallback(async (id: string) => {
     if (id === activeVaultId) return;
-    await removeVaultEntry(id);
+    if (id.startsWith("cloud:")) {
+      removeCloudVault(id);
+    } else {
+      await removeVaultEntry(id);
+    }
     void refreshRecents();
   }, [activeVaultId, refreshRecents]);
 
@@ -655,6 +760,19 @@ function startWorker(
   opts: { resetStorage?: boolean; cloud?: boolean } = {},
 ): void {
   initWorkerVault(handle, opts);
+}
+
+/**
+ * Leaving cloud mode for a folder/git vault: drop the cloud marker AND disable
+ * online sync. Without disabling, OnlineSyncProvider would re-read an enabled
+ * config when the folder vault reaches "ready" and start replicating the
+ * folder's contents into the previous cloud room.
+ */
+function leaveCloudMode(): void {
+  if (typeof window === "undefined") return;
+  window.localStorage.removeItem(CLOUD_VAULT_KEY);
+  const cfg = loadOnlineSyncConfig();
+  if (cfg.enabled) saveOnlineSyncConfig({ ...cfg, enabled: false });
 }
 
 // ── UI Component ──────────────────────────────────────────────────────────────

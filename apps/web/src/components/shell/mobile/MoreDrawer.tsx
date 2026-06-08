@@ -5,8 +5,8 @@ import {
   Bell,
   CaretRight,
   Calendar,
+  Cloud,
   Desktop,
-  FolderOpen,
   Function,
   Gear,
   GridNine,
@@ -21,9 +21,10 @@ import {
 } from "@phosphor-icons/react";
 import Link from "next/link";
 import { Button, Drawer, useAppTheme, type ThemeValue } from "@supernote/ui";
-import { memo, useCallback } from "react";
+import { memo, useCallback, useState } from "react";
 import { NotificationBadge, useNotifications } from "@supernote/notifications/renderer";
 import { useVault } from "@/lib/pwa/PwaVaultSetup";
+import { MobileVaultSwitcher } from "./MobileVaultSwitcher";
 
 const THEME_CYCLE: ThemeValue[] = ["light", "dark", "system"];
 
@@ -57,6 +58,21 @@ function ThemeCycleButton() {
     >
       <Icon size={20} />
     </Button>
+  );
+}
+
+/** Square brand tile — shows a cloud glyph for cloud vaults, else the "S". */
+function VaultBadge({ isCloud }: { isCloud: boolean }) {
+  return (
+    <div
+      className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl text-base font-bold"
+      style={{
+        backgroundColor: "var(--accent)",
+        color: "var(--accent-foreground)",
+      }}
+    >
+      {isCloud ? <Cloud size={22} weight="fill" /> : "S"}
+    </div>
   );
 }
 
@@ -120,11 +136,21 @@ export const MoreDrawer = memo(function MoreDrawer({
 }) {
   const { unreadCount } = useNotifications();
   const vault = useVault();
-  const canPickVault = Boolean(vault?.isPwa);
-  const brandLabel =
-    vault && vault.isPwa
-      ? vault.vaultName ?? (vault.state === "degraded" ? "Aucun vault" : "Supernote")
-      : "Supernote";
+  const [switcherOpen, setSwitcherOpen] = useState(false);
+  // A device can host folder vaults (FSA) and/or cloud vaults (OPFS — phones).
+  // The card opens the switcher whenever either is possible. For a cloud vault
+  // the worker reports a generic name, so we override with the room key (the
+  // active cloud entry's name) and swap the badge for a cloud glyph.
+  const activeEntry =
+    vault?.recentVaults.find((v) => v.id === vault.activeVaultId) ?? null;
+  const isCloudVault = activeEntry?.kind === "cloud";
+  const canUseVault = Boolean(vault && (vault.isPwa || vault.canCloud));
+  const brandLabel = canUseVault
+    ? isCloudVault
+      ? activeEntry!.name
+      : vault!.vaultName ?? (vault!.state === "degraded" ? "Aucun vault" : "Supernote")
+    : "Supernote";
+  const vaultSubtitle = isCloudVault ? "Cloud · temps réel" : "Supernote · vault local";
 
   return (
     <Drawer
@@ -175,46 +201,54 @@ export const MoreDrawer = memo(function MoreDrawer({
               and notifications. Mirrors the iOS "Apple ID card" pattern at
               the top of Settings. */}
           <div
-            className="mb-6 flex items-center gap-3 rounded-2xl p-3"
+            className="mb-6 flex items-center gap-2 rounded-2xl p-3"
             style={{ backgroundColor: "var(--surface-2)" }}
           >
-            <div
-              className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl text-base font-bold"
-              style={{
-                backgroundColor: "var(--accent)",
-                color: "var(--accent-foreground)",
-              }}
-            >
-              S
-            </div>
-            <div className="min-w-0 flex-1">
-              <div
-                className="truncate text-[15px] font-semibold tracking-tight"
-                style={{ color: "var(--text-primary)" }}
-              >
-                {brandLabel}
-              </div>
-              <div
-                className="truncate text-[12px]"
-                style={{ color: "var(--text-muted)" }}
-              >
-                Supernote · vault local
-              </div>
-            </div>
-            <ThemeCycleButton />
-            {canPickVault && (
+            {canUseVault ? (
               <Button
                 type="button"
                 variant="ghost"
-                size="icon"
-                onClick={() => void vault?.pickFolder()}
-                aria-label="Changer de vault"
-                className="flex h-10 w-10 items-center justify-center rounded-lg"
-                style={{ color: "var(--text-secondary)" }}
+                onClick={() => setSwitcherOpen(true)}
+                aria-label="Changer de coffre"
+                className="flex min-w-0 flex-1 items-center gap-3 rounded-xl p-0 text-left"
               >
-                <FolderOpen size={20} />
+                <VaultBadge isCloud={isCloudVault} />
+                <span className="min-w-0 flex-1">
+                  <span
+                    className="block truncate text-[15px] font-semibold tracking-tight"
+                    style={{ color: "var(--text-primary)" }}
+                  >
+                    {brandLabel}
+                  </span>
+                  <span
+                    className="block truncate text-[12px]"
+                    style={{ color: "var(--text-muted)" }}
+                  >
+                    {vaultSubtitle}
+                  </span>
+                </span>
+                <CaretRight size={16} style={{ color: "var(--text-muted)" }} />
               </Button>
+            ) : (
+              <div className="flex min-w-0 flex-1 items-center gap-3">
+                <VaultBadge isCloud={isCloudVault} />
+                <div className="min-w-0 flex-1">
+                  <div
+                    className="truncate text-[15px] font-semibold tracking-tight"
+                    style={{ color: "var(--text-primary)" }}
+                  >
+                    {brandLabel}
+                  </div>
+                  <div
+                    className="truncate text-[12px]"
+                    style={{ color: "var(--text-muted)" }}
+                  >
+                    {vaultSubtitle}
+                  </div>
+                </div>
+              </div>
             )}
+            <ThemeCycleButton />
             <Button
               type="button"
               variant="ghost"
@@ -234,6 +268,11 @@ export const MoreDrawer = memo(function MoreDrawer({
               />
             </Button>
           </div>
+
+          <MobileVaultSwitcher
+            isOpen={switcherOpen}
+            onClose={() => setSwitcherOpen(false)}
+          />
 
           {/* Sections — each rendered as a single rounded card containing
               its rows, with a small uppercase label above. Rows separated

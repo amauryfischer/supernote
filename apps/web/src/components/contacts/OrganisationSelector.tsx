@@ -49,6 +49,13 @@ interface OrganisationSelectorProps {
   onChange: (next: string | undefined) => void;
   /** Optional override for the empty-state trigger label. */
   placeholder?: string;
+  /**
+   * Pre-resolved organisation name for the trigger. When provided, the
+   * internal `entities.get` lookup is skipped — used by the contacts table
+   * which already resolves every org name from a shared `orgNames` map, so
+   * mounting one selector per row doesn't fire N point queries.
+   */
+  displayName?: string;
 }
 
 /** Read the canonical display name from an organisation entity's fields. */
@@ -62,6 +69,7 @@ export function OrganisationSelector({
   value,
   onChange,
   placeholder,
+  displayName,
 }: OrganisationSelectorProps) {
   const [open, setOpen] = useState(false);
   const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
@@ -71,20 +79,27 @@ export function OrganisationSelector({
   // trigger. When the id no longer exists (legacy fixture id, deleted
   // entity) we fall back to a clear "introuvable" label so the user
   // understands why the picker shows nothing useful.
+  // Skipped entirely when the caller pre-resolves the name via `displayName`
+  // (the table passes it from its shared `orgNames` map).
+  const hasDisplayName = displayName !== undefined;
   const selectedQuery = trpc.entities.get.useQuery(
     { id: value ?? "" },
-    { enabled: !!value, retry: false },
+    { enabled: !!value && !hasDisplayName, retry: false },
   );
 
   const selectedLabel = useMemo(() => {
     if (!value) return placeholder ?? "Choisir une organisation";
+    if (hasDisplayName) return displayName || placeholder || "Choisir une organisation";
     if (selectedQuery.isPending) return "…";
     if (selectedQuery.isError || !selectedQuery.data) return "(organisation introuvable)";
     return orgName(selectedQuery.data);
-  }, [value, selectedQuery.isPending, selectedQuery.isError, selectedQuery.data, placeholder]);
+  }, [value, hasDisplayName, displayName, selectedQuery.isPending, selectedQuery.isError, selectedQuery.data, placeholder]);
 
   const isMissing =
-    !!value && !selectedQuery.isPending && (selectedQuery.isError || !selectedQuery.data);
+    !!value &&
+    !hasDisplayName &&
+    !selectedQuery.isPending &&
+    (selectedQuery.isError || !selectedQuery.data);
 
   const handleOpen = () => {
     if (triggerRef.current) {

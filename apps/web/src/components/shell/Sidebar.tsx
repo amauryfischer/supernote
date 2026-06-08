@@ -5,12 +5,10 @@ import {
   Bell,
   CaretDown,
   Calendar,
-  Check,
   CheckSquare,
+  Cloud,
   FileText,
-  FolderOpen,
   Function,
-  GitBranch,
   Gear,
   GridNine,
   House,
@@ -19,7 +17,6 @@ import {
   Robot,
   Tag,
   Timer,
-  Trash,
   Users,
   Wallet,
   type Icon as PhosphorIcon,
@@ -31,6 +28,7 @@ import { usePathname } from "next/navigation";
 import { NotificationBadge, useNotifications } from "@supernote/notifications/renderer";
 import { useTranslations } from "next-intl";
 import { useVault, type RecentVault } from "@/lib/pwa/PwaVaultSetup";
+import { VaultSwitcherList } from "./VaultSwitcherList";
 import {
   BUILT_IN_PLUGINS,
   PLUGIN_HREF_BY_SLUG,
@@ -162,11 +160,20 @@ export const Sidebar = memo(function Sidebar() {
   // is bypassed (vault === null) and we fall back to the static product name.
   // In PWA mode an empty `vaultName` means we haven't received VAULT_READY
   // yet (still loading or running in degraded localStorage mode).
-  const brandLabel =
-    vault && vault.isPwa
-      ? vault.vaultName ?? (vault.state === "degraded" ? "Aucun vault" : "Supernote")
-      : "Supernote";
-  const canPickVault = Boolean(vault?.isPwa);
+  //
+  // A device can host folder vaults (FSA) and/or cloud vaults (OPFS); the brand
+  // opens the switcher whenever either is possible. For a cloud vault the worker
+  // reports a generic "Coffre cloud" name — we override it with the room key
+  // (the active cloud entry's name) and swap the badge for a cloud glyph.
+  const activeEntry =
+    vault?.recentVaults.find((v) => v.id === vault.activeVaultId) ?? null;
+  const isCloudVault = activeEntry?.kind === "cloud";
+  const canPickVault = Boolean(vault && (vault.isPwa || vault.canCloud));
+  const brandLabel = canPickVault
+    ? isCloudVault
+      ? activeEntry!.name
+      : vault!.vaultName ?? (vault!.state === "degraded" ? "Aucun vault" : "Supernote")
+    : "Supernote";
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const brandRef = useRef<HTMLButtonElement>(null);
 
@@ -226,7 +233,7 @@ export const Sidebar = memo(function Sidebar() {
                   color: "var(--accent-foreground)",
                 }}
               >
-                S
+                {isCloudVault ? <Cloud size={14} weight="fill" /> : "S"}
               </div>
               <span
                 className="truncate text-sm font-semibold tracking-tight"
@@ -250,7 +257,7 @@ export const Sidebar = memo(function Sidebar() {
                   color: "var(--accent-foreground)",
                 }}
               >
-                S
+                {isCloudVault ? <Cloud size={14} weight="fill" /> : "S"}
               </div>
               <span
                 className="truncate text-sm font-semibold tracking-tight"
@@ -288,14 +295,30 @@ export const Sidebar = memo(function Sidebar() {
             onForget={(id) => {
               void vault.forgetVault(id);
             }}
-            onPickFolder={() => {
-              setSwitcherOpen(false);
-              void vault.pickFolder();
-            }}
-            onStartGit={() => {
-              setSwitcherOpen(false);
-              vault.startGitFlow();
-            }}
+            onPickFolder={
+              vault.isPwa
+                ? () => {
+                    setSwitcherOpen(false);
+                    void vault.pickFolder();
+                  }
+                : undefined
+            }
+            onStartGit={
+              vault.isPwa
+                ? () => {
+                    setSwitcherOpen(false);
+                    vault.startGitFlow();
+                  }
+                : undefined
+            }
+            onStartCloud={
+              vault.canCloud
+                ? () => {
+                    setSwitcherOpen(false);
+                    vault.startCloudFlow();
+                  }
+                : undefined
+            }
             onClose={() => setSwitcherOpen(false)}
           />
         )}
@@ -379,8 +402,9 @@ interface VaultSwitcherPopoverProps {
   activeId: string | null;
   onSwitch: (id: string) => void;
   onForget: (id: string) => void;
-  onPickFolder: () => void;
-  onStartGit: () => void;
+  onPickFolder?: () => void;
+  onStartGit?: () => void;
+  onStartCloud?: () => void;
   onClose: () => void;
 }
 
@@ -399,6 +423,7 @@ function VaultSwitcherPopover({
   onForget,
   onPickFolder,
   onStartGit,
+  onStartCloud,
   onClose,
 }: VaultSwitcherPopoverProps) {
   const popRef = useRef<HTMLDivElement>(null);
@@ -459,85 +484,15 @@ function VaultSwitcherPopover({
         border: "1px solid var(--border-subtle)",
       }}
     >
-      {recents.length === 0 && (
-        <div
-          className="px-3 py-2 text-xs"
-          style={{ color: "var(--text-muted)" }}
-        >
-          Aucun vault récent.
-        </div>
-      )}
-      {recents.map((v) => {
-        const isActive = v.id === activeId;
-        return (
-          <div
-            key={v.id}
-            className="group flex items-center gap-1 rounded-md hover:bg-[var(--surface-2)]"
-          >
-            <Button
-              type="button"
-              aria-checked={isActive}
-              variant="ghost"
-              onClick={() => onSwitch(v.id)}
-              className="flex min-w-0 flex-1 items-center gap-2 px-2 py-2 text-left text-sm"
-              style={{
-                color: isActive ? "var(--accent)" : "var(--text-primary)",
-                fontWeight: isActive ? 500 : 400,
-              }}
-            >
-              <span
-                className="flex h-4 w-4 shrink-0 items-center justify-center"
-                style={{ color: isActive ? "var(--accent)" : "var(--text-muted)" }}
-              >
-                {isActive ? <Check size={13} weight="bold" /> : <FolderOpen size={13} />}
-              </span>
-              <span className="truncate">{v.name}</span>
-            </Button>
-            {!isActive && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onForget(v.id);
-                }}
-                aria-label={`Retirer ${v.name} de l'historique`}
-                className="mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
-                style={{ color: "var(--text-muted)" }}
-              >
-                <Trash size={12} />
-              </Button>
-            )}
-          </div>
-        );
-      })}
-
-      <div
-        className="my-1 border-t"
-        style={{ borderColor: "var(--border-subtle)" }}
+      <VaultSwitcherList
+        recents={recents}
+        activeId={activeId}
+        onSwitch={onSwitch}
+        onForget={onForget}
+        onPickFolder={onPickFolder}
+        onStartGit={onStartGit}
+        onStartCloud={onStartCloud}
       />
-
-      <Button
-        type="button"
-        variant="ghost"
-        onClick={onPickFolder}
-        className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm"
-        style={{ color: "var(--text-primary)" }}
-      >
-        <FolderOpen size={13} style={{ color: "var(--text-muted)" }} />
-        <span>Choisir un autre dossier…</span>
-      </Button>
-      <Button
-        type="button"
-        variant="ghost"
-        onClick={onStartGit}
-        className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm"
-        style={{ color: "var(--text-primary)" }}
-      >
-        <GitBranch size={13} style={{ color: "var(--text-muted)" }} />
-        <span>Connecter un dépôt Git…</span>
-      </Button>
     </div>
   );
 }

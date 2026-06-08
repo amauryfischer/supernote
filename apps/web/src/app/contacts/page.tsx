@@ -20,7 +20,8 @@ import type { RelationType, Contact } from "@/components/contacts";
 import { GridFour, List, Plus, MagnifyingGlass, X, UploadSimple } from "@phosphor-icons/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useRef, useState, useMemo, useEffect } from "react";
+import { useRef, useState, useMemo, useEffect, useCallback } from "react";
+import type { FieldValue } from "@supernote/ipc";
 import { Button, Input } from "@heroui/react";
 import { SkeletonCard } from "@supernote/ui";
 import { useTranslations } from "next-intl";
@@ -143,6 +144,20 @@ export default function ContactsPage() {
       void utils.entities.list.invalidate({ typeId: "personne" });
     },
   });
+
+  // Inline cell edits from the table persist field-by-field via entities.update
+  // (the worker merges `fields` with the existing record). Only wired in live
+  // backend mode — degraded / demo mode stays read-only.
+  const handleInlineUpdate = useCallback(
+    (id: string, fields: Record<string, FieldValue>, opts?: { tags?: string[] }) => {
+      updateMutation.mutate({
+        id,
+        fields,
+        ...(opts?.tags ? { tags: opts.tags } : {}),
+      });
+    },
+    [updateMutation],
+  );
 
   const handleImportClick = () => fileInputRef.current?.click();
 
@@ -474,6 +489,8 @@ export default function ContactsPage() {
               contacts={filtered}
               onSelectionChange={setSelectedIds}
               orgNames={orgNames}
+              onUpdate={handleInlineUpdate}
+              canEdit={mode === "live"}
             />
           ) : (
             <ContactGallery

@@ -9,6 +9,11 @@ import {
   loadOnlineSyncConfig,
   saveOnlineSyncConfig,
   DEFAULT_ONLINE_SYNC_CONFIG,
+  cloudVaultId,
+  listCloudVaults,
+  getCloudVault,
+  upsertCloudVault,
+  removeCloudVault,
 } from "./config-storage";
 
 const CONFIG_KEY = "supernote.onlineSync.config";
@@ -75,5 +80,57 @@ describe("loadOnlineSyncConfig", () => {
     expect(cfg.lastSeq).toBe(27);
     expect(cfg.seeded).toBe(true);
     expect(cfg.epoch).toBe("live-epoch");
+  });
+});
+
+describe("cloud vault registry", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("derives a stable id from the normalized (server, key) pair", () => {
+    // Trailing slash + key case must not fork the id — same pair → same id.
+    expect(cloudVaultId("https://s.example.com/", "Amaury")).toBe(
+      cloudVaultId("https://s.example.com", "amaury"),
+    );
+    // Different server → different id, even with the same key.
+    expect(cloudVaultId("", "amaury")).not.toBe(
+      cloudVaultId("https://s.example.com", "amaury"),
+    );
+  });
+
+  it("upserts, dedupes on the (server, key) pair, and refreshes recency", () => {
+    const a = upsertCloudVault({ serverUrl: "", vaultKey: "perso", token: "" });
+    upsertCloudVault({ serverUrl: "https://s.example.com", vaultKey: "boulot", token: "x" });
+    expect(listCloudVaults()).toHaveLength(2);
+
+    // Re-adding the same pair (case/slash variant) updates, not duplicates.
+    const again = upsertCloudVault({ serverUrl: "", vaultKey: "PERSO", token: "tok" });
+    expect(again.id).toBe(a.id);
+    const all = listCloudVaults();
+    expect(all).toHaveLength(2);
+    expect(getCloudVault(a.id)?.token).toBe("tok");
+  });
+
+  it("sorts most-recently-opened first", () => {
+    const old = upsertCloudVault({
+      serverUrl: "",
+      vaultKey: "old",
+      token: "",
+      lastOpenedAt: 1000,
+    });
+    const fresh = upsertCloudVault({
+      serverUrl: "",
+      vaultKey: "fresh",
+      token: "",
+      lastOpenedAt: 2000,
+    });
+    expect(listCloudVaults().map((e) => e.id)).toEqual([fresh.id, old.id]);
+  });
+
+  it("removes one entry, leaving the rest", () => {
+    const a = upsertCloudVault({ serverUrl: "", vaultKey: "a", token: "" });
+    const b = upsertCloudVault({ serverUrl: "", vaultKey: "b", token: "" });
+    removeCloudVault(a.id);
+    expect(listCloudVaults().map((e) => e.id)).toEqual([b.id]);
+    expect(getCloudVault(a.id)).toBeNull();
   });
 });

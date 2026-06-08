@@ -114,6 +114,104 @@ export function clearOnlineSyncConfig(): void {
   }
 }
 
+/* ── Cloud vault registry ─────────────────────────────────────────────── */
+
+const VAULTS_KEY = "supernote.onlineSync.vaults";
+
+/**
+ * One known cloud vault — a (server, room key) pair the user has opened on this
+ * device. The single {@link OnlineSyncConfig} holds only the *active* pair; this
+ * registry remembers the others so the sidebar switcher can list and re-activate
+ * them, the same way the FSA registry remembers folder vaults.
+ */
+export interface CloudVaultEntry {
+  /** Stable id derived from the (server, key) pair: `cloud:<server>|<key>`. */
+  id: string;
+  /** Sync server base URL ("" = same origin as the app). */
+  serverUrl: string;
+  /** Normalized room key — also the human-facing name in the switcher. */
+  vaultKey: string;
+  /** Optional shared secret, required only when the server sets `SYNC_TOKEN`. */
+  token: string;
+  /** Epoch ms of the last activation — drives recents sort order. */
+  lastOpenedAt: number;
+}
+
+/** Canonical server url for id/dedup — trimmed, no trailing slash. */
+function normalizeServerUrl(url: string): string {
+  return url.trim().replace(/\/+$/, "");
+}
+
+/**
+ * Stable id for a cloud vault. Two forms/devices resolving to the same
+ * (server, key) pair collapse to one registry entry. The `cloud:` prefix keeps
+ * these ids disjoint from the FSA registry's (random uuid) ids, so a single
+ * switcher can list both kinds and dispatch on the prefix without collision.
+ */
+export function cloudVaultId(serverUrl: string, vaultKey: string): string {
+  return `cloud:${normalizeServerUrl(serverUrl)}|${normalizeVaultKey(vaultKey)}`;
+}
+
+/** All known cloud vaults, most-recently-opened first. */
+export function listCloudVaults(): CloudVaultEntry[] {
+  if (typeof localStorage === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(VAULTS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as CloudVaultEntry[];
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((e) => e && typeof e.vaultKey === "string" && typeof e.id === "string")
+      .sort((a, b) => (b.lastOpenedAt ?? 0) - (a.lastOpenedAt ?? 0));
+  } catch {
+    return [];
+  }
+}
+
+export function getCloudVault(id: string): CloudVaultEntry | null {
+  return listCloudVaults().find((e) => e.id === id) ?? null;
+}
+
+/**
+ * Insert or refresh the registry entry for a (server, key) pair, stamping
+ * `lastOpenedAt`. Returns the canonical entry. No-op safe without localStorage.
+ */
+export function upsertCloudVault(args: {
+  serverUrl: string;
+  vaultKey: string;
+  token: string;
+  lastOpenedAt?: number;
+}): CloudVaultEntry {
+  const serverUrl = normalizeServerUrl(args.serverUrl);
+  const vaultKey = normalizeVaultKey(args.vaultKey);
+  const entry: CloudVaultEntry = {
+    id: cloudVaultId(serverUrl, vaultKey),
+    serverUrl,
+    vaultKey,
+    token: args.token,
+    lastOpenedAt: args.lastOpenedAt ?? Date.now(),
+  };
+  if (typeof localStorage === "undefined") return entry;
+  try {
+    const others = listCloudVaults().filter((e) => e.id !== entry.id);
+    localStorage.setItem(VAULTS_KEY, JSON.stringify([entry, ...others]));
+  } catch {
+    /* quota / disabled storage — non-fatal */
+  }
+  return entry;
+}
+
+/** Remove one cloud vault from the registry. The active vault still mounts. */
+export function removeCloudVault(id: string): void {
+  if (typeof localStorage === "undefined") return;
+  try {
+    const next = listCloudVaults().filter((e) => e.id !== id);
+    localStorage.setItem(VAULTS_KEY, JSON.stringify(next));
+  } catch {
+    /* non-fatal */
+  }
+}
+
 /**
  * Stable per-device id. Generated once and reused so a device can recognise
  * (and ignore) the echoes of its own ops coming back on the stream.

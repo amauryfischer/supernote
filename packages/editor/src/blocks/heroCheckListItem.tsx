@@ -133,8 +133,10 @@ function CheckItemControls({ content, onChange }: CheckItemControlsProps) {
   };
 
   // Importance levels worth a one-click dot — medium is the implicit default,
-  // so we expose the three that actually signal something.
-  const dotLevels: TodoImportance[] = ["high", "critical", "low"];
+  // so we expose the three that actually signal something. Ordered as a
+  // severity ramp (green → orange → red) so the inline pastilles read
+  // low → high → critical left-to-right.
+  const dotLevels: TodoImportance[] = ["low", "high", "critical"];
 
   return (
     <span className="sn-checkitem__meta" contentEditable={false}>
