@@ -22,6 +22,8 @@ import {
 } from "@/hooks/useAutoTitle";
 import { PromptModal } from "@/components/shell/PromptModal";
 import { isAutoTagEnabled, useAutoTag } from "@/hooks/useAutoTag";
+import { useIsMobile } from "@/hooks/useIsMobile";
+import { useKeyboardOpen } from "@/hooks/useKeyboardOpen";
 import { AssociatedTodos } from "@/components/todos/AssociatedTodos";
 import { renderInlineDatabase } from "./InlineDatabaseRenderer";
 import { renderNoteFormula, NoteFormulaModalHost } from "./NoteFormulaBridge";
@@ -109,6 +111,12 @@ function imageTypeToExt(mimeType: string): string {
 }
 
 export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
+  // Mobile focus mode: drop the editor's formatting toolbar while the keyboard
+  // is up so only the note content remains (the shell chrome is hidden by
+  // MobileShell on the same signal).
+  const isMobile = useIsMobile();
+  const keyboardOpen = useKeyboardOpen();
+  const hideToolbarForKeyboard = isMobile && keyboardOpen;
   const [title, setTitle] = useState(note.title);
   const [tags, setTags] = useState<string[]>(note.tags);
   const [ambiance, setAmbiance] = useState<NoteAmbiance>(() => asAmbiance(note.fields?.["ambiance"]));
@@ -1208,7 +1216,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
               className="min-h-[60vh] w-full"
               onAskAi={handleAskAi}
               dimInactiveBlocks={dimBlocks}
-              topToolbar
+              topToolbar={!hideToolbarForKeyboard}
               onEditorReady={(insert) => { editorInsertRef.current = insert; }}
               onStreamingInsertReady={(begin) => { editorStreamRef.current = begin; }}
               renderDatabaseView={renderInlineDatabase}

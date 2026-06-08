@@ -7,6 +7,7 @@ import { MobileTopBar } from "./MobileTopBar";
 import { MoreDrawer } from "./MoreDrawer";
 import { useShellChrome } from "../shell-chrome-context";
 import { ColumnEditorSidebar } from "@/components/bases/ColumnEditorSidebar";
+import { useKeyboardOpen } from "@/hooks/useKeyboardOpen";
 import dynamic from "next/dynamic";
 
 // Lazy-load the notification center so it's not in the critical mobile bundle.
@@ -45,12 +46,18 @@ export const MobileShell = memo(function MobileShell({
   const [notifOpen, setNotifOpen] = useState(false);
   const { columnEditor, closeColumnEditor } = useShellChrome();
 
+  // Focus mode: while the keyboard is up and the note editor is focused, drop
+  // ALL chrome (header, FAB, bottom nav) so only the note content shows. The
+  // hook stays false for plain inputs (e.g. search), so opening the keyboard
+  // there keeps the chrome — including the search field itself.
+  const keyboardFocus = useKeyboardOpen();
+
   return (
     <div
       className="relative flex h-screen w-screen flex-col overflow-hidden"
       style={{ backgroundColor: "var(--surface-0)" }}
     >
-      <MobileTopBar />
+      {!keyboardFocus && <MobileTopBar />}
 
       <main
         className="relative flex-1 overflow-y-auto"
@@ -59,9 +66,9 @@ export const MobileShell = memo(function MobileShell({
         {children}
       </main>
 
-      <MobileFab />
+      {!keyboardFocus && <MobileFab />}
 
-      <MobileBottomNav onOpenMore={() => setMoreOpen(true)} />
+      {!keyboardFocus && <MobileBottomNav onOpenMore={() => setMoreOpen(true)} />}
 
       <MoreDrawer
         isOpen={moreOpen}

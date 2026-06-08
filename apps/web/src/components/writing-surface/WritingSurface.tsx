@@ -7,6 +7,8 @@ import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { useShellChrome, useMobileFab, useMobileTitle } from "@/components/shell/shell-chrome-context";
 import { useCreateInboxNote } from "@/hooks/useCreateInboxNote";
+import { useIsMobile } from "@/hooks/useIsMobile";
+import { useKeyboardOpen } from "@/hooks/useKeyboardOpen";
 import type { SupernoteEditorProps, EntityRef } from "@supernote/editor";
 import { trpc, trpcVanillaClient } from "@/lib/trpc/client";
 import { useTranslations } from "next-intl";
@@ -95,6 +97,10 @@ export function WritingSurface() {
   );
 
   const isWriting = isFocused || content.length > 0;
+  // Hide the editor toolbar while the mobile keyboard is up (focus mode) — the
+  // shell drops its chrome on the same signal.
+  const isMobile = useIsMobile();
+  const keyboardOpen = useKeyboardOpen();
 
   // Previously the home surface dimmed the sidebar / TopBar / RightPanel as
   // soon as the user typed, which made the page feel transparent and
@@ -288,7 +294,7 @@ export function WritingSurface() {
             onChange={handleEditorChange}
             onSave={handleEditorSave}
             resolvers={resolvers}
-            topToolbar={isWriting}
+            topToolbar={isWriting && !(isMobile && keyboardOpen)}
             placeholder="Commencez à écrire ou tapez « / » pour les commandes…"
             className={`w-full ${isWriting ? "min-h-[8rem]" : "min-h-[4rem]"}`}
           />
