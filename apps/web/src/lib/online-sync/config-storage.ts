@@ -54,13 +54,42 @@ export const DEFAULT_ONLINE_SYNC_CONFIG: OnlineSyncConfig = {
   epoch: "",
 };
 
+/**
+ * Canonicalise a room key. The server partitions the op-log by an exact,
+ * case-sensitive string match (`WHERE vault = ?`), so two devices must send
+ * byte-identical keys to share a vault. A human typing the same word on a
+ * laptop and a phone is the intended pairing flow — but mobile keyboards
+ * auto-capitalise the first letter by default, silently turning `amaury` into
+ * `Amaury` and splitting the pair into two empty vaults. Folding to lowercase
+ * (after trimming) makes the key case-insensitive so the keyboard can't break
+ * pairing. Applied on both save and load, so devices that already persisted a
+ * mis-cased key heal themselves on the next boot without re-entering it.
+ */
+export function normalizeVaultKey(key: string): string {
+  return key.trim().toLowerCase();
+}
+
 export function loadOnlineSyncConfig(): OnlineSyncConfig {
   if (typeof localStorage === "undefined") return { ...DEFAULT_ONLINE_SYNC_CONFIG };
   try {
     const raw = localStorage.getItem(CONFIG_KEY);
     if (!raw) return { ...DEFAULT_ONLINE_SYNC_CONFIG };
     const parsed = JSON.parse(raw) as Partial<OnlineSyncConfig>;
-    return { ...DEFAULT_ONLINE_SYNC_CONFIG, ...parsed };
+    const merged = { ...DEFAULT_ONLINE_SYNC_CONFIG, ...parsed };
+    const normKey = normalizeVaultKey(merged.vaultKey);
+    if (normKey !== merged.vaultKey) {
+      // The stored key wasn't canonical (e.g. a phone keyboard capitalised it),
+      // so it was routing to a different server vault. Server `seq` is a single
+      // global sequence shared across all vaults, so the persisted cursor/seed
+      // belong to the wrong op-log: keeping them would make the corrected device
+      // ask for `seq > <stale>` against the right vault and skip its entire
+      // backlog. Reset the sync state to force a clean full replay + re-seed.
+      merged.vaultKey = normKey;
+      merged.lastSeq = 0;
+      merged.seeded = false;
+      merged.epoch = "";
+    }
+    return merged;
   } catch {
     return { ...DEFAULT_ONLINE_SYNC_CONFIG };
   }
@@ -69,7 +98,8 @@ export function loadOnlineSyncConfig(): OnlineSyncConfig {
 export function saveOnlineSyncConfig(config: OnlineSyncConfig): void {
   if (typeof localStorage === "undefined") return;
   try {
-    localStorage.setItem(CONFIG_KEY, JSON.stringify(config));
+    const normalized = { ...config, vaultKey: normalizeVaultKey(config.vaultKey) };
+    localStorage.setItem(CONFIG_KEY, JSON.stringify(normalized));
   } catch {
     /* quota / disabled storage — non-fatal */
   }

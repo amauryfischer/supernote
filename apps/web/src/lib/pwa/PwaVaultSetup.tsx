@@ -44,6 +44,7 @@ import { saveGitConfig } from "@/lib/git/config-storage";
 import {
   saveOnlineSyncConfig,
   DEFAULT_ONLINE_SYNC_CONFIG,
+  normalizeVaultKey,
 } from "@/lib/online-sync/config-storage";
 
 const DEGRADED_STORAGE_KEY = "supernote.degraded";
@@ -402,7 +403,9 @@ export function usePwaVaultSetup(): VaultContextValue {
   const setupCloudVault = useCallback(async (args: CloudSetupArgs) => {
     setErrorMsg(null);
     const serverUrl = args.serverUrl.trim().replace(/\/+$/, "");
-    const vaultKey = args.vaultKey.trim();
+    // Case-folded so a phone keyboard's auto-capitalisation can't fork the pair
+    // into a separate vault (see normalizeVaultKey).
+    const vaultKey = normalizeVaultKey(args.vaultKey);
     const token = args.token.trim();
     if (!vaultKey) {
       setErrorMsg("Une clé de salon est requise.");
@@ -1058,11 +1061,14 @@ function CloudSetupForm({
           onChange={(e) => setVaultKey(e.target.value)}
           style={styles.input}
           autoComplete="off"
+          autoCapitalize="none"
+          autoCorrect="off"
           spellCheck={false}
         />
         <span style={styles.hint}>
-          La même chaîne sur votre PC et votre téléphone pour les apparier.
-          Traitez-la comme un mot de passe : qui la connaît accède au coffre.
+          La même chaîne sur votre PC et votre téléphone pour les apparier (la
+          casse est ignorée). Traitez-la comme un mot de passe : qui la connaît
+          accède au coffre.
         </span>
       </label>
 
