@@ -733,6 +733,49 @@
   color: var(--accent, #7c3aed);
 }
 
+/* ── Mobile (< 768px) ────────────────────────────────────────
+ * On phones the centered "fit-content" pill overflows the viewport. We
+ * can't make the bar itself horizontally scrollable because `overflow-x`
+ * would also clip the absolutely-positioned dropdown menus that hang below
+ * it. Instead we let the bar span the full width and wrap onto a second row
+ * when needed, drop the block-type label (the glyph alone stays legible),
+ * and tighten the spacing / hit-targets for touch. */
+@media (max-width: 767px) {
+  .sn-top-toolbar {
+    width: auto;
+    margin: 0 0 0.75rem;
+    flex-wrap: wrap;
+    justify-content: center;
+    row-gap: 4px;
+    padding: 5px 6px;
+    border-radius: 12px;
+  }
+
+  /* Keep the type chip glyph but hide the verbose label to save room. */
+  .sn-top-toolbar__type-label {
+    display: none;
+  }
+  .sn-top-toolbar__type {
+    gap: 4px;
+    padding: 0 6px 0 4px;
+  }
+
+  .sn-top-toolbar__sep {
+    margin: 0 3px;
+  }
+
+  /* Comfortable 32px touch targets. */
+  .sn-top-toolbar__btn {
+    min-width: 32px;
+    height: 32px;
+  }
+
+  /* Never let a dropdown run off-screen. */
+  .sn-top-toolbar__menu {
+    max-width: calc(100vw - 1.5rem);
+  }
+}
+
 /* ── Color palette menu (texte + surlignage) ────────────────── */
 
 .sn-color-menu {

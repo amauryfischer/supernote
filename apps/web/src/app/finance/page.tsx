@@ -10,7 +10,9 @@
 
 import { Plus, Wallet } from "@phosphor-icons/react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/shell";
+import { useMobileFab, useMobileTitle } from "@/components/shell/shell-chrome-context";
 import { trpc } from "@/lib/trpc/client";
 import { formatCurrency } from "@/components/finance/utils";
 
@@ -47,7 +49,26 @@ function fieldNumber(f: Record<string, unknown>, key: string): number {
 }
 
 export default function FinancePage() {
+  return (
+    <AppShell>
+      <FinanceDashboard />
+    </AppShell>
+  );
+}
+
+function FinanceDashboard() {
+  const router = useRouter();
   const query = trpc.entities.list.useQuery({ typeId: "account", limit: 500, offset: 0 });
+
+  // Mobile chrome — page title + a FAB that jumps to the accounts list
+  // (the place where a new account is created), so the create verb is
+  // reachable from the bottom bar like every other section.
+  useMobileTitle("Finance");
+  useMobileFab({
+    icon: Plus,
+    label: "Gérer les comptes",
+    onPress: () => router.push("/finance/comptes"),
+  });
 
   const accounts: Account[] = (query.data?.items ?? []).map((e) => {
     const f = e.fields as Record<string, unknown>;
@@ -62,7 +83,6 @@ export default function FinancePage() {
   const total = accounts.reduce((s, a) => s + a.balance, 0);
 
   return (
-    <AppShell>
       <div className="mx-auto max-w-4xl px-3 py-6 md:px-6 md:py-8">
         <div className="mb-6 flex items-center justify-between">
           <div>
@@ -136,7 +156,6 @@ export default function FinancePage() {
           </ul>
         )}
       </div>
-    </AppShell>
   );
 }
 

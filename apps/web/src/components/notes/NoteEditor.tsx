@@ -946,7 +946,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
       />
 
       {/* Header */}
-      <div className="px-10 py-6" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
+      <div className="px-4 py-4 md:px-10 md:py-6" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
         <FolderBreadcrumb
           path={note.folderPath}
           onContextMenu={openBreadcrumbContextMenu}
@@ -1062,7 +1062,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
           selection?.addRange(range);
         }}
       >
-        <div className="px-10 py-6">
+        <div className="px-4 py-4 md:px-10 md:py-6">
           <SupernoteEditor
             key={`${note.id}:${externalBodyVersion}`}
             initialMarkdown={note.body}
@@ -1095,7 +1095,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
 
       {/* Footer */}
       <div
-        className="flex items-center justify-between px-10 py-3"
+        className="flex items-center justify-between px-4 py-3 md:px-10"
         style={{ borderTop: "1px solid var(--border-subtle)" }}
       >
         <span className="text-xs" style={{ color: "var(--text-muted)" }}>

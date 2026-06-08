@@ -18,6 +18,7 @@
 
 import * as React from "react";
 import { Link as RRLink, type LinkProps as RRLinkProps } from "react-router-dom";
+import { wantsViewTransition } from "./navigation";
 
 // Next.js UrlObject — minimal subset we accept.
 interface UrlObjectLike {
@@ -80,14 +81,16 @@ const Link = React.forwardRef<HTMLAnchorElement, NextLinkProps>(function Link(
   // have a string above. `replace` carries through as the only meaningful
   // Next-side flag since the rest don't apply (no SSR, no prefetch model).
   // `viewTransition` opte pour le cross-fade natif du navigateur (View
-  // Transitions API) — react-router no-ope proprement quand l'API manque,
-  // et l'animation est désactivée via prefers-reduced-motion en CSS.
+  // Transitions API). Activé desktop uniquement : sur mobile, le snapshot
+  // plein écran + flushSync de chaque transition bloque le main thread et
+  // fait « freezer » l'app quand on enchaîne les onglets (cf.
+  // wantsViewTransition + le gate identique dans useRouter.push/replace).
   return (
     <RRLink
       ref={ref}
       to={target}
       replace={replace}
-      viewTransition
+      viewTransition={wantsViewTransition()}
       {...(rest as Omit<RRLinkProps, "to" | "replace">)}
     />
   );
