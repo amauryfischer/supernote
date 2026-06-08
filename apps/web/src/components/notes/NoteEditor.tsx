@@ -1021,7 +1021,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
       />
 
       {/* Header */}
-      <div className="sn-no-print px-10 pb-2 pt-3" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
+      <div className="sn-no-print px-4 py-4 md:px-10 md:py-6" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
         <FolderBreadcrumb
           path={note.folderPath}
           onContextMenu={openBreadcrumbContextMenu}
@@ -1185,7 +1185,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
           selection?.addRange(range);
         }}
       >
-        <div className="flex gap-2 px-10 pb-6 pt-3">
+        <div className="flex gap-2 px-4 py-4 md:px-10 md:py-6">
           <div ref={editorColRef} className="relative min-w-0 flex-1">
             {blockHighlight && (
               <div
@@ -1263,7 +1263,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
 
       {/* Footer */}
       <div
-        className="sn-no-print flex items-center justify-between px-10 py-3"
+        className="sn-no-print flex items-center justify-between px-4 py-3 md:px-10"
         style={{ borderTop: "1px solid var(--border-subtle)" }}
       >
         <span className="text-xs" style={{ color: "var(--text-muted)" }}>

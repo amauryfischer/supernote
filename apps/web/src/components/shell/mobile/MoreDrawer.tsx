@@ -5,11 +5,14 @@ import {
   Bell,
   CaretRight,
   Calendar,
+  Desktop,
   FolderOpen,
   Function,
   Gear,
   GridNine,
   Lightning,
+  Moon,
+  Sun,
   Tag,
   Users,
   Wallet,
@@ -17,10 +20,45 @@ import {
   type Icon as PhosphorIcon,
 } from "@phosphor-icons/react";
 import Link from "next/link";
-import { Button, Drawer } from "@supernote/ui";
-import { memo } from "react";
+import { Button, Drawer, useAppTheme, type ThemeValue } from "@supernote/ui";
+import { memo, useCallback } from "react";
 import { NotificationBadge, useNotifications } from "@supernote/notifications/renderer";
 import { useVault } from "@/lib/pwa/PwaVaultSetup";
+
+const THEME_CYCLE: ThemeValue[] = ["light", "dark", "system"];
+
+/**
+ * Theme cycle button — light → dark → system. Mirrors the desktop topbar's
+ * `ThemeToggleButton`, which the mobile shell otherwise lacked (theme could
+ * only be changed deep in /parametres). Lives in the vault card so it sits
+ * next to the other global affordances (folder picker, notifications).
+ */
+function ThemeCycleButton() {
+  const { theme, setTheme } = useAppTheme();
+  const next = useCallback(() => {
+    const current: ThemeValue = theme ?? "light";
+    const idx = THEME_CYCLE.indexOf(current);
+    setTheme(THEME_CYCLE[(idx + 1) % THEME_CYCLE.length] ?? "light");
+  }, [theme, setTheme]);
+
+  const Icon = theme === "dark" ? Moon : theme === "system" ? Desktop : Sun;
+  const label =
+    theme === "dark" ? "Thème sombre" : theme === "system" ? "Thème système" : "Thème clair";
+
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon"
+      onClick={next}
+      aria-label={label}
+      className="flex h-10 w-10 items-center justify-center rounded-lg"
+      style={{ color: "var(--text-secondary)" }}
+    >
+      <Icon size={20} />
+    </Button>
+  );
+}
 
 interface MoreItem {
   href: string;
@@ -163,6 +201,7 @@ export const MoreDrawer = memo(function MoreDrawer({
                 Supernote · vault local
               </div>
             </div>
+            <ThemeCycleButton />
             {canPickVault && (
               <Button
                 type="button"
