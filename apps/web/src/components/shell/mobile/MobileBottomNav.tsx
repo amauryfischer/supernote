@@ -115,11 +115,32 @@ const NavTabButton = memo(function NavTabButton({
   active: boolean;
 }) {
   const Icon = tab.icon;
+  // Discrete active/inactive state → token CSS transition via the shared
+  // `.sn-motion-colors` utility (carries `--sn-transition-colors` AND the
+  // reduced-motion degrade). Carries the accent-color swap on the tab.
   const baseClass =
-    "flex flex-1 flex-col items-center justify-center gap-0.5 text-[10px] font-medium transition-colors focus-visible:outline-none";
+    "sn-motion-colors relative flex flex-1 flex-col items-center justify-center gap-0.5 text-[10px] font-medium focus-visible:outline-none";
   const style: React.CSSProperties = {
     color: active ? "var(--accent)" : "var(--text-muted)",
   };
+
+  // Active indicator — a short accent pill that glides up + fades in when the
+  // tab becomes active. `.sn-motion-glide` drives transform+opacity only (idle
+  // = 0 frames, compositor-friendly) and degrades under reduced-motion. The
+  // -50% X keeps it horizontally centred; the Y/opacity carry the entrance.
+  const indicator = (
+    <span
+      aria-hidden="true"
+      className="sn-motion-glide pointer-events-none absolute left-1/2 top-1 h-0.5 w-5 rounded-full"
+      style={{
+        backgroundColor: "var(--accent)",
+        opacity: active ? 1 : 0,
+        transform: active
+          ? "translate(-50%, 0)"
+          : "translate(-50%, 3px)",
+      }}
+    />
+  );
 
   if (tab.onPress) {
     return (
@@ -132,6 +153,7 @@ const NavTabButton = memo(function NavTabButton({
         aria-label={tab.label}
         aria-current={active ? "page" : undefined}
       >
+        {indicator}
         <Icon size={22} weight={active ? "fill" : "regular"} />
         <span>{tab.label}</span>
       </Button>
@@ -145,6 +167,7 @@ const NavTabButton = memo(function NavTabButton({
       style={style}
       aria-current={active ? "page" : undefined}
     >
+      {indicator}
       <Icon size={22} weight={active ? "fill" : "regular"} />
       <span>{tab.label}</span>
     </Link>

@@ -125,7 +125,7 @@ export function ViewSettingsMenu({
   return (
     <div
       ref={popoverRef}
-      className="absolute z-50 mt-1 rounded-lg border shadow-lg"
+      className="sn-pop-in absolute z-50 mt-1 rounded-lg border shadow-lg"
       style={{
         minWidth: 220,
         backgroundColor: "var(--surface-1)",
@@ -183,7 +183,7 @@ export function ViewSettingsMenu({
               variant="ghost"
               size="sm"
               onPress={() => changeKind(kind)}
-              className="flex items-center gap-2 rounded px-2 py-1 text-left text-xs hover:bg-[var(--surface-2)]"
+              className="sn-motion-colors flex items-center gap-2 rounded px-2 py-1 text-left text-xs hover:bg-[var(--surface-2)]"
               style={{
                 color: active ? "var(--text-primary)" : "var(--text-secondary)",
                 backgroundColor: active ? "var(--surface-3)" : "transparent",
@@ -247,7 +247,7 @@ function MenuButton({
       variant="ghost"
       size="sm"
       onPress={onClick}
-      className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-[var(--surface-2)]"
+      className="sn-motion-colors flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-[var(--surface-2)]"
       style={{ color: danger ? "#EF4444" : "var(--text-secondary)" }}
     >
       {icon}

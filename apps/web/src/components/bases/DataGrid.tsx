@@ -37,6 +37,41 @@ import { useShellChrome } from "@/components/shell/shell-chrome-context";
 
 type SummarizeOp = NonNullable<View["summarize"]>[string];
 
+// ── Transitions motion (tokens partagés, --sn-dur-1 = 90ms) ──────────────────
+// La grille est dense : on veut un fondu *rapide & subtil* sur le survol/focus,
+// pas le --sn-dur-2 (150ms) des composites globaux qui paraîtrait pâteux ici.
+// On compose donc à partir des primitives globales (durées + easing) déjà
+// définies dans globals.css — on ne redéfinit aucun token, on les consomme.
+//
+// Couleurs (survol header, sélection ligne, lignes d'action) :
+const GRID_COLOR_TRANSITION =
+  "background-color var(--sn-dur-1) var(--sn-ease-standard)," +
+  " color var(--sn-dur-1) var(--sn-ease-standard)";
+// Cellule : bordure focus (box-shadow) + bg sélection de la colonne primaire.
+// Tokenise le `transition: box-shadow 100ms ease` du CSS .sn-datagrid-cell.
+const GRID_CELL_TRANSITION =
+  "box-shadow var(--sn-dur-1) var(--sn-ease-standard)," +
+  " background-color var(--sn-dur-1) var(--sn-ease-standard)";
+
+// Reduced-motion : la grille change toujours d'état, elle cesse juste de
+// *bouger*. Le filet de sécurité global de globals.css ne couvre que les
+// classes utilitaires (.sn-motion-*), pas les transitions inline — on gère
+// donc le respect de prefers-reduced-motion ici, à la source.
+function usePrefersReducedMotion(): boolean {
+  const [reduced, setReduced] = useState(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return false;
+    return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  });
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const onChange = () => setReduced(mq.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+  return reduced;
+}
+
 interface DataGridProps {
   base: EntityType;
   view: View;
@@ -70,6 +105,11 @@ function saveColWidths(baseId: string, viewId: string, widths: Record<string, nu
 // ── Composant principal ───────────────────────────────────────────────────────
 
 export function DataGrid({ base, view, maxHeight }: DataGridProps) {
+  // Transitions motion résolues (vide si reduced-motion → état change, sans mvt).
+  const reducedMotion = usePrefersReducedMotion();
+  const colorTransition = reducedMotion ? undefined : GRID_COLOR_TRANSITION;
+  const cellTransition = reducedMotion ? undefined : GRID_CELL_TRANSITION;
+
   const allFieldIds = useMemo(() => base.fields.map((f) => f.id), [base.fields]);
   const visibleIds = useMemo(
     () => resolveVisibleFieldIds(view, allFieldIds),
@@ -824,6 +864,8 @@ export function DataGrid({ base, view, maxHeight }: DataGridProps) {
                     left: isPrimary ? 36 : undefined,
                     backgroundColor: isPrimary ? "var(--surface-1)" : undefined,
                     zIndex: isPrimary ? 11 : undefined,
+                    // Survol header : fondu couleur subtil & rapide (--sn-dur-1).
+                    transition: colorTransition,
                   }}
                   title="Clic gauche : trier (asc → desc → aucun) · Clic droit : options"
                   onClick={(e) => {
@@ -866,8 +908,8 @@ export function DataGrid({ base, view, maxHeight }: DataGridProps) {
                     <button
                       type="button"
                       aria-label="Options de la colonne"
-                      className="ml-auto rounded p-0.5 transition-opacity hover:bg-[var(--surface-2)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)]"
-                      style={{ color: "var(--text-muted)", opacity: 0.55 }}
+                      className="ml-auto rounded p-0.5 hover:bg-[var(--surface-2)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)]"
+                      style={{ color: "var(--text-muted)", opacity: 0.55, transition: colorTransition }}
                       draggable={false}
                       onDragStart={(e) => { e.preventDefault(); e.stopPropagation(); }}
                       onMouseDown={(e) => e.stopPropagation()}
@@ -922,6 +964,7 @@ export function DataGrid({ base, view, maxHeight }: DataGridProps) {
                 minWidth: 36,
                 borderColor: "var(--border-subtle)",
                 color: "var(--text-muted)",
+                transition: colorTransition,
               }}
               title="Ajouter une colonne"
               onClick={addColumn}
@@ -1021,6 +1064,8 @@ export function DataGrid({ base, view, maxHeight }: DataGridProps) {
                     width: 36,
                     minWidth: 36,
                     userSelect: "none",
+                    // Sélection : fondu bg/couleur tokenisé (suit la ligne).
+                    transition: colorTransition,
                   }}
                   onMouseDown={(e) => { e.preventDefault(); }}
                   onClick={(e) => {
@@ -1090,6 +1135,10 @@ export function DataGrid({ base, view, maxHeight }: DataGridProps) {
                         fontWeight: cfCss.fontWeight,
                         fontStyle: cfCss.fontStyle,
                         zIndex: isPrimaryCol ? 1 : undefined,
+                        // Bordure focus cellule + bg sélection (col. primaire) :
+                        // fondu rapide & subtil (--sn-dur-1). Tokenise le
+                        // box-shadow CSS et inclut bg pour la col. sticky.
+                        transition: cellTransition,
                       }}
                       onKeyDown={(e) => {
                         if (
@@ -1137,6 +1186,7 @@ export function DataGrid({ base, view, maxHeight }: DataGridProps) {
           {/* + Nouvelle entrée — toute la ligne est cliquable */}
           <tr
             className="cursor-pointer hover:bg-[var(--surface-2)]"
+            style={{ transition: colorTransition }}
             onClick={addRow}
           >
             <td

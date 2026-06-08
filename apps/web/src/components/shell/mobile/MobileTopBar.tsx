@@ -97,7 +97,9 @@ const IconButton = memo(function IconButton({
       size="icon"
       onClick={onPress}
       aria-label={label}
-      className="relative flex h-10 w-10 items-center justify-center rounded-full"
+      // `.sn-motion-colors` → signature token colors transition on the
+      // active/inactive accent swap (reduced-motion-safe).
+      className="sn-motion-colors relative flex h-10 w-10 items-center justify-center rounded-full"
       style={{ color: active ? "var(--accent)" : "var(--text-secondary)" }}
     >
       <Icon size={20} />

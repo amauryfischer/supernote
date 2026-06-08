@@ -14,7 +14,6 @@ import {
   CaretDoubleLeft,
   Calendar,
   Camera,
-  CaretDown,
   CaretRight,
   ChartBar,
   ChartLine,
@@ -1233,7 +1232,16 @@ function FolderNode({
       style={hasChildren ? { cursor: "pointer" } : undefined}
     >
       {hasChildren ? (
-        expanded ? <CaretDown size={12} /> : <CaretRight size={12} />
+        // Single caret that rotates 90° on expand instead of swapping icons —
+        // a continuous decel glide reads as the disclosure "turning open".
+        // reduced-motion is honoured by .sn-motion-glide's transition-only
+        // degrade (transform target is identical, so it just snaps).
+        <span
+          className="sn-motion-glide flex items-center justify-center"
+          style={{ transform: expanded ? "rotate(90deg)" : "rotate(0deg)" }}
+        >
+          <CaretRight size={12} />
+        </span>
       ) : null}
     </span>
   );
@@ -1259,23 +1267,24 @@ function FolderNode({
     >
       <div
         ref={(el) => { nestNodeRef(el); reparentRef(el); }}
-        className="group relative flex items-center"
+        // .sn-motion-colors → the drop-target tint (background-color) eases in
+        // and settles on the shared token instead of snapping, and self-
+        // degrades to instant under reduced-motion. The outline stays crisp
+        // (instant) so the drop boundary is never ambiguous mid-glide.
+        className="sn-motion-colors group relative flex items-center"
         onContextMenu={handleContextMenu}
-        style={isNestTarget ? {
-          outline: "2px solid var(--accent)",
-          outlineOffset: "-1px",
+        style={{
           borderRadius: "6px",
-          backgroundColor: "var(--accent-subtle)",
-        } : isReparentTarget ? {
-          outline: "2px dashed var(--accent)",
-          outlineOffset: "2px",
-          borderRadius: "6px",
-        } : isDragOver ? {
-          outline: "2px solid var(--accent)",
-          outlineOffset: "-1px",
-          borderRadius: "6px",
-          backgroundColor: "var(--accent-subtle)",
-        } : undefined}
+          outlineStyle: isReparentTarget ? "dashed" : "solid",
+          outlineWidth: "2px",
+          outlineColor:
+            isNestTarget || isReparentTarget || isDragOver
+              ? "var(--accent)"
+              : "transparent",
+          outlineOffset: isReparentTarget ? "2px" : "-1px",
+          backgroundColor:
+            isNestTarget || isDragOver ? "var(--accent-subtle)" : "transparent",
+        }}
       >
         {/* Drag handle — visible on hover for all folders except pinned ones */}
         {hovered && !isPinned && (
@@ -1308,7 +1317,11 @@ function FolderNode({
         ) : (
           <button
             onClick={handleClick}
-            className="flex flex-1 items-center gap-1.5 rounded-md px-2 py-1.5 text-sm transition-colors"
+            // .sn-motion-colors → tokenized bg/color/border glide (replaces the
+            // untokenized Tailwind `transition-colors`). Drives BOTH the
+            // selection highlight (when selectedBg/selectedFg change) and the
+            // imperative hover bg below, on the caret's standard easing.
+            className="sn-motion-colors flex flex-1 items-center gap-1.5 rounded-md px-2 py-1.5 text-sm"
             style={sharedRowStyle}
             onMouseEnter={(e) => {
               if (!isSelected) (e.currentTarget as HTMLButtonElement).style.backgroundColor = "var(--surface-2)";

@@ -42,9 +42,10 @@ function ShellSwitcher({ children }: AppShellProps) {
 const SidebarWrapper = memo(function SidebarWrapper({ focusMode }: { focusMode: boolean }) {
   return (
     <div
-      className={`sn-no-print transition-opacity duration-300 ${
-        focusMode ? "opacity-30 hover:opacity-100" : "opacity-100"
-      }`}
+      className={`sn-no-print ${focusMode ? "opacity-30 hover:opacity-100" : "opacity-100"}`}
+      style={{
+        transition: "opacity var(--sn-dur-4) var(--sn-ease-out)",
+      }}
     >
       <Sidebar />
     </div>
@@ -54,9 +55,10 @@ const SidebarWrapper = memo(function SidebarWrapper({ focusMode }: { focusMode: 
 const TopBarWrapper = memo(function TopBarWrapper({ focusMode }: { focusMode: boolean }) {
   return (
     <div
-      className={`sn-no-print transition-opacity duration-300 ${
-        focusMode ? "opacity-0 hover:opacity-100" : "opacity-100"
-      }`}
+      className={`sn-no-print ${focusMode ? "opacity-0 hover:opacity-100" : "opacity-100"}`}
+      style={{
+        transition: "opacity var(--sn-dur-4) var(--sn-ease-out)",
+      }}
     >
       <TopBar />
     </div>
@@ -70,16 +72,17 @@ const RightPanelWrapper = memo(function RightPanelWrapper({
   focusMode: boolean;
   rightPanelVisible: boolean;
 }) {
+  const collapsed = focusMode || !rightPanelVisible;
   return (
     <div
-      className={`transition-all duration-300 ease-out ${
-        focusMode || !rightPanelVisible
-          ? "pointer-events-none opacity-0"
-          : "opacity-100"
-      }`}
+      className={collapsed ? "pointer-events-none opacity-0" : "opacity-100"}
       style={{
-        width: focusMode || !rightPanelVisible ? 0 : "var(--panel-width)",
+        width: collapsed ? 0 : "var(--panel-width)",
         overflow: "hidden",
+        // Width-collapse is the documented layout-prop exception; pair it with
+        // opacity so the chrome melts away on the signature out-ease.
+        transition:
+          "width var(--sn-dur-4) var(--sn-ease-out), opacity var(--sn-dur-4) var(--sn-ease-out)",
       }}
     >
       <RightPanel />

@@ -413,10 +413,28 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
       const activeId = active?.getAttribute("data-id") ?? null;
       if (activeId !== lastId) {
         lastId = activeId;
-        // data-id is a BlockNote-generated UUID — safe to inline.
-        styleEl.textContent = activeId
-          ? `.sn-dim-blocks .bn-editor > .bn-block-group > .bn-block-outer[data-id="${activeId}"] { opacity: 1; }`
-          : "";
+        // data-id is a BlockNote-generated UUID — safe to inline. We emit the
+        // full-opacity rule for the caret's block PLUS a gentle distance
+        // falloff onto the immediate previous/next siblings (a soft halo
+        // around the active line instead of a hard on/off edge). The falloff
+        // is expressed purely with sibling combinators keyed on data-id — we
+        // NEVER write a class/attribute onto a neighbour block, which would
+        // trip ProseMirror's MutationObserver (see the block-comment above).
+        if (activeId) {
+          const scope =
+            ".sn-dim-blocks .bn-editor > .bn-block-group > .bn-block-outer";
+          const near = "var(--sn-dim-near, 0.68)";
+          styleEl.textContent = [
+            `${scope}[data-id="${activeId}"] { opacity: 1; }`,
+            // Next sibling.
+            `${scope}[data-id="${activeId}"] + ${scope} { opacity: ${near}; }`,
+            // Previous sibling (no `<` combinator; match the outer that is
+            // immediately followed by the active one).
+            `${scope}:has(+ ${scope}[data-id="${activeId}"]) { opacity: ${near}; }`,
+          ].join("\n");
+        } else {
+          styleEl.textContent = "";
+        }
       }
     };
     document.addEventListener("selectionchange", onSelectionChange);

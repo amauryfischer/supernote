@@ -44,11 +44,12 @@ export function SearchSidebar({
             variant="outline"
             size="sm"
             onPress={handleSave}
-            className="w-full rounded-lg px-3 py-2 text-xs font-medium"
+            className="sn-pressable w-full rounded-lg px-3 py-2 text-xs font-medium"
             style={{
               backgroundColor: showSaveConfirm ? "var(--accent-subtle)" : "var(--surface-1)",
               borderColor: showSaveConfirm ? "var(--accent)" : "var(--border-subtle)",
               color: showSaveConfirm ? "var(--accent)" : "var(--text-secondary)",
+              transition: "var(--sn-transition-colors), var(--sn-transition-transform)",
             }}
           >
             <FloppyDisk size={13} />
@@ -73,7 +74,7 @@ export function SearchSidebar({
                   variant="ghost"
                   size="sm"
                   onPress={() => onSelectQuery(r.query)}
-                  className="flex-1 justify-start truncate rounded-md px-2 py-1 text-xs"
+                  className="sn-motion-colors flex-1 justify-start truncate rounded-md px-2 py-1 text-xs group-hover:bg-[var(--surface-2)] group-hover:text-[var(--text-primary)]"
                   style={{ color: "var(--text-secondary)" }}
                 >
                   {r.query}
@@ -83,8 +84,8 @@ export function SearchSidebar({
                   variant="ghost"
                   size="sm"
                   onPress={() => onDeleteRecent(r.id)}
-                  className="shrink-0 rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100"
-                  style={{ color: "var(--text-muted)" }}
+                  className="shrink-0 rounded p-0.5 opacity-0 group-hover:opacity-100"
+                  style={{ color: "var(--text-muted)", transition: "var(--sn-transition-opacity)" }}
                 >
                   <X size={10} />
                 </Button>
@@ -110,10 +111,12 @@ export function SearchSidebar({
                   variant="ghost"
                   size="sm"
                   onPress={() => onLoadSaved(s)}
-                  className="flex-1 justify-start truncate rounded-md px-2 py-1"
+                  className="sn-motion-colors flex-1 justify-start truncate rounded-md px-2 py-1 group-hover:bg-[var(--surface-2)]"
                   style={{ color: "var(--text-secondary)" }}
                 >
-                  <span className="block truncate text-xs font-medium">{s.label}</span>
+                  <span className="block truncate text-xs font-medium group-hover:text-[var(--text-primary)]">
+                    {s.label}
+                  </span>
                   <span className="block truncate font-mono text-[10px]" style={{ color: "var(--text-muted)" }}>
                     {s.query}
                   </span>
@@ -123,8 +126,8 @@ export function SearchSidebar({
                   variant="ghost"
                   size="sm"
                   onPress={() => onDeleteSaved(s.id)}
-                  className="shrink-0 rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100"
-                  style={{ color: "var(--text-muted)" }}
+                  className="shrink-0 rounded p-0.5 opacity-0 group-hover:opacity-100"
+                  style={{ color: "var(--text-muted)", transition: "var(--sn-transition-opacity)" }}
                 >
                   <Trash size={10} />
                 </Button>

@@ -125,7 +125,7 @@ export function ColorPickerPopover({
       ref={popRef}
       role="dialog"
       aria-label="Choisir une couleur"
-      className="fixed z-50 rounded-lg p-2 shadow-xl"
+      className="sn-pop-in fixed z-50 rounded-lg p-2 shadow-xl"
       style={{
         left,
         top,
@@ -147,11 +147,12 @@ export function ColorPickerPopover({
                 onSelect(c.hex);
                 onClose();
               }}
-              className="h-6 w-6 rounded-full transition-transform hover:scale-110"
+              className="sn-pressable h-6 w-6 rounded-full hover:scale-110"
               style={{
                 backgroundColor: c.hex,
                 outline: active ? "2px solid var(--accent)" : "none",
                 outlineOffset: 2,
+                transition: "var(--sn-transition-transform)",
               }}
             />
           );

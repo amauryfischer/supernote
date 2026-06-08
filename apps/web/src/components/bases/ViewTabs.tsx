@@ -38,7 +38,7 @@ export function ViewTabs({ views, activeViewId, onSelect, onCreate }: ViewTabsPr
               variant="ghost"
               size="sm"
               onPress={() => onSelect(v.id)}
-              className="flex items-center gap-2 rounded-md px-3 py-1.5 text-[13px] font-medium transition-colors"
+              className="sn-motion-colors sn-pressable flex items-center gap-2 rounded-md px-3 py-1.5 text-[13px] font-medium"
               style={
                 active
                   ? { backgroundColor: "var(--surface-2)", color: "var(--text-primary)" }
@@ -55,7 +55,7 @@ export function ViewTabs({ views, activeViewId, onSelect, onCreate }: ViewTabsPr
                 onPress={(e) => {
                   setMenuOpenFor((cur) => (cur === v.id ? null : v.id));
                 }}
-                className="ml-0.5 rounded p-1 hover:bg-[var(--surface-2)]"
+                className="sn-motion-colors sn-pressable ml-0.5 rounded p-1 hover:bg-[var(--surface-2)]"
                 style={{ color: "var(--text-muted)" }}
                 aria-label="Options de la vue"
               >
@@ -84,7 +84,7 @@ export function ViewTabs({ views, activeViewId, onSelect, onCreate }: ViewTabsPr
         variant="ghost"
         size="sm"
         onPress={onCreate}
-        className="ml-1 flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-colors hover:bg-[var(--surface-2)]"
+        className="sn-motion-colors sn-pressable ml-1 flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs font-medium hover:bg-[var(--surface-2)]"
         style={{ color: "var(--text-muted)" }}
         aria-label="Nouvelle vue"
       >

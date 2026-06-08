@@ -57,7 +57,26 @@ export const MobileShell = memo(function MobileShell({
       className="relative flex h-screen w-screen flex-col overflow-hidden"
       style={{ backgroundColor: "var(--surface-0)" }}
     >
-      {!keyboardFocus && <MobileTopBar />}
+      {/* Keyboard focus mode retracts the chrome. Rather than snapping the
+          bars out (unmount), glide them: the top bar slides up + fades, the
+          bottom nav slides down + fades, the FAB just fades. transform/opacity
+          only → compositor-friendly, idle = 0 frames. We keep the nodes
+          mounted (so the transition can run) but pull them out of the flex
+          flow once hidden so `main` reclaims the full height, and kill their
+          pointer events so the retracted chrome stays inert. */}
+      <div
+        className="sn-motion-glide shrink-0"
+        aria-hidden={keyboardFocus}
+        style={{
+          transform: keyboardFocus ? "translateY(-100%)" : "translateY(0)",
+          opacity: keyboardFocus ? 0 : 1,
+          pointerEvents: keyboardFocus ? "none" : undefined,
+          // Collapse out of flow when retracted so the editor gets full height.
+          marginTop: keyboardFocus ? "calc(-48px - env(safe-area-inset-top, 0px))" : 0,
+        }}
+      >
+        <MobileTopBar />
+      </div>
 
       <main
         className="relative flex-1 overflow-y-auto"
@@ -66,9 +85,38 @@ export const MobileShell = memo(function MobileShell({
         {children}
       </main>
 
-      {!keyboardFocus && <MobileFab />}
+      {/* FAB fade — opacity ONLY. The FAB is `position: absolute` anchored to
+          this shell's `.relative` root; a non-`none` `transform` on this
+          wrapper would become its containing block and break the `bottom:`
+          anchoring, so we never set `transform` here (we only ever toggle
+          `opacity`). `.sn-motion-glide` is reduced-motion-safe; its declared
+          transform-transition is inert because transform stays unset. */}
+      <div
+        className="sn-motion-glide"
+        aria-hidden={keyboardFocus}
+        style={{
+          opacity: keyboardFocus ? 0 : 1,
+          pointerEvents: keyboardFocus ? "none" : undefined,
+        }}
+      >
+        <MobileFab />
+      </div>
 
-      {!keyboardFocus && <MobileBottomNav onOpenMore={() => setMoreOpen(true)} />}
+      <div
+        className="sn-motion-glide shrink-0"
+        aria-hidden={keyboardFocus}
+        style={{
+          transform: keyboardFocus ? "translateY(100%)" : "translateY(0)",
+          opacity: keyboardFocus ? 0 : 1,
+          pointerEvents: keyboardFocus ? "none" : undefined,
+          // Collapse out of flow when retracted so the editor gets full height.
+          marginBottom: keyboardFocus
+            ? "calc(-56px - env(safe-area-inset-bottom, 0px))"
+            : 0,
+        }}
+      >
+        <MobileBottomNav onOpenMore={() => setMoreOpen(true)} />
+      </div>
 
       <MoreDrawer
         isOpen={moreOpen}

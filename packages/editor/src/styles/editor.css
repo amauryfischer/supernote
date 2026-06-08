@@ -310,15 +310,27 @@
 /* ── Typewriter focus (dim inactive blocks) ─────────────────── */
 
 /* Top-level blocks only — dimming nested children would multiply
- * opacities. The active block's full-opacity rule is injected as a dynamic
- * stylesheet (keyed on data-id) by the selectionchange tracker in
- * SupernoteEditor — NOT as an attribute on the block element, which would
- * trip ProseMirror's MutationObserver mid block-conversion and break caret
- * placement. */
+ * opacities. The active block (and a gentle falloff onto its immediate
+ * neighbours) is lit by a dynamic stylesheet (keyed on data-id) injected by
+ * the selectionchange tracker in SupernoteEditor — NOT as an attribute on
+ * the block element, which would trip ProseMirror's MutationObserver mid
+ * block-conversion and break caret placement.
+ *
+ * The opacity transition rides the signature glide easing at --sn-dur-4 so
+ * the focus "blooms" in/out (fast start, soft settle) instead of the old
+ * flat linear ramp. Compositor-friendly: opacity only, no layout. Idle =
+ * zero frames once the value rests. */
 .sn-dim-blocks .bn-editor > .bn-block-group > .bn-block-outer {
-  opacity: 0.45;
-  transition: opacity 300ms ease;
+  opacity: var(--sn-dim-rest, 0.4);
+  transition: opacity var(--sn-dur-4, 320ms) var(--sn-ease-glide, ease-out);
 }
+
+/* Distance falloff (--sn-dim-near) and the active full-opacity rule are both
+ * emitted into the injected stylesheet by the tracker, keyed purely on the
+ * active block's data-id (the rule uses `+`/`:has(+ …)` sibling combinators
+ * to reach the neighbours — no class or attribute is ever written onto a
+ * block in the observed PM subtree). The variable just centralises the value
+ * the injected rule resolves against. */
 
 .sn-dim-blocks .bn-editor > .bn-block-group > .bn-block-outer:hover {
   opacity: 1;

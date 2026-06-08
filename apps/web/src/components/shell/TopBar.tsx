@@ -134,10 +134,14 @@ function ThemeToggleButton() {
       size="icon"
       onClick={next}
       aria-label={label}
-      className="flex h-8 w-8 items-center justify-center rounded-full"
+      className="sn-pressable sn-motion-colors flex h-8 w-8 items-center justify-center rounded-full"
       style={{ color: "var(--text-muted)" }}
     >
-      <Icon size={15} />
+      {/* key on theme remounts the icon each cycle → fresh sn-pop-in (rises &
+          settles via spring), signalling the real theme change. */}
+      <span key={theme ?? "light"} className="sn-pop-in flex items-center justify-center">
+        <Icon size={15} />
+      </span>
     </Button>
   );
 }
@@ -174,7 +178,7 @@ export const TopBar = memo(function TopBar() {
           window.dispatchEvent(new CustomEvent("supernote:open-command-palette"));
         }}
         data-tour="command-palette-btn"
-        className="flex shrink-0 items-center gap-2 rounded-md px-3 py-1.5 text-xs"
+        className="sn-pressable sn-motion-colors flex shrink-0 items-center gap-2 rounded-md px-3 py-1.5 text-xs"
         style={{ color: "var(--text-muted)" }}
       >
         <Command size={11} />
@@ -205,7 +209,7 @@ export const TopBar = memo(function TopBar() {
           size="sm"
           onClick={handleNewNote}
           data-tour="new-btn"
-          className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium"
+          className="sn-pressable sn-motion-colors flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium"
         >
           <Plus size={13} />
           Nouveau
@@ -215,7 +219,7 @@ export const TopBar = memo(function TopBar() {
           size="icon"
           onClick={toggleRightPanel}
           aria-label={rightPanelVisible ? "Masquer le panneau" : "Afficher le panneau"}
-          className="relative flex h-8 w-8 items-center justify-center rounded-md"
+          className="sn-pressable sn-motion-colors relative flex h-8 w-8 items-center justify-center rounded-md"
           style={{
             color: rightPanelVisible ? "var(--text-secondary)" : "var(--text-muted)",
           }}

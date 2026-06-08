@@ -69,6 +69,36 @@
   --radius-md: 6px;
   --radius-lg: 10px;
   --radius-xl: 14px;
+
+  /* ── Motion system ──────────────────────────────────────────────────────
+   * The app's shared "liquid motion" vocabulary, distilled from the smooth
+   * caret (SmoothCaret.tsx): decelerate-to-rest, quick, continuous, settled.
+   * Every animated surface consumes THESE tokens so the whole app moves with
+   * one feel instead of 20 hand-rolled easings. See lib/motion/README.md.
+   *
+   * Easings */
+  --sn-ease-glide:    cubic-bezier(0.16, 1, 0.3, 1);    /* signature: strong decel, liquid settle */
+  --sn-ease-out:      cubic-bezier(0.22, 1, 0.36, 1);   /* softer decel for large layout moves */
+  --sn-ease-spring:   cubic-bezier(0.34, 1.4, 0.5, 1);  /* slight overshoot — press / pop */
+  --sn-ease-standard: cubic-bezier(0.4, 0, 0.2, 1);     /* symmetric — color / opacity */
+
+  /* Durations — calibrated on the caret's ~110ms glide. Fast and purposeful. */
+  --sn-dur-1: 90ms;   /* micro: hover, press, focus ring */
+  --sn-dur-2: 150ms;  /* default micro-interaction (≈ block-in 140ms) */
+  --sn-dur-3: 220ms;  /* overlays, panels, drawers */
+  --sn-dur-4: 320ms;  /* large layout shifts, focus-mode dim */
+
+  /* Ready-made composites — drop straight into `transition:` */
+  --sn-transition-colors:
+    color var(--sn-dur-2) var(--sn-ease-standard),
+    background-color var(--sn-dur-2) var(--sn-ease-standard),
+    border-color var(--sn-dur-2) var(--sn-ease-standard),
+    fill var(--sn-dur-2) var(--sn-ease-standard),
+    stroke var(--sn-dur-2) var(--sn-ease-standard);
+  --sn-transition-transform: transform var(--sn-dur-2) var(--sn-ease-glide);
+  --sn-transition-opacity:   opacity var(--sn-dur-3) var(--sn-ease-standard);
+  --sn-transition-glide:     transform var(--sn-dur-3) var(--sn-ease-glide),
+                             opacity var(--sn-dur-3) var(--sn-ease-standard);
 }
 
 [data-theme="dark"] {
@@ -900,5 +930,92 @@ html, body {
 
   @page {
     margin: 2cm;
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * Motion system — shared utilities
+ * Reusable classes built on the --sn-* tokens. Apply these instead of
+ * hand-writing transitions so every surface inherits the caret's feel and the
+ * single reduced-motion kill-switch below. Keyframe-based effects must live
+ * inside the no-preference guard themselves (see editor.css for the pattern).
+ * ════════════════════════════════════════════════════════════════════════ */
+
+/* Smooth color/bg/border changes — hover, active, selection states. */
+.sn-motion-colors { transition: var(--sn-transition-colors); }
+
+/* Glide transform+opacity together — enter/leave, slide, collapse. */
+.sn-motion-glide { transition: var(--sn-transition-glide); }
+
+/* Tactile press — the button/FAB/card "give" on pointer-down. The spring
+ * easing adds a hair of overshoot on release so it feels physical, not flat. */
+.sn-pressable {
+  transition: transform var(--sn-dur-1) var(--sn-ease-spring);
+}
+.sn-pressable:active {
+  transform: scale(0.96);
+}
+
+/* Subtle hover lift for cards / interactive tiles. */
+.sn-hover-lift {
+  transition: transform var(--sn-dur-2) var(--sn-ease-glide),
+              box-shadow var(--sn-dur-2) var(--sn-ease-standard);
+}
+.sn-hover-lift:hover {
+  transform: translateY(-2px);
+}
+
+/* Overlay / popover / modal entrance — fade + gentle rise-and-settle.
+ * Apply `.sn-overlay-in` to the panel; it self-guards on reduced-motion. */
+@media (prefers-reduced-motion: no-preference) {
+  .sn-overlay-in {
+    animation: sn-overlay-in var(--sn-dur-3) var(--sn-ease-out);
+  }
+  .sn-pop-in {
+    animation: sn-pop-in var(--sn-dur-2) var(--sn-ease-spring);
+  }
+}
+
+@keyframes sn-overlay-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.985); }
+  to   { opacity: 1; transform: translateY(0)   scale(1); }
+}
+
+@keyframes sn-pop-in {
+  from { opacity: 0; transform: scale(0.9); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+/* Global vestibular safety net: collapse every motion-system transition and
+ * animation to near-instant when the user asks for reduced motion. Surfaces
+ * still change state — they just stop moving. */
+@media (prefers-reduced-motion: reduce) {
+  .sn-motion-colors,
+  .sn-motion-glide,
+  .sn-pressable,
+  .sn-hover-lift,
+  .sn-overlay-in,
+  .sn-pop-in {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+  .sn-pressable:active { transform: none; }
+  .sn-hover-lift:hover { transform: none; }
+}
+
+/* Universal vestibular safety net. Surfaces across the app animate via inline
+ * `transition:` declarations (not only the .sn-* utilities above); this blanket
+ * rule collapses EVERY transition/animation — inline or class — to near-instant
+ * under reduced-motion, and disables smooth scrolling. The motion-system util
+ * block above still runs first to also zero the press/lift transforms. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
   }
 }

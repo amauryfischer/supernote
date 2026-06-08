@@ -165,11 +165,12 @@ function Quadrant({ def, rows, onToggle, onEdit, onEmail, onContextMenu }: Quadr
   return (
     <div
       ref={setNodeRef}
-      className="flex min-h-[180px] flex-col rounded-xl border p-3 transition-colors"
+      className="flex min-h-[180px] flex-col rounded-xl border p-3"
       style={{
         borderColor: isOver ? def.accent : "var(--border-subtle)",
         backgroundColor: isOver ? "var(--surface-2)" : "var(--surface-1)",
         borderLeft: `4px solid ${def.accent}`,
+        transition: "var(--sn-transition-colors)",
       }}
     >
       <header className="mb-2 flex items-baseline gap-2">
@@ -228,6 +229,13 @@ function MatrixCard({ row, onToggle, onEdit, onEmail, onContextMenu }: MatrixCar
     opacity: isDragging ? 0.4 : 1,
     cursor: "grab",
     touchAction: "none",
+    // While dragging: no transform transition so the card tracks the pointer
+    // 1:1. On release (isDragging false, transform cleared) the residual
+    // offset eases back to rest with the signature glide. Opacity always
+    // settles so the dim/restore at drag start/end isn't an abrupt snap.
+    transition: isDragging
+      ? "var(--sn-transition-opacity)"
+      : "transform var(--sn-dur-2) var(--sn-ease-glide), var(--sn-transition-opacity)",
   };
   // The draggable node is the wrapper <li>; TodoRow renders its own inner <li>
   // (mirrors the SortableTodoRow pattern already used by the list view).

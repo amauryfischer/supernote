@@ -34,11 +34,22 @@ export const MobileFab = memo(function MobileFab() {
 
   return (
     <Button
+      // Re-mount the entrance pop whenever the published config swaps the icon
+      // (page hands over the FAB): the spring `.sn-pop-in` re-fires so the
+      // hand-off reads as a deliberate change rather than a silent glyph swap.
+      key={label}
       type="button"
       variant="primary"
       onClick={onPress}
       aria-label={label}
-      className="absolute left-1/2 z-30 flex h-14 w-14 -translate-x-1/2 items-center justify-center rounded-full transition-transform active:scale-95"
+      // Motion: `.sn-pop-in` gives a spring entrance on mount/appear (the
+      // `key` above re-fires it on every config hand-off, so a show/hide reads
+      // as a deliberate appear), and `.sn-pressable` upgrades the old
+      // `active:scale-95` to the shared spring press. Both classes own
+      // `transform`, so horizontal centering is moved off `transform` (no more
+      // `-translate-x-1/2`) onto a static `margin-left` offset (see `style`)
+      // to avoid clobbering the scale.
+      className="sn-pop-in sn-pressable absolute left-1/2 z-30 flex h-14 w-14 items-center justify-center rounded-full"
       style={{
         // Anchor to the bottom of the shell (not the top): the nav occupies
         // the lowest 56 px (+ safe-area). We want the FAB top edge to sit
@@ -47,6 +58,11 @@ export const MobileFab = memo(function MobileFab() {
         //   FAB_top_from_screen_bottom = 56 + safe + 20 = 76 + safe
         //   FAB_bottom_from_screen_bottom = 76 + safe − 56 = 20 + safe
         bottom: "calc(20px + env(safe-area-inset-bottom, 0px))",
+        // Horizontal centering: `left-1/2` puts the left edge at center, then
+        // pull back by half the 56 px width. Done via `margin-left` (not a
+        // transform) so `.sn-pop-in` / `.sn-pressable` can animate `transform`
+        // freely without resetting the centering.
+        marginLeft: "-28px",
         backgroundColor: "var(--accent)",
         color: "var(--accent-foreground)",
         // Layered shadow that sells the "floating" effect: a soft, wide

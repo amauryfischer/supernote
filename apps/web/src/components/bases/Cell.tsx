@@ -110,7 +110,7 @@ function CellInner({ field, value, onChange, readOnly, forceEditKey, rowFields, 
 
   return (
     <div
-      className={`group flex h-full w-full items-center px-3 text-[13.5px] ${
+      className={`group flex h-full w-full items-center px-3 text-[13.5px] outline-none focus:[box-shadow:inset_0_0_0_2px_var(--accent)] motion-safe:[transition:box-shadow_var(--sn-dur-1)_var(--sn-ease-standard)] ${
         isReadOnly ? "" : "cursor-text"
       }`}
       data-cell-display=""

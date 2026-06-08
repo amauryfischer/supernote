@@ -103,19 +103,32 @@ const NavLink = memo(function NavLink({
   // a Tailwind `hover:bg-…` would lose to the inline `color` set below
   // (inline always beats pseudo-classes), and the active style needs to
   // remain stable on hover. Same approach as FolderNode in the FileTree.
+  //
+  // Motion: easing is routed through the shared color+transform tokens via an
+  // inline `transition` (composite `--sn-transition-colors` for the hover/active
+  // bg+text fade, `--sn-transition-transform` to back the `.sn-pressable` scale).
+  // Inline transition is required because the hover/active values are themselves
+  // inline (they have to beat pseudo-classes); a class-based `transition` would
+  // be clobbered by `.sn-pressable`'s own `transition`, so we declare both lists
+  // here in one place. `.sn-pressable` still supplies the `:active` scale rule
+  // (and its reduced-motion override). Both token paths degrade to instant.
   return (
     <Link
       href={item.href}
       prefetch={true}
-      className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm font-normal transition-colors focus-visible:outline-none"
+      className="sn-pressable flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm font-normal focus-visible:outline-none"
       style={
         active
           ? {
               backgroundColor: "var(--accent-subtle)",
               color: "var(--accent)",
               fontWeight: 500,
+              transition: "var(--sn-transition-colors), var(--sn-transition-transform)",
             }
-          : { color: "var(--text-secondary)" }
+          : {
+              color: "var(--text-secondary)",
+              transition: "var(--sn-transition-colors), var(--sn-transition-transform)",
+            }
       }
       onMouseEnter={(e) => {
         if (active) return;
@@ -378,10 +391,11 @@ export const Sidebar = memo(function Sidebar() {
           href="/parametres"
           prefetch={true}
           data-tour="settings-link"
-          className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm font-normal transition-colors hover:bg-[var(--surface-2)] focus-visible:outline-none"
+          className="sn-pressable flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm font-normal hover:bg-[var(--surface-2)] focus-visible:outline-none"
           style={{
             color: isActive("/parametres") ? "var(--accent)" : "var(--text-muted)",
             backgroundColor: isActive("/parametres") ? "var(--accent-subtle)" : undefined,
+            transition: "var(--sn-transition-colors), var(--sn-transition-transform)",
           }}
         >
           <Gear size={15} />

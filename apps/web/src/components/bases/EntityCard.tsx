@@ -10,6 +10,7 @@
  */
 
 import type { EntityType } from "@supernote/core";
+import { useState } from "react";
 import { Cell } from "./Cell";
 import {
   deriveCardTitle,
@@ -49,6 +50,11 @@ export function EntityCard({
   onEditField,
   compact,
 }: EntityCardProps) {
+  // Local drag flag so the card can ease its own pickup cue. Native HTML5 DnD
+  // renders a detached drag image, so the source node never receives a
+  // dnd-kit-style transform — we're free to glide a subtle lift on the node
+  // itself and let it settle back to rest when the drag ends.
+  const [isDragging, setIsDragging] = useState(false);
   const title = deriveCardTitle(entity, base);
   const cover = compact ? null : findCoverField(base);
   const coverUrl = cover ? readCoverUrl(entity, cover) : undefined;
@@ -74,11 +80,19 @@ export function EntityCard({
 
   return (
     <div
-      className="sn-base-card group relative cursor-pointer rounded-md border transition-colors hover:border-[var(--accent)]"
+      className="sn-base-card sn-motion-colors group relative cursor-pointer rounded-md border hover:border-[var(--accent)]"
       style={{
         backgroundColor: "var(--surface-1)",
         borderColor: "var(--border-subtle)",
         overflow: "hidden",
+        // Settle the pickup cue: opacity eases with the standard easing while
+        // the lift glides back to rest. Both stay <=--sn-dur-3 so the drop
+        // feels immediate but liquid. There's no concurrent dnd-kit transform
+        // to fight — native DnD leaves the source node untouched mid-drag.
+        opacity: isDragging ? 0.4 : 1,
+        transform: isDragging ? "scale(0.97)" : "scale(1)",
+        transition:
+          "var(--sn-transition-opacity), transform var(--sn-dur-3) var(--sn-ease-glide)",
       }}
       draggable={!!onDragStart}
       onDragStart={
@@ -86,11 +100,15 @@ export function EntityCard({
           ? (e) => {
               e.dataTransfer.effectAllowed = "move";
               e.dataTransfer.setData("text/plain", entity.id);
+              setIsDragging(true);
               onDragStart(entity.id);
             }
           : undefined
       }
-      onDragEnd={onDragEnd}
+      onDragEnd={() => {
+        setIsDragging(false);
+        onDragEnd?.();
+      }}
       onClick={() => onOpen?.(entity.id)}
     >
       {coverUrl && (

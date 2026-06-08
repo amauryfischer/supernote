@@ -43,12 +43,26 @@ export function PromptModal({
 }: PromptModalProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [value, setValue] = useState(defaultValue);
+  // Drives the backdrop opacity fade: starts at 0 on mount, flips to the
+  // resting dim on the next frame so the CSS opacity transition can run.
+  // (A transition can't fire on the very first paint, hence the flag.)
+  const [shown, setShown] = useState(false);
 
   // Reset value whenever the modal is re-opened so a previous, abandoned
   // input doesn't bleed into the next prompt.
   useEffect(() => {
     if (open) setValue(defaultValue);
   }, [open, defaultValue]);
+
+  // Fade the dim backdrop in. Reset to 0 when closed so a re-open replays it.
+  useEffect(() => {
+    if (!open) {
+      setShown(false);
+      return undefined;
+    }
+    const id = requestAnimationFrame(() => setShown(true));
+    return () => cancelAnimationFrame(id);
+  }, [open]);
 
   // Auto-focus the input as soon as the dialog appears so the user can
   // start typing immediately (they invoked an action that requires text).
@@ -84,12 +98,22 @@ export function PromptModal({
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      style={{ backgroundColor: "rgba(0,0,0,0.4)" }}
       onClick={onCancel}
       role="presentation"
     >
+      {/* Dim backdrop as its own layer so its opacity fade stays decoupled
+          from the dialog's rise-in entrance (no cascading opacity). */}
       <div
-        className="w-full max-w-sm rounded-xl p-5 shadow-xl"
+        className="absolute inset-0"
+        style={{
+          backgroundColor: "rgba(0,0,0,0.4)",
+          opacity: shown ? 1 : 0,
+          transition: "var(--sn-transition-opacity)",
+        }}
+        aria-hidden="true"
+      />
+      <div
+        className="sn-overlay-in relative w-full max-w-sm rounded-xl p-5 shadow-xl"
         style={{
           backgroundColor: "var(--surface-1)",
           border: "1px solid var(--border-subtle)",

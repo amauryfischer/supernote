@@ -176,7 +176,16 @@ export function NoteListItem({ note, isActive, onClick, onHover, getPreview, onD
   const dndStyle = sortable
     ? {
         transform: CSS.Transform.toString(transform),
-        transition,
+        // While actively dragging, defer to dnd-kit's own transition so we
+        // never fight the pointer-follow. The interesting moment is the
+        // settle-after-drop and the neighbour reflow once the pointer is up:
+        // re-time those on the signature glide curve (decelerate-to-rest)
+        // so rows ease into place instead of sliding linearly. We only
+        // retime when dnd-kit actually supplies a transition to animate.
+        transition:
+          !isDragging && transition
+            ? "transform var(--sn-dur-2) var(--sn-ease-glide)"
+            : transition,
         opacity: isDragging ? 0.4 : 1,
         zIndex: isDragging ? 10 : undefined,
         position: isDragging ? ("relative" as const) : undefined,
@@ -225,7 +234,7 @@ export function NoteListItem({ note, isActive, onClick, onHover, getPreview, onD
           e.dataTransfer.effectAllowed = "move";
           onDragNote(note.id);
         } : undefined}
-        className="w-full text-left transition-colors focus-visible:outline-none"
+        className="sn-pressable w-full text-left focus-visible:outline-none"
         style={{
           borderLeft: isActive ? "2px solid var(--accent)" : "2px solid transparent",
           backgroundColor: isActive
@@ -233,6 +242,14 @@ export function NoteListItem({ note, isActive, onClick, onHover, getPreview, onD
             : hovered
               ? "var(--surface-2)"
               : undefined,
+          // Selection/hover highlight (bg, border, text) eases on the
+          // signature color curve so the active row settles instead of
+          // snapping. We compose the colors token with the .sn-pressable
+          // transform spring in one declaration: a single inline `transition`
+          // would otherwise clobber .sn-pressable's own transform transition
+          // (inline beats the class), losing the tactile press give.
+          transition:
+            "var(--sn-transition-colors), transform var(--sn-dur-1) var(--sn-ease-spring)",
           paddingLeft: sortable && hovered ? "8px" : undefined,
           // Archived rows are visible (when the toggle reveals them) but
           // visually demoted so they don't compete with active notes.
@@ -349,7 +366,7 @@ export function NoteListItem({ note, isActive, onClick, onHover, getPreview, onD
           // bumps the icon to the accent color so the menu trigger is
           // visually distinct from the row's "selected" state.
           // Justified native: context-menu positioning requires clientX/clientY.
-          className="absolute right-3 top-3 flex h-6 w-6 items-center justify-center rounded-md border border-[var(--border-subtle)] bg-[var(--surface-1)] text-[var(--text-muted)] shadow-sm transition-colors hover:border-[var(--accent)] hover:bg-[var(--surface-2)] hover:text-[var(--accent)]"
+          className="sn-motion-colors absolute right-3 top-3 flex h-6 w-6 items-center justify-center rounded-md border border-[var(--border-subtle)] bg-[var(--surface-1)] text-[var(--text-muted)] shadow-sm hover:border-[var(--accent)] hover:bg-[var(--surface-2)] hover:text-[var(--accent)]"
         >
           <DotsThree size={16} weight="bold" />
         </button>

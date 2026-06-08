@@ -417,19 +417,26 @@ export function NoteList({
           >
             <SortableContext items={filtered.map((n) => n.id)} strategy={verticalListSortingStrategy}>
               {filtered.map((note) => (
-                <NoteListItem
-                  key={note.id}
-                  note={note}
-                  isActive={note.id === selectedNoteId}
-                  onClick={() => onSelectNote(note.id)}
-                  onHover={() => prefetchNote(note.id)}
-                  getPreview={fetchNotePreview}
-                  onDelete={onDeleteNote ? () => onDeleteNote(note.id) : undefined}
-                  onRename={onRenameNote ? (t) => onRenameNote(note.id, t) : undefined}
-                  onArchive={onArchiveNote ? (a) => onArchiveNote(note.id, a) : undefined}
-                  onDragNote={onDragNote}
-                  sortable
-                />
+                // sn-overlay-in: token-timed entrance (fade + gentle rise),
+                // reduced-motion-safe. Keyed by note.id so React preserves the
+                // element across reorders — the entrance only fires once on
+                // mount and never re-runs when dnd-kit shuffles rows. The
+                // dnd transform/settle lives on NoteListItem's own node, so
+                // this outer wrapper can't collide with the drag.
+                <div key={note.id} className="sn-overlay-in">
+                  <NoteListItem
+                    note={note}
+                    isActive={note.id === selectedNoteId}
+                    onClick={() => onSelectNote(note.id)}
+                    onHover={() => prefetchNote(note.id)}
+                    getPreview={fetchNotePreview}
+                    onDelete={onDeleteNote ? () => onDeleteNote(note.id) : undefined}
+                    onRename={onRenameNote ? (t) => onRenameNote(note.id, t) : undefined}
+                    onArchive={onArchiveNote ? (a) => onArchiveNote(note.id, a) : undefined}
+                    onDragNote={onDragNote}
+                    sortable
+                  />
+                </div>
               ))}
             </SortableContext>
           </DndContext>
@@ -443,7 +450,7 @@ export function NoteList({
             <section key={group.key || "__root__"}>
               {group.label && (
                 <div
-                  className="px-4 py-1.5 text-[10px] font-semibold uppercase tracking-wide"
+                  className="sn-overlay-in px-4 py-1.5 text-[10px] font-semibold uppercase tracking-wide"
                   style={{
                     backgroundColor: "var(--surface-1)",
                     color: "var(--text-muted)",
@@ -454,18 +461,22 @@ export function NoteList({
                 </div>
               )}
               {group.notes.map((note) => (
-                <NoteListItem
-                  key={note.id}
-                  note={note}
-                  isActive={note.id === selectedNoteId}
-                  onClick={() => onSelectNote(note.id)}
-                  onHover={() => prefetchNote(note.id)}
-                  getPreview={fetchNotePreview}
-                  onDelete={onDeleteNote ? () => onDeleteNote(note.id) : undefined}
-                  onRename={onRenameNote ? (t) => onRenameNote(note.id, t) : undefined}
-                  onArchive={onArchiveNote ? (a) => onArchiveNote(note.id, a) : undefined}
-                  onDragNote={onDragNote}
-                />
+                // Subtle entrance per row — fade + gentle rise, settled with
+                // --sn-ease-out over --sn-dur-3 (via .sn-overlay-in). Keyed by
+                // id so it fires once on mount, not on every re-sort/refilter.
+                <div key={note.id} className="sn-overlay-in">
+                  <NoteListItem
+                    note={note}
+                    isActive={note.id === selectedNoteId}
+                    onClick={() => onSelectNote(note.id)}
+                    onHover={() => prefetchNote(note.id)}
+                    getPreview={fetchNotePreview}
+                    onDelete={onDeleteNote ? () => onDeleteNote(note.id) : undefined}
+                    onRename={onRenameNote ? (t) => onRenameNote(note.id, t) : undefined}
+                    onArchive={onArchiveNote ? (a) => onArchiveNote(note.id, a) : undefined}
+                    onDragNote={onDragNote}
+                  />
+                </div>
               ))}
             </section>
           ))

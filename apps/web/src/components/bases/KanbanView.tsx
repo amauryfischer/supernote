@@ -179,7 +179,7 @@ function KanbanColumn({
       style={{
         backgroundColor: "var(--surface-1)",
         border: `1px solid ${over ? accent : "var(--border-subtle)"}`,
-        transition: "border-color 0.1s",
+        transition: "var(--sn-transition-colors)",
       }}
       onDragOver={(e) => {
         if (!dragging) return;

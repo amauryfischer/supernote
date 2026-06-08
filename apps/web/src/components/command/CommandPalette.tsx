@@ -302,7 +302,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   return (
     // Overlay
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center"
+      className="cmdpalette-backdrop fixed inset-0 z-50 flex items-start justify-center"
       style={{
         paddingTop: "12vh",
         backgroundColor: "oklch(0.14 0.006 260 / 0.4)",
@@ -314,13 +314,12 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     >
       {/* Modal — s'élargit pour accueillir l'aperçu quand des entités matchent */}
       <div
-        className="w-full overflow-hidden shadow-2xl transition-[max-width] duration-150"
+        className="sn-overlay-in w-full overflow-hidden shadow-2xl transition-[max-width] duration-150"
         style={{
           maxWidth: showPreviewColumn ? "780px" : "600px",
           backgroundColor: "var(--surface-1)",
           border: "1px solid var(--border-subtle)",
           borderRadius: "var(--radius-xl)",
-          animation: "cmdpalette-in 120ms cubic-bezier(0.16, 1, 0.3, 1)",
         }}
       >
         <Command
@@ -459,9 +458,14 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
       </div>
 
       <style>{`
-        @keyframes cmdpalette-in {
-          from { opacity: 0; transform: scale(0.97) translateY(-4px); }
-          to   { opacity: 1; transform: scale(1)    translateY(0); }
+        @media (prefers-reduced-motion: no-preference) {
+          @keyframes cmdpalette-backdrop-in {
+            from { opacity: 0; }
+            to   { opacity: 1; }
+          }
+          .cmdpalette-backdrop {
+            animation: cmdpalette-backdrop-in var(--sn-dur-2) var(--sn-ease-standard);
+          }
         }
         [cmdk-group-heading] {
           padding: 4px 8px 2px;
@@ -474,6 +478,12 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
         [cmdk-group]:not([hidden]) ~ [cmdk-group] {
           margin-top: 4px;
         }
+        /* Row highlight tracks keyboard nav + hover. Snappy colour-only
+           transition via the shared token (--sn-dur-1, --sn-ease-standard)
+           so the highlight follows arrow keys without feeling sluggish. */
+        [cmdk-item] {
+          transition: var(--sn-transition-colors);
+        }
         [cmdk-item][data-selected="true"] {
           background-color: var(--accent-subtle);
           color: var(--accent);
@@ -481,6 +491,9 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
         [cmdk-item][data-selected="true"] [data-cmd-icon] {
           background-color: oklch(0.55 0.24 295 / 0.2);
           color: var(--accent);
+        }
+        [cmdk-item] [data-cmd-icon] {
+          transition: var(--sn-transition-colors);
         }
         [cmdk-item]:hover:not([aria-disabled="true"]) {
           background-color: var(--surface-2);
@@ -513,7 +526,9 @@ function CommandItem({
         e.preventDefault();
         onSelect(cmd.id);
       }}
-      className="flex cursor-pointer items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors"
+      // Row highlight transition lives in the shared <style> token rule on
+      // [cmdk-item] (var(--sn-transition-colors)) — no Tailwind transition here.
+      className="flex cursor-pointer items-center gap-3 rounded-md px-3 py-2 text-sm"
       style={{
         color: "var(--text-primary)",
       }}
@@ -582,7 +597,9 @@ function EntityCommandItem({
         e.preventDefault();
         onSelect(result.entityId, result.typeId);
       }}
-      className="flex cursor-pointer items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors"
+      // Row highlight transition lives in the shared <style> token rule on
+      // [cmdk-item] (var(--sn-transition-colors)) — no Tailwind transition here.
+      className="flex cursor-pointer items-center gap-3 rounded-md px-3 py-2 text-sm"
       style={{ color: "var(--text-primary)" }}
       data-cmd-item
     >
