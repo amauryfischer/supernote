@@ -36,11 +36,24 @@ export interface OnlineSyncClientOptions {
   clientId: string;
   initialSeq: number;
   seeded: boolean;
+  /** Server epoch seen by this device (empty when never connected). */
+  epoch: string;
   applyOps: (ops: EntityOp[]) => Promise<void>;
   getSnapshot: () => Promise<EntityOp[]>;
   onSeq: (seq: number) => void;
   onSeeded: () => void;
+  /**
+   * The server's op-log was reset (new epoch): the cursor and seeded flag
+   * were just zeroed in-memory; persist the same reset + the new epoch.
+   */
+  onEpochChange: (epoch: string) => void;
   onStatus: (status: OnlineSyncStatus, detail?: { error?: string }) => void;
+  /** Durable journal of unacknowledged local ops (survives tab death). */
+  pending: {
+    load: () => EntityOp[];
+    /** "overflow" → journal dropped; client schedules a full re-seed. */
+    save: (ops: EntityOp[]) => "ok" | "overflow";
+  };
 }
 
 const PUSH_DEBOUNCE_MS = 800;
@@ -52,6 +65,7 @@ export class OnlineSyncClient {
   private es: EventSource | null = null;
   private seq: number;
   private seeded: boolean;
+  private epoch: string;
   private stopped = false;
   private reconnectAttempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -63,6 +77,22 @@ export class OnlineSyncClient {
     this.opts = opts;
     this.seq = opts.initialSeq;
     this.seeded = opts.seeded;
+    this.epoch = opts.epoch;
+    // Adopt the previous session's unacknowledged ops — they were persisted
+    // precisely so a closed tab doesn't lose its last edits.
+    const leftovers = opts.pending.load();
+    if (leftovers.length > 0) this.pushBuffer.push(...leftovers);
+  }
+
+  /** Persist the current in-memory buffer; on overflow schedule a re-seed. */
+  private persistBuffer(): void {
+    if (this.opts.pending.save(this.pushBuffer) === "overflow") {
+      // Journal dropped — over-pushing is harmless (server dedupes by opId),
+      // under-pushing loses data, so replay the whole vault next connect.
+      this.pushBuffer = [];
+      this.seeded = false;
+      console.warn("[online-sync] pending journal overflow — full re-seed scheduled");
+    }
   }
 
   private base(): string {
@@ -96,6 +126,21 @@ export class OnlineSyncClient {
       });
       return;
     }
+    // Epoch guard: the server op-log was reset (redeploy on an ephemeral
+    // filesystem, manual wipe). Our cursor points into a log that no longer
+    // exists and "seeded" refers to data the server lost — reset both so this
+    // device re-seeds its full vault and replays from scratch. Without this a
+    // server reset silently desyncs every device forever.
+    if (info.epoch && info.epoch !== this.epoch) {
+      const isFirstContact = this.epoch === "";
+      this.epoch = info.epoch;
+      if (!isFirstContact) {
+        console.warn("[online-sync] server epoch changed — resetting cursor + re-seeding");
+        this.seq = 0;
+        this.seeded = false;
+      }
+      this.opts.onEpochChange(info.epoch);
+    }
     this.openStream();
   }
 
@@ -116,12 +161,20 @@ export class OnlineSyncClient {
   enqueue(ops: EntityOp[]): void {
     if (this.stopped || ops.length === 0) return;
     for (const op of ops) this.pushBuffer.push({ ...op, clientId: this.opts.clientId });
+    // Journal BEFORE the debounce: a tab killed inside the 800ms window must
+    // not lose the op (next session re-pushes it; server dedupes by opId).
+    this.persistBuffer();
     if (this.pushTimer) clearTimeout(this.pushTimer);
     this.pushTimer = setTimeout(() => void this.flush(), PUSH_DEBOUNCE_MS);
   }
 
-  /** Force any buffered ops out immediately. */
-  async flush(): Promise<void> {
+  /**
+   * Force any buffered ops out immediately. `keepalive` lets the request
+   * outlive the page (pagehide flush) — bodies over ~64 KB are rejected by
+   * the browser in that mode, in which case the journal simply carries the
+   * ops to the next session.
+   */
+  async flush(opts?: { keepalive?: boolean }): Promise<void> {
     if (this.pushTimer) {
       clearTimeout(this.pushTimer);
       this.pushTimer = null;
@@ -129,19 +182,28 @@ export class OnlineSyncClient {
     const batch = this.pushBuffer;
     if (batch.length === 0) return;
     this.pushBuffer = [];
-    this.pushing = this.pushing.then(() => this.postOps(batch)).catch((err) => {
-      // Re-buffer on failure so a transient outage doesn't drop writes.
-      this.pushBuffer.unshift(...batch);
-      console.warn("[online-sync] push failed, will retry", err);
-    });
+    this.pushing = this.pushing
+      .then(() => this.postOps(batch, opts?.keepalive))
+      .then(() => {
+        // Acked: drop the pushed ops from the durable journal (whatever was
+        // enqueued meanwhile is still in pushBuffer and gets re-persisted).
+        this.persistBuffer();
+      })
+      .catch((err) => {
+        // Re-buffer on failure so a transient outage doesn't drop writes.
+        this.pushBuffer.unshift(...batch);
+        this.persistBuffer();
+        console.warn("[online-sync] push failed, will retry", err);
+      });
     return this.pushing;
   }
 
-  private async postOps(ops: EntityOp[]): Promise<void> {
+  private async postOps(ops: EntityOp[], keepalive = false): Promise<void> {
     const res = await fetch(`${this.base()}/api/sync/push`, {
       method: "POST",
       headers: this.headers(),
       body: JSON.stringify({ vault: this.opts.vaultKey, clientId: this.opts.clientId, ops }),
+      keepalive,
     });
     if (!res.ok) throw new Error(`push ${res.status}`);
     (await res.json()) as PushResponse;
@@ -170,6 +232,9 @@ export class OnlineSyncClient {
       // device's existing notes. Runs after connect so any server-side ops
       // have already begun streaming in.
       if (!this.seeded) void this.seed();
+      // Push any ops inherited from a previous session (durable journal) or
+      // buffered during the outage — they'd otherwise wait for the next edit.
+      if (this.pushBuffer.length > 0) void this.flush();
     };
 
     es.onmessage = (ev) => {

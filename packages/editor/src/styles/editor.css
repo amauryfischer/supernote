@@ -1139,6 +1139,22 @@
   font-style: italic;
 }
 
+/* ── Doodle block (croquis Excalidraw) ──────────────────────── */
+
+.sn-doodle {
+  margin-block: 0.5rem;
+}
+
+/* Fallback statique quand l'app hôte ne fournit pas de renderer. */
+.sn-doodle__fallback {
+  border: 1px dashed var(--border, #e5e7eb);
+  border-radius: var(--radius-md, 6px);
+  padding: 0.65rem 0.9rem;
+  font-size: 0.875rem;
+  color: var(--text-muted, #9ca3af);
+  font-style: italic;
+}
+
 /* ── BlockNote UI component overrides ───────────────────────── */
 
 /* Use accent color for selection */

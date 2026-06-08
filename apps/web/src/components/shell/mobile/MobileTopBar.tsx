@@ -11,6 +11,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useShellChrome, type MobileHeaderAction } from "../shell-chrome-context";
 import { OverflowMenu } from "./OverflowMenu";
 import { GitSyncIndicator } from "@/lib/git/GitSyncIndicator";
+import { OnlineSyncIndicator } from "@/lib/online-sync/OnlineSyncIndicator";
 import { Button } from "@supernote/ui";
 
 /**
@@ -29,6 +30,7 @@ const ROUTE_LABELS: Record<string, string> = {
   "/notes": "Notes",
   "/archive": "Archive",
   "/todos": "Todos",
+  "/habits": "Habitudes",
   "/journal": "Journal",
   "/contacts": "Contacts",
   "/finance": "Finance",
@@ -52,6 +54,7 @@ const TOP_LEVEL = new Set([
   "/",
   "/notes",
   "/todos",
+  "/habits",
   "/journal",
   "/recherche",
   "/contacts",
@@ -188,9 +191,10 @@ export const MobileTopBar = memo(function MobileTopBar() {
         </div>
 
         <div className="flex shrink-0 items-center">
-          {/* Git sync status dot. Renders only when a git config exists,
-              so non-git vaults pay nothing here. */}
+          {/* Sync status dots (git + online realtime). Each renders only
+              when its config exists, so other vaults pay nothing here. */}
           <GitSyncIndicator />
+          <OnlineSyncIndicator />
           {!showBack && (
             <IconButton
               icon={MagnifyingGlass}

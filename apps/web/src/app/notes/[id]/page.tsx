@@ -5,7 +5,7 @@ import {
   EmptyEditor,
   FileTree,
   NoteCanvasView,
-  NoteEditor,
+  StackedColumns,
   NoteList,
 } from "@/components/notes";
 import {
@@ -517,7 +517,7 @@ function NoteDetailContent() {
 
   return (
     <div className="flex h-full overflow-hidden">
-      <div className="sn-anim-col" style={{ width: fileTreeColWidth }}>
+      <div className="sn-anim-col sn-no-print" style={{ width: fileTreeColWidth }}>
         {showFileTree ? (
           <FileTree
             folders={foldersLoading ? [] : folders}
@@ -545,7 +545,7 @@ function NoteDetailContent() {
         ) : null}
       </div>
 
-      <div className="sn-anim-col" style={{ width: noteListColWidth }}>
+      <div className="sn-anim-col sn-no-print" style={{ width: noteListColWidth }}>
         {showNoteList ? (
           <NoteList
             notes={notes}
@@ -587,12 +587,14 @@ function NoteDetailContent() {
                 is exposed as a single icon in the mobile top bar (header
                 action published via `useMobileHeaderActions`). */}
             {!isMobile && (
-              <ViewToggle
-                mode={viewMode}
-                onChange={handleSetViewMode}
-                focusMode={focusMode}
-                onToggleFocusMode={handleToggleFocusMode}
-              />
+              <div className="sn-no-print">
+                <ViewToggle
+                  mode={viewMode}
+                  onChange={handleSetViewMode}
+                  focusMode={focusMode}
+                  onToggleFocusMode={handleToggleFocusMode}
+                />
+              </div>
             )}
             {/* Keyed on note id + view mode so switching note OR note↔canvas
                 plays a quick fade/slide-in instead of snapping. The key also
@@ -607,7 +609,9 @@ function NoteDetailContent() {
               ) : viewMode === "note" ? (
                 // Typewriter focus : en mode focus, les blocs hors caret
                 // sont atténués pour garder l'œil sur la ligne d'écriture.
-                <NoteEditor note={note} dimBlocks={focusMode} />
+                // StackedColumns gère la nav empilée des [[wikilinks]] ; sans
+                // colonne empilée, le rendu est identique à l'éditeur seul.
+                <StackedColumns primaryNote={note} dimBlocks={focusMode} />
               ) : (
                 <NoteCanvasView note={note} />
               )}

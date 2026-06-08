@@ -15,6 +15,13 @@ function readArchivedAt(fields: Record<string, unknown> | undefined): string | n
   return typeof v === "string" && v.length > 0 ? v : null;
 }
 
+/** Nom d'affichage d'une entité : name/titre/title, sinon nom de fichier. */
+export function entityDisplayName(entity: { fields: Record<string, unknown>; filePath: string }): string {
+  const name = entity.fields["name"] ?? entity.fields["titre"] ?? entity.fields["title"];
+  if (typeof name === "string" && name.length > 0) return name;
+  return entity.filePath.split("/").pop()?.replace(/\.[^.]+$/, "") ?? entity.filePath;
+}
+
 export function entitySummaryToNote(e: EntitySummary): Note {
   const title =
     typeof e.fields["title"] === "string"

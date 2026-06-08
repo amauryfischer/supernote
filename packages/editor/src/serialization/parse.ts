@@ -150,6 +150,11 @@ function parseInlineText(text: string): AnyInlineItem[] {
   return items;
 }
 
+/** Inverse de escapeAttr (serialize.ts) — utilisé par databaseView, formula et doodle. */
+function unescapeAttr(s: string): string {
+  return s.replace(/\\(.)/g, "$1");
+}
+
 /** Parse a single markdown line into a block */
 function parseLine(line: string): AnyBlock | null {
   // databaseView block — sérialisé par serialize.ts en
@@ -158,10 +163,35 @@ function parseLine(line: string): AnyBlock | null {
   // insérés dans une note (sinon l'autosave drop les blocs).
   const dbMatch = /^\[databaseView\s+base="((?:[^"\\]|\\.)*)"\s+view="((?:[^"\\]|\\.)*)"\]\s*$/.exec(line);
   if (dbMatch) {
-    const unescape = (s: string) => s.replace(/\\(.)/g, "$1");
     return {
       type: "databaseView",
-      props: { baseId: unescape(dbMatch[1] ?? ""), viewId: unescape(dbMatch[2] ?? "") },
+      props: { baseId: unescapeAttr(dbMatch[1] ?? ""), viewId: unescapeAttr(dbMatch[2] ?? "") },
+    };
+  }
+
+  // Bloc formula — sérialisé par serialize.ts en
+  // `[formula expr="..." kind="..." display="..."]`. L'attribut display est
+  // optionnel (notes antérieures aux blocs vivants) → "value" par défaut.
+  const formulaMatch = /^\[formula\s+expr="((?:[^"\\]|\\.)*)"\s+kind="((?:[^"\\]|\\.)*)"(?:\s+display="((?:[^"\\]|\\.)*)")?\]\s*$/.exec(line);
+  if (formulaMatch) {
+    return {
+      type: "formula",
+      props: {
+        expression: unescapeAttr(formulaMatch[1] ?? ""),
+        outputKind: unescapeAttr(formulaMatch[2] ?? "text"),
+        display: unescapeAttr(formulaMatch[3] ?? "value"),
+      },
+    };
+  }
+
+  // Bloc doodle — sérialisé par serialize.ts en `[doodle scene="..."]`.
+  // Reconnu avant les patterns génériques pour que le round-trip markdown
+  // préserve la scène Excalidraw (même un croquis vierge, scene="").
+  const doodleMatch = /^\[doodle\s+scene="((?:[^"\\]|\\.)*)"\]\s*$/.exec(line);
+  if (doodleMatch) {
+    return {
+      type: "doodle",
+      props: { sceneData: unescapeAttr(doodleMatch[1] ?? "") },
     };
   }
 

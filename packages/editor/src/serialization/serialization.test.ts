@@ -56,6 +56,106 @@ describe("embed block", () => {
   });
 });
 
+// ── Formula block ─────────────────────────────────────────────
+
+describe("formula block", () => {
+  it("round-trips formula block with display", () => {
+    const md = '[formula expr="Today() + 7" kind="date" display="countdown"]';
+    const blocks = markdownToBlocks(md);
+    expect(blocks).toHaveLength(1);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const b = blocks[0] as any;
+    expect(b.type).toBe("formula");
+    expect(b.props.expression).toBe("Today() + 7");
+    expect(b.props.outputKind).toBe("date");
+    expect(b.props.display).toBe("countdown");
+    const out = roundTrip(md);
+    expect(out).toBe(md);
+  });
+
+  it("defaults display to value when attribute is absent (rétro-compat)", () => {
+    const md = '[formula expr="1 + 1" kind="number"]';
+    const blocks = markdownToBlocks(md);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const b = blocks[0] as any;
+    expect(b.type).toBe("formula");
+    expect(b.props.display).toBe("value");
+    const out = roundTrip(md);
+    expect(out).toBe('[formula expr="1 + 1" kind="number" display="value"]');
+  });
+
+  it("escapes quotes inside expression", () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const blocks: any[] = [
+      {
+        type: "formula",
+        props: { expression: 'Concat("a", "b")', outputKind: "text", display: "value" },
+        content: undefined,
+        children: [],
+      },
+    ];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const md = blocksToMarkdown(blocks as any);
+    const parsed = markdownToBlocks(md);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const b = parsed[0] as any;
+    expect(b.type).toBe("formula");
+    expect(b.props.expression).toBe('Concat("a", "b")');
+  });
+});
+
+// ── Doodle block ──────────────────────────────────────────────
+
+describe("doodle block", () => {
+  it("round-trips doodle with quotes and backslashes in the scene JSON", () => {
+    // Scène Excalidraw réaliste : guillemets + backslash dans le JSON.
+    const sceneData = JSON.stringify({
+      elements: [{ type: "text", text: 'a "quoted" \\ backslash' }],
+      appState: { viewBackgroundColor: "#ffffff" },
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const blocks: any[] = [
+      { type: "doodle", props: { sceneData }, content: undefined, children: [] },
+    ];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const md = blocksToMarkdown(blocks as any);
+    expect(md.startsWith('[doodle scene="')).toBe(true);
+    const parsed = markdownToBlocks(md);
+    expect(parsed).toHaveLength(1);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const b = parsed[0] as any;
+    expect(b.type).toBe("doodle");
+    expect(b.props.sceneData).toBe(sceneData);
+  });
+
+  it("round-trips an empty doodle (le bloc vierge survit au reload)", () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const blocks: any[] = [
+      { type: "doodle", props: { sceneData: "" }, content: undefined, children: [] },
+    ];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const md = blocksToMarkdown(blocks as any);
+    expect(md).toBe('[doodle scene=""]');
+    const parsed = markdownToBlocks(md);
+    expect(parsed).toHaveLength(1);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const b = parsed[0] as any;
+    expect(b.type).toBe("doodle");
+    expect(b.props.sceneData).toBe("");
+  });
+
+  it("parses [doodle scene=...] directly from markdown", () => {
+    const md = '[doodle scene="{\\"elements\\":[]}"]';
+    const blocks = markdownToBlocks(md);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const b = blocks[0] as any;
+    expect(b.type).toBe("doodle");
+    expect(b.props.sceneData).toBe('{"elements":[]}');
+    const out = roundTrip(md);
+    expect(out).toBe(md);
+  });
+});
+
 // ── Mention ───────────────────────────────────────────────────
 
 describe("mention inline", () => {

@@ -12,7 +12,7 @@
  */
 
 import { useMemo } from "react";
-import { trpc, isBrowserPwaMode } from "@/lib/trpc/client";
+import { trpc, hasWorkerBackend } from "@/lib/trpc/client";
 import { CONTACTS } from "./fixtures";
 import { entitiesToContacts, entityToContact } from "./entityAdapter";
 import type { Contact } from "./fixtures";
@@ -28,7 +28,7 @@ export interface ContactsSource {
 }
 
 function useHasBackend(): boolean {
-  return isBrowserPwaMode();
+  return hasWorkerBackend();
 }
 
 /** Hook: returns contacts from tRPC (vault worker) when available, fixtures + local otherwise. */

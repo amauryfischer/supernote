@@ -26,7 +26,7 @@ import {
 } from "@/components/search";
 import { MagnifyingGlass } from "@phosphor-icons/react";
 import { useDebounce } from "@/hooks/useDebounce";
-import { trpc, isBrowserPwaMode } from "@/lib/trpc/client";
+import { trpc, hasWorkerBackend } from "@/lib/trpc/client";
 import { isWorkerReady } from "@/lib/trpc/browser-link";
 
 // ---------------------------------------------------------------------------
@@ -157,7 +157,7 @@ export default function RecherchePage() {
     return () => window.removeEventListener("supernote:vault-ready", onReady);
   }, []);
 
-  const hasBackend = isBrowserPwaMode();
+  const hasBackend = hasWorkerBackend();
   const canQuery = hasBackend && workerReady && workerQuery.length > 0;
 
   // The worker route returns rich SearchResult[] items already shaped for

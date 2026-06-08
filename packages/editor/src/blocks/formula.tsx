@@ -13,6 +13,10 @@ export interface FormulaRenderProps {
   expression: string;
   /** Hint éventuel sur le type attendu (text/number/date/bool). */
   outputKind?: string;
+  /** Mode d'affichage "bloc vivant" (value/countdown/progress/sparkline). */
+  display?: string;
+  /** True si rendu en inline content plutôt qu'en bloc. */
+  inline?: boolean;
   /** Édition demandée — l'host doit ouvrir son éditeur de formule. */
   onEdit?: () => void;
 }
@@ -106,11 +110,12 @@ function FormulaContextMenu({
 interface FormulaContentProps {
   expression: string;
   outputKind: string;
+  display: string;
   inline: boolean;
   onEdit: () => void;
 }
 
-function FormulaContent({ expression, outputKind, inline, onEdit }: FormulaContentProps): React.JSX.Element {
+function FormulaContent({ expression, outputKind, display, inline, onEdit }: FormulaContentProps): React.JSX.Element {
   const renderer = useFormulaRenderer();
   const [menu, setMenu] = React.useState<{ x: number; y: number } | null>(null);
   const handleContextMenu = (e: React.MouseEvent) => {
@@ -152,7 +157,7 @@ function FormulaContent({ expression, outputKind, inline, onEdit }: FormulaConte
         }}
       >
         {renderer
-          ? renderer({ expression, outputKind, onEdit })
+          ? renderer({ expression, outputKind, display, inline, onEdit })
           : fallback}
       </Tag>
       {menu && (
@@ -179,6 +184,7 @@ export const formulaBlockSpec = createReactBlockSpec(
     propSchema: {
       expression: { default: "" },
       outputKind: { default: "text" },
+      display: { default: "value" },
     },
     content: "none" as const,
   },
@@ -186,6 +192,7 @@ export const formulaBlockSpec = createReactBlockSpec(
     render: ({ block, editor }) => {
       const expression = (block.props.expression ?? "") as string;
       const outputKind = (block.props.outputKind ?? "text") as string;
+      const display = (block.props.display ?? "value") as string;
       const handleEdit = () => {
         const event = new CustomEvent("supernote:formula-edit", {
           bubbles: true,
@@ -193,9 +200,10 @@ export const formulaBlockSpec = createReactBlockSpec(
             blockId: block.id,
             expression,
             outputKind,
-            onUpdate: (next: { expression: string; outputKind: string }) => {
+            display,
+            onUpdate: (next: { expression: string; outputKind: string; display: string }) => {
               editor.updateBlock(block.id, {
-                props: { expression: next.expression, outputKind: next.outputKind },
+                props: { expression: next.expression, outputKind: next.outputKind, display: next.display },
               } as never);
             },
           },
@@ -206,6 +214,7 @@ export const formulaBlockSpec = createReactBlockSpec(
         <FormulaContent
           expression={expression}
           outputKind={outputKind}
+          display={display}
           inline={false}
           onEdit={handleEdit}
         />
@@ -214,11 +223,13 @@ export const formulaBlockSpec = createReactBlockSpec(
     toExternalHTML: ({ block }) => {
       const expression = (block.props.expression ?? "") as string;
       const outputKind = (block.props.outputKind ?? "text") as string;
+      const display = (block.props.display ?? "value") as string;
       return (
         <div
           className="sn-formula-block-export"
           data-formula={expression}
           data-output-kind={outputKind}
+          data-display={display}
         >
           <code>{`{= ${expression}}`}</code>
         </div>
@@ -236,16 +247,18 @@ export const formulaInlineSpec = createReactInlineContentSpec(
     propSchema: {
       expression: { default: "" },
       outputKind: { default: "text" },
+      display: { default: "value" },
     },
   },
   {
     render: ({ inlineContent }) => {
       const expression = (inlineContent.props.expression ?? "") as string;
       const outputKind = (inlineContent.props.outputKind ?? "text") as string;
+      const display = (inlineContent.props.display ?? "value") as string;
       const handleEdit = () => {
         const event = new CustomEvent("supernote:formula-edit-inline", {
           bubbles: true,
-          detail: { expression, outputKind },
+          detail: { expression, outputKind, display },
         });
         window.dispatchEvent(event);
       };
@@ -253,6 +266,7 @@ export const formulaInlineSpec = createReactInlineContentSpec(
         <FormulaContent
           expression={expression}
           outputKind={outputKind}
+          display={display}
           inline
           onEdit={handleEdit}
         />

@@ -16,6 +16,8 @@ import {
   DatabaseViewProvider,
   useDatabaseBlockPickListener,
   FormulaProvider,
+  EmbedProvider,
+  DoodleProvider,
 } from "./blocks/index.js";
 import { markdownToBlocks, blocksToMarkdown } from "./serialization/index.js";
 import {
@@ -26,7 +28,13 @@ import {
 } from "./extensions/slashMenu.js";
 import type { EntityLinkItemConfig } from "./extensions/slashMenu.js";
 import { createSaveExtension } from "./extensions/saveShortcut.js";
+import { blockNavExtension } from "./extensions/blockNavShortcuts.js";
+import {
+  createBlockOpsExtension,
+  type BlockOpsEditorLike,
+} from "./extensions/blockOpsShortcuts.js";
 import { attachCheckShortcut } from "./extensions/checkShortcut.js";
+import { smartTypographyExtension } from "./extensions/smartTypography.js";
 import {
   attachContinueChecklistOnEnter,
   enterTagExtension,
@@ -61,11 +69,14 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
     placeholder,
     renderDatabaseView,
     renderFormula,
+    renderEmbed,
+    renderDoodle,
     aiClient,
     aiPromptResolver,
     noteTitle,
     onAIError,
     onAIWarning,
+    smartTypography = true,
   } = props;
 
   const onSaveRef = useRef(onSave);
@@ -128,17 +139,30 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
     };
   })();
 
+  // Les extensions Tiptap sont instanciées AVANT l'éditeur BlockNote ;
+  // blockOps a besoin de son API (move/duplicate) → getter résolu à la frappe.
+  const blockNoteRef = useRef<BlockOpsEditorLike | null>(null);
+
   const editor = useCreateBlockNote(
     {
       schema: supernoteSchema,
       initialContent: initialBlocks,
       dictionary,
       _tiptapOptions: {
-        extensions: [createSaveExtension(handleSave), enterTagExtension],
+        extensions: [
+          createSaveExtension(handleSave),
+          enterTagExtension,
+          blockNavExtension,
+          createBlockOpsExtension(() => blockNoteRef.current),
+          // Remplacements typographiques à la frappe (->, --, ..., (c)…).
+          // Désactivable via la prop `smartTypography`.
+          ...(smartTypography ? [smartTypographyExtension] : []),
+        ],
       },
     },
     []
   );
+  blockNoteRef.current = editor as unknown as BlockOpsEditorLike;
 
   // `x ` → checkListItem shortcut. Implemented as a post-commit watcher on
   // BlockNote's onChange (rather than a Tiptap input rule) because the
@@ -467,6 +491,11 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
   // built-in fallback will display the offline placeholder.
   const databaseRenderer = renderDatabaseView ?? (() => null);
   const formulaRenderer = renderFormula ?? (() => null);
+  // Embed : pas de stub ici — renderer null dans le context déclenche le
+  // fallback statique du bloc (rendu identique à l'absence de prop).
+  const embedRenderer = renderEmbed ?? null;
+  // Doodle : même logique — null → fallback statique du bloc.
+  const doodleRenderer = renderDoodle ?? null;
 
   // ── AI actions ──────────────────────────────────────────────────────────────
   const aiEnabled = Boolean(aiClient && aiPromptResolver);
@@ -596,6 +625,8 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
   return (
     <DatabaseViewProvider renderer={databaseRenderer}>
     <FormulaProvider renderer={formulaRenderer}>
+    <EmbedProvider renderer={embedRenderer}>
+    <DoodleProvider renderer={doodleRenderer}>
     <div
       ref={wrapperRef}
       className={`sn-editor-wrapper${live ? " sn-editor-live" : ""}${dimInactiveBlocks ? " sn-dim-blocks" : ""}${className ? ` ${className}` : ""}`}
@@ -677,6 +708,8 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
         />
       )}
     </div>
+    </DoodleProvider>
+    </EmbedProvider>
     </FormulaProvider>
     </DatabaseViewProvider>
   );

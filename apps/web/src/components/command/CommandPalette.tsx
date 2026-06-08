@@ -22,9 +22,10 @@ import { useRouter } from "next/navigation";
 import { registry } from "@/lib/commands/registry";
 import type { Command as AppCommand } from "@/lib/commands/types";
 import { useDebounce } from "@/hooks/useDebounce";
-import { trpc, isBrowserPwaMode } from "@/lib/trpc/client";
+import { trpc, hasWorkerBackend } from "@/lib/trpc/client";
 import { isWorkerReady } from "@/lib/trpc/browser-link";
 import type { SearchResult } from "@supernote/ipc";
+import { CommandPreview } from "./CommandPreview";
 
 // ---------------------------------------------------------------------------
 // Icon resolver — maps seed icon names to Lucide components
@@ -140,11 +141,19 @@ interface CommandPaletteProps {
 
 export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const [query, setQuery] = useState("");
+  // Item actif (surligné) selon cmdk. cmdk n'appelle `onValueChange` qu'en mode
+  // contrôlé : on pilote donc `value` nous-mêmes. Comme cmdk met aussi à jour la
+  // valeur sur `onPointerMove`, cet état suit À LA FOIS la nav clavier ET le
+  // survol souris — une seule source de vérité pour l'aperçu.
+  const [activeValue, setActiveValue] = useState("");
   const router = useRouter();
 
-  // Reset query on open
+  // Reset query + sélection à l'ouverture
   useEffect(() => {
-    if (open) setQuery("");
+    if (open) {
+      setQuery("");
+      setActiveValue("");
+    }
   }, [open]);
 
   const allCommands = useMemo(() => registry.list(), [open]);
@@ -168,7 +177,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const debouncedQuery = useDebounce(query, 200);
   const trimmedQuery = debouncedQuery.trim();
   const canSearchEntities =
-    open && isBrowserPwaMode() && workerReady && trimmedQuery.length > 0;
+    open && hasWorkerBackend() && workerReady && trimmedQuery.length > 0;
 
   // Reuse search.query (rich SearchResult) — same source as /recherche.
   const entitySearch = trpc.search.query.useQuery(
@@ -189,7 +198,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     if (!open || !trimmedQuery) return;
     console.info("[CommandPalette]", {
       query: trimmedQuery,
-      isBrowserPwaMode: isBrowserPwaMode(),
+      hasWorkerBackend: hasWorkerBackend(),
       workerReady,
       canSearchEntities,
       isLoading: entitySearch.isLoading,
@@ -230,6 +239,24 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
       return a.localeCompare(b);
     });
   }, [entityResults]);
+
+  // L'aperçu cible l'item actif uniquement si c'est une entité. Les valeurs
+  // entité sont préfixées `entity:` (cf. EntityCommandItem) ; cmdk préserve la
+  // casse (ULID en majuscules), donc on extrait l'id tel quel.
+  const activeEntityId = activeValue.startsWith("entity:")
+    ? activeValue.slice("entity:".length)
+    : null;
+  const activeResult = useMemo(
+    () =>
+      activeEntityId
+        ? entityResults.find((r) => r.entityId === activeEntityId) ?? null
+        : null,
+    [activeEntityId, entityResults],
+  );
+  // Colonne d'aperçu réservée dès qu'une recherche remonte des entités : évite
+  // que la modale ne saute en largeur quand on passe d'une note à une commande.
+  // Le contenu reste vide gracieusement si l'item actif n'est pas une entité.
+  const showPreviewColumn = entityResults.length > 0;
 
   const handleSelect = useCallback(
     async (cmdId: string) => {
@@ -285,11 +312,11 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      {/* Modal */}
+      {/* Modal — s'élargit pour accueillir l'aperçu quand des entités matchent */}
       <div
-        className="w-full overflow-hidden shadow-2xl"
+        className="w-full overflow-hidden shadow-2xl transition-[max-width] duration-150"
         style={{
-          maxWidth: "600px",
+          maxWidth: showPreviewColumn ? "780px" : "600px",
           backgroundColor: "var(--surface-1)",
           border: "1px solid var(--border-subtle)",
           borderRadius: "var(--radius-xl)",
@@ -300,6 +327,9 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
           label="Command palette"
           loop
           shouldFilter={false}
+          // Mode contrôlé : indispensable pour recevoir `onValueChange`.
+          value={activeValue}
+          onValueChange={setActiveValue}
           className="flex flex-col"
         >
           {/* Search input */}
@@ -334,9 +364,11 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
             </kbd>
           </div>
 
+          {/* Corps : liste à gauche + aperçu (Raycast) à droite */}
+          <div className="flex min-h-0">
           {/* Results */}
           <Command.List
-            className="max-h-[420px] overflow-y-auto py-2"
+            className="min-w-0 flex-1 max-h-[420px] overflow-y-auto py-2"
             style={{ scrollbarWidth: "thin" }}
           >
             <Command.Empty
@@ -390,6 +422,17 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
               );
             })}
           </Command.List>
+
+          {/* Aperçu live — masqué sous `sm`, décoratif (aria-hidden interne). */}
+          {showPreviewColumn && (
+            <div
+              className="hidden sm:flex w-[340px] shrink-0 flex-col max-h-[420px]"
+              style={{ borderLeft: "1px solid var(--border-subtle)" }}
+            >
+              <CommandPreview entityId={activeEntityId} activeResult={activeResult} />
+            </div>
+          )}
+          </div>
 
           {/* Footer */}
           <div

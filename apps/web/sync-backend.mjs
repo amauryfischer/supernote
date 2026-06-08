@@ -5,49 +5,36 @@
  * a database configured (`DATABASE_URL` present), the server keeps an
  * append-only entity op-log and fans new ops out to every connected device
  * over Server-Sent Events. Devices push their local changes via `POST`. The
- * result is realtime sync between web and Android-installed PWA, with no extra
- * runtime dependency beyond `better-sqlite3` (already in the workspace).
+ * result is realtime sync between web and Android-installed PWA.
  *
  * Activation: the backend is only constructed when `DATABASE_URL` is set, so a
  * plain static deployment (the default) stays exactly as before — zero new
  * surface, zero new failure modes.
  *
  * Endpoints (all under `/api/sync/`):
- *   GET  /info                        → { enabled, requiresToken }
+ *   GET  /info                        → { enabled, requiresToken, epoch }
  *   GET  /stream?vault&since&clientId  → SSE: hello, ops, ping
  *   POST /push  { vault, clientId, ops } → { headSeq, acks }
  *   GET  /pull?vault&since             → { headSeq, ops }   (SSE-less fallback)
  *
- * Storage: a single SQLite file (`SYNC_DB_PATH`, or derived from a `file:`
- * `DATABASE_URL`, else `sync-data.db`). The op-log is global-monotonic in
- * `seq`; clients filter by their `vault` room key and track the highest seq
- * they've applied.
+ * Storage: see `sync-store.mjs` — SQLite for `file:` URLs (self-hosting on a
+ * persistent disk), PostgreSQL for `postgres://` URLs (the durable choice on
+ * PaaS like Scalingo, whose container filesystem is wiped on each deploy).
+ *
+ * Epoch: a random id minted when the op-log database is created, exposed in
+ * `/info` and the SSE `hello`. Clients reset their cursor + re-seed when it
+ * changes — see the epoch guard in `online-sync/client.ts`.
  *
  * Auth: optional shared secret via `SYNC_TOKEN`. When set, every request must
  * present it (header `x-sync-token` or `?token=`).
  */
 
-import Database from "better-sqlite3";
-import { fileURLToPath } from "node:url";
+import { createSyncStore } from "./sync-store.mjs";
 
 const HEARTBEAT_MS = 25_000;
 const REPLAY_BATCH = 500;
-
-function resolveDbPath() {
-  if (process.env.SYNC_DB_PATH) return process.env.SYNC_DB_PATH;
-  const url = process.env.DATABASE_URL ?? "";
-  if (url.startsWith("file:")) {
-    try {
-      return url.includes("://") ? fileURLToPath(url) : url.slice("file:".length);
-    } catch {
-      return url.slice("file:".length);
-    }
-  }
-  // Non-file (e.g. a Postgres URL): we don't speak that protocol here, but the
-  // user signalled "a database is present", so keep a durable local op-log.
-  if (url && !url.includes("://")) return url;
-  return "sync-data.db";
-}
+const COMPACT_GRACE_MS = 7 * 24 * 60 * 60 * 1000;
+const COMPACT_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
 /**
  * Build the sync backend. Returns `{ enabled, handle }`.
@@ -55,44 +42,37 @@ function resolveDbPath() {
  * `handle(req, res)` returns true when it owns (and has answered) the request,
  * false when the path isn't a sync route and the caller should continue.
  */
-export function createSyncBackend() {
+export async function createSyncBackend() {
   const enabled = !!process.env.DATABASE_URL;
   if (!enabled) {
     return { enabled: false, handle: () => false };
   }
 
   const token = process.env.SYNC_TOKEN || "";
-  const dbPath = resolveDbPath();
-  const db = new Database(dbPath);
-  db.pragma("journal_mode = WAL");
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS op (
-      seq       INTEGER PRIMARY KEY AUTOINCREMENT,
-      vault     TEXT NOT NULL,
-      opId      TEXT NOT NULL,
-      clientId  TEXT NOT NULL,
-      kind      TEXT NOT NULL,
-      entityId  TEXT NOT NULL,
-      ts        INTEGER NOT NULL,
-      payload   TEXT,
-      createdAt INTEGER NOT NULL
-    );
-    CREATE UNIQUE INDEX IF NOT EXISTS op_vault_opid ON op (vault, opId);
-    CREATE INDEX IF NOT EXISTS op_vault_seq ON op (vault, seq);
-  `);
+  const store = await createSyncStore();
+  const epoch = store.epoch();
 
-  const insertStmt = db.prepare(
-    `INSERT OR IGNORE INTO op (vault, opId, clientId, kind, entityId, ts, payload, createdAt)
-     VALUES (@vault, @opId, @clientId, @kind, @entityId, @ts, @payload, @createdAt)`,
-  );
-  const findStmt = db.prepare(`SELECT seq FROM op WHERE vault = ? AND opId = ?`);
-  const sinceStmt = db.prepare(
-    `SELECT seq, opId, clientId, kind, entityId, ts, payload
-       FROM op WHERE vault = ? AND seq > ? ORDER BY seq ASC LIMIT ?`,
-  );
-  const headStmt = db.prepare(`SELECT COALESCE(MAX(seq), 0) AS head FROM op WHERE vault = ?`);
+  // ── Op-log compaction ──────────────────────────────────────────────────────
+  // With entity-level last-write-wins, only the LATEST op per (vault, entity)
+  // matters for convergence: a late client replaying a compacted log still
+  // materialises the exact same final state. Superseded ops older than the
+  // grace window are purged so the log (and the initial replay) stays bounded.
+  async function compact() {
+    try {
+      const removed = await store.compact(Date.now() - COMPACT_GRACE_MS);
+      if (removed > 0) console.log(`[sync] compacted ${removed} superseded op(s)`);
+    } catch (err) {
+      console.warn("[sync] compaction failed", err);
+    }
+  }
+  void compact();
+  const compactTimer = setInterval(() => void compact(), COMPACT_INTERVAL_MS);
+  // Don't hold the process open just for the compactor.
+  if (typeof compactTimer.unref === "function") compactTimer.unref();
 
-  console.log(`[sync] online realtime sync ENABLED (op-log at ${dbPath})`);
+  console.log(
+    `[sync] online realtime sync ENABLED (${store.kind} op-log at ${store.label}, epoch ${epoch})`,
+  );
 
   // vault → Set<res> of live SSE subscribers.
   const subscribers = new Map();
@@ -112,30 +92,14 @@ export function createSyncBackend() {
     };
   }
 
-  function rowToStoredOp(r) {
-    return {
-      seq: r.seq,
-      opId: r.opId,
-      clientId: r.clientId,
-      kind: r.kind,
-      entityId: r.entityId,
-      ts: r.ts,
-      payload: r.payload ? JSON.parse(r.payload) : undefined,
-    };
-  }
-
-  function headSeq(vault) {
-    return headStmt.get(vault).head;
-  }
-
   function sseSend(res, obj) {
     res.write(`data: ${JSON.stringify(obj)}\n\n`);
   }
 
-  function broadcast(vault, storedOps) {
+  async function broadcast(vault, storedOps) {
     const set = subscribers.get(vault);
     if (!set || set.size === 0) return;
-    const head = headSeq(vault);
+    const head = await store.headSeq(vault);
     const payload = { type: "ops", headSeq: head, ops: storedOps };
     for (const res of set) {
       try {
@@ -184,36 +148,6 @@ export function createSyncBackend() {
     });
   }
 
-  const persistMany = db.transaction((vault, ops) => {
-    const stored = [];
-    const acks = [];
-    const createdAt = Date.now();
-    for (const op of ops) {
-      if (!op || typeof op.opId !== "string" || typeof op.entityId !== "string") continue;
-      const info = insertStmt.run({
-        vault,
-        opId: op.opId,
-        clientId: String(op.clientId ?? ""),
-        kind: op.kind === "delete" ? "delete" : "upsert",
-        entityId: op.entityId,
-        ts: Number(op.ts) || createdAt,
-        payload: op.payload ? JSON.stringify(op.payload) : null,
-        createdAt,
-      });
-      let seq;
-      if (info.changes > 0) {
-        seq = Number(info.lastInsertRowid);
-        stored.push({ ...op, seq });
-      } else {
-        // Already seen (idempotent) — return the existing seq in the ack.
-        const existing = findStmt.get(vault, op.opId);
-        seq = existing ? existing.seq : 0;
-      }
-      acks.push({ opId: op.opId, seq });
-    }
-    return { stored, acks };
-  });
-
   // ── request handler ────────────────────────────────────────────────────────
 
   async function handle(req, res) {
@@ -232,7 +166,7 @@ export function createSyncBackend() {
     }
 
     if (path === "/api/sync/info") {
-      sendJson(res, 200, { enabled: true, requiresToken: !!token });
+      sendJson(res, 200, { enabled: true, requiresToken: !!token, epoch });
       return true;
     }
 
@@ -248,8 +182,8 @@ export function createSyncBackend() {
         sendJson(res, 400, { error: "missing vault" });
         return true;
       }
-      const ops = sinceStmt.all(vault, since, REPLAY_BATCH).map(rowToStoredOp);
-      sendJson(res, 200, { headSeq: headSeq(vault), ops });
+      const ops = await store.opsSince(vault, since, REPLAY_BATCH);
+      sendJson(res, 200, { headSeq: await store.headSeq(vault), ops });
       return true;
     }
 
@@ -267,9 +201,9 @@ export function createSyncBackend() {
         sendJson(res, 400, { error: "missing vault" });
         return true;
       }
-      const { stored, acks } = persistMany(vault, ops);
-      if (stored.length > 0) broadcast(vault, stored);
-      sendJson(res, 200, { headSeq: headSeq(vault), acks });
+      const { stored, acks } = await store.insertMany(vault, ops);
+      if (stored.length > 0) await broadcast(vault, stored);
+      sendJson(res, 200, { headSeq: await store.headSeq(vault), acks });
       return true;
     }
 
@@ -287,14 +221,14 @@ export function createSyncBackend() {
         "Access-Control-Allow-Origin": "*",
         "X-Accel-Buffering": "no",
       });
-      sseSend(res, { type: "hello", headSeq: headSeq(vault) });
+      sseSend(res, { type: "hello", headSeq: await store.headSeq(vault), epoch });
 
       // Replay the backlog since the client's cursor in batches.
       let cursor = since;
       for (;;) {
-        const batch = sinceStmt.all(vault, cursor, REPLAY_BATCH).map(rowToStoredOp);
+        const batch = await store.opsSince(vault, cursor, REPLAY_BATCH);
         if (batch.length === 0) break;
-        sseSend(res, { type: "ops", headSeq: headSeq(vault), ops: batch });
+        sseSend(res, { type: "ops", headSeq: await store.headSeq(vault), ops: batch });
         cursor = batch[batch.length - 1].seq;
         if (batch.length < REPLAY_BATCH) break;
       }

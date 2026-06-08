@@ -12,7 +12,9 @@ import {
   Function,
   GitBranch,
   Gear,
+  GridNine,
   House,
+  Plant,
   Lightning,
   Robot,
   Tag,
@@ -64,7 +66,6 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { labelKey: "nav.home", icon: House, href: "/" },
       { labelKey: "nav.ai", icon: Robot, href: "/ai" },
-      { labelKey: "nav.assistant", icon: Robot, href: "/assistant" },
     ],
   },
   {
@@ -72,7 +73,9 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { labelKey: "nav.notes", icon: FileText, href: "/notes" },
       { labelKey: "nav.archive", icon: Archive, href: "/archive" },
+      { labelKey: "nav.garden", icon: Plant, href: "/garden" },
       { labelKey: "nav.todos", icon: CheckSquare, href: "/todos" },
+      { labelKey: "nav.habits", icon: GridNine, href: "/habits" },
       { labelKey: "nav.journal", icon: Calendar, href: "/journal" },
       { labelKey: "nav.contacts", icon: Users, href: "/contacts" },
       { labelKey: "nav.finance", icon: Wallet, href: "/finance" },

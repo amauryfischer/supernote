@@ -28,10 +28,11 @@
   "nav": {
     "home": "Home",
     "ai": "AI Assistant",
-    "assistant": "Ask your vault",
     "search": "Search",
     "notes": "Notes",
+    "garden": "Garden",
     "todos": "Todos",
+    "habits": "Habits",
     "journal": "Journal",
     "contacts": "Contacts",
     "projects": "Projects",
@@ -49,6 +50,24 @@
       "tools": "Tools"
     }
   },
+  "garden": {
+    "title": "Digital garden",
+    "subtitle": "Your notes as a living garden — they grow as you write, bloom when linked, wither when neglected.",
+    "loading": "The garden is growing…",
+    "empty": "No notes to plant yet.",
+    "links": "links",
+    "stats": {
+      "total": "plants",
+      "thriving": "thriving",
+      "flowering": "in bloom"
+    },
+    "status": {
+      "thriving": "Thriving",
+      "growing": "Growing",
+      "dormant": "Dormant",
+      "withering": "Withering"
+    }
+  },
   "home": {
     "startWriting": "Start writing…",
     "inbox": "Inbox · {title}",
@@ -58,6 +77,11 @@
     "quitHint": "quit",
     "savingHint": "saving…",
     "noteSaved": "Note saved",
+    "onThisDay": {
+      "yearAgo": "One year ago",
+      "sixMonthsAgo": "Six months ago",
+      "openNote": "Open note"
+    },
     "descriptions": {
       "notes": "Your free notes and documents",
       "contacts": "People and organizations",

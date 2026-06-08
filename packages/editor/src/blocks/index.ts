@@ -3,7 +3,18 @@
 export { calloutBlockSpec } from "./callout.js";
 export { codeHighlightBlockSpec } from "./codeHighlight.js";
 export type { CodeLanguage } from "./codeHighlight.js";
-export { embedBlockSpec } from "./embed.js";
+export {
+  embedBlockSpec,
+  EmbedProvider,
+  useEmbedRenderer,
+} from "./embed.js";
+export type { EmbedRenderProps, EmbedRenderer } from "./embed.js";
+export {
+  doodleBlockSpec,
+  DoodleProvider,
+  useDoodleRenderer,
+} from "./doodle.js";
+export type { DoodleRenderProps, DoodleRenderer } from "./doodle.js";
 export { heroCheckListItemSpec } from "./heroCheckListItem.js";
 export {
   databaseViewBlockSpec,

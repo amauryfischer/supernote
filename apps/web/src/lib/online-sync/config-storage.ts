@@ -36,6 +36,12 @@ export interface OnlineSyncConfig {
   lastSeq: number;
   /** True once this device has pushed its initial full snapshot. */
   seeded: boolean;
+  /**
+   * Server op-log epoch last seen by this device. When the server reports a
+   * different one (its log was wiped — ephemeral FS redeploy), lastSeq and
+   * seeded are reset so the device replays + re-seeds. "" = never connected.
+   */
+  epoch: string;
 }
 
 export const DEFAULT_ONLINE_SYNC_CONFIG: OnlineSyncConfig = {
@@ -45,6 +51,7 @@ export const DEFAULT_ONLINE_SYNC_CONFIG: OnlineSyncConfig = {
   token: "",
   lastSeq: 0,
   seeded: false,
+  epoch: "",
 };
 
 export function loadOnlineSyncConfig(): OnlineSyncConfig {

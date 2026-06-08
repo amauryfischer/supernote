@@ -14,6 +14,13 @@
 
 import type { AgentTool } from "@supernote/ai/agent";
 import { trpcVanillaClient } from "@/lib/trpc/client";
+import {
+  embedQuery,
+  cosineSimilarity,
+  parseEmbeddingField,
+  DEFAULT_EMBED_MODEL,
+} from "@/lib/rag";
+import { OLLAMA_HOST_KEY, DEFAULT_OLLAMA_HOST } from "@/hooks/useAutoTitle";
 
 interface NoteSummary {
   id: string;
@@ -267,7 +274,80 @@ export const updateNote: AgentTool = {
   },
 };
 
+function resolveOllamaHost(): string {
+  if (typeof window === "undefined") return DEFAULT_OLLAMA_HOST;
+  try {
+    const stored = window.localStorage.getItem(OLLAMA_HOST_KEY);
+    if (stored?.trim()) return stored.trim();
+  } catch {
+    /* ignore */
+  }
+  return DEFAULT_OLLAMA_HOST;
+}
+
+function entityTitle(item: { fields: Record<string, unknown>; filePath: string; id: string }): string {
+  const t = item.fields["title"];
+  if (typeof t === "string" && t.trim()) return t.trim();
+  return item.filePath.split("/").pop() ?? item.id;
+}
+
+export const semanticSearch: AgentTool = {
+  definition: {
+    type: "function",
+    function: {
+      name: "semanticSearch",
+      description:
+        "Recherche sémantique (RAG) dans les notes indexées du vault : embarque la question et retourne les notes les plus proches par similarité cosinus, avec score et extrait. Préférable à searchNotes pour les questions ouvertes ('que sais-je sur X ?'). Nécessite que le vault soit indexé (Paramètres → IA Ollama).",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Question ou sujet à chercher" },
+          limit: {
+            type: "number",
+            description: "Nombre de notes retournées (défaut 10, max 25)",
+          },
+        },
+        required: ["query"],
+      },
+    },
+  },
+  async execute(args) {
+    const query = String(args["query"] ?? "");
+    const limitRaw = Number(args["limit"]);
+    const k = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 25) : 10;
+
+    const host = resolveOllamaHost();
+    const vec = await embedQuery(query, host, DEFAULT_EMBED_MODEL);
+
+    const res = await trpcVanillaClient.entities.list.query({ limit: 5000, offset: 0 });
+    const scored = res.items
+      .map((item) => {
+        const emb = parseEmbeddingField(item.fields["embedding"]);
+        if (!emb) return null;
+        return {
+          id: item.id,
+          title: entityTitle(item),
+          filePath: item.filePath,
+          score: Math.round(cosineSimilarity(vec, emb) * 1000) / 1000,
+          preview: trimBody(item.body, 400),
+        };
+      })
+      .filter((x): x is NonNullable<typeof x> => x !== null)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, k);
+
+    if (scored.length === 0) {
+      return {
+        items: [],
+        note: "Aucune note indexée. L'utilisateur doit indexer son vault dans Paramètres → IA Ollama.",
+      };
+    }
+    return { items: scored };
+  },
+};
+
 export const DEFAULT_TOOLS: AgentTool[] = [
+  semanticSearch,
   searchNotes,
   listNotes,
   getNote,

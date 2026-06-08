@@ -38,12 +38,29 @@ import {
   type VaultEntry,
 } from "@/lib/vault-worker/vault-handle-storage";
 import { initWorkerVault, onWorkerMessage, setWorkerReady, flushVaultWorker, terminateVaultWorker } from "@/lib/trpc/browser-link";
-import { isBrowserPwaMode } from "@/lib/trpc/client";
+import { isBrowserPwaMode, isCloudCapable, CLOUD_VAULT_KEY } from "@/lib/trpc/client";
 import type { VaultReadyMessage, VaultErrorMessage } from "@/lib/vault-worker/worker-protocol";
 import { cloneIntoVault, initInVault, isLinked } from "@/lib/git/github-sync";
 import { saveGitConfig } from "@/lib/git/config-storage";
+import {
+  saveOnlineSyncConfig,
+  DEFAULT_ONLINE_SYNC_CONFIG,
+} from "@/lib/online-sync/config-storage";
 
 const DEGRADED_STORAGE_KEY = "supernote.degraded";
+
+/**
+ * OPFS scratch directory that backs a cloud vault. A real (OPFS-resident)
+ * FileSystemDirectoryHandle, so the worker treats it exactly like a folder
+ * vault — but it needs no user picker and works on every OPFS-capable engine
+ * (Android Chrome, Safari, Firefox), not just FSA-folder Chromium desktop.
+ */
+const CLOUD_OPFS_DIR = "supernote-cloud";
+
+async function getCloudVaultHandle(): Promise<FileSystemDirectoryHandle> {
+  const root = await navigator.storage.getDirectory();
+  return root.getDirectoryHandle(CLOUD_OPFS_DIR, { create: true });
+}
 
 type SetupState =
   | "idle"        // Checking for existing handle
@@ -51,6 +68,7 @@ type SetupState =
   | "ready"       // Vault is initialized
   | "prompt"      // Welcome — choose between local folder and git repo
   | "git-form"    // Git setup form (URL + PAT + folder)
+  | "cloud-form"  // Online-sync setup form (server + room key + token)
   | "picking"     // showDirectoryPicker in progress
   | "cloning"     // git clone in progress
   | "loading"     // Worker initializing
@@ -73,6 +91,15 @@ export interface GitSetupArgs {
   mode: "clone-into-empty" | "init-existing";
 }
 
+export interface CloudSetupArgs {
+  /** Sync server base URL. Empty = same origin as the app. */
+  serverUrl: string;
+  /** Room key — every device sharing this key + server replicates one vault. */
+  vaultKey: string;
+  /** Shared secret, required only when the server sets `SYNC_TOKEN`. */
+  token: string;
+}
+
 /** Lightweight projection of {@link VaultEntry} exposed to UI consumers. */
 export interface RecentVault {
   id: string;
@@ -92,10 +119,22 @@ interface VaultContextValue {
   cancelGitFlow: () => void;
   /** Run the Git flow: pick folder, clone (or init), persist config, init worker. */
   setupGitVault: (args: GitSetupArgs) => Promise<void>;
+  /** Open the cloud (online-sync) setup form. */
+  startCloudFlow: () => void;
+  /** Cancel the cloud setup form and return to the welcome screen. */
+  cancelCloudFlow: () => void;
+  /**
+   * Run the cloud flow: probe the server, persist the online-sync config,
+   * boot an OPFS-backed worker vault. The OnlineSyncProvider then seeds it
+   * from the server's op-log — pulling the vault from your other devices.
+   */
+  setupCloudVault: (args: CloudSetupArgs) => Promise<void>;
   /** Continue without a vault folder (localStorage degraded mode). */
   skipToDegraded: () => void;
-  /** True only in PWA mode (FSA available, no Electron bridge). */
+  /** True only in PWA mode (FSA folder picker available). */
   isPwa: boolean;
+  /** True when a cloud vault is possible (OPFS + Worker — most engines). */
+  canCloud: boolean;
   /** Known vaults, freshest first. Repopulated on every switch / pick. */
   recentVaults: RecentVault[];
   /** Id of the vault currently mounted by the worker, or null. */
@@ -128,8 +167,11 @@ export function usePwaVaultSetup(): VaultContextValue {
   const [recentVaults, setRecentVaults] = useState<RecentVault[]>([]);
   const [activeVaultId, setActiveVaultIdState] = useState<string | null>(null);
 
-  // Only runs in PWA mode (FSA available, no Electron)
+  // FSA folder picker available (Chromium desktop) → folder/git vaults.
   const isPwa = isBrowserPwaMode();
+  // OPFS + Worker available (almost every modern engine, phones included) →
+  // a cloud vault is possible even without the folder picker.
+  const canCloud = isCloudCapable();
 
   // Refresh the in-memory recents projection from IDB. Cheap (≤ a handful of
   // entries) so we call it from any code path that mutates the registry.
@@ -156,16 +198,42 @@ export function usePwaVaultSetup(): VaultContextValue {
   const initStartedRef = useRef(false);
 
   useEffect(() => {
-    if (!isPwa) { setState("ready"); return; }
+    // Browser can host neither a folder vault nor a cloud vault → the app
+    // runs on the degraded localStorage mock; nothing to bootstrap.
+    if (!isPwa && !canCloud) { setState("ready"); return; }
     if (initStartedRef.current) return;
     initStartedRef.current = true;
 
+    const ls = typeof window !== "undefined" ? window.localStorage : null;
+
+    // Cloud vault chosen on a previous visit → re-open the OPFS-backed worker.
+    // The OnlineSyncProvider reconnects from the persisted config and replays
+    // the op-log, so the vault is rehydrated from the server.
+    if (ls?.getItem(CLOUD_VAULT_KEY) === "1") {
+      setState("loading");
+      void (async () => {
+        try {
+          const handle = await getCloudVaultHandle();
+          startWorker(handle, { cloud: true });
+        } catch (err) {
+          setErrorMsg(`Impossible d'ouvrir le coffre cloud : ${String(err)}`);
+          setState("error");
+        }
+      })();
+      return;
+    }
+
     // If the user previously chose degraded mode, honour that decision
     // immediately and skip the picker entirely on every subsequent visit.
-    if (typeof window !== "undefined" && window.localStorage.getItem(DEGRADED_STORAGE_KEY) === "1") {
+    if (ls?.getItem(DEGRADED_STORAGE_KEY) === "1") {
       setState("degraded");
       return;
     }
+
+    // No FSA folder picker (Android Chrome, Safari, Firefox) → only the cloud
+    // (or degraded) path is possible: go straight to the welcome screen, which
+    // surfaces just the cloud card.
+    if (!isPwa) { setState("prompt"); return; }
 
     setState("checking");
     void (async () => {
@@ -185,7 +253,7 @@ export function usePwaVaultSetup(): VaultContextValue {
       }
     })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isPwa]);
+  }, [isPwa, canCloud]);
 
   useEffect(() => {
     if (state !== "loading") return;
@@ -263,7 +331,11 @@ export function usePwaVaultSetup(): VaultContextValue {
       }
       await saveVaultHandle(handle);
       // Picking a folder explicitly opts out of degraded mode.
-      if (typeof window !== "undefined") window.localStorage.removeItem(DEGRADED_STORAGE_KEY);
+      if (typeof window !== "undefined") {
+        // Picking a folder / git repo opts out of both degraded and cloud modes.
+        window.localStorage.removeItem(DEGRADED_STORAGE_KEY);
+        window.localStorage.removeItem(CLOUD_VAULT_KEY);
+      }
       setWorkerReady(false);
       setVaultName(null);
       setState("loading");
@@ -281,7 +353,10 @@ export function usePwaVaultSetup(): VaultContextValue {
   }, []);
 
   const skipToDegraded = useCallback(() => {
-    if (typeof window !== "undefined") window.localStorage.setItem(DEGRADED_STORAGE_KEY, "1");
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(DEGRADED_STORAGE_KEY, "1");
+      window.localStorage.removeItem(CLOUD_VAULT_KEY);
+    }
     setState("degraded");
   }, []);
 
@@ -293,6 +368,92 @@ export function usePwaVaultSetup(): VaultContextValue {
   const cancelGitFlow = useCallback(() => {
     setErrorMsg(null);
     setState("prompt");
+  }, []);
+
+  const startCloudFlow = useCallback(() => {
+    setErrorMsg(null);
+    setState("cloud-form");
+  }, []);
+
+  const cancelCloudFlow = useCallback(() => {
+    setErrorMsg(null);
+    setState("prompt");
+  }, []);
+
+  const setupCloudVault = useCallback(async (args: CloudSetupArgs) => {
+    setErrorMsg(null);
+    const serverUrl = args.serverUrl.trim().replace(/\/+$/, "");
+    const vaultKey = args.vaultKey.trim();
+    const token = args.token.trim();
+    if (!vaultKey) {
+      setErrorMsg("Une clé de salon est requise.");
+      setState("cloud-form");
+      return;
+    }
+
+    // Probe the server first so the user gets a clear, immediate error rather
+    // than a vault that boots then silently fails to sync. `/api/sync/info` is
+    // unauthenticated and reports whether a database is configured.
+    setState("loading");
+    try {
+      const res = await fetch(`${serverUrl}/api/sync/info`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const info = (await res.json()) as {
+        enabled?: boolean;
+        requiresToken?: boolean;
+      };
+      if (!info.enabled) {
+        setErrorMsg(
+          "Le serveur n'a pas de base de données configurée — la synchronisation en ligne y est indisponible.",
+        );
+        setState("cloud-form");
+        return;
+      }
+      if (info.requiresToken && !token) {
+        setErrorMsg("Ce serveur exige un jeton partagé.");
+        setState("cloud-form");
+        return;
+      }
+    } catch (err) {
+      setErrorMsg(
+        `Serveur de synchronisation injoignable : ${(err as Error).message}. Vérifiez l'URL.`,
+      );
+      setState("cloud-form");
+      return;
+    }
+
+    // Persist the online-sync config (enabled) BEFORE the worker boots, so the
+    // OnlineSyncProvider — which mounts inside this component once the vault is
+    // ready — reads it and connects immediately, seeding from the server.
+    saveOnlineSyncConfig({
+      ...DEFAULT_ONLINE_SYNC_CONFIG,
+      enabled: true,
+      serverUrl,
+      vaultKey,
+      token,
+    });
+
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(CLOUD_VAULT_KEY, "1");
+      window.localStorage.removeItem(DEGRADED_STORAGE_KEY);
+    }
+
+    setWorkerReady(false);
+    setVaultName(null);
+    try {
+      // A previous folder/git worker may still hold the shared OPFS SAH pool
+      // (one DB, global to the origin). Tear it down, then boot the cloud vault
+      // with resetStorage so it starts from a CLEAN OPFS and is seeded purely
+      // from the server op-log — never inheriting the old vault's local index.
+      // The user's on-disk folder files (if any) live in FSA, untouched.
+      terminateVaultWorker();
+      const handle = await getCloudVaultHandle();
+      setState("loading");
+      startWorker(handle, { cloud: true, resetStorage: true });
+    } catch (err) {
+      setErrorMsg(`Impossible d'initialiser le coffre cloud : ${String(err)}`);
+      setState("error");
+    }
   }, []);
 
   const setupGitVault = useCallback(async (args: GitSetupArgs) => {
@@ -360,7 +521,11 @@ export function usePwaVaultSetup(): VaultContextValue {
         lastSyncAt: initialHeadSha ? new Date().toISOString() : undefined,
       });
       await saveVaultHandle(handle);
-      if (typeof window !== "undefined") window.localStorage.removeItem(DEGRADED_STORAGE_KEY);
+      if (typeof window !== "undefined") {
+        // Picking a folder / git repo opts out of both degraded and cloud modes.
+        window.localStorage.removeItem(DEGRADED_STORAGE_KEY);
+        window.localStorage.removeItem(CLOUD_VAULT_KEY);
+      }
       setWorkerReady(false);
       setVaultName(null);
       setState("loading");
@@ -450,8 +615,12 @@ export function usePwaVaultSetup(): VaultContextValue {
     startGitFlow,
     cancelGitFlow,
     setupGitVault,
+    startCloudFlow,
+    cancelCloudFlow,
+    setupCloudVault,
     skipToDegraded,
     isPwa,
+    canCloud,
     recentVaults,
     activeVaultId,
     switchToVault,
@@ -461,7 +630,7 @@ export function usePwaVaultSetup(): VaultContextValue {
 
 function startWorker(
   handle: FileSystemDirectoryHandle,
-  opts: { resetStorage?: boolean } = {},
+  opts: { resetStorage?: boolean; cloud?: boolean } = {},
 ): void {
   initWorkerVault(handle, opts);
 }
@@ -470,10 +639,23 @@ function startWorker(
 
 export function PwaVaultSetup({ children }: { children: React.ReactNode }) {
   const value = usePwaVaultSetup();
-  const { state, errorMsg, pickFolder, startGitFlow, cancelGitFlow, setupGitVault, skipToDegraded, isPwa } = value;
+  const {
+    state,
+    errorMsg,
+    pickFolder,
+    startGitFlow,
+    cancelGitFlow,
+    setupGitVault,
+    startCloudFlow,
+    cancelCloudFlow,
+    setupCloudVault,
+    skipToDegraded,
+    isPwa,
+    canCloud,
+  } = value;
 
   const showOverlay =
-    isPwa &&
+    (isPwa || canCloud) &&
     state !== "ready" &&
     state !== "degraded" &&
     state !== "idle" &&
@@ -503,24 +685,39 @@ export function PwaVaultSetup({ children }: { children: React.ReactNode }) {
         <PwaOverlay>
           <p style={styles.title}>Erreur</p>
           <p style={styles.error}>{errorMsg}</p>
-          <Button
-            type="button"
-            variant="primary"
-            onPress={() => void pickFolder()}
-            className="w-full"
-            style={{ fontSize: 15, fontWeight: 600, padding: "12px 24px" }}
-          >
-            Choisir un dossier local
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            onPress={startGitFlow}
-            className="w-full"
-            style={{ fontSize: 14, fontWeight: 500, padding: "10px 24px" }}
-          >
-            Réessayer avec un dépôt Git
-          </Button>
+          {isPwa && (
+            <Button
+              type="button"
+              variant="primary"
+              onPress={() => void pickFolder()}
+              className="w-full"
+              style={{ fontSize: 15, fontWeight: 600, padding: "12px 24px" }}
+            >
+              Choisir un dossier local
+            </Button>
+          )}
+          {isPwa && (
+            <Button
+              type="button"
+              variant="outline"
+              onPress={startGitFlow}
+              className="w-full"
+              style={{ fontSize: 14, fontWeight: 500, padding: "10px 24px" }}
+            >
+              Réessayer avec un dépôt Git
+            </Button>
+          )}
+          {canCloud && (
+            <Button
+              type="button"
+              variant={isPwa ? "outline" : "primary"}
+              onPress={startCloudFlow}
+              className="w-full"
+              style={{ fontSize: 14, fontWeight: 500, padding: "10px 24px" }}
+            >
+              Réessayer la synchronisation cloud
+            </Button>
+          )}
           <Button
             type="button"
             variant="ghost"
@@ -541,50 +738,95 @@ export function PwaVaultSetup({ children }: { children: React.ReactNode }) {
           />
         </PwaOverlay>
       );
+    } else if (state === "cloud-form") {
+      overlay = (
+        <PwaOverlay wide>
+          <CloudSetupForm
+            onSubmit={(args) => void setupCloudVault(args)}
+            onCancel={cancelCloudFlow}
+            errorMsg={errorMsg}
+          />
+        </PwaOverlay>
+      );
     } else {
-      // "prompt" or "picking" — welcome modal with two source choices
+      // "prompt" or "picking" — welcome modal. Folder + Git cards require the
+      // FSA picker (isPwa); the Cloud card only needs OPFS (canCloud), so on
+      // phones / Safari it's the sole — and primary — option.
+      const cardCount = (isPwa ? 2 : 0) + (canCloud ? 1 : 0);
       overlay = (
         <PwaOverlay wide>
           <div style={styles.logo}>S</div>
           <h1 style={styles.title}>Bienvenue sur Supernote</h1>
           <p style={styles.subtitle}>
-            Choisissez l&apos;emplacement où vos notes vivront — un dossier
-            local sur cet appareil, ou un dépôt Git que vous synchronisez
-            entre plusieurs appareils.
+            {isPwa
+              ? "Choisissez où vos notes vivront — un dossier local sur cet appareil, un dépôt Git, ou la synchronisation cloud temps réel entre tous vos appareils."
+              : "Connectez-vous à la synchronisation cloud pour retrouver vos notes en temps réel depuis cet appareil et tous les autres."}
           </p>
 
-          <div style={styles.choiceGrid}>
-            <Button
-              type="button"
-              variant="ghost"
-              onPress={() => void pickFolder()}
-              isDisabled={state === "picking"}
-              style={styles.choiceCard}
-              className="h-auto flex-col items-center gap-2 p-0"
-            >
-              <div style={styles.choiceIcon}>📁</div>
-              <div style={styles.choiceTitle}>Dossier local</div>
-              <div style={styles.choiceDesc}>
-                Vos notes restent sur cet appareil. Idéal pour démarrer
-                rapidement, sans configuration.
-              </div>
-            </Button>
+          <div
+            style={{
+              ...styles.choiceGrid,
+              gridTemplateColumns:
+                cardCount >= 3
+                  ? "1fr 1fr 1fr"
+                  : cardCount === 2
+                    ? "1fr 1fr"
+                    : "1fr",
+            }}
+          >
+            {isPwa && (
+              <Button
+                type="button"
+                variant="ghost"
+                onPress={() => void pickFolder()}
+                isDisabled={state === "picking"}
+                style={styles.choiceCard}
+                className="h-auto flex-col items-center gap-2 p-0"
+              >
+                <div style={styles.choiceIcon}>📁</div>
+                <div style={styles.choiceTitle}>Dossier local</div>
+                <div style={styles.choiceDesc}>
+                  Vos notes restent sur cet appareil. Idéal pour démarrer
+                  rapidement, sans configuration.
+                </div>
+              </Button>
+            )}
 
-            <Button
-              type="button"
-              variant="ghost"
-              onPress={startGitFlow}
-              isDisabled={state === "picking"}
-              style={styles.choiceCard}
-              className="h-auto flex-col items-center gap-2 p-0"
-            >
-              <div style={styles.choiceIcon}>🔀</div>
-              <div style={styles.choiceTitle}>Dépôt Git</div>
-              <div style={styles.choiceDesc}>
-                Synchronise vos notes via un repo GitHub / GitLab / Forgejo.
-                Accessible depuis tous vos appareils.
-              </div>
-            </Button>
+            {isPwa && (
+              <Button
+                type="button"
+                variant="ghost"
+                onPress={startGitFlow}
+                isDisabled={state === "picking"}
+                style={styles.choiceCard}
+                className="h-auto flex-col items-center gap-2 p-0"
+              >
+                <div style={styles.choiceIcon}>🔀</div>
+                <div style={styles.choiceTitle}>Dépôt Git</div>
+                <div style={styles.choiceDesc}>
+                  Synchronise vos notes via un repo GitHub / GitLab / Forgejo.
+                  Accessible depuis tous vos appareils.
+                </div>
+              </Button>
+            )}
+
+            {canCloud && (
+              <Button
+                type="button"
+                variant="ghost"
+                onPress={startCloudFlow}
+                isDisabled={state === "picking"}
+                style={styles.choiceCard}
+                className="h-auto flex-col items-center gap-2 p-0"
+              >
+                <div style={styles.choiceIcon}>☁️</div>
+                <div style={styles.choiceTitle}>Cloud temps réel</div>
+                <div style={styles.choiceDesc}>
+                  Réplique le coffre via un serveur, en direct, entre PC et
+                  téléphone. Une clé de salon partagée suffit.
+                </div>
+              </Button>
+            )}
           </div>
 
           <Button
@@ -727,6 +969,112 @@ function GitSetupForm({
           style={{ flex: 2, fontSize: 15, fontWeight: 600, padding: "12px 24px" }}
         >
           Choisir le dossier et continuer
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+// ── Cloud (online-sync) setup form ─────────────────────────────────────────────
+
+function CloudSetupForm({
+  onSubmit,
+  onCancel,
+  errorMsg,
+}: {
+  onSubmit: (args: CloudSetupArgs) => void;
+  onCancel: () => void;
+  errorMsg: string | null;
+}) {
+  const [serverUrl, setServerUrl] = useState("");
+  const [vaultKey, setVaultKey] = useState("");
+  const [token, setToken] = useState("");
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!vaultKey.trim()) return;
+    onSubmit({ serverUrl: serverUrl.trim(), vaultKey: vaultKey.trim(), token: token.trim() });
+  };
+
+  return (
+    <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 14, textAlign: "left" }}>
+      <div style={{ textAlign: "center" }}>
+        <div style={styles.logo}>☁️</div>
+        <h1 style={styles.title}>Synchronisation cloud</h1>
+        <p style={{ ...styles.subtitle, marginTop: 8 }}>
+          Tous les appareils utilisant la <strong>même clé de salon</strong> sur
+          le même serveur partagent un coffre, répliqué en temps réel. Sur un
+          nouvel appareil, ce coffre est récupéré automatiquement depuis le
+          serveur.
+        </p>
+      </div>
+
+      {errorMsg && <p style={styles.error}>{errorMsg}</p>}
+
+      <label style={styles.label}>
+        Serveur
+        <input
+          type="url"
+          placeholder="Même origine que l'application (par défaut)"
+          value={serverUrl}
+          onChange={(e) => setServerUrl(e.target.value)}
+          style={styles.input}
+          autoComplete="off"
+          spellCheck={false}
+        />
+        <span style={styles.hint}>
+          Laisser vide pour utiliser le serveur Supernote qui sert cette page
+          (s&apos;il a une base de données). Sinon, l&apos;URL de votre serveur
+          de synchronisation.
+        </span>
+      </label>
+
+      <label style={styles.label}>
+        Clé de salon
+        <input
+          type="text"
+          required
+          placeholder="mon-coffre-perso"
+          value={vaultKey}
+          onChange={(e) => setVaultKey(e.target.value)}
+          style={styles.input}
+          autoComplete="off"
+          spellCheck={false}
+        />
+        <span style={styles.hint}>
+          La même chaîne sur votre PC et votre téléphone pour les apparier.
+          Traitez-la comme un mot de passe : qui la connaît accède au coffre.
+        </span>
+      </label>
+
+      <label style={styles.label}>
+        Jeton (optionnel)
+        <input
+          type="password"
+          placeholder="Si le serveur exige un secret partagé"
+          value={token}
+          onChange={(e) => setToken(e.target.value)}
+          style={styles.input}
+          autoComplete="off"
+        />
+      </label>
+
+      <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+        <Button
+          type="button"
+          variant="outline"
+          onPress={onCancel}
+          style={{ flex: 1, fontSize: 14, fontWeight: 500, padding: "10px 24px" }}
+        >
+          Retour
+        </Button>
+        <Button
+          type="submit"
+          variant="primary"
+          isDisabled={!vaultKey.trim()}
+          style={{ flex: 2, fontSize: 15, fontWeight: 600, padding: "12px 24px" }}
+        >
+          Connecter et ouvrir le coffre
         </Button>
       </div>
     </form>

@@ -14,6 +14,8 @@ import {
   ListEntitiesOutput as RelatedEntitiesOutput,
   GetBacklinksInput,
   GetBacklinksOutput,
+  ListByDateRangeInput,
+  BacklinkCountsOutput,
 } from "../schemas/entities.js";
 import { z } from "zod";
 
@@ -58,6 +60,14 @@ export const entitiesRouter = router({
       throw notImplemented("entities.delete");
     }),
 
+  /** List entities whose createdAt/updatedAt falls in [from, to). */
+  listByDateRange: publicProcedure
+    .input(ListByDateRangeInput)
+    .output(ListEntitiesOutput)
+    .query(() => {
+      throw notImplemented("entities.listByDateRange");
+    }),
+
   /** Full-text search across all entities. */
   search: publicProcedure
     .input(SearchEntitiesInput)
@@ -80,6 +90,13 @@ export const entitiesRouter = router({
     .output(GetBacklinksOutput)
     .query(() => {
       throw notImplemented("entities.getBacklinks");
+    }),
+
+  /** Backlink count per target entity, aggregated in one pass. */
+  backlinkCounts: publicProcedure
+    .output(BacklinkCountsOutput)
+    .query(() => {
+      throw notImplemented("entities.backlinkCounts");
     }),
 });
 

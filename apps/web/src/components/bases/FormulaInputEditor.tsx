@@ -1258,6 +1258,9 @@ function highlightParam(sig: string, argIndex: number): React.ReactNode {
 
 type FormulaOutputKind = "text" | "number" | "date" | "bool";
 
+/** Mode d'affichage d'un bloc formula vivant dans une note. */
+export type FormulaDisplay = "value" | "countdown" | "progress" | "sparkline";
+
 const EMPTY_BASE: EntityType = {
   id: "",
   name: "",
@@ -1275,13 +1278,17 @@ interface FormulaInputEditorProps {
   initialExpression?: string;
   initialOutputKind?: FormulaOutputKind;
   initialOutputFormat?: string;
+  /** Mode d'affichage initial du bloc (notes — blocs vivants). */
+  initialDisplay?: FormulaDisplay;
+  /** Affiche le sélecteur de mode d'affichage. Caché par défaut (call-sites bases, etc.). */
+  showDisplaySelector?: boolean;
   /** Texte du textarea. */
   placeholder?: string;
   /** Mode embarqué dans un formulaire externe : cache outputKind/format + boutons Annuler/Valider. */
   inline?: boolean;
   /** Appelé à chaque édition (mode inline ou autre — utile pour relier à un state parent). */
   onChange?: (expression: string) => void;
-  onSubmit?: (expression: string, outputKind: FormulaOutputKind, outputFormat?: string) => void;
+  onSubmit?: (expression: string, outputKind: FormulaOutputKind, display?: FormulaDisplay, outputFormat?: string) => void;
   onCancel?: () => void;
 }
 
@@ -1473,6 +1480,8 @@ export function FormulaInputEditor({
   initialExpression = "",
   initialOutputKind = "text",
   initialOutputFormat,
+  initialDisplay = "value",
+  showDisplaySelector = false,
   placeholder,
   inline = false,
   onChange,
@@ -1493,6 +1502,8 @@ export function FormulaInputEditor({
   const [expression, setExpression] = useState(initialExpression);
   const [outputKind, setOutputKind] = useState<FormulaOutputKind>(initialOutputKind);
   const [outputFormat, setOutputFormat] = useState<string>(initialOutputFormat ?? "");
+  // Mode d'affichage du bloc vivant — reste à la valeur initiale si sélecteur caché.
+  const [display, setDisplay] = useState<FormulaDisplay>(initialDisplay);
   const [outputKindOverridden, setOutputKindOverridden] = useState(false);
   const [cursor, setCursor] = useState(initialExpression.length);
   const [selectedIdx, setSelectedIdx] = useState(0);
@@ -1650,7 +1661,7 @@ export function FormulaInputEditor({
     if (e.key === "Escape" && onCancel) { e.preventDefault(); onCancel(); return; }
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
-      if (!parseError && onSubmit) onSubmit(expression, outputKind, outputFormat || undefined);
+      if (!parseError && onSubmit) onSubmit(expression, outputKind, display, outputFormat || undefined);
     }
     // Tab : navigation entre placeholders `<…>` quand autocomplete fermé
     if (e.key === "Tab" && filtered.length === 0) {
@@ -1954,6 +1965,25 @@ export function FormulaInputEditor({
       </div>
       )}
 
+      {/* Sélecteur de mode d'affichage (blocs vivants dans les notes) */}
+      {showDisplaySelector && (
+      <div className="flex items-center gap-2">
+        <label className="text-[11px]" style={{ color: "var(--text-secondary)" }}>Affichage</label>
+        <select
+          value={display}
+          onChange={(e) => setDisplay(e.target.value as FormulaDisplay)}
+          className="rounded border bg-[var(--surface-1)] px-1.5 py-1 text-[11px]"
+          style={{ borderColor: "var(--border)", color: "var(--text-primary)" }}
+          title="Mode d'affichage du bloc dans la note"
+        >
+          <option value="value">Valeur</option>
+          <option value="countdown">Compte à rebours</option>
+          <option value="progress">Jauge</option>
+          <option value="sparkline">Sparkline</option>
+        </select>
+      </div>
+      )}
+
       {!inline && (
       <div className="flex items-center justify-end gap-1.5">
         <button
@@ -1967,7 +1997,7 @@ export function FormulaInputEditor({
         <button
           type="button"
           disabled={!!parseError || !expression.trim()}
-          onClick={() => onSubmit?.(expression, outputKind, outputFormat || undefined)}
+          onClick={() => onSubmit?.(expression, outputKind, display, outputFormat || undefined)}
           className="flex items-center gap-1 rounded-md px-2.5 py-1 text-[11px] font-medium"
           style={{
             backgroundColor: "var(--accent)",

@@ -62,6 +62,18 @@ export const GetEntityInput = z.object({
 });
 export type GetEntityInput = z.infer<typeof GetEntityInput>;
 
+/** Entités dont le champ date tombe dans [from, to). */
+export const ListByDateRangeInput = z.object({
+  /** Borne incluse, ISO datetime. */
+  from: z.string().datetime(),
+  /** Borne exclue, ISO datetime. */
+  to: z.string().datetime(),
+  field: z.enum(["createdAt", "updatedAt"]).default("createdAt"),
+  typeName: z.string().optional(),
+  limit: z.number().int().positive().max(100).default(10),
+});
+export type ListByDateRangeInput = z.infer<typeof ListByDateRangeInput>;
+
 export const CreateEntityInput = z.object({
   typeId: z.string().min(1),
   fields: z.record(z.string(), FieldValueSchema),
@@ -123,6 +135,12 @@ export const SearchEntitiesOutput = z.object({
   total: z.number().int().nonnegative(),
 });
 export type SearchEntitiesOutput = z.infer<typeof SearchEntitiesOutput>;
+
+/** Nombre de backlinks par entité cible (clé = entityId). */
+export const BacklinkCountsOutput = z.object({
+  counts: z.record(z.string(), z.number().int().nonnegative()),
+});
+export type BacklinkCountsOutput = z.infer<typeof BacklinkCountsOutput>;
 
 export const BacklinkSchema = z.object({
   sourceId: z.string(),

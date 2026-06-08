@@ -215,7 +215,7 @@ export function ColumnHeaderMenu({
           initialExpression={initialExpr}
           initialOutputKind={existingOut}
           initialOutputFormat={existingFmt}
-          onSubmit={(expression, outputKind, outputFormat) => {
+          onSubmit={(expression, outputKind, _display, outputFormat) => {
             onConvertToFormula(expression, outputKind, outputFormat);
             onClose();
           }}

@@ -37,6 +37,7 @@ import {
   getOrCreateClientId,
   type OnlineSyncConfig,
 } from "./config-storage";
+import { loadPendingOps, savePendingOps } from "./pendingStore";
 import { OnlineSyncClient, type OnlineSyncStatus } from "./client";
 
 export interface OnlineSyncState {
@@ -75,6 +76,7 @@ export function OnlineSyncProvider({ children }: { children: React.ReactNode }) 
         token: settings.token,
         lastSeq: 0,
         seeded: false,
+        epoch: "",
       });
     },
     [persist],
@@ -83,6 +85,17 @@ export function OnlineSyncProvider({ children }: { children: React.ReactNode }) 
   const disable = useCallback(() => {
     persist({ ...loadOnlineSyncConfig(), enabled: false });
   }, [persist]);
+
+  // Re-sync config from localStorage when a vault becomes ready. The cloud
+  // setup flow (PwaVaultSetup, which sits ABOVE this provider in the tree and
+  // so can't call enable()) writes an enabled config directly to localStorage
+  // right before booting the worker. Without this re-read, a cloud vault set
+  // up in the current session would never connect until a full reload.
+  useEffect(() => {
+    if (vault?.state === "ready") {
+      setConfig(loadOnlineSyncConfig());
+    }
+  }, [vault?.state]);
 
   // (Re)build the client whenever the effective config or vault readiness
   // changes. The client owns the stream + push lifecycle; we just feed it ops.
@@ -105,6 +118,7 @@ export function OnlineSyncProvider({ children }: { children: React.ReactNode }) 
       clientId,
       initialSeq: config.lastSeq,
       seeded: config.seeded,
+      epoch: config.epoch,
       applyOps: async (ops: EntityOp[]) => {
         await trpcVanillaClient.sync.applyOps.mutate({ ops });
         // Nudge TanStack Query so the UI reflects peers' changes immediately.
@@ -128,6 +142,20 @@ export function OnlineSyncProvider({ children }: { children: React.ReactNode }) 
         const latest = loadOnlineSyncConfig();
         saveOnlineSyncConfig({ ...latest, seeded: true });
       },
+      onEpochChange: (epoch) => {
+        const latest = loadOnlineSyncConfig();
+        const firstContact = latest.epoch === "";
+        saveOnlineSyncConfig(
+          firstContact
+            ? { ...latest, epoch }
+            : // Server log was wiped: cursor + seeded are meaningless now.
+              { ...latest, epoch, lastSeq: 0, seeded: false },
+        );
+      },
+      pending: {
+        load: () => loadPendingOps(config.vaultKey),
+        save: (ops) => savePendingOps(config.vaultKey, ops),
+      },
       onStatus: (s, detail) => {
         setStatus(s);
         setLastError(detail?.error ?? null);
@@ -148,8 +176,10 @@ export function OnlineSyncProvider({ children }: { children: React.ReactNode }) 
       }
     });
 
-    // Flush pending pushes before the tab goes away.
-    const onHide = () => void client.flush();
+    // Flush pending pushes before the tab goes away. `keepalive` lets the
+    // request survive the page teardown; if it still fails, the durable
+    // pending journal carries the ops to the next session.
+    const onHide = () => void client.flush({ keepalive: true });
     window.addEventListener("pagehide", onHide);
     document.addEventListener("visibilitychange", onHide);
 

@@ -17,6 +17,7 @@ import {
   VaultStatsWidget,
   QuickActionsStrip,
   TagsCloud,
+  OnThisDay,
 } from "@/components/home";
 
 // Dynamic import: BlockNote uses browser-only APIs (ProseMirror, etc.)
@@ -383,6 +384,10 @@ export function WritingSurface() {
 
         <div className="mt-4">
           <VaultStatsWidget />
+        </div>
+
+        <div className="mt-4">
+          <OnThisDay />
         </div>
 
         <div className="mt-4 pb-24 md:pb-12">

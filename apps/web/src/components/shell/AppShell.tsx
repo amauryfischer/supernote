@@ -42,7 +42,7 @@ function ShellSwitcher({ children }: AppShellProps) {
 const SidebarWrapper = memo(function SidebarWrapper({ focusMode }: { focusMode: boolean }) {
   return (
     <div
-      className={`transition-opacity duration-300 ${
+      className={`sn-no-print transition-opacity duration-300 ${
         focusMode ? "opacity-30 hover:opacity-100" : "opacity-100"
       }`}
     >
@@ -54,7 +54,7 @@ const SidebarWrapper = memo(function SidebarWrapper({ focusMode }: { focusMode: 
 const TopBarWrapper = memo(function TopBarWrapper({ focusMode }: { focusMode: boolean }) {
   return (
     <div
-      className={`transition-opacity duration-300 ${
+      className={`sn-no-print transition-opacity duration-300 ${
         focusMode ? "opacity-0 hover:opacity-100" : "opacity-100"
       }`}
     >

@@ -86,6 +86,9 @@ let vaultHandle: FileSystemDirectoryHandle | null = null;
 let vaultId: string | null = null;
 let vaultName: string | null = null;
 let rootPath: string | null = null;
+// Cloud vault: handle is an OPFS-backed dir, durability is the SAH pool + the
+// online-sync op-log. Skips the redundant FSA DB mirror (see persistDb).
+let isCloudVault = false;
 let router: Record<string, RouteHandler> = {};
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 let automationEngine: AutomationEngine | null = null;
@@ -740,6 +743,11 @@ async function persistDb(): Promise<void> {
     );
     return;
   }
+  // Cloud vault: the SAH-pool VFS already lands every COMMIT in OPFS, and the
+  // vault is replicated remotely via the online-sync op-log. The FSA mirror
+  // (a full DB rewrite on every mutation into the OPFS scratch dir) is pure
+  // overhead with no portability payoff — skip it.
+  if (isCloudVault) return;
   try {
     // OPFS persistence is automatic via the SAH pool VFS — every COMMIT
     // already lands on disk. We only mirror to FSA here so the vault folder
@@ -797,8 +805,10 @@ async function isSameVaultHandle(
 async function handleInitVault(
   handle: FileSystemDirectoryHandle,
   resetStorage: boolean = false,
+  cloud: boolean = false,
 ): Promise<void> {
   try {
+    isCloudVault = cloud;
     // Idempotency: if the same vault is already initialized, just re-emit
     // VAULT_READY and bail. Without this, every navigation re-fires INIT
     // which reloads the DB from FSA — a debounced persist that hadn't
@@ -881,8 +891,9 @@ async function handleInitVault(
     }
     console.info("[vault-worker] sqlite ready");
 
-    // Get or create vault record
-    vaultName = handle.name;
+    // Get or create vault record. Cloud vaults use the OPFS directory name
+    // ("supernote-cloud") internally, but surface a friendly label.
+    vaultName = cloud ? "Coffre cloud" : handle.name;
     rootPath = handle.name; // FSA doesn't expose full path
 
     const existingVault = db.exec(`SELECT id FROM vault LIMIT 1`);
@@ -1116,7 +1127,11 @@ self.addEventListener("message", (event: MessageEvent<WorkerInboundMessage>) => 
 
   if ("type" in msg && msg.type === "INIT_VAULT") {
     const initMsg = msg as InitVaultMessage;
-    void handleInitVault(initMsg.handle, initMsg.resetStorage === true);
+    void handleInitVault(
+      initMsg.handle,
+      initMsg.resetStorage === true,
+      initMsg.cloud === true,
+    );
     return;
   }
   if ("type" in msg && msg.type === "FLUSH") {

@@ -35,6 +35,10 @@ let workerInstance: Worker | null = null;
 // re-spawn (HMR, dev reload, accidental nulling) we replay this INIT so the
 // new worker isn't stuck in "Vault not initialized" forever.
 let lastVaultHandle: FileSystemDirectoryHandle | null = null;
+// Whether the last INIT_VAULT was a cloud vault (OPFS-backed handle). Replayed
+// alongside `lastVaultHandle` so an HMR re-spawn keeps the cloud semantics
+// (no FSA mirror, "Coffre cloud" label) instead of degrading to a folder init.
+let lastInitCloud = false;
 const pendingRequests = new Map<
   string,
   { resolve: (value: unknown) => void; reject: (err: Error) => void }
@@ -188,7 +192,10 @@ function getWorker(): Worker {
   // to re-mount (whose `initStartedRef` would block a duplicate init).
   if (lastVaultHandle) {
     console.info("[browser-link] re-sending INIT_VAULT to fresh worker");
-    workerInstance.postMessage({ type: "INIT_VAULT", handle: lastVaultHandle }, []);
+    workerInstance.postMessage(
+      { type: "INIT_VAULT", handle: lastVaultHandle, cloud: lastInitCloud },
+      [],
+    );
   }
 
   return workerInstance;
@@ -258,7 +265,7 @@ export function browserVaultLink(): TRPCLink<AppRouter> {
  */
 export function initWorkerVault(
   handle: FileSystemDirectoryHandle,
-  opts: { resetStorage?: boolean } = {},
+  opts: { resetStorage?: boolean; cloud?: boolean } = {},
 ): void {
   // Order matters: getWorker() inspects `lastVaultHandle` to decide whether
   // to AUTO-REPLAY a prior INIT_VAULT on a freshly-spawned worker (HMR /
@@ -269,8 +276,14 @@ export function initWorkerVault(
   // before the reset path even runs. Spawn first → set state → post.
   const worker = getWorker();
   lastVaultHandle = handle;
+  lastInitCloud = opts.cloud === true;
   worker.postMessage(
-    { type: "INIT_VAULT", handle, resetStorage: opts.resetStorage === true },
+    {
+      type: "INIT_VAULT",
+      handle,
+      resetStorage: opts.resetStorage === true,
+      cloud: opts.cloud === true,
+    },
     [],
   );
 }
@@ -291,6 +304,7 @@ export function terminateVaultWorker(): void {
   }
   workerInstance = null;
   lastVaultHandle = null;
+  lastInitCloud = false;
   vaultReady = false;
   _workerReady = false;
   messageQueue = [];

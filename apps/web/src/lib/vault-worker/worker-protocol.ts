@@ -45,6 +45,15 @@ export interface InitVaultMessage {
    * still being released by the browser).
    */
   resetStorage?: boolean;
+  /**
+   * Cloud vault: the `handle` is an OPFS-backed directory (from
+   * `navigator.storage.getDirectory()`), not a user-picked folder. The vault
+   * is durable purely through the SAH-pool SQLite DB and replicated across
+   * devices by the online-sync op-log — so the worker skips the per-mutation
+   * FSA `.supernote/index.db` mirror (redundant: the SAH pool already persists
+   * every COMMIT) and labels the vault "Coffre cloud".
+   */
+  cloud?: boolean;
 }
 
 /**

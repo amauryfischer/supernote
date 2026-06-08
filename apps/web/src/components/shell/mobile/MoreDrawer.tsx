@@ -8,6 +8,7 @@ import {
   FolderOpen,
   Function,
   Gear,
+  GridNine,
   Lightning,
   Tag,
   Users,
@@ -41,6 +42,7 @@ const SECTIONS: MoreSection[] = [
   {
     title: "Connaissance",
     items: [
+      { label: "Habitudes", href: "/habits", icon: GridNine, tint: "oklch(0.62 0.20 295)" },
       { label: "Journal", href: "/journal", icon: Calendar, tint: "oklch(0.65 0.20 30)" },
       { label: "Contacts", href: "/contacts", icon: Users, tint: "oklch(0.62 0.20 220)" },
       { label: "Finance", href: "/finance", icon: Wallet, tint: "oklch(0.62 0.20 150)" },

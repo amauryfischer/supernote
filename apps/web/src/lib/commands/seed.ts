@@ -58,6 +58,18 @@ export const SEED_COMMANDS: Command[] = [
     },
   },
   {
+    id: "nav.habits",
+    label: "Aller aux Habitudes",
+    icon: "grid",
+    group: "navigation",
+    keywords: ["habitudes", "habits", "tracker", "pixels", "streak"],
+    run: () => {
+      if (typeof window !== "undefined") {
+        window.location.assign("/habits");
+      }
+    },
+  },
+  {
     id: "nav.routines",
     label: "Aller aux Routines",
     icon: "zap",

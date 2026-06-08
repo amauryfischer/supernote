@@ -48,6 +48,51 @@ export function isBrowserPwaMode(): boolean {
   return "showDirectoryPicker" in window;
 }
 
+/**
+ * localStorage marker set by the cloud-vault setup flow (see PwaVaultSetup).
+ * Its presence means "this device runs a worker-backed vault whose root is an
+ * OPFS scratch dir, replicated via online-sync" — even on browsers without the
+ * File System Access folder picker (Android Chrome, Safari, Firefox).
+ */
+export const CLOUD_VAULT_KEY = "supernote.cloud";
+
+/**
+ * True when this browser can host a worker-backed vault WITHOUT a user-picked
+ * folder: it needs OPFS (`navigator.storage.getDirectory`) for the SQLite SAH
+ * pool + a Web Worker. This is far broader than {@link isBrowserPwaMode} (which
+ * requires the FSA folder picker, Chromium-desktop-only) — OPFS ships on every
+ * modern engine, so cloud vaults work on phones too.
+ */
+export function isCloudCapable(): boolean {
+  if (typeof window === "undefined") return false;
+  return (
+    typeof Worker !== "undefined" &&
+    typeof navigator !== "undefined" &&
+    !!navigator.storage &&
+    typeof navigator.storage.getDirectory === "function"
+  );
+}
+
+/** True when a cloud vault has been set up on this device. */
+export function isCloudVaultActive(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem(CLOUD_VAULT_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * True when data calls should go through the vault Web Worker (tRPC) rather
+ * than the degraded localStorage mock. Either the browser has the FSA folder
+ * picker (so a folder/git vault is possible) OR a cloud vault is active on a
+ * cloud-capable engine.
+ */
+export function hasWorkerBackend(): boolean {
+  return isBrowserPwaMode() || (isCloudCapable() && isCloudVaultActive());
+}
+
 function selectLink(): TRPCLink<AppRouter> {
   if (typeof window === "undefined") {
     // SSR — return a no-op link; procedures are never called server-side

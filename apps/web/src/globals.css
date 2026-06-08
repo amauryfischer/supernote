@@ -693,3 +693,196 @@ html, body {
   from { grid-template-rows: 0fr; opacity: 0.4; }
   to { grid-template-rows: 1fr; opacity: 1; }
 }
+
+/* ════════════════════════════════════════════════════════════════════════
+   Ambiances de note — presets palette + typo + texture par note.
+   La classe est posée sur la RACINE du NoteEditor (ancêtre de l'éditeur,
+   hors du subtree observé par ProseMirror — jamais de mutation d'attribut
+   dans l'éditeur lui-même). Les variables redéfinies cascadent sur le
+   header, l'éditeur et les blocs.
+   ════════════════════════════════════════════════════════════════════════ */
+
+.sn-ambiance {
+  transition: background-color 350ms ease, color 350ms ease;
+}
+
+/* ── Papier ancien ──────────────────────────────────────────────────────── */
+.sn-ambiance-paper {
+  --surface-0: #f7f1e3;
+  --surface-1: #f3ecd9;
+  --surface-2: #ece3cb;
+  --text-primary: #3d3426;
+  --text-secondary: #645741;
+  --text-muted: #8a7d63;
+  --border-subtle: #e0d5bb;
+  --accent: #8b5e34;
+  --accent-subtle: #ede3d0;
+  background-color: #f7f1e3;
+  background-image:
+    radial-gradient(ellipse at 18% 25%, rgba(120, 90, 40, 0.055), transparent 55%),
+    radial-gradient(ellipse at 82% 70%, rgba(120, 90, 40, 0.045), transparent 55%),
+    repeating-linear-gradient(0deg, transparent 0 2px, rgba(120, 90, 40, 0.012) 2px 4px);
+}
+.sn-ambiance-paper .bn-editor,
+.sn-ambiance-paper .sn-note-title {
+  font-family: "Iowan Old Style", "Palatino Linotype", Georgia, "Times New Roman", serif;
+}
+.sn-ambiance-paper .bn-editor {
+  line-height: 1.7;
+}
+.sn-ambiance-paper ::selection {
+  background: rgba(139, 94, 52, 0.22);
+}
+
+/* ── Terminal ───────────────────────────────────────────────────────────── */
+.sn-ambiance-terminal {
+  --surface-0: #0b0f0c;
+  --surface-1: #101511;
+  --surface-2: #161d17;
+  --text-primary: #c9f7d4;
+  --text-secondary: #8fd6a4;
+  --text-muted: #5d8a6c;
+  --border-subtle: #1d2a20;
+  --accent: #34d399;
+  --accent-subtle: #11231a;
+  position: relative;
+  background-color: #0b0f0c;
+}
+.sn-ambiance-terminal .bn-editor,
+.sn-ambiance-terminal .sn-note-title {
+  font-family: ui-monospace, "JetBrains Mono", "Fira Code", "SF Mono", Menlo, monospace;
+}
+.sn-ambiance-terminal .bn-editor {
+  caret-color: #34d399;
+  font-size: 0.95em;
+}
+.sn-ambiance-terminal ::selection {
+  background: rgba(52, 211, 153, 0.28);
+}
+/* Scanlines décoratives — pointer-events none, purement visuel. */
+.sn-ambiance-terminal::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent 0 2px,
+    rgba(52, 211, 153, 0.022) 2px 3px
+  );
+}
+
+/* ── Zen ────────────────────────────────────────────────────────────────── */
+.sn-ambiance-zen {
+  --surface-0: #f6f7f4;
+  --surface-1: #f1f3ee;
+  --surface-2: #e9ece5;
+  --text-primary: #3a423c;
+  --text-secondary: #5a6b5d;
+  --text-muted: #8a968c;
+  --border-subtle: #e3e7e0;
+  --accent: #6b8f71;
+  --accent-subtle: #e8efe9;
+  background-color: #f6f7f4;
+}
+.sn-ambiance-zen .bn-editor {
+  max-width: 62ch;
+  margin-left: auto;
+  margin-right: auto;
+  line-height: 1.95;
+  letter-spacing: 0.012em;
+  animation: sn-zen-breathe-in 500ms ease-out;
+}
+.sn-ambiance-zen ::selection {
+  background: rgba(107, 143, 113, 0.2);
+}
+@keyframes sn-zen-breathe-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sn-ambiance-zen .bn-editor { animation: none; }
+}
+
+/* ── Typographie par note — override fin, cumulable avec une ambiance ────── */
+.sn-typo-serif .bn-editor { font-family: "Iowan Old Style", Georgia, "Times New Roman", serif; }
+.sn-typo-sans .bn-editor { font-family: Inter, system-ui, -apple-system, sans-serif; }
+.sn-typo-mono .bn-editor { font-family: ui-monospace, "JetBrains Mono", Menlo, monospace; font-size: 0.95em; }
+.sn-ambiance .bn-editor,
+[class*="sn-typo-"] .bn-editor {
+  transition: font-family 200ms ease, font-size 200ms ease;
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   Export PDF — feuille d'impression. window.print() → "Enregistrer en PDF".
+   Masque le chrome (sn-no-print), affiche une couverture, et rend le corps
+   de l'éditeur en pleine page avec une typographie soignée.
+   ════════════════════════════════════════════════════════════════════════ */
+
+.sn-print-cover { display: none; }
+
+@media print {
+  /* Chrome masqué : sidebar, topbar, colonnes annexes, header/footer note. */
+  .sn-no-print { display: none !important; }
+
+  html, body {
+    overflow: visible !important;
+    height: auto !important;
+    background: #fff !important;
+  }
+
+  /* Laisse le contenu s'écouler sur plusieurs pages. */
+  .flex.h-screen,
+  .flex-1.overflow-hidden,
+  .flex-1.overflow-y-auto,
+  main {
+    overflow: visible !important;
+    height: auto !important;
+    display: block !important;
+  }
+
+  /* Couverture en première page. */
+  .sn-print-cover {
+    display: flex !important;
+    flex-direction: column;
+    justify-content: center;
+    min-height: 60vh;
+    padding: 0 0 2rem;
+    border-bottom: 1px solid #ddd;
+    margin-bottom: 2rem;
+    break-after: page;
+  }
+  .sn-print-cover h1 {
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 32pt;
+    font-weight: 700;
+    color: #111;
+    margin: 0 0 0.4rem;
+  }
+  .sn-print-cover p {
+    font-size: 11pt;
+    color: #666;
+  }
+
+  /* Corps : largeur de lecture, typographie livre. */
+  .bn-editor {
+    max-width: none !important;
+    font-family: Georgia, "Times New Roman", serif !important;
+    font-size: 12pt !important;
+    line-height: 1.6 !important;
+    color: #111 !important;
+  }
+  .bn-editor h1, .bn-editor h2, .bn-editor h3 {
+    break-after: avoid;
+    color: #000 !important;
+  }
+  .bn-editor pre, .bn-editor blockquote, .bn-editor img, .sn-database-block, .sn-doodle {
+    break-inside: avoid;
+  }
+  .bn-editor a { color: #000 !important; text-decoration: underline; }
+
+  @page {
+    margin: 2cm;
+  }
+}

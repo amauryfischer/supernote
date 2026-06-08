@@ -149,12 +149,12 @@ export const ENTITY_LINK_CONFIGS: EntityLinkItemConfig[] = [
     insert: TAG_INSERT,
   },
   {
-    title: "Embed une note",
-    subtext: "Transclusion ![[Note]] d'une autre note",
+    title: "Portail vers une note",
+    subtext: "Transclusion vivante ![[Note]] d'une autre note",
     typeId: "note",
     typeLabel: "note a embed",
     icon: "E",
-    keywords: "embed transclusion",
+    keywords: "embed transclusion portail",
     insert: EMBED_INSERT,
   },
   {
@@ -232,9 +232,10 @@ export function getSupernoteSlashMenuItems(
   };
 
   const embedItem: DefaultReactSuggestionItem = {
-    title: "Embed / Transclusion",
-    subtext: "Embed another note (![[Note]])",
+    title: "Portail / Transclusion",
+    subtext: "Affiche une autre note en direct (![[Note]])",
     group: "Links",
+    aliases: ["embed", "transclusion", "portail", "portal"],
     icon: <span aria-hidden="true">↗</span>,
     onItemClick() {
       editor.insertBlocks(
@@ -245,6 +246,39 @@ export function getSupernoteSlashMenuItems(
     },
   };
 
+  // Insère un bloc formula + paragraphe trailing, puis ouvre immédiatement
+  // l'éditeur de formule de l'host (factorisé entre Formule et Blocs vivants).
+  const insertFormulaBlock = (props: { expression: string; outputKind: string; display: string }) => {
+    const inserted = editor.insertBlocks(
+      [
+        { type: "formula" as any, props } as any,
+        { type: "paragraph" } as any,
+      ],
+      editor.getTextCursorPosition().block,
+      "after",
+    );
+    // Déclenche immédiatement l'édition pour que l'utilisateur tape.
+    const newBlock = inserted?.[0];
+    if (newBlock) {
+      const blockId = (newBlock as { id: string }).id;
+      setTimeout(() => {
+        window.dispatchEvent(new CustomEvent("supernote:formula-edit", {
+          detail: {
+            blockId,
+            expression: props.expression,
+            outputKind: props.outputKind,
+            display: props.display,
+            onUpdate: (next: { expression: string; outputKind: string; display: string }) => {
+              editor.updateBlock(blockId, {
+                props: { expression: next.expression, outputKind: next.outputKind, display: next.display },
+              } as never);
+            },
+          },
+        }));
+      }, 50);
+    }
+  };
+
   // Formule — bloc avec expression évaluée
   const formulaItem: DefaultReactSuggestionItem = {
     title: "Formule",
@@ -253,32 +287,78 @@ export function getSupernoteSlashMenuItems(
     aliases: ["formule", "formula", "calcul", "expression", "="],
     icon: <span aria-hidden="true">ƒ</span>,
     onItemClick() {
+      insertFormulaBlock({ expression: "", outputKind: "text", display: "value" });
+    },
+  };
+
+  // Blocs vivants — formules rendues en widgets (countdown/progress/sparkline)
+  const makeLiveFormulaItem = (cfg: {
+    title: string;
+    subtext: string;
+    aliases: string[];
+    icon: string;
+    outputKind: string;
+    display: string;
+  }): DefaultReactSuggestionItem => ({
+    title: cfg.title,
+    subtext: cfg.subtext,
+    group: "Blocs vivants",
+    aliases: cfg.aliases,
+    icon: <span aria-hidden="true">{cfg.icon}</span>,
+    onItemClick() {
+      insertFormulaBlock({ expression: "", outputKind: cfg.outputKind, display: cfg.display });
+    },
+  });
+
+  const liveFormulaItems: DefaultReactSuggestionItem[] = [
+    makeLiveFormulaItem({
+      title: "Compte à rebours",
+      subtext: "Décompte animé vers une date (formule)",
+      aliases: ["countdown", "compte", "rebours", "timer", "deadline", "échéance"],
+      icon: "⏳",
+      outputKind: "date",
+      display: "countdown",
+    }),
+    makeLiveFormulaItem({
+      title: "Jauge de progression",
+      subtext: "Barre de progression vivante (formule 0–1)",
+      aliases: ["progress", "jauge", "barre", "progression"],
+      icon: "▰",
+      outputKind: "number",
+      display: "progress",
+    }),
+    makeLiveFormulaItem({
+      title: "Sparkline",
+      subtext: "Mini graphique d'une liste de nombres",
+      aliases: ["sparkline", "graphique", "chart", "tendance", "courbe"],
+      icon: "📈",
+      outputKind: "text",
+      display: "sparkline",
+    }),
+  ];
+
+  // Croquis Excalidraw inline — le rendu canvas est fourni par l'app hôte.
+  const doodleItem: DefaultReactSuggestionItem = {
+    title: "Croquis / Doodle",
+    subtext: "Dessin Excalidraw inline dans la note",
+    group: "Blocs vivants",
+    aliases: ["doodle", "croquis", "dessin", "sketch", "draw"],
+    icon: <span aria-hidden="true">✏️</span>,
+    onItemClick() {
+      // doodle est contentEditable=false. Sans paragraphe trailing,
+      // un clic sous le bloc n'a aucune cible éditable (même piège que
+      // databaseView).
       const inserted = editor.insertBlocks(
         [
-          { type: "formula" as any, props: { expression: "", outputKind: "text" } } as any,
+          { type: "doodle" as any, props: { sceneData: "" } } as any,
           { type: "paragraph" } as any,
         ],
         editor.getTextCursorPosition().block,
         "after",
       );
-      // Déclenche immédiatement l'édition pour que l'utilisateur tape.
-      const newBlock = inserted?.[0];
-      if (newBlock) {
-        const blockId = (newBlock as { id: string }).id;
-        setTimeout(() => {
-          window.dispatchEvent(new CustomEvent("supernote:formula-edit", {
-            detail: {
-              blockId,
-              expression: "",
-              outputKind: "text",
-              onUpdate: (next: { expression: string; outputKind: string }) => {
-                editor.updateBlock(blockId, {
-                  props: { expression: next.expression, outputKind: next.outputKind },
-                } as never);
-              },
-            },
-          }));
-        }, 50);
+      const trailing = inserted?.[1];
+      if (trailing) {
+        editor.setTextCursorPosition(trailing as any, "start");
       }
     },
   };
@@ -316,7 +396,7 @@ export function getSupernoteSlashMenuItems(
 
   const aiItems: DefaultReactSuggestionItem[] = onAskAi ? [makeAskAiItem(onAskAi)] : [];
 
-  return [...defaults, ...calloutItems, codeItem, embedItem, databaseViewItem, formulaItem, ...entityLinkItems, ...aiItems];
+  return [...defaults, ...calloutItems, codeItem, embedItem, databaseViewItem, formulaItem, ...liveFormulaItems, doodleItem, ...entityLinkItems, ...aiItems];
 }
 
 // ── Suggestion menu renderer ──────────────────────────────────────────────────

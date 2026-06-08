@@ -28,11 +28,12 @@
   "nav": {
     "home": "Accueil",
     "ai": "Assistant IA",
-    "assistant": "Demander au vault",
     "search": "Recherche",
     "notes": "Notes",
     "archive": "Archive",
+    "garden": "Jardin",
     "todos": "Todos",
+    "habits": "Habitudes",
     "journal": "Journal",
     "contacts": "Contacts",
     "projects": "Projets",
@@ -50,6 +51,24 @@
       "tools": "Tools"
     }
   },
+  "garden": {
+    "title": "Jardin digital",
+    "subtitle": "Vos notes comme un jardin vivant — elles poussent quand vous écrivez, fleurissent quand elles sont liées, fanent si vous les délaissez.",
+    "loading": "Le jardin pousse…",
+    "empty": "Aucune note à planter pour l'instant.",
+    "links": "liens",
+    "stats": {
+      "total": "plantes",
+      "thriving": "florissantes",
+      "flowering": "en fleur"
+    },
+    "status": {
+      "thriving": "Florissante",
+      "growing": "En croissance",
+      "dormant": "Dormante",
+      "withering": "Fanée"
+    }
+  },
   "home": {
     "startWriting": "Commencez à écrire…",
     "inbox": "Inbox · {title}",
@@ -59,6 +78,11 @@
     "quitHint": "quitter",
     "savingHint": "enregistrement…",
     "noteSaved": "Note enregistrée",
+    "onThisDay": {
+      "yearAgo": "Il y a un an",
+      "sixMonthsAgo": "Il y a six mois",
+      "openNote": "Ouvrir la note"
+    },
     "descriptions": {
       "notes": "Vos notes libres et documents",
       "contacts": "Personnes et organisations",

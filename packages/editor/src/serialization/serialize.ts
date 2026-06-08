@@ -157,6 +157,25 @@ function blockToMarkdownLine(block: AnyBlock): string {
       return `[databaseView base="${escapeAttr(baseId)}" view="${escapeAttr(viewId)}"]`;
     }
 
+    case "doodle": {
+      // Bloc croquis Excalidraw — même logique que databaseView : ligne
+      // dédiée pour que le round-trip markdown préserve la scène (JSON
+      // multi-KB sur une ligne, précédent existant). Scène vide sérialisée
+      // quand même pour que le bloc survive au reload.
+      const sceneData = (props.sceneData as string) ?? "";
+      return `[doodle scene="${escapeAttr(sceneData)}"]`;
+    }
+
+    case "formula": {
+      // Bloc formule (et blocs vivants countdown/progress/sparkline) — même
+      // logique que databaseView : ligne dédiée pour que le round-trip
+      // markdown préserve expression, type de sortie et mode d'affichage.
+      const expression = (props.expression as string) ?? "";
+      const outputKind = (props.outputKind as string) ?? "text";
+      const display = (props.display as string) ?? "value";
+      return `[formula expr="${escapeAttr(expression)}" kind="${escapeAttr(outputKind)}" display="${escapeAttr(display)}"]`;
+    }
+
     default:
       return serializeInlineContent(block.content);
   }

@@ -26,7 +26,7 @@ portable ».
 - **SSE** en descendant : `GET /api/sync/stream?vault=&since=&clientId=`.
 - **POST** en montant : `POST /api/sync/push`.
 - Repli sans SSE : `GET /api/sync/pull?vault=&since=`.
-- Détection : `GET /api/sync/info` → `{ enabled, requiresToken }`.
+- Détection : `GET /api/sync/info` → `{ enabled, requiresToken, epoch }`.
 
 Aucune dépendance supplémentaire côté transport (ni WebSocket ni lib externe) :
 SSE + `fetch` traversent les proxys (dont Scalingo) et fonctionnent à l'identique
@@ -38,14 +38,48 @@ Le backend de sync (`apps/web/sync-backend.mjs`) n'est monté **que si**
 `DATABASE_URL` est défini — sinon le serveur statique reste strictement
 inchangé (zéro nouvelle surface).
 
-| Variable        | Rôle                                                                 |
-| --------------- | ------------------------------------------------------------------- |
-| `DATABASE_URL`  | Active la sync. Une URL `file:` est utilisée directement.           |
-| `SYNC_DB_PATH`  | Chemin du fichier SQLite op-log (sinon dérivé de `DATABASE_URL`).   |
-| `SYNC_TOKEN`    | Secret partagé optionnel exigé sur chaque requête.                  |
+| Variable        | Rôle                                                                       |
+| --------------- | -------------------------------------------------------------------------- |
+| `DATABASE_URL`  | Active la sync. `postgres://…` → op-log PostgreSQL ; `file:…` → SQLite.    |
+| `SYNC_DB_PATH`  | Chemin du fichier SQLite op-log (sinon dérivé de `DATABASE_URL`).          |
+| `SYNC_TOKEN`    | Secret partagé optionnel exigé sur chaque requête.                         |
 
-> Sur un hébergement à disque éphémère (Scalingo), pointez `SYNC_DB_PATH` vers
-> un volume persistant pour conserver l'op-log entre déploiements.
+Deux moteurs de stockage (`apps/web/sync-store.mjs`), même interface :
+
+- **PostgreSQL** (`postgres://`) — **le choix durable sur PaaS** : sur Scalingo,
+  ajoutez l'addon PostgreSQL et la variable `DATABASE_URL` est fournie ;
+  l'op-log (et l'epoch) survivent aux redéploiements.
+- **SQLite** (`file:` ou `SYNC_DB_PATH`) — pour l'auto-hébergement sur disque
+  persistant. Sur un disque éphémère, l'op-log meurt à chaque déploiement et
+  seul le mécanisme d'epoch (ci-dessous) garantit la reconvergence.
+
+### Epoch — résilience au reset du serveur
+
+Le serveur frappe un **epoch** (id aléatoire, table `meta`) à la création de sa
+base op-log et l'expose dans `/info` et le `hello` SSE. Les clients le stockent
+avec leur curseur : si l'epoch change (op-log effacé — redéploiement sur disque
+éphémère, reset manuel), le client **remet son curseur à zéro et re-seed son
+coffre complet**. Sans ça, un reset serveur désynchroniserait silencieusement
+tous les appareils pour toujours (curseur au-delà du nouveau head). Le coffre
+étant local-first, la perte de l'op-log serveur est ainsi auto-réparée au
+premier appareil reconnecté.
+
+### Compaction de l'op-log
+
+Avec un LWW par entité, seule la **dernière** op de chaque `(vault, entityId)`
+compte pour la convergence. Au démarrage puis toutes les 6 h, le serveur purge
+les ops supplantées vieilles de plus de 7 jours : le journal (et le replay
+initial d'un nouvel appareil) reste borné, sans changer l'état final reconstruit.
+
+### Journal durable côté client
+
+Les ops locales non encore acquittées sont journalisées dans `localStorage`
+(`supernote.onlineSync.pending.<salon>`) **avant** le debounce d'envoi : un
+onglet fermé (ou tué) juste après une édition ne perd plus l'op — la session
+suivante la re-pousse (le serveur déduplique par `opId`). Le flush de
+fermeture utilise `fetch keepalive`. En cas de dépassement du budget du journal
+(~2 Mo / 500 ops), il est abandonné et un **re-seed complet** est programmé au
+prochain connect — sur-pousser est inoffensif, sous-pousser perd des données.
 
 En développement, le même backend est monté sur le serveur Vite via un plugin
 (`onlineSyncDevServer` dans `apps/web/vite.config.ts`) dès que `DATABASE_URL`

@@ -13,11 +13,20 @@
  * bases référencées dans l'expression).
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
+import { ProgressBar } from "@heroui/react";
+import { Area, AreaChart } from "recharts";
 import { FormulaInputEditor } from "@/components/bases/FormulaInputEditor";
 import { trpc } from "@/lib/trpc/client";
 import type { EntityType } from "@supernote/core";
+
+/** Modes d'affichage des blocs vivants (contrat partagé avec @supernote/editor). */
+type FormulaDisplay = "value" | "countdown" | "progress" | "sparkline";
+
+function asDisplay(v: string | undefined): FormulaDisplay {
+  return v === "countdown" || v === "progress" || v === "sparkline" ? v : "value";
+}
 
 // ── Format helpers ───────────────────────────────────────────────────────────
 
@@ -52,16 +61,189 @@ function formatValue(v: unknown, outputKind?: string): string {
   return String(v);
 }
 
+// ── Widgets vivants ──────────────────────────────────────────────────────────
+
+const WIDGET_ACCENT = "#6366F1";
+
+function parseRaw(raw: string | null): unknown {
+  if (raw === null) return null;
+  try { return JSON.parse(raw); } catch { return raw; }
+}
+
+/** Résout la cible d'un countdown : Date ISO sérialisée ou DurationValue. */
+function countdownTarget(v: unknown, evaluatedAt: number): Date | null {
+  if (typeof v === "string" && /^\d{4}-\d{2}-\d{2}([T\s]|$)/.test(v)) {
+    const d = new Date(v);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  if (typeof v === "object" && v !== null) {
+    const dur = v as { _type?: string; ms?: number };
+    if (dur._type === "duration" && typeof dur.ms === "number") {
+      return new Date(evaluatedAt + dur.ms);
+    }
+  }
+  return null;
+}
+
+function splitDuration(ms: number): { d: number; h: number; m: number; s: number } {
+  const total = Math.floor(ms / 1000);
+  return {
+    d: Math.floor(total / 86400),
+    h: Math.floor((total % 86400) / 3600),
+    m: Math.floor((total % 3600) / 60),
+    s: total % 60,
+  };
+}
+
+function CountdownWidget({ target }: { target: Date }): React.JSX.Element {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  const diff = target.getTime() - now;
+  const past = diff < 0;
+  const { d, h, m, s } = splitDuration(Math.abs(diff));
+  const pad = (n: number): string => String(n).padStart(2, "0");
+
+  const seg = (value: string, unit: string): React.ReactNode => (
+    <span key={unit} style={{ marginRight: 6 }}>
+      <span style={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{value}</span>
+      <span style={{ fontSize: "0.78em", color: "var(--text-muted)", marginLeft: 1 }}>{unit}</span>
+    </span>
+  );
+
+  const segments: React.ReactNode[] = [];
+  if (d > 0) segments.push(seg(String(d), "j"));
+  if (d > 0 || h > 0) segments.push(seg(d > 0 ? pad(h) : String(h), "h"));
+  segments.push(seg(pad(m), "min"));
+  segments.push(seg(pad(s), "s"));
+
+  return (
+    <span style={{ color: past ? "var(--destructive)" : undefined, whiteSpace: "nowrap" }}>
+      {past && <span style={{ marginRight: 6, fontSize: "0.85em" }}>échu depuis</span>}
+      {segments}
+    </span>
+  );
+}
+
+function ProgressWidget({ value }: { value: number }): React.JSX.Element {
+  // ≤ 1 → ratio ; > 1 → pourcentage déjà exprimé sur 100.
+  const ratio = value <= 1 ? value : value / 100;
+  const pct = Math.round(Math.min(1, Math.max(0, ratio)) * 100);
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 8,
+        verticalAlign: "middle",
+        minWidth: 150,
+        maxWidth: 280,
+        width: "100%",
+      }}
+    >
+      <span style={{ flex: 1, minWidth: 100 }}>
+        <ProgressBar value={pct} minValue={0} maxValue={100} aria-label="Progression">
+          <ProgressBar.Track>
+            <ProgressBar.Fill />
+          </ProgressBar.Track>
+        </ProgressBar>
+      </span>
+      <span
+        style={{
+          fontVariantNumeric: "tabular-nums",
+          fontSize: "0.85em",
+          fontWeight: 600,
+          color: "var(--text-secondary)",
+        }}
+      >
+        {pct}%
+      </span>
+    </span>
+  );
+}
+
+function SparklineWidget({ values, inline }: { values: number[]; inline?: boolean }): React.JSX.Element {
+  const data = useMemo(() => values.map((v, i) => ({ i, value: v })), [values]);
+  const w = inline ? 120 : 240;
+  const h = inline ? 28 : 56;
+  const last = values[values.length - 1];
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 8, verticalAlign: "middle" }}>
+      <span style={{ display: "inline-block", lineHeight: 0 }}>
+        <AreaChart width={w} height={h} data={data} margin={{ top: 2, right: 2, bottom: 2, left: 2 }}>
+          <Area
+            type="monotone"
+            dataKey="value"
+            stroke={WIDGET_ACCENT}
+            fill={WIDGET_ACCENT}
+            fillOpacity={0.15}
+            strokeWidth={1.5}
+            dot={false}
+          />
+        </AreaChart>
+      </span>
+      {last !== undefined && (
+        <span
+          style={{
+            fontVariantNumeric: "tabular-nums",
+            fontSize: "0.85em",
+            fontWeight: 600,
+            color: "var(--text-secondary)",
+          }}
+        >
+          {last.toLocaleString()}
+        </span>
+      )}
+    </span>
+  );
+}
+
+/** Hint discret quand la formule ne retourne pas le type attendu par le widget. */
+function WidgetHint({ text, onEdit }: { text: string; onEdit?: () => void }): React.JSX.Element {
+  return (
+    <span onClick={onEdit} style={{ color: "var(--text-muted)", cursor: "pointer" }}>
+      {text}
+    </span>
+  );
+}
+
 // ── Renderer pour FormulaProvider ────────────────────────────────────────────
 
 function FormulaResult({
-  expression, outputKind, onEdit,
-}: { expression: string; outputKind?: string; onEdit?: () => void }): React.JSX.Element {
+  expression, outputKind, display, inline, onEdit,
+}: {
+  expression: string;
+  outputKind?: string;
+  display?: string;
+  inline?: boolean;
+  onEdit?: () => void;
+}): React.JSX.Element {
   const enabled = !!expression.trim();
-  const { data, isLoading } = trpc.formulas.evaluate.useQuery(
+  const mode = asDisplay(display);
+  const isWidget = mode !== "value";
+  const isCountdown = mode === "countdown";
+  // Widgets : refetch périodique pour rester vivants (countdown ne re-évalue
+  // que pour corriger la cible, le tick est local).
+  const { data, isLoading, dataUpdatedAt } = trpc.formulas.evaluate.useQuery(
     { expression },
-    { enabled, staleTime: 1000 * 30 },
+    {
+      enabled,
+      staleTime: isWidget ? (isCountdown ? 60_000 : 5_000) : 30_000,
+      refetchInterval: isWidget ? (isCountdown ? 60_000 : 15_000) : undefined,
+    },
   );
+  const value = useMemo(
+    () => (data && !data.error ? parseRaw(data.value) : null),
+    [data],
+  );
+  const target = useMemo(
+    () => (isCountdown ? countdownTarget(value, dataUpdatedAt || Date.now()) : null),
+    [isCountdown, value, dataUpdatedAt],
+  );
+
   if (!enabled) {
     return (
       <span
@@ -80,18 +262,43 @@ function FormulaResult({
       </span>
     );
   }
+
+  if (mode === "countdown") {
+    if (!target) return <WidgetHint text="⏳ la formule doit retourner une date" onEdit={onEdit} />;
+    return <CountdownWidget target={target} />;
+  }
+  if (mode === "progress") {
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+      return <WidgetHint text="▰ la formule doit retourner un nombre (0–1 ou 0–100)" onEdit={onEdit} />;
+    }
+    return <ProgressWidget value={value} />;
+  }
+  if (mode === "sparkline") {
+    const nums = Array.isArray(value)
+      ? value.filter((x): x is number => typeof x === "number" && Number.isFinite(x))
+      : [];
+    if (nums.length < 2) {
+      return <WidgetHint text="📈 la formule doit retourner une liste de nombres" onEdit={onEdit} />;
+    }
+    return <SparklineWidget values={nums} inline={inline} />;
+  }
+
   return <span>{formatJsonValue(data.value, outputKind)}</span>;
 }
 
 export function renderNoteFormula(props: {
   expression: string;
   outputKind?: string;
+  display?: string;
+  inline?: boolean;
   onEdit?: () => void;
 }): React.ReactNode {
   return (
     <FormulaResult
       expression={props.expression}
       outputKind={props.outputKind}
+      display={props.display}
+      inline={props.inline}
       onEdit={props.onEdit}
     />
   );
@@ -101,8 +308,8 @@ export function renderNoteFormula(props: {
 
 type EditState =
   | null
-  | { kind: "block"; blockId: string; expression: string; outputKind: string; onUpdate: (next: { expression: string; outputKind: string }) => void }
-  | { kind: "inline"; expression: string; outputKind: string };
+  | { kind: "block"; blockId: string; expression: string; outputKind: string; display: FormulaDisplay; onUpdate: (next: { expression: string; outputKind: string; display: string }) => void }
+  | { kind: "inline"; expression: string; outputKind: string; display: FormulaDisplay };
 
 export function NoteFormulaModalHost({ stubBase }: { stubBase: EntityType }) {
   const [edit, setEdit] = useState<EditState>(null);
@@ -113,7 +320,8 @@ export function NoteFormulaModalHost({ stubBase }: { stubBase: EntityType }) {
         blockId: string;
         expression: string;
         outputKind: string;
-        onUpdate?: (next: { expression: string; outputKind: string }) => void;
+        display?: string;
+        onUpdate?: (next: { expression: string; outputKind: string; display: string }) => void;
       }>;
       const detail = ce.detail;
       if (!detail) return;
@@ -122,17 +330,19 @@ export function NoteFormulaModalHost({ stubBase }: { stubBase: EntityType }) {
         blockId: detail.blockId,
         expression: detail.expression ?? "",
         outputKind: detail.outputKind ?? "text",
+        display: asDisplay(detail.display),
         onUpdate: detail.onUpdate ?? (() => undefined),
       });
     };
     const onInline = (e: Event) => {
-      const ce = e as CustomEvent<{ expression: string; outputKind: string }>;
+      const ce = e as CustomEvent<{ expression: string; outputKind: string; display?: string }>;
       const detail = ce.detail;
       if (!detail) return;
       setEdit({
         kind: "inline",
         expression: detail.expression ?? "",
         outputKind: detail.outputKind ?? "text",
+        display: asDisplay(detail.display),
       });
     };
     window.addEventListener("supernote:formula-edit", onBlock);
@@ -171,13 +381,16 @@ export function NoteFormulaModalHost({ stubBase }: { stubBase: EntityType }) {
           base={stubBase}
           initialExpression={edit.expression}
           initialOutputKind={(edit.outputKind ?? "text") as "text" | "number" | "date" | "bool"}
-          onSubmit={(expression, outputKind) => {
+          initialDisplay={edit.display}
+          showDisplaySelector
+          onSubmit={(expression, outputKind, display) => {
+            const nextDisplay = asDisplay(display ?? edit.display);
             if (edit.kind === "block") {
-              edit.onUpdate({ expression, outputKind });
+              edit.onUpdate({ expression, outputKind, display: nextDisplay });
             } else {
               // Inline replacement: dispatch via event listener captured by SupernoteEditor host.
               window.dispatchEvent(new CustomEvent("supernote:formula-inline-commit", {
-                detail: { expression, outputKind },
+                detail: { expression, outputKind, display: nextDisplay },
               }));
             }
             setEdit(null);

@@ -1,9 +1,47 @@
-// Embed / Transclusion block — ![[Note]] Obsidian syntax
-// Renders another note's content read-only
+// Bloc Embed / Transclusion — syntaxe Obsidian ![[Note]].
+// Le rendu "portail vivant" est délégué à l'app hôte via un provider context
+// (pattern identique à databaseView). Sans renderer, fallback statique.
 
-import { createBlockSpec } from "@blocknote/core";
+import * as React from "react";
+import { createReactBlockSpec } from "@blocknote/react";
 
-export const embedBlockSpec = createBlockSpec(
+// ── Renderer slot (fourni par l'app hôte) ──────────────────────────────────
+
+export interface EmbedRenderProps {
+  /** Nom de la note cible (wikilink). */
+  target: string;
+  /** Alias d'affichage optionnel. */
+  alias?: string;
+}
+
+export type EmbedRenderer = (props: EmbedRenderProps) => React.ReactNode;
+
+const EmbedRendererContext = React.createContext<EmbedRenderer | null>(null);
+
+export function EmbedProvider({
+  renderer,
+  children,
+}: {
+  /** null → les blocs embed affichent le fallback statique. */
+  renderer: EmbedRenderer | null;
+  children: React.ReactNode;
+}): React.JSX.Element {
+  return (
+    <EmbedRendererContext.Provider value={renderer}>
+      {children}
+    </EmbedRendererContext.Provider>
+  );
+}
+
+export function useEmbedRenderer(): EmbedRenderer | null {
+  return React.useContext(EmbedRendererContext);
+}
+
+// ── Block spec ──────────────────────────────────────────────────────────────
+
+// props target/alias : NE PAS renommer — la sérialisation markdown
+// ![[target|alias]] (serialization/serialize.ts, parse.ts) en dépend.
+export const embedBlockSpec = createReactBlockSpec(
   {
     type: "embed" as const,
     propSchema: {
@@ -17,43 +55,57 @@ export const embedBlockSpec = createBlockSpec(
     content: "none" as const,
   },
   {
-    render(block, _editor) {
-      const wrapper = document.createElement("div");
-      wrapper.className = "sn-embed";
-      wrapper.setAttribute("data-target", block.props.target ?? "");
+    render: ({ block }) => {
+      const target = (block.props.target ?? "") as string;
+      const alias = (block.props.alias ?? "") as string;
+      const renderer = useEmbedRenderer();
 
-      const header = document.createElement("div");
-      header.className = "sn-embed__header";
-
-      const icon = document.createElement("span");
-      icon.className = "sn-embed__icon";
-      icon.textContent = "↗";
-      icon.setAttribute("aria-hidden", "true");
-
-      const label = document.createElement("span");
-      label.className = "sn-embed__label";
-      label.textContent = block.props.alias || block.props.target || "Embed";
-
-      header.appendChild(icon);
-      header.appendChild(label);
-
-      const content = document.createElement("div");
-      content.className = "sn-embed__content sn-embed__content--loading";
-      content.textContent = `Loading ![[${block.props.target}]]…`;
-
-      wrapper.appendChild(header);
-      wrapper.appendChild(content);
-
-      return { dom: wrapper };
+      return (
+        <div
+          className="sn-embed"
+          data-target={target}
+          // Bloc non éditable — le contenu transclus gère son propre focus.
+          contentEditable={false}
+        >
+          {renderer ? (
+            renderer({ target, alias: alias || undefined })
+          ) : (
+            <EmbedStaticFallback target={target} alias={alias} />
+          )}
+        </div>
+      );
     },
-
-    toExternalHTML(block, _editor, _ctx) {
-      const p = document.createElement("p");
-      const alias = block.props.alias;
-      p.textContent = alias
-        ? `![[${block.props.target}|${alias}]]`
-        : `![[${block.props.target}]]`;
-      return { dom: p };
+    toExternalHTML: ({ block }) => {
+      // Export markdown : ![[target]] ou ![[target|alias]] dans un <p>.
+      const target = (block.props.target ?? "") as string;
+      const alias = (block.props.alias ?? "") as string;
+      return (
+        <p>{alias ? `![[${target}|${alias}]]` : `![[${target}]]`}</p>
+      );
     },
-  }
+  },
 );
+
+// ── Fallback statique (pas de renderer fourni) ─────────────────────────────
+
+function EmbedStaticFallback({
+  target,
+  alias,
+}: {
+  target: string;
+  alias: string;
+}): React.JSX.Element {
+  return (
+    <>
+      <div className="sn-embed__header">
+        <span className="sn-embed__icon" aria-hidden="true">
+          ↗
+        </span>
+        <span className="sn-embed__label">{alias || target || "Embed"}</span>
+      </div>
+      <div className="sn-embed__content sn-embed__content--loading">
+        {`Loading ![[${target}]]…`}
+      </div>
+    </>
+  );
+}

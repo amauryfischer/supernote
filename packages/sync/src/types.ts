@@ -60,6 +60,13 @@ export interface SyncInfo {
   enabled: boolean;
   /** Whether the server enforces a shared-secret token. */
   requiresToken: boolean;
+  /**
+   * Random id minted when the server's op-log database was created. A change
+   * means the log was wiped (ephemeral-filesystem redeploy, manual reset):
+   * clients must drop their seq cursor + seeded flag and re-seed, otherwise
+   * they silently desync forever.
+   */
+  epoch?: string;
 }
 
 /** `POST /api/sync/push` body. */
@@ -85,6 +92,6 @@ export interface PullResponse {
 
 /** Events pushed over `GET /api/sync/stream` (Server-Sent Events). */
 export type SyncStreamEvent =
-  | { type: "hello"; headSeq: number }
+  | { type: "hello"; headSeq: number; epoch?: string }
   | { type: "ops"; headSeq: number; ops: StoredOp[] }
   | { type: "ping" };

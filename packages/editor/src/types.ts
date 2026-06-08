@@ -69,6 +69,12 @@ export interface SupernoteEditorProps {
   placeholder?: string;
   /** Whether the editor is read-only */
   readOnly?: boolean;
+  /**
+   * Active les remplacements typographiques à la frappe (->, <-, =>, --,
+   * ..., (c), (r), (tm), 1/2, 1/4, 3/4). Sans effet dans les blocs de code.
+   * Défaut : `true`.
+   */
+  smartTypography?: boolean;
   /** Entity resolver callbacks (search, create, get) */
   resolvers?: EntityResolvers;
   /** @deprecated Use resolvers.searchEntities instead */
@@ -118,4 +124,15 @@ export interface SupernoteEditorProps {
     outputKind?: string;
     onEdit?: () => void;
   }) => React.ReactNode;
+  /**
+   * Renderer pour les blocs embed/transclusion ![[Note]] (portail vivant).
+   * Si absent, le bloc affiche un fallback statique.
+   */
+  renderEmbed?: (props: { target: string; alias?: string }) => React.ReactNode;
+  /**
+   * Renderer pour les blocs doodle (croquis Excalidraw inline). sceneData est
+   * le JSON de la scène ("" si vierge) ; onChange persiste la nouvelle scène.
+   * Si absent, le bloc affiche un fallback statique.
+   */
+  renderDoodle?: (props: { sceneData: string; onChange: (sceneData: string) => void }) => React.ReactNode;
 }

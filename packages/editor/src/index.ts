@@ -22,6 +22,11 @@ export {
   calloutBlockSpec,
   codeHighlightBlockSpec,
   embedBlockSpec,
+  EmbedProvider,
+  useEmbedRenderer,
+  doodleBlockSpec,
+  DoodleProvider,
+  useDoodleRenderer,
   wikilinkInlineSpec,
   mentionInlineSpec,
   tagInlineSpec,
@@ -36,6 +41,10 @@ export type {
   DatabaseViewBlockProps,
   DatabaseViewRenderer,
   DatabaseBlockPickDetail,
+  EmbedRenderProps,
+  EmbedRenderer,
+  DoodleRenderProps,
+  DoodleRenderer,
 } from "./blocks/index.js";
 
 // Serialization utilities

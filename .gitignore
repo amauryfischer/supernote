@@ -29,6 +29,12 @@ pnpm-debug.log*
 .env.local
 .env.*.local
 
+# Dev online-sync SQLite (DATABASE_URL=file:./sync-dev.db)
+apps/web/sync-dev.db*
+
+# Claude Code local runtime
+.claude/scheduled_tasks.lock
+
 # OS
 .DS_Store
 Thumbs.db

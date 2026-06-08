@@ -7,6 +7,7 @@ import { trpc } from "@/lib/trpc/client";
 import { useShellChrome } from "./shell-chrome-context";
 import { Button, useAppTheme, type ThemeValue } from "@supernote/ui";
 import { GitSyncIndicator } from "@/lib/git/GitSyncIndicator";
+import { OnlineSyncIndicator } from "@/lib/online-sync/OnlineSyncIndicator";
 
 // ── Route label map for static segments ──────────────────────────────────────
 
@@ -197,6 +198,7 @@ export const TopBar = memo(function TopBar() {
       {/* Actions */}
       <div className="flex shrink-0 items-center gap-1">
         <GitSyncIndicator />
+        <OnlineSyncIndicator />
         <ThemeToggleButton />
         <Button
           variant="primary"

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@heroui/react";
 import dynamic from "next/dynamic";
-import { CaretRight, Calendar, Tag, FloppyDisk, Microphone, Image, Sparkle, X, CheckCircle, WarningCircle } from "@phosphor-icons/react";
+import { CaretRight, Calendar, Tag, FloppyDisk, Microphone, Image, Sparkle, X, CheckCircle, WarningCircle, Presentation, FilePdf } from "@phosphor-icons/react";
 import Link from "next/link";
 import { Fragment } from "react";
 import { TagSelector } from "@/components/tags/TagSelector";
@@ -25,7 +25,11 @@ import { isAutoTagEnabled, useAutoTag } from "@/hooks/useAutoTag";
 import { AssociatedTodos } from "@/components/todos/AssociatedTodos";
 import { renderInlineDatabase } from "./InlineDatabaseRenderer";
 import { renderNoteFormula, NoteFormulaModalHost } from "./NoteFormulaBridge";
-import { BacklinksPanel } from "./BacklinksPanel";
+import { renderNotePortal } from "./NotePortal";
+import { renderDoodle } from "./DoodleRenderer";
+import { AmbianceSelector, ambianceClass, asAmbiance, asTypo, type NoteAmbiance, type NoteTypo } from "./AmbianceSelector";
+import { AiMarginsPanel } from "./AiMarginsPanel";
+import { PresentationMode } from "./PresentationMode";
 import { ContextMenu, useContextMenu, type ContextMenuItemDef } from "@supernote/ui";
 import { MoveNoteModal } from "./MoveNoteModal";
 import { useFolderTree, useRenameFolder } from "./hooks";
@@ -106,6 +110,11 @@ function imageTypeToExt(mimeType: string): string {
 export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
   const [title, setTitle] = useState(note.title);
   const [tags, setTags] = useState<string[]>(note.tags);
+  const [ambiance, setAmbiance] = useState<NoteAmbiance>(() => asAmbiance(note.fields?.["ambiance"]));
+  const [typo, setTypo] = useState<NoteTypo>(() => asTypo(note.fields?.["typo"]));
+  const [aiMargins, setAiMargins] = useState<boolean>(() => note.fields?.["aiMargins"] === true);
+  const [bodyVersion, setBodyVersion] = useState(0);
+  const [presenting, setPresenting] = useState(false);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [dropStatus, setDropStatus] = useState<DropStatus>("idle");
   const [toastMsg, setToastMsg] = useState<string | null>(null);
@@ -660,8 +669,10 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
       triggerAutoSave(markdown, title);
       scheduleAutoTitle(markdown);
       scheduleAutoTag(markdown);
+      // Tick léger pour réveiller les marges IA (debounce côté panneau).
+      if (aiMargins) setBodyVersion((v) => v + 1);
     },
-    [triggerAutoSave, title, scheduleAutoTitle, scheduleAutoTag],
+    [triggerAutoSave, title, scheduleAutoTitle, scheduleAutoTag, aiMargins],
   );
 
   const handleTitleChange = useCallback(
@@ -904,7 +915,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
 
   return (
     <div
-      className="flex h-full flex-col overflow-hidden"
+      className={`flex h-full flex-col overflow-hidden ${ambianceClass(ambiance, typo)}`}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
@@ -946,7 +957,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
       />
 
       {/* Header */}
-      <div className="px-10 py-6" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
+      <div className="sn-no-print px-10 pb-2 pt-3" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
         <FolderBreadcrumb
           path={note.folderPath}
           onContextMenu={openBreadcrumbContextMenu}
@@ -957,7 +968,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
             type="text"
             value={title}
             onChange={handleTitleChange}
-            className="w-full bg-transparent text-2xl font-bold leading-tight outline-none"
+            className="sn-note-title w-full bg-transparent text-xl font-bold leading-tight outline-none"
             style={{ color: "var(--text-primary)" }}
             placeholder="Sans titre"
             aria-label="Titre de la note"
@@ -991,7 +1002,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
           )}
         </div>
 
-        <div className="mt-3 flex flex-wrap items-center gap-4">
+        <div className="mt-1.5 flex flex-wrap items-center gap-3">
           <EditableNoteDate
             noteId={note.id}
             fallbackDate={note.updatedAt}
@@ -1012,6 +1023,54 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
             }}
             aiBadge={tagsAiBadge}
           />
+          <AmbianceSelector
+            noteId={note.id}
+            value={ambiance}
+            typo={typo}
+            onChange={setAmbiance}
+            onTypoChange={setTypo}
+          />
+          {ollamaAvailable && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onPress={() => {
+                const next = !aiMargins;
+                setAiMargins(next);
+                if (next) setBodyVersion((v) => v + 1);
+                void trpcVanillaClient.entities.update.mutate({ id: note.id, fields: { aiMargins: next } });
+              }}
+              className="h-7 min-w-0 gap-1 px-2 text-xs"
+              style={{ color: aiMargins ? "var(--accent)" : "var(--text-muted)" }}
+              aria-label="Marges IA"
+              aria-pressed={aiMargins}
+            >
+              <Sparkle size={13} weight={aiMargins ? "fill" : "regular"} />
+              Marges IA
+            </Button>
+          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            onPress={() => setPresenting(true)}
+            className="h-7 min-w-0 gap-1 px-2 text-xs"
+            style={{ color: "var(--text-muted)" }}
+            aria-label="Présenter la note"
+          >
+            <Presentation size={13} />
+            Présenter
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onPress={() => window.print()}
+            className="h-7 min-w-0 gap-1 px-2 text-xs"
+            style={{ color: "var(--text-muted)" }}
+            aria-label="Exporter en PDF"
+          >
+            <FilePdf size={13} />
+            PDF
+          </Button>
           <DropHint status={dropStatus} />
           <SaveIndicator status={saveStatus} />
         </div>
@@ -1062,40 +1121,71 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
           selection?.addRange(range);
         }}
       >
-        <div className="px-10 py-6">
-          <SupernoteEditor
-            key={`${note.id}:${externalBodyVersion}`}
-            initialMarkdown={note.body}
-            onChange={handleEditorChange}
-            onSave={handleManualSave}
-            resolvers={resolvers}
-            className="min-h-[60vh] w-full"
-            onAskAi={handleAskAi}
-            dimInactiveBlocks={dimBlocks}
-            topToolbar
-            onEditorReady={(insert) => { editorInsertRef.current = insert; }}
-            onStreamingInsertReady={(begin) => { editorStreamRef.current = begin; }}
-            renderDatabaseView={renderInlineDatabase}
-            renderFormula={renderNoteFormula}
-            aiClient={aiClient}
-            aiPromptResolver={aiPromptResolver}
-            noteTitle={title}
-            onAIError={onAIError}
-            onAIWarning={onAIWarning}
-          />
+        <div className="flex gap-2 px-10 pb-6 pt-3">
+          <div className="min-w-0 flex-1">
+            <SupernoteEditor
+              key={`${note.id}:${externalBodyVersion}`}
+              initialMarkdown={note.body}
+              onChange={handleEditorChange}
+              onSave={handleManualSave}
+              resolvers={resolvers}
+              className="min-h-[60vh] w-full"
+              onAskAi={handleAskAi}
+              dimInactiveBlocks={dimBlocks}
+              topToolbar
+              onEditorReady={(insert) => { editorInsertRef.current = insert; }}
+              onStreamingInsertReady={(begin) => { editorStreamRef.current = begin; }}
+              renderDatabaseView={renderInlineDatabase}
+              renderFormula={renderNoteFormula}
+              renderEmbed={renderNotePortal}
+              renderDoodle={renderDoodle}
+              aiClient={aiClient}
+              aiPromptResolver={aiPromptResolver}
+              noteTitle={title}
+              onAIError={onAIError}
+              onAIWarning={onAIWarning}
+            />
+          </div>
+          {aiMargins && (
+            <div
+              className="hidden w-[260px] shrink-0 lg:block"
+              style={{ borderLeft: "1px solid var(--border-subtle)" }}
+            >
+              <AiMarginsPanel
+                noteId={note.id}
+                noteTitle={title}
+                getBody={() => bodyRef.current}
+                bodyVersion={bodyVersion}
+                onInsertLink={(t) => insertMarkdown(`[[${t}]]`)}
+              />
+            </div>
+          )}
         </div>
         {/* Read-only summary of todos extracted from this note. Pure
             projection of the markdown body — no extra fetch, no entities. */}
         <AssociatedTodos noteId={note.id} body={note.body} />
       </div>
-      <BacklinksPanel noteId={note.id} />
       <NoteFormulaModalHost
         stubBase={{ id: "_note", name: "Note", plural: "Notes", fields: [], defaultPath: "", fileNamePattern: "{name}" }}
       />
 
+      {presenting && (
+        <PresentationMode
+          markdown={bodyRef.current}
+          title={title || "Sans titre"}
+          onClose={() => setPresenting(false)}
+        />
+      )}
+
+      {/* Couverture visible seulement à l'impression (export PDF). */}
+      <div className="sn-print-cover" aria-hidden="true">
+        <h1>{title || "Sans titre"}</h1>
+        <p>{formatRelativeDate(note.updatedAt, dateFormatPref)}</p>
+      </div>
+
       {/* Footer */}
       <div
-        className="flex items-center justify-between px-10 py-3"
+        className="sn-no-print flex items-center justify-between px-10 py-3"
         style={{ borderTop: "1px solid var(--border-subtle)" }}
       >
         <span className="text-xs" style={{ color: "var(--text-muted)" }}>
@@ -1289,7 +1379,7 @@ function FolderBreadcrumb({
   return (
     <nav
       aria-label="Dossier"
-      className="mb-2 flex flex-wrap items-center gap-0.5 text-xs"
+      className="mb-1 flex flex-wrap items-center gap-0.5 text-xs"
       style={{ color: "var(--text-muted)" }}
       onContextMenu={onContextMenu}
       title={

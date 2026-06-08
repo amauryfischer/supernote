@@ -269,6 +269,23 @@ const todoFields: SeedField[] = [
   { id: "todo_updated_at", name: "updatedAt", label: "Modifié le", kind: "updatedAt" },
 ];
 
+const habitFields: SeedField[] = [
+  { id: "habit_name", name: "name", label: "Nom", kind: "text", required: true },
+  // Emoji affiché sur la tuile de la carte (texte libre, un seul glyphe).
+  { id: "habit_icon", name: "icon", label: "Emoji", kind: "text" },
+  { id: "habit_color", name: "color", label: "Couleur", kind: "color" },
+  // Check-ins requis pour valider une journée (1 = simple coche).
+  { id: "habit_target", name: "target", label: "Objectif / jour", kind: "number", min: 1, max: 50 },
+  { id: "habit_unit", name: "unit", label: "Unité", kind: "text" },
+  // Map JSON `{ "YYYY-MM-DD": count }` — le schéma IPC n'accepte pas
+  // d'objet imbriqué dans `fields`, donc la map voyage en string. Voir
+  // `apps/web/src/lib/habits/habitData.ts` pour la (dé)sérialisation.
+  { id: "habit_checkins", name: "checkins", label: "Check-ins (JSON)", kind: "longtext" },
+  { id: "habit_archived", name: "archived", label: "Archivée", kind: "bool" },
+  { id: "habit_created_at", name: "createdAt", label: "Créé le", kind: "createdAt" },
+  { id: "habit_updated_at", name: "updatedAt", label: "Modifié le", kind: "updatedAt" },
+];
+
 const goalFields: SeedField[] = [
   { id: "goal_name", name: "name", label: "Objectif", kind: "text", required: true },
   { id: "goal_target", name: "target_amount", label: "Montant cible", kind: "currency", currencyCode: "EUR" },
@@ -300,6 +317,7 @@ export const DEFAULT_ENTITY_TYPES: SeedEntityType[] = [
   { id: "canvas", name: "Canvas", plural: "Canvas", icon: "SquaresFour", color: "#0EA5E9", fields: canvasFields, defaultPath: "Canvas", fileNamePattern: "{name}" },
   { id: "routine", name: "Routine", plural: "Routines", icon: "Lightning", color: "#F59E0B", fields: routineFields, defaultPath: "Routines", fileNamePattern: "{name}" },
   { id: "todo", name: "Todo", plural: "Todos", icon: "CheckSquare", color: "#22C55E", fields: todoFields, defaultPath: "Todos", fileNamePattern: "{text}" },
+  { id: "habit", name: "Habitude", plural: "Habitudes", icon: "GridNine", color: "#8B5CF6", fields: habitFields, defaultPath: "Habitudes", fileNamePattern: "{name}" },
 ];
 
 export const DEFAULT_RELATION_TYPES: SeedRelationType[] = [

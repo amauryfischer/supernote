@@ -3,6 +3,7 @@ export { EmptyEditor } from "./EmptyEditor";
 export { FileTree } from "./FileTree";
 export { NewNoteButton } from "./NewNoteButton";
 export { NoteEditor } from "./NoteEditor";
+export { StackedColumns } from "./StackedColumns";
 export { NoteCanvasView } from "./NoteCanvasView";
 export { NoteList } from "./NoteList";
 export { NoteListItem } from "./NoteListItem";

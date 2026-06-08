@@ -76,7 +76,7 @@ export const MobileBottomNav = memo(function MobileBottomNav({
         // contacts, journal, etc.
         ["/contacts", "/finance", "/tags",
           "/variables", "/routines", "/templates", "/parametres",
-          "/schemas", "/capture", "/journal"].some((prefix) => p.startsWith(prefix)),
+          "/schemas", "/capture", "/journal", "/habits"].some((prefix) => p.startsWith(prefix)),
     },
   ];
 

@@ -27,7 +27,7 @@ let syncBackend = { enabled: false, handle: () => false };
 if (process.env.DATABASE_URL) {
   try {
     const { createSyncBackend } = await import("./sync-backend.mjs");
-    syncBackend = createSyncBackend();
+    syncBackend = await createSyncBackend();
   } catch (err) {
     console.error("[server] online sync backend failed to load (static serving continues):", err);
   }

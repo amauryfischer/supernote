@@ -7,7 +7,7 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { trpc, isBrowserPwaMode } from "@/lib/trpc/client";
+import { trpc, hasWorkerBackend } from "@/lib/trpc/client";
 import { isWorkerReady } from "@/lib/trpc/browser-link";
 import {
   NOTES,
@@ -31,7 +31,7 @@ import type { FieldValue } from "@supernote/ipc";
 // with File System Access API). Safari/Firefox without FSA → false.
 
 function useHasBackend(): boolean {
-  return isBrowserPwaMode();
+  return hasWorkerBackend();
 }
 
 /**

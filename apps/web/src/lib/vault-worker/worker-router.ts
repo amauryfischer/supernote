@@ -709,6 +709,38 @@ export function buildRouter(
     return { items, total };
   };
 
+  // Entités dont createdAt/updatedAt tombe dans [from, to). Utilisé par
+  // l'encart "Il y a un an" de l'accueil (et réutilisable : heatmaps, garden).
+  const entitiesListByDateRange = async (input: unknown): Promise<unknown> => {
+    const inp = (input ?? {}) as {
+      from: string;
+      to: string;
+      field?: "createdAt" | "updatedAt";
+      typeName?: string;
+      limit?: number;
+    };
+    // Whitelist du champ trié — jamais interpolé depuis l'input brut.
+    const field = inp.field === "updatedAt" ? "updatedAt" : "createdAt";
+    const limit = inp.limit ?? 10;
+    let sql = `
+      SELECT e.id, e.typeId, et.name as typeName, e.filePath, e.fields, e.body,
+             e.createdAt, e.updatedAt,
+             (SELECT GROUP_CONCAT(t.path, char(31))
+                FROM entity_tag etag
+                JOIN tag t ON t.id = etag.tagId
+               WHERE etag.entityId = e.id) AS tagPaths
+      FROM entity e
+      JOIN entity_type et ON et.id = e.typeId
+      WHERE e.vaultId = ? AND e.${field} >= ? AND e.${field} < ?
+    `;
+    const params: SqlValue[] = [vaultId, inp.from, inp.to];
+    if (inp.typeName) { sql += ` AND et.name = ?`; params.push(inp.typeName); }
+    sql += ` ORDER BY e.${field} DESC LIMIT ?`;
+    params.push(limit);
+    const items = rows(db.exec(sql, params)).map(entityRowToApi);
+    return { items, total: items.length };
+  };
+
   const entitiesGet = async (input: unknown): Promise<unknown> => {
     const { id } = input as { id: string };
     const r = row(db.exec(
@@ -1110,6 +1142,22 @@ export function buildRouter(
       sourceFilePath: "",
       context: r["context"] ?? "",
     }));
+  };
+
+  // Nombre de backlinks par entité cible, agrégé en une passe (table mention).
+  // Sert la vue Jardin : O(1) au lieu de N appels getBacklinks.
+  const entitiesBacklinkCounts = async (): Promise<unknown> => {
+    const countRows = rows(db.exec(
+      `SELECT targetId, COUNT(*) as c FROM mention
+        WHERE targetId IS NOT NULL
+        GROUP BY targetId`,
+    ));
+    const counts: Record<string, number> = {};
+    for (const r of countRows) {
+      const tid = r["targetId"];
+      if (typeof tid === "string") counts[tid] = (r["c"] as number) ?? 0;
+    }
+    return { counts };
   };
 
   // ── schemas.* ─────────────────────────────────────────────────────────────
@@ -3472,6 +3520,8 @@ export function buildRouter(
     "entities.update": entitiesUpdate,
     "entities.delete": entitiesDelete,
     "entities.search": entitiesSearch,
+    "entities.listByDateRange": entitiesListByDateRange,
+    "entities.backlinkCounts": entitiesBacklinkCounts,
     "entities.getRelated": entitiesGetRelated,
     "entities.getBacklinks": entitiesGetBacklinks,
 
