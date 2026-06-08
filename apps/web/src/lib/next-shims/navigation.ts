@@ -46,11 +46,22 @@ export interface AppRouterInstance {
  * classique) sur navigateurs sans support ou si l'utilisateur préfère
  * réduire les animations. Durées réglées dans globals.css
  * (::view-transition-old/new).
+ *
+ * Désactivé sur mobile (pointer coarse OU viewport < 768px) : chaque
+ * `startViewTransition` capture un snapshot plein écran de tout le DOM
+ * (éditeur compris) et exécute un flushSync synchrone. Sur téléphone, en
+ * enchaînant des navigations (taper plusieurs onglets de la bottom-nav), les
+ * transitions se chevauchent et bloquent le main thread — l'app finit par
+ * « freezer ». On garde donc le cross-fade pour desktop uniquement, où il est
+ * fluide. Même politique que `SmoothCaret`, lui aussi off sur pointer coarse.
  */
-function wantsViewTransition(): boolean {
+export function wantsViewTransition(): boolean {
   if (typeof document === "undefined") return false;
   if (!("startViewTransition" in document)) return false;
-  return !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return false;
+  if (window.matchMedia("(pointer: coarse)").matches) return false;
+  if (window.matchMedia("(max-width: 767px)").matches) return false;
+  return true;
 }
 
 export function useRouter(): AppRouterInstance {
