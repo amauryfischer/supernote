@@ -83,8 +83,26 @@ export function attachContinueChecklistOnEnter(
 ): () => void {
   // Re-entrancy guard: our own `updateBlock` triggers onChange again.
   let converting = false;
-  return editor.onChange(() => {
+
+  // Skip conversion while an IME composition is active — mutating the doc
+  // mid-composition crashes ProseMirror on mobile keyboards. See the detailed
+  // note in checkShortcut.ts. compositionend fires a reconciling change and we
+  // convert safely then.
+  let composing = false;
+  const onCompositionStart = () => {
+    composing = true;
+  };
+  const onCompositionEnd = () => {
+    composing = false;
+  };
+  if (typeof document !== "undefined") {
+    document.addEventListener("compositionstart", onCompositionStart);
+    document.addEventListener("compositionend", onCompositionEnd);
+  }
+
+  const unsubscribe = editor.onChange(() => {
     if (converting) return;
+    if (composing) return;
     // Only act when the change was driven by Enter — Backspace, paste,
     // formatting toggles etc. would otherwise also flip a freshly-created
     // paragraph back into a checkListItem and break those interactions.
@@ -92,7 +110,7 @@ export function attachContinueChecklistOnEnter(
     // without ever spilling into a subsequent unrelated change.
     if (Date.now() - lastEnterAt > 150) return;
     queueMicrotask(() => {
-      if (converting) return;
+      if (converting || composing) return;
       if (Date.now() - lastEnterAt > 150) return;
       let cursor: { block: BlockLike; prevBlock: BlockLike | null };
       try {
@@ -170,4 +188,12 @@ export function attachContinueChecklistOnEnter(
       }
     });
   });
+
+  return () => {
+    unsubscribe();
+    if (typeof document !== "undefined") {
+      document.removeEventListener("compositionstart", onCompositionStart);
+      document.removeEventListener("compositionend", onCompositionEnd);
+    }
+  };
 }

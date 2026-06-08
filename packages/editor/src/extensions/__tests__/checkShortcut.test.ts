@@ -58,4 +58,36 @@ describe("checkShortcut", () => {
 
     detach();
   });
+
+  it("ne convertit pas pendant une composition IME, convertit après (anti-crash mobile)", async () => {
+    const editor = BlockNoteEditor.create({
+      schema: supernoteSchema,
+      initialContent: [{ type: "paragraph", content: "" }],
+    });
+    const detach = attachCheckShortcut(
+      editor as unknown as Parameters<typeof attachCheckShortcut>[0],
+    );
+
+    const para = editor.document[0]!;
+    editor.setTextCursorPosition(para.id, "start");
+
+    // Clavier mobile : compositionstart avant la frappe. Le contenu vaut
+    // exactement "x " — sans le garde, ça convertirait (et muter le doc
+    // pendant la composition crashe ProseMirror). Le garde doit l'empêcher.
+    document.dispatchEvent(new Event("compositionstart"));
+    editor.insertInlineContent("x ");
+    await flush(50);
+    expect(editor.document[0]!.type).toBe("paragraph");
+
+    // Fin de composition → le watcher reprend. On vide puis on retape "x "
+    // hors composition : la conversion doit alors avoir lieu.
+    document.dispatchEvent(new Event("compositionend"));
+    editor.updateBlock(editor.document[0]!, { content: [] });
+    editor.setTextCursorPosition(editor.document[0]!.id, "end");
+    editor.insertInlineContent("x ");
+    await flush(50);
+    expect(editor.document[0]!.type).toBe("checkListItem");
+
+    detach();
+  });
 });

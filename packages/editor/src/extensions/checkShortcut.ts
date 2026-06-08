@@ -46,15 +46,38 @@ export function attachCheckShortcut(editor: BlockNoteEditorLike): () => void {
   // Reentrancy guard: our own `updateBlock` call triggers the onChange
   // listener again; without this flag we'd recurse on every change.
   let converting = false;
-  return editor.onChange(() => {
+
+  // Track IME composition. Mobile keyboards compose latin input
+  // (autocorrect/suggestions), so typing "x " can reach the watcher while a
+  // composition is still active; calling `updateBlock` then — which dispatches
+  // a ProseMirror transaction that re-creates the node the composition is
+  // anchored in — crashes the editor (white screen, no error boundary). We
+  // skip conversion while composing; the browser fires a reconciling change at
+  // compositionend, and we convert safely on that pass. Composition events
+  // bubble to `document`, and only the focused editable composes, so a
+  // document-level listener is sufficient. Mirrors SmoothCaret's approach.
+  let composing = false;
+  const onCompositionStart = () => {
+    composing = true;
+  };
+  const onCompositionEnd = () => {
+    composing = false;
+  };
+  if (typeof document !== "undefined") {
+    document.addEventListener("compositionstart", onCompositionStart);
+    document.addEventListener("compositionend", onCompositionEnd);
+  }
+
+  const unsubscribe = editor.onChange(() => {
     if (converting) return;
+    if (composing) return;
     // Defer to the next microtask: BlockNote's onChange fires synchronously
     // during the ProseMirror transaction, before the document state and
     // cursor position are fully observable via the public API. Without the
     // defer, `getTextCursorPosition().block` would return a stale snapshot
     // and the "x " match would silently fail.
     queueMicrotask(() => {
-      if (converting) return;
+      if (converting || composing) return;
       let block: BlockLike;
       try {
         block = editor.getTextCursorPosition().block;
@@ -124,4 +147,12 @@ export function attachCheckShortcut(editor: BlockNoteEditorLike): () => void {
       }
     });
   });
+
+  return () => {
+    unsubscribe();
+    if (typeof document !== "undefined") {
+      document.removeEventListener("compositionstart", onCompositionStart);
+      document.removeEventListener("compositionend", onCompositionEnd);
+    }
+  };
 }
