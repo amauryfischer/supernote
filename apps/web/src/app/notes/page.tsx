@@ -17,6 +17,7 @@ import {
   useArchiveNote,
   useArchiveFolder,
   useMoveNote,
+  useDeleteNote,
 } from "@/components/notes/hooks";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
@@ -66,6 +67,7 @@ function NotesPageContent() {
   const { setArchived } = useArchiveNote();
   const { archiveFolder } = useArchiveFolder();
   const { moveNote } = useMoveNote();
+  const { deleteNote } = useDeleteNote();
   const prompt = usePrompt();
   const confirm = useConfirm();
   const { toast } = useToast();
@@ -216,6 +218,24 @@ function NotesPageContent() {
     await setArchived(id, archived);
   }, [setArchived]);
 
+  const handleDeleteNote = useCallback(async (id: string): Promise<void> => {
+    const note = notes.find((n) => n.id === id);
+    const ok = await confirm({
+      title: note ? `Supprimer "${note.title}" ?` : "Supprimer la note ?",
+      description:
+        "La note sera déplacée dans la corbeille. Vous pourrez la restaurer depuis la corbeille.",
+      confirmLabel: "Supprimer",
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      await deleteNote(id);
+    } catch (err) {
+      console.error("[handleDeleteNote] failed", err);
+      toast({ title: "Impossible de supprimer la note", variant: "danger" });
+    }
+  }, [notes, confirm, deleteNote, toast]);
+
   const handleArchiveFolder = useCallback(async (path: string): Promise<{ archivedCount: number }> => {
     const ok = await confirm({
       title: `Archiver "${path}" ?`,
@@ -343,6 +363,7 @@ function NotesPageContent() {
           errorMessage={errorMessage}
           isFallback={isFallback}
           onNewNote={handleNewNote}
+          onDeleteNote={handleDeleteNote}
           onRenameNote={handleRenameNote}
           onArchiveNote={handleArchiveNote}
           onRenameFolderInline={handleRenameFolderInline}
