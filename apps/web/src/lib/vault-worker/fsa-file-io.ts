@@ -336,6 +336,8 @@ export interface DiscoveredFile {
   ext: string;
   /** Lazy reader so callers can skip large/binary content when not needed. */
   read: () => Promise<string>;
+  /** Lazy mtime (epoch ms) — used to timestamp externally-edited files for LWW. */
+  lastModified: () => Promise<number>;
 }
 
 /**
@@ -365,6 +367,10 @@ export async function walkAllFiles(
         read: async () => {
           const file = await fileHandle.getFile();
           return file.text();
+        },
+        lastModified: async () => {
+          const file = await fileHandle.getFile();
+          return file.lastModified;
         },
       });
     }

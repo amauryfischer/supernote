@@ -3498,6 +3498,174 @@ export function buildRouter(
     return { applied, skipped };
   };
 
+  /**
+   * Reconcile `.md` files modified OUTSIDE the app (a text editor, or a folder
+   * sync client like Google Drive that delivered a peer's file edit) and return
+   * the upsert ops to push. Dual folder+server mode: the folder is canonical,
+   * so an external edit must also reach the server.
+   *
+   * Detection is hash-based and false-positive-free: every worker write (local
+   * mutation OR a remote op applied via `applyOps`) stamps `entity.fileHash`
+   * with the hash of the EXACT bytes it wrote. So `diskHash !== fileHash` means
+   * the bytes changed under us — an external edit. Server-originated changes
+   * already match and are skipped.
+   *
+   * Each op carries the file's mtime as `updatedAt`, so the server resolves
+   * conflicts by last-write-wins on real wall-clock — never boot time. The
+   * caller runs this BEFORE replaying the server stream, so a stale server op
+   * can't clobber a newer external edit (the DB now reflects the file).
+   *
+   * Deletions are deliberately NOT inferred: a missing file is more likely a
+   * sync client lagging than a real delete. Deletes flow only from explicit
+   * in-app actions.
+   */
+  const syncCollectLocalChanges = async (): Promise<unknown> => {
+    let files: Awaited<ReturnType<typeof walkAllFiles>>;
+    try {
+      files = await walkAllFiles(vaultHandle);
+    } catch (err) {
+      console.warn("[sync.collectLocalChanges] walkAllFiles failed", err);
+      return { ops: [], generatedAt: Date.now() };
+    }
+
+    const ops: SyncOp[] = [];
+    for (const file of files) {
+      if (!isMarkdownExt(file.ext)) continue;
+      try {
+        const content = await file.read();
+        const diskHash = await hashContent(content);
+        const path = file.relativePath;
+        const existing = row(db.exec(
+          `SELECT id, typeId, fields, fileHash, createdAt FROM entity WHERE vaultId = ? AND filePath = ?`,
+          [vaultId, path],
+        ));
+        // Bytes are exactly what we last wrote → already in sync.
+        if (existing && (existing["fileHash"] as string) === diskHash) continue;
+
+        const { frontmatter, body } = parseFrontmatter(content);
+        const fmId =
+          typeof frontmatter["id"] === "string" ? (frontmatter["id"] as string) : undefined;
+        const typeName =
+          typeof frontmatter["type"] === "string" ? (frontmatter["type"] as string) : undefined;
+
+        let id: string;
+        let typeId: string;
+        let resolvedTypeName: string;
+        let fields: Record<string, unknown>;
+
+        if (fmId && typeName) {
+          const typeRow = row(db.exec(
+            `SELECT id FROM entity_type WHERE vaultId = ? AND name = ?`,
+            [vaultId, typeName],
+          ));
+          if (!typeRow) continue; // unknown type on this device — leave for later
+          id = fmId;
+          typeId = typeRow["id"] as string;
+          resolvedTypeName = typeName;
+          // Merge top-level frontmatter keys (minus reserved) with a legacy
+          // nested `fields:` blob, exactly like the reindex sweep.
+          const topLevel = Object.fromEntries(
+            Object.entries(frontmatter).filter(
+              ([k]) => k !== "id" && k !== "type" && k !== "fields",
+            ),
+          );
+          const nestedRaw = frontmatter["fields"];
+          let nested: Record<string, unknown> = {};
+          if (nestedRaw && typeof nestedRaw === "object" && !Array.isArray(nestedRaw)) {
+            nested = nestedRaw as Record<string, unknown>;
+          } else if (typeof nestedRaw === "string") {
+            try {
+              const parsed = JSON.parse(nestedRaw);
+              if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+                nested = parsed as Record<string, unknown>;
+              }
+            } catch {
+              /* nested stays empty */
+            }
+          }
+          fields = { ...nested, ...topLevel };
+        } else if (existing) {
+          // A tracked note whose frontmatter was stripped/edited away in an
+          // external editor: keep its identity + fields, treat content as body.
+          id = existing["id"] as string;
+          typeId = existing["typeId"] as string;
+          const tr = row(db.exec(`SELECT name FROM entity_type WHERE id = ?`, [typeId]));
+          resolvedTypeName = (tr?.["name"] as string) ?? "";
+          fields = safeParseFieldsBlob((existing["fields"] as string) || "{}");
+        } else {
+          // Brand-new orphan file (no frontmatter, not tracked): let the boot
+          // reindex adopt it (it mints an id + rewrites frontmatter). Minting an
+          // id here would risk forking from a peer that already owns this note.
+          continue;
+        }
+
+        // External-edit timestamp = file mtime (worker writes don't persist an
+        // `updated` field on disk). Drives LWW; fall back to now() if missing.
+        let mtime = Date.now();
+        try {
+          mtime = await file.lastModified();
+        } catch {
+          /* keep now() */
+        }
+        const updatedAtIso = new Date(mtime).toISOString();
+        const createdAtIso = (existing?.["createdAt"] as string) ?? updatedAtIso;
+
+        // Tags aren't represented in the on-disk frontmatter, so preserve the
+        // entity's existing tags rather than wiping them on an external edit.
+        const tagRows = existing
+          ? rows(db.exec(
+              `SELECT t.path AS p FROM entity_tag etag JOIN tag t ON t.id = etag.tagId WHERE etag.entityId = ?`,
+              [id],
+            ))
+          : [];
+        const tags = tagRows.map((r) => r["p"] as string).filter(Boolean);
+
+        if (existing) {
+          db.run(
+            `UPDATE entity SET typeId = ?, fields = ?, body = ?, fileHash = ?, updatedAt = ? WHERE id = ?`,
+            [typeId, JSON.stringify(fields), body, diskHash, updatedAtIso, id],
+          );
+        } else {
+          db.run(
+            `INSERT INTO entity (id, vaultId, typeId, filePath, fields, body, fileHash, createdAt, updatedAt)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [id, vaultId, typeId, path, JSON.stringify(fields), body, diskHash, createdAtIso, updatedAtIso],
+          );
+        }
+        ftsAdd(db, {
+          id,
+          typeId,
+          title: deriveTitle(JSON.stringify(fields), path),
+          body,
+          tags: tags.join(" "),
+          path: derivePath(path),
+        });
+
+        ops.push({
+          opId: generateId(),
+          clientId: "",
+          kind: "upsert",
+          entityId: id,
+          ts: mtime,
+          payload: {
+            id,
+            typeId,
+            typeName: resolvedTypeName,
+            filePath: path,
+            fields,
+            body,
+            tags,
+            createdAt: createdAtIso,
+            updatedAt: updatedAtIso,
+          },
+        });
+      } catch (err) {
+        console.warn(`[sync.collectLocalChanges] skip ${file.relativePath}`, err);
+      }
+    }
+    return { ops, generatedAt: Date.now() };
+  };
+
   // ── Dispatch table ─────────────────────────────────────────────────────────
 
   return {
@@ -3570,6 +3738,7 @@ export function buildRouter(
     "sync.snapshot": syncSnapshot,
     "sync.head": syncHead,
     "sync.applyOps": syncApplyOps,
+    "sync.collectLocalChanges": syncCollectLocalChanges,
   };
 }
 

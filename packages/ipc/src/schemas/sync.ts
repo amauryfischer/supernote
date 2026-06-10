@@ -64,3 +64,18 @@ export const SyncHeadOutput = z.object({
   entityCount: z.number().int().nonnegative(),
 });
 export type SyncHeadOutput = z.infer<typeof SyncHeadOutput>;
+
+// ── sync.collectLocalChanges ───────────────────────────────────────────────────
+
+export const CollectLocalChangesOutput = z.object({
+  /**
+   * Upsert ops for entities whose on-disk `.md` was modified OUTSIDE the app
+   * (text editor, a folder-sync client like Google Drive bringing a peer's
+   * file edit). The vault DB is reconciled as a side effect, and each op
+   * carries the file's own `updatedAt` so the server resolves conflicts by
+   * last-write-wins rather than boot time.
+   */
+  ops: z.array(EntityOpSchema),
+  generatedAt: z.number(),
+});
+export type CollectLocalChangesOutput = z.infer<typeof CollectLocalChangesOutput>;

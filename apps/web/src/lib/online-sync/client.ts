@@ -40,6 +40,13 @@ export interface OnlineSyncClientOptions {
   epoch: string;
   applyOps: (ops: EntityOp[]) => Promise<void>;
   getSnapshot: () => Promise<EntityOp[]>;
+  /**
+   * Dual folder+server mode: fold `.md` files edited outside the app into the
+   * local vault and return the resulting ops to push. Runs once per session,
+   * BEFORE the server replay, so a stale server op can't clobber a newer
+   * external edit. Returns [] for cloud (OPFS) vaults — nothing to reconcile.
+   */
+  collectLocalChanges: () => Promise<EntityOp[]>;
   onSeq: (seq: number) => void;
   onSeeded: () => void;
   /**
@@ -67,6 +74,8 @@ export class OnlineSyncClient {
   private seeded: boolean;
   private epoch: string;
   private stopped = false;
+  /** Guards the once-per-session external-edit reconciliation (see start). */
+  private localChangesCollected = false;
   private reconnectAttempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private pushBuffer: EntityOp[] = [];
@@ -140,6 +149,21 @@ export class OnlineSyncClient {
         this.seeded = false;
       }
       this.opts.onEpochChange(info.epoch);
+    }
+    // Dual folder+server mode: before opening the stream, fold any `.md` files
+    // edited OUTSIDE the app (text editor, or a folder-sync client like Google
+    // Drive delivering a peer's file edit) into the local vault and queue them
+    // for push. Doing this BEFORE the replay means the reconciled local state
+    // is what server ops are LWW-compared against — a stale server op can't
+    // clobber a newer external edit. Once per session (reconnects skip it).
+    if (!this.localChangesCollected) {
+      this.localChangesCollected = true;
+      try {
+        const local = await this.opts.collectLocalChanges();
+        if (local.length > 0) this.enqueue(local);
+      } catch (err) {
+        console.warn("[online-sync] collectLocalChanges failed", err);
+      }
     }
     this.openStream();
   }

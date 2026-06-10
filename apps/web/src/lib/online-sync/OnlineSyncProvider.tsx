@@ -153,6 +153,10 @@ export function OnlineSyncProvider({ children }: { children: React.ReactNode }) 
         const res = await trpcVanillaClient.sync.snapshot.query();
         return res.ops as EntityOp[];
       },
+      collectLocalChanges: async () => {
+        const res = await trpcVanillaClient.sync.collectLocalChanges.mutate();
+        return res.ops as EntityOp[];
+      },
       onSeq: (seq) => {
         const latest = loadOnlineSyncConfig();
         saveOnlineSyncConfig({ ...latest, lastSeq: seq });
