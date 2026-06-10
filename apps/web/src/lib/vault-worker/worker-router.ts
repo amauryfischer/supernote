@@ -33,6 +33,7 @@ import {
   moveExcalidrawSibling,
   deleteExcalidrawSibling,
 } from "./canvas-excalidraw-io";
+import { shouldPreserveConflict } from "./conflict";
 import { parseFormula, evaluate, type FormulaContext, type Value as FormulaValue, type Scope, type FormulaAST } from "@supernote/formulas";
 import type { VariableInput } from "@supernote/core";
 import { VariableInputSchema } from "@supernote/ipc";
@@ -3370,7 +3371,7 @@ export function buildRouter(
     for (const op of ops ?? []) {
       try {
         const existing = row(db.exec(
-          `SELECT id, filePath, updatedAt FROM entity WHERE id = ?`,
+          `SELECT id, filePath, updatedAt, fileHash FROM entity WHERE id = ?`,
           [op.entityId],
         ));
         const existingTs = existing ? Date.parse(existing["updatedAt"] as string) || 0 : 0;
@@ -3443,8 +3444,30 @@ export function buildRouter(
             ...fields,
           };
           const content = serializeFrontmatter(frontmatter, payload.body ?? "");
-          await writeVaultFile(vaultHandle, payload.filePath.split("/"), content);
           hash = await hashContent(content);
+          // Conflict guard: if the on-disk file was edited OUTSIDE the app
+          // since we last wrote it (diskHash != stored fileHash) AND this op
+          // carries different content, overwriting would silently discard that
+          // external edit. This is the narrow window collectLocalChanges can't
+          // cover — a live external edit (text editor / a folder-sync client
+          // like Google Drive) landing mid-session, after the connect-time
+          // reconcile. Preserve the on-disk copy in `.supernote/conflicts/`
+          // first (excluded from the index + never re-pushed) so nothing is
+          // lost; the server op still wins (last-write-wins).
+          const existingFileHash = existing ? (existing["fileHash"] as string | null) : null;
+          const samePath = existing && (existing["filePath"] as string) === payload.filePath;
+          if (samePath && existingFileHash && hash !== existingFileHash) {
+            try {
+              const current = await readVaultFile(vaultHandle, payload.filePath.split("/"));
+              const diskHash = await hashContent(current);
+              if (shouldPreserveConflict({ existingFileHash, diskHash, incomingHash: hash })) {
+                await writeConflictSidecar(vaultHandle, payload.filePath, op.entityId, current);
+              }
+            } catch {
+              /* file missing/unreadable — nothing on disk to preserve */
+            }
+          }
+          await writeVaultFile(vaultHandle, payload.filePath.split("/"), content);
         }
 
         if (existing) {
@@ -3868,6 +3891,24 @@ function entityRowToApi(r: SqlRow): unknown {
     createdAt: r["createdAt"] ?? now(),
     updatedAt: r["updatedAt"] ?? now(),
   };
+}
+
+/**
+ * Preserve a soon-to-be-overwritten on-disk note in `.supernote/conflicts/`.
+ * That directory is excluded from the file walk (see EXCLUDE_DIRS), so the
+ * copy is never re-indexed as an entity nor pushed to the server — it's a
+ * pure local recovery artifact for a last-write-wins loser.
+ */
+async function writeConflictSidecar(
+  vaultHandle: FileSystemDirectoryHandle,
+  filePath: string,
+  entityId: string,
+  content: string,
+): Promise<void> {
+  const base = (filePath.split("/").pop() ?? "note").replace(/\.(md|markdown)$/i, "");
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const name = `${base}-${entityId.slice(-8)}-${stamp}.md`;
+  await writeVaultFile(vaultHandle, [".supernote", "conflicts", name], content);
 }
 
 async function applyEntityTags(
