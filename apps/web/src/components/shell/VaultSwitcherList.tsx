@@ -53,6 +53,9 @@ export function VaultSwitcherList({
       {recents.map((v) => {
         const isActive = v.id === activeId;
         const isCloud = v.kind === "cloud";
+        // A folder vault that ALSO replicates through a server (dual mode):
+        // local files + realtime sync. Surfaced like a cloud vault's sub-label.
+        const syncedFolder = v.kind === "folder" && v.syncServer !== undefined;
         const Icon = isActive ? Check : isCloud ? CloudArrowUp : FolderOpen;
         return (
           <div
@@ -85,9 +88,17 @@ export function VaultSwitcherList({
                   >
                     {prettyServer(v.serverUrl)}
                   </span>
+                ) : syncedFolder ? (
+                  <span
+                    className="flex items-center gap-1 truncate text-[11px]"
+                    style={{ color: "var(--text-muted)" }}
+                  >
+                    <CloudArrowUp size={10} weight="fill" />
+                    {v.syncServer ? prettyServer(v.syncServer) : "synchronisé"}
+                  </span>
                 ) : null}
               </span>
-              {isCloud && isActive ? (
+              {(isCloud || syncedFolder) && isActive ? (
                 <CloudArrowUp
                   size={12}
                   weight="fill"
