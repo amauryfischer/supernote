@@ -14,6 +14,9 @@ import {
   getCloudVault,
   upsertCloudVault,
   removeCloudVault,
+  getFolderSyncLink,
+  setFolderSyncLink,
+  removeFolderSyncLink,
 } from "./config-storage";
 
 const CONFIG_KEY = "supernote.onlineSync.config";
@@ -132,5 +135,42 @@ describe("cloud vault registry", () => {
     removeCloudVault(a.id);
     expect(listCloudVaults().map((e) => e.id)).toEqual([b.id]);
     expect(getCloudVault(a.id)).toBeNull();
+  });
+});
+
+describe("folder vault sync links (dual mode)", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("returns null for a folder with no attached room", () => {
+    expect(getFolderSyncLink("vault-1")).toBeNull();
+  });
+
+  it("attaches a room to a folder vault and normalizes server/key", () => {
+    setFolderSyncLink("vault-1", {
+      serverUrl: "https://s.example.com/",
+      vaultKey: "Perso",
+      token: "tok",
+    });
+    const link = getFolderSyncLink("vault-1");
+    expect(link).toEqual({
+      serverUrl: "https://s.example.com",
+      vaultKey: "perso",
+      token: "tok",
+    });
+  });
+
+  it("keeps links keyed per vault id (no cross-talk)", () => {
+    setFolderSyncLink("vault-1", { serverUrl: "", vaultKey: "a", token: "" });
+    setFolderSyncLink("vault-2", { serverUrl: "", vaultKey: "b", token: "" });
+    expect(getFolderSyncLink("vault-1")?.vaultKey).toBe("a");
+    expect(getFolderSyncLink("vault-2")?.vaultKey).toBe("b");
+  });
+
+  it("detaches a folder vault, leaving the others intact", () => {
+    setFolderSyncLink("vault-1", { serverUrl: "", vaultKey: "a", token: "" });
+    setFolderSyncLink("vault-2", { serverUrl: "", vaultKey: "b", token: "" });
+    removeFolderSyncLink("vault-1");
+    expect(getFolderSyncLink("vault-1")).toBeNull();
+    expect(getFolderSyncLink("vault-2")?.vaultKey).toBe("b");
   });
 });

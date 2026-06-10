@@ -51,6 +51,7 @@ import {
   upsertCloudVault,
   removeCloudVault,
   cloudVaultId,
+  getFolderSyncLink,
 } from "@/lib/online-sync/config-storage";
 
 const DEGRADED_STORAGE_KEY = "supernote.degraded";
@@ -115,6 +116,12 @@ export interface RecentVault {
   kind: "folder" | "cloud";
   /** Cloud entries only: sync server ("" = same origin), for disambiguation. */
   serverUrl?: string;
+  /**
+   * Folder entries only: present when the folder ALSO replicates through an
+   * online-sync room (dual local+server mode). Holds the server URL ("" = same
+   * origin) so the switcher can surface a "synced" badge.
+   */
+  syncServer?: string;
 }
 
 interface VaultContextValue {
@@ -192,12 +199,16 @@ export function usePwaVaultSetup(): VaultContextValue {
         listVaults(),
         getActiveVaultId(),
       ]);
-      const folderRecents: RecentVault[] = folderEntries.map((e) => ({
-        id: e.id,
-        name: e.name,
-        lastOpenedAt: e.lastOpenedAt,
-        kind: "folder",
-      }));
+      const folderRecents: RecentVault[] = folderEntries.map((e) => {
+        const link = getFolderSyncLink(e.id);
+        return {
+          id: e.id,
+          name: e.name,
+          lastOpenedAt: e.lastOpenedAt,
+          kind: "folder" as const,
+          ...(link ? { syncServer: link.serverUrl } : {}),
+        };
+      });
       const cloudRecents: RecentVault[] = listCloudVaults().map((e) => ({
         id: e.id,
         name: e.vaultKey,
@@ -285,6 +296,9 @@ export function usePwaVaultSetup(): VaultContextValue {
 
       const granted = await verifyHandlePermission(handle, false);
       if (granted) {
+        // Arm this folder's online-sync link (dual mode) before the worker is
+        // ready, so OnlineSyncProvider reads an up-to-date config and connects.
+        applyFolderSyncMode(await getActiveVaultId());
         setState("loading");
         startWorker(handle);
       } else {
@@ -392,10 +406,11 @@ export function usePwaVaultSetup(): VaultContextValue {
       await saveVaultHandle(handle);
       // Picking a folder explicitly opts out of degraded mode.
       if (typeof window !== "undefined") {
-        // Picking a folder / git repo opts out of degraded mode and leaves
-        // cloud mode (disables online sync so it can't push into the room).
+        // Picking a folder / git repo opts out of degraded mode and arms the
+        // folder's online-sync link if it has one (dual mode), else disables
+        // online sync so it can't push into another vault's room.
         window.localStorage.removeItem(DEGRADED_STORAGE_KEY);
-        leaveCloudMode();
+        applyFolderSyncMode(await getActiveVaultId());
       }
       setWorkerReady(false);
       setVaultName(null);
@@ -587,10 +602,11 @@ export function usePwaVaultSetup(): VaultContextValue {
       });
       await saveVaultHandle(handle);
       if (typeof window !== "undefined") {
-        // Picking a folder / git repo opts out of degraded mode and leaves
-        // cloud mode (disables online sync so it can't push into the room).
+        // Picking a folder / git repo opts out of degraded mode and arms the
+        // folder's online-sync link if it has one (dual mode), else disables
+        // online sync so it can't push into another vault's room.
         window.localStorage.removeItem(DEGRADED_STORAGE_KEY);
-        leaveCloudMode();
+        applyFolderSyncMode(await getActiveVaultId());
       }
       setWorkerReady(false);
       setVaultName(null);
@@ -715,8 +731,9 @@ export function usePwaVaultSetup(): VaultContextValue {
     await saveVaultHandle(entry.handle);
     await setActiveVaultId(entry.id);
     if (typeof window !== "undefined") window.localStorage.removeItem(DEGRADED_STORAGE_KEY);
-    // Switching to a folder vault leaves cloud mode (disables online sync).
-    leaveCloudMode();
+    // Switching to a folder vault arms its online-sync link (dual mode) if it
+    // has one, otherwise disables online sync.
+    applyFolderSyncMode(entry.id);
     setWorkerReady(false);
     setVaultName(null);
     setState("loading");
@@ -763,16 +780,41 @@ function startWorker(
 }
 
 /**
- * Leaving cloud mode for a folder/git vault: drop the cloud marker AND disable
- * online sync. Without disabling, OnlineSyncProvider would re-read an enabled
- * config when the folder vault reaches "ready" and start replicating the
- * folder's contents into the previous cloud room.
+ * Arm online-sync for a freshly-activated FOLDER vault (the dual local+server
+ * mode). The folder is always the canonical store, so we drop the cloud marker
+ * ({@link CLOUD_VAULT_KEY}) — the worker boots from the folder, never from the
+ * OPFS scratch dir.
+ *
+ * If the folder has a sync link, point the active config at its room (enabled).
+ * Re-arming the SAME room keeps the cursor so we replay only the backlog; a
+ * different room resets to a clean replay + re-seed. If the folder has NO link,
+ * disable online sync — otherwise OnlineSyncProvider would re-read a stale
+ * enabled config on "ready" and push this folder's contents into another
+ * vault's room. This subsumes the old `leaveCloudMode` behaviour per-vault.
  */
-function leaveCloudMode(): void {
+function applyFolderSyncMode(vaultId: string | null): void {
   if (typeof window === "undefined") return;
   window.localStorage.removeItem(CLOUD_VAULT_KEY);
+  const link = vaultId ? getFolderSyncLink(vaultId) : null;
   const cfg = loadOnlineSyncConfig();
-  if (cfg.enabled) saveOnlineSyncConfig({ ...cfg, enabled: false });
+  if (!link) {
+    if (cfg.enabled) saveOnlineSyncConfig({ ...cfg, enabled: false });
+    return;
+  }
+  const sameRoom =
+    cloudVaultId(cfg.serverUrl, cfg.vaultKey) ===
+    cloudVaultId(link.serverUrl, link.vaultKey);
+  saveOnlineSyncConfig(
+    sameRoom
+      ? { ...cfg, enabled: true, token: link.token }
+      : {
+          ...DEFAULT_ONLINE_SYNC_CONFIG,
+          enabled: true,
+          serverUrl: link.serverUrl,
+          vaultKey: link.vaultKey,
+          token: link.token,
+        },
+  );
 }
 
 // ── UI Component ──────────────────────────────────────────────────────────────

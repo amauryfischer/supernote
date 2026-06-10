@@ -35,6 +35,8 @@ import {
   loadOnlineSyncConfig,
   saveOnlineSyncConfig,
   getOrCreateClientId,
+  setFolderSyncLink,
+  removeFolderSyncLink,
   type OnlineSyncConfig,
 } from "./config-storage";
 import { loadPendingOps, savePendingOps } from "./pendingStore";
@@ -65,6 +67,15 @@ export function OnlineSyncProvider({ children }: { children: React.ReactNode }) 
     setConfig(next);
   }, []);
 
+  // A folder (FSA) vault id is anything NOT in the cloud registry — those carry
+  // a `cloud:` prefix. When the active vault is a folder, enabling sync means
+  // "dual mode": remember the room against that folder so it re-arms on every
+  // open, without flipping the vault into OPFS-backed cloud mode.
+  const activeFolderVaultId =
+    vault?.activeVaultId && !vault.activeVaultId.startsWith("cloud:")
+      ? vault.activeVaultId
+      : null;
+
   const enable = useCallback(
     (settings: { serverUrl: string; vaultKey: string; token: string }) => {
       // Changing connection target resets the cursor + seed so the new room
@@ -78,13 +89,21 @@ export function OnlineSyncProvider({ children }: { children: React.ReactNode }) 
         seeded: false,
         epoch: "",
       });
+      if (activeFolderVaultId) {
+        setFolderSyncLink(activeFolderVaultId, {
+          serverUrl: settings.serverUrl,
+          vaultKey: settings.vaultKey,
+          token: settings.token,
+        });
+      }
     },
-    [persist],
+    [persist, activeFolderVaultId],
   );
 
   const disable = useCallback(() => {
     persist({ ...loadOnlineSyncConfig(), enabled: false });
-  }, [persist]);
+    if (activeFolderVaultId) removeFolderSyncLink(activeFolderVaultId);
+  }, [persist, activeFolderVaultId]);
 
   // Re-sync config from localStorage when a vault becomes ready. The cloud
   // setup flow (PwaVaultSetup, which sits ABOVE this provider in the tree and

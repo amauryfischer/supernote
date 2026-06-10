@@ -212,6 +212,80 @@ export function removeCloudVault(id: string): void {
   }
 }
 
+/* ── Folder vault sync links (dual mode) ──────────────────────────────── */
+
+const FOLDER_LINKS_KEY = "supernote.onlineSync.folderLinks";
+
+/**
+ * A folder (FSA) vault can ALSO replicate through an online-sync room — the
+ * "dual" mode (local folder + realtime server). Unlike a pure cloud vault
+ * (marked by {@link CLOUD_VAULT_KEY}), the folder stays the *canonical* store
+ * and the server is a sync layer on top: the worker still boots from the
+ * user's folder, never from the OPFS scratch dir.
+ *
+ * We remember the (server, key, token) attached to each folder vault id so the
+ * link re-arms on every open and survives switching between vaults. The active
+ * {@link OnlineSyncConfig} only ever holds the *currently mounted* room; this
+ * map remembers the binding per folder, the way the FSA registry remembers
+ * folder handles.
+ */
+export interface FolderSyncLink {
+  /** Sync server base URL ("" = same origin as the app). */
+  serverUrl: string;
+  /** Normalized room key shared by every device replicating this vault. */
+  vaultKey: string;
+  /** Optional shared secret, required only when the server sets `SYNC_TOKEN`. */
+  token: string;
+}
+
+function loadFolderLinks(): Record<string, FolderSyncLink> {
+  if (typeof localStorage === "undefined") return {};
+  try {
+    const raw = localStorage.getItem(FOLDER_LINKS_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Record<string, FolderSyncLink>;
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveFolderLinks(links: Record<string, FolderSyncLink>): void {
+  if (typeof localStorage === "undefined") return;
+  try {
+    localStorage.setItem(FOLDER_LINKS_KEY, JSON.stringify(links));
+  } catch {
+    /* quota / disabled storage — non-fatal */
+  }
+}
+
+/** The sync room attached to a folder vault, or null if it syncs locally only. */
+export function getFolderSyncLink(vaultId: string): FolderSyncLink | null {
+  const link = loadFolderLinks()[vaultId];
+  if (!link || typeof link.vaultKey !== "string" || !link.vaultKey) return null;
+  return { ...link, vaultKey: normalizeVaultKey(link.vaultKey) };
+}
+
+/** Attach (or update) the sync room a folder vault replicates through. */
+export function setFolderSyncLink(vaultId: string, link: FolderSyncLink): void {
+  const links = loadFolderLinks();
+  links[vaultId] = {
+    serverUrl: normalizeServerUrl(link.serverUrl),
+    vaultKey: normalizeVaultKey(link.vaultKey),
+    token: link.token,
+  };
+  saveFolderLinks(links);
+}
+
+/** Detach a folder vault from its sync room (back to local-only). */
+export function removeFolderSyncLink(vaultId: string): void {
+  const links = loadFolderLinks();
+  if (vaultId in links) {
+    delete links[vaultId];
+    saveFolderLinks(links);
+  }
+}
+
 /**
  * Stable per-device id. Generated once and reused so a device can recognise
  * (and ignore) the echoes of its own ops coming back on the stream.

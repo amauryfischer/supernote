@@ -65,7 +65,7 @@ function OnlineSyncSection() {
   return (
     <SettingSection
       title="Synchronisation en ligne (temps réel)"
-      description="Alternative à Git : synchronise le coffre entre vos appareils (web et Android) dès qu'un serveur avec base de données est disponible."
+      description="Synchronise le coffre entre vos appareils (web et Android) dès qu'un serveur avec base de données est disponible. Fonctionne aussi par-dessus un coffre dossier (ex. Google Drive) : la note reste un fichier .md local ET se réplique en direct."
       icon={<CloudCheck size={16} />}
       action={
         <Chip size="sm" variant="soft" color={meta.color}>
