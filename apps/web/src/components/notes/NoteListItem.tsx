@@ -15,6 +15,10 @@ import { useSettings } from "@/components/settings/SettingsContext";
 import { CanvasMinimap } from "./CanvasMinimap";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { useIsMobile } from "@/hooks/useIsMobile";
+
+/** Largeur (px) d'un bouton d'action révélé par le swipe tactile. */
+const SWIPE_ACTION_WIDTH = 76;
 
 interface NoteListItemProps {
   note: Note;
@@ -79,6 +83,98 @@ export function NoteListItem({ note, isActive, onClick, onHover, getPreview, onD
   });
 
   const isArchived = !!note.archivedAt;
+
+  // ── Swipe-to-reveal actions (mobile) ────────────────────────────────────
+  // Au tactile il n'y a ni survol ni clic droit : on glisse la ligne vers la
+  // droite pour révéler les actions (archiver / supprimer) cachées dessous,
+  // à la manière de Mail iOS. Géré nativement (touch events + transform CSS)
+  // — pas de lib gesture. Désactivé en mode réordonnancement (sortable) où le
+  // pointeur est déjà capté par dnd-kit.
+  const isMobile = useIsMobile();
+  const [swipeOffset, setSwipeOffset] = useState(0);
+  const [swipeAnimating, setSwipeAnimating] = useState(false);
+  // x/y de départ + offset de base (pour reprendre un swipe déjà ouvert) ;
+  // `axis` verrouille la direction au premier mouvement franc pour ne pas
+  // voler le scroll vertical de la liste.
+  const swipeStart = useRef<{ x: number; y: number; base: number } | null>(null);
+  const swipeAxis = useRef<null | "h" | "v">(null);
+
+  const swipeActions = useMemo(() => {
+    const items: { key: "archive" | "delete"; label: string; icon: React.ReactNode; bg: string; fg: string; run: () => void }[] = [];
+    if (onArchive) {
+      items.push({
+        key: "archive",
+        label: isArchived ? t("swipeUnarchive") : t("swipeArchive"),
+        icon: isArchived ? <ArrowUUpLeft size={18} weight="bold" /> : <Archive size={18} weight="bold" />,
+        bg: "var(--surface-3)",
+        fg: "var(--text-secondary)",
+        run: () => {
+          void onArchive(!isArchived).catch(() =>
+            toast({
+              title: isArchived
+                ? "Impossible de désarchiver la note"
+                : "Impossible d'archiver la note",
+              variant: "danger",
+            }),
+          );
+        },
+      });
+    }
+    if (onDelete) {
+      items.push({
+        key: "delete",
+        label: t("swipeDelete"),
+        icon: <Trash size={18} weight="bold" />,
+        bg: "#dc2626",
+        fg: "#ffffff",
+        run: () => onDelete(),
+      });
+    }
+    return items;
+  }, [onArchive, onDelete, isArchived, t, toast]);
+
+  const swipeEnabled = isMobile && !sortable && !isRenaming && swipeActions.length > 0;
+  const swipeReveal = swipeActions.length * SWIPE_ACTION_WIDTH;
+
+  const closeSwipe = useCallback(() => {
+    setSwipeAnimating(true);
+    setSwipeOffset(0);
+  }, []);
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (!swipeEnabled) return;
+    const touch = e.touches[0];
+    if (!touch) return;
+    swipeStart.current = { x: touch.clientX, y: touch.clientY, base: swipeOffset };
+    swipeAxis.current = null;
+    setSwipeAnimating(false);
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!swipeEnabled || !swipeStart.current) return;
+    const touch = e.touches[0];
+    if (!touch) return;
+    const dx = touch.clientX - swipeStart.current.x;
+    const dy = touch.clientY - swipeStart.current.y;
+    if (swipeAxis.current === null) {
+      if (Math.abs(dx) < 6 && Math.abs(dy) < 6) return;
+      swipeAxis.current = Math.abs(dx) > Math.abs(dy) ? "h" : "v";
+    }
+    if (swipeAxis.current !== "h") return;
+    let next = swipeStart.current.base + dx;
+    if (next < 0) next = 0;
+    // Léger effet élastique au-delà de la zone révélée.
+    if (next > swipeReveal) next = swipeReveal + (next - swipeReveal) * 0.2;
+    setSwipeOffset(next);
+  };
+
+  const handleTouchEnd = () => {
+    if (!swipeEnabled || !swipeStart.current) return;
+    swipeStart.current = null;
+    swipeAxis.current = null;
+    setSwipeAnimating(true);
+    setSwipeOffset((cur) => (cur > swipeReveal / 2 ? swipeReveal : 0));
+  };
 
   // ── Hover preview card ──────────────────────────────────────────────────
   // 500ms d'intention au survol → carte fixe à droite de la liste (portal,
@@ -200,7 +296,7 @@ export function NoteListItem({ note, isActive, onClick, onHover, getPreview, onD
       }}
       style={dndStyle}
       {...(sortable ? attributes : {})}
-      className="relative"
+      className="relative overflow-hidden"
       onMouseEnter={() => {
         setHovered(true);
         onHover?.();
@@ -226,10 +322,63 @@ export function NoteListItem({ note, isActive, onClick, onHover, getPreview, onD
           <DotsSixVertical size={12} />
         </button>
       )}
+      {/* Actions révélées au swipe — cachées sous la ligne, dévoilées quand
+          le slider glisse vers la droite. */}
+      {swipeEnabled && (
+        <div
+          className="absolute inset-y-0 left-0 flex"
+          aria-hidden={swipeOffset === 0}
+          style={{ width: swipeReveal }}
+        >
+          {swipeActions.map((action) => (
+            <button
+              key={action.key}
+              type="button"
+              aria-label={action.label}
+              // Désactivé tant que la ligne est fermée pour éviter un tap
+              // fantôme pendant le scroll.
+              tabIndex={swipeOffset > 0 ? 0 : -1}
+              onClick={(e) => {
+                e.stopPropagation();
+                setSwipeOffset(0);
+                setSwipeAnimating(true);
+                action.run();
+              }}
+              className="flex h-full flex-col items-center justify-center gap-1 text-[11px] font-medium"
+              style={{ width: SWIPE_ACTION_WIDTH, backgroundColor: action.bg, color: action.fg }}
+            >
+              {action.icon}
+              {action.label}
+            </button>
+          ))}
+        </div>
+      )}
+      <div
+        style={{
+          transform: swipeEnabled ? `translateX(${swipeOffset}px)` : undefined,
+          transition: swipeAnimating ? "transform var(--sn-dur-2) var(--sn-ease-glide)" : undefined,
+          // Fond opaque : couvre les actions quand la ligne est fermée.
+          backgroundColor: swipeEnabled ? "var(--surface-0)" : undefined,
+          // pan-y : le navigateur garde le scroll vertical, JS récupère
+          // l'horizontal sans preventDefault.
+          touchAction: swipeEnabled ? "pan-y" : undefined,
+          position: "relative",
+        }}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        onTouchCancel={handleTouchEnd}
+      >
       <button
-        onClick={isRenaming ? undefined : onClick}
-        draggable={!!onDragNote && !isRenaming}
-        onDragStart={onDragNote && !isRenaming ? (e) => {
+        onClick={
+          swipeOffset > 0
+            ? () => closeSwipe()
+            : isRenaming
+              ? undefined
+              : onClick
+        }
+        draggable={!!onDragNote && !isRenaming && !isMobile}
+        onDragStart={onDragNote && !isRenaming && !isMobile ? (e) => {
           e.dataTransfer.setData("text/plain", note.id);
           e.dataTransfer.effectAllowed = "move";
           onDragNote(note.id);
@@ -356,6 +505,7 @@ export function NoteListItem({ note, isActive, onClick, onHover, getPreview, onD
           style={{ borderBottom: "1px solid var(--border-subtle)" }}
         />
       </button>
+      </div>
 
       {(onDelete || onArchive) && hovered && !isRenaming && (
         <button
