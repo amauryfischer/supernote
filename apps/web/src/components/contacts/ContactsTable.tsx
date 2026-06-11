@@ -12,7 +12,7 @@ import {
   type Table,
 } from "@tanstack/react-table";
 import { ArrowsDownUp, CaretUp, CaretDown, X } from "@phosphor-icons/react";
-import { Button, Input, Select, ListBox, ListBoxItem } from "@heroui/react";
+import { Button, Card, Checkbox, Input, Select, ListBox, ListBoxItem } from "@heroui/react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import type { FieldValue } from "@supernote/ipc";
@@ -468,6 +468,84 @@ const COLUMNS = [
   }),
 ];
 
+// ── Mobile card ─────────────────────────────────────────────────────────────
+// Below 768px (`md:`) the ~10-column table is unreadable, so each contact
+// collapses into a compact Card: avatar + name (link to the detail page),
+// the two highest-signal fields (email + phone), relation chip and birthday.
+// Selection + inline edits reuse the exact same cell components as the table,
+// so handlers stay shared — no parallel logic to keep in sync.
+
+function ContactCard({
+  contact,
+  meta,
+  isSelected,
+  onToggleSelect,
+}: {
+  contact: Contact;
+  meta?: ContactsTableMeta;
+  isSelected: boolean;
+  onToggleSelect: () => void;
+}) {
+  return (
+    <Card
+      className="flex flex-row items-start gap-3 border p-3 shadow-none"
+      style={{
+        borderColor: isSelected ? "var(--accent)" : "var(--border-subtle)",
+        backgroundColor: isSelected ? "var(--accent-subtle)" : "var(--surface-1)",
+      }}
+    >
+      {/* 32px+ tactile hit-target for selection */}
+      <Checkbox
+        isSelected={isSelected}
+        onChange={onToggleSelect}
+        className="mt-0.5 shrink-0"
+        aria-label={isSelected ? `Désélectionner ${contact.name}` : `Sélectionner ${contact.name}`}
+      />
+
+      <Link
+        href={`/contacts/${contact.id}`}
+        className="shrink-0 rounded-full transition-opacity hover:opacity-80"
+        aria-label={`Ouvrir la fiche de ${contact.name}`}
+      >
+        <ContactAvatar name={contact.name} photoUrl={contact.photoUrl} size={40} />
+      </Link>
+
+      <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+        <div className="flex items-center gap-2">
+          <div className="min-w-0 flex-1 truncate">
+            <NameCell contact={contact} meta={meta} />
+          </div>
+          <RelationCell contact={contact} meta={meta} type={contact.relationType} />
+        </div>
+
+        <div className="min-w-0 truncate text-sm">
+          <EmailCell contact={contact} meta={meta} />
+        </div>
+        <div className="min-w-0 truncate text-sm">
+          <PhoneCell contact={contact} meta={meta} />
+        </div>
+
+        {(contact.organisationId || meta?.canEdit) && (
+          <div className="min-w-0 truncate text-sm">
+            <OrgCell contact={contact} meta={meta} />
+          </div>
+        )}
+
+        {(contact.tags.length > 0 || meta?.canEdit) && (
+          <TagsCell contact={contact} meta={meta} />
+        )}
+
+        {relativeBirthday(contact.birthday) && (
+          <div className="flex items-center gap-1.5 text-xs" style={{ color: "var(--text-muted)" }}>
+            <span>Anniversaire</span>
+            <BirthdayBadge birthday={contact.birthday} />
+          </div>
+        )}
+      </div>
+    </Card>
+  );
+}
+
 export function ContactsTable({
   contacts,
   onSelectionChange,
@@ -497,8 +575,31 @@ export function ContactsTable({
     enableRowSelection: true,
   });
 
+  const tableMeta = metaOf(table);
+
   return (
-    <div className="overflow-x-auto">
+    <>
+      {/* Mobile (<768px): compact cards — the table's column count overflows
+          horizontally at phone widths. Shares the table's selection + meta. */}
+      <div className="flex flex-col gap-2 p-3 md:hidden">
+        {table.getRowModel().rows.map((row) => (
+          <ContactCard
+            key={row.id}
+            contact={row.original}
+            meta={tableMeta}
+            isSelected={row.getIsSelected()}
+            onToggleSelect={() => row.toggleSelected(!row.getIsSelected())}
+          />
+        ))}
+        {contacts.length === 0 && (
+          <div className="py-16 text-center text-sm" style={{ color: "var(--text-muted)" }}>
+            Aucun contact trouvé.
+          </div>
+        )}
+      </div>
+
+      {/* Desktop (≥768px): full table. */}
+      <div className="hidden overflow-x-auto md:block">
       <table className="w-full border-collapse text-sm">
         <thead>
           {table.getHeaderGroups().map((hg) => (
@@ -557,6 +658,7 @@ export function ContactsTable({
           Aucun contact trouvé.
         </div>
       )}
-    </div>
+      </div>
+    </>
   );
 }
