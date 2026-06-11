@@ -236,8 +236,11 @@ export function OnlineSyncProvider({ children }: { children: React.ReactNode }) 
         typeof msg === "object" &&
         (msg as { type?: string }).type === "ENTITY_CHANGE"
       ) {
-        const op = (msg as { op?: EntityOp }).op;
-        if (op) client.enqueue([op]);
+        const m = msg as { op?: EntityOp; sourceVaultId?: string | null };
+        // Les entités montées (provenance ≠ null) ne vont JAMAIS dans le salon
+        // du père — le MountSyncManager les route vers leur salon d'origine.
+        if (m.sourceVaultId) return;
+        if (m.op) client.enqueue([m.op]);
       }
     });
 
