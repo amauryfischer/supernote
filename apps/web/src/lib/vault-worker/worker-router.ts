@@ -944,6 +944,15 @@ export function buildRouter(
     const isMove = cleanedNextPath.length > 0 && cleanedNextPath !== oldPath;
     const effectivePath = isMove ? cleanedNextPath : oldPath;
 
+    // Read-only mount structure (V1): a mounted entity (sourceVaultId non-null)
+    // must NOT be moved out of its `@mounts/<slug>/…` prefix. A path-change here
+    // would rewrite the DB filePath off the prefix while keeping the provenance,
+    // producing an ENTITY_CHANGE op with a bare native path that gets pushed into
+    // the SOURCE mount room — corrupting it. Content/fields edits stay allowed.
+    if (provenance !== null && isMove) {
+      throw new Error("Lecture seule : impossible de déplacer une note d'un vault monté.");
+    }
+
     // Canvas split on update: mirrors entitiesCreate. If the incoming
     // fields carry a fresh canvas JSON, write it to the sibling and
     // replace with a canvasFile pointer.

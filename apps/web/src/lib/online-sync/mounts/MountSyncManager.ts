@@ -61,13 +61,20 @@ export class MountSyncManager {
     if (!src) return;
     const client = this.clients.get(src);
     if (!client) return;
-    let op = msg.op;
+    const op = msg.op;
     if (op.payload) {
       const bare = stripMountPath(src, op.payload.filePath);
-      if (bare !== null) {
-        op = { ...op, payload: { ...op.payload, filePath: bare } };
+      if (bare === null) {
+        // Un op monté dont le chemin a perdu son préfixe @mounts/<slug>/ ne doit
+        // PAS être poussé tel quel dans le salon source (il y écrirait un chemin
+        // natif erroné). On le laisse tomber — le routeur rejette déjà ces moves.
+        console.warn(`[mounts] op ignorée : chemin sans préfixe attendu pour ${src}`, op.payload.filePath);
+        return;
       }
+      client.enqueue([{ ...op, payload: { ...op.payload, filePath: bare } }]);
+      return;
     }
+    // delete ops (no payload) route by entityId as before
     client.enqueue([op]);
   }
 

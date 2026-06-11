@@ -67,6 +67,21 @@ describe("MountSyncManager", () => {
     expect(pushed).toEqual([]);
   });
 
+  it("laisse tomber un op monté dont le chemin a perdu son préfixe @mounts/<slug>/", async () => {
+    const { pushed, deps } = makeDeps([M("b")]);
+    const mgr = new MountSyncManager(deps);
+    await mgr.start();
+    // Provenance non-null mais chemin natif (pas de préfixe @mounts/<slug>/) :
+    // un déplacement hors montage qui aurait corrompu le salon source.
+    mgr.onEntityChange({
+      sourceVaultId: "cloud:|b",
+      op: { opId: "1", clientId: "", kind: "upsert", entityId: "x", ts: 1,
+            payload: { id: "x", typeId: "note", typeName: "note", filePath: "Notes/a.md",
+              fields: {}, body: "", tags: [], createdAt: "", updatedAt: "" } },
+    });
+    expect(pushed).toEqual([]);
+  });
+
   it("démontage : stop le client retiré + purge sa provenance", async () => {
     const deps0 = makeDeps([M("b"), M("c")]);
     const mgr = new MountSyncManager(deps0.deps);
