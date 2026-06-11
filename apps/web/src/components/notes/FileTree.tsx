@@ -65,6 +65,7 @@ import {
   PencilSimple,
   Phone,
   Pizza,
+  Plugs,
   Plus,
   ShoppingCart,
   SquaresFour,
@@ -88,6 +89,7 @@ import { Button, Input } from "@heroui/react";
 import type { Folder as FolderType } from "./fixtures";
 import { useTranslations } from "next-intl";
 import { ContextMenu, useContextMenu, useToast } from "@supernote/ui";
+import { ConnectVaultModal } from "./ConnectVaultModal";
 import { useUpdateFolder, useReorderFolders, useMoveFolder } from "./hooks";
 import { trpc, trpcVanillaClient } from "@/lib/trpc/client";
 import { folderAccentVars } from "@/lib/folderAccent";
@@ -555,6 +557,8 @@ export function FileTree({
   // root so it can render above the scroll container without clipping.
   const ctx = useContextMenu();
 
+  const [connectVaultOpen, setConnectVaultOpen] = useState(false);
+
   const [picker, setPicker] = useState<PickerState | null>(null);
   const openPicker = (kind: PickerKind, path: string, e: React.MouseEvent) => {
     setPicker({ kind, path, x: e.clientX, y: e.clientY });
@@ -789,6 +793,11 @@ export function FileTree({
             label={t("newNote")}
             icon={<Plus size={13} />}
           />
+          <ActionButton
+            onClick={() => setConnectVaultOpen(true)}
+            label="Connecter un vault"
+            icon={<Plugs size={13} />}
+          />
           {onCollapse && (
             <ActionButton
               onClick={onCollapse}
@@ -874,6 +883,7 @@ export function FileTree({
 
       <ContextMenu state={ctx.state} onClose={ctx.close} />
       <FolderCustomizationPicker state={picker} onClose={closePicker} />
+      <ConnectVaultModal isOpen={connectVaultOpen} onOpenChange={setConnectVaultOpen} />
 
       <div
         className="border-t p-2"
