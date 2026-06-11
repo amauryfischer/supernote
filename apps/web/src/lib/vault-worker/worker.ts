@@ -353,6 +353,7 @@ function emitEntityChange(
       id?: string;
       typeId?: string;
       typeName?: string;
+      typeFields?: unknown[];
       filePath?: string;
       fields?: Record<string, unknown>;
       body?: string;
@@ -375,6 +376,9 @@ function emitEntityChange(
           id: e.id,
           typeId: e.typeId ?? "",
           typeName: e.typeName ?? "",
+          // Type column defs so a receiver can recreate an unknown custom base
+          // WITH its columns. `entitiesGet` (the hook's entity source) sets it.
+          ...(Array.isArray(e.typeFields) ? { typeFields: e.typeFields } : {}),
           filePath: e.filePath ?? "",
           fields: e.fields ?? {},
           body: e.body ?? "",

@@ -16,6 +16,12 @@ export const EntityOpPayloadSchema = z.object({
   id: z.string(),
   typeId: z.string(),
   typeName: z.string(),
+  /**
+   * Column definitions of the entity's type (`entity_type.fields`). Lets a
+   * receiver recreate an unknown custom base WITH its columns instead of an
+   * empty `[]` schema. Optional for backward-compat with older producers.
+   */
+  typeFields: z.array(z.unknown()).optional(),
   filePath: z.string(),
   fields: z.record(z.string(), z.unknown()),
   body: z.string(),

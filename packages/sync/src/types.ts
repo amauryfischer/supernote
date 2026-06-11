@@ -25,6 +25,15 @@ export interface EntityOpPayload {
   id: string;
   typeId: string;
   typeName: string;
+  /**
+   * Column definitions of the entity's type (the `entity_type.fields` blob).
+   * Carried alongside `typeName` so a receiver that has never seen this type
+   * can recreate it WITH its custom columns instead of an empty `[]` schema —
+   * otherwise every base synced to a fresh device loses all its columns.
+   * Optional: absent on ops produced by older clients; the receiver then keeps
+   * whatever it already has and falls back to `[]` for a brand-new type.
+   */
+  typeFields?: unknown[];
   filePath: string;
   fields: Record<string, unknown>;
   body: string;

@@ -46,6 +46,7 @@ import {
   buildVaultFormulaContext,
 } from "./variables";
 import { resolveMountWrite, crossProvenanceCollision, isMountedPath } from "./mount-provenance";
+import { decodeTagPaths } from "./tag-paths";
 
 type SqlValue = string | number | null | Uint8Array;
 type SqlRow = Record<string, SqlValue>;
@@ -745,7 +746,7 @@ export function buildRouter(
   const entitiesGet = async (input: unknown): Promise<unknown> => {
     const { id } = input as { id: string };
     const r = row(db.exec(
-      `SELECT e.id, e.typeId, et.name as typeName, e.filePath, e.fields, e.body, e.sourceVaultId, e.createdAt, e.updatedAt,
+      `SELECT e.id, e.typeId, et.name as typeName, et.fields as typeFields, e.filePath, e.fields, e.body, e.sourceVaultId, e.createdAt, e.updatedAt,
               (SELECT GROUP_CONCAT(t.path, char(31))
                  FROM entity_tag etag
                  JOIN tag t ON t.id = etag.tagId
@@ -758,7 +759,11 @@ export function buildRouter(
       filePath: string;
       typeName: string;
       fields: Record<string, unknown>;
+      typeFields?: unknown[];
     };
+    // Carry the type's column defs so the online-sync `ENTITY_CHANGE` op can
+    // transport them (a receiver recreates an unknown custom base WITH columns).
+    api.typeFields = parseTypeFieldsBlob(r["typeFields"]);
     // Canvas hydration: when the entity references a sibling `.excalidraw`,
     // read it and inject the reconstituted JSON back into `fields.data`
     // (canvas entities) or `fields.canvas` (notes with canvas view) so
@@ -3339,6 +3344,9 @@ export function buildRouter(
       id: string;
       typeId: string;
       typeName: string;
+      // Column defs of the entity's type (`entity_type.fields`). Travels so a
+      // receiver can recreate an unknown custom base WITH its columns.
+      typeFields?: unknown[];
       filePath: string;
       fields: Record<string, unknown>;
       body: string;
@@ -3356,7 +3364,8 @@ export function buildRouter(
   /** Full snapshot of the vault as one `upsert` op per entity. */
   const syncSnapshot = async (): Promise<unknown> => {
     const res = db.exec(
-      `SELECT e.id, e.typeId, et.name AS typeName, e.filePath, e.fields, e.body,
+      `SELECT e.id, e.typeId, et.name AS typeName, et.fields AS typeFields,
+              e.filePath, e.fields, e.body,
               e.createdAt, e.updatedAt,
               (SELECT GROUP_CONCAT(t.path, char(31))
                  FROM entity_tag etag JOIN tag t ON t.id = etag.tagId
@@ -3378,10 +3387,11 @@ export function buildRouter(
           id: r["id"] as string,
           typeId: r["typeId"] as string,
           typeName: (r["typeName"] as string) ?? "",
+          typeFields: parseTypeFieldsBlob(r["typeFields"]),
           filePath: (r["filePath"] as string) ?? "",
           fields: safeParseFieldsBlob((r["fields"] as string) || "{}"),
           body: (r["body"] as string) ?? "",
-          tags: tagPaths ? tagPaths.split("").filter(Boolean) : [],
+          tags: decodeTagPaths(tagPaths),
           createdAt: (r["createdAt"] as string) ?? updatedAt,
           updatedAt,
         },
@@ -3461,25 +3471,43 @@ export function buildRouter(
           skipped++;
           continue;
         }
-        let typeRow = row(db.exec(`SELECT name FROM entity_type WHERE id = ?`, [payload.typeId]));
+        // Column defs carried by the op (`entity_type.fields`). Empty for
+        // delete ops, older producers, or system types with no custom columns.
+        const opTypeFields = Array.isArray(payload.typeFields) ? payload.typeFields : [];
+        let typeRow = row(db.exec(`SELECT name, fields FROM entity_type WHERE id = ?`, [payload.typeId]));
         if (!typeRow) {
-          // Unknown entity type on this device — create a minimal non-system
-          // type on the fly so mounted (or freshly-synced) entities can satisfy
-          // the FK instead of being dropped.
+          // Unknown entity type on this device — recreate it WITH the columns
+          // the producer transported, so a synced custom base keeps its schema
+          // instead of arriving with an empty `[]` (the old data-loss bug). Any
+          // mounted/freshly-synced entity then satisfies the FK with full defs.
           const nowIso = now();
           db.run(
             `INSERT OR IGNORE INTO entity_type (id, vaultId, name, plural, fields, isSystem, createdAt, updatedAt)
-             VALUES (?, ?, ?, ?, '[]', 0, ?, ?)`,
+             VALUES (?, ?, ?, ?, ?, 0, ?, ?)`,
             [
               payload.typeId,
               vaultId,
               payload.typeName || payload.typeId,
               payload.typeName || payload.typeId,
+              JSON.stringify(opTypeFields),
               nowIso,
               nowIso,
             ],
           );
           typeRow = { name: payload.typeName || payload.typeId };
+        } else if (opTypeFields.length > 0) {
+          // The type already exists locally but may have been created earlier
+          // with an empty `[]` (a minimal stub from before columns travelled, or
+          // an op that arrived in a different order). Backfill the columns when
+          // the op carries them and the local copy is still empty — never clobber
+          // a non-empty local schema (LWW on entities, not on type defs here).
+          const localFields = parseTypeFieldsBlob(typeRow["fields"]);
+          if (localFields.length === 0) {
+            db.run(
+              `UPDATE entity_type SET fields = ?, updatedAt = ? WHERE id = ?`,
+              [JSON.stringify(opTypeFields), now(), payload.typeId],
+            );
+          }
         }
         // Mounted ops store under `@mounts/<slug>/…`; native ops keep their path.
         const { filePath: storedPath } = resolveMountWrite(payload.filePath, provenance);
@@ -3690,6 +3718,22 @@ export function buildRouter(
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /**
+ * Parse an `entity_type.fields` blob (a JSON array of column definitions) into
+ * an array. Returns `[]` for NULL / empty / malformed input so a sync payload
+ * always carries a well-formed `typeFields`. Accepts the raw SQL cell value
+ * (`unknown`) since callers read it straight off a row.
+ */
+function parseTypeFieldsBlob(raw: unknown): unknown[] {
+  if (typeof raw !== "string" || raw.length === 0) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Parse the JSON-encoded `fields` blob defensively. A previous bad code path
  * could store the blob as a string-of-JSON-string (or even deeper), which
  * makes plain `JSON.parse` return a string. Spreading that string elsewhere
@@ -3795,13 +3839,8 @@ function parseCanvasJson(json: string): {
 
 function entityRowToApi(r: SqlRow): unknown {
   const fields = safeParseFieldsBlob((r["fields"] as string) || "{}");
-  // tagPaths is GROUP_CONCAT of `tag.path` with US (\x1F) separator. NULL
-  // when the entity has no tags (correlated sub-select returned no rows).
-  // Splitting on a non-printable separator is safe even when paths contain
-  // commas, quotes, or other punctuation users might type into a tag.
-  const rawTags = r["tagPaths"];
-  const tags =
-    typeof rawTags === "string" && rawTags.length > 0 ? rawTags.split("\x1F") : [];
+  // Decode the US-joined GROUP_CONCAT of tag paths (see ./tag-paths).
+  const tags = decodeTagPaths(r["tagPaths"]);
   return {
     id: r["id"],
     typeId: r["typeId"],
