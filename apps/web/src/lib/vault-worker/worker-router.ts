@@ -47,6 +47,7 @@ import {
 } from "./variables";
 import { resolveMountWrite, crossProvenanceCollision, isMountedPath } from "./mount-provenance";
 import { decodeTagPaths } from "./tag-paths";
+import { sanitizePath, stripPathSlashes, sanitizeFolderPath, derivePath } from "./path-utils";
 
 type SqlValue = string | number | null | Uint8Array;
 type SqlRow = Record<string, SqlValue>;
@@ -85,16 +86,6 @@ function now(): string {
 }
 
 // ── FTS5 index helpers ────────────────────────────────────────────────────────
-
-/**
- * Tokenize a `filePath` (e.g. `Maison VLM/Courses Leroy Merlin/note.md`) into
- * a search-friendly string by stripping `.md`, splitting on `/`, and joining
- * with spaces so FTS5 indexes each path segment as its own term.
- */
-function derivePath(filePath: string | null): string {
-  if (!filePath) return "";
-  return filePath.replace(/\.md$/i, "").split("/").join(" ");
-}
 
 /**
  * Extract a searchable title from an entity's `fields` JSON.
@@ -435,14 +426,6 @@ export function buildRouter(
       }
     }
     return Array.from(out);
-  }
-
-  function sanitizeFolderPath(p: string): string {
-    return p
-      .replace(/^\/+|\/+$/g, "")
-      .split("/")
-      .filter((seg) => seg && seg !== "..")
-      .join("/");
   }
 
   /**
@@ -805,10 +788,7 @@ export function buildRouter(
     // the type's `defaultPath`. We sanitize then strip `fields.filePath`
     // so it's not double-stored in the JSON blob.
     const requestedFullPath = typeof fields["filePath"] === "string"
-      ? (fields["filePath"] as string)
-          .replace(/\.\./g, "")
-          .replace(/^\/+|\/+$/g, "")
-          .trim()
+      ? sanitizePath(fields["filePath"] as string)
       : "";
     let relativePath: string;
     if (requestedFullPath) {
@@ -818,7 +798,7 @@ export function buildRouter(
       delete fields["filePath"];
     } else {
       const fileName = `${id}.md`;
-      const dir = ((typeRow["defaultPath"] as string) ?? "").replace(/^\/+|\/+$/g, "");
+      const dir = stripPathSlashes((typeRow["defaultPath"] as string) ?? "");
       relativePath = dir ? `${dir}/${fileName}` : fileName;
     }
 
@@ -943,9 +923,7 @@ export function buildRouter(
     // Normalize the requested path: strip ".." segments and leading/trailing
     // slashes so a malicious caller can't escape the vault root.
     const cleanedNextPath =
-      typeof rawNextPath === "string"
-        ? rawNextPath.replace(/\.\./g, "").replace(/^\/+|\/+$/g, "").trim()
-        : "";
+      typeof rawNextPath === "string" ? sanitizePath(rawNextPath) : "";
     const isMove = cleanedNextPath.length > 0 && cleanedNextPath !== oldPath;
     const effectivePath = isMove ? cleanedNextPath : oldPath;
 
@@ -3235,7 +3213,7 @@ export function buildRouter(
   // vault root.
   const vaultReadFile = async (input: unknown): Promise<unknown> => {
     const { path } = input as { path: string };
-    const clean = path.replace(/\.\./g, "").replace(/^\/+|\/+$/g, "").trim();
+    const clean = sanitizePath(path);
     if (!clean) throw new Error("vault.readFile: empty path");
     const segments = clean.split("/");
     // Single retry after 250ms — covers the common case of a cloud-synced
@@ -3285,7 +3263,7 @@ export function buildRouter(
       path: string;
       bytes: ArrayBuffer | Uint8Array;
     };
-    const clean = path.replace(/\.\./g, "").replace(/^\/+|\/+$/g, "").trim();
+    const clean = sanitizePath(path);
     if (!clean) throw new Error("vault.writeFile: empty path");
     const segments = clean.split("/");
     return runSerialized(clean, async () => {
