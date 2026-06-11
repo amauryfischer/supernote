@@ -2,16 +2,16 @@
 
 import {
   AppShell,
+  MobileSheet,
   useMobileTitle,
   useMobileFab,
   useMobileHeaderActions,
   type MobileHeaderAction,
 } from "@/components/shell";
 import { useIsMobile } from "@/hooks/useIsMobile";
-import { JournalCalendar, JournalEditor } from "@/components/journal";
+import { JournalEditor, JournalSidebar } from "@/components/journal";
 import { useRouter, useParams } from "next/navigation";
-import { useMemo, useState } from "react";
-import { Button } from "@heroui/react";
+import { useCallback, useMemo, useState } from "react";
 import { CalendarBlank, PencilSimple } from "@phosphor-icons/react";
 import { DAILY_JOURNAL } from "@supernote/templates";
 
@@ -47,17 +47,20 @@ function DateJournalContent({ date }: { date: string }) {
   const isMobile = useIsMobile();
   const today = todayYMD();
   const [selectedDate, setSelectedDate] = useState<string>(date);
+  const [isCalendarOpen, setCalendarOpen] = useState(false);
   const initialMarkdown = useMemo(() => buildInitialMarkdown(selectedDate), [selectedDate]);
 
-  const handleSelectDate = (d: string) => {
+  const handleSelectDate = useCallback((d: string) => {
     setSelectedDate(d);
+    setCalendarOpen(false);
     router.push(`/journal/${d}`, { scroll: false });
-  };
+  }, [router]);
 
-  const handleToday = () => {
+  const handleToday = useCallback(() => {
     setSelectedDate(today);
+    setCalendarOpen(false);
     router.push(`/journal/${today}`, { scroll: false });
-  };
+  }, [router, today]);
 
   const mobileTitle = useMemo(() => {
     const d = new Date(selectedDate + "T12:00:00");
@@ -70,13 +73,13 @@ function DateJournalContent({ date }: { date: string }) {
     if (!isMobile) return [];
     return [
       {
-        id: "today",
+        id: "calendar",
         icon: CalendarBlank,
-        label: "Aujourd'hui",
-        onPress: handleToday,
+        label: "Calendrier",
+        onPress: () => setCalendarOpen(true),
       },
     ];
-  }, [isMobile, handleToday]);
+  }, [isMobile]);
 
   useMobileHeaderActions(mobileHeaderActions);
 
@@ -92,7 +95,7 @@ function DateJournalContent({ date }: { date: string }) {
 
   return (
     <div className="flex h-full overflow-hidden">
-      {/* Sidebar: calendar — hidden on mobile */}
+      {/* Sidebar: calendar — desktop only; mobile uses the bottom sheet below */}
       <aside
         className="hidden md:flex flex-col border-r"
         style={{
@@ -102,39 +105,32 @@ function DateJournalContent({ date }: { date: string }) {
           borderColor: "var(--border-subtle)",
         }}
       >
-        <div
-          className="flex items-center justify-between px-4 py-3"
-          style={{ borderBottom: "1px solid var(--border-subtle)" }}
-        >
-          <div className="flex items-center gap-2">
-            <CalendarBlank size={14} style={{ color: "var(--accent)" }} />
-            <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
-              Journal
-            </span>
-          </div>
-          <Button
-            onPress={handleToday}
-            size="sm"
-            className="rounded px-2 py-0.5 text-[11px] font-medium"
-            style={{
-              backgroundColor: "var(--accent-subtle)",
-              color: "var(--accent)",
-            }}
-          >
-            Aujourd'hui
-          </Button>
-        </div>
-        <div className="mt-3">
-          <JournalCalendar
-            selectedDate={selectedDate}
-            datesWithNote={MOCK_DATES_WITH_NOTE}
-            onSelectDate={handleSelectDate}
-          />
-        </div>
+        <JournalSidebar
+          selectedDate={selectedDate}
+          datesWithNote={MOCK_DATES_WITH_NOTE}
+          onSelectDate={handleSelectDate}
+          onToday={handleToday}
+        />
       </aside>
       <main className="flex-1 overflow-hidden" style={{ backgroundColor: "var(--surface-0)" }}>
         <JournalEditor date={selectedDate} initialMarkdown={initialMarkdown} />
       </main>
+
+      {/* Mobile: calendar exposed as a bottom sheet (opened from header action) */}
+      <MobileSheet
+        isOpen={isCalendarOpen}
+        onClose={() => setCalendarOpen(false)}
+        title="Calendrier"
+        size="md"
+      >
+        <JournalSidebar
+          embedded
+          selectedDate={selectedDate}
+          datesWithNote={MOCK_DATES_WITH_NOTE}
+          onSelectDate={handleSelectDate}
+          onToday={handleToday}
+        />
+      </MobileSheet>
     </div>
   );
 }
