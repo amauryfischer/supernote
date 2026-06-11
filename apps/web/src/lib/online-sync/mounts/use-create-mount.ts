@@ -34,7 +34,9 @@ export function useCreateMount() {
     // paire en deux salons distincts (cf. normalizeVaultKey).
     const vaultKey = normalizeVaultKey(args.vaultKey);
     if (!vaultKey) throw new Error("Une clé de salon est requise.");
-    if (!serverUrl) throw new Error("Une adresse de serveur est requise.");
+    // serverUrl vide = même origine que l'app (cf. modèle de données : "" =
+    // même origine). La sonde ci-dessous tape alors `/api/sync/info` en
+    // relatif, soit le serveur de l'app lui-même.
 
     // Sonde le serveur avant de créer le montage (erreur immédiate et lisible).
     let res: Response;
