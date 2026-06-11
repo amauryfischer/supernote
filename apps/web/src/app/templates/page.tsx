@@ -1,12 +1,14 @@
 "use client";
 
-import { AppShell, useMobileTitle } from "@/components/shell";
+import { AppShell, useMobileTitle, useMobileFab } from "@/components/shell";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { TemplateEditor, TemplateList } from "@/components/templates";
+import { useApplyTemplate } from "@/components/templates/useApplyTemplate";
 import { SEED_TEMPLATES } from "@supernote/templates";
 import { trpc } from "@/lib/trpc/client";
 import type { Template } from "@supernote/templates";
 import type { TemplateIpc } from "@supernote/ipc";
+import { FilePlus } from "@phosphor-icons/react";
 import { useState, useCallback } from "react";
 
 // ── IPC adapter ───────────────────────────────────────────────────────────
@@ -68,6 +70,7 @@ function TemplatesPageContent() {
     onSuccess: () => { void listQuery.refetch(); },
   });
   const testMutation = trpc.templates.test.useMutation();
+  const { apply, isApplying, modal: applyModal } = useApplyTemplate();
 
   // Fallback: use local state when IPC unavailable
   const useFallback = listQuery.isError;
@@ -84,6 +87,18 @@ function TemplatesPageContent() {
   // editor below taking full width.
   useMobileTitle(
     isMobile ? (selected?.name ?? "Templates") : null,
+  );
+
+  // Mobile FAB: apply the selected template (interpolate placeholders + create
+  // a note). Mirrors the desktop "Appliquer" button in the editor header.
+  useMobileFab(
+    isMobile && selected
+      ? {
+          icon: FilePlus,
+          label: "Appliquer le template",
+          onPress: () => apply(selected),
+        }
+      : null,
   );
 
   const handleSave = useCallback((updated: Template) => {
@@ -168,6 +183,8 @@ function TemplatesPageContent() {
             key={selected.id}
             template={selected}
             onSave={handleSave}
+            onApply={apply}
+            isApplying={isApplying}
             onTest={
               useFallback
                 ? undefined
@@ -186,6 +203,9 @@ function TemplatesPageContent() {
           </div>
         )}
       </main>
+
+      {/* Prompt flow for {{prompt:…}} placeholders when applying a template. */}
+      {applyModal}
     </div>
   );
 }

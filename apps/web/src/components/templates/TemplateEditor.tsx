@@ -4,7 +4,7 @@ import { useCallback, useState } from "react";
 import { Button, Input, TextArea } from "@heroui/react";
 import { listVariables, renderTemplate } from "@supernote/templates";
 import type { Template, TemplateResolvers } from "@supernote/templates";
-import { Play, Tag } from "@phosphor-icons/react";
+import { FilePlus, Play, Tag } from "@phosphor-icons/react";
 
 interface TemplateEditorProps {
   template: Template;
@@ -15,6 +15,14 @@ interface TemplateEditorProps {
    * When not provided, a local mock renderer is used.
    */
   onTest?: (body: string) => Promise<{ rendered: string; error?: string }>;
+  /**
+   * Apply the template at runtime: interpolate its placeholders ({{date}},
+   * {{time}}, {{prompt}}…) and create a note from the result. Receives the
+   * template as currently edited so "what you see is what you apply".
+   */
+  onApply?: (template: Template) => void;
+  /** True while a note is being created from a template. */
+  isApplying?: boolean;
 }
 
 /** Minimal mock resolvers for the local "Test" preview feature. */
@@ -31,7 +39,7 @@ function buildMockResolvers(): TemplateResolvers {
   };
 }
 
-export function TemplateEditor({ template, onSave, onTest }: TemplateEditorProps) {
+export function TemplateEditor({ template, onSave, onTest, onApply, isApplying }: TemplateEditorProps) {
   const [name, setName] = useState(template.name);
   const [entityType, setEntityType] = useState(template.entityType ?? "");
   const [body, setBody] = useState(template.body);
@@ -41,8 +49,14 @@ export function TemplateEditor({ template, onSave, onTest }: TemplateEditorProps
 
   const variables = listVariables({ ...template, body });
 
+  const edited: Template = { ...template, name, entityType: entityType || undefined, body };
+
   const handleSave = () => {
-    onSave({ ...template, name, entityType: entityType || undefined, body });
+    onSave(edited);
+  };
+
+  const handleApply = () => {
+    onApply?.(edited);
   };
 
   const handleTest = useCallback(async () => {
@@ -100,6 +114,18 @@ export function TemplateEditor({ template, onSave, onTest }: TemplateEditorProps
             <Play size={12} />
             {isRendering ? "Rendu…" : "Tester"}
           </Button>
+          {onApply && (
+            <Button
+              variant="secondary"
+              onPress={handleApply}
+              isDisabled={isApplying}
+              className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors"
+              style={{ backgroundColor: "var(--surface-2)", color: "var(--text-secondary)" }}
+            >
+              <FilePlus size={12} />
+              {isApplying ? "Création…" : "Appliquer"}
+            </Button>
+          )}
           <Button
             variant="primary"
             onPress={handleSave}

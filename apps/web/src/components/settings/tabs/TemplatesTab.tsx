@@ -1,6 +1,7 @@
 "use client";
 
 import { TemplateEditor, TemplateList } from "@/components/templates";
+import { useApplyTemplate } from "@/components/templates/useApplyTemplate";
 import { SEED_TEMPLATES } from "@supernote/templates";
 import { trpc } from "@/lib/trpc/client";
 import type { Template } from "@supernote/templates";
@@ -65,6 +66,7 @@ export function TemplatesTab() {
     onSuccess: () => { void listQuery.refetch(); },
   });
   const testMutation = trpc.templates.test.useMutation();
+  const { apply, isApplying, modal: applyModal } = useApplyTemplate();
 
   // Fallback: use local state when IPC unavailable
   const useFallback = listQuery.isError;
@@ -160,6 +162,8 @@ export function TemplatesTab() {
             key={selected.id}
             template={selected}
             onSave={handleSave}
+            onApply={apply}
+            isApplying={isApplying}
             onTest={
               useFallback
                 ? undefined
@@ -178,6 +182,9 @@ export function TemplatesTab() {
           </div>
         )}
       </main>
+
+      {/* Prompt flow for {{prompt:…}} placeholders when applying a template. */}
+      {applyModal}
     </div>
   );
 }
