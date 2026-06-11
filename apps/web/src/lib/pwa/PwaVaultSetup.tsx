@@ -52,6 +52,7 @@ import {
   removeCloudVault,
   cloudVaultId,
 } from "@/lib/online-sync/config-storage";
+import { cloudRoomSlug } from "@/lib/online-sync/room-id";
 import { clearPendingOps } from "@/lib/online-sync/pendingStore";
 
 const DEGRADED_STORAGE_KEY = "supernote.degraded";
@@ -81,21 +82,6 @@ const CLOUD_OPFS_DIR = "supernote-cloud";
 const CLOUD_ROOMS_DIR = "rooms";
 const CLOUD_META_DIR = ".supernote";
 const CLOUD_DB_OWNER_FILE = "db-owner.json";
-
-/** Filesystem-safe, deterministic directory name for a cloud room id. */
-function cloudRoomSlug(cloudId: string): string {
-  // djb2 over the full id guards against two ids colliding after sanitising.
-  let h = 5381;
-  for (let i = 0; i < cloudId.length; i++) {
-    h = ((h << 5) + h + cloudId.charCodeAt(i)) >>> 0;
-  }
-  const readable = cloudId
-    .replace(/^cloud:/, "")
-    .replace(/[^a-zA-Z0-9._-]+/g, "-")
-    .replace(/^[-.]+|[-.]+$/g, "")
-    .slice(0, 40);
-  return `${readable || "room"}-${h.toString(36)}`;
-}
 
 async function getCloudBaseDir(): Promise<FileSystemDirectoryHandle> {
   const root = await navigator.storage.getDirectory();
