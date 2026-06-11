@@ -23,6 +23,7 @@ import { PwaVaultSetup } from "@/lib/pwa/PwaVaultSetup";
 import { AutomationNotificationBridge } from "@/lib/pwa/AutomationNotificationBridge";
 import { GitSyncProvider } from "@/lib/git/GitSyncProvider";
 import { OnlineSyncProvider } from "@/lib/online-sync/OnlineSyncProvider";
+import { MountSyncProvider } from "@/lib/online-sync/mounts/MountSyncProvider";
 import { PromptProvider } from "@/hooks/usePrompt";
 import { SettingsProvider } from "@/components/settings/SettingsContext";
 import { UiSoundBridge } from "@/lib/uiSounds";
@@ -65,7 +66,9 @@ export function RootLayout() {
                 <PwaVaultSetup>
                   <GitSyncProvider>
                     <OnlineSyncProvider>
-                      <Outlet />
+                      <MountSyncProvider>
+                        <Outlet />
+                      </MountSyncProvider>
                     </OnlineSyncProvider>
                   </GitSyncProvider>
                 </PwaVaultSetup>

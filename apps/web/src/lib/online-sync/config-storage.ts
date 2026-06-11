@@ -13,6 +13,8 @@
  * lower-risk home — same trust boundary the user already grants the app.
  */
 
+import { normalizeServerUrl, normalizeVaultKey, cloudVaultId } from "./room-id";
+
 const CONFIG_KEY = "supernote.onlineSync.config";
 const CLIENT_ID_KEY = "supernote.onlineSync.clientId";
 
@@ -54,20 +56,7 @@ export const DEFAULT_ONLINE_SYNC_CONFIG: OnlineSyncConfig = {
   epoch: "",
 };
 
-/**
- * Canonicalise a room key. The server partitions the op-log by an exact,
- * case-sensitive string match (`WHERE vault = ?`), so two devices must send
- * byte-identical keys to share a vault. A human typing the same word on a
- * laptop and a phone is the intended pairing flow — but mobile keyboards
- * auto-capitalise the first letter by default, silently turning `amaury` into
- * `Amaury` and splitting the pair into two empty vaults. Folding to lowercase
- * (after trimming) makes the key case-insensitive so the keyboard can't break
- * pairing. Applied on both save and load, so devices that already persisted a
- * mis-cased key heal themselves on the next boot without re-entering it.
- */
-export function normalizeVaultKey(key: string): string {
-  return key.trim().toLowerCase();
-}
+export { normalizeServerUrl, normalizeVaultKey, cloudVaultId } from "./room-id";
 
 export function loadOnlineSyncConfig(): OnlineSyncConfig {
   if (typeof localStorage === "undefined") return { ...DEFAULT_ONLINE_SYNC_CONFIG };
@@ -137,20 +126,13 @@ export interface CloudVaultEntry {
   lastOpenedAt: number;
 }
 
-/** Canonical server url for id/dedup — trimmed, no trailing slash. */
-function normalizeServerUrl(url: string): string {
-  return url.trim().replace(/\/+$/, "");
-}
-
 /**
  * Stable id for a cloud vault. Two forms/devices resolving to the same
  * (server, key) pair collapse to one registry entry. The `cloud:` prefix keeps
  * these ids disjoint from the FSA registry's (random uuid) ids, so a single
  * switcher can list both kinds and dispatch on the prefix without collision.
+ * Re-exported from `./room-id` above.
  */
-export function cloudVaultId(serverUrl: string, vaultKey: string): string {
-  return `cloud:${normalizeServerUrl(serverUrl)}|${normalizeVaultKey(vaultKey)}`;
-}
 
 /** All known cloud vaults, most-recently-opened first. */
 export function listCloudVaults(): CloudVaultEntry[] {

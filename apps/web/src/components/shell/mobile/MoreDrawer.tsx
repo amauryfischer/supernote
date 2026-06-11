@@ -12,6 +12,7 @@ import {
   GridNine,
   Lightning,
   Moon,
+  Plugs,
   Sun,
   Tag,
   Users,
@@ -25,6 +26,7 @@ import { memo, useCallback, useEffect, useState } from "react";
 import { NotificationBadge, useNotifications } from "@supernote/notifications/renderer";
 import { useVault } from "@/lib/pwa/PwaVaultSetup";
 import { MobileVaultSwitcher } from "./MobileVaultSwitcher";
+import { ConnectVaultModal } from "@/components/notes/ConnectVaultModal";
 
 const THEME_CYCLE: ThemeValue[] = ["light", "dark", "system"];
 
@@ -137,6 +139,7 @@ export const MoreDrawer = memo(function MoreDrawer({
   const { unreadCount } = useNotifications();
   const vault = useVault();
   const [switcherOpen, setSwitcherOpen] = useState(false);
+  const [connectVaultOpen, setConnectVaultOpen] = useState(false);
   // Reset to the menu whenever the drawer closes, so reopening "Plus" never
   // lands back on the switcher sub-view (the X / backdrop / Bell paths close
   // the drawer without touching switcherOpen).
@@ -343,10 +346,49 @@ export const MoreDrawer = memo(function MoreDrawer({
               </div>
             </div>
           ))}
+
+          {/* Coffres — entrée pour connecter un salon cloud (ouvre la même
+              modale que le bouton « Connecter un vault » du FileTree desktop). */}
+          <div className="mb-6">
+            <p
+              className="mb-1.5 px-3 text-[11px] font-semibold uppercase tracking-wider"
+              style={{ color: "var(--text-muted)" }}
+            >
+              Coffres
+            </p>
+            <div
+              className="overflow-hidden rounded-2xl"
+              style={{ backgroundColor: "var(--surface-1)" }}
+            >
+              <button
+                type="button"
+                onClick={() => setConnectVaultOpen(true)}
+                className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors active:bg-[var(--surface-2)]"
+                style={{ color: "var(--text-primary)" }}
+              >
+                <span
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
+                  style={{
+                    backgroundColor:
+                      "color-mix(in oklch, oklch(0.62 0.20 220) 18%, transparent)",
+                    color: "oklch(0.62 0.20 220)",
+                  }}
+                >
+                  <Plugs size={18} weight="duotone" />
+                </span>
+                <span className="flex-1 text-[15px] font-medium">
+                  Connecter un vault
+                </span>
+                <CaretRight size={14} style={{ color: "var(--text-muted)" }} />
+              </button>
+            </div>
+          </div>
             </>
           )}
         </div>
       </div>
+
+      <ConnectVaultModal isOpen={connectVaultOpen} onOpenChange={setConnectVaultOpen} />
     </Drawer>
   );
 });

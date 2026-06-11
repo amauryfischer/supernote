@@ -35,8 +35,11 @@ import {
   loadOnlineSyncConfig,
   saveOnlineSyncConfig,
   getOrCreateClientId,
+  normalizeVaultKey,
+  upsertCloudVault,
   type OnlineSyncConfig,
 } from "./config-storage";
+import { isCloudVaultActive } from "@/lib/trpc/client";
 import { loadPendingOps, savePendingOps } from "./pendingStore";
 import { OnlineSyncClient, type OnlineSyncStatus } from "./client";
 
@@ -67,19 +70,40 @@ export function OnlineSyncProvider({ children }: { children: React.ReactNode }) 
 
   const enable = useCallback(
     (settings: { serverUrl: string; vaultKey: string; token: string }) => {
+      const vaultKey = normalizeVaultKey(settings.vaultKey);
+      // Changing ROOM while a cloud vault is mounted must go through the
+      // full switch flow (worker teardown → db-owner bookkeeping → reset
+      // boot on the new room's namespaced dir). Just rewriting the config
+      // here would keep the worker mounted on the OLD room's directory and
+      // apply the new room's ops into it — cross-room contamination.
+      if (isCloudVaultActive()) {
+        const cur = loadOnlineSyncConfig();
+        const changingRoom =
+          `${settings.serverUrl}|${vaultKey}` !==
+          `${cur.serverUrl}|${normalizeVaultKey(cur.vaultKey)}`;
+        if (changingRoom && vault?.switchToVault) {
+          const entry = upsertCloudVault({
+            serverUrl: settings.serverUrl,
+            vaultKey,
+            token: settings.token,
+          });
+          void vault.switchToVault(entry.id);
+          return;
+        }
+      }
       // Changing connection target resets the cursor + seed so the new room
       // gets a fresh snapshot and replays from the start.
       persist({
         enabled: true,
         serverUrl: settings.serverUrl,
-        vaultKey: settings.vaultKey,
+        vaultKey,
         token: settings.token,
         lastSeq: 0,
         seeded: false,
         epoch: "",
       });
     },
-    [persist],
+    [persist, vault],
   );
 
   const disable = useCallback(() => {
@@ -111,15 +135,52 @@ export function OnlineSyncProvider({ children }: { children: React.ReactNode }) 
     }
 
     const clientId = getOrCreateClientId();
+    // Cursor fields come from the SOURCE OF TRUTH at construction time, not
+    // from React state: PwaVaultSetup may have just reset them (DB-owner
+    // mismatch at boot) AFTER this component's initial state was captured,
+    // and the effect deps below intentionally exclude lastSeq/seeded/epoch —
+    // a stale closure here would replay `since=<old seq>` over a freshly
+    // wiped DB and mount the vault permanently blank.
+    const persisted = loadOnlineSyncConfig();
+    // Stale-state short-circuit: right after a vault switch, this effect can
+    // run one commit before the config re-read effect above lands — building
+    // a client for the PREVIOUS room with the NEW room's cursors. The
+    // identity guards below would neuter it, but skipping outright avoids a
+    // wasted /info probe + full replay thrown away in warnings. The imminent
+    // re-render rebuilds with the right config.
+    if (
+      persisted.serverUrl !== config.serverUrl ||
+      persisted.vaultKey !== normalizeVaultKey(config.vaultKey)
+    ) {
+      setStatus("disabled");
+      return;
+    }
+    // Room binding: every callback below re-checks that the persisted config
+    // still designates THIS room before touching anything. A vault switch
+    // rewrites the config before React unmounts/stops this client, so a
+    // late stream batch or RPC continuation from the old room must neither
+    // be applied (it would be queued against the NEW room's worker and
+    // drained into its DB at VAULT_READY) nor persist its cursor/seeded
+    // state into the new room's config.
+    // The key is canonicalised: the persisted side is normalised on save AND
+    // load, while React state may hold the raw user input (e.g. a mobile
+    // keyboard's auto-capitalised key) — comparing raw-to-normalised would
+    // make this guard reject every single callback for the whole session.
+    const boundRoom = `${config.serverUrl}|${normalizeVaultKey(config.vaultKey)}`;
+    const roomStillActive = () => {
+      const cur = loadOnlineSyncConfig();
+      return cur.enabled && `${cur.serverUrl}|${cur.vaultKey}` === boundRoom;
+    };
     const client = new OnlineSyncClient({
       serverUrl: config.serverUrl,
       vaultKey: config.vaultKey,
       token: config.token,
       clientId,
-      initialSeq: config.lastSeq,
-      seeded: config.seeded,
-      epoch: config.epoch,
+      initialSeq: persisted.lastSeq,
+      seeded: persisted.seeded,
+      epoch: persisted.epoch,
       applyOps: async (ops: EntityOp[]) => {
+        if (!roomStillActive()) throw new Error("sync room changed");
         await trpcVanillaClient.sync.applyOps.mutate({ ops });
         // Nudge TanStack Query so the UI reflects peers' changes immediately.
         if (typeof window !== "undefined") {
@@ -131,18 +192,22 @@ export function OnlineSyncProvider({ children }: { children: React.ReactNode }) 
         }
       },
       getSnapshot: async () => {
+        if (!roomStillActive()) throw new Error("sync room changed");
         const res = await trpcVanillaClient.sync.snapshot.query();
         return res.ops as EntityOp[];
       },
       onSeq: (seq) => {
+        if (!roomStillActive()) return;
         const latest = loadOnlineSyncConfig();
         saveOnlineSyncConfig({ ...latest, lastSeq: seq });
       },
       onSeeded: () => {
+        if (!roomStillActive()) return;
         const latest = loadOnlineSyncConfig();
         saveOnlineSyncConfig({ ...latest, seeded: true });
       },
       onEpochChange: (epoch) => {
+        if (!roomStillActive()) return;
         const latest = loadOnlineSyncConfig();
         const firstContact = latest.epoch === "";
         saveOnlineSyncConfig(
@@ -171,8 +236,11 @@ export function OnlineSyncProvider({ children }: { children: React.ReactNode }) 
         typeof msg === "object" &&
         (msg as { type?: string }).type === "ENTITY_CHANGE"
       ) {
-        const op = (msg as { op?: EntityOp }).op;
-        if (op) client.enqueue([op]);
+        const m = msg as { op?: EntityOp; sourceVaultId?: string | null };
+        // Les entités montées (provenance ≠ null) ne vont JAMAIS dans le salon
+        // du père — le MountSyncManager les route vers leur salon d'origine.
+        if (m.sourceVaultId) return;
+        if (m.op) client.enqueue([m.op]);
       }
     });
 
@@ -183,10 +251,18 @@ export function OnlineSyncProvider({ children }: { children: React.ReactNode }) 
     window.addEventListener("pagehide", onHide);
     document.addEventListener("visibilitychange", onHide);
 
+    // Vault switches terminate the worker SYNCHRONOUSLY (and then rewrite
+    // the sync config) long before React commits the state change that runs
+    // this effect's cleanup. Stop the client the moment the worker dies so
+    // no further stream batch is dispatched during that window.
+    const onUnready = () => client.stop();
+    window.addEventListener("supernote:vault-unready", onUnready);
+
     return () => {
       unsub();
       window.removeEventListener("pagehide", onHide);
       document.removeEventListener("visibilitychange", onHide);
+      window.removeEventListener("supernote:vault-unready", onUnready);
       client.stop();
       clientRef.current = null;
     };

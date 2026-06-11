@@ -57,6 +57,7 @@ CREATE TABLE IF NOT EXISTS "entity" (
     "astCache" TEXT,
     "embedding" TEXT,
     "lastEditedBy" TEXT,
+    "sourceVaultId" TEXT,
     "createdAt" TEXT NOT NULL,
     "updatedAt" TEXT NOT NULL,
     FOREIGN KEY ("vaultId") REFERENCES "vault" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
@@ -227,6 +228,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS "entity_vaultId_filePath_key" ON "entity"("vau
 CREATE INDEX IF NOT EXISTS "tag_vaultId_idx" ON "tag"("vaultId");
 CREATE UNIQUE INDEX IF NOT EXISTS "tag_vaultId_path_key" ON "tag"("vaultId", "path");
 CREATE INDEX IF NOT EXISTS "view_vaultId_typeId_idx" ON "view"("vaultId", "typeId");
+CREATE INDEX IF NOT EXISTS "idx_entity_source" ON "entity" ("sourceVaultId");
 CREATE INDEX IF NOT EXISTS "idx_variable_name" ON "variable" ("name");
 CREATE INDEX IF NOT EXISTS "idx_automation_run_automationId_createdAt"
     ON "automation_run" ("automationId", "createdAt" DESC);

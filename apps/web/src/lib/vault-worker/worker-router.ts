@@ -45,6 +45,7 @@ import {
   makeVariableResolver,
   buildVaultFormulaContext,
 } from "./variables";
+import { resolveMountWrite, crossProvenanceCollision, isMountedPath } from "./mount-provenance";
 
 type SqlValue = string | number | null | Uint8Array;
 type SqlRow = Record<string, SqlValue>;
@@ -744,7 +745,7 @@ export function buildRouter(
   const entitiesGet = async (input: unknown): Promise<unknown> => {
     const { id } = input as { id: string };
     const r = row(db.exec(
-      `SELECT e.id, e.typeId, et.name as typeName, e.filePath, e.fields, e.body, e.createdAt, e.updatedAt,
+      `SELECT e.id, e.typeId, et.name as typeName, e.filePath, e.fields, e.body, e.sourceVaultId, e.createdAt, e.updatedAt,
               (SELECT GROUP_CONCAT(t.path, char(31))
                  FROM entity_tag etag
                  JOIN tag t ON t.id = etag.tagId
@@ -840,6 +841,15 @@ export function buildRouter(
       relativePath = candidate;
     }
 
+    // Read-only mount guard (defense in depth): a native create whose resolved
+    // path lands under `@mounts/<slug>/…` would be mis-classified as native
+    // (sourceVaultId NULL) → file written to the PARENT disk + pushed to the
+    // PARENT room (cross-vault contamination). Mounted subtrees are structurally
+    // read-only in V1, so reject the create before any disk write or INSERT.
+    if (isMountedPath(relativePath)) {
+      throw new Error("Lecture seule : impossible de créer une note dans un vault monté.");
+    }
+
     // Canvas split: if fields carry a serialized CanvasDocument (canvas
     // standalone → `data`, notes with canvas view → `canvas`), write it
     // to a sibling `.excalidraw` file and replace the in-frontmatter blob
@@ -906,9 +916,16 @@ export function buildRouter(
     return runSerialized(id, async () => {
     const ts = now();
     const existing = row(db.exec(
-      `SELECT fields, body, filePath, typeId FROM entity WHERE id = ?`, [id],
+      `SELECT fields, body, filePath, typeId, sourceVaultId FROM entity WHERE id = ?`, [id],
     ));
     if (!existing) throw new Error(`Entity not found: ${id}`);
+    // Provenance gate: a mounted entity (sourceVaultId non-null) lives under
+    // `@mounts/<slug>/…` in the PARENT db but must NEVER materialize a file in
+    // the parent's FSA folder, nor be pushed to the parent's room. We update the
+    // DB row in place and skip every disk side-effect. The ENTITY_CHANGE emit
+    // already carries this provenance (entitiesGet selects sourceVaultId), so the
+    // edit routes to the mount room. See `syncApplyOps` which guards the same way.
+    const provenance = (existing["sourceVaultId"] as string | null) ?? null;
     const previousForHook = await entitiesGet({ id }).catch(() => null);
 
     // Defensive parse: strips character-index keys from prior corruption
@@ -927,11 +944,20 @@ export function buildRouter(
     const isMove = cleanedNextPath.length > 0 && cleanedNextPath !== oldPath;
     const effectivePath = isMove ? cleanedNextPath : oldPath;
 
+    // Read-only mount structure (V1): a mounted entity (sourceVaultId non-null)
+    // must NOT be moved out of its `@mounts/<slug>/…` prefix. A path-change here
+    // would rewrite the DB filePath off the prefix while keeping the provenance,
+    // producing an ENTITY_CHANGE op with a bare native path that gets pushed into
+    // the SOURCE mount room — corrupting it. Content/fields edits stay allowed.
+    if (provenance !== null && isMove) {
+      throw new Error("Lecture seule : impossible de déplacer une note d'un vault monté.");
+    }
+
     // Canvas split on update: mirrors entitiesCreate. If the incoming
     // fields carry a fresh canvas JSON, write it to the sibling and
     // replace with a canvasFile pointer.
     const canvasFieldUpdate = extractCanvasField(newFields);
-    if (canvasFieldUpdate) {
+    if (canvasFieldUpdate && provenance === null) {
       try {
         const doc = parseCanvasJson(canvasFieldUpdate.json);
         const elementCount = Array.isArray((doc as { excalidrawElements?: unknown[] }).excalidrawElements)
@@ -972,7 +998,12 @@ export function buildRouter(
       !effectivePath.toLowerCase().endsWith(".markdown");
 
     let hash: string | null = null;
-    if (!isAttachmentEntity) {
+    if (provenance !== null) {
+      // Mounted entity: persist DB-only. NO file write, NO move/delete on the
+      // parent FSA — those bytes belong to the mount room, not the parent disk.
+      // `fileHash` stays "" because there is no parent-side file to hash.
+      hash = "";
+    } else if (!isAttachmentEntity) {
       // Rewrite the .md file
       const typeRow = row(db.exec(`SELECT name FROM entity_type WHERE id = ?`, [existing["typeId"] ?? null]));
       // See entitiesCreate: top-level keys, no nested `fields:` blob.
@@ -3017,7 +3048,10 @@ export function buildRouter(
       // if the user deleted just the sibling — keep the note entity, the
       // canvas will simply read as null on next access.
       const allRowsForSweep = rows(
-        db.exec(`SELECT id, filePath, fields FROM entity WHERE vaultId = ?`, [vaultId]),
+        db.exec(
+          `SELECT id, filePath, fields FROM entity WHERE vaultId = ? AND sourceVaultId IS NULL`,
+          [vaultId],
+        ),
       );
       for (const r of allRowsForSweep) {
         const fp = (r["filePath"] as string | null) ?? "";
@@ -3328,7 +3362,7 @@ export function buildRouter(
                  FROM entity_tag etag JOIN tag t ON t.id = etag.tagId
                 WHERE etag.entityId = e.id) AS tagPaths
          FROM entity e JOIN entity_type et ON et.id = e.typeId
-        WHERE e.vaultId = ?`,
+        WHERE e.vaultId = ? AND e.sourceVaultId IS NULL`,
       [vaultId],
     );
     const ops: SyncOp[] = rows(res).map((r) => {
@@ -3364,19 +3398,39 @@ export function buildRouter(
 
   /** Materialise a batch of remote ops into the local vault. LWW, no echo. */
   const syncApplyOps = async (input: unknown): Promise<unknown> => {
-    const { ops } = (input as { ops?: SyncOp[] }) ?? {};
+    const { ops, sourceVaultId } = (input as {
+      ops?: SyncOp[];
+      sourceVaultId?: string;
+    }) ?? {};
+    const provenance = sourceVaultId ?? null;
     let applied = 0;
     let skipped = 0;
     for (const op of ops ?? []) {
       try {
         const existing = row(db.exec(
-          `SELECT id, filePath, updatedAt FROM entity WHERE id = ?`,
+          `SELECT id, filePath, updatedAt, sourceVaultId FROM entity WHERE id = ?`,
           [op.entityId],
         ));
         const existingTs = existing ? Date.parse(existing["updatedAt"] as string) || 0 : 0;
         const opTs = op.payload ? Date.parse(op.payload.updatedAt) || op.ts : op.ts;
         // Last-write-wins: ignore ops not strictly newer than local state.
         if (existing && opTs < existingTs) {
+          skipped++;
+          continue;
+        }
+
+        // Provenance invariant: never let an op of one provenance overwrite an
+        // entity owned by a different provenance (native = null included).
+        if (
+          existing &&
+          crossProvenanceCollision(
+            { existingSource: (existing["sourceVaultId"] as string | null) ?? null },
+            provenance,
+          )
+        ) {
+          console.warn(
+            `[sync.applyOps] skip ${op.entityId}: cross-provenance (local=${existing["sourceVaultId"]}, op=${provenance})`,
+          );
           skipped++;
           continue;
         }
@@ -3407,23 +3461,37 @@ export function buildRouter(
           skipped++;
           continue;
         }
-        const typeRow = row(db.exec(`SELECT name FROM entity_type WHERE id = ?`, [payload.typeId]));
+        let typeRow = row(db.exec(`SELECT name FROM entity_type WHERE id = ?`, [payload.typeId]));
         if (!typeRow) {
-          // Unknown entity type on this device — can't satisfy the FK. Skip
-          // rather than corrupt the DB; a later schema sync may unblock it.
-          console.warn(`[sync.applyOps] skip ${op.entityId}: unknown typeId ${payload.typeId}`);
-          skipped++;
-          continue;
+          // Unknown entity type on this device — create a minimal non-system
+          // type on the fly so mounted (or freshly-synced) entities can satisfy
+          // the FK instead of being dropped.
+          const nowIso = now();
+          db.run(
+            `INSERT OR IGNORE INTO entity_type (id, vaultId, name, plural, fields, isSystem, createdAt, updatedAt)
+             VALUES (?, ?, ?, ?, '[]', 0, ?, ?)`,
+            [
+              payload.typeId,
+              vaultId,
+              payload.typeName || payload.typeId,
+              payload.typeName || payload.typeId,
+              nowIso,
+              nowIso,
+            ],
+          );
+          typeRow = { name: payload.typeName || payload.typeId };
         }
+        // Mounted ops store under `@mounts/<slug>/…`; native ops keep their path.
+        const { filePath: storedPath } = resolveMountWrite(payload.filePath, provenance);
         // Guard against filePath collisions with a DIFFERENT entity (the
         // unique(vaultId, filePath) constraint). Don't clobber a local note.
         const pathOwner = row(db.exec(
           `SELECT id FROM entity WHERE vaultId = ? AND filePath = ? LIMIT 1`,
-          [vaultId, payload.filePath],
+          [vaultId, storedPath],
         ));
         if (pathOwner && (pathOwner["id"] as string) !== op.entityId) {
           console.warn(
-            `[sync.applyOps] skip ${op.entityId}: filePath ${payload.filePath} owned by ${pathOwner["id"]}`,
+            `[sync.applyOps] skip ${op.entityId}: filePath ${storedPath} owned by ${pathOwner["id"]}`,
           );
           skipped++;
           continue;
@@ -3436,7 +3504,7 @@ export function buildRouter(
         // Only markdown entities round-trip to a file. Attachments / canvas
         // siblings aren't transported in this MVP — we still upsert the DB
         // row so metadata stays in sync.
-        if (isMarkdownPath(payload.filePath)) {
+        if (provenance === null && isMarkdownPath(payload.filePath)) {
           const frontmatter: Record<string, unknown> = {
             id: op.entityId,
             type: typeRow["name"],
@@ -3449,13 +3517,14 @@ export function buildRouter(
 
         if (existing) {
           db.run(
-            `UPDATE entity SET typeId = ?, filePath = ?, fields = ?, body = ?, fileHash = ?, createdAt = ?, updatedAt = ? WHERE id = ?`,
+            `UPDATE entity SET typeId = ?, filePath = ?, fields = ?, body = ?, fileHash = ?, sourceVaultId = ?, createdAt = ?, updatedAt = ? WHERE id = ?`,
             [
               payload.typeId,
-              payload.filePath,
+              storedPath,
               JSON.stringify(fields),
               payload.body ?? "",
               hash,
+              provenance,
               payload.createdAt,
               payload.updatedAt,
               op.entityId,
@@ -3463,16 +3532,17 @@ export function buildRouter(
           );
         } else {
           db.run(
-            `INSERT INTO entity (id, vaultId, typeId, filePath, fields, body, fileHash, createdAt, updatedAt)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT INTO entity (id, vaultId, typeId, filePath, fields, body, fileHash, sourceVaultId, createdAt, updatedAt)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               op.entityId,
               vaultId,
               payload.typeId,
-              payload.filePath,
+              storedPath,
               JSON.stringify(fields),
               payload.body ?? "",
               hash,
+              provenance,
               payload.createdAt,
               payload.updatedAt,
             ],
@@ -3487,7 +3557,7 @@ export function buildRouter(
           title: deriveTitle(JSON.stringify(fields), payload.filePath),
           body: payload.body ?? "",
           tags: (payload.tags ?? []).join(" "),
-          path: derivePath(payload.filePath),
+          path: derivePath(storedPath),
         });
         applied++;
       } catch (err) {
@@ -3496,6 +3566,48 @@ export function buildRouter(
       }
     }
     return { applied, skipped };
+  };
+
+  /** Liste les montages (vault_mount) par provenance. null = montages directs
+   *  du père ; un cloudId = montages déclarés DANS ce salon (récursion). */
+  const syncListMounts = async (input: unknown): Promise<unknown> => {
+    const { sourceVaultId } = (input as { sourceVaultId?: string | null }) ?? {};
+    const provenance = sourceVaultId ?? null;
+    const res = provenance === null
+      ? db.exec(
+          `SELECT fields FROM entity WHERE vaultId = ? AND typeId = 'vault_mount' AND sourceVaultId IS NULL`,
+          [vaultId],
+        )
+      : db.exec(
+          `SELECT fields FROM entity WHERE vaultId = ? AND typeId = 'vault_mount' AND sourceVaultId = ?`,
+          [vaultId, provenance],
+        );
+    const mounts = rows(res).map((r) => {
+      const f = safeParseFieldsBlob((r["fields"] as string) || "{}");
+      return {
+        serverUrl: typeof f["serverUrl"] === "string" ? (f["serverUrl"] as string) : "",
+        vaultKey: typeof f["vaultKey"] === "string" ? (f["vaultKey"] as string) : "",
+        token: typeof f["token"] === "string" ? (f["token"] as string) : "",
+        label: typeof f["label"] === "string" ? (f["label"] as string) : "",
+      };
+    }).filter((m) => m.vaultKey);
+    return { mounts };
+  };
+
+  /** Supprime toutes les entités d'une provenance donnée (démontage). */
+  const syncPurgeMounted = async (input: unknown): Promise<unknown> => {
+    const { sourceVaultId } = (input as { sourceVaultId?: string }) ?? {};
+    if (!sourceVaultId) return { removed: 0 };
+    const victims = rows(db.exec(
+      `SELECT id FROM entity WHERE vaultId = ? AND sourceVaultId = ?`,
+      [vaultId, sourceVaultId],
+    ));
+    for (const v of victims) {
+      const id = v["id"] as string;
+      db.run(`DELETE FROM entity WHERE id = ?`, [id]);
+      ftsRemove(db, id);
+    }
+    return { removed: victims.length };
   };
 
   // ── Dispatch table ─────────────────────────────────────────────────────────
@@ -3570,6 +3682,8 @@ export function buildRouter(
     "sync.snapshot": syncSnapshot,
     "sync.head": syncHead,
     "sync.applyOps": syncApplyOps,
+    "sync.purgeMounted": syncPurgeMounted,
+    "sync.listMounts": syncListMounts,
   };
 }
 
@@ -3696,6 +3810,11 @@ function entityRowToApi(r: SqlRow): unknown {
     fields,
     body: r["body"] ?? "",
     tags,
+    // Provenance of a mounted entity (parent vault id) or `null` for a local
+    // row. Only the `entitiesGet` SELECT fetches this column; the list/search
+    // SELECTs omit it, so it falls back to `null` there. Carried so lifecycle
+    // hooks can route ENTITY_CHANGE ops to the right sync room.
+    sourceVaultId: (r["sourceVaultId"] as string | null | undefined) ?? null,
     createdAt: r["createdAt"] ?? now(),
     updatedAt: r["updatedAt"] ?? now(),
   };

@@ -94,6 +94,20 @@ export interface IndexProgressMessage {
  */
 export interface EntityChangeMessage {
   type: "ENTITY_CHANGE";
+  /**
+   * Provenance of the mutated entity: the parent vault id when the row is a
+   * mounted entity, or `null` for a local row. Lives at the message top level
+   * (NOT inside `op`, whose wire shape is frozen) so the MountSyncManager can
+   * route the op to the right room's sync client.
+   */
+  sourceVaultId?: string | null;
+  /**
+   * typeId of the deleted entity, present only on DELETE ops. A delete op carries
+   * no `payload` (the row is gone), so the MountSyncManager reads the typeId here
+   * to detect a removed `vault_mount` and refresh mounts in-session. Absent on
+   * upsert (the typeId is available via `op.payload.typeId`).
+   */
+  deletedTypeId?: string;
   op: import("@supernote/sync").EntityOp;
 }
 

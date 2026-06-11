@@ -47,9 +47,17 @@ export function TrpcProvider({ children }: TrpcProviderProps) {
   // exactly the "I switched vaults and still see the old one" symptom.
   useEffect(() => {
     if (typeof window === "undefined") return;
+    let progressTimer: ReturnType<typeof setTimeout> | null = null;
     const refresh = (ev?: Event) => {
       const isSwitch = (ev as CustomEvent | undefined)?.detail?.isSwitch === true;
       if (isSwitch) {
+        // A pending debounced invalidation belongs to the PREVIOUS vault —
+        // the resetQueries below already refetches everything against the
+        // new one; letting the timer fire would just double the refetch.
+        if (progressTimer) {
+          clearTimeout(progressTimer);
+          progressTimer = null;
+        }
         // Vault switch: drop EVERY query's data AND force an immediate
         // refetch on active observers. `resetQueries({})` (empty filter =
         // all queries) clears data and re-triggers fetches; `removeQueries`
@@ -77,14 +85,25 @@ export function TrpcProvider({ children }: TrpcProviderProps) {
     // reindex runs, so the first refresh only sees the freshly-hydrated DB;
     // without this follow-up, the sidebar wouldn't show the newly adopted
     // folders until the next manual reload.
+    //
+    // Coalesced: a cloud-vault boot replays the server op-log in 500-op
+    // batches and dispatches one progress event per batch — invalidating
+    // every active query on each one stacks refetches into a main-thread
+    // stampede right after first paint (the mobile freeze). One trailing
+    // invalidation per burst surfaces the same final data.
     const onProgress = () => {
-      void queryClient.invalidateQueries();
+      if (progressTimer) clearTimeout(progressTimer);
+      progressTimer = setTimeout(() => {
+        progressTimer = null;
+        void queryClient.invalidateQueries();
+      }, 300);
     };
     window.addEventListener("supernote:vault-ready", refresh);
     window.addEventListener("supernote:index-progress", onProgress);
     return () => {
       window.removeEventListener("supernote:vault-ready", refresh);
       window.removeEventListener("supernote:index-progress", onProgress);
+      if (progressTimer) clearTimeout(progressTimer);
     };
   }, [queryClient]);
 

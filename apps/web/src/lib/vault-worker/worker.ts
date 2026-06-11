@@ -186,6 +186,19 @@ async function initSqlite(handle: FileSystemDirectoryHandle): Promise<Database> 
     console.warn("[vault-worker] view columns migration failed (non-fatal)", e);
   }
 
+  // Migration : ajoute entity.sourceVaultId (provenance des entités montées)
+  // aux DB créées avant la feature « montages de vaults ». Idempotent.
+  try {
+    const cols = database.exec(`PRAGMA table_info("entity")`);
+    const names: string[] =
+      cols.length > 0 ? cols[0]!.values.map((row) => row[1] as string) : [];
+    if (!names.includes("sourceVaultId")) {
+      database.run(`ALTER TABLE "entity" ADD COLUMN "sourceVaultId" TEXT;`);
+    }
+  } catch (e) {
+    console.warn("[vault-worker] entity.sourceVaultId migration failed (non-fatal)", e);
+  }
+
   console.info("[init.sqlite] running SCHEMA_SQL (base + FTS5)");
   database.run(SCHEMA_SQL);
   console.info("[init.sqlite] done");
@@ -313,13 +326,25 @@ function genOpId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 
-function emitEntityChange(kind: "upsert" | "delete", entity: unknown, entityId?: string): void {
+function emitEntityChange(
+  kind: "upsert" | "delete",
+  entity: unknown,
+  entityId?: string,
+  sourceVaultId: string | null = null,
+  deletedTypeId?: string,
+): void {
   try {
     const ts = Date.now();
     if (kind === "delete") {
       if (!entityId) return;
+      // DELETE ops carry no payload (the row is gone), so the deleted entity's
+      // typeId rides at the MESSAGE top level. The MountSyncProvider needs it to
+      // detect that a `vault_mount` was removed (the disconnect flow) and refresh
+      // mounts in-session — otherwise the mount client lingers until a reload.
       self.postMessage({
         type: "ENTITY_CHANGE",
+        sourceVaultId,
+        deletedTypeId,
         op: { opId: genOpId(), clientId: "", kind: "delete", entityId, ts },
       });
       return;
@@ -339,6 +364,7 @@ function emitEntityChange(kind: "upsert" | "delete", entity: unknown, entityId?:
     const iso = new Date(ts).toISOString();
     self.postMessage({
       type: "ENTITY_CHANGE",
+      sourceVaultId,
       op: {
         opId: genOpId(),
         clientId: "",
@@ -923,7 +949,8 @@ async function handleInitVault(
         registerRoutineEntity(e);
         registerTodoReminderEntity(e);
         emitDomainEvent("entity.created", e);
-        emitEntityChange("upsert", entity);
+        emitEntityChange("upsert", entity, undefined,
+          (entity as { sourceVaultId?: string | null }).sourceVaultId ?? null);
       },
       onEntityUpdated: (entity, previous) => {
         const e = entity as { id: string; typeId: string; fields: Record<string, unknown> } | null;
@@ -932,14 +959,23 @@ async function handleInitVault(
         registerRoutineEntity(e);
         registerTodoReminderEntity(e);
         emitDomainEvent("entity.updated", e, p);
-        emitEntityChange("upsert", entity);
+        emitEntityChange("upsert", entity, undefined,
+          (entity as { sourceVaultId?: string | null }).sourceVaultId ?? null);
       },
       onEntityDeleted: (id, previous) => {
-        const p = previous as { id: string; typeId: string; fields: Record<string, unknown> } | null;
+        const p = previous as {
+          id: string;
+          typeId: string;
+          fields: Record<string, unknown>;
+          sourceVaultId?: string | null;
+        } | null;
         if (p?.typeId === ROUTINE_TYPE_ID) automationEngine?.unregisterAutomation(id);
         if (p?.typeId === TODO_TYPE_ID) unregisterTodoReminderEntity(id);
         emitDomainEvent("entity.deleted", null, p);
-        emitEntityChange("delete", null, id);
+        // `previous` is the row snapshot captured BEFORE the DELETE ran (router
+        // `entitiesDelete` reads it via `entitiesGet`), so its provenance is the
+        // authoritative source for routing the delete op to the right room.
+        emitEntityChange("delete", null, id, p?.sourceVaultId ?? null, p?.typeId);
       },
     };
 

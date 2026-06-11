@@ -1,6 +1,6 @@
 "use client";
 
-import { GitBranch, ArrowsClockwise, CheckCircle, CloudCheck } from "@phosphor-icons/react";
+import { GitBranch, ArrowsClockwise, CheckCircle, CloudCheck, Plugs } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
 import { Button, Input, Switch, Chip } from "@heroui/react";
 import { useSettings } from "../SettingsContext";
@@ -9,6 +9,8 @@ import { SettingSection } from "../SettingSection";
 import { RangeSlider } from "../RangeSlider";
 import { useOnlineSync } from "@/lib/online-sync/OnlineSyncProvider";
 import type { OnlineSyncStatus } from "@/lib/online-sync/client";
+import { trpc } from "@/lib/trpc/client";
+import { ConnectVaultModal } from "@/components/notes/ConnectVaultModal";
 
 const STATUS_META: Record<
   OnlineSyncStatus,
@@ -150,6 +152,64 @@ function OnlineSyncSection() {
   );
 }
 
+/**
+ * Vaults connectés — liste les montages cloud (`vault_mount`) déclarés dans le
+ * coffre père et offre l'entrée « Connecter un vault » (même modale que le
+ * FileTree desktop et le tiroir « Plus » mobile). La déconnexion par ligne est
+ * traitée dans une tâche ultérieure.
+ */
+function MountsSection() {
+  const [connectVaultOpen, setConnectVaultOpen] = useState(false);
+  const mountsQuery = trpc.sync.listMounts.useQuery({ sourceVaultId: null });
+  const mounts = mountsQuery.data?.mounts ?? [];
+
+  return (
+    <SettingSection
+      title="Vaults connectés"
+      description="Salons cloud montés dans ce coffre. Leurs notes apparaissent aux côtés des vôtres."
+      icon={<Plugs size={16} />}
+      action={
+        <Button
+          variant="ghost"
+          size="sm"
+          onPress={() => setConnectVaultOpen(true)}
+          className="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm"
+          style={{
+            borderColor: "var(--accent)",
+            color: "var(--accent)",
+            backgroundColor: "var(--accent-subtle)",
+          }}
+        >
+          <Plugs size={14} />
+          Connecter un vault
+        </Button>
+      }
+    >
+      {mounts.length === 0 ? (
+        <p className="py-3 text-xs" style={{ color: "var(--text-muted)" }}>
+          {mountsQuery.isLoading
+            ? "Chargement des vaults connectés…"
+            : "Aucun vault connecté pour l'instant."}
+        </p>
+      ) : (
+        mounts.map((mount, idx) => (
+          <SettingRow
+            key={`${mount.vaultKey}-${idx}`}
+            label={mount.label || mount.vaultKey}
+            description={mount.serverUrl || undefined}
+          >
+            <Chip size="sm" variant="soft" color="success">
+              Connecté
+            </Chip>
+          </SettingRow>
+        ))
+      )}
+
+      <ConnectVaultModal isOpen={connectVaultOpen} onOpenChange={setConnectVaultOpen} />
+    </SettingSection>
+  );
+}
+
 export function SyncTab() {
   const { settings, updateSettings } = useSettings();
   const { sync } = settings;
@@ -168,6 +228,8 @@ export function SyncTab() {
   return (
     <div className="space-y-6">
       <OnlineSyncSection />
+
+      <MountsSection />
 
       <SettingSection
         title="Git Remote"

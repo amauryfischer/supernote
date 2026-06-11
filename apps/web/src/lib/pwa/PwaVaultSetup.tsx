@@ -52,6 +52,8 @@ import {
   removeCloudVault,
   cloudVaultId,
 } from "@/lib/online-sync/config-storage";
+import { cloudRoomSlug } from "@/lib/online-sync/room-id";
+import { clearPendingOps } from "@/lib/online-sync/pendingStore";
 
 const DEGRADED_STORAGE_KEY = "supernote.degraded";
 
@@ -63,9 +65,126 @@ const DEGRADED_STORAGE_KEY = "supernote.degraded";
  */
 const CLOUD_OPFS_DIR = "supernote-cloud";
 
-async function getCloudVaultHandle(): Promise<FileSystemDirectoryHandle> {
+/**
+ * Room files are namespaced per (server, room key) pair under
+ * `supernote-cloud/rooms/<slug>/` so two cloud rooms NEVER share a directory.
+ * Switching rooms therefore cannot leak files across rooms (the background
+ * reindex only ever sees the mounted room's own files), and the previous
+ * room's local-only artefacts — canvas .excalidraw files are NOT transported
+ * by the sync op-log — survive untouched for its next mount.
+ *
+ * Pre-namespace builds stored the active room's files directly at the
+ * `supernote-cloud/` root. Those are deliberately left in place (quarantined):
+ * their room of origin is not recorded anywhere, so any automatic migration
+ * could attribute them to the wrong room and replicate them into its server
+ * op-log — the exact cross-room contamination this layout exists to prevent.
+ */
+const CLOUD_ROOMS_DIR = "rooms";
+const CLOUD_META_DIR = ".supernote";
+const CLOUD_DB_OWNER_FILE = "db-owner.json";
+
+async function getCloudBaseDir(): Promise<FileSystemDirectoryHandle> {
   const root = await navigator.storage.getDirectory();
   return root.getDirectoryHandle(CLOUD_OPFS_DIR, { create: true });
+}
+
+async function getCloudVaultHandle(cloudId: string): Promise<FileSystemDirectoryHandle> {
+  const base = await getCloudBaseDir();
+  const rooms = await base.getDirectoryHandle(CLOUD_ROOMS_DIR, { create: true });
+  return rooms.getDirectoryHandle(cloudRoomSlug(cloudId), { create: true });
+}
+
+/**
+ * The SAH-pool SQLite DB is global to the origin (one `/index.db` for every
+ * vault) while room FILES are namespaced — so the DB needs an ownership
+ * marker: `supernote-cloud/.supernote/db-owner.json` records which room the
+ * current DB was built for. Checked at boot; on mismatch the worker is asked
+ * to reset the DB (resetStorage), which is then rebuilt from the room's own
+ * files (reindex) + the server op-log (replay). No files are ever deleted.
+ *
+ * Written only AFTER the fresh worker reports VAULT_READY, so its presence
+ * guarantees the DB was (re)built under that exact room. An interrupted
+ * switch leaves the previous owner (or none) behind → next boot self-heals.
+ */
+async function readDbOwner(): Promise<string | null> {
+  try {
+    const base = await getCloudBaseDir();
+    const meta = await base.getDirectoryHandle(CLOUD_META_DIR);
+    const file = await meta.getFileHandle(CLOUD_DB_OWNER_FILE);
+    const text = await (await file.getFile()).text();
+    const parsed = JSON.parse(text) as { id?: unknown };
+    return typeof parsed.id === "string" && parsed.id ? parsed.id : null;
+  } catch {
+    return null;
+  }
+}
+
+async function writeDbOwner(cloudId: string): Promise<void> {
+  const base = await getCloudBaseDir();
+  const meta = await base.getDirectoryHandle(CLOUD_META_DIR, { create: true });
+  const file = await meta.getFileHandle(CLOUD_DB_OWNER_FILE, { create: true });
+  const writable = await file.createWritable();
+  await writable.write(JSON.stringify({ id: cloudId }));
+  await writable.close();
+}
+
+/**
+ * Invalidate the DB ownership marker. Called when the (origin-global) SAH
+ * DB stops belonging to a cloud room — i.e. when a folder/git vault takes
+ * over the pool. Without this, a later cloud boot whose config happens to
+ * name the still-recorded room would skip its reset and mount the FOLDER
+ * vault's DB under the room's label. Absent marker = always reset = safe.
+ */
+async function clearDbOwner(): Promise<void> {
+  try {
+    const base = await getCloudBaseDir();
+    const meta = await base.getDirectoryHandle(CLOUD_META_DIR);
+    await meta.removeEntry(CLOUD_DB_OWNER_FILE);
+  } catch {
+    /* absent — nothing to invalidate */
+  }
+}
+
+/** Remove a room's namespaced files (explicit user "forget" only). */
+async function deleteCloudRoom(cloudId: string): Promise<void> {
+  try {
+    const base = await getCloudBaseDir();
+    const rooms = await base.getDirectoryHandle(CLOUD_ROOMS_DIR);
+    await rooms.removeEntry(cloudRoomSlug(cloudId), { recursive: true });
+  } catch {
+    /* absent or locked — nothing to clean / next forget retries */
+  }
+}
+
+/**
+ * Cloud-boot bookkeeping. Each cloud boot records its generation + the room
+ * it booted FOR; the db-owner write scheduled on VAULT_READY stamps the
+ * RECORDED room (not the config re-read at ready time, which a concurrent
+ * switch may already have rewritten) and bails when a newer boot started.
+ * Writes are serialised through a promise chain with the generation
+ * re-checked inside the chain, so the last write always reflects the most
+ * recent boot even when two readies race.
+ */
+let cloudBootGeneration = 0;
+let lastCloudBoot: { gen: number; cloudId: string } | null = null;
+let dbOwnerWriteChain: Promise<void> = Promise.resolve();
+
+function recordCloudBoot(cloudId: string): void {
+  cloudBootGeneration++;
+  lastCloudBoot = { gen: cloudBootGeneration, cloudId };
+}
+
+function scheduleDbOwnerWrite(boot: { gen: number; cloudId: string }): void {
+  dbOwnerWriteChain = dbOwnerWriteChain
+    .then(async () => {
+      if (boot.gen !== cloudBootGeneration) return; // a newer boot took over
+      await writeDbOwner(boot.cloudId);
+    })
+    .catch((err) => {
+      // Best-effort: without the marker the next boot resets the DB and
+      // rebuilds from files + server replay — always safe.
+      console.warn("[pwa-vault] db-owner write failed", err);
+    });
 }
 
 type SetupState =
@@ -253,8 +372,33 @@ export function usePwaVaultSetup(): VaultContextValue {
       void refreshRecents();
       void (async () => {
         try {
-          const handle = await getCloudVaultHandle();
-          startWorker(handle, { cloud: true });
+          if (!cfg.vaultKey) {
+            throw new Error("configuration cloud incomplète (clé de salon absente)");
+          }
+          const cloudId = cloudVaultId(cfg.serverUrl, cfg.vaultKey);
+          recordCloudBoot(cloudId);
+          const handle = await getCloudVaultHandle(cloudId);
+          // DB-ownership check: the SAH-pool DB is global while room files
+          // are namespaced. After an interrupted switch (or on a pre-marker
+          // build) the DB may still hold ANOTHER room's entities — mounting
+          // it as-is shows room A's notes under room B's label AND seeds
+          // them into B's server op-log. On mismatch, reset the DB; it is
+          // rebuilt from this room's own files + the server replay. No
+          // files are deleted.
+          const owner = await readDbOwner();
+          const dbStale = owner !== cloudId;
+          if (dbStale) {
+            console.warn(
+              "[pwa-vault] cloud DB owner mismatch — resetting local index",
+              { owner, cloudId },
+            );
+            // The local DB restarts empty: the replay cursor must restart
+            // from 0 and the seed must re-run (after the reindex re-adopts
+            // this room's own files), otherwise the room mounts blank and
+            // stays blank.
+            saveOnlineSyncConfig({ ...cfg, lastSeq: 0, seeded: false, epoch: "" });
+          }
+          startWorker(handle, { cloud: true, resetStorage: dbStale });
         } catch (err) {
           setErrorMsg(`Impossible d'ouvrir le coffre cloud : ${String(err)}`);
           setState("error");
@@ -304,6 +448,14 @@ export function usePwaVaultSetup(): VaultContextValue {
         | undefined;
       const name = detail?.vaultName ?? getLastVaultReady()?.vaultName ?? null;
       if (name) setVaultName(name);
+      // Cloud vault finished mounting → stamp the DB ownership marker. Only
+      // now is it safe: VAULT_READY proves the worker ran (and, on a switch,
+      // completed its resetStorage wipe) for the room this boot was started
+      // FOR — which is why the recorded boot identity is stamped, not the
+      // config re-read here (a concurrent switch may have rewritten it).
+      if (isCloudVaultActive() && lastCloudBoot) {
+        scheduleDbOwnerWrite(lastCloudBoot);
+      }
       setState("ready");
       // The worker just finished mounting a handle — make sure the recents
       // list and active id reflect that (covers the bootstrap path where the
@@ -378,9 +530,17 @@ export function usePwaVaultSetup(): VaultContextValue {
       // back to it and resurrect the previous vault's data in the new
       // folder. Same-folder re-pick (e.g. re-authorising permission after
       // a session expiry) keeps the cache.
+      //
+      // Coming FROM a cloud vault always counts as different: the persisted
+      // folder handle was never updated by the cloud flows, so a same-folder
+      // comparison would keep the CLOUD room's DB (the SAH pool is global)
+      // and mount — then mirror to disk — the room's notes into this folder.
+      const wasCloud = isCloudVaultActive();
       const previous = await loadVaultHandle().catch(() => null);
       const isDifferentFolder =
-        !previous || !(await previous.isSameEntry(handle).catch(() => false));
+        wasCloud ||
+        !previous ||
+        !(await previous.isSameEntry(handle).catch(() => false));
       if (isDifferentFolder) {
         // Kill the current worker so its pending RPCs don't land on the new
         // vault. The OPFS wipe itself is performed by the FRESH worker via
@@ -485,6 +645,25 @@ export function usePwaVaultSetup(): VaultContextValue {
       return;
     }
 
+    // Tear down the current worker FIRST. terminateVaultWorker dispatches
+    // "supernote:vault-unready", which the OnlineSyncProvider listens to for
+    // a SYNCHRONOUS client stop — the previous room's sync client must be
+    // dead BEFORE its config is overwritten below, or its in-flight stream
+    // batches would be applied/queued against the new room's worker and its
+    // late onSeq callbacks would poison the new room's cursor.
+    setWorkerReady(false);
+    setVaultName(null);
+    terminateVaultWorker();
+
+    if (typeof window !== "undefined") {
+      // Cloud marker BEFORE the enabled config: if the tab dies between these
+      // two writes, marker-without-config boots the cloud path and fails safe
+      // (previous or empty config, consistent with the previous owner) —
+      // whereas enabled-config-without-marker would mount the FOLDER vault
+      // and seed its contents into the new room.
+      window.localStorage.setItem(CLOUD_VAULT_KEY, "1");
+      window.localStorage.removeItem(DEGRADED_STORAGE_KEY);
+    }
     // Persist the online-sync config (enabled) BEFORE the worker boots, so the
     // OnlineSyncProvider — which mounts inside this component once the vault is
     // ready — reads it and connects immediately, seeding from the server.
@@ -495,24 +674,18 @@ export function usePwaVaultSetup(): VaultContextValue {
       vaultKey,
       token,
     });
-
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(CLOUD_VAULT_KEY, "1");
-      window.localStorage.removeItem(DEGRADED_STORAGE_KEY);
-    }
     // Remember this room so it shows up in the switcher alongside other vaults.
     upsertCloudVault({ serverUrl, vaultKey, token });
 
-    setWorkerReady(false);
-    setVaultName(null);
     try {
-      // A previous folder/git worker may still hold the shared OPFS SAH pool
-      // (one DB, global to the origin). Tear it down, then boot the cloud vault
-      // with resetStorage so it starts from a CLEAN OPFS and is seeded purely
-      // from the server op-log — never inheriting the old vault's local index.
-      // The user's on-disk folder files (if any) live in FSA, untouched.
-      terminateVaultWorker();
-      const handle = await getCloudVaultHandle();
+      // Boot the room's own namespaced OPFS dir with resetStorage: the
+      // SAH-pool DB is global and may still belong to a previous vault. Room
+      // files are per-room, so nothing is purged — the reindex only ever
+      // sees this room's files. The user's on-disk folder files (if any)
+      // live in FSA, untouched.
+      const cloudId = cloudVaultId(serverUrl, vaultKey);
+      recordCloudBoot(cloudId);
+      const handle = await getCloudVaultHandle(cloudId);
       setState("loading");
       startWorker(handle, { cloud: true, resetStorage: true });
     } catch (err) {
@@ -545,7 +718,13 @@ export function usePwaVaultSetup(): VaultContextValue {
     setState("cloning");
     let step: string = "init";
     let initialHeadSha: string | null = null;
+    // Coming FROM a cloud vault always forces a worker teardown + DB reset:
+    // the SAH pool still holds the cloud room's DB, and mounting it over the
+    // git folder would mirror the room's notes into the user's repo (then
+    // potentially commit/push them). Same rationale as pickFolder/switchToVault.
+    const wasCloud = isCloudVaultActive();
     try {
+      if (wasCloud) terminateVaultWorker();
       step = "check-linked";
       const alreadyLinked = await isLinked(handle);
       if (alreadyLinked) {
@@ -598,8 +777,11 @@ export function usePwaVaultSetup(): VaultContextValue {
       void refreshRecents();
       // Only "clone-into-empty" reset the OPFS (and just terminated the
       // worker above). "init-existing" keeps both the previous OPFS and the
-      // worker — feed the existing index into the new folder.
-      startWorker(handle, { resetStorage: args.mode === "clone-into-empty" });
+      // worker — feed the existing index into the new folder. Coming from a
+      // cloud vault overrides that: the cached DB belongs to the room.
+      startWorker(handle, {
+        resetStorage: args.mode === "clone-into-empty" || wasCloud,
+      });
     } catch (err) {
       // Label the failure with the step that was running so the user (and
       // the dev console) sees exactly which phase blew up. The raw FSA
@@ -633,6 +815,21 @@ export function usePwaVaultSetup(): VaultContextValue {
       void refreshRecents();
       return;
     }
+    // Tear down the current worker FIRST. terminateVaultWorker dispatches
+    // "supernote:vault-unready" → the OnlineSyncProvider stops the previous
+    // room's sync client SYNCHRONOUSLY, before its config is overwritten
+    // below. Otherwise the old client's in-flight stream batches would be
+    // queued against the new room's worker (drained at its VAULT_READY) and
+    // its late onSeq callbacks would poison the new room's cursor.
+    setWorkerReady(false);
+    setVaultName(null);
+    terminateVaultWorker();
+
+    if (typeof window !== "undefined") {
+      // Cloud marker BEFORE the config swap — see setupCloudVault.
+      window.localStorage.setItem(CLOUD_VAULT_KEY, "1");
+      window.localStorage.removeItem(DEGRADED_STORAGE_KEY);
+    }
     // Reset the cursor/seed so the new room replays + re-seeds from scratch.
     saveOnlineSyncConfig({
       ...DEFAULT_ONLINE_SYNC_CONFIG,
@@ -641,19 +838,16 @@ export function usePwaVaultSetup(): VaultContextValue {
       vaultKey: entry.vaultKey,
       token: entry.token,
     });
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(CLOUD_VAULT_KEY, "1");
-      window.localStorage.removeItem(DEGRADED_STORAGE_KEY);
-    }
     upsertCloudVault({ serverUrl: entry.serverUrl, vaultKey: entry.vaultKey, token: entry.token });
-    setWorkerReady(false);
-    setVaultName(null);
+
     try {
-      // Tear down the current worker (it may hold the shared OPFS SAH pool) and
-      // boot the cloud vault from a CLEAN OPFS so it's seeded purely from the
-      // chosen room's server op-log — never inheriting the previous index.
-      terminateVaultWorker();
-      const handle = await getCloudVaultHandle();
+      // Boot the chosen room's own namespaced OPFS dir. resetStorage wipes
+      // the (origin-global) SAH-pool DB only; the room's files are its own —
+      // the reindex re-adopts them into the fresh DB, then the server replay
+      // fills the gaps. The previous room's files (incl. canvas .excalidraw,
+      // which the op-log does NOT transport) stay untouched in THEIR dir.
+      recordCloudBoot(entry.id);
+      const handle = await getCloudVaultHandle(entry.id);
       setState("loading");
       void refreshRecents();
       startWorker(handle, { cloud: true, resetStorage: true });
@@ -698,11 +892,19 @@ export function usePwaVaultSetup(): VaultContextValue {
     // handles are released asynchronously after worker termination, so
     // `removeEntry("/supernote-vfs", { recursive: true })` silently fails
     // and the previous vault's data leaks into the next session.
+    // Coming FROM a cloud vault always counts as different: the persisted
+    // folder handle was never updated by the cloud flows, so returning to
+    // the folder used before a cloud detour would compare equal and keep the
+    // CLOUD room's DB (the SAH pool is global) mounted over this folder —
+    // then mirror the room's notes onto the user's disk.
+    const wasCloud = isCloudVaultActive();
     let isDifferentFolder = true;
     try {
       const previous = await loadVaultHandle().catch(() => null);
       isDifferentFolder =
-        !previous || !(await previous.isSameEntry(entry.handle).catch(() => false));
+        wasCloud ||
+        !previous ||
+        !(await previous.isSameEntry(entry.handle).catch(() => false));
     } catch {
       // Treat any failure to read the previous handle as "different", which
       // is the conservative choice (wipe rather than risk a data mix).
@@ -727,7 +929,27 @@ export function usePwaVaultSetup(): VaultContextValue {
   const forgetVault = useCallback(async (id: string) => {
     if (id === activeVaultId) return;
     if (id.startsWith("cloud:")) {
+      const entry = getCloudVault(id);
       removeCloudVault(id);
+      if (entry) {
+        // Drop the room's namespaced local files (its server op-log is
+        // untouched — re-adding the room replays the notes back).
+        void deleteCloudRoom(id);
+        // Drop its pending-ops journal — but ONLY if no other registered
+        // room (nor the active sync config, which may belong to a folder
+        // vault with sync enabled) shares the same room key: the journal is
+        // keyed by vaultKey alone, and clearing a shared key would destroy
+        // another vault's not-yet-acknowledged ops.
+        const cfg = loadOnlineSyncConfig();
+        const sharedByActiveConfig =
+          cfg.enabled && normalizeVaultKey(cfg.vaultKey) === entry.vaultKey;
+        const sharedByOtherRoom = listCloudVaults().some(
+          (e) => e.id !== id && e.vaultKey === entry.vaultKey,
+        );
+        if (!sharedByActiveConfig && !sharedByOtherRoom) {
+          clearPendingOps(entry.vaultKey);
+        }
+      }
     } else {
       await removeVaultEntry(id);
     }
@@ -773,6 +995,11 @@ function leaveCloudMode(): void {
   window.localStorage.removeItem(CLOUD_VAULT_KEY);
   const cfg = loadOnlineSyncConfig();
   if (cfg.enabled) saveOnlineSyncConfig({ ...cfg, enabled: false });
+  // The folder/git vault is about to take over the (origin-global) SAH DB —
+  // the recorded cloud room no longer owns it. Without this invalidation, a
+  // later cloud boot back onto that same room would see a matching owner,
+  // skip its reset and mount the FOLDER vault's DB under the room's label.
+  void clearDbOwner();
 }
 
 // ── UI Component ──────────────────────────────────────────────────────────────

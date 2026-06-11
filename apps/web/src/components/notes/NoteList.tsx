@@ -23,6 +23,7 @@ import {
 } from "@dnd-kit/sortable";
 import { useReorderNotes } from "./hooks";
 import { trpc } from "@/lib/trpc/client";
+import { cloudRoomSlug, cloudVaultId, MOUNT_PATH_PREFIX } from "@/lib/online-sync/room-id";
 
 type SortKey = "updatedAt" | "title" | "manual";
 
@@ -113,6 +114,39 @@ export function NoteList({
   const t = useTranslations("notes");
   const tCommon = useTranslations("common");
   const { reorderNotes } = useReorderNotes();
+
+  // ── Provenance (vault mounts) ──────────────────────────────────────────────
+  // Les notes hissées d'un coffre monté portent un chemin préfixé par
+  // `@mounts/<slug>/`. Le slug seul ne porte pas le nom humain du coffre : on
+  // résout `sync.listMounts` (requête worker locale, pas de réseau) pour bâtir
+  // une table slug → libellé, identique à FileTree, et badger chaque note
+  // montée de sa provenance. Mêmes args que FileTree → cache TanStack partagé.
+  const mountsQuery = trpc.sync.listMounts.useQuery({ sourceVaultId: null });
+  const mountLabelBySlug = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const m of mountsQuery.data?.mounts ?? []) {
+      const slug = cloudRoomSlug(cloudVaultId(m.serverUrl, m.vaultKey));
+      map.set(slug, m.label || m.vaultKey);
+    }
+    return map;
+  }, [mountsQuery.data]);
+
+  const mountLabelForNote = useCallback(
+    (note: Note): string | undefined => {
+      // `filePath` porte le chemin complet (`@mounts/<slug>/…/note.md`) ;
+      // `folderPath` en est dérivé et porte le même préfixe. On prend le plus
+      // fiable disponible.
+      const path = note.filePath ?? note.folderPath;
+      const prefix = `${MOUNT_PATH_PREFIX}/`;
+      if (!path.startsWith(prefix)) return undefined;
+      const slug = path.slice(prefix.length).split("/")[0];
+      if (!slug) return undefined;
+      // Slug orphelin (coffre déconnecté, entités pas encore purgées) → pas de
+      // badge plutôt qu'un libellé brut peu parlant.
+      return mountLabelBySlug.get(slug);
+    },
+    [mountLabelBySlug],
+  );
 
   // Hover prefetch — warms the `entities.get` cache before the click so the
   // editor opens instantly instead of flashing a skeleton. Skipped in demo /
@@ -434,6 +468,7 @@ export function NoteList({
                     onRename={onRenameNote ? (t) => onRenameNote(note.id, t) : undefined}
                     onArchive={onArchiveNote ? (a) => onArchiveNote(note.id, a) : undefined}
                     onDragNote={onDragNote}
+                    mountLabel={mountLabelForNote(note)}
                     sortable
                   />
                 </div>
@@ -475,6 +510,7 @@ export function NoteList({
                     onRename={onRenameNote ? (t) => onRenameNote(note.id, t) : undefined}
                     onArchive={onArchiveNote ? (a) => onArchiveNote(note.id, a) : undefined}
                     onDragNote={onDragNote}
+                    mountLabel={mountLabelForNote(note)}
                   />
                 </div>
               ))}
