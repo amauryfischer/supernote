@@ -3,6 +3,8 @@ import { notImplemented } from "../errors/index.js";
 import {
   ApplyOpsInput,
   ApplyOpsOutput,
+  PurgeMountedInput,
+  PurgeMountedOutput,
   SnapshotOutput,
   SyncHeadOutput,
 } from "../schemas/sync.js";
@@ -25,6 +27,14 @@ export const syncRouter = router({
     .output(ApplyOpsOutput)
     .mutation(() => {
       throw notImplemented("sync.applyOps");
+    }),
+
+  /** Remove all entities that were synced from a mounted vault. */
+  purgeMounted: publicProcedure
+    .input(PurgeMountedInput)
+    .output(PurgeMountedOutput)
+    .mutation(() => {
+      throw notImplemented("sync.purgeMounted");
     }),
 
   /** Full snapshot of the local vault as upsert ops (initial server seed). */

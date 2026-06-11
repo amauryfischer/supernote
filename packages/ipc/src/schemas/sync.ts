@@ -39,6 +39,8 @@ export type EntityOp = z.infer<typeof EntityOpSchema>;
 
 export const ApplyOpsInput = z.object({
   ops: z.array(EntityOpSchema),
+  /** Provenance : présent quand l'appel vient d'un salon monté. */
+  sourceVaultId: z.string().optional(),
 });
 export type ApplyOpsInput = z.infer<typeof ApplyOpsInput>;
 
@@ -56,6 +58,16 @@ export const SnapshotOutput = z.object({
   generatedAt: z.number(),
 });
 export type SnapshotOutput = z.infer<typeof SnapshotOutput>;
+
+// ── sync.purgeMounted ──────────────────────────────────────────────────────────
+
+export const PurgeMountedInput = z.object({ sourceVaultId: z.string() });
+export type PurgeMountedInput = z.infer<typeof PurgeMountedInput>;
+
+export const PurgeMountedOutput = z.object({
+  removed: z.number().int().nonnegative(),
+});
+export type PurgeMountedOutput = z.infer<typeof PurgeMountedOutput>;
 
 // ── sync.head ─────────────────────────────────────────────────────────────────
 
