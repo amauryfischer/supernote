@@ -9,8 +9,9 @@
  * flow looks consistent.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@supernote/ui";
+import { useFocusTrap } from "@/hooks/useFocusTrap";
 
 interface ConfirmModalProps {
   open: boolean;
@@ -34,6 +35,8 @@ export function ConfirmModal({
   onConfirm,
   onCancel,
 }: ConfirmModalProps) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const confirmRef = useRef<HTMLButtonElement>(null);
   // Drives the backdrop opacity fade: starts at 0 on mount, flips to the
   // resting dim on the next frame so the CSS opacity transition can run.
   // (A transition can't fire on the very first paint, hence the flag.)
@@ -48,6 +51,11 @@ export function ConfirmModal({
     const id = requestAnimationFrame(() => setShown(true));
     return () => cancelAnimationFrame(id);
   }, [open]);
+
+  // Focus trap: focus the confirm button on open, keep Tab / Shift+Tab cycling
+  // inside the dialog, and restore focus to the trigger on close. Replaces a
+  // bare `autoFocus` that didn't prevent focus from leaking behind the overlay.
+  useFocusTrap(dialogRef, open, { initialFocusRef: confirmRef });
 
   // Global Escape handler — closes the modal even if focus drifted.
   useEffect(() => {
@@ -85,6 +93,7 @@ export function ConfirmModal({
         aria-hidden="true"
       />
       <div
+        ref={dialogRef}
         className="sn-overlay-in relative w-full max-w-sm rounded-xl p-5 shadow-xl"
         style={{
           backgroundColor: "var(--surface-1)",
@@ -118,10 +127,10 @@ export function ConfirmModal({
             {cancelLabel}
           </Button>
           <Button
+            ref={confirmRef}
             type="button"
             variant={destructive ? "danger" : "primary"}
             size="sm"
-            autoFocus
             onClick={onConfirm}
           >
             {confirmLabel}

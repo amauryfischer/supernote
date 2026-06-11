@@ -19,6 +19,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Button, Input } from "@supernote/ui";
+import { useFocusTrap } from "@/hooks/useFocusTrap";
 
 interface PromptModalProps {
   open: boolean;
@@ -42,6 +43,7 @@ export function PromptModal({
   onCancel,
 }: PromptModalProps) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
   const [value, setValue] = useState(defaultValue);
   // Drives the backdrop opacity fade: starts at 0 on mount, flips to the
   // resting dim on the next frame so the CSS opacity transition can run.
@@ -64,17 +66,11 @@ export function PromptModal({
     return () => cancelAnimationFrame(id);
   }, [open]);
 
-  // Auto-focus the input as soon as the dialog appears so the user can
-  // start typing immediately (they invoked an action that requires text).
-  useEffect(() => {
-    if (open) {
-      // requestAnimationFrame: wait for the DOM to mount + paint before
-      // focusing, otherwise the focus call lands before the element exists.
-      const id = requestAnimationFrame(() => inputRef.current?.focus());
-      return () => cancelAnimationFrame(id);
-    }
-    return undefined;
-  }, [open]);
+  // Focus trap: auto-focus the input on open (so the user can type
+  // immediately — they invoked an action that requires text), keep Tab /
+  // Shift+Tab cycling inside the dialog, and restore focus to the trigger on
+  // close. Replaces a bare focus rAF that let focus leak behind the overlay.
+  useFocusTrap(dialogRef, open, { initialFocusRef: inputRef });
 
   // Global Escape handler — closes the modal even if focus drifted.
   useEffect(() => {
@@ -113,6 +109,7 @@ export function PromptModal({
         aria-hidden="true"
       />
       <div
+        ref={dialogRef}
         className="sn-overlay-in relative w-full max-w-sm rounded-xl p-5 shadow-xl"
         style={{
           backgroundColor: "var(--surface-1)",
