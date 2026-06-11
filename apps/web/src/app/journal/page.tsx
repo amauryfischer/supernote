@@ -9,6 +9,7 @@ import {
   type MobileHeaderAction,
 } from "@/components/shell";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { useDatesWithNote } from "@/hooks/useDatesWithNote";
 import { JournalEditor, JournalSidebar } from "@/components/journal";
 import { useRouter } from "next/navigation";
 import { useCallback, useMemo, useState, useEffect } from "react";
@@ -39,11 +40,6 @@ function buildInitialMarkdown(date: string): string {
     .replace(/\{\{cursor\}\}/g, "");
 }
 
-// Mock set of dates that have notes — replace with tRPC query later
-const MOCK_DATES_WITH_NOTE = new Set<string>([
-  todayYMD(),
-]);
-
 function JournalPageContent() {
   const router = useRouter();
   const isMobile = useIsMobile();
@@ -51,6 +47,9 @@ function JournalPageContent() {
   const [selectedDate, setSelectedDate] = useState<string>(today);
   const [isLoading, setIsLoading] = useState(true);
   const [isCalendarOpen, setCalendarOpen] = useState(false);
+  // Vraies dates avec entrée de journal (entités `daily`), pour pastiller le
+  // calendrier. Dégrade en ensemble vide si le backend ne répond pas.
+  const { datesWithNote } = useDatesWithNote();
 
   const handleSelectDate = useCallback((date: string) => {
     setSelectedDate(date);
@@ -134,7 +133,7 @@ function JournalPageContent() {
       >
         <JournalSidebar
           selectedDate={selectedDate}
-          datesWithNote={MOCK_DATES_WITH_NOTE}
+          datesWithNote={datesWithNote}
           onSelectDate={handleSelectDate}
           onToday={handleToday}
         />
@@ -158,7 +157,7 @@ function JournalPageContent() {
         <JournalSidebar
           embedded
           selectedDate={selectedDate}
-          datesWithNote={MOCK_DATES_WITH_NOTE}
+          datesWithNote={datesWithNote}
           onSelectDate={handleSelectDate}
           onToday={handleToday}
         />
