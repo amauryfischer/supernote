@@ -430,8 +430,30 @@ function NoteDetailContent() {
     if (!deleteTarget) return;
     await deleteNote(deleteTarget);
     setDeleteTarget(null);
-    router.push("/notes");
-  }, [deleteTarget, deleteNote, router]);
+    // Deleting a note OTHER than the one being edited (via the list's
+    // context menu) shouldn't navigate — the open note still exists.
+    if (deleteTarget !== params.id) return;
+    // The open note is gone: hand the user the next note in the current
+    // folder's list (or the previous one when the last entry was deleted)
+    // instead of bouncing them to the bare /notes index. Falls back to the
+    // folder's empty-state when nothing remains.
+    const folderQs = selectedFolder
+      ? `?folder=${encodeURIComponent(selectedFolder)}`
+      : "";
+    const remaining = notes.filter((n) => n.id !== deleteTarget);
+    if (remaining.length === 0) {
+      router.push(`/notes${folderQs}`);
+      return;
+    }
+    const deletedIdx = notes.findIndex((n) => n.id === deleteTarget);
+    const next =
+      remaining[Math.min(Math.max(deletedIdx, 0), remaining.length - 1)];
+    if (!next) {
+      router.push(`/notes${folderQs}`);
+      return;
+    }
+    router.push(`/notes/${next.id}${folderQs}`);
+  }, [deleteTarget, deleteNote, router, params.id, notes, selectedFolder]);
 
   // Ctrl/Cmd+N → nouvelle note dans le dossier actif. En onglet de
   // navigateur, Chrome verrouille Ctrl+N (ouvre une fenêtre) ; on
