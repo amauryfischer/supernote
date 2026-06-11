@@ -72,6 +72,7 @@ export class OnlineSyncClient {
   private pushBuffer: EntityOp[] = [];
   private pushTimer: ReturnType<typeof setTimeout> | null = null;
   private pushing: Promise<void> = Promise.resolve();
+  private applying: Promise<void> = Promise.resolve();
 
   constructor(opts: OnlineSyncClientOptions) {
     this.opts = opts;
@@ -238,7 +239,15 @@ export class OnlineSyncClient {
     };
 
     es.onmessage = (ev) => {
-      void this.onStreamData(ev.data);
+      // Serialise batch handling. The server replays the backlog in
+      // back-to-back batches; handling them concurrently piles worker RPCs
+      // and main-thread JSON work on top of each other right after first
+      // paint (mobile freeze) and lets cursor updates land out of order.
+      this.applying = this.applying
+        .then(() => this.onStreamData(ev.data))
+        .catch(() => {
+          /* never break the chain — errors are logged downstream */
+        });
     };
 
     es.onerror = () => {
@@ -253,6 +262,7 @@ export class OnlineSyncClient {
   }
 
   private async onStreamData(raw: string): Promise<void> {
+    if (this.stopped) return;
     let evt: SyncStreamEvent;
     try {
       evt = JSON.parse(raw) as SyncStreamEvent;
@@ -274,6 +284,11 @@ export class OnlineSyncClient {
           console.warn("[online-sync] applyOps failed", err);
         }
       }
+      // A continuation resumed AFTER stop() must not touch the persisted
+      // cursor: the config may already belong to ANOTHER room (vault switch),
+      // and seq is a server-global sequence — writing room A's seq into room
+      // B's config makes B skip its entire backlog on the next connect.
+      if (this.stopped) return;
       if (highest > this.seq) {
         this.seq = highest;
         this.opts.onSeq(this.seq);
@@ -284,9 +299,15 @@ export class OnlineSyncClient {
   private async seed(): Promise<void> {
     try {
       const ops = await this.opts.getSnapshot();
+      // The snapshot RPC can resolve (or time out) long after stop() — e.g.
+      // a vault switch terminated the worker mid-call. Pushing it would send
+      // the PREVIOUS room's notes into the new room; marking seeded would
+      // skip the new room's real seed. Bail at every resumption point.
+      if (this.stopped) return;
       if (ops.length > 0) {
         await this.postOps(ops.map((op) => ({ ...op, clientId: this.opts.clientId })));
       }
+      if (this.stopped) return;
       this.seeded = true;
       this.opts.onSeeded();
       console.info(`[online-sync] seeded ${ops.length} entit(y/ies) to the server`);

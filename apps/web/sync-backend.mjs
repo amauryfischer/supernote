@@ -100,12 +100,23 @@ export async function createSyncBackend() {
     const set = subscribers.get(vault);
     if (!set || set.size === 0) return;
     const head = await store.headSeq(vault);
-    const payload = { type: "ops", headSeq: head, ops: storedOps };
-    for (const res of set) {
-      try {
-        sseSend(res, payload);
-      } catch {
-        /* dropped on next heartbeat */
+    // Chunked: a device's initial seed can push thousands of ops in one POST
+    // (body cap 32 MB) — broadcasting them back as ONE SSE frame forces a
+    // multi-second JSON.parse on every subscriber's main thread (and on the
+    // seeder itself, which parses its own echo before discarding it). Mirror
+    // the replay batch size so live frames stay bounded.
+    for (let i = 0; i < storedOps.length; i += REPLAY_BATCH) {
+      const payload = {
+        type: "ops",
+        headSeq: head,
+        ops: storedOps.slice(i, i + REPLAY_BATCH),
+      };
+      for (const res of set) {
+        try {
+          sseSend(res, payload);
+        } catch {
+          /* dropped on next heartbeat */
+        }
       }
     }
   }
