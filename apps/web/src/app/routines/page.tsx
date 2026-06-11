@@ -11,10 +11,11 @@ import {
 import type { RoutineFixture, TemplateKey } from "@/components/routines";
 import { trpc } from "@/lib/trpc/client";
 import { Plus, Lightning, CaretDown } from "@phosphor-icons/react";
-import Link from "next/link";
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
+import { useState, useCallback } from "react";
 import type { Entity, FieldValue } from "@supernote/ipc";
-import { EmptyState } from "@supernote/ui";
+import { EmptyState, DropdownMenu } from "@supernote/ui";
+import type { DropdownMenuItem } from "@supernote/ui";
 import { useTranslations } from "next-intl";
 import { entityToRoutine, routineFixtureToEntityFields, ROUTINE_TYPE_ID } from "@/lib/routines/entity-adapter";
 
@@ -49,53 +50,42 @@ const TEMPLATE_KEYS: TemplateKey[] = [
 
 function NewRoutineDropdown() {
   const t = useTranslations("routines");
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
+  const router = useRouter();
 
-  useEffect(() => {
-    function handleClick(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    }
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, []);
+  // HeroUI Dropdown (react-aria overlay) gère le click-outside, le focus
+  // et surtout le repositionnement contraint au viewport : plus de `right-0`
+  // qui déborde sur les petits écrans.
+  const items: DropdownMenuItem[] = TEMPLATE_KEYS.map((key) => ({
+    key,
+    label: (
+      <span className="flex flex-col">
+        <span className="text-xs font-medium" style={{ color: "var(--text-primary)" }}>
+          {TEMPLATE_META[key].label}
+        </span>
+        <span className="mt-0.5 text-[10px]" style={{ color: "var(--text-muted)" }}>
+          {TEMPLATE_META[key].description}
+        </span>
+      </span>
+    ),
+  }));
 
   return (
-    <div className="relative" ref={ref}>
-      <Button
-        onPress={() => setOpen((o) => !o)}
-        size="sm"
-        className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-opacity hover:opacity-90"
-        style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
-      >
-        <Plus size={13} />
-        {t("newRoutine")}
-        <CaretDown size={11} className={`transition-transform ${open ? "rotate-180" : ""}`} />
-      </Button>
-
-      {open && (
-        <div
-          className="absolute right-0 z-30 mt-1.5 w-56 rounded-lg border py-1 shadow-lg"
-          style={{ backgroundColor: "var(--surface-0)", borderColor: "var(--border)" }}
+    <DropdownMenu
+      className="w-56 max-w-[calc(100vw-2rem)]"
+      items={items}
+      onAction={(key) => router.push(`/routines/nouveau?template=${key}`)}
+      trigger={
+        <Button
+          size="sm"
+          className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-opacity hover:opacity-90"
+          style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
         >
-          {TEMPLATE_KEYS.map((key) => (
-            <Link
-              key={key}
-              href={`/routines/nouveau?template=${key}`}
-              onClick={() => setOpen(false)}
-              className="flex flex-col px-3 py-2 text-left transition-colors hover:bg-[var(--surface-2)]"
-            >
-              <span className="text-xs font-medium" style={{ color: "var(--text-primary)" }}>
-                {TEMPLATE_META[key].label}
-              </span>
-              <span className="mt-0.5 text-[10px]" style={{ color: "var(--text-muted)" }}>
-                {TEMPLATE_META[key].description}
-              </span>
-            </Link>
-          ))}
-        </div>
-      )}
-    </div>
+          <Plus size={13} />
+          {t("newRoutine")}
+          <CaretDown size={11} />
+        </Button>
+      }
+    />
   );
 }
 
