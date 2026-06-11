@@ -186,6 +186,19 @@ async function initSqlite(handle: FileSystemDirectoryHandle): Promise<Database> 
     console.warn("[vault-worker] view columns migration failed (non-fatal)", e);
   }
 
+  // Migration : ajoute entity.sourceVaultId (provenance des entités montées)
+  // aux DB créées avant la feature « montages de vaults ». Idempotent.
+  try {
+    const cols = database.exec(`PRAGMA table_info("entity")`);
+    const names: string[] =
+      cols.length > 0 ? cols[0]!.values.map((row) => row[1] as string) : [];
+    if (!names.includes("sourceVaultId")) {
+      database.run(`ALTER TABLE "entity" ADD COLUMN "sourceVaultId" TEXT;`);
+    }
+  } catch (e) {
+    console.warn("[vault-worker] entity.sourceVaultId migration failed (non-fatal)", e);
+  }
+
   console.info("[init.sqlite] running SCHEMA_SQL (base + FTS5)");
   database.run(SCHEMA_SQL);
   console.info("[init.sqlite] done");
