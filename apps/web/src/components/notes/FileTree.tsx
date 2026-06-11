@@ -934,9 +934,17 @@ export function FileTree({
       const activePath = String(active.id);
       const overId = String(over.id);
 
+      // Un sous-arbre monté (`@mounts/...`) est en lecture seule : on refuse
+      // tout déplacement dont la source OU la destination y atterrirait. Le
+      // worker rejetterait l'écriture ; on évite l'aller-retour + le toast.
+      const isMountScopedPath = (p: string) =>
+        p === MOUNT_PATH_PREFIX || p.startsWith(`${MOUNT_PATH_PREFIX}/`);
+      if (isMountScopedPath(activePath)) return;
+
       if (overId.startsWith("nest:")) {
         // Drop INTO another folder.
         const targetPath = overId.slice(5);
+        if (isMountScopedPath(targetPath)) return;
         const leaf = activePath.split("/").pop()!;
         void moveFolder(activePath, `${targetPath}/${leaf}`);
         setExpanded(targetPath, true);
@@ -946,6 +954,7 @@ export function FileTree({
       if (overId.startsWith("reparent:")) {
         // Drop ADJACENT to another folder → move to that folder's parent level.
         const siblingPath = overId.slice(9);
+        if (isMountScopedPath(siblingPath)) return;
         const newParent = getParentPath(siblingPath);
         const leaf = activePath.split("/").pop()!;
         const newPath = newParent ? `${newParent}/${leaf}` : leaf;
@@ -1164,6 +1173,15 @@ function FolderNode({
   const { mountRoots, onDisconnectMount } = useContext(MountContext);
   const mountMeta = mountRoots.get(folder.path) ?? null;
   const isMountRoot = mountMeta !== null;
+  // « Scoped » = ce nœud est la racine d'un montage OU imbriqué sous un
+  // préfixe `@mounts/`. Sert à supprimer toute mutation de structure (création
+  // de note/dossier, renommage, suppression) sur l'ensemble du sous-arbre
+  // monté — le worker rejette ces écritures, et une suppression locale ne
+  // ferait que churner via re-sync. La navigation (sélection/expansion) et
+  // l'ouverture des notes restent autorisées.
+  const isMountScoped =
+    folder.path === MOUNT_PATH_PREFIX ||
+    folder.path.startsWith(`${MOUNT_PATH_PREFIX}/`);
   // Track inline rename pending state to block single-click navigation during edit.
   const [isRenaming, setIsRenaming] = useState(false);
   const [hovered, setHovered] = useState(false);
@@ -1266,6 +1284,12 @@ function FolderNode({
         },
       ];
     }
+    // Dossier imbriqué dans un montage : structurellement en lecture seule.
+    // Aucune action de mutation (création note/dossier, renommage, suppression)
+    // n'est pertinente — on ne propose donc pas de menu.
+    if (isMountScoped) {
+      return [];
+    }
     return [
       {
         key: "new-subfolder",
@@ -1325,7 +1349,11 @@ function FolderNode({
   };
 
   const handleContextMenu = (e: React.MouseEvent) => {
-    openContextMenu(e, buildMenuItems({ clientX: e.clientX, clientY: e.clientY }));
+    const items = buildMenuItems({ clientX: e.clientX, clientY: e.clientY });
+    // Nœud monté imbriqué : pas d'actions → on laisse le menu natif (rien à
+    // ouvrir). buildMenuItems renvoie [] dans ce cas.
+    if (items.length === 0) return;
+    openContextMenu(e, items);
   };
 
   // ── Desktop file drag-drop ─────────────────────────────────────────────────
@@ -1372,6 +1400,10 @@ function FolderNode({
   );
 
   const handleDragOver = (e: React.DragEvent) => {
+    // Sous-arbre monté : en lecture seule. On refuse d'être cible de drop
+    // (import de fichier ou déplacement de note) — le worker rejetterait
+    // l'écriture, autant ne pas l'afficher comme cible valide.
+    if (isMountScoped) return;
     // Accept native file drops OR note-card drags (text/plain).
     const hasFiles = e.dataTransfer.types.includes("Files");
     const hasNote = e.dataTransfer.types.includes("text/plain");
@@ -1404,6 +1436,8 @@ function FolderNode({
   };
 
   const handleDrop = (e: React.DragEvent) => {
+    // Cohérent avec handleDragOver : aucun drop accepté dans un sous-arbre monté.
+    if (isMountScoped) return;
     e.preventDefault();
     e.stopPropagation();
     setIsDragOver(false);
@@ -1538,9 +1572,9 @@ function FolderNode({
         }}
       >
         {/* Drag handle — visible on hover for all folders except pinned ones.
-            Masqué aussi pour les racines de coffre monté : leur chemin
-            (`@mounts/<slug>`) est virtuel, un déplacement le casserait. */}
-        {hovered && !isPinned && !isMountRoot && (
+            Masqué aussi pour tout nœud monté (`@mounts/...`) : leur chemin est
+            virtuel et en lecture seule, un déplacement le casserait. */}
+        {hovered && !isPinned && !isMountScoped && (
           <button
             {...sortableListeners}
             aria-label="Réordonner le dossier"
@@ -1589,15 +1623,17 @@ function FolderNode({
             <IconComponent size={14} color={iconColor} weight={folder.icon ? "fill" : "regular"} />
             <span
               className="flex-1 truncate text-left"
-              onDoubleClick={onRenameFolderInline ? (e) => {
+              // Renommage inline (double-clic / F2) supprimé sur les nœuds
+              // montés : leur chemin est virtuel et en lecture seule.
+              onDoubleClick={onRenameFolderInline && !isMountScoped ? (e) => {
                 e.stopPropagation();
                 e.preventDefault();
                 setIsRenaming(true);
               } : undefined}
-              onKeyDown={onRenameFolderInline ? (e) => {
+              onKeyDown={onRenameFolderInline && !isMountScoped ? (e) => {
                 if (e.key === "F2") { e.preventDefault(); setIsRenaming(true); }
               } : undefined}
-              tabIndex={onRenameFolderInline ? 0 : undefined}
+              tabIndex={onRenameFolderInline && !isMountScoped ? 0 : undefined}
             >
               {folder.name}
             </span>
@@ -1615,7 +1651,7 @@ function FolderNode({
             extra hover state in React). Lives outside the <button> because
             nested buttons are invalid HTML; absolute-positioned over the
             count so it never widens the row. */}
-        {!isRenaming && (
+        {!isRenaming && !(isMountScoped && !isMountRoot) && (
           <button
             type="button"
             onClick={handleActionsClick}
