@@ -344,7 +344,7 @@ function TagChip({ tag, onRemove }: { tag: string; onRemove?: () => void }) {
           variant="ghost"
           size="sm"
           onPress={onRemove}
-          className="h-auto min-h-0 min-w-0 p-0 transition-opacity hover:opacity-70"
+          className="relative h-auto min-h-0 min-w-0 p-0 transition-opacity after:absolute after:-inset-2 after:content-[''] hover:opacity-70"
           aria-label={`Retirer ${tag}`}
         >
           <X size={9} />

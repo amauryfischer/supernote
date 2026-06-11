@@ -570,7 +570,7 @@ export function EditableSidebar({ contact, hasLiveBackend }: EditableSidebarProp
                 variant="ghost"
                 size="sm"
                 onPress={() => removeAlias(alias)}
-                className="h-auto min-h-0 min-w-0 p-0"
+                className="relative h-auto min-h-0 min-w-0 p-0 after:absolute after:-inset-2 after:content-['']"
                 aria-label={`Supprimer l'alias ${alias}`}
               >
                 <X size={10} />
@@ -627,7 +627,7 @@ export function EditableSidebar({ contact, hasLiveBackend }: EditableSidebarProp
                 variant="ghost"
                 size="sm"
                 onPress={() => removeTag(tag)}
-                className="h-auto min-h-0 min-w-0 p-0 outline-none focus:outline-none focus-visible:outline-none"
+                className="relative h-auto min-h-0 min-w-0 p-0 outline-none after:absolute after:-inset-2 after:content-[''] focus:outline-none focus-visible:outline-none"
                 aria-label={`Supprimer ${tag}`}
               >
                 <X size={10} />

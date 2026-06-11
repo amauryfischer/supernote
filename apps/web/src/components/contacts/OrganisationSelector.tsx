@@ -148,7 +148,7 @@ export function OrganisationSelector({
             variant="ghost"
             size="sm"
             onPress={clear}
-            className="h-4 w-4 min-h-0 min-w-0 rounded p-0"
+            className="relative h-4 w-4 min-h-0 min-w-0 rounded p-0 after:absolute after:-inset-2 after:content-['']"
             aria-label="Retirer l'organisation"
           >
             <X size={11} style={{ color: "var(--text-muted)" }} />
