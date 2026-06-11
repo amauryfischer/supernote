@@ -28,6 +28,12 @@ import { MagnifyingGlass } from "@phosphor-icons/react";
 import { useDebounce } from "@/hooks/useDebounce";
 import { trpc, hasWorkerBackend } from "@/lib/trpc/client";
 import { isWorkerReady } from "@/lib/trpc/browser-link";
+import {
+  loadSavedSearches,
+  saveSavedSearches,
+  loadRecentSearches,
+  saveRecentSearches,
+} from "@/components/search/storage";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -84,21 +90,21 @@ export default function RecherchePage() {
   const [mode, setMode] = useState<SearchMode>("hybrid");
   const [filters, setFilters] = useState<ActiveFilter[]>([]);
   const [debugMode] = useState(false);
-  const [recentSearches, setRecentSearches] = useState<RecentSearch[]>([
-    { id: "r1", query: "type:personne tag:client", usedAt: "2026-05-07T09:00:00Z" },
-    { id: "r2", query: "architecture monorepo", usedAt: "2026-05-06T17:00:00Z" },
-    { id: "r3", query: "type:note tag:idee", usedAt: "2026-05-05T11:00:00Z" },
-  ]);
-  const [savedSearches, setSavedSearches] = useState<SavedSearch[]>([
-    {
-      id: "s1",
-      label: "Contacts clients",
-      query: "type:personne tag:client",
-      filters: [],
-      mode: "hybrid",
-      savedAt: "2026-05-01T10:00:00Z",
-    },
-  ]);
+  // Saved + recent searches are persisted in localStorage (see
+  // components/search/storage.ts). Lazy initializers read the durable store
+  // once on mount; every mutation below writes back through the setters.
+  const [recentSearches, setRecentSearches] = useState<RecentSearch[]>(loadRecentSearches);
+  const [savedSearches, setSavedSearches] = useState<SavedSearch[]>(loadSavedSearches);
+
+  // Persist back to localStorage whenever the lists change. Keeping the write
+  // in an effect (rather than inside each handler) means a single source of
+  // truth for persistence and survives any future mutation path.
+  useEffect(() => {
+    saveRecentSearches(recentSearches);
+  }, [recentSearches]);
+  useEffect(() => {
+    saveSavedSearches(savedSearches);
+  }, [savedSearches]);
 
   const debouncedQuery = useDebounce(rawQuery, 250);
 
