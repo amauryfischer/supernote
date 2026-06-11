@@ -3538,6 +3538,32 @@ export function buildRouter(
     return { applied, skipped };
   };
 
+  /** Liste les montages (vault_mount) par provenance. null = montages directs
+   *  du père ; un cloudId = montages déclarés DANS ce salon (récursion). */
+  const syncListMounts = async (input: unknown): Promise<unknown> => {
+    const { sourceVaultId } = (input as { sourceVaultId?: string | null }) ?? {};
+    const provenance = sourceVaultId ?? null;
+    const res = provenance === null
+      ? db.exec(
+          `SELECT fields FROM entity WHERE vaultId = ? AND typeId = 'vault_mount' AND sourceVaultId IS NULL`,
+          [vaultId],
+        )
+      : db.exec(
+          `SELECT fields FROM entity WHERE vaultId = ? AND typeId = 'vault_mount' AND sourceVaultId = ?`,
+          [vaultId, provenance],
+        );
+    const mounts = rows(res).map((r) => {
+      const f = safeParseFieldsBlob((r["fields"] as string) || "{}");
+      return {
+        serverUrl: typeof f["serverUrl"] === "string" ? (f["serverUrl"] as string) : "",
+        vaultKey: typeof f["vaultKey"] === "string" ? (f["vaultKey"] as string) : "",
+        token: typeof f["token"] === "string" ? (f["token"] as string) : "",
+        label: typeof f["label"] === "string" ? (f["label"] as string) : "",
+      };
+    }).filter((m) => m.vaultKey);
+    return { mounts };
+  };
+
   /** Supprime toutes les entités d'une provenance donnée (démontage). */
   const syncPurgeMounted = async (input: unknown): Promise<unknown> => {
     const { sourceVaultId } = (input as { sourceVaultId?: string }) ?? {};
@@ -3627,6 +3653,7 @@ export function buildRouter(
     "sync.head": syncHead,
     "sync.applyOps": syncApplyOps,
     "sync.purgeMounted": syncPurgeMounted,
+    "sync.listMounts": syncListMounts,
   };
 }
 

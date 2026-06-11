@@ -3,6 +3,8 @@ import { notImplemented } from "../errors/index.js";
 import {
   ApplyOpsInput,
   ApplyOpsOutput,
+  ListMountsInput,
+  ListMountsOutput,
   PurgeMountedInput,
   PurgeMountedOutput,
   SnapshotOutput,
@@ -35,6 +37,14 @@ export const syncRouter = router({
     .output(PurgeMountedOutput)
     .mutation(() => {
       throw notImplemented("sync.purgeMounted");
+    }),
+
+  /** List `vault_mount` connection settings filtered by provenance. */
+  listMounts: publicProcedure
+    .input(ListMountsInput)
+    .output(ListMountsOutput)
+    .query(() => {
+      throw notImplemented("sync.listMounts");
     }),
 
   /** Full snapshot of the local vault as upsert ops (initial server seed). */

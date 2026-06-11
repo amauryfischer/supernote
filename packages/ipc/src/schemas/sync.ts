@@ -69,6 +69,24 @@ export const PurgeMountedOutput = z.object({
 });
 export type PurgeMountedOutput = z.infer<typeof PurgeMountedOutput>;
 
+// ── sync.listMounts ────────────────────────────────────────────────────────────
+
+export const ListMountsInput = z.object({
+  sourceVaultId: z.string().nullable().optional(),
+});
+export type ListMountsInput = z.infer<typeof ListMountsInput>;
+
+export const MountConnectionSchema = z.object({
+  serverUrl: z.string(),
+  vaultKey: z.string(),
+  token: z.string(),
+  label: z.string(),
+});
+export const ListMountsOutput = z.object({
+  mounts: z.array(MountConnectionSchema),
+});
+export type ListMountsOutput = z.infer<typeof ListMountsOutput>;
+
 // ── sync.head ─────────────────────────────────────────────────────────────────
 
 export const SyncHeadOutput = z.object({

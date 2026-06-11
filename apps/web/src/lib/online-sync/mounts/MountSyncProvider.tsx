@@ -34,33 +34,6 @@ import { loadPendingOps, savePendingOps } from "../pendingStore";
 import { MountSyncManager, type MountClient } from "./MountSyncManager";
 import type { MountNode } from "./resolve-mounts";
 
-/**
- * Lit les montages directs du père : les entités `vault_mount` natives (NON
- * montées elles-mêmes). `entities.list` renvoie `{ items, total }` ; chaque item
- * porte ses champs à plat sous `.fields`.
- */
-async function listMountEntities(): Promise<MountNode[]> {
-  try {
-    const res = await trpcVanillaClient.entities.list.query({
-      typeId: "vault_mount",
-      limit: 200,
-    });
-    return res.items
-      .map((e): MountNode => {
-        const f = e.fields;
-        return {
-          serverUrl: String(f["serverUrl"] ?? ""),
-          vaultKey: String(f["vaultKey"] ?? ""),
-          token: String(f["token"] ?? ""),
-          label: String(f["label"] ?? f["vaultKey"] ?? ""),
-        };
-      })
-      .filter((m) => m.vaultKey);
-  } catch {
-    return [];
-  }
-}
-
 export function MountSyncProvider({ children }: { children: React.ReactNode }) {
   const vault = useVault();
   const managerRef = useRef<MountSyncManager | null>(null);
@@ -132,12 +105,21 @@ export function MountSyncProvider({ children }: { children: React.ReactNode }) {
     const manager = new MountSyncManager({
       parentVaultId,
       selfId,
-      getDirectMounts: listMountEntities,
-      // V1 : pas de résolution transitive proactive (un salon monté ne déclare
-      // pas ses propres montages côté serveur). Les montages d'un salon monté
-      // arrivent comme des entités `vault_mount` via applyOps → ENTITY_CHANGE →
-      // refresh() les reprend au prochain tour. Voir la note de tâche.
-      getMountsIn: async () => [],
+      // Montages directs du père : entités `vault_mount` natives (provenance
+      // nulle), via la requête worker filtrée par provenance.
+      getDirectMounts: () =>
+        trpcVanillaClient.sync.listMounts
+          .query({ sourceVaultId: null })
+          .then((r) => r.mounts)
+          .catch(() => [] as MountNode[]),
+      // Résolution transitive : les montages déclarés DANS un salon monté
+      // (provenance = son cloudId) arrivent par sync ; on les liste pour
+      // que resolveMounts recurse (« vault-ception »).
+      getMountsIn: (cloudId) =>
+        trpcVanillaClient.sync.listMounts
+          .query({ sourceVaultId: cloudId })
+          .then((r) => r.mounts)
+          .catch(() => [] as MountNode[]),
       applyOps: async (ops, src) =>
         void (await trpcVanillaClient.sync.applyOps.mutate({ ops, sourceVaultId: src })),
       purgeMounted: async (src) => {
@@ -155,9 +137,11 @@ export function MountSyncProvider({ children }: { children: React.ReactNode }) {
       if (!msg || typeof msg !== "object") return;
       const m = msg as { type?: string; sourceVaultId?: string | null; op?: EntityOp };
       if (m.type !== "ENTITY_CHANGE" || !m.op) return;
-      // Une entité `vault_mount` NATIVE (provenance nulle) ajoutée/modifiée/
-      // supprimée → reconcilier les clients (ajout/retrait de montage).
-      if (m.op.payload?.typeId === "vault_mount" && m.sourceVaultId == null) {
+      // Une entité `vault_mount` ajoutée/modifiée/supprimée — NATIVE (provenance
+      // nulle, montage direct) OU NESTED (provenance non nulle, montage déclaré
+      // dans un salon monté) → reconcilier les clients. Un montage imbriqué
+      // arrivé par sync déclenche la résolution récursive (« vault-ception »).
+      if (m.op.payload?.typeId === "vault_mount") {
         void manager.refresh();
         return;
       }
