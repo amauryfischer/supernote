@@ -1,6 +1,6 @@
 "use client";
 
-import { Archive, ArrowUUpLeft, DotsThree, DotsSixVertical, Trash } from "@phosphor-icons/react";
+import { Archive, ArrowUUpLeft, DotsThree, DotsSixVertical, Plugs, Trash } from "@phosphor-icons/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { formatRelativeDate, type Note } from "./fixtures";
@@ -41,9 +41,16 @@ interface NoteListItemProps {
   onArchive?: (archived: boolean) => Promise<void>;
   /** Called when a cross-panel drag towards the FileTree begins. */
   onDragNote?: (noteId: string) => void;
+  /**
+   * Libellé du coffre monté d'où provient la note (chemin préfixé par
+   * `@mounts/<slug>/`). `undefined` pour une note native du coffre courant →
+   * pas de badge de provenance. Calculé en amont dans NoteList à partir de
+   * `sync.listMounts` (le slug seul ne porte pas le nom humain).
+   */
+  mountLabel?: string;
 }
 
-export function NoteListItem({ note, isActive, onClick, onHover, getPreview, onDelete, sortable, onRename, onArchive, onDragNote }: NoteListItemProps) {
+export function NoteListItem({ note, isActive, onClick, onHover, getPreview, onDelete, sortable, onRename, onArchive, onDragNote, mountLabel }: NoteListItemProps) {
   const [hovered, setHovered] = useState(false);
   const [isRenaming, setIsRenaming] = useState(false);
   const t = useTranslations("notes");
@@ -450,7 +457,7 @@ export function NoteListItem({ note, isActive, onClick, onHover, getPreview, onD
             </p>
           )}
 
-          {(isArchived || note.tags.length > 0 || attachmentBadge) && !isRenaming && (
+          {(isArchived || note.tags.length > 0 || attachmentBadge || mountLabel) && !isRenaming && (
             <div className="mt-2 flex flex-wrap gap-1">
               {attachmentBadge && (
                 <span
@@ -462,6 +469,23 @@ export function NoteListItem({ note, isActive, onClick, onHover, getPreview, onD
                   title={attachmentBadge.title}
                 >
                   {attachmentBadge.label}
+                </span>
+              )}
+              {mountLabel && (
+                // Badge de provenance — note hissée depuis un coffre monté.
+                // Teinte violette discrète (cf. racines de montage du FileTree)
+                // pour signaler l'origine sans voler la vedette au titre.
+                <span
+                  className="inline-flex max-w-[140px] items-center gap-1 truncate rounded px-1.5 py-0.5 text-[10px] font-medium"
+                  style={{
+                    backgroundColor: "rgba(139,92,246,0.14)",
+                    color: "#8b5cf6",
+                  }}
+                  title={`Monté depuis « ${mountLabel} »`}
+                  aria-label={`Monté depuis ${mountLabel}`}
+                >
+                  <Plugs size={10} weight="fill" />
+                  <span className="truncate">{mountLabel}</span>
                 </span>
               )}
               {isArchived && (
