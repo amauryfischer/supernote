@@ -15,6 +15,7 @@ import {
   Calendar,
   Camera,
   CaretRight,
+  CloudArrowDown,
   ChartBar,
   ChartLine,
   ChartPie,
@@ -93,6 +94,14 @@ import { ConnectVaultModal } from "./ConnectVaultModal";
 import { useUpdateFolder, useReorderFolders, useMoveFolder } from "./hooks";
 import { trpc, trpcVanillaClient } from "@/lib/trpc/client";
 import { folderAccentVars } from "@/lib/folderAccent";
+import { useConfirm } from "@/hooks/usePrompt";
+import {
+  cloudRoomSlug,
+  cloudVaultId,
+  MOUNT_PATH_PREFIX,
+  normalizeServerUrl,
+  normalizeVaultKey,
+} from "@/lib/online-sync/room-id";
 import {
   DndContext,
   closestCenter,
@@ -471,6 +480,91 @@ const folderTreeCollision: CollisionDetection = ({ active, droppableContainers, 
   return nestHits.length > 0 ? nestHits : sortHits.length > 0 ? sortHits : reparentHits;
 };
 
+// ── Vault mounts (montages) ────────────────────────────────────────────────────
+//
+// Les entités d'un coffre monté vivent dans le coffre père sous le chemin
+// virtuel `@mounts/<slug>/<cheminOrigine>` (cf. lib/online-sync/room-id.ts).
+// L'entité de configuration du montage elle-même (`typeId: "vault_mount"`,
+// `defaultPath: "VaultMounts"`) ne doit JAMAIS apparaître comme une note.
+//
+// Le FileTree reçoit déjà ces deux familles sous forme de NŒUDS de dossier
+// (le worker dérive l'arbre des `filePath` de toutes les entités), donc tout
+// le regroupement opère sur la prop `folders` — pas sur `notes`, qui ne sert
+// qu'au comptage « (N) ».
+
+/** Dossier racine système des configs de montage — à masquer de l'arbre. */
+const MOUNT_CONFIG_FOLDER = "VaultMounts";
+
+/** Métadonnées d'un coffre monté, indexées par son slug de salon. */
+interface MountRootMeta {
+  /** Slug = cloudRoomSlug(cloudVaultId(serverUrl, vaultKey)). */
+  slug: string;
+  /** Libellé affiché (label du montage, sinon la clé du salon). */
+  label: string;
+  serverUrl: string;
+  vaultKey: string;
+}
+
+type MountConnection = { serverUrl: string; vaultKey: string; token: string; label: string };
+
+/** Construit la table slug → métadonnées à partir de la requête listMounts. */
+function buildMountMap(mounts: ReadonlyArray<MountConnection>): Map<string, MountRootMeta> {
+  const map = new Map<string, MountRootMeta>();
+  for (const m of mounts) {
+    const slug = cloudRoomSlug(cloudVaultId(m.serverUrl, m.vaultKey));
+    map.set(slug, {
+      slug,
+      label: m.label || m.vaultKey,
+      serverUrl: m.serverUrl,
+      vaultKey: m.vaultKey,
+    });
+  }
+  return map;
+}
+
+/**
+ * Transforme l'arbre de dossiers brut pour :
+ *   1. retirer le dossier de configs `VaultMounts` (jamais affiché),
+ *   2. dé-emballer le wrapper `@mounts` et hisser chaque `<slug>` au niveau
+ *      racine, relabellisé avec le nom du coffre monté et marqué comme « racine
+ *      de montage » (icône + teinte distinctes, action « Déconnecter »).
+ *
+ * Les chemins (`folder.path`) restent INCHANGÉS (`@mounts/<slug>/…`) : ils
+ * pilotent la sélection et le comptage des notes, qui scannent `notes` par
+ * `folderPath`. Seul le `name` de la racine est remplacé par le libellé.
+ *
+ * Un slug sans entrée dans `mountMap` (montage retiré mais entités pas encore
+ * purgées) est volontairement SAUTÉ : on n'affiche pas de données orphelines
+ * d'un coffre déconnecté — le manager les purgera, et les rendre sans action
+ * de déconnexion serait un cul-de-sac pour l'utilisateur.
+ *
+ * Renvoie l'arbre transformé + l'ensemble des chemins marqués comme racines de
+ * montage (consommé par FolderNode pour son rendu et son menu).
+ */
+function regroupMounts(
+  folders: FolderType[],
+  mountMap: Map<string, MountRootMeta>,
+): { folders: FolderType[]; mountRoots: Map<string, MountRootMeta> } {
+  const mountRoots = new Map<string, MountRootMeta>();
+  const out: FolderType[] = [];
+  for (const folder of folders) {
+    if (folder.path === MOUNT_CONFIG_FOLDER) continue; // 1. masque les configs
+    if (folder.path === MOUNT_PATH_PREFIX) {
+      // 2. dé-emballe `@mounts` : chaque enfant est un `<slug>`.
+      for (const slugNode of folder.children ?? []) {
+        const slug = slugNode.path.slice(MOUNT_PATH_PREFIX.length + 1);
+        const meta = mountMap.get(slug);
+        if (!meta) continue; // slug orphelin → on saute (coffre déconnecté)
+        out.push({ ...slugNode, name: meta.label });
+        mountRoots.set(slugNode.path, meta);
+      }
+      continue;
+    }
+    out.push(folder);
+  }
+  return { folders: out, mountRoots };
+}
+
 // ── FolderDndContext — shared drag state ──────────────────────────────────────
 
 interface FolderDndContextValue {
@@ -483,6 +577,25 @@ const FolderDndContext = createContext<FolderDndContextValue>({
   nestTarget: null,
   reparentTarget: null,
   childOrders: new Map(),
+});
+
+// ── MountContext — racines de montage + action de déconnexion ─────────────────
+//
+// Partagé par tout l'arbre : FolderNode lit `mountRoots` (par chemin) pour
+// distinguer une racine de coffre monté d'un dossier normal (icône, teinte,
+// item de menu « Déconnecter »). Seules les racines top-level y figurent ; les
+// sous-dossiers d'un montage restent des dossiers ordinaires (lecture seule
+// côté affichage, le worker pilote leur cycle de vie).
+
+interface MountContextValue {
+  mountRoots: Map<string, MountRootMeta>;
+  /** Déconnecte le coffre monté à ce chemin racine (supprime sa config). */
+  onDisconnectMount: (meta: MountRootMeta) => void;
+}
+
+const MountContext = createContext<MountContextValue>({
+  mountRoots: new Map(),
+  onDisconnectMount: () => {},
 });
 
 // ── FileTreeProps ──────────────────────────────────────────────────────────────
@@ -538,7 +651,7 @@ interface PickerState {
 }
 
 export function FileTree({
-  folders,
+  folders: rawFolders,
   selectedFolder,
   onSelectFolder,
   onNewFolder,
@@ -547,7 +660,7 @@ export function FileTree({
   onRenameFolderInline,
   onDeleteFolder,
   onArchiveFolder,
-  notes,
+  notes: rawNotes,
   onCollapse,
   onDropNote,
 }: FileTreeProps) {
@@ -556,8 +669,101 @@ export function FileTree({
   // open at a time anyway, and the ContextMenu element lives at the FileTree
   // root so it can render above the scroll container without clipping.
   const ctx = useContextMenu();
+  const confirm = useConfirm();
+  const utils = trpc.useUtils();
+  const { toast } = useToast();
 
   const [connectVaultOpen, setConnectVaultOpen] = useState(false);
+
+  // ── Montages (vault mounts) ────────────────────────────────────────────────
+  // Liste les coffres montés directement par l'utilisateur (provenance nulle).
+  // Pas de round-trip réseau : c'est une requête worker locale.
+  const mountsQuery = trpc.sync.listMounts.useQuery({ sourceVaultId: null });
+  const mountMap = useMemo(
+    () => buildMountMap(mountsQuery.data?.mounts ?? []),
+    [mountsQuery.data],
+  );
+
+  // Regroupe l'arbre : masque `VaultMounts`, hisse chaque montage `@mounts/<slug>`
+  // en racine labellisée. `folders`/`notes` ci-dessous référencent désormais la
+  // version regroupée (filtrée) — toutes les utilisations en aval en héritent.
+  const { folders, mountRoots } = useMemo(
+    () => regroupMounts(rawFolders, mountMap),
+    [rawFolders, mountMap],
+  );
+
+  // Comptage « (N) » : on retire les entités de config `vault_mount`
+  // (`VaultMounts/…`) pour qu'elles ne gonflent aucun compteur. NB : le même
+  // tableau `allNotes` alimente NoteList côté page ; ce filtre est LOCAL au
+  // FileTree, donc une config pourrait encore apparaître dans la liste centrale
+  // si la page la sélectionnait — à traiter en suivi si besoin (le dossier
+  // `VaultMounts` n'étant plus sélectionnable depuis l'arbre, le risque est nul
+  // en pratique).
+  const notes = useMemo(
+    () =>
+      rawNotes.filter(
+        (n) =>
+          n.folderPath !== MOUNT_CONFIG_FOLDER &&
+          !n.folderPath.startsWith(`${MOUNT_CONFIG_FOLDER}/`),
+      ),
+    [rawNotes],
+  );
+
+  // Déconnexion d'un coffre monté : on supprime l'entité `vault_mount`
+  // correspondante. Le MountSyncProvider observe ce changement (ENTITY_CHANGE),
+  // re-résout ses clients et purge les entités montées — on n'appelle JAMAIS
+  // purgeMounted directement, le manager s'en charge.
+  const handleDisconnectMount = useCallback(
+    (meta: MountRootMeta) => {
+      void (async () => {
+        const ok = await confirm({
+          title: `Déconnecter « ${meta.label} » ?`,
+          description:
+            "Ce coffre monté sera détaché : ses notes disparaîtront de l'arborescence. Le coffre distant n'est pas affecté ; vous pourrez le remonter à tout moment.",
+          confirmLabel: "Déconnecter",
+          destructive: true,
+        });
+        if (!ok) return;
+        try {
+          // Retrouve l'entité de config par ses champs normalisés (serverUrl +
+          // vaultKey), tels que stockés par useCreateMount.
+          const wantServer = normalizeServerUrl(meta.serverUrl);
+          const wantKey = normalizeVaultKey(meta.vaultKey);
+          const res = await trpcVanillaClient.entities.list.query({
+            typeId: "vault_mount",
+            limit: 200,
+            offset: 0,
+          });
+          const target = res.items.find((e) => {
+            const f = e.fields as Record<string, unknown>;
+            return (
+              normalizeServerUrl(String(f["serverUrl"] ?? "")) === wantServer &&
+              normalizeVaultKey(String(f["vaultKey"] ?? "")) === wantKey
+            );
+          });
+          if (!target) {
+            toast({ title: "Montage introuvable", variant: "danger" });
+            return;
+          }
+          await trpcVanillaClient.entities.delete.mutate({ id: target.id });
+          // Rafraîchit l'arbre et les compteurs comme le fait la suppression de
+          // dossier (le MountSyncProvider purgera les entités montées de son côté).
+          void utils.entities.list.invalidate();
+          void utils.vault.folders.list.invalidate();
+          void utils.sync.listMounts.invalidate();
+        } catch (err) {
+          console.error("[handleDisconnectMount] failed", err);
+          toast({ title: "Impossible de déconnecter le coffre", variant: "danger" });
+        }
+      })();
+    },
+    [confirm, utils, toast],
+  );
+
+  const mountCtx = useMemo<MountContextValue>(
+    () => ({ mountRoots, onDisconnectMount: handleDisconnectMount }),
+    [mountRoots, handleDisconnectMount],
+  );
 
   const [picker, setPicker] = useState<PickerState | null>(null);
   const openPicker = (kind: PickerKind, path: string, e: React.MouseEvent) => {
@@ -809,6 +1015,7 @@ export function FileTree({
       </div>
 
       <ExpandedContext.Provider value={expandedCtx}>
+        <MountContext.Provider value={mountCtx}>
         <FolderDndContext.Provider value={{ nestTarget, reparentTarget, childOrders }}>
           <DndContext
             sensors={dndSensors}
@@ -879,6 +1086,7 @@ export function FileTree({
             </nav>
           </DndContext>
         </FolderDndContext.Provider>
+        </MountContext.Provider>
       </ExpandedContext.Provider>
 
       <ContextMenu state={ctx.state} onClose={ctx.close} />
@@ -952,6 +1160,10 @@ function FolderNode({
   const isSelected = selectedFolder === folder.path;
   const { toast } = useToast();
   const utils = trpc.useUtils();
+  // Racine de coffre monté ? (par chemin — seules les top-level y figurent).
+  const { mountRoots, onDisconnectMount } = useContext(MountContext);
+  const mountMeta = mountRoots.get(folder.path) ?? null;
+  const isMountRoot = mountMeta !== null;
   // Track inline rename pending state to block single-click navigation during edit.
   const [isRenaming, setIsRenaming] = useState(false);
   const [hovered, setHovered] = useState(false);
@@ -1040,6 +1252,20 @@ function FolderNode({
         ...point,
         preventDefault: () => {},
       } as unknown as React.MouseEvent);
+    // Racine de coffre monté : seule action pertinente = se déconnecter. Les
+    // dossiers d'un montage sont gérés par le worker (lecture seule côté UI),
+    // donc on n'offre ni renommage, ni couleur, ni suppression de notes ici.
+    if (isMountRoot && mountMeta) {
+      return [
+        {
+          key: "disconnect-mount",
+          label: "Déconnecter ce vault",
+          icon: <Plugs size={14} />,
+          isDanger: true,
+          onPress: () => onDisconnectMount(mountMeta),
+        },
+      ];
+    }
     return [
       {
         key: "new-subfolder",
@@ -1201,17 +1427,29 @@ function FolderNode({
     openContextMenu(e, buildMenuItems({ clientX: e.clientX, clientY: e.clientY }));
   };
 
+  // Teinte des coffres montés — couleur du type `vault_mount` (#8b5cf6).
+  const MOUNT_TINT = "#8b5cf6";
   // Resolve the icon component once per render. Selected folders show
   // `FolderOpen` only when no custom icon is set — once the user picks an
   // icon, it sticks regardless of selection state (consistent with the
-  // intent of the customization).
+  // intent of the customization). Une racine de coffre monté ignore l'icône
+  // de dossier et affiche toujours une icône « branchement » distincte.
   const CustomIcon = getFolderIcon(folder.icon);
-  const IconComponent =
-    folder.icon ? CustomIcon : isSelected ? FolderOpen : Folder;
+  const IconComponent = isMountRoot
+    ? expanded
+      ? CloudArrowDown
+      : Plugs
+    : folder.icon
+      ? CustomIcon
+      : isSelected
+        ? FolderOpen
+        : Folder;
   // Prefer the explicit folder color; falls through to the selection-aware
-  // default so legacy folders (no color set) still pick up the accent.
-  const iconColor =
-    folder.color ?? (isSelected ? "var(--accent)" : "var(--text-secondary)");
+  // default so legacy folders (no color set) still pick up the accent. Les
+  // racines de montage utilisent leur teinte violette dédiée.
+  const iconColor = isMountRoot
+    ? MOUNT_TINT
+    : folder.color ?? (isSelected ? "var(--accent)" : "var(--text-secondary)");
 
   // When the selected row has a custom color, derive per-row accent vars so
   // the highlight uses the folder's own color instead of the global accent.
@@ -1226,11 +1464,14 @@ function FolderNode({
   // At depth=0 the drag handle (left-0.5 + w-4 = x:2-18px) would overlap the
   // chevron if paddingLeft were only 8px. Reserve 20px so the chevron starts
   // at x=20px. At depth≥1, paddingLeft ≥ 24px already clears the handle.
+  // Racine de montage non sélectionnée : teinte de fond subtile (~10% alpha)
+  // pour la lire comme « un coffre monté » sans la confondre avec une sélection.
+  const mountRowBg = isMountRoot && !isSelected ? `${MOUNT_TINT}14` : undefined;
   const sharedRowStyle: React.CSSProperties = {
     paddingLeft: `${(depth === 0 ? 20 : 8) + depth * 16}px`,
-    backgroundColor: selectedBg,
+    backgroundColor: selectedBg ?? mountRowBg,
     color: selectedFg,
-    fontWeight: isSelected ? 500 : 400,
+    fontWeight: isMountRoot ? 500 : isSelected ? 500 : 400,
   };
 
   const chevronSpan = (
@@ -1296,8 +1537,10 @@ function FolderNode({
             isNestTarget || isDragOver ? "var(--accent-subtle)" : "transparent",
         }}
       >
-        {/* Drag handle — visible on hover for all folders except pinned ones */}
-        {hovered && !isPinned && (
+        {/* Drag handle — visible on hover for all folders except pinned ones.
+            Masqué aussi pour les racines de coffre monté : leur chemin
+            (`@mounts/<slug>`) est virtuel, un déplacement le casserait. */}
+        {hovered && !isPinned && !isMountRoot && (
           <button
             {...sortableListeners}
             aria-label="Réordonner le dossier"
@@ -1337,7 +1580,9 @@ function FolderNode({
               if (!isSelected) (e.currentTarget as HTMLButtonElement).style.backgroundColor = "var(--surface-2)";
             }}
             onMouseLeave={(e) => {
-              if (!isSelected) (e.currentTarget as HTMLButtonElement).style.backgroundColor = "";
+              // Restaure la teinte de montage (le cas échéant) au lieu de tout
+              // effacer, sinon le fond violet subtil disparaîtrait au survol.
+              if (!isSelected) (e.currentTarget as HTMLButtonElement).style.backgroundColor = mountRowBg ?? "";
             }}
           >
             {chevronSpan}
