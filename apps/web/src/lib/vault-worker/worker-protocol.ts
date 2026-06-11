@@ -94,6 +94,13 @@ export interface IndexProgressMessage {
  */
 export interface EntityChangeMessage {
   type: "ENTITY_CHANGE";
+  /**
+   * Provenance of the mutated entity: the parent vault id when the row is a
+   * mounted entity, or `null` for a local row. Lives at the message top level
+   * (NOT inside `op`, whose wire shape is frozen) so the MountSyncManager can
+   * route the op to the right room's sync client.
+   */
+  sourceVaultId?: string | null;
   op: import("@supernote/sync").EntityOp;
 }
 

@@ -326,13 +326,19 @@ function genOpId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 
-function emitEntityChange(kind: "upsert" | "delete", entity: unknown, entityId?: string): void {
+function emitEntityChange(
+  kind: "upsert" | "delete",
+  entity: unknown,
+  entityId?: string,
+  sourceVaultId: string | null = null,
+): void {
   try {
     const ts = Date.now();
     if (kind === "delete") {
       if (!entityId) return;
       self.postMessage({
         type: "ENTITY_CHANGE",
+        sourceVaultId,
         op: { opId: genOpId(), clientId: "", kind: "delete", entityId, ts },
       });
       return;
@@ -352,6 +358,7 @@ function emitEntityChange(kind: "upsert" | "delete", entity: unknown, entityId?:
     const iso = new Date(ts).toISOString();
     self.postMessage({
       type: "ENTITY_CHANGE",
+      sourceVaultId,
       op: {
         opId: genOpId(),
         clientId: "",
@@ -936,7 +943,8 @@ async function handleInitVault(
         registerRoutineEntity(e);
         registerTodoReminderEntity(e);
         emitDomainEvent("entity.created", e);
-        emitEntityChange("upsert", entity);
+        emitEntityChange("upsert", entity, undefined,
+          (entity as { sourceVaultId?: string | null }).sourceVaultId ?? null);
       },
       onEntityUpdated: (entity, previous) => {
         const e = entity as { id: string; typeId: string; fields: Record<string, unknown> } | null;
@@ -945,14 +953,23 @@ async function handleInitVault(
         registerRoutineEntity(e);
         registerTodoReminderEntity(e);
         emitDomainEvent("entity.updated", e, p);
-        emitEntityChange("upsert", entity);
+        emitEntityChange("upsert", entity, undefined,
+          (entity as { sourceVaultId?: string | null }).sourceVaultId ?? null);
       },
       onEntityDeleted: (id, previous) => {
-        const p = previous as { id: string; typeId: string; fields: Record<string, unknown> } | null;
+        const p = previous as {
+          id: string;
+          typeId: string;
+          fields: Record<string, unknown>;
+          sourceVaultId?: string | null;
+        } | null;
         if (p?.typeId === ROUTINE_TYPE_ID) automationEngine?.unregisterAutomation(id);
         if (p?.typeId === TODO_TYPE_ID) unregisterTodoReminderEntity(id);
         emitDomainEvent("entity.deleted", null, p);
-        emitEntityChange("delete", null, id);
+        // `previous` is the row snapshot captured BEFORE the DELETE ran (router
+        // `entitiesDelete` reads it via `entitiesGet`), so its provenance is the
+        // authoritative source for routing the delete op to the right room.
+        emitEntityChange("delete", null, id, p?.sourceVaultId ?? null);
       },
     };
 

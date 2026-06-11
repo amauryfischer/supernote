@@ -745,7 +745,7 @@ export function buildRouter(
   const entitiesGet = async (input: unknown): Promise<unknown> => {
     const { id } = input as { id: string };
     const r = row(db.exec(
-      `SELECT e.id, e.typeId, et.name as typeName, e.filePath, e.fields, e.body, e.createdAt, e.updatedAt,
+      `SELECT e.id, e.typeId, et.name as typeName, e.filePath, e.fields, e.body, e.sourceVaultId, e.createdAt, e.updatedAt,
               (SELECT GROUP_CONCAT(t.path, char(31))
                  FROM entity_tag etag
                  JOIN tag t ON t.id = etag.tagId
@@ -3753,6 +3753,11 @@ function entityRowToApi(r: SqlRow): unknown {
     fields,
     body: r["body"] ?? "",
     tags,
+    // Provenance of a mounted entity (parent vault id) or `null` for a local
+    // row. Only the `entitiesGet` SELECT fetches this column; the list/search
+    // SELECTs omit it, so it falls back to `null` there. Carried so lifecycle
+    // hooks can route ENTITY_CHANGE ops to the right sync room.
+    sourceVaultId: (r["sourceVaultId"] as string | null | undefined) ?? null,
     createdAt: r["createdAt"] ?? now(),
     updatedAt: r["updatedAt"] ?? now(),
   };
