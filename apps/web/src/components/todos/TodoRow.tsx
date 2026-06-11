@@ -14,10 +14,11 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Button } from "@heroui/react";
+import { Button, Checkbox } from "@heroui/react";
 import { FileText, Envelope, Bell } from "@phosphor-icons/react";
 import { useDateFormat } from "@/lib/dateFormat";
 import { InlineMarkdown } from "@/lib/inlineMarkdown";
+import { useLongPress } from "@/hooks/useLongPress";
 
 export type TodoImportance = "low" | "medium" | "high" | "critical";
 
@@ -53,6 +54,15 @@ interface TodoRowProps {
   /** Wrap the text on several lines (matrix cards) instead of the
    *  single-line truncate used by the full-width list view. */
   multiline?: boolean;
+  /** When true, a selection checkbox is shown at the row's leading edge and
+   *  the whole row toggles selection on click instead of opening the editor. */
+  selectionMode?: boolean;
+  /** Whether this row is currently part of the bulk selection. */
+  selected?: boolean;
+  /** Toggle this row's membership in the bulk selection. */
+  onToggleSelect?: () => void;
+  /** Fired on a touch long-press — used to enter selection mode on mobile. */
+  onLongPress?: () => void;
 }
 
 const IMPORTANCE_COLOR: Record<TodoImportance, string> = {
@@ -96,21 +106,67 @@ export function importanceForAxis(
   return isImportant(current) ? "medium" : (current ?? "medium");
 }
 
-export function TodoRow({ row, onToggle, onEdit, onEmail, onContextMenu, multiline }: TodoRowProps) {
+export function TodoRow({
+  row,
+  onToggle,
+  onEdit,
+  onEmail,
+  onContextMenu,
+  multiline,
+  selectionMode = false,
+  selected = false,
+  onToggleSelect,
+  onLongPress,
+}: TodoRowProps) {
   const isCritical = row.importance === "critical";
   const dotColor = importanceColor(row.importance);
   const priority = row.priority ?? 5;
   const { compact: formatCompactDate, full: formatFullDate } = useDateFormat();
+  const longPress = useLongPress(onLongPress);
+
+  // In selection mode, a tap on the row's non-interactive surface (the
+  // importance pastille / priority badge / empty gaps) toggles its membership.
+  // Clicks that land on the checkbox, the text button, links, or the done
+  // toggle are handled by those controls directly — guard against them here so
+  // the selection never flips twice for a single tap.
+  const handleRowClick = (e: React.MouseEvent) => {
+    if (!selectionMode) return;
+    const target = e.target as HTMLElement;
+    if (target.closest("a, button, input, [role='checkbox'], label")) return;
+    onToggleSelect?.();
+  };
 
   return (
     <li
       onContextMenu={onContextMenu}
+      onClick={handleRowClick}
+      {...longPress}
       className="group relative flex items-start gap-2 rounded-md px-2 py-1.5 transition-colors hover:bg-[var(--surface-2)]"
       style={{
-        borderLeft: isCritical ? "3px solid #EF4444" : "3px solid transparent",
+        borderLeft: isCritical
+          ? "3px solid #EF4444"
+          : selected
+            ? "3px solid var(--accent)"
+            : "3px solid transparent",
         paddingLeft: isCritical ? "0.5rem" : "0.5rem",
+        backgroundColor: selected ? "var(--accent-subtle)" : undefined,
+        cursor: selectionMode ? "pointer" : undefined,
       }}
     >
+      {/* Selection checkbox — only in selection mode */}
+      {selectionMode && (
+        <span
+          className="mt-0.5 flex shrink-0 items-center"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <Checkbox
+            isSelected={selected}
+            onChange={() => onToggleSelect?.()}
+            aria-label={selected ? "Désélectionner la tâche" : "Sélectionner la tâche"}
+          />
+        </span>
+      )}
+
       {/* Importance pastille */}
       <span
         className="mt-1.5 h-2 w-2 shrink-0 rounded-full"
@@ -173,7 +229,7 @@ export function TodoRow({ row, onToggle, onEdit, onEmail, onContextMenu, multili
           element (flex children clip without the "…" otherwise). */}
       <Button
         variant="ghost"
-        onPress={onEdit}
+        onPress={selectionMode ? onToggleSelect : onEdit}
         className="flex-1 min-w-0 text-left leading-tight hover:underline p-0 h-auto justify-start"
         style={{
           color: row.done ? "var(--text-muted)" : "var(--text-primary)",

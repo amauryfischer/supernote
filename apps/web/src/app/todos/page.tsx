@@ -30,6 +30,7 @@ import {
   type MobileHeaderAction,
 } from "@/components/shell";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { useConfirm } from "@/hooks/usePrompt";
 import { trpc, trpcVanillaClient } from "@/lib/trpc/client";
 import {
   CheckSquare,
@@ -46,6 +47,7 @@ import {
   DotsSixVertical,
   CalendarBlank,
   List,
+  Checks,
 } from "@phosphor-icons/react";
 import { EmptyState, ContextMenu, useContextMenu, type ContextMenuItemDef } from "@supernote/ui";
 import { importanceColor, importanceLabel, importanceForAxis } from "@/components/todos/TodoRow";
@@ -76,8 +78,17 @@ import {
 import { extractChecklists } from "@/lib/todos/extractChecklists";
 import { filterChecklistsHeuristic } from "@/lib/todos/heuristicFilter";
 import { migrateLegacyTodos, type MigrationOutcome } from "@/lib/todos/migration";
+import {
+  allSelectedDone,
+  deletableCount,
+  pruneSelection,
+  resolveSelected,
+  rowsNeedingDone,
+  rowsToDelete,
+} from "@/lib/todos/bulkSelection";
 import { PromptModal } from "@/components/shell/PromptModal";
 import { TodoRow, type TodoImportance, type TodoRowData } from "@/components/todos/TodoRow";
+import { TodoBulkActionBar } from "@/components/todos/TodoBulkActionBar";
 import { EditTodoModal, type EditTodoValues } from "@/components/todos/EditTodoModal";
 import { TodoCalendarView } from "@/components/todos/TodoCalendarView";
 import { TodoMatrix } from "@/components/todos/TodoMatrix";
@@ -191,6 +202,13 @@ function parseStandalonePriority(v: unknown): number | null {
 
 export default function TodosPage() {
   const utils = trpc.useUtils();
+  const confirm = useConfirm();
+  // Bulk selection — ids of todos picked for a group action. Mirrors the
+  // Contacts page pattern (Set of ids). `selectionActive` drives whether the
+  // per-row checkboxes are shown; it is turned on explicitly (toolbar toggle)
+  // or implicitly via a mobile long-press, and off once the selection clears.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [selectionActive, setSelectionActive] = useState(false);
   const [filter, setFilter] = useState<Filter>("pending");
   const [sortKey, setSortKey] = useState<SortKey>("priority");
   // Optimistic manual order for standalone todos in "manual" sort mode.
@@ -676,6 +694,108 @@ export default function TodosPage() {
     [utils, showToast],
   );
 
+  // ── Bulk selection ──────────────────────────────────────────────────────
+  const toggleSelect = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const clearSelection = useCallback(() => {
+    setSelectedIds(new Set());
+    setSelectionActive(false);
+  }, []);
+
+  const toggleSelectionMode = useCallback(() => {
+    setSelectionActive((prev) => {
+      if (prev) setSelectedIds(new Set());
+      return !prev;
+    });
+  }, []);
+
+  // Mobile long-press: enter selection mode and immediately pick the row.
+  const handleRowLongPress = useCallback((id: string) => {
+    setSelectionActive(true);
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
+  }, []);
+
+  // Rows currently selected, resolved against the full todo list so the bulk
+  // bar stays accurate even if the active filter would hide some of them.
+  const selectedRows = useMemo(
+    () => resolveSelected(allTodos, selectedIds),
+    [allTodos, selectedIds],
+  );
+
+  // Prune stale ids whenever the underlying data changes (e.g. a selected
+  // standalone todo was deleted elsewhere) so the count never lies.
+  useEffect(() => {
+    setSelectedIds((prev) => pruneSelection(prev, allTodos));
+  }, [allTodos]);
+
+  const bulkAllDone = allSelectedDone(selectedRows);
+  const bulkDeletableCount = deletableCount(selectedRows);
+
+  // Mark every selected todo done (or reopen them all when they already are).
+  const handleBulkSetDone = useCallback(
+    async (done: boolean) => {
+      const rows = rowsNeedingDone(selectedRows, done);
+      for (const row of rows) {
+        try {
+          if (row.kind === "standalone") {
+            await trpcVanillaClient.entities.update.mutate({
+              id: row.id,
+              fields: { done },
+            });
+          } else if (row.sourceNoteId && row.line !== null) {
+            await toggleTodoDone({
+              sourceNoteId: row.sourceNoteId,
+              text: row.text,
+              line: row.line,
+              done,
+            });
+          }
+        } catch {
+          /* keep going — best-effort across the batch */
+        }
+      }
+      await invalidateAll();
+      clearSelection();
+      showToast(done ? "Tâches complétées" : "Tâches rouvertes");
+    },
+    [selectedRows, invalidateAll, clearSelection, showToast],
+  );
+
+  // Delete the selected standalone todos. Note-derived rows are skipped (they
+  // can only be removed by editing the source note's markdown).
+  const handleBulkDelete = useCallback(async () => {
+    const rows = rowsToDelete(selectedRows);
+    if (rows.length === 0) return;
+    const ok = await confirm({
+      title: `Supprimer ${rows.length} tâche${rows.length > 1 ? "s" : ""} ?`,
+      description: "Cette action est définitive pour les tâches autonomes sélectionnées.",
+      destructive: true,
+      confirmLabel: "Supprimer",
+    });
+    if (!ok) return;
+    for (const row of rows) {
+      try {
+        await trpcVanillaClient.entities.delete.mutate({ id: row.id });
+      } catch {
+        /* best-effort */
+      }
+    }
+    await utils.entities.list.invalidate({ typeId: TODO_TYPE_ID });
+    clearSelection();
+    showToast("Tâches supprimées");
+  }, [selectedRows, confirm, utils, clearSelection, showToast]);
+
   const handleQuickImportance = useCallback(
     async (row: UiTodoRow, importance: TodoImportance) => {
       try {
@@ -956,6 +1076,13 @@ export default function TodosPage() {
         onPress: toggleGroupByNote,
         active: groupByNote,
       });
+      actions.push({
+        id: "select-toggle",
+        icon: Checks,
+        label: selectionActive ? "Annuler la sélection" : "Sélectionner des tâches",
+        onPress: toggleSelectionMode,
+        active: selectionActive,
+      });
     }
     actions.push({
       id: "refresh",
@@ -970,7 +1097,17 @@ export default function TodosPage() {
       onPress: handleEmailAll,
     });
     return actions;
-  }, [isMobile, viewMode, cycleViewMode, groupByNote, toggleGroupByNote, handleRefresh, handleEmailAll]);
+  }, [
+    isMobile,
+    viewMode,
+    cycleViewMode,
+    groupByNote,
+    toggleGroupByNote,
+    selectionActive,
+    toggleSelectionMode,
+    handleRefresh,
+    handleEmailAll,
+  ]);
   useMobileHeaderActions(mobileActions);
 
   return (
@@ -1054,6 +1191,25 @@ export default function TodosPage() {
               >
                 <ListBullets size={13} />
                 {groupByNote ? "Groupé" : "Grouper"}
+              </Button>
+            )}
+            {viewMode === "list" && (
+              <Button
+                size="sm"
+                variant="outline"
+                onPress={toggleSelectionMode}
+                aria-pressed={selectionActive}
+                className="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors min-w-0 h-auto"
+                style={{
+                  borderColor: selectionActive ? "var(--accent)" : "var(--border-subtle)",
+                  backgroundColor: selectionActive
+                    ? "var(--accent-subtle, var(--surface-2))"
+                    : "var(--surface-1)",
+                  color: selectionActive ? "var(--accent)" : "var(--text-secondary)",
+                }}
+              >
+                <Checks size={13} />
+                {selectionActive ? "Annuler" : "Sélectionner"}
               </Button>
             )}
             <Button
@@ -1385,6 +1541,10 @@ export default function TodosPage() {
                                   onEdit={() => setEditing(row)}
                                   onEmail={() => handleEmailOne(row)}
                                   onContextMenu={(e) => openTodoContextMenu(e, row)}
+                                  selectionMode={selectionActive}
+                                  selected={selectedIds.has(row.id)}
+                                  onToggleSelect={() => toggleSelect(row.id)}
+                                  onLongPress={() => handleRowLongPress(row.id)}
                                 />
                               ))}
                             </ul>
@@ -1409,11 +1569,15 @@ export default function TodosPage() {
                         <SortableTodoRow
                           key={row.id}
                           row={row}
-                          sortable={row.kind === "standalone"}
+                          sortable={row.kind === "standalone" && !selectionActive}
                           onToggle={() => void handleToggle(row)}
                           onEdit={() => setEditing(row)}
                           onEmail={() => handleEmailOne(row)}
                           onContextMenu={(e) => openTodoContextMenu(e, row)}
+                          selectionMode={selectionActive}
+                          selected={selectedIds.has(row.id)}
+                          onToggleSelect={() => toggleSelect(row.id)}
+                          onLongPress={() => handleRowLongPress(row.id)}
                         />
                       ))}
                     </ul>
@@ -1429,6 +1593,10 @@ export default function TodosPage() {
                       onEdit={() => setEditing(row)}
                       onEmail={() => handleEmailOne(row)}
                       onContextMenu={(e) => openTodoContextMenu(e, row)}
+                      selectionMode={selectionActive}
+                      selected={selectedIds.has(row.id)}
+                      onToggleSelect={() => toggleSelect(row.id)}
+                      onLongPress={() => handleRowLongPress(row.id)}
                     />
                   ))}
                 </ul>
@@ -1470,6 +1638,16 @@ export default function TodosPage() {
       )}
 
       <ContextMenu state={ctxMenu.state} onClose={ctxMenu.close} />
+
+      <TodoBulkActionBar
+        selectedCount={selectedIds.size}
+        allDone={bulkAllDone}
+        deletableCount={bulkDeletableCount}
+        onClear={clearSelection}
+        onComplete={() => void handleBulkSetDone(true)}
+        onReopen={() => void handleBulkSetDone(false)}
+        onDelete={() => void handleBulkDelete()}
+      />
     </AppShell>
   );
 }
@@ -1544,9 +1722,24 @@ interface SortableTodoRowProps {
   onEdit: () => void;
   onEmail: () => void;
   onContextMenu: (e: React.MouseEvent) => void;
+  selectionMode: boolean;
+  selected: boolean;
+  onToggleSelect: () => void;
+  onLongPress: () => void;
 }
 
-function SortableTodoRow({ row, sortable, onToggle, onEdit, onEmail, onContextMenu }: SortableTodoRowProps) {
+function SortableTodoRow({
+  row,
+  sortable,
+  onToggle,
+  onEdit,
+  onEmail,
+  onContextMenu,
+  selectionMode,
+  selected,
+  onToggleSelect,
+  onLongPress,
+}: SortableTodoRowProps) {
   const [hovered, setHovered] = useState(false);
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: row.id,
@@ -1588,6 +1781,10 @@ function SortableTodoRow({ row, sortable, onToggle, onEdit, onEmail, onContextMe
         onEdit={onEdit}
         onEmail={onEmail}
         onContextMenu={onContextMenu}
+        selectionMode={selectionMode}
+        selected={selected}
+        onToggleSelect={onToggleSelect}
+        onLongPress={onLongPress}
       />
     </li>
   );
