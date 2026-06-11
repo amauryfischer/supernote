@@ -84,6 +84,7 @@ export function SearchSidebar({
                   variant="ghost"
                   size="sm"
                   onPress={() => onDeleteRecent(r.id)}
+                  aria-label="Supprimer cette recherche récente"
                   className="shrink-0 rounded p-0.5 opacity-0 group-hover:opacity-100"
                   style={{ color: "var(--text-muted)", transition: "var(--sn-transition-opacity)" }}
                 >
@@ -126,6 +127,7 @@ export function SearchSidebar({
                   variant="ghost"
                   size="sm"
                   onPress={() => onDeleteSaved(s.id)}
+                  aria-label="Supprimer cette recherche enregistrée"
                   className="shrink-0 rounded p-0.5 opacity-0 group-hover:opacity-100"
                   style={{ color: "var(--text-muted)", transition: "var(--sn-transition-opacity)" }}
                 >

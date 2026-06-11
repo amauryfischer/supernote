@@ -65,6 +65,7 @@ export function ActionPickerModal({ open, onClose, onSelect }: ActionPickerModal
             variant="ghost"
             size="sm"
             onPress={onClose}
+            aria-label="Fermer"
             className="rounded p-1 transition-colors hover:bg-[var(--surface-2)]"
             style={{ color: "var(--text-muted)" }}
           >

@@ -210,7 +210,7 @@ function RuleRow({
             { value: "row", label: "Ligne" },
           ]}
         />
-        <Button isIconOnly size="sm" variant="ghost" onPress={onRemove}>
+        <Button isIconOnly size="sm" variant="ghost" onPress={onRemove} aria-label="Supprimer la règle">
           <Trash size={12} />
         </Button>
       </div>

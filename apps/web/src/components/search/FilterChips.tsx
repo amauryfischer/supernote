@@ -57,6 +57,7 @@ export function FilterChips({ filters, onAdd, onRemove }: FilterChipsProps) {
               variant="ghost"
               size="sm"
               onPress={() => onRemove(i)}
+              aria-label="Retirer le filtre"
               className="ml-0.5 h-auto min-h-0 min-w-0 p-0 hover:opacity-70"
             >
               <X size={10} />

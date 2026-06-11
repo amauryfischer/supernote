@@ -188,6 +188,7 @@ export default function NouveauSchemaPage() {
                   onPress={() => patch("color", color)}
                   isIconOnly
                   size="sm"
+                  aria-label={`Couleur ${color}`}
                   className="relative h-8 w-8 rounded-full border-2 transition-transform hover:scale-110"
                   style={{
                     backgroundColor: color,

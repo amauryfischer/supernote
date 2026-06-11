@@ -118,7 +118,7 @@ export function FieldEditorModal({ field, onClose, onSave }: FieldEditorModalPro
           <h2 className="text-base font-semibold" style={{ color: "var(--text-primary)" }}>
             {field ? "Modifier le champ" : "Nouveau champ"}
           </h2>
-          <Button isIconOnly variant="ghost" size="sm" onPress={onClose} className="rounded-md p-1 hover:bg-[var(--surface-2)]">
+          <Button isIconOnly variant="ghost" size="sm" onPress={onClose} aria-label="Fermer" className="rounded-md p-1 hover:bg-[var(--surface-2)]">
             <X size={16} style={{ color: "var(--text-muted)" }} />
           </Button>
         </div>
@@ -224,7 +224,7 @@ export function FieldEditorModal({ field, onClose, onSave }: FieldEditorModalPro
                         color: "var(--text-primary)",
                       }}
                     />
-                    <Button isIconOnly variant="ghost" size="sm" onPress={() => removeOption(i)} className="rounded p-1 hover:bg-red-50">
+                    <Button isIconOnly variant="ghost" size="sm" onPress={() => removeOption(i)} aria-label="Supprimer l'option" className="rounded p-1 hover:bg-red-50">
                       <Trash size={12} style={{ color: "var(--danger)" }} />
                     </Button>
                   </div>

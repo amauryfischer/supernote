@@ -99,6 +99,7 @@ export default function RelationsPage() {
                   variant="ghost"
                   isIconOnly
                   size="sm"
+                  aria-label="Fermer l'édition de relation"
                   className="h-6 w-6"
                 >
                   <X size={14} style={{ color: "var(--text-muted)" }} />

@@ -74,6 +74,7 @@ export function TypePreview({ type }: TypePreviewProps) {
             isIconOnly
             variant="ghost"
             size="sm"
+            aria-label="Supprimer le type"
             className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors hover:bg-red-50"
             style={{ borderColor: "var(--border)", color: "var(--danger)" }}
           >

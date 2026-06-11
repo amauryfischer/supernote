@@ -97,6 +97,7 @@ function PluginCard({
           variant="ghost"
           size="sm"
           onPress={onRemove}
+          aria-label="Retirer le plugin"
           className="opacity-40 transition-opacity hover:opacity-100"
           style={{ color: "var(--danger)" }}
         >
