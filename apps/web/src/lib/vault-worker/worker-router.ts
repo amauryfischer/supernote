@@ -45,6 +45,7 @@ import {
   makeVariableResolver,
   buildVaultFormulaContext,
 } from "./variables";
+import { resolveMountWrite, crossProvenanceCollision } from "./mount-provenance";
 
 type SqlValue = string | number | null | Uint8Array;
 type SqlRow = Record<string, SqlValue>;
@@ -3017,7 +3018,10 @@ export function buildRouter(
       // if the user deleted just the sibling — keep the note entity, the
       // canvas will simply read as null on next access.
       const allRowsForSweep = rows(
-        db.exec(`SELECT id, filePath, fields FROM entity WHERE vaultId = ?`, [vaultId]),
+        db.exec(
+          `SELECT id, filePath, fields FROM entity WHERE vaultId = ? AND sourceVaultId IS NULL`,
+          [vaultId],
+        ),
       );
       for (const r of allRowsForSweep) {
         const fp = (r["filePath"] as string | null) ?? "";
@@ -3328,7 +3332,7 @@ export function buildRouter(
                  FROM entity_tag etag JOIN tag t ON t.id = etag.tagId
                 WHERE etag.entityId = e.id) AS tagPaths
          FROM entity e JOIN entity_type et ON et.id = e.typeId
-        WHERE e.vaultId = ?`,
+        WHERE e.vaultId = ? AND e.sourceVaultId IS NULL`,
       [vaultId],
     );
     const ops: SyncOp[] = rows(res).map((r) => {
@@ -3364,19 +3368,39 @@ export function buildRouter(
 
   /** Materialise a batch of remote ops into the local vault. LWW, no echo. */
   const syncApplyOps = async (input: unknown): Promise<unknown> => {
-    const { ops } = (input as { ops?: SyncOp[] }) ?? {};
+    const { ops, sourceVaultId } = (input as {
+      ops?: SyncOp[];
+      sourceVaultId?: string;
+    }) ?? {};
+    const provenance = sourceVaultId ?? null;
     let applied = 0;
     let skipped = 0;
     for (const op of ops ?? []) {
       try {
         const existing = row(db.exec(
-          `SELECT id, filePath, updatedAt FROM entity WHERE id = ?`,
+          `SELECT id, filePath, updatedAt, sourceVaultId FROM entity WHERE id = ?`,
           [op.entityId],
         ));
         const existingTs = existing ? Date.parse(existing["updatedAt"] as string) || 0 : 0;
         const opTs = op.payload ? Date.parse(op.payload.updatedAt) || op.ts : op.ts;
         // Last-write-wins: ignore ops not strictly newer than local state.
         if (existing && opTs < existingTs) {
+          skipped++;
+          continue;
+        }
+
+        // Provenance invariant: never let an op of one provenance overwrite an
+        // entity owned by a different provenance (native = null included).
+        if (
+          existing &&
+          crossProvenanceCollision(
+            { existingSource: (existing["sourceVaultId"] as string | null) ?? null },
+            provenance,
+          )
+        ) {
+          console.warn(
+            `[sync.applyOps] skip ${op.entityId}: cross-provenance (local=${existing["sourceVaultId"]}, op=${provenance})`,
+          );
           skipped++;
           continue;
         }
@@ -3407,23 +3431,37 @@ export function buildRouter(
           skipped++;
           continue;
         }
-        const typeRow = row(db.exec(`SELECT name FROM entity_type WHERE id = ?`, [payload.typeId]));
+        let typeRow = row(db.exec(`SELECT name FROM entity_type WHERE id = ?`, [payload.typeId]));
         if (!typeRow) {
-          // Unknown entity type on this device — can't satisfy the FK. Skip
-          // rather than corrupt the DB; a later schema sync may unblock it.
-          console.warn(`[sync.applyOps] skip ${op.entityId}: unknown typeId ${payload.typeId}`);
-          skipped++;
-          continue;
+          // Unknown entity type on this device — create a minimal non-system
+          // type on the fly so mounted (or freshly-synced) entities can satisfy
+          // the FK instead of being dropped.
+          const nowIso = now();
+          db.run(
+            `INSERT OR IGNORE INTO entity_type (id, vaultId, name, plural, fields, isSystem, createdAt, updatedAt)
+             VALUES (?, ?, ?, ?, '[]', 0, ?, ?)`,
+            [
+              payload.typeId,
+              vaultId,
+              payload.typeName || payload.typeId,
+              payload.typeName || payload.typeId,
+              nowIso,
+              nowIso,
+            ],
+          );
+          typeRow = { name: payload.typeName || payload.typeId };
         }
+        // Mounted ops store under `@mounts/<slug>/…`; native ops keep their path.
+        const { filePath: storedPath } = resolveMountWrite(payload.filePath, provenance);
         // Guard against filePath collisions with a DIFFERENT entity (the
         // unique(vaultId, filePath) constraint). Don't clobber a local note.
         const pathOwner = row(db.exec(
           `SELECT id FROM entity WHERE vaultId = ? AND filePath = ? LIMIT 1`,
-          [vaultId, payload.filePath],
+          [vaultId, storedPath],
         ));
         if (pathOwner && (pathOwner["id"] as string) !== op.entityId) {
           console.warn(
-            `[sync.applyOps] skip ${op.entityId}: filePath ${payload.filePath} owned by ${pathOwner["id"]}`,
+            `[sync.applyOps] skip ${op.entityId}: filePath ${storedPath} owned by ${pathOwner["id"]}`,
           );
           skipped++;
           continue;
@@ -3436,7 +3474,7 @@ export function buildRouter(
         // Only markdown entities round-trip to a file. Attachments / canvas
         // siblings aren't transported in this MVP — we still upsert the DB
         // row so metadata stays in sync.
-        if (isMarkdownPath(payload.filePath)) {
+        if (provenance === null && isMarkdownPath(payload.filePath)) {
           const frontmatter: Record<string, unknown> = {
             id: op.entityId,
             type: typeRow["name"],
@@ -3449,13 +3487,14 @@ export function buildRouter(
 
         if (existing) {
           db.run(
-            `UPDATE entity SET typeId = ?, filePath = ?, fields = ?, body = ?, fileHash = ?, createdAt = ?, updatedAt = ? WHERE id = ?`,
+            `UPDATE entity SET typeId = ?, filePath = ?, fields = ?, body = ?, fileHash = ?, sourceVaultId = ?, createdAt = ?, updatedAt = ? WHERE id = ?`,
             [
               payload.typeId,
-              payload.filePath,
+              storedPath,
               JSON.stringify(fields),
               payload.body ?? "",
               hash,
+              provenance,
               payload.createdAt,
               payload.updatedAt,
               op.entityId,
@@ -3463,16 +3502,17 @@ export function buildRouter(
           );
         } else {
           db.run(
-            `INSERT INTO entity (id, vaultId, typeId, filePath, fields, body, fileHash, createdAt, updatedAt)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT INTO entity (id, vaultId, typeId, filePath, fields, body, fileHash, sourceVaultId, createdAt, updatedAt)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               op.entityId,
               vaultId,
               payload.typeId,
-              payload.filePath,
+              storedPath,
               JSON.stringify(fields),
               payload.body ?? "",
               hash,
+              provenance,
               payload.createdAt,
               payload.updatedAt,
             ],
@@ -3487,7 +3527,7 @@ export function buildRouter(
           title: deriveTitle(JSON.stringify(fields), payload.filePath),
           body: payload.body ?? "",
           tags: (payload.tags ?? []).join(" "),
-          path: derivePath(payload.filePath),
+          path: derivePath(storedPath),
         });
         applied++;
       } catch (err) {
@@ -3496,6 +3536,22 @@ export function buildRouter(
       }
     }
     return { applied, skipped };
+  };
+
+  /** Supprime toutes les entités d'une provenance donnée (démontage). */
+  const syncPurgeMounted = async (input: unknown): Promise<unknown> => {
+    const { sourceVaultId } = (input as { sourceVaultId?: string }) ?? {};
+    if (!sourceVaultId) return { removed: 0 };
+    const victims = rows(db.exec(
+      `SELECT id FROM entity WHERE vaultId = ? AND sourceVaultId = ?`,
+      [vaultId, sourceVaultId],
+    ));
+    for (const v of victims) {
+      const id = v["id"] as string;
+      db.run(`DELETE FROM entity WHERE id = ?`, [id]);
+      ftsRemove(db, id);
+    }
+    return { removed: victims.length };
   };
 
   // ── Dispatch table ─────────────────────────────────────────────────────────
@@ -3570,6 +3626,7 @@ export function buildRouter(
     "sync.snapshot": syncSnapshot,
     "sync.head": syncHead,
     "sync.applyOps": syncApplyOps,
+    "sync.purgeMounted": syncPurgeMounted,
   };
 }
 
