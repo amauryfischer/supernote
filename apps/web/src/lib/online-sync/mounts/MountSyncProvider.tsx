@@ -135,13 +135,19 @@ export function MountSyncProvider({ children }: { children: React.ReactNode }) {
     // re-résout les montages quand une entité `vault_mount` native change.
     const unsub = onWorkerMessage((msg) => {
       if (!msg || typeof msg !== "object") return;
-      const m = msg as { type?: string; sourceVaultId?: string | null; op?: EntityOp };
+      const m = msg as { type?: string; sourceVaultId?: string | null; deletedTypeId?: string; op?: EntityOp };
       if (m.type !== "ENTITY_CHANGE" || !m.op) return;
       // Une entité `vault_mount` ajoutée/modifiée/supprimée — NATIVE (provenance
       // nulle, montage direct) OU NESTED (provenance non nulle, montage déclaré
       // dans un salon monté) → reconcilier les clients. Un montage imbriqué
       // arrivé par sync déclenche la résolution récursive (« vault-ception »).
-      if (m.op.payload?.typeId === "vault_mount") {
+      // Les ops DELETE ne portent pas de payload : le typeId supprimé voyage en
+      // tête de message (`deletedTypeId`) pour que la déconnexion d'un montage
+      // déclenche aussi un refresh en session.
+      if (
+        m.op.payload?.typeId === "vault_mount" ||
+        (m.op.kind === "delete" && m.deletedTypeId === "vault_mount")
+      ) {
         void manager.refresh();
         return;
       }

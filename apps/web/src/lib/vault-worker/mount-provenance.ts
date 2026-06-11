@@ -3,7 +3,7 @@
  * une entité d'une provenance ne peut jamais écraser une entité d'une autre
  * provenance (y compris native = null).
  */
-import { prefixMountPath } from "../online-sync/room-id";
+import { prefixMountPath, MOUNT_PATH_PREFIX } from "../online-sync/room-id";
 
 export interface MountWrite {
   /** Chemin à stocker en DB (préfixé si l'op vient d'un salon monté). */
@@ -33,4 +33,16 @@ export function crossProvenanceCollision(
   incoming: string | null,
 ): boolean {
   return existing.existingSource !== incoming;
+}
+
+/**
+ * Vrai si un chemin stocké appartient à un sous-arbre monté (`@mounts/<slug>/…`).
+ * Utilisé en défense en profondeur côté handlers utilisateur :
+ *  - `entitiesCreate` refuse de créer une entité native à un chemin monté
+ *    (elle serait écrite sur le disque du père + poussée dans le salon du père) ;
+ *  - principe miroir de la garde provenance de `entitiesUpdate` (une entité
+ *    montée ne matérialise jamais de fichier dans le dossier FSA du père).
+ */
+export function isMountedPath(filePath: string): boolean {
+  return filePath.startsWith(`${MOUNT_PATH_PREFIX}/`);
 }

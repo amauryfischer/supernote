@@ -331,14 +331,20 @@ function emitEntityChange(
   entity: unknown,
   entityId?: string,
   sourceVaultId: string | null = null,
+  deletedTypeId?: string,
 ): void {
   try {
     const ts = Date.now();
     if (kind === "delete") {
       if (!entityId) return;
+      // DELETE ops carry no payload (the row is gone), so the deleted entity's
+      // typeId rides at the MESSAGE top level. The MountSyncProvider needs it to
+      // detect that a `vault_mount` was removed (the disconnect flow) and refresh
+      // mounts in-session — otherwise the mount client lingers until a reload.
       self.postMessage({
         type: "ENTITY_CHANGE",
         sourceVaultId,
+        deletedTypeId,
         op: { opId: genOpId(), clientId: "", kind: "delete", entityId, ts },
       });
       return;
@@ -969,7 +975,7 @@ async function handleInitVault(
         // `previous` is the row snapshot captured BEFORE the DELETE ran (router
         // `entitiesDelete` reads it via `entitiesGet`), so its provenance is the
         // authoritative source for routing the delete op to the right room.
-        emitEntityChange("delete", null, id, p?.sourceVaultId ?? null);
+        emitEntityChange("delete", null, id, p?.sourceVaultId ?? null, p?.typeId);
       },
     };
 

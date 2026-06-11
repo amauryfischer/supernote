@@ -45,7 +45,7 @@ import {
   makeVariableResolver,
   buildVaultFormulaContext,
 } from "./variables";
-import { resolveMountWrite, crossProvenanceCollision } from "./mount-provenance";
+import { resolveMountWrite, crossProvenanceCollision, isMountedPath } from "./mount-provenance";
 
 type SqlValue = string | number | null | Uint8Array;
 type SqlRow = Record<string, SqlValue>;
@@ -841,6 +841,15 @@ export function buildRouter(
       relativePath = candidate;
     }
 
+    // Read-only mount guard (defense in depth): a native create whose resolved
+    // path lands under `@mounts/<slug>/…` would be mis-classified as native
+    // (sourceVaultId NULL) → file written to the PARENT disk + pushed to the
+    // PARENT room (cross-vault contamination). Mounted subtrees are structurally
+    // read-only in V1, so reject the create before any disk write or INSERT.
+    if (isMountedPath(relativePath)) {
+      throw new Error("Lecture seule : impossible de créer une note dans un vault monté.");
+    }
+
     // Canvas split: if fields carry a serialized CanvasDocument (canvas
     // standalone → `data`, notes with canvas view → `canvas`), write it
     // to a sibling `.excalidraw` file and replace the in-frontmatter blob
@@ -907,9 +916,16 @@ export function buildRouter(
     return runSerialized(id, async () => {
     const ts = now();
     const existing = row(db.exec(
-      `SELECT fields, body, filePath, typeId FROM entity WHERE id = ?`, [id],
+      `SELECT fields, body, filePath, typeId, sourceVaultId FROM entity WHERE id = ?`, [id],
     ));
     if (!existing) throw new Error(`Entity not found: ${id}`);
+    // Provenance gate: a mounted entity (sourceVaultId non-null) lives under
+    // `@mounts/<slug>/…` in the PARENT db but must NEVER materialize a file in
+    // the parent's FSA folder, nor be pushed to the parent's room. We update the
+    // DB row in place and skip every disk side-effect. The ENTITY_CHANGE emit
+    // already carries this provenance (entitiesGet selects sourceVaultId), so the
+    // edit routes to the mount room. See `syncApplyOps` which guards the same way.
+    const provenance = (existing["sourceVaultId"] as string | null) ?? null;
     const previousForHook = await entitiesGet({ id }).catch(() => null);
 
     // Defensive parse: strips character-index keys from prior corruption
@@ -932,7 +948,7 @@ export function buildRouter(
     // fields carry a fresh canvas JSON, write it to the sibling and
     // replace with a canvasFile pointer.
     const canvasFieldUpdate = extractCanvasField(newFields);
-    if (canvasFieldUpdate) {
+    if (canvasFieldUpdate && provenance === null) {
       try {
         const doc = parseCanvasJson(canvasFieldUpdate.json);
         const elementCount = Array.isArray((doc as { excalidrawElements?: unknown[] }).excalidrawElements)
@@ -973,7 +989,12 @@ export function buildRouter(
       !effectivePath.toLowerCase().endsWith(".markdown");
 
     let hash: string | null = null;
-    if (!isAttachmentEntity) {
+    if (provenance !== null) {
+      // Mounted entity: persist DB-only. NO file write, NO move/delete on the
+      // parent FSA — those bytes belong to the mount room, not the parent disk.
+      // `fileHash` stays "" because there is no parent-side file to hash.
+      hash = "";
+    } else if (!isAttachmentEntity) {
       // Rewrite the .md file
       const typeRow = row(db.exec(`SELECT name FROM entity_type WHERE id = ?`, [existing["typeId"] ?? null]));
       // See entitiesCreate: top-level keys, no nested `fields:` blob.

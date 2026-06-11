@@ -101,6 +101,13 @@ export interface EntityChangeMessage {
    * route the op to the right room's sync client.
    */
   sourceVaultId?: string | null;
+  /**
+   * typeId of the deleted entity, present only on DELETE ops. A delete op carries
+   * no `payload` (the row is gone), so the MountSyncManager reads the typeId here
+   * to detect a removed `vault_mount` and refresh mounts in-session. Absent on
+   * upsert (the typeId is available via `op.payload.typeId`).
+   */
+  deletedTypeId?: string;
   op: import("@supernote/sync").EntityOp;
 }
 
