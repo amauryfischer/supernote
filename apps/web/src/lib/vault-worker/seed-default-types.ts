@@ -286,6 +286,13 @@ const habitFields: SeedField[] = [
   { id: "habit_updated_at", name: "updatedAt", label: "Modifié le", kind: "updatedAt" },
 ];
 
+const vaultMountFields: SeedField[] = [
+  { id: "vm_label", name: "label", label: "Nom affiché", kind: "text", required: true },
+  { id: "vm_server_url", name: "serverUrl", label: "URL du serveur", kind: "text", required: true },
+  { id: "vm_vault_key", name: "vaultKey", label: "Clé du coffre", kind: "text" },
+  { id: "vm_token", name: "token", label: "Jeton d'accès", kind: "text" },
+];
+
 const goalFields: SeedField[] = [
   { id: "goal_name", name: "name", label: "Objectif", kind: "text", required: true },
   { id: "goal_target", name: "target_amount", label: "Montant cible", kind: "currency", currencyCode: "EUR" },
@@ -318,6 +325,7 @@ export const DEFAULT_ENTITY_TYPES: SeedEntityType[] = [
   { id: "routine", name: "Routine", plural: "Routines", icon: "Lightning", color: "#F59E0B", fields: routineFields, defaultPath: "Routines", fileNamePattern: "{name}" },
   { id: "todo", name: "Todo", plural: "Todos", icon: "CheckSquare", color: "#22C55E", fields: todoFields, defaultPath: "Todos", fileNamePattern: "{text}" },
   { id: "habit", name: "Habitude", plural: "Habitudes", icon: "GridNine", color: "#8B5CF6", fields: habitFields, defaultPath: "Habitudes", fileNamePattern: "{name}" },
+  { id: "vault_mount", name: "vault_mount", plural: "vault_mounts", icon: "Plugs", color: "#8b5cf6", fields: vaultMountFields, defaultPath: "VaultMounts", fileNamePattern: "{label}" },
 ];
 
 export const DEFAULT_RELATION_TYPES: SeedRelationType[] = [
