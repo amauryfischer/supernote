@@ -5,7 +5,8 @@ import { PencilSimple, Plus, Trash } from "@phosphor-icons/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { AppShell } from "@/components/shell";
+import { AppShell, useMobileFab, useMobileTitle } from "@/components/shell";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { trpc } from "@/lib/trpc/client";
 import type { Variable } from "@supernote/ipc";
 import { DeleteVariableModal } from "@/components/variables/DeleteVariableModal";
@@ -83,6 +84,8 @@ function VariableRow({
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function VariablesPage() {
+  const router = useRouter();
+  const isMobile = useIsMobile();
   const utils = trpc.useUtils();
   const { data, isLoading } = trpc.variables.list.useQuery();
   const [toDelete, setToDelete] = useState<string | null>(null);
@@ -91,6 +94,19 @@ export default function VariablesPage() {
     setToDelete(null);
     void utils.variables.list.invalidate();
   }
+
+  // Parité mobile : la même action « Nouvelle variable » que le lien desktop,
+  // exposée en FAB sous 768px (le lien en-tête est masqué par le shell mobile).
+  useMobileTitle(isMobile ? "Variables" : null);
+  useMobileFab(
+    isMobile
+      ? {
+          icon: Plus,
+          label: "Nouvelle variable",
+          onPress: () => router.push("/variables/nouveau"),
+        }
+      : null,
+  );
 
   if (isLoading) {
     return (
@@ -110,9 +126,10 @@ export default function VariablesPage() {
         <h1 className="text-2xl font-semibold" style={{ color: "var(--text-primary)" }}>
           Variables
         </h1>
+        {/* Lien masqué sur mobile — le FAB prend le relais pour la création */}
         <Link
           href="/variables/nouveau"
-          className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-opacity hover:opacity-90"
+          className="hidden md:flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-opacity hover:opacity-90"
           style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
         >
           <Plus size={13} />
