@@ -985,16 +985,24 @@ function startWorker(
 }
 
 /**
- * Leaving cloud mode for a folder/git vault: drop the cloud marker AND disable
- * online sync. Without disabling, OnlineSyncProvider would re-read an enabled
- * config when the folder vault reaches "ready" and start replicating the
- * folder's contents into the previous cloud room.
+ * Leaving cloud mode for a folder/git vault: drop the cloud marker AND reset
+ * the online-sync config.
+ *
+ * A cloud vault writes its room key into the (origin-global) online-sync config
+ * when activated. A folder/git vault must not inherit that room key:
+ *   1. The Sync settings would keep showing the previous cloud room's key — the
+ *      "Clé de salon" field never refreshing on a vault switch, since switching
+ *      to a folder/git vault doesn't otherwise rewrite the global config.
+ *   2. A still-enabled config would make OnlineSyncProvider replicate the
+ *      folder's contents into that previous cloud room when it reaches "ready".
+ * Resetting to defaults clears both: the non-cloud vault starts from a clean,
+ * unconfigured sync state.
  */
 function leaveCloudMode(): void {
   if (typeof window === "undefined") return;
   window.localStorage.removeItem(CLOUD_VAULT_KEY);
   const cfg = loadOnlineSyncConfig();
-  if (cfg.enabled) saveOnlineSyncConfig({ ...cfg, enabled: false });
+  if (cfg.enabled || cfg.vaultKey) saveOnlineSyncConfig({ ...DEFAULT_ONLINE_SYNC_CONFIG });
   // The folder/git vault is about to take over the (origin-global) SAH DB —
   // the recorded cloud room no longer owns it. Without this invalidation, a
   // later cloud boot back onto that same room would see a matching owner,
