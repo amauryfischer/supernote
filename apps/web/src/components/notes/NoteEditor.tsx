@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@heroui/react";
 import dynamic from "next/dynamic";
-import { CaretRight, Calendar, Tag, FloppyDisk, Microphone, Image, Sparkle, X, CheckCircle, WarningCircle, Presentation, FilePdf } from "@phosphor-icons/react";
+import { CaretDown, CaretRight, Calendar, Tag, FloppyDisk, Microphone, Image, Sparkle, X, CheckCircle, WarningCircle, Presentation, FilePdf } from "@phosphor-icons/react";
 import Link from "next/link";
 import { Fragment } from "react";
 import { TagSelector } from "@/components/tags/TagSelector";
@@ -77,6 +77,9 @@ type DropStatus =
   | "done"
   | "error";
 
+/** Préférence globale : rangée métadonnées dépliée ou repliée (repliée par défaut). */
+const META_BAR_STORAGE_KEY = "supernote.notes.metaBarOpen";
+
 const DEBOUNCE_MS = 1000;
 const AUTO_TITLE_DEBOUNCE_MS = 2000;
 const AUTO_TITLE_MIN_CHARS = 30;
@@ -129,6 +132,27 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
   const [cover, setCover] = useState<string | null>(() => asCover(note.fields?.["cover"]));
   const coverActive = Boolean(cover) && !hideToolbarForKeyboard;
   const [icon, setIcon] = useState<string | null>(() => asIcon(note.fields?.["icon"]));
+  // Rangée métadonnées (date, tags, ambiance, actions) repliée par défaut —
+  // dépliable via le handle discret sous le hero. Préférence globale, pas par note.
+  const [metaOpen, setMetaOpen] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return window.localStorage.getItem(META_BAR_STORAGE_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const toggleMetaBar = useCallback(() => {
+    setMetaOpen((prev) => {
+      const next = !prev;
+      try {
+        window.localStorage.setItem(META_BAR_STORAGE_KEY, next ? "1" : "0");
+      } catch {
+        // stockage indisponible (navigation privée) — préférence non persistée
+      }
+      return next;
+    });
+  }, []);
 
   const handleCoverChange = useCallback(
     (next: string | null): void => {
@@ -1125,12 +1149,12 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
           </div>
         </div>
 
-        {/* Métadonnées (date, tags, ambiance, actions) — fond solide, sous le hero. */}
-        <div
-          className="px-4 pb-4 pt-3 md:px-10 md:pb-6"
-          style={{ borderBottom: "1px solid var(--border-subtle)" }}
-        >
-          <div className="flex flex-wrap items-center gap-3">
+        {/* Métadonnées (date, tags, ambiance, actions) — repliées par défaut,
+            dépliables via le handle discret posé sur la bordure ci-dessous. */}
+        <div className="sn-meta-collapse" data-open={metaOpen ? "true" : "false"} id="note-meta-bar">
+          <div className="sn-meta-collapse__inner">
+            <div className="px-4 pb-4 pt-3 md:px-10 md:pb-6">
+              <div className="flex flex-wrap items-center gap-3">
           <EditableNoteDate
             noteId={note.id}
             fallbackDate={note.updatedAt}
@@ -1203,7 +1227,27 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
           </Button>
           <DropHint status={dropStatus} />
           <SaveIndicator status={saveStatus} />
+              </div>
+            </div>
           </div>
+        </div>
+
+        {/* Séparateur header/éditeur + handle de dépliage des métadonnées. */}
+        <div className="relative" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
+          <Button
+            variant="ghost"
+            onPress={toggleMetaBar}
+            aria-expanded={metaOpen}
+            aria-controls="note-meta-bar"
+            aria-label={metaOpen ? "Masquer les outils de la note" : "Afficher les outils de la note"}
+            className="sn-meta-handle h-auto min-w-0 p-0"
+          >
+            <CaretDown
+              size={11}
+              className="sn-motion-glide"
+              style={{ transform: metaOpen ? "rotate(180deg)" : undefined }}
+            />
+          </Button>
         </div>
       </div>
 

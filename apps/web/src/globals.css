@@ -740,6 +740,67 @@ html, body {
   to { grid-template-rows: 1fr; opacity: 1; }
 }
 
+/* ── Note metadata bar collapse ──────────────────────────────────────────── */
+
+/* Rangée métadonnées de note repliable dans les deux sens : grid-template-rows
+ * 0fr ↔ 1fr anime vers la hauteur naturelle (pas de max-height magique). Le
+ * kill-switch reduced-motion global couvre la transition. */
+.sn-meta-collapse {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows var(--sn-dur-3) var(--sn-ease-glide);
+}
+
+.sn-meta-collapse[data-open="false"] {
+  grid-template-rows: 0fr;
+}
+
+.sn-meta-collapse__inner {
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* Handle discret à cheval sur la bordure header/éditeur : pill fine, opacité
+ * basse au repos, pleine au survol/focus. La zone de hit tactile est étendue
+ * via ::before (~34px de haut) sans grossir le visuel. */
+.sn-meta-handle {
+  position: absolute;
+  left: 50%;
+  top: -9px;
+  transform: translateX(-50%);
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 18px;
+  border-radius: 9999px;
+  border: 1px solid var(--border-subtle);
+  background-color: var(--surface-1);
+  color: var(--text-muted);
+  opacity: 0.55;
+  /* Pas de .sn-pressable ici : son :active { scale } écraserait translateX. */
+  transition: var(--sn-transition-colors),
+              opacity var(--sn-dur-2) var(--sn-ease-standard),
+              transform var(--sn-dur-1) var(--sn-ease-spring);
+}
+
+.sn-meta-handle:active {
+  transform: translateX(-50%) scale(0.92);
+}
+
+.sn-meta-handle::before {
+  content: "";
+  position: absolute;
+  inset: -8px;
+}
+
+.sn-meta-handle:hover,
+.sn-meta-handle:focus-visible {
+  opacity: 1;
+  color: var(--text-secondary);
+}
+
 /* ════════════════════════════════════════════════════════════════════════
    Ambiances de note — presets palette + typo + texture par note.
    La classe est posée sur la RACINE du NoteEditor (ancêtre de l'éditeur,
