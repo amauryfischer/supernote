@@ -26,7 +26,6 @@ import { memo, useCallback, useEffect, useState } from "react";
 import { NotificationBadge, useNotifications } from "@supernote/notifications/renderer";
 import { useVault } from "@/lib/pwa/PwaVaultSetup";
 import { MobileVaultSwitcher } from "./MobileVaultSwitcher";
-import { ConnectVaultModal } from "@/components/notes/ConnectVaultModal";
 
 const THEME_CYCLE: ThemeValue[] = ["light", "dark", "system"];
 
@@ -131,15 +130,16 @@ export const MoreDrawer = memo(function MoreDrawer({
   isOpen,
   onClose,
   onOpenNotifications,
+  onOpenConnectVault,
 }: {
   isOpen: boolean;
   onClose: () => void;
   onOpenNotifications: () => void;
+  onOpenConnectVault: () => void;
 }) {
   const { unreadCount } = useNotifications();
   const vault = useVault();
   const [switcherOpen, setSwitcherOpen] = useState(false);
-  const [connectVaultOpen, setConnectVaultOpen] = useState(false);
   // Reset to the menu whenever the drawer closes, so reopening "Plus" never
   // lands back on the switcher sub-view (the X / backdrop / Bell paths close
   // the drawer without touching switcherOpen).
@@ -362,7 +362,10 @@ export const MoreDrawer = memo(function MoreDrawer({
             >
               <button
                 type="button"
-                onClick={() => setConnectVaultOpen(true)}
+                onClick={() => {
+                  onClose();
+                  onOpenConnectVault();
+                }}
                 className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors active:bg-[var(--surface-2)]"
                 style={{ color: "var(--text-primary)" }}
               >
@@ -387,8 +390,6 @@ export const MoreDrawer = memo(function MoreDrawer({
           )}
         </div>
       </div>
-
-      <ConnectVaultModal isOpen={connectVaultOpen} onOpenChange={setConnectVaultOpen} />
     </Drawer>
   );
 });

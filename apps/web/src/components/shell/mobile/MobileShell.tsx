@@ -7,6 +7,7 @@ import { MobileTopBar } from "./MobileTopBar";
 import { MoreDrawer } from "./MoreDrawer";
 import { useShellChrome } from "../shell-chrome-context";
 import { ColumnEditorSidebar } from "@/components/bases/ColumnEditorSidebar";
+import { ConnectVaultModal } from "@/components/notes/ConnectVaultModal";
 import { useKeyboardOpen } from "@/hooks/useKeyboardOpen";
 import dynamic from "next/dynamic";
 
@@ -44,6 +45,7 @@ export const MobileShell = memo(function MobileShell({
 }) {
   const [moreOpen, setMoreOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
+  const [connectVaultOpen, setConnectVaultOpen] = useState(false);
   const { columnEditor, closeColumnEditor } = useShellChrome();
 
   // Focus mode: while the keyboard is up and the note editor is focused, drop
@@ -122,11 +124,19 @@ export const MobileShell = memo(function MobileShell({
         isOpen={moreOpen}
         onClose={() => setMoreOpen(false)}
         onOpenNotifications={() => setNotifOpen(true)}
+        onOpenConnectVault={() => setConnectVaultOpen(true)}
       />
 
       {notifOpen && (
         <NotificationCenter open={notifOpen} onClose={() => setNotifOpen(false)} />
       )}
+
+      {/* Connecter un vault — hissé au niveau du shell (et non imbriqué dans la
+          Drawer « Plus ») : deux overlays react-aria empilés se disputent le
+          scroll-lock + focus-scope `contain` sur mobile, ce qui superposait la
+          modale au menu et cassait la soumission. Comme le centre de notifs, on
+          ferme la Drawer puis on ouvre cette modale comme seul overlay. */}
+      <ConnectVaultModal isOpen={connectVaultOpen} onOpenChange={setConnectVaultOpen} />
 
       {/* Column editor — on desktop this is a third shell column; on mobile we
           surface it as a right-anchored sliding overlay so editing a Base's
