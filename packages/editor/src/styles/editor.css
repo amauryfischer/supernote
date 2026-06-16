@@ -130,28 +130,6 @@
   56%, 100% { opacity: 0; }
 }
 
-/* Active-block gutter bar — accent bar in the left margin that glides
- * vertically + morphs its height between blocks (BlockGutterBar.tsx). Ambient
- * sibling of the caret: dimmer, wider (3px vs 2px) so it reads as block-level
- * rather than glyph-level, and sits *below* the caret/trail in the stack. */
-.sn-block-gutter-bar {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 3px;
-  height: 0;
-  border-radius: 2px;
-  pointer-events: none;
-  opacity: 0;
-  z-index: 30;
-  will-change: transform, height;
-  background: color-mix(in srgb, var(--accent, #7c3aed) 55%, transparent);
-  box-shadow: 0 0 5px color-mix(in srgb, var(--accent, #7c3aed) 28%, transparent);
-  /* Movement is driven by the rAF lerp in BlockGutterBar.tsx; only the
-   * show/hide fade lives in CSS. */
-  transition: opacity 120ms ease;
-}
-
 /* Comet trail left behind on fast caret jumps (click, Enter, arrows).
  * Positioned/rotated by SmoothCaret.tsx; the gradient keeps the head
  * (destination) bright and lets the tail dissolve. */
