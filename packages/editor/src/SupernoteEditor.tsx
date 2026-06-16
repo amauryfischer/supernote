@@ -44,6 +44,7 @@ import type { SupernoteEditorProps } from "./types.js";
 import { useAIAction } from "./ai/useAIAction.js";
 import { AIActionsMenu } from "./ai/AIActionsMenu.js";
 import { SmoothCaret } from "./SmoothCaret.js";
+import { BlockGutterBar } from "./BlockGutterBar.js";
 import {
   FloatingFormattingToolbar,
   SupernoteSideMenu,
@@ -685,6 +686,11 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
           glides between positions. No-op (native caret kept) when the user
           prefers reduced motion, on touch devices, or in read-only mode. */}
       {!readOnly && <SmoothCaret wrapperRef={wrapperRef} />}
+
+      {/* Ambient active-block bar in the left gutter — glides between blocks
+          as the selection moves. Stays on for touch (tracks block boxes, not
+          glyphs), unlike the caret overlay. */}
+      {!readOnly && <BlockGutterBar wrapperRef={wrapperRef} />}
 
       {/* Wikilink hover card — only when the host wires a preview resolver. */}
       {resolvers?.previewEntity && (
