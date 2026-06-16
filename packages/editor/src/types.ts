@@ -105,11 +105,6 @@ export interface SupernoteEditorProps {
    */
   dimInactiveBlocks?: boolean;
   /**
-   * Show the Word-style mini toolbox pinned above the note (block type,
-   * marks, colors, link, undo/redo). Hidden in read-only mode.
-   */
-  topToolbar?: boolean;
-  /**
    * Renderer for inline database blocks. When provided, every `databaseView`
    * block in the document calls this renderer with its (baseId, viewId).
    * If absent, the block falls back to a stub placeholder.

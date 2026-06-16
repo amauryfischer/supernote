@@ -1319,7 +1319,6 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
               className="min-h-[60vh] w-full"
               onAskAi={handleAskAi}
               dimInactiveBlocks={dimBlocks}
-              topToolbar={!isMobile}
               onEditorReady={(insert) => { editorInsertRef.current = insert; }}
               onStreamingInsertReady={(begin) => { editorStreamRef.current = begin; }}
               renderDatabaseView={renderInlineDatabase}

@@ -268,7 +268,6 @@ function NotePortal({ target, alias }: { target: string; alias?: string }): Reac
             renderFormula={renderNoteFormula}
             renderEmbed={renderNotePortal}
             renderDoodle={renderDoodle}
-            topToolbar={false}
           />
         </PortalDepthContext.Provider>
       </div>

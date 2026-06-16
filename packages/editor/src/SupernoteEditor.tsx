@@ -49,7 +49,6 @@ import {
   SupernoteSideMenu,
   WikilinkHoverPreview,
 } from "./extensions/editorChrome.js";
-import { FixedToolbar } from "./extensions/fixedToolbar.js";
 import type { AIActionId } from "@supernote/ai/actions";
 import type { StreamingInsertHandle } from "./types.js";
 
@@ -66,7 +65,6 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
     onEditorReady,
     onStreamingInsertReady,
     dimInactiveBlocks = false,
-    topToolbar = false,
     placeholder,
     renderDatabaseView,
     renderFormula,
@@ -658,15 +656,6 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
       onClick={handleWrapperClick}
       onContextMenu={onContextMenu}
     >
-      {/* Word-style mini toolbox — sticky above the note while writing.
-          Rendered OUTSIDE BlockNoteViewRaw (it takes the editor instance as
-          a prop) so it precedes the content in the DOM and can stick to the
-          top of the note's scroll container. */}
-      {topToolbar && !readOnly && (
-        <FixedToolbar
-          editor={editor as unknown as Parameters<typeof FixedToolbar>[0]["editor"]}
-        />
-      )}
       <BlockNoteViewRaw
         editor={editor}
         editable={!readOnly}
