@@ -57,6 +57,24 @@ export function FloatingFormattingToolbar({ wrapperRef }: FloatingFormattingTool
   // Color palette dropdown (text + highlight). Anchored under the toolbar.
   const [colorOpen, setColorOpen] = useState(false);
   const toolbarRef = useRef<HTMLDivElement | null>(null);
+  // Opening the palette re-renders the toolbar, which mutates DOM inside the
+  // BlockNote root and makes ProseMirror re-sync — collapsing the live
+  // selection (the format buttons dodge this because toggleStyles re-asserts
+  // the selection in a transaction; a pure setState toggle doesn't). So we
+  // snapshot the selection (+ its box and active colors) the instant the user
+  // opens the palette, keep the toolbar pinned at that box while it's open,
+  // and restore the selection right before applying a color.
+  const savedSelRef = useRef<{ from: number; to: number } | null>(null);
+  const savedBoxRef = useRef<{
+    top: number;
+    left: number;
+    width: number;
+    height: number;
+  } | null>(null);
+  const savedStylesRef = useRef<{
+    textColor?: string;
+    backgroundColor?: string;
+  } | null>(null);
   useEffect(() => {
     const down = (e: MouseEvent) => {
       // A mousedown inside the toolbar (it preventDefaults) never reaches
@@ -98,7 +116,55 @@ export function FloatingFormattingToolbar({ wrapperRef }: FloatingFormattingTool
     editor.createLink(url.trim());
   }, [editor]);
 
-  if (!hasSelection || pointerDown || !box) return null;
+  // Snapshot the selection (+ active colors) before opening the palette, while
+  // it's still alive. Box is captured separately during render below.
+  const openColorMenu = useCallback(() => {
+    try {
+      const { from, to } = editor.prosemirrorState.selection;
+      savedSelRef.current = from === to ? null : { from, to };
+    } catch {
+      savedSelRef.current = null;
+    }
+    savedStylesRef.current = editor.getActiveStyles() as {
+      textColor?: string;
+      backgroundColor?: string;
+    };
+    setColorOpen(true);
+  }, [editor]);
+
+  // Re-assert the snapshotted selection so the color lands on the text the
+  // user picked, even though opening the palette collapsed the live selection.
+  const restoreColorSelection = useCallback(() => {
+    const sel = savedSelRef.current;
+    if (!sel) return;
+    try {
+      editor._tiptapEditor.commands.setTextSelection(sel);
+      editor._tiptapEditor.commands.focus();
+    } catch {
+      /* editor torn down between open and apply */
+    }
+  }, [editor]);
+
+  const closeColorMenu = useCallback(() => {
+    setColorOpen(false);
+    savedSelRef.current = null;
+    savedStylesRef.current = null;
+    setSelectionVersion((v) => v + 1);
+  }, []);
+
+  // Keep the last valid selection box so the toolbar stays pinned while the
+  // palette is open even if the selection momentarily collapses.
+  if (box) {
+    savedBoxRef.current = {
+      top: box.top,
+      left: box.left,
+      width: box.width,
+      height: box.height,
+    };
+  }
+  const anchorBox = box ?? savedBoxRef.current;
+  if (!colorOpen && (!hasSelection || pointerDown || !box)) return null;
+  if (!anchorBox) return null;
   const wrapper = wrapperRef.current;
   if (!wrapper) return null;
   const wRect = wrapper.getBoundingClientRect();
@@ -106,21 +172,23 @@ export function FloatingFormattingToolbar({ wrapperRef }: FloatingFormattingTool
   const activeStyles = editor.getActiveStyles() as Partial<
     Record<ToggleableStyle, boolean>
   > & { textColor?: string; backgroundColor?: string };
-  const textTint = textSwatch(activeStyles.textColor);
+  const textTint = textSwatch(
+    activeStyles.textColor ?? savedStylesRef.current?.textColor,
+  );
 
   // Selections near the top of the editor flip the toolbar BELOW the text:
   // above would land on (or outside into) the fixed top toolbar.
-  const flipBelow = box.top - wRect.top < 96;
+  const flipBelow = anchorBox.top - wRect.top < 96;
 
   return (
     <div
       ref={toolbarRef}
       className={`sn-fmt-toolbar${flipBelow ? " sn-fmt-toolbar--below" : ""}`}
       style={{
-        left: box.left - wRect.left + box.width / 2,
+        left: anchorBox.left - wRect.left + anchorBox.width / 2,
         top: flipBelow
-          ? box.top - wRect.top + box.height + 8
-          : box.top - wRect.top - 8,
+          ? anchorBox.top - wRect.top + anchorBox.height + 8
+          : anchorBox.top - wRect.top - 8,
       }}
       role="toolbar"
       aria-label="Mise en forme"
@@ -153,7 +221,7 @@ export function FloatingFormattingToolbar({ wrapperRef }: FloatingFormattingTool
         aria-expanded={colorOpen}
         className="sn-fmt-toolbar__btn sn-fmt-toolbar__color"
         data-active={colorOpen ? "true" : undefined}
-        onClick={() => setColorOpen((o) => !o)}
+        onClick={() => (colorOpen ? closeColorMenu() : openColorMenu())}
       >
         <span className="sn-fmt-toolbar__color-a" style={{ color: textTint }}>
           A
@@ -178,11 +246,28 @@ export function FloatingFormattingToolbar({ wrapperRef }: FloatingFormattingTool
       {colorOpen && (
         <div className="sn-fmt-toolbar__colors">
           <ColorMenu
-            editor={editor as never}
-            onApplied={() => {
-              setColorOpen(false);
-              setSelectionVersion((v) => v + 1);
+            editor={{
+              // Show the colors active on the original selection, not the
+              // collapsed one the palette open left behind.
+              getActiveStyles: () =>
+                savedStylesRef.current ??
+                (editor.getActiveStyles() as {
+                  textColor?: string;
+                  backgroundColor?: string;
+                }),
+              // Put the user's selection back before colouring it.
+              addStyles: (styles) => {
+                restoreColorSelection();
+                editor.addStyles(styles as Parameters<typeof editor.addStyles>[0]);
+              },
+              removeStyles: (styles) => {
+                restoreColorSelection();
+                editor.removeStyles(
+                  styles as Parameters<typeof editor.removeStyles>[0],
+                );
+              },
             }}
+            onApplied={closeColorMenu}
           />
         </div>
       )}
