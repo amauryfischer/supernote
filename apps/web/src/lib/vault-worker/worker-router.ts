@@ -1110,10 +1110,10 @@ export function buildRouter(
     let sql = `
       SELECT e.id, e.typeId, et.name as typeName, e.filePath, e.fields, e.body,
              e.createdAt, e.updatedAt
-      FROM entity_fts f
-      JOIN entity e ON e.id = f.id
+      FROM entity_fts
+      JOIN entity e ON e.id = entity_fts.id
       JOIN entity_type et ON et.id = e.typeId
-      WHERE f MATCH ? AND e.vaultId = ?
+      WHERE entity_fts MATCH ? AND e.vaultId = ?
     `;
     const params: SqlValue[] = [match, vaultId];
     if (typeId) { sql += ` AND e.typeId = ?`; params.push(typeId); }
@@ -2680,9 +2680,9 @@ export function buildRouter(
     // when typeId narrows the set — same approximation the old code shipped.
     let countSql = `
       SELECT COUNT(*) as c
-      FROM entity_fts f
-      JOIN entity e ON e.id = f.id
-      WHERE f MATCH ? AND e.vaultId = ?
+      FROM entity_fts
+      JOIN entity e ON e.id = entity_fts.id
+      WHERE entity_fts MATCH ? AND e.vaultId = ?
     `;
     const countParams: SqlValue[] = [match, vaultId];
     if (typeId) { countSql += ` AND e.typeId = ?`; countParams.push(typeId); }
