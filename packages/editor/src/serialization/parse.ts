@@ -195,6 +195,17 @@ function parseLine(line: string): AnyBlock | null {
     };
   }
 
+  // Bloc googleSheet — sérialisé par serialize.ts en `[googleSheet url="..."]`.
+  // Reconnu avant les patterns génériques pour préserver le bloc au round-trip
+  // (même URL vide, url="").
+  const sheetMatch = /^\[googleSheet\s+url="((?:[^"\\]|\\.)*)"\]\s*$/.exec(line);
+  if (sheetMatch) {
+    return {
+      type: "googleSheet",
+      props: { url: unescapeAttr(sheetMatch[1] ?? "") },
+    };
+  }
+
   // Embed: ![[target]] or ![[target|alias]]
   const embedMatch = /^!\[\[([^\]|]+)(?:\|([^\]]+))?\]\]$/.exec(line);
   if (embedMatch) {

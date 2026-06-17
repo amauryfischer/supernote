@@ -12,6 +12,7 @@ import {
   databaseViewBlockSpec,
   doodleBlockSpec,
   embedBlockSpec,
+  googleSheetBlockSpec,
   heroCheckListItemSpec,
   wikilinkInlineSpec,
   mentionInlineSpec,
@@ -37,6 +38,7 @@ export const supernoteSchema = BlockNoteSchema.create({
     doodle: doodleBlockSpec(),
     databaseView: databaseViewBlockSpec(),
     formula: formulaBlockSpec(),
+    googleSheet: googleSheetBlockSpec(),
   },
   inlineContentSpecs: {
     ...defaultInlineContentSpecs,

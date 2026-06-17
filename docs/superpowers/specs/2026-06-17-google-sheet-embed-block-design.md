@@ -44,37 +44,40 @@ aucune base, formule, relation ou vue Supernote sur ces données. Lecture seule.
 
 ## Architecture
 
-Le bloc suit le pattern **renderer délégué via Provider context** (exactement
-`packages/editor/src/blocks/embed.tsx`) : le package `@supernote/editor` définit
-le *block spec* + un slot de rendu ; `apps/web` fournit le *renderer* réel
-(UI HeroUI + `useIsMobile`). Le package éditeur ne dépend jamais de `apps/web`.
+> **Note d'implémentation (déviation assumée vs design initial).** Le design
+> prévoyait un *renderer délégué via Provider* (comme `embed`/`databaseView`) +
+> UI HeroUI côté `apps/web`. À l'implémentation : bloc **self-contained** dans
+> `@supernote/editor`. L'affichage (input/iframe/lien) est simple et n'a besoin
+> d'aucune donnée runtime de l'hôte — la délégation n'apportait que de la
+> plomberie. Conséquence : pas de prop `renderGoogleSheet`, pas de câblage par
+> hôte, et le bloc marche aussi dans l'éditeur imbriqué du portail sans effort.
+> UI en éléments stylés bruts (pas HeroUI), **cohérent avec les conventions du
+> package éditeur** (slashMenu, chrome, fallbacks = HTML nu ; HeroUI vit côté
+> app). Détection mobile via `matchMedia("(max-width: 767px)")` interne au bloc.
+
+Le bloc édite sa propre prop `url` via `editor.updateBlock`. Bloc
+`contentEditable={false}` (comme `embed`/`databaseView`).
 
 ```
-@supernote/editor (dist — rebuild requis)
-  blocks/googleSheet.tsx
-    ├─ googleSheetBlockSpec   (createReactBlockSpec, prop `url`)
-    ├─ GoogleSheetProvider / useGoogleSheetRenderer   (context, comme EmbedProvider)
-    └─ fallback statique (lien) si pas de renderer
-  blocks/googleSheetUrl.ts    (pur, testable)
+@supernote/editor (dist — rebuild requis) — tout est ici (self-contained)
+  blocks/googleSheet.tsx   (createReactBlockSpec, prop `url`, contentEditable=false)
+    ├─ état vide : <input> « coller l'URL d'une feuille publiée » + aide publish-to-web
+    ├─ desktop (matchMedia≥768) : <iframe src={buildPubhtmlUrl(...)} /> + footer (changer / ouvrir)
+    └─ mobile (<768)  : carte titre + lien « Ouvrir dans Google Sheets » (buildOpenUrl)
+  blocks/googleSheetUrl.ts    (pur, testable + .test.ts)
     ├─ parseGoogleSheetUrl(url) → { spreadsheetId, gid } | null
     ├─ buildPubhtmlUrl({ spreadsheetId, gid }) → string   (…/pubhtml?embedded=true&gid=…&single=true)
     └─ buildOpenUrl({ spreadsheetId, gid }) → string      (…/edit#gid=…)
-  serialization/serialize.ts  +  parse.ts   (round-trip markdown)
-  schema.ts / blocks/index.ts (enregistrement)
-  slash-menu (item « Google Sheet »)
-
-apps/web
-  components/notes/GoogleSheetEmbed.tsx   (le renderer)
-    ├─ desktop : <iframe src={buildPubhtmlUrl(...)} />  conteneur responsive, hauteur réglable
-    ├─ mobile  : carte titre + bouton HeroUI « Ouvrir dans Google Sheets » (buildOpenUrl)
-    └─ état vide : Input HeroUI « coller l'URL d'une feuille publiée » + aide publish-to-web
-  (câblage GoogleSheetProvider là où EmbedProvider/databaseView renderer est monté)
+  serialization/serialize.ts  +  parse.ts   (round-trip markdown `[googleSheet url="…"]`)
+  schema.ts / blocks/index.ts (enregistrement du block spec)
+  extensions/slashMenu.tsx    (item « Google Sheet », groupe Bases)
+  SupernoteEditor.tsx         (googleSheet ∈ trailing non-éditable + clic-sous-bloc)
 ```
 
 ## Flux de données
 
 - Le bloc stocke une seule prop : `url` (l'URL Google Sheets collée).
-- `parseGoogleSheetUrl` en extrait `spreadsheetId` + `gid` ; le renderer
+- `parseGoogleSheetUrl` en extrait `spreadsheetId` + `gid` ; le bloc
   construit l'URL pubhtml (desktop) ou l'URL d'ouverture (mobile/bouton).
 - **Persistance** : sérialisé en markdown sur une ligne `[googleSheet url="…"]`
   (même mécanique que `[databaseView …]` / `[formula …]` ; `escapeAttr` /

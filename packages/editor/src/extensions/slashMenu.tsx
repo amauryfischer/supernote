@@ -390,13 +390,37 @@ export function getSupernoteSlashMenuItems(
     },
   };
 
+  // Google Sheet — embed lecture-seule (iframe desktop / lien mobile).
+  // contentEditable=false → paragraphe trailing pour ne pas piéger le curseur.
+  const googleSheetItem: DefaultReactSuggestionItem = {
+    title: "Google Sheet",
+    subtext: "Intègre une feuille Google (vue lecture seule)",
+    group: "Bases",
+    aliases: ["google", "sheet", "sheets", "gsheet", "tableur", "feuille", "spreadsheet"],
+    icon: <span aria-hidden="true">▦</span>,
+    onItemClick() {
+      const inserted = editor.insertBlocks(
+        [
+          { type: "googleSheet" as any, props: { url: "" } } as any,
+          { type: "paragraph" } as any,
+        ],
+        editor.getTextCursorPosition().block,
+        "after",
+      );
+      const trailing = inserted?.[1];
+      if (trailing) {
+        editor.setTextCursorPosition(trailing as any, "start");
+      }
+    },
+  };
+
   const entityLinkItems = ENTITY_LINK_CONFIGS.map((cfg) =>
     makeEntityLinkItem(editor, cfg, openPicker)
   );
 
   const aiItems: DefaultReactSuggestionItem[] = onAskAi ? [makeAskAiItem(onAskAi)] : [];
 
-  return [...defaults, ...calloutItems, codeItem, embedItem, databaseViewItem, formulaItem, ...liveFormulaItems, doodleItem, ...entityLinkItems, ...aiItems];
+  return [...defaults, ...calloutItems, codeItem, embedItem, databaseViewItem, googleSheetItem, formulaItem, ...liveFormulaItems, doodleItem, ...entityLinkItems, ...aiItems];
 }
 
 // ── Suggestion menu renderer ──────────────────────────────────────────────────

@@ -197,7 +197,7 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
   // tout clic sous le bloc — l'utilisateur ne peut pas créer de nouveau
   // contenu en dessous de la base.
   useEffect(() => {
-    const NON_EDITABLE_TRAILING = new Set(["databaseView"]);
+    const NON_EDITABLE_TRAILING = new Set(["databaseView", "googleSheet"]);
     const ensureTrailingParagraph = () => {
       const doc = editor.document as Block[];
       const last = doc[doc.length - 1];
@@ -620,7 +620,7 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
       if (doc.length === 0) return;
       let last = doc[doc.length - 1];
       // Si dernier block n'est pas éditable, append paragraph et focus dessus.
-      if (last && (last.type as string) === "databaseView") {
+      if (last && ((last.type as string) === "databaseView" || (last.type as string) === "googleSheet")) {
         try {
           const inserted = editor.insertBlocks(
             [{ type: "paragraph" } as any],

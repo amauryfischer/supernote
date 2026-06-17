@@ -176,6 +176,13 @@ function blockToMarkdownLine(block: AnyBlock): string {
       return `[formula expr="${escapeAttr(expression)}" kind="${escapeAttr(outputKind)}" display="${escapeAttr(display)}"]`;
     }
 
+    case "googleSheet": {
+      // Bloc Google Sheet — ligne dédiée comme databaseView/doodle pour que le
+      // round-trip markdown préserve le bloc (URL vide sérialisée quand même).
+      const url = (props.url as string) ?? "";
+      return `[googleSheet url="${escapeAttr(url)}"]`;
+    }
+
     default:
       return serializeInlineContent(block.content);
   }

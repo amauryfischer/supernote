@@ -156,6 +156,55 @@ describe("doodle block", () => {
   });
 });
 
+// ── Google Sheet ──────────────────────────────────────────────
+describe("googleSheet block", () => {
+  it("round-trips une URL Google Sheet", () => {
+    const url = "https://docs.google.com/spreadsheets/d/1AbC-dEf/edit#gid=42";
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const blocks: any[] = [
+      { type: "googleSheet", props: { url }, content: undefined, children: [] },
+    ];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const md = blocksToMarkdown(blocks as any);
+    expect(md).toBe(`[googleSheet url="${url}"]`);
+    const parsed = markdownToBlocks(md);
+    expect(parsed).toHaveLength(1);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const b = parsed[0] as any;
+    expect(b.type).toBe("googleSheet");
+    expect(b.props.url).toBe(url);
+  });
+
+  it("round-trips un bloc vide (survit au reload)", () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const blocks: any[] = [
+      { type: "googleSheet", props: { url: "" }, content: undefined, children: [] },
+    ];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const md = blocksToMarkdown(blocks as any);
+    expect(md).toBe('[googleSheet url=""]');
+    const parsed = markdownToBlocks(md);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const b = parsed[0] as any;
+    expect(b.type).toBe("googleSheet");
+    expect(b.props.url).toBe("");
+  });
+
+  it("échappe les guillemets dans l'URL", () => {
+    const url = 'https://docs.google.com/spreadsheets/d/x/edit?q="quote"';
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const blocks: any[] = [
+      { type: "googleSheet", props: { url }, content: undefined, children: [] },
+    ];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const md = blocksToMarkdown(blocks as any);
+    const parsed = markdownToBlocks(md);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const b = parsed[0] as any;
+    expect(b.props.url).toBe(url);
+  });
+});
+
 // ── Mention ───────────────────────────────────────────────────
 
 describe("mention inline", () => {
