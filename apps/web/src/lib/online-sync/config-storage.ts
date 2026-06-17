@@ -103,6 +103,101 @@ export function clearOnlineSyncConfig(): void {
   }
 }
 
+/* ── Per-vault sync bindings ───────────────────────────────────────────────
+ *
+ * Online sync is a per-vault property: each folder vault can be local-only or
+ * connected to a room, independently of the others, and must remember that
+ * choice when reopened. But the live {@link OnlineSyncConfig} above is a single
+ * origin-global slot holding only the *active* vault's config. This map
+ * archives each vault's connection params (keyed by the switcher's vault id) so
+ * a vault switch can stash the outgoing vault's config and restore the incoming
+ * one — instead of wiping sync on every switch (which silently disconnected a
+ * folder vault the moment you left it).
+ *
+ * Only connection params are archived, never the cursor (lastSeq/seeded/epoch):
+ * a vault switch re-indexes the local DB from scratch, so the cursor must reset
+ * on restore for a clean replay + re-seed — exactly like {@link enable}.
+ */
+
+const VAULT_BINDINGS_KEY = "supernote.onlineSync.bindings";
+
+/** A vault's remembered sync connection (no cursor — see the section comment). */
+export interface VaultSyncBinding {
+  enabled: boolean;
+  serverUrl: string;
+  vaultKey: string;
+  token: string;
+}
+
+function loadVaultSyncBindings(): Record<string, VaultSyncBinding> {
+  if (typeof localStorage === "undefined") return {};
+  try {
+    const raw = localStorage.getItem(VAULT_BINDINGS_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    return parsed as Record<string, VaultSyncBinding>;
+  } catch {
+    return {};
+  }
+}
+
+function writeVaultSyncBindings(map: Record<string, VaultSyncBinding>): void {
+  if (typeof localStorage === "undefined") return;
+  try {
+    localStorage.setItem(VAULT_BINDINGS_KEY, JSON.stringify(map));
+  } catch {
+    /* quota / disabled storage — non-fatal */
+  }
+}
+
+/** The connection a vault will reconnect with when reopened, or null if none. */
+export function getVaultSyncBinding(vaultId: string): VaultSyncBinding | null {
+  return loadVaultSyncBindings()[vaultId] ?? null;
+}
+
+/**
+ * Snapshot the currently-active sync config's connection params under a vault
+ * id, so that vault reconnects to the same room when reopened. No-op for a null
+ * id (no active vault to archive).
+ */
+export function archiveActiveSyncConfig(vaultId: string | null): void {
+  if (!vaultId) return;
+  const cur = loadOnlineSyncConfig();
+  const map = loadVaultSyncBindings();
+  map[vaultId] = {
+    enabled: cur.enabled,
+    serverUrl: cur.serverUrl,
+    vaultKey: normalizeVaultKey(cur.vaultKey),
+    token: cur.token,
+  };
+  writeVaultSyncBindings(map);
+}
+
+/**
+ * Make a folder vault's archived binding the active sync config (cursor reset).
+ * Falls back to a clean, unconfigured state when the vault never had sync — so
+ * a local-only vault stays disconnected and never inherits the previous vault's
+ * room.
+ */
+export function restoreFolderSyncConfig(vaultId: string): void {
+  const binding = getVaultSyncBinding(vaultId);
+  saveOnlineSyncConfig(
+    binding
+      ? { ...DEFAULT_ONLINE_SYNC_CONFIG, ...binding }
+      : { ...DEFAULT_ONLINE_SYNC_CONFIG },
+  );
+}
+
+/** Drop a vault's remembered binding (e.g. when forgetting the vault). */
+export function removeVaultSyncBinding(vaultId: string): void {
+  const map = loadVaultSyncBindings();
+  if (vaultId in map) {
+    delete map[vaultId];
+    writeVaultSyncBindings(map);
+  }
+}
+
 /* ── Cloud vault registry ─────────────────────────────────────────────── */
 
 const VAULTS_KEY = "supernote.onlineSync.vaults";

@@ -14,6 +14,10 @@ import {
   getCloudVault,
   upsertCloudVault,
   removeCloudVault,
+  archiveActiveSyncConfig,
+  getVaultSyncBinding,
+  restoreFolderSyncConfig,
+  removeVaultSyncBinding,
 } from "./config-storage";
 
 const CONFIG_KEY = "supernote.onlineSync.config";
@@ -132,5 +136,102 @@ describe("cloud vault registry", () => {
     removeCloudVault(a.id);
     expect(listCloudVaults().map((e) => e.id)).toEqual([b.id]);
     expect(getCloudVault(a.id)).toBeNull();
+  });
+});
+
+describe("per-vault sync bindings", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("archives the active config's connection params under a vault id", () => {
+    saveOnlineSyncConfig({
+      ...DEFAULT_ONLINE_SYNC_CONFIG,
+      enabled: true,
+      serverUrl: "https://s.example.com",
+      vaultKey: "strategie",
+      token: "tok",
+      lastSeq: 42,
+      seeded: true,
+      epoch: "e",
+    });
+    archiveActiveSyncConfig("vault-A");
+    const binding = getVaultSyncBinding("vault-A");
+    expect(binding).toEqual({
+      enabled: true,
+      serverUrl: "https://s.example.com",
+      vaultKey: "strategie",
+      token: "tok",
+    });
+    // Cursor fields are intentionally NOT archived — the local DB is re-indexed
+    // on every switch, so the cursor always resets on restore.
+    expect(binding).not.toHaveProperty("lastSeq");
+  });
+
+  it("is a no-op for a null vault id (no active vault)", () => {
+    saveOnlineSyncConfig({ ...DEFAULT_ONLINE_SYNC_CONFIG, enabled: true, vaultKey: "x" });
+    archiveActiveSyncConfig(null);
+    expect(getVaultSyncBinding("x")).toBeNull();
+  });
+
+  it("restores a folder vault's binding as the active config with a reset cursor", () => {
+    // Vault A had sync on; archive it, then simulate a switch away that left a
+    // different (or default) active config in place.
+    saveOnlineSyncConfig({
+      ...DEFAULT_ONLINE_SYNC_CONFIG,
+      enabled: true,
+      serverUrl: "https://s.example.com",
+      vaultKey: "strategie",
+      token: "tok",
+      lastSeq: 42,
+      seeded: true,
+      epoch: "e",
+    });
+    archiveActiveSyncConfig("vault-A");
+    saveOnlineSyncConfig({ ...DEFAULT_ONLINE_SYNC_CONFIG }); // switched to a sync-off vault
+
+    restoreFolderSyncConfig("vault-A");
+    const cfg = loadOnlineSyncConfig();
+    expect(cfg.enabled).toBe(true);
+    expect(cfg.serverUrl).toBe("https://s.example.com");
+    expect(cfg.vaultKey).toBe("strategie");
+    expect(cfg.token).toBe("tok");
+    // Re-indexed DB → clean replay + re-seed.
+    expect(cfg.lastSeq).toBe(0);
+    expect(cfg.seeded).toBe(false);
+    expect(cfg.epoch).toBe("");
+  });
+
+  it("restores a clean, unconfigured state for a vault that never had sync", () => {
+    saveOnlineSyncConfig({ ...DEFAULT_ONLINE_SYNC_CONFIG, enabled: true, vaultKey: "leftover" });
+    restoreFolderSyncConfig("never-synced");
+    const cfg = loadOnlineSyncConfig();
+    expect(cfg.enabled).toBe(false);
+    expect(cfg.vaultKey).toBe("");
+  });
+
+  it("survives the report's switch-away-and-back round trip", () => {
+    // 1. Folder vault A turns sync on.
+    saveOnlineSyncConfig({
+      ...DEFAULT_ONLINE_SYNC_CONFIG,
+      enabled: true,
+      vaultKey: "strategie",
+    });
+    // 2. Switch to folder vault B: archive A, restore B (never synced → off).
+    archiveActiveSyncConfig("vault-A");
+    restoreFolderSyncConfig("vault-B");
+    expect(loadOnlineSyncConfig().enabled).toBe(false); // B not contaminated
+    // 3. Switch back to A: archive B, restore A.
+    archiveActiveSyncConfig("vault-B");
+    restoreFolderSyncConfig("vault-A");
+    const cfg = loadOnlineSyncConfig();
+    expect(cfg.enabled).toBe(true);
+    expect(cfg.vaultKey).toBe("strategie"); // still connected
+  });
+
+  it("forgets a vault's binding", () => {
+    saveOnlineSyncConfig({ ...DEFAULT_ONLINE_SYNC_CONFIG, enabled: true, vaultKey: "k" });
+    archiveActiveSyncConfig("vault-A");
+    expect(getVaultSyncBinding("vault-A")).not.toBeNull();
+    removeVaultSyncBinding("vault-A");
+    expect(getVaultSyncBinding("vault-A")).toBeNull();
   });
 });

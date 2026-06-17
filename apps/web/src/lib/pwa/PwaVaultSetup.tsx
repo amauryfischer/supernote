@@ -51,6 +51,9 @@ import {
   upsertCloudVault,
   removeCloudVault,
   cloudVaultId,
+  archiveActiveSyncConfig,
+  restoreFolderSyncConfig,
+  removeVaultSyncBinding,
 } from "@/lib/online-sync/config-storage";
 import { cloudRoomSlug } from "@/lib/online-sync/room-id";
 import { clearPendingOps } from "@/lib/online-sync/pendingStore";
@@ -541,6 +544,9 @@ export function usePwaVaultSetup(): VaultContextValue {
         wasCloud ||
         !previous ||
         !(await previous.isSameEntry(handle).catch(() => false));
+      // Archive the outgoing vault's sync config under its own id before we
+      // repoint the active handle (per-vault sync).
+      archiveActiveSyncConfig(await currentActiveVaultId());
       if (isDifferentFolder) {
         // Kill the current worker so its pending RPCs don't land on the new
         // vault. The OPFS wipe itself is performed by the FRESH worker via
@@ -552,11 +558,16 @@ export function usePwaVaultSetup(): VaultContextValue {
       await saveVaultHandle(handle);
       // Picking a folder explicitly opts out of degraded mode.
       if (typeof window !== "undefined") {
-        // Picking a folder / git repo opts out of degraded mode and leaves
-        // cloud mode (disables online sync so it can't push into the room).
+        // Picking a folder / git repo opts out of degraded mode and drops the
+        // cloud marker (the config swap below sets the right sync state).
         window.localStorage.removeItem(DEGRADED_STORAGE_KEY);
         leaveCloudMode();
       }
+      // Adopt the picked folder's own remembered sync config — re-picking a
+      // folder that had sync reconnects it; a never-synced folder stays off.
+      const pickedId = await getActiveVaultId();
+      if (pickedId) restoreFolderSyncConfig(pickedId);
+      else saveOnlineSyncConfig({ ...DEFAULT_ONLINE_SYNC_CONFIG });
       setWorkerReady(false);
       setVaultName(null);
       setState("loading");
@@ -644,6 +655,11 @@ export function usePwaVaultSetup(): VaultContextValue {
       setState("cloud-form");
       return;
     }
+
+    // Stash the outgoing vault's sync config under its own id (before the cloud
+    // marker flips currentActiveVaultId to the new room) so returning to it
+    // restores its own connection.
+    archiveActiveSyncConfig(await currentActiveVaultId());
 
     // Tear down the current worker FIRST. terminateVaultWorker dispatches
     // "supernote:vault-unready", which the OnlineSyncProvider listens to for
@@ -764,13 +780,20 @@ export function usePwaVaultSetup(): VaultContextValue {
         lastSyncSha: initialHeadSha,
         lastSyncAt: initialHeadSha ? new Date().toISOString() : undefined,
       });
+      // Archive the outgoing vault's sync config before repointing (per-vault
+      // sync), while currentActiveVaultId still resolves the previous vault.
+      archiveActiveSyncConfig(await currentActiveVaultId());
       await saveVaultHandle(handle);
       if (typeof window !== "undefined") {
-        // Picking a folder / git repo opts out of degraded mode and leaves
-        // cloud mode (disables online sync so it can't push into the room).
+        // Picking a folder / git repo opts out of degraded mode and drops the
+        // cloud marker.
         window.localStorage.removeItem(DEGRADED_STORAGE_KEY);
         leaveCloudMode();
       }
+      // A fresh Git vault starts with online sync off (Git is its sync layer);
+      // the user can opt in later from Settings. Reset to a clean state so it
+      // can't inherit the previous vault's room.
+      saveOnlineSyncConfig({ ...DEFAULT_ONLINE_SYNC_CONFIG });
       setWorkerReady(false);
       setVaultName(null);
       setState("loading");
@@ -821,6 +844,11 @@ export function usePwaVaultSetup(): VaultContextValue {
     // below. Otherwise the old client's in-flight stream batches would be
     // queued against the new room's worker (drained at its VAULT_READY) and
     // its late onSeq callbacks would poison the new room's cursor.
+    // Stash the outgoing vault's sync config under its own id before the room
+    // config below overwrites the active slot — so switching back to a folder
+    // vault (or another cloud room) restores its own connection.
+    archiveActiveSyncConfig(await currentActiveVaultId());
+
     setWorkerReady(false);
     setVaultName(null);
     terminateVaultWorker();
@@ -910,6 +938,10 @@ export function usePwaVaultSetup(): VaultContextValue {
       // is the conservative choice (wipe rather than risk a data mix).
       isDifferentFolder = true;
     }
+    // Online sync is per-vault: stash the outgoing vault's connection under its
+    // own id BEFORE we repoint anything, so returning to it reconnects.
+    archiveActiveSyncConfig(await currentActiveVaultId());
+
     if (isDifferentFolder) {
       terminateVaultWorker();
     }
@@ -917,8 +949,12 @@ export function usePwaVaultSetup(): VaultContextValue {
     await saveVaultHandle(entry.handle);
     await setActiveVaultId(entry.id);
     if (typeof window !== "undefined") window.localStorage.removeItem(DEGRADED_STORAGE_KEY);
-    // Switching to a folder vault leaves cloud mode (disables online sync).
+    // Drop the cloud marker / DB-owner record (no longer touches the config).
     leaveCloudMode();
+    // Adopt THIS vault's own remembered sync config (cursor reset because the
+    // DB is re-indexed; a never-synced vault restores to a clean, off state and
+    // so can't inherit the previous room's key).
+    restoreFolderSyncConfig(entry.id);
     setWorkerReady(false);
     setVaultName(null);
     setState("loading");
@@ -953,6 +989,8 @@ export function usePwaVaultSetup(): VaultContextValue {
     } else {
       await removeVaultEntry(id);
     }
+    // Drop the vault's remembered online-sync connection too.
+    removeVaultSyncBinding(id);
     void refreshRecents();
   }, [activeVaultId, refreshRecents]);
 
@@ -985,29 +1023,38 @@ function startWorker(
 }
 
 /**
- * Leaving cloud mode for a folder/git vault: drop the cloud marker AND reset
- * the online-sync config.
+ * Leaving cloud mode for a folder/git vault: drop the cloud marker and
+ * invalidate the DB-owner record.
  *
- * A cloud vault writes its room key into the (origin-global) online-sync config
- * when activated. A folder/git vault must not inherit that room key:
- *   1. The Sync settings would keep showing the previous cloud room's key — the
- *      "Clé de salon" field never refreshing on a vault switch, since switching
- *      to a folder/git vault doesn't otherwise rewrite the global config.
- *   2. A still-enabled config would make OnlineSyncProvider replicate the
- *      folder's contents into that previous cloud room when it reaches "ready".
- * Resetting to defaults clears both: the non-cloud vault starts from a clean,
- * unconfigured sync state.
+ * It deliberately does NOT touch the online-sync config — sync is a per-vault
+ * property now. Callers archive the outgoing vault's config and restore the
+ * incoming folder vault's own config (see {@link archiveActiveSyncConfig} /
+ * {@link restoreFolderSyncConfig}) around this call, so a folder vault keeps
+ * its sync across switches and a local-only vault never inherits the previous
+ * room's key.
  */
 function leaveCloudMode(): void {
   if (typeof window === "undefined") return;
   window.localStorage.removeItem(CLOUD_VAULT_KEY);
-  const cfg = loadOnlineSyncConfig();
-  if (cfg.enabled || cfg.vaultKey) saveOnlineSyncConfig({ ...DEFAULT_ONLINE_SYNC_CONFIG });
   // The folder/git vault is about to take over the (origin-global) SAH DB —
   // the recorded cloud room no longer owns it. Without this invalidation, a
   // later cloud boot back onto that same room would see a matching owner,
   // skip its reset and mount the FOLDER vault's DB under the room's label.
   void clearDbOwner();
+}
+
+/**
+ * Id of the vault the worker is currently mounted on — folder id (FSA registry)
+ * or cloud id (derived from the live room config). Mirrors the active-id logic
+ * in refreshRecents so the outgoing vault's sync config is archived under the
+ * right key on a switch. Null when no vault is active yet.
+ */
+async function currentActiveVaultId(): Promise<string | null> {
+  if (isCloudVaultActive()) {
+    const cfg = loadOnlineSyncConfig();
+    return cfg.vaultKey ? cloudVaultId(cfg.serverUrl, cfg.vaultKey) : null;
+  }
+  return getActiveVaultId().catch(() => null);
 }
 
 // ── UI Component ──────────────────────────────────────────────────────────────
