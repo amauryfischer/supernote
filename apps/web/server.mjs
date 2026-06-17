@@ -33,6 +33,19 @@ if (process.env.DATABASE_URL) {
   }
 }
 
+// Optional read-only Coda importer proxy. Mounted only when CODA_API_TOKEN is
+// set; keeps the token server-side and bypasses Coda's lack of CORS. A load
+// failure must never take down static serving.
+let codaBackend = { enabled: false, handle: () => false };
+if (process.env.CODA_API_TOKEN) {
+  try {
+    const { createCodaBackend } = await import("./coda-backend.mjs");
+    codaBackend = await createCodaBackend();
+  } catch (err) {
+    console.error("[server] coda backend failed to load (static serving continues):", err);
+  }
+}
+
 const MIME = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
@@ -75,6 +88,12 @@ const server = createServer(async (req, res) => {
     // Realtime sync routes take precedence over static serving.
     if (syncBackend.enabled && (req.url ?? "").startsWith("/api/sync/")) {
       const handled = await syncBackend.handle(req, res);
+      if (handled) return;
+    }
+
+    // Read-only Coda importer proxy.
+    if (codaBackend.enabled && (req.url ?? "").startsWith("/api/coda/")) {
+      const handled = await codaBackend.handle(req, res);
       if (handled) return;
     }
 

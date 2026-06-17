@@ -5,7 +5,7 @@
  * while the UI uses the discriminated `Field` union with a `kind` field.
  */
 
-import type { EntityType, Field, FieldKind, SelectOption, RelationType } from "@supernote/core";
+import type { EntityType, Field, FieldKind, SelectOption, RelationType, Cardinality } from "@supernote/core";
 import type {
   EntityType as IpcEntityType,
   FieldDefinition,
@@ -61,7 +61,16 @@ export function ipcFieldToCore(f: FieldDefinition): Field {
       autoRecompute: f.aiAutoRecompute,
     };
   }
-  // All other kinds (text, number, date, bool, relation, file, auto, etc.)
+  if (kind === "relation") {
+    return {
+      ...base,
+      kind,
+      targetTypeId: f.targetTypeId ?? "",
+      cardinality: (f.cardinality ?? "many_to_many") as Cardinality,
+      relationTypeId: f.relationTypeId,
+    } as Field;
+  }
+  // All other kinds (text, number, date, bool, file, auto, etc.)
   return { ...base, kind } as Field;
 }
 
@@ -109,6 +118,12 @@ export function coreFieldToIpc(f: Field): FieldDefinition {
     base.aiOutputKind = f.outputKind;
     if (f.model) base.aiModel = f.model;
     if (f.autoRecompute !== undefined) base.aiAutoRecompute = f.autoRecompute;
+  }
+  if (f.kind === "relation") {
+    base.targetTypeId = f.targetTypeId;
+    base.cardinality = f.cardinality;
+    base.multiple = f.cardinality !== "one_to_one";
+    if (f.relationTypeId) base.relationTypeId = f.relationTypeId;
   }
   return base;
 }

@@ -7,9 +7,10 @@
  * Base name + icon + "+ Nouvelle entrée" affordance. Body: <BaseView/>.
  */
 
+import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Database, Plus, Gear } from "@phosphor-icons/react";
+import { ArrowLeft, Database, Plus, Gear, ArrowsClockwise, CloudCheck } from "@phosphor-icons/react";
 import { Button } from "@heroui/react";
 import { AppShell, useMobileTitle, useMobileFab } from "@/components/shell";
 import { useIsMobile } from "@/hooks/useIsMobile";
@@ -17,7 +18,9 @@ import { trpc } from "@/lib/trpc/client";
 import { ipcEntityTypeToCore } from "@/components/schemas/adapters";
 import { BaseView, useEntityMutations } from "@/components/bases";
 import { getIcon } from "@/components/schemas/icon-map";
-import { Skeleton } from "@supernote/ui";
+import { Skeleton, useToast } from "@supernote/ui";
+import { getCodaBinding } from "@/lib/coda/bindings";
+import { refreshCodaBase } from "@/lib/coda/refresh";
 
 export default function BasePage() {
   const params = useParams<{ typeId: string }>();
@@ -32,13 +35,34 @@ export default function BasePage() {
   const ipcType = ipcTypes?.find((t) => t.id === typeId);
   const base = ipcType ? ipcEntityTypeToCore(ipcType) : undefined;
   const mut = useEntityMutations(typeId);
+  const utils = trpc.useUtils();
+  const { toast } = useToast();
+
+  // A Coda-mirrored base is read-only: no create affordances, just a refresh.
+  const codaBinding = base ? getCodaBinding(base.id) : null;
+  const isCoda = !!codaBinding;
+  const [refreshing, setRefreshing] = useState(false);
+
+  const handleRefresh = async () => {
+    if (!base || refreshing) return;
+    setRefreshing(true);
+    const res = await refreshCodaBase(base.id);
+    setRefreshing(false);
+    if (res.ok) {
+      void utils.entities.list.invalidate();
+      void utils.views.queryForView.invalidate();
+      toast({ title: `Coda synchronisé — ${res.value.upserted} ligne(s), ${res.value.deleted} supprimée(s)` });
+    } else {
+      toast({ title: `Échec de la synchro Coda : ${res.error.message}`, variant: "danger" });
+    }
+  };
 
   const icon = base?.icon ?? "Database";
   const Icon = getIcon(icon);
 
   useMobileTitle(base ? base.plural : "Base");
   useMobileFab(
-    isMobile && base
+    isMobile && base && !isCoda
       ? {
           icon: Plus,
           label: "Nouvelle entrée",
@@ -112,15 +136,27 @@ export default function BasePage() {
             </span>
           </div>
           <div className="ml-auto flex items-center gap-2">
-            {!isMobile && (
+            {isCoda ? (
               <Button
                 size="sm"
-                onPress={() => mut.create.mutate({ typeId: base.id, fields: {}, body: "" })}
+                onPress={() => void handleRefresh()}
+                isDisabled={refreshing}
                 className="flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-medium"
-                style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
+                style={{ backgroundColor: "var(--accent-subtle)", color: "var(--accent)" }}
               >
-                <Plus size={12} /> Nouvelle entrée
+                <ArrowsClockwise size={12} /> {refreshing ? "Synchro…" : "Rafraîchir"}
               </Button>
+            ) : (
+              !isMobile && (
+                <Button
+                  size="sm"
+                  onPress={() => mut.create.mutate({ typeId: base.id, fields: {}, body: "" })}
+                  className="flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-medium"
+                  style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
+                >
+                  <Plus size={12} /> Nouvelle entrée
+                </Button>
+              )
             )}
             <Link
               href={`/schemas/${base.id}`}
@@ -133,9 +169,26 @@ export default function BasePage() {
           </div>
         </header>
 
+        {/* Read-only Coda banner */}
+        {isCoda && codaBinding && (
+          <div
+            className="flex items-center gap-2 border-b px-4 py-1.5 text-xs"
+            style={{
+              borderColor: "var(--border-subtle)",
+              backgroundColor: "var(--accent-subtle)",
+              color: "var(--accent)",
+            }}
+          >
+            <CloudCheck size={13} />
+            <span>
+              Miroir Coda en lecture seule · {codaBinding.docName} / {codaBinding.tableName}
+            </span>
+          </div>
+        )}
+
         {/* Body */}
         <div className="flex-1 overflow-hidden">
-          <BaseView base={base} />
+          <BaseView base={base} readOnly={isCoda} />
         </div>
       </div>
     </AppShell>

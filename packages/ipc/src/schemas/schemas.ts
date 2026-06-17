@@ -58,6 +58,11 @@ export const FieldDefinitionSchema = z.object({
   defaultValue: z.unknown().optional(),
   options: z.array(SelectOptionSchema).optional(),
   relationTypeId: z.string().optional(),
+  // Relation target + cardinality. Without these the worker (which reads them
+  // raw from the stored JSON) keeps working, but the output schema would strip
+  // them on read — so the UI's RelationField loses its target. Carry them.
+  targetTypeId: z.string().optional(),
+  cardinality: z.enum(["one_to_one", "one_to_many", "many_to_many"]).optional(),
   formulaExpr: z.string().optional(),
   formulaOutputKind: z.enum(["text", "number", "date", "bool"]).optional(),
   formulaOutputFormat: z.string().optional(),

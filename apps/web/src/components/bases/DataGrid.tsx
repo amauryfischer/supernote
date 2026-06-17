@@ -77,6 +77,8 @@ interface DataGridProps {
   view: View;
   /** Bounded height. The grid scrolls within it; the page handles the chrome. */
   maxHeight?: string;
+  /** Read-only base (e.g. a Coda mirror): hide every edit affordance. */
+  readOnly?: boolean;
 }
 
 // ── Largeurs colonnes — localStorage ─────────────────────────────────────────
@@ -104,7 +106,7 @@ function saveColWidths(baseId: string, viewId: string, widths: Record<string, nu
 
 // ── Composant principal ───────────────────────────────────────────────────────
 
-export function DataGrid({ base, view, maxHeight }: DataGridProps) {
+export function DataGrid({ base, view, maxHeight, readOnly = false }: DataGridProps) {
   // Transitions motion résolues (vide si reduced-motion → état change, sans mvt).
   const reducedMotion = usePrefersReducedMotion();
   const colorTransition = reducedMotion ? undefined : GRID_COLOR_TRANSITION;
@@ -957,20 +959,22 @@ export function DataGrid({ base, view, maxHeight }: DataGridProps) {
             })}
 
             {/* Bouton « + ajouter une colonne » */}
-            <th
-              className="border-b px-2 py-2 text-xs cursor-pointer hover:bg-[var(--surface-2)]"
-              style={{
-                width: 36,
-                minWidth: 36,
-                borderColor: "var(--border-subtle)",
-                color: "var(--text-muted)",
-                transition: colorTransition,
-              }}
-              title="Ajouter une colonne"
-              onClick={addColumn}
-            >
-              <Plus size={12} />
-            </th>
+            {!readOnly && (
+              <th
+                className="border-b px-2 py-2 text-xs cursor-pointer hover:bg-[var(--surface-2)]"
+                style={{
+                  width: 36,
+                  minWidth: 36,
+                  borderColor: "var(--border-subtle)",
+                  color: "var(--text-muted)",
+                  transition: colorTransition,
+                }}
+                title="Ajouter une colonne"
+                onClick={addColumn}
+              >
+                <Plus size={12} />
+              </th>
+            )}
 
             {/* Colonne actions (trailing) */}
             <th
@@ -1159,6 +1163,7 @@ export function DataGrid({ base, view, maxHeight }: DataGridProps) {
                         forceEditKey={forceEditKeys.get(`${entity.id}::${fid}`)}
                         rowFields={entity.fields}
                         baseFields={base.fields as unknown as Field[]}
+                        readOnly={readOnly}
                       />
                     </td>
                   );
@@ -1168,40 +1173,44 @@ export function DataGrid({ base, view, maxHeight }: DataGridProps) {
                 <td />
 
                 <td className="px-1">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="rounded p-1 opacity-0 transition-opacity hover:bg-[var(--surface-2)] group-hover:opacity-100"
-                    aria-label="Supprimer la ligne"
-                    onPress={() => deleteWithUndo(entity.id)}
-                    style={{ color: "var(--text-muted)" }}
-                  >
-                    <Trash size={14} />
-                  </Button>
+                  {!readOnly && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="rounded p-1 opacity-0 transition-opacity hover:bg-[var(--surface-2)] group-hover:opacity-100"
+                      aria-label="Supprimer la ligne"
+                      onPress={() => deleteWithUndo(entity.id)}
+                      style={{ color: "var(--text-muted)" }}
+                    >
+                      <Trash size={14} />
+                    </Button>
+                  )}
                 </td>
               </tr>
             );
           })}
 
           {/* + Nouvelle entrée — toute la ligne est cliquable */}
-          <tr
-            className="cursor-pointer hover:bg-[var(--surface-2)]"
-            style={{ transition: colorTransition }}
-            onClick={addRow}
-          >
-            <td
-              colSpan={visibleIds.length + 3}
-              className="px-2 py-2"
-              style={{ borderTop: "1px solid var(--border-subtle)" }}
+          {!readOnly && (
+            <tr
+              className="cursor-pointer hover:bg-[var(--surface-2)]"
+              style={{ transition: colorTransition }}
+              onClick={addRow}
             >
-              <span
-                className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium"
-                style={{ color: "var(--text-secondary)" }}
+              <td
+                colSpan={visibleIds.length + 3}
+                className="px-2 py-2"
+                style={{ borderTop: "1px solid var(--border-subtle)" }}
               >
-                <Plus size={12} /> Nouvelle entrée
-              </span>
-            </td>
-          </tr>
+                <span
+                  className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium"
+                  style={{ color: "var(--text-secondary)" }}
+                >
+                  <Plus size={12} /> Nouvelle entrée
+                </span>
+              </td>
+            </tr>
+          )}
 
           {/* Footer Summarize (par colonne) */}
           {!isLoading && items.length > 0 && (

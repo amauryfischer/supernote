@@ -12,6 +12,7 @@ export type SettingsTab =
   | "templates"
   | "schemas"
   | "google-drive"
+  | "coda"
   | "about";
 
 export interface GeneralSettings {

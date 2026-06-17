@@ -9,8 +9,10 @@
  */
 
 import { useEffect, useMemo } from "react";
+import { useToast } from "@supernote/ui";
 import { trpc } from "@/lib/trpc/client";
 import type { View, FilterClause, SortClause } from "@supernote/ipc";
+import { isCodaBase } from "@/lib/coda/bindings";
 
 export function useViews(typeId: string | undefined) {
   return trpc.views.list.useQuery(
@@ -72,15 +74,35 @@ export function useViewMutations() {
 /** Mutations on entities (rows) that propagate to every open view. */
 export function useEntityMutations(typeId: string | undefined) {
   const utils = trpc.useUtils();
+  const { toast } = useToast();
   const refresh = () => {
     void utils.views.queryForView.invalidate();
     void utils.entities.list.invalidate();
   };
+  const create = trpc.entities.create.useMutation({ onSuccess: refresh });
+  const update = trpc.entities.update.useMutation({ onSuccess: refresh });
+  const del = trpc.entities.delete.useMutation({ onSuccess: refresh });
+
+  // A Coda-mirrored base is read-only: block every write at the single
+  // chokepoint every view goes through, so no view kind (grid, kanban, form…)
+  // can mutate its data. The schema has no native read-only flag; the binding
+  // registry is the source of truth (cf. mounts, also an app-level invariant).
+  const readOnly = typeof typeId === "string" && typeId.length > 0 && isCodaBase(typeId);
+  if (!readOnly) return { create, update, delete: del, typeId, readOnly: false };
+
+  const blocked = {
+    mutate: () => toast({ title: "Base Coda en lecture seule", variant: "danger" }),
+    mutateAsync: async () => {
+      toast({ title: "Base Coda en lecture seule", variant: "danger" });
+      return undefined;
+    },
+  };
   return {
-    create: trpc.entities.create.useMutation({ onSuccess: refresh }),
-    update: trpc.entities.update.useMutation({ onSuccess: refresh }),
-    delete: trpc.entities.delete.useMutation({ onSuccess: refresh }),
+    create: { ...create, ...blocked } as unknown as typeof create,
+    update: { ...update, ...blocked } as unknown as typeof update,
+    delete: { ...del, ...blocked } as unknown as typeof del,
     typeId,
+    readOnly: true,
   };
 }
 

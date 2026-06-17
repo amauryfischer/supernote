@@ -17,6 +17,7 @@ import {
   ShieldCheck,
   BookmarkSimple,
   Database,
+  Table,
 } from "@phosphor-icons/react";
 import { AppShell, useMobileTitle } from "@/components/shell";
 import { useIsMobile } from "@/hooks/useIsMobile";
@@ -36,6 +37,7 @@ import {
   TemplatesTab,
   SchemasTab,
   GoogleDriveTab,
+  CodaTab,
 } from "@/components/settings";
 import type { SettingsTab } from "@/components/settings";
 import { useTranslations } from "next-intl";
@@ -60,6 +62,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: "templates", labelKey: "settings.tabs.templates", icon: BookmarkSimple },
   { id: "schemas", labelKey: "settings.tabs.schemas", icon: Database },
   { id: "google-drive", labelKey: "settings.tabs.googleDrive", icon: Database },
+  { id: "coda", labelKey: "settings.tabs.coda", icon: Table },
   { id: "about", labelKey: "settings.tabs.about", icon: Info },
 ];
 
@@ -78,6 +81,7 @@ function TabContent({ active }: { active: SettingsTab }) {
     case "templates": return <TemplatesTab />;
     case "schemas": return <SchemasTab />;
     case "google-drive": return <GoogleDriveTab />;
+    case "coda": return <CodaTab />;
     case "about": return <AboutTab />;
   }
 }

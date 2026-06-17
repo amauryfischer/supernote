@@ -39,9 +39,11 @@ interface BaseViewProps {
   pinnedViewId?: string;
   /** Optional bounded height for embedding inside a note. */
   maxHeight?: string;
+  /** Read-only base (e.g. a Coda mirror): no create/edit affordances. */
+  readOnly?: boolean;
 }
 
-export function BaseView({ base, pinnedViewId, maxHeight }: BaseViewProps) {
+export function BaseView({ base, pinnedViewId, maxHeight, readOnly = false }: BaseViewProps) {
   useEnsureDefaultView(base.id);
   const { data: views = [], isLoading } = useViews(base.id);
   const { create: createView } = useViewMutations();
@@ -109,14 +111,16 @@ export function BaseView({ base, pinnedViewId, maxHeight }: BaseViewProps) {
         <BaseToolbar
           base={base}
           view={active}
-          onCreateEntry={() =>
-            entityMut.create.mutate({ typeId: base.id, fields: {}, body: "" })
+          onCreateEntry={
+            readOnly
+              ? undefined
+              : () => entityMut.create.mutate({ typeId: base.id, fields: {}, body: "" })
           }
         />
       )}
       <div className="flex-1 overflow-hidden">
         {active ? (
-          <ViewRenderer base={base} view={active} maxHeight={maxHeight} />
+          <ViewRenderer base={base} view={active} maxHeight={maxHeight} readOnly={readOnly} />
         ) : (
           <div
             className="flex items-center justify-center py-8 text-xs"
@@ -140,14 +144,16 @@ function ViewRenderer({
   base,
   view,
   maxHeight,
+  readOnly = false,
 }: {
   base: import("@supernote/core").EntityType;
   view: import("@supernote/ipc").View;
   maxHeight?: string;
+  readOnly?: boolean;
 }) {
   switch (view.kind) {
     case "table":
-      return <DataGrid base={base} view={view} maxHeight={maxHeight} />;
+      return <DataGrid base={base} view={view} maxHeight={maxHeight} readOnly={readOnly} />;
     case "board":
       return <KanbanView base={base} view={view} />;
     case "gallery":
@@ -165,6 +171,6 @@ function ViewRenderer({
     case "timeline":
       return <TimelineView base={base} view={view} />;
     default:
-      return <DataGrid base={base} view={view} maxHeight={maxHeight} />;
+      return <DataGrid base={base} view={view} maxHeight={maxHeight} readOnly={readOnly} />;
   }
 }
