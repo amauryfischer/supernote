@@ -61,7 +61,12 @@ export function Modal({
         isDismissable={isDismissable}
         className="fixed inset-0 z-[var(--z-overlay)] bg-[var(--surface-0)]/60 backdrop-blur-sm"
       />
-      <ModalContainer className="fixed inset-0 z-[var(--z-modal)] flex items-center justify-center p-4">
+      {/* `h-full w-full` is load-bearing: HeroUI's `.modal__container` slot ships
+          `width: fit-content`, which over-constrains `inset-0` (left:0 + right:0 +
+          explicit width → right is ignored), collapsing the centering layer to the
+          dialog's width pinned top-left. Forcing full size restores a viewport-sized
+          flex box so `items-center justify-center` actually centers on screen. */}
+      <ModalContainer className="fixed inset-0 z-[var(--z-modal)] flex h-full w-full items-center justify-center p-4">
         <ModalDialog
           className={cn(
             "w-full rounded-[var(--radius-xl)] border border-[var(--border-subtle)] bg-[var(--surface-1)] [box-shadow:var(--shadow-xl)]",
