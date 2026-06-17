@@ -26,23 +26,11 @@ export interface DrawerProps {
   footer?: React.ReactNode;
   /** Panel body. */
   children?: React.ReactNode;
-  /** Width for left/right drawers. */
-  size?: "sm" | "md" | "lg" | "full";
   /** Additional class for the dialog wrapper. */
   className?: string;
   /** Prevent closing when clicking the backdrop. */
   isDismissable?: boolean;
 }
-
-const sizeMap: Record<
-  NonNullable<DrawerProps["size"]>,
-  "sm" | "md" | "lg" | "full"
-> = {
-  sm:   "sm",
-  md:   "md",
-  lg:   "lg",
-  full: "full",
-};
 
 /**
  * Drawer — slide-in panel anchored to a viewport edge.
@@ -55,7 +43,6 @@ export function Drawer({
   title,
   footer,
   children,
-  size = "md",
   className,
   isDismissable = true,
 }: DrawerProps) {

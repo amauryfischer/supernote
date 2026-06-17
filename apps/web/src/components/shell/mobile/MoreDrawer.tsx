@@ -166,7 +166,6 @@ export const MoreDrawer = memo(function MoreDrawer({
       isOpen={isOpen}
       onOpenChange={(o) => !o && onClose()}
       placement="bottom"
-      size="full"
       className="fullscreen-drawer !h-[100dvh] !rounded-none"
     >
       <div

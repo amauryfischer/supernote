@@ -34,7 +34,6 @@ export function MobileSheet({
       isOpen={isOpen}
       onOpenChange={(o) => !o && onClose()}
       placement="bottom"
-      size="full"
       className={`${heightClass} !rounded-t-[var(--radius-xl)] !rounded-b-none`}
     >
       <div className="flex h-full flex-col">

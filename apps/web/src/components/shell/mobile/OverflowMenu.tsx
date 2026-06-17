@@ -22,7 +22,6 @@ export function OverflowMenu({
       isOpen={isOpen}
       onOpenChange={(o) => !o && onClose()}
       placement="bottom"
-      size="full"
       className="!h-auto !max-h-[70vh] !rounded-t-[var(--radius-xl)] !rounded-b-none"
     >
       <div className="flex flex-col">
