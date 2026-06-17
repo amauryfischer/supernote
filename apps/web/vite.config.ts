@@ -88,6 +88,10 @@ export default defineConfig({
         // listed URLs to its install-time cache, so the PWA boots fully
         // offline on first launch — no warm-up navigation required.
         globPatterns: ["**/*.{js,css,html,png,svg,ico,webp,woff2,wasm,json}"],
+        // The ~1500 lazy per-glyph icon chunks live under `picon/`; precaching
+        // them would balloon the install manifest. They load on demand and the
+        // browser HTTP cache keeps them warm after first use.
+        globIgnores: ["**/picon/**"],
         maximumFileSizeToCacheInBytes: 12 * 1024 * 1024,
       },
       devOptions: { enabled: false },
@@ -212,13 +216,38 @@ export default defineConfig({
       // un débit correct (~+10s) tout en divisant le pic mémoire.
       maxParallelFileOps: 4,
       output: {
-        manualChunks: {
-          // Split heavy libs so the shell paint doesn't drag them in.
-          react: ["react", "react-dom", "react-router-dom"],
-          "react-query": ["@tanstack/react-query"],
-          recharts: ["recharts"],
-          xyflow: ["@xyflow/react"],
-          phosphor: ["@phosphor-icons/react"],
+        // Split heavy libs so the shell paint doesn't drag them in.
+        manualChunks(id) {
+          if (!id.includes("node_modules")) return undefined;
+          // @phosphor-icons is deliberately NOT grouped into one chunk. The
+          // folder icon picker pulls the full ~1500-glyph set on demand via
+          // import.meta.glob (folderIcons.ts); letting Rollup split those
+          // dynamic imports emits one tiny lazy `picon/` chunk per glyph, so
+          // only the few dozen icons the shell actually imports stay eager.
+          // Forcing the package into a single chunk (the old object form)
+          // dragged every glyph into that preloaded chunk (~1 MB gzip).
+          if (
+            /\/node_modules\/(react|react-dom|react-router-dom)\//.test(id)
+          ) {
+            return "react";
+          }
+          if (id.includes("@tanstack/react-query")) return "react-query";
+          if (id.includes("/node_modules/recharts/")) return "recharts";
+          if (id.includes("@xyflow/react")) return "xyflow";
+          return undefined;
+        },
+        // Park the lazy per-glyph icon chunks under `picon/` so they can be
+        // excluded from the PWA precache (see VitePWA injectManifest below) —
+        // ~1500 tiny files would otherwise bloat the install manifest.
+        chunkFileNames(chunkInfo) {
+          const facade = chunkInfo.facadeModuleId ?? "";
+          if (
+            facade.includes("@phosphor-icons/react/dist/csr/") ||
+            facade.includes("@phosphor-icons/react/dist/defs/")
+          ) {
+            return "assets/picon/[name]-[hash].js";
+          }
+          return "assets/[name]-[hash].js";
         },
       },
     },

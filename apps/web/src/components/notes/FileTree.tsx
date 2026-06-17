@@ -84,9 +84,10 @@ import {
   DotsThree,
   DotsSixVertical,
 } from "@phosphor-icons/react";
-import type { Icon as PhosphorIcon } from "@phosphor-icons/react";
+import { CustomFolderGlyph } from "./CustomFolderGlyph";
+import { IconPickerGrid } from "./FolderIconPickerGrid";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { Button, Input } from "@heroui/react";
+import { Button } from "@heroui/react";
 import type { Folder as FolderType } from "./fixtures";
 import { useTranslations } from "next-intl";
 import { ContextMenu, useContextMenu, useToast } from "@supernote/ui";
@@ -190,163 +191,6 @@ function useExpanded(): ExpandedContextValue {
   return ctx;
 }
 
-// ── Icon registry ─────────────────────────────────────────────────────────────
-//
-// Single source of truth for the per-folder icon picker. Keys are stored
-// in the `notes.folders` setting under each folder's `icon` field; we
-// resolve them on render via `getFolderIcon`.
-//
-// Adding an icon? Append the phosphor component AND its key here — the
-// picker grid is generated from `FOLDER_ICON_OPTIONS` so no other file
-// needs to be touched.
-
-// Category-grouped icon catalogue. Icons render in this order in the picker
-// and are grouped under the matching header. The flat `FOLDER_ICON_REGISTRY`
-// derived below is what `getFolderIcon` resolves against.
-const FOLDER_ICON_CATEGORIES: ReadonlyArray<{
-  label: string;
-  icons: ReadonlyArray<{ key: string; Icon: PhosphorIcon }>;
-}> = [
-  {
-    label: "Général",
-    icons: [
-      { key: "Folder", Icon: Folder },
-      { key: "FolderOpen", Icon: FolderOpen },
-      { key: "FolderSimple", Icon: FolderSimple },
-      { key: "FolderStar", Icon: FolderStar },
-      { key: "FolderLock", Icon: FolderLock },
-      { key: "FolderUser", Icon: FolderUser },
-      { key: "Archive", Icon: Archive },
-      { key: "Bookmark", Icon: Bookmark },
-      { key: "BookmarkSimple", Icon: BookmarkSimple },
-      { key: "Star", Icon: Star },
-      { key: "Heart", Icon: Heart },
-      { key: "House", Icon: House },
-      { key: "Tag", Icon: Tag },
-      { key: "User", Icon: User },
-      { key: "Users", Icon: Users },
-    ],
-  },
-  {
-    label: "Travail",
-    icons: [
-      { key: "Briefcase", Icon: Briefcase },
-      { key: "Buildings", Icon: Buildings },
-      { key: "ChartLine", Icon: ChartLine },
-      { key: "ChartBar", Icon: ChartBar },
-      { key: "ChartPie", Icon: ChartPie },
-      { key: "Coins", Icon: Coins },
-      { key: "CurrencyDollar", Icon: CurrencyDollar },
-      { key: "Handshake", Icon: Handshake },
-      { key: "Target", Icon: Target },
-      { key: "Trophy", Icon: Trophy },
-      { key: "Medal", Icon: Medal },
-    ],
-  },
-  {
-    label: "Étude / Savoir",
-    icons: [
-      { key: "Book", Icon: Book },
-      { key: "BookOpen", Icon: BookOpen },
-      { key: "GraduationCap", Icon: GraduationCap },
-      { key: "Brain", Icon: Brain },
-      { key: "Lightbulb", Icon: Lightbulb },
-      { key: "Notebook", Icon: Notebook },
-      { key: "NotePencil", Icon: NotePencil },
-      { key: "Pencil", Icon: Pencil },
-    ],
-  },
-  {
-    label: "Tech",
-    icons: [
-      { key: "Code", Icon: Code },
-      { key: "FileCode", Icon: FileCode },
-      { key: "Terminal", Icon: Terminal },
-      { key: "Database", Icon: Database },
-      { key: "GitBranch", Icon: GitBranch },
-      { key: "Cube", Icon: Cube },
-      { key: "Cpu", Icon: Cpu },
-    ],
-  },
-  {
-    label: "Vie perso",
-    icons: [
-      { key: "Coffee", Icon: Coffee },
-      { key: "MusicNote", Icon: MusicNote },
-      { key: "Camera", Icon: Camera },
-      { key: "Image", Icon: ImageIcon },
-      { key: "GameController", Icon: GameController },
-      { key: "Gift", Icon: Gift },
-      { key: "Pizza", Icon: Pizza },
-    ],
-  },
-  {
-    label: "Voyage",
-    icons: [
-      { key: "Airplane", Icon: Airplane },
-      { key: "Map", Icon: MapTrifold },
-      { key: "MapPin", Icon: MapPin },
-      { key: "Compass", Icon: Compass },
-      { key: "Globe", Icon: Globe },
-    ],
-  },
-  {
-    label: "Communication",
-    icons: [
-      { key: "Envelope", Icon: Envelope },
-      { key: "ChatCircle", Icon: ChatCircle },
-      { key: "Phone", Icon: Phone },
-      { key: "Megaphone", Icon: Megaphone },
-      { key: "At", Icon: At },
-    ],
-  },
-  {
-    label: "Productivité",
-    icons: [
-      { key: "Calendar", Icon: Calendar },
-      { key: "Clock", Icon: Clock },
-      { key: "Lightning", Icon: Lightning },
-      { key: "Wrench", Icon: Wrench },
-      { key: "Toolbox", Icon: Toolbox },
-      { key: "ShoppingCart", Icon: ShoppingCart },
-    ],
-  },
-  {
-    label: "Autres",
-    icons: [
-      { key: "Key", Icon: Key },
-      { key: "Lock", Icon: Lock },
-      { key: "Stack", Icon: Stack },
-      { key: "SquaresFour", Icon: SquaresFour },
-      { key: "ListBullets", Icon: ListBullets },
-      { key: "Funnel", Icon: Funnel },
-      { key: "MagnifyingGlass", Icon: MagnifyingGlass },
-    ],
-  },
-];
-
-const FOLDER_ICON_REGISTRY: Record<string, PhosphorIcon> =
-  FOLDER_ICON_CATEGORIES.reduce<Record<string, PhosphorIcon>>(
-    (acc, category) => {
-      for (const { key, Icon } of category.icons) {
-        acc[key] = Icon;
-      }
-      return acc;
-    },
-    {},
-  );
-
-/**
- * Resolve a stored icon name to its phosphor component.
- *
- * Unknown / falsy names fall back to `Folder` so renaming or removing an
- * icon from the registry never crashes the tree — it just reverts to the
- * default look until the user re-picks one.
- */
-export function getFolderIcon(name: string | undefined): PhosphorIcon {
-  if (!name) return Folder;
-  return FOLDER_ICON_REGISTRY[name] ?? Folder;
-}
 
 // 12-color palette shown in the popover. The picker also exposes a native
 // `<input type="color">` for users who want something off-palette.
@@ -1463,27 +1307,33 @@ function FolderNode({
 
   // Teinte des coffres montés — couleur du type `vault_mount` (#8b5cf6).
   const MOUNT_TINT = "#8b5cf6";
-  // Resolve the icon component once per render. Selected folders show
-  // `FolderOpen` only when no custom icon is set — once the user picks an
-  // icon, it sticks regardless of selection state (consistent with the
-  // intent of the customization). Une racine de coffre monté ignore l'icône
-  // de dossier et affiche toujours une icône « branchement » distincte.
-  const CustomIcon = getFolderIcon(folder.icon);
-  const IconComponent = isMountRoot
-    ? expanded
-      ? CloudArrowDown
-      : Plugs
-    : folder.icon
-      ? CustomIcon
-      : isSelected
-        ? FolderOpen
-        : Folder;
   // Prefer the explicit folder color; falls through to the selection-aware
   // default so legacy folders (no color set) still pick up the accent. Les
   // racines de montage utilisent leur teinte violette dédiée.
   const iconColor = isMountRoot
     ? MOUNT_TINT
     : folder.color ?? (isSelected ? "var(--accent)" : "var(--text-secondary)");
+
+  // Eager glyphs for mount roots and the default folder look. Selected folders
+  // show `FolderOpen` only when no custom icon is set — once the user picks an
+  // icon it sticks regardless of selection state. Une racine de coffre monté
+  // affiche toujours une icône « branchement » distincte.
+  const StaticIcon = isMountRoot
+    ? expanded
+      ? CloudArrowDown
+      : Plugs
+    : isSelected
+      ? FolderOpen
+      : Folder;
+  // Custom glyphs live in the full Phosphor catalogue, lazy-loaded via
+  // `CustomFolderGlyph` so the ~1 MB icon chunk only downloads when a folder
+  // actually uses one (or the picker opens). Mount roots ignore custom icons.
+  const folderGlyph =
+    !isMountRoot && folder.icon ? (
+      <CustomFolderGlyph name={folder.icon} size={14} color={iconColor} weight="regular" />
+    ) : (
+      <StaticIcon size={14} color={iconColor} weight="regular" />
+    );
 
   // When the selected row has a custom color, derive per-row accent vars so
   // the highlight uses the folder's own color instead of the global accent.
@@ -1594,7 +1444,7 @@ function FolderNode({
             style={sharedRowStyle}
           >
             {chevronSpan}
-            <IconComponent size={14} color={iconColor} weight={folder.icon ? "fill" : "regular"} />
+            {folderGlyph}
             <InlineFolderRenameInput
               initialValue={folder.name}
               onCommit={handleInlineRename}
@@ -1620,9 +1470,14 @@ function FolderNode({
             }}
           >
             {chevronSpan}
-            <IconComponent size={14} color={iconColor} weight={folder.icon ? "fill" : "regular"} />
+            {folderGlyph}
             <span
               className="flex-1 truncate text-left"
+              // Le label suit la même couleur que l'icône : un dossier teinté
+              // colore icône ET texte (sinon seule l'icône prenait la couleur,
+              // le texte restant gris hors sélection — `iconColor` couvre déjà
+              // les cas couleur custom / sélection / montage).
+              style={{ color: iconColor }}
               // Renommage inline (double-clic / F2) supprimé sur les nœuds
               // montés : leur chemin est virtuel et en lecture seule.
               onDoubleClick={onRenameFolderInline && !isMountScoped ? (e) => {
@@ -1951,151 +1806,3 @@ function ColorPickerGrid({ onPick, onReset }: ColorPickerGridProps) {
   );
 }
 
-interface IconPickerGridProps {
-  onPick: (icon: string) => void;
-  onReset: () => void;
-}
-
-function IconPickerGrid({ onPick, onReset }: IconPickerGridProps) {
-  const [query, setQuery] = useState("");
-
-  // Case-insensitive substring filter on the icon `key`. We pre-build the
-  // filtered category list so empty groups don't render an orphaned header.
-  const filteredCategories = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    if (!needle) return FOLDER_ICON_CATEGORIES;
-    return FOLDER_ICON_CATEGORIES.map((category) => ({
-      ...category,
-      icons: category.icons.filter(({ key }) =>
-        key.toLowerCase().includes(needle),
-      ),
-    })).filter((category) => category.icons.length > 0);
-  }, [query]);
-
-  return (
-    <div style={{ width: 360 }}>
-      <Input
-        type="text"
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        placeholder="Rechercher une icône…"
-        aria-label="Rechercher une icône"
-        autoFocus
-        style={{
-          width: "100%",
-          boxSizing: "border-box",
-          padding: "6px 10px",
-          fontSize: 13,
-          border: "1px solid var(--border-subtle, #e5e7eb)",
-          borderRadius: 6,
-          backgroundColor: "var(--surface-1, #ffffff)",
-          color: "var(--text-primary, #111827)",
-          marginBottom: 8,
-          outline: "none",
-        }}
-      />
-      <div
-        style={{
-          maxHeight: 360,
-          overflowY: "auto",
-          paddingRight: 2,
-        }}
-      >
-        {filteredCategories.length === 0 ? (
-          <div
-            style={{
-              fontSize: 12,
-              color: "var(--text-muted, #6b7280)",
-              padding: "16px 4px",
-              textAlign: "center",
-            }}
-          >
-            Aucune icône trouvée
-          </div>
-        ) : (
-          filteredCategories.map((category) => (
-            <div key={category.label} style={{ marginBottom: 10 }}>
-              <div
-                style={{
-                  fontSize: 11,
-                  fontWeight: 600,
-                  textTransform: "uppercase",
-                  letterSpacing: 0.4,
-                  color: "var(--text-muted, #6b7280)",
-                  padding: "4px 2px",
-                }}
-              >
-                {category.label}
-              </div>
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(8, 1fr)",
-                  gap: 4,
-                }}
-              >
-                {category.icons.map(({ key, Icon }) => (
-                  <Button
-                    key={key}
-                    onPress={() => onPick(key)}
-                    aria-label={`Icône ${key}`}
-                    style={{
-                      width: 32,
-                      height: 32,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      borderRadius: 6,
-                      border: "1px solid transparent",
-                      backgroundColor: "transparent",
-                      cursor: "pointer",
-                      color: "var(--text-secondary, #374151)",
-                    }}
-                    onMouseEnter={(e) => {
-                      (
-                        e.currentTarget as HTMLButtonElement
-                      ).style.backgroundColor = "var(--surface-2, #f3f4f6)";
-                      (e.currentTarget as HTMLButtonElement).style.borderColor =
-                        "var(--border-subtle, #e5e7eb)";
-                    }}
-                    onMouseLeave={(e) => {
-                      (
-                        e.currentTarget as HTMLButtonElement
-                      ).style.backgroundColor = "transparent";
-                      (e.currentTarget as HTMLButtonElement).style.borderColor =
-                        "transparent";
-                    }}
-                  >
-                    <Icon size={18} />
-                  </Button>
-                ))}
-              </div>
-            </div>
-          ))
-        )}
-      </div>
-      <div
-        style={{
-          marginTop: 8,
-          display: "flex",
-          justifyContent: "flex-end",
-        }}
-      >
-        <Button
-          onPress={onReset}
-          style={{
-            fontSize: 12,
-            color: "var(--text-muted, #6b7280)",
-            background: "none",
-            border: "none",
-            cursor: "pointer",
-            padding: "4px 8px",
-            borderRadius: 6,
-          }}
-        >
-          Réinitialiser
-        </Button>
-      </div>
-    </div>
-  );
-}
