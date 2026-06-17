@@ -19,6 +19,45 @@ import {
 const SHEET_GREEN = "#188038";
 const IFRAME_HEIGHT = 420;
 
+// ── Renderer délégué (fourni par l'app hôte) ────────────────────────────────
+// L'app fournit un lecteur qui, si l'utilisateur est connecté à Google, lit la
+// feuille PRIVÉE via l'API Sheets et rend une table (sans publier la feuille).
+// Sans renderer (ex. éditeur imbriqué du portail) → fallback iframe pubhtml.
+
+export interface GoogleSheetRenderProps {
+  /** Id de classeur (`<id>` ou `e/<id>` pour la forme publiée). */
+  spreadsheetId: string;
+  /** gid de l'onglet. */
+  gid: string;
+  /** URL brute collée. */
+  url: string;
+  /** Vide l'URL → retour à l'état de saisie. */
+  onClear: () => void;
+}
+
+export type GoogleSheetRenderer = (props: GoogleSheetRenderProps) => React.ReactNode;
+
+const GoogleSheetRendererContext = React.createContext<GoogleSheetRenderer | null>(null);
+
+export function GoogleSheetProvider({
+  renderer,
+  children,
+}: {
+  /** null → fallback iframe pubhtml self-contained. */
+  renderer: GoogleSheetRenderer | null;
+  children: React.ReactNode;
+}): React.JSX.Element {
+  return (
+    <GoogleSheetRendererContext.Provider value={renderer}>
+      {children}
+    </GoogleSheetRendererContext.Provider>
+  );
+}
+
+export function useGoogleSheetRenderer(): GoogleSheetRenderer | null {
+  return React.useContext(GoogleSheetRendererContext);
+}
+
 /** Vrai sous 768px (aligné sur le breakpoint mobile de l'app, `md:` Tailwind). */
 function useIsNarrow(): boolean {
   const [narrow, setNarrow] = React.useState(false);
@@ -267,6 +306,7 @@ export const googleSheetBlockSpec = createReactBlockSpec(
     render: ({ block, editor }) => {
       const url = (block.props.url ?? "") as string;
       const isNarrow = useIsNarrow();
+      const renderer = useGoogleSheetRenderer();
 
       const setUrl = (next: string) => {
         editor.updateBlock(block, { props: { url: next } } as never);
@@ -275,19 +315,33 @@ export const googleSheetBlockSpec = createReactBlockSpec(
 
       const ref = url ? parseGoogleSheetUrl(url) : null;
 
+      let body: React.ReactNode;
+      if (!ref) {
+        // La saisie d'URL ne dépend pas de l'hôte → toujours dans le bloc.
+        body = <EmptyState onSubmit={setUrl} />;
+      } else if (renderer) {
+        // L'app décide : feuille privée lue via API (table) ou fallback iframe.
+        body = renderer({
+          spreadsheetId: ref.spreadsheetId,
+          gid: ref.gid,
+          url,
+          onClear: clear,
+        });
+      } else if (isNarrow) {
+        body = <MobileCard openUrl={buildOpenUrl(ref)} onChange={clear} />;
+      } else {
+        body = (
+          <DesktopEmbed
+            embedUrl={buildPubhtmlUrl(ref)}
+            openUrl={buildOpenUrl(ref)}
+            onChange={clear}
+          />
+        );
+      }
+
       return (
         <div className="sn-googlesheet" contentEditable={false}>
-          {!ref ? (
-            <EmptyState onSubmit={setUrl} />
-          ) : isNarrow ? (
-            <MobileCard openUrl={buildOpenUrl(ref)} onChange={clear} />
-          ) : (
-            <DesktopEmbed
-              embedUrl={buildPubhtmlUrl(ref)}
-              openUrl={buildOpenUrl(ref)}
-              onChange={clear}
-            />
-          )}
+          {body}
         </div>
       );
     },

@@ -118,10 +118,32 @@ Le bloc édite sa propre prop `url` via `editor.updateBlock`. Bloc
 - `serialization.test.ts` : round-trip `googleSheet` ↔ `[googleSheet url="…"]`
   (y compris URL contenant des `"` → échappement).
 
-## Hors scope (YAGNI v1)
+## Addendum — lecture privée via OAuth (réalisé après la v1)
 
-- Pas d'OAuth/scope Sheets, pas de lecture des feuilles privées dans l'iframe.
-- Pas de miroir-base, pas d'écriture, pas de refresh.
-- Pas de hauteur auto par contenu (cross-origin impossible) → hauteur fixe
-  raisonnable + poignée de redimensionnement éventuelle (nice-to-have).
+L'embed pubhtml exige de **publier** la feuille (URL publique). Pour voir une
+feuille **privée** sans publier, on lit ses valeurs via l'**API Sheets** avec
+l'OAuth Google **déjà câblé** (`lib/google-drive.ts`) et on rend **notre propre
+table** :
+
+- `google-drive.ts` : ajout du scope `spreadsheets.readonly` (demandé en même
+  temps que `drive.readonly` — une seule consent) + `fetchSheetData(clientId,
+  spreadsheetId, gid)` (metadata gid→titre, puis `values`). CORS OK navigateur,
+  **pas de proxy serveur**.
+- Le bloc `googleSheet` délègue désormais à un renderer via `GoogleSheetProvider`
+  (prop `renderGoogleSheet` de `SupernoteEditor`) **quand il est fourni** ; sans
+  renderer (éditeur imbriqué du portail) il garde son iframe self-contained.
+- `apps/web/.../GoogleSheetView.tsx` (le renderer) : connecté + feuille normale →
+  table lue via API (refresh, ouvrir, changer) ; sinon (non connecté / forme
+  publiée `/d/e/` / erreur API) → fallback iframe pubhtml + hint « connecte
+  Google ». Mobile → lien (table trop large).
+- Table = `<table>` nu en lecture seule (exception justifiée : grille NxM
+  entièrement dynamique, HeroUI Table v3 mal adapté).
+
+Setup Google côté utilisateur : réutiliser le Client ID Drive existant, activer
+l'API Sheets, ajouter le scope, vérifier les origines JS, reconnecter.
+
+## Hors scope (encore)
+
+- Pas de miroir-base (entités/relations/formules sur les données), pas d'écriture.
+- Pas de hauteur auto par contenu de l'iframe (cross-origin impossible).
 - Pas de détection « feuille bien publiée » (cross-origin).

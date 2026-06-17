@@ -130,4 +130,10 @@ export interface SupernoteEditorProps {
    * Si absent, le bloc affiche un fallback statique.
    */
   renderDoodle?: (props: { sceneData: string; onChange: (sceneData: string) => void }) => React.ReactNode;
+  /**
+   * Renderer pour les blocs Google Sheet. Si fourni, l'app décide l'affichage
+   * (feuille privée lue via l'API Sheets → table, ou fallback iframe). Si
+   * absent, le bloc affiche son iframe pubhtml self-contained.
+   */
+  renderGoogleSheet?: (props: { spreadsheetId: string; gid: string; url: string; onClear: () => void }) => React.ReactNode;
 }

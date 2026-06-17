@@ -30,6 +30,7 @@ import { renderInlineDatabase } from "./InlineDatabaseRenderer";
 import { renderNoteFormula, NoteFormulaModalHost } from "./NoteFormulaBridge";
 import { renderNotePortal } from "./NotePortal";
 import { renderDoodle } from "./DoodleRenderer";
+import { renderGoogleSheet } from "./GoogleSheetView";
 import { AmbianceSelector, ambianceClass, asAmbiance, asTypo, type NoteAmbiance, type NoteTypo } from "./AmbianceSelector";
 import { CoverBackdrop, CoverButton, asCover } from "./NoteCover";
 import { NoteIcon, IconButton, asIcon } from "./NoteIcon";
@@ -1325,6 +1326,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
               renderFormula={renderNoteFormula}
               renderEmbed={renderNotePortal}
               renderDoodle={renderDoodle}
+              renderGoogleSheet={renderGoogleSheet}
               aiClient={aiClient}
               aiPromptResolver={aiPromptResolver}
               noteTitle={title}

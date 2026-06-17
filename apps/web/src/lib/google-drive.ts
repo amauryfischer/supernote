@@ -26,7 +26,12 @@
 
 const GIS_SCRIPT_URL = "https://accounts.google.com/gsi/client";
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.readonly";
+const SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets.readonly";
+// On demande les deux scopes en une seule consent : résolution Drive (.gsheet)
+// + lecture des valeurs d'une feuille privée (bloc Google Sheet).
+const OAUTH_SCOPE = `${DRIVE_SCOPE} ${SHEETS_SCOPE}`;
 const DRIVE_API_BASE = "https://www.googleapis.com/drive/v3";
+const SHEETS_API_BASE = "https://sheets.googleapis.com/v4/spreadsheets";
 
 export interface DriveFile {
   id: string;
@@ -141,7 +146,7 @@ export async function requestAccessToken(
   return new Promise<string>((resolve, reject) => {
     const tokenClient = google.accounts.oauth2.initTokenClient({
       client_id: clientId,
-      scope: DRIVE_SCOPE,
+      scope: OAUTH_SCOPE,
       callback: (response) => {
         if (response.error) {
           reject(new Error(`OAuth error: ${response.error} ${response.error_description ?? ""}`));
@@ -251,4 +256,81 @@ export async function getUserEmail(clientId: string): Promise<string> {
   if (!res.ok) throw new Error(`Drive about ${res.status}`);
   const json = (await res.json()) as { user?: { emailAddress?: string } };
   return json.user?.emailAddress ?? "";
+}
+
+// ── Sheets API ────────────────────────────────────────────────────────────────
+
+export interface SheetData {
+  /** Titre du classeur. */
+  spreadsheetTitle: string;
+  /** Titre de l'onglet ciblé par le gid. */
+  sheetTitle: string;
+  /** Lignes de valeurs (formatées comme dans Google), tableau de tableaux. */
+  rows: string[][];
+}
+
+interface SheetMeta {
+  properties?: { title?: string };
+  sheets?: Array<{
+    properties?: {
+      sheetId?: number;
+      title?: string;
+    };
+  }>;
+}
+
+/**
+ * Lit les valeurs d'un onglet d'une feuille **privée** via l'API Sheets v4
+ * (scope `spreadsheets.readonly`). Le `gid` de l'URL est le `sheetId` de
+ * l'onglet ; on résout d'abord gid → titre (metadata), puis on tire les valeurs.
+ *
+ * CORS : `sheets.googleapis.com` autorise les requêtes navigateur avec le
+ * Bearer token — pas de proxy serveur nécessaire.
+ *
+ * Lève une erreur explicite sur 401/403 (token expiré / scope manquant /
+ * feuille non accessible par ce compte).
+ */
+export async function fetchSheetData(
+  clientId: string,
+  spreadsheetId: string,
+  gid: string,
+): Promise<SheetData> {
+  const token = await requestAccessToken(clientId, { prompt: "" });
+  const authHeaders = { Authorization: `Bearer ${token}` };
+
+  // 1. Metadata : titre du classeur + correspondance gid (sheetId) → titre d'onglet.
+  const metaUrl = `${SHEETS_API_BASE}/${encodeURIComponent(spreadsheetId)}?fields=${encodeURIComponent(
+    "properties.title,sheets.properties(sheetId,title)",
+  )}`;
+  const metaRes = await fetch(metaUrl, { headers: authHeaders });
+  if (!metaRes.ok) {
+    const text = await metaRes.text().catch(() => "");
+    throw new Error(`Sheets API ${metaRes.status}: ${text.slice(0, 200)}`);
+  }
+  const meta = (await metaRes.json()) as SheetMeta;
+  const wanted = Number(gid);
+  const tab =
+    meta.sheets?.find((s) => s.properties?.sheetId === wanted) ??
+    meta.sheets?.[0];
+  const sheetTitle = tab?.properties?.title ?? "Feuille 1";
+
+  // 2. Valeurs de l'onglet (par titre — l'API range utilise le nom d'onglet).
+  const valuesUrl = `${SHEETS_API_BASE}/${encodeURIComponent(spreadsheetId)}/values/${encodeURIComponent(
+    sheetTitle,
+  )}?valueRenderOption=FORMATTED_VALUE&majorDimension=ROWS`;
+  const valuesRes = await fetch(valuesUrl, { headers: authHeaders });
+  if (!valuesRes.ok) {
+    const text = await valuesRes.text().catch(() => "");
+    throw new Error(`Sheets API ${valuesRes.status}: ${text.slice(0, 200)}`);
+  }
+  const valuesJson = (await valuesRes.json()) as { values?: unknown[][] };
+  const rows = (valuesJson.values ?? []).map((r) =>
+    r.map((c) => (c == null ? "" : String(c))),
+  );
+
+  return {
+    spreadsheetTitle: meta.properties?.title ?? "Google Sheet",
+    sheetTitle,
+    rows,
+  };
 }

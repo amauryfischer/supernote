@@ -16,7 +16,15 @@ export {
 } from "./doodle.js";
 export type { DoodleRenderProps, DoodleRenderer } from "./doodle.js";
 export { heroCheckListItemSpec } from "./heroCheckListItem.js";
-export { googleSheetBlockSpec } from "./googleSheet.js";
+export {
+  googleSheetBlockSpec,
+  GoogleSheetProvider,
+  useGoogleSheetRenderer,
+} from "./googleSheet.js";
+export type {
+  GoogleSheetRenderProps,
+  GoogleSheetRenderer,
+} from "./googleSheet.js";
 export {
   parseGoogleSheetUrl,
   buildPubhtmlUrl,

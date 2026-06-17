@@ -35,6 +35,12 @@ export {
   useDatabaseViewRenderer,
   useDatabaseBlockPickListener,
   requestDatabaseBlockReconfigure,
+  googleSheetBlockSpec,
+  GoogleSheetProvider,
+  useGoogleSheetRenderer,
+  parseGoogleSheetUrl,
+  buildPubhtmlUrl,
+  buildOpenUrl,
 } from "./blocks/index.js";
 export type {
   CodeLanguage,
@@ -45,6 +51,9 @@ export type {
   EmbedRenderer,
   DoodleRenderProps,
   DoodleRenderer,
+  GoogleSheetRenderProps,
+  GoogleSheetRenderer,
+  GoogleSheetRef,
 } from "./blocks/index.js";
 
 // Serialization utilities

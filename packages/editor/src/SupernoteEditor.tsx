@@ -18,6 +18,7 @@ import {
   FormulaProvider,
   EmbedProvider,
   DoodleProvider,
+  GoogleSheetProvider,
 } from "./blocks/index.js";
 import { markdownToBlocks, blocksToMarkdown } from "./serialization/index.js";
 import { trace } from "./freeze-trace.js";
@@ -70,6 +71,7 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
     renderFormula,
     renderEmbed,
     renderDoodle,
+    renderGoogleSheet,
     aiClient,
     aiPromptResolver,
     noteTitle,
@@ -518,6 +520,8 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
   const embedRenderer = renderEmbed ?? null;
   // Doodle : même logique — null → fallback statique du bloc.
   const doodleRenderer = renderDoodle ?? null;
+  // Google Sheet : null → fallback iframe pubhtml self-contained du bloc.
+  const googleSheetRenderer = renderGoogleSheet ?? null;
 
   // ── AI actions ──────────────────────────────────────────────────────────────
   const aiEnabled = Boolean(aiClient && aiPromptResolver);
@@ -649,6 +653,7 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
     <FormulaProvider renderer={formulaRenderer}>
     <EmbedProvider renderer={embedRenderer}>
     <DoodleProvider renderer={doodleRenderer}>
+    <GoogleSheetProvider renderer={googleSheetRenderer}>
     <div
       ref={wrapperRef}
       className={`sn-editor-wrapper${live ? " sn-editor-live" : ""}${dimInactiveBlocks ? " sn-dim-blocks" : ""}${className ? ` ${className}` : ""}`}
@@ -721,6 +726,7 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
         />
       )}
     </div>
+    </GoogleSheetProvider>
     </DoodleProvider>
     </EmbedProvider>
     </FormulaProvider>
