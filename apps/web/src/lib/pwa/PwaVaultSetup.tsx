@@ -86,6 +86,14 @@ const CLOUD_ROOMS_DIR = "rooms";
 const CLOUD_META_DIR = ".supernote";
 const CLOUD_DB_OWNER_FILE = "db-owner.json";
 
+/**
+ * How long the "loading" overlay tolerates total silence (no VAULT_READY and no
+ * indexing progress) before failing to a retryable error instead of hanging.
+ * Re-armed on every index-progress tick, so it only fires on a genuinely stuck
+ * boot, not a slow-but-alive reindex.
+ */
+const VAULT_BOOT_IDLE_TIMEOUT_MS = 30_000;
+
 async function getCloudBaseDir(): Promise<FileSystemDirectoryHandle> {
   const root = await navigator.storage.getDirectory();
   return root.getDirectoryHandle(CLOUD_OPFS_DIR, { create: true });
@@ -480,13 +488,36 @@ export function usePwaVaultSetup(): VaultContextValue {
     // vault…" forever.
     window.addEventListener("supernote:vault-ready", onReady);
     window.addEventListener("supernote:vault-error", onError);
+
+    // Watchdog: a boot that never emits VAULT_READY (worker died mid-switch, a
+    // dropped message, or an OPFS lock) would otherwise pin this overlay on
+    // "Ouverture du vault…" forever. Fail to a retryable error after a stretch
+    // of silence instead. Indexing progress re-arms it, so a legitimately long
+    // reindex of a large vault keeps the overlay alive rather than tripping it.
+    let watchdog = 0;
+    const armWatchdog = () => {
+      window.clearTimeout(watchdog);
+      watchdog = window.setTimeout(() => {
+        if (isWorkerReady()) return;
+        setErrorMsg(
+          "L'ouverture du coffre n'a pas répondu (le worker n'a pas démarré). Réessayez.",
+        );
+        setState("error");
+      }, VAULT_BOOT_IDLE_TIMEOUT_MS);
+    };
+    const onProgress = () => armWatchdog();
+    window.addEventListener("supernote:index-progress", onProgress);
+    armWatchdog();
+
     // Cover the race where VAULT_READY fired before this listener attached
     // (the window event does not replay): if the worker is already up, resolve
     // immediately from the stashed identity.
     if (isWorkerReady()) onReady();
     return () => {
+      window.clearTimeout(watchdog);
       window.removeEventListener("supernote:vault-ready", onReady);
       window.removeEventListener("supernote:vault-error", onError);
+      window.removeEventListener("supernote:index-progress", onProgress);
     };
   }, [state]);
 
@@ -849,6 +880,10 @@ export function usePwaVaultSetup(): VaultContextValue {
     // vault (or another cloud room) restores its own connection.
     archiveActiveSyncConfig(await currentActiveVaultId());
 
+    // Show the loading overlay NOW, before tearing the worker down: the
+    // teardown + handle acquisition + reindex happen with no visible feedback
+    // otherwise, which reads as a frozen UI during a switch.
+    setState("loading");
     setWorkerReady(false);
     setVaultName(null);
     terminateVaultWorker();
@@ -925,6 +960,8 @@ export function usePwaVaultSetup(): VaultContextValue {
     // the folder used before a cloud detour would compare equal and keep the
     // CLOUD room's DB (the SAH pool is global) mounted over this folder —
     // then mirror the room's notes onto the user's disk.
+    // Overlay up before teardown/reindex so the switch never looks frozen.
+    setState("loading");
     const wasCloud = isCloudVaultActive();
     let isDifferentFolder = true;
     try {
@@ -964,6 +1001,15 @@ export function usePwaVaultSetup(): VaultContextValue {
 
   const forgetVault = useCallback(async (id: string) => {
     if (id === activeVaultId) return;
+    // Never forget the ACTIVE cloud vault. activeVaultId only tracks folder
+    // vaults, so without this a cloud vault could be forgotten while its
+    // worker still holds the room directory open — deleteCloudRoom's removeEntry
+    // then fails silently (locked), the .md files survive, and the next reindex
+    // re-adopts them ("resurrection" on reload). Require switching away first.
+    if (id.startsWith("cloud:") && isCloudVaultActive()) {
+      const cfg = loadOnlineSyncConfig();
+      if (cloudVaultId(cfg.serverUrl, cfg.vaultKey) === id) return;
+    }
     if (id.startsWith("cloud:")) {
       const entry = getCloudVault(id);
       removeCloudVault(id);
