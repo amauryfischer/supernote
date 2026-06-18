@@ -28,6 +28,24 @@ describe("normalizeVaultKey", () => {
     expect(normalizeVaultKey("  AMAURY  ")).toBe("amaury");
     expect(normalizeVaultKey("amaury")).toBe("amaury");
   });
+
+  it("folds accents so a mobile keyboard's é can't fork a vault", () => {
+    // Real incident: PC typed "strategie", phone's FR keyboard typed
+    // "stratégie" → two disjoint server vaults (WHERE vault = ? is byte-exact).
+    expect(normalizeVaultKey("stratégie")).toBe("strategie");
+    expect(normalizeVaultKey("Stratégie")).toBe("strategie");
+    expect(normalizeVaultKey("  CAFÉ  ")).toBe("cafe");
+    expect(normalizeVaultKey("àéîõü")).toBe("aeiou");
+    // Already-canonical (no accent) is unchanged.
+    expect(normalizeVaultKey("strategie")).toBe("strategie");
+  });
+
+  it("folds the precomposed accents a FR keyboard emits (real incident)", () => {
+    // "é" can arrive precomposed (U+00E9) or as e + combining acute (U+0301);
+    // both must collapse to the same canonical key.
+    expect(normalizeVaultKey("stratégie")).toBe("strategie");
+    expect(normalizeVaultKey("stratégie")).toBe("strategie");
+  });
 });
 
 describe("saveOnlineSyncConfig", () => {

@@ -7,6 +7,13 @@ describe("room-id", () => {
     expect(cloudVaultId("", "  Salon B ")).toBe("cloud:|salon b");
   });
 
+  it("cloudVaultId replie les accents (clavier FR vs desktop → même salon)", () => {
+    // « stratégie » (clavier mobile FR) et « strategie » (desktop) doivent viser
+    // le MÊME coffre serveur, sinon le téléphone ne voit jamais les notes du PC.
+    expect(cloudVaultId("", "Stratégie")).toBe("cloud:|strategie");
+    expect(cloudVaultId("", "stratégie")).toBe(cloudVaultId("", "strategie"));
+  });
+
   it("cloudRoomSlug est déterministe et sans caractères de chemin interdits", () => {
     const a = cloudRoomSlug("cloud:|amaury");
     expect(a).toBe(cloudRoomSlug("cloud:|amaury"));
