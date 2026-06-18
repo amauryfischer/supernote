@@ -194,6 +194,28 @@ function ftsRemove(db: Database, id: string): void {
 }
 
 /**
+ * Entity-deletion tombstones — see the `deleted_entity` table in db-schema.ts.
+ * Mark on delete, clear on (re)create/upsert, and check in the reindex so an
+ * orphan .md (one whose disk removal failed during a delete) can't resurrect a
+ * deleted entity on the next boot.
+ */
+function tombstoneAdd(db: Database, id: string): void {
+  db.run(
+    `INSERT INTO deleted_entity (id, deletedAt) VALUES (?, ?)
+     ON CONFLICT(id) DO UPDATE SET deletedAt = excluded.deletedAt`,
+    [id, now()],
+  );
+}
+
+function tombstoneClear(db: Database, id: string): void {
+  db.run(`DELETE FROM deleted_entity WHERE id = ?`, [id]);
+}
+
+function isTombstoned(db: Database, id: string): boolean {
+  return !!row(db.exec(`SELECT id FROM deleted_entity WHERE id = ?`, [id]));
+}
+
+/**
  * Rebuild the entity_fts index from scratch for the given vault. Called at
  * router boot when the FTS table is empty (fresh vault, post-migration) and
  * after `vault.reindex` completes so the index reflects the disk truth.
@@ -635,6 +657,7 @@ export function buildRouter(
       }
       db.run(`DELETE FROM entity WHERE id = ?`, [id]);
       ftsRemove(db, id);
+      tombstoneAdd(db, id); // block reindex resurrection if the .md survived
     }
 
     // 3. Drop the folder + every nested folder from the explicit list.
@@ -871,6 +894,9 @@ export function buildRouter(
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [id, vaultId, typeId, relativePath, JSON.stringify(fields), body ?? "", "", ts, ts],
     );
+    // (Re)creating this id supersedes any prior deletion — clear its tombstone
+    // so the reindex stops skipping its file.
+    tombstoneClear(db, id);
 
     if (tags?.length) {
       await applyEntityTags(db, vaultId, id, tags, ts);
@@ -1022,6 +1048,7 @@ export function buildRouter(
       `UPDATE entity SET fields = ?, body = ?, fileHash = ?, filePath = ?, updatedAt = ? WHERE id = ?`,
       [JSON.stringify(newFields), newBody, hash, effectivePath, ts, id],
     );
+    tombstoneClear(db, id); // a live, edited entity is not a tombstone
 
     if (tags !== undefined) {
       db.run(`DELETE FROM entity_tag WHERE entityId = ?`, [id]);
@@ -1059,6 +1086,7 @@ export function buildRouter(
       await deleteExcalidrawSibling(vaultHandle, filePath);
       db.run(`DELETE FROM entity WHERE id = ?`, [id]);
       ftsRemove(db, id);
+      tombstoneAdd(db, id); // block reindex resurrection if the .md survived
     }
     try { hooks.onEntityDeleted?.(id, previousForHook); } catch (e) { console.warn("[hook] onEntityDeleted", e); }
     return { id, deleted: true };
@@ -2829,6 +2857,11 @@ export function buildRouter(
           let fields: Record<string, unknown>;
 
           if (fmId && typeName) {
+            // A tombstoned id is a deleted entity whose .md failed to be removed
+            // from disk (the op-log delete swallows OPFS unlink errors). Adopting
+            // it here is the "resurrection" bug — skip the orphan. A later
+            // (re)create or sync-upsert of this id clears the tombstone.
+            if (isTombstoned(db, fmId)) continue;
             // Supernote-native file: honour the declared type / id.
             const typeRow = row(db.exec(
               `SELECT id FROM entity_type WHERE vaultId = ? AND name = ?`, [vaultId, typeName],
@@ -3436,6 +3469,7 @@ export function buildRouter(
             }
             db.run(`DELETE FROM entity WHERE id = ?`, [op.entityId]);
             ftsRemove(db, op.entityId);
+            tombstoneAdd(db, op.entityId); // block reindex resurrection
             applied++;
           } else {
             skipped++;
@@ -3555,6 +3589,8 @@ export function buildRouter(
           );
         }
 
+        // A synced (re)upsert of this id supersedes any earlier deletion.
+        tombstoneClear(db, op.entityId);
         db.run(`DELETE FROM entity_tag WHERE entityId = ?`, [op.entityId]);
         await applyEntityTags(db, vaultId, op.entityId, payload.tags ?? [], payload.updatedAt);
         ftsAdd(db, {

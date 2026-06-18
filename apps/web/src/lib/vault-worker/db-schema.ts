@@ -218,6 +218,18 @@ CREATE TABLE IF NOT EXISTS "variable" (
          OR (value_kind = 'formula' AND formula_expr IS NOT NULL AND literal_json IS NULL))
 );
 
+-- Tombstones for deleted entities. A delete (local or from the sync op-log)
+-- removes the DB row, but the .md removal from OPFS/FSA can fail silently
+-- (file locked / race) and leave an orphan whose frontmatter still carries its
+-- id + type. The reindex would then re-adopt it (INSERT ... ON CONFLICT(id) DO
+-- UPDATE) and resurrect the entity on the next boot. Recording the deleted id
+-- here lets the reindex skip that orphan. A later (re)create / sync-upsert of
+-- the same id clears its tombstone. No FK: the entity row is already gone.
+CREATE TABLE IF NOT EXISTS "deleted_entity" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "deletedAt" TEXT NOT NULL
+);
+
 -- Indexes
 CREATE UNIQUE INDEX IF NOT EXISTS "vault_rootPath_key" ON "vault"("rootPath");
 CREATE INDEX IF NOT EXISTS "entity_type_vaultId_idx" ON "entity_type"("vaultId");
