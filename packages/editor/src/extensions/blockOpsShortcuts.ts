@@ -62,7 +62,7 @@ export function cloneBlockWithoutIds(block: BlockLike): Omit<BlockLike, "id"> {
   };
 }
 
-function duplicateCurrentBlock(bn: BlockOpsEditorLike): boolean {
+export function duplicateCurrentBlock(bn: BlockOpsEditorLike): boolean {
   let block: BlockLike;
   try {
     block = bn.getTextCursorPosition().block;

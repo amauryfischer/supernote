@@ -91,6 +91,24 @@ export function resolveSelectExtendTarget(
   return next ? next.to : null;
 }
 
+/** Positions de début des blocs `heading` du document, ordonnées. */
+export function collectHeadingStarts(editor: Editor): number[] {
+  const starts: number[] = [];
+  editor.state.doc.descendants((node, pos) => {
+    if (node.type.name === "heading") { starts.push(pos + 1); return false; }
+    return true;
+  });
+  return starts;
+}
+
+/** Position du titre précédent/suivant strict par rapport à `head`, ou null. */
+export function resolveHeadingTarget(
+  starts: number[], head: number, dir: "prev" | "next",
+): number | null {
+  if (dir === "next") { const n = starts.find((s) => s > head); return n ?? null; }
+  const p = [...starts].reverse().find((s) => s < head); return p ?? null;
+}
+
 /** Collecte les plages curseur de tous les textblocks du document. */
 export function collectTextblockRanges(editor: Editor): BlockRange[] {
   const ranges: BlockRange[] = [];
