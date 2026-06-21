@@ -4,11 +4,19 @@ import { FileText, Plus } from "@phosphor-icons/react";
 import { useTranslations } from "next-intl";
 import { Button } from "@heroui/react";
 
+import { GOOGLE_DOC_KINDS, type GoogleDocKind } from "@/lib/google-drive";
+import { DRIVE_DOC_ICONS, DRIVE_DOC_ORDER } from "./driveDocMeta";
+
 interface EmptyEditorProps {
   onNewNote: () => void;
+  /**
+   * Crée un Google Doc/Sheet/Slides. Absent quand Drive n'est pas connecté →
+   * la rangée de boutons Workspace est masquée.
+   */
+  onNewDriveDoc?: (kind: GoogleDocKind) => void;
 }
 
-export function EmptyEditor({ onNewNote }: EmptyEditorProps) {
+export function EmptyEditor({ onNewNote, onNewDriveDoc }: EmptyEditorProps) {
   const t = useTranslations("notes");
 
   return (
@@ -43,6 +51,26 @@ export function EmptyEditor({ onNewNote }: EmptyEditorProps) {
         <Plus size={15} />
         {t("newNote")}
       </Button>
+
+      {onNewDriveDoc && (
+        <div className="flex flex-wrap items-center justify-center gap-2">
+          {DRIVE_DOC_ORDER.map((kind) => {
+            const Icon = DRIVE_DOC_ICONS[kind];
+            return (
+              <Button
+                key={kind}
+                variant="ghost"
+                onPress={() => onNewDriveDoc(kind)}
+                className="flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium"
+                style={{ color: "var(--text-muted)" }}
+              >
+                <Icon size={14} />
+                {GOOGLE_DOC_KINDS[kind].label}
+              </Button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

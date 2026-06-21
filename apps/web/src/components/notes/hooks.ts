@@ -25,6 +25,13 @@ import {
 } from "./adapters";
 import { isSystemFolder } from "@/lib/system-folders";
 import type { FieldValue } from "@supernote/ipc";
+import { useSettings } from "@/components/settings/SettingsContext";
+import {
+  createDriveFile,
+  resolveDriveSubfolder,
+  GOOGLE_DOC_KINDS,
+  type GoogleDocKind,
+} from "@/lib/google-drive";
 
 // ── Backend availability detection ────────────────────────────────────────────
 // True when the PWA vault Web Worker is available (Chromium-based browsers
@@ -427,6 +434,75 @@ export function useCreateNote() {
   );
 
   return { createNote, isPending: mutation.isPending };
+}
+
+// ── useCreateDriveDoc ─────────────────────────────────────────────────────────
+
+export interface CreateDriveDocOptions {
+  kind: GoogleDocKind;
+  folder: string;
+  name: string;
+}
+
+export interface CreateDriveDocResult {
+  /** Lien Drive du document créé (à ouvrir). */
+  url: string;
+  /**
+   * True si le fichier a été créé DANS le dossier Drive correspondant au
+   * dossier vault courant (sous-chemin entièrement résolu). False si on est
+   * retombé sur un ancêtre / la racine My Drive (dossier racine non configuré
+   * ou sous-chemin introuvable côté Drive).
+   */
+  placedInFolder: boolean;
+}
+
+/**
+ * Crée un vrai Google Doc/Sheet/Slides DANS le dossier Drive correspondant au
+ * dossier vault courant (racine configurée en réglages + sous-chemin résolu
+ * par nom). On n'écrit AUCUN fichier local : Google Drive Desktop redescend
+ * lui-même le `.gdoc` dans le dossier (une seule source de vérité), ce qui
+ * évite aussi le blocage Chrome sur l'écriture des extensions Google.
+ *
+ * Le document apparaît dans l'app au prochain reindex (après la synchro Drive
+ * Desktop). Pré-requis : Google Drive connecté. L'UI ne propose l'action que
+ * dans ce cas.
+ */
+export function useCreateDriveDoc() {
+  const { settings } = useSettings();
+
+  const createDriveDoc = useCallback(
+    async (opts: CreateDriveDocOptions): Promise<CreateDriveDocResult> => {
+      const clientId = settings.googleDrive?.clientId?.trim() ?? "";
+      if (!clientId) {
+        throw new Error("Google Drive n'est pas configuré (Paramètres → Google Drive).");
+      }
+      const rootFolderId = settings.googleDrive?.driveRootFolderId?.trim() ?? "";
+      const meta = GOOGLE_DOC_KINDS[opts.kind];
+
+      // Résout le dossier Drive cible = racine configurée + sous-chemin du
+      // dossier vault. Sans racine configurée → racine My Drive (parent omis).
+      let parentId: string | undefined;
+      let placedInFolder = false;
+      if (rootFolderId) {
+        const segments = opts.folder.split("/").filter(Boolean);
+        const { folderId, unresolved } = await resolveDriveSubfolder(
+          clientId,
+          rootFolderId,
+          segments,
+        );
+        parentId = folderId;
+        placedInFolder = unresolved.length === 0;
+      }
+
+      const file = await createDriveFile(clientId, opts.name, meta.mimeType, parentId);
+      const url =
+        file.webViewLink ?? `https://docs.google.com/document/d/${file.id}/edit`;
+      return { url, placedInFolder };
+    },
+    [settings.googleDrive?.clientId, settings.googleDrive?.driveRootFolderId],
+  );
+
+  return { createDriveDoc };
 }
 
 // ── useUpdateNote ─────────────────────────────────────────────────────────────

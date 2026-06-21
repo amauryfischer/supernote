@@ -144,6 +144,22 @@ export function GoogleDriveTab() {
             </div>
           </SettingRow>
         )}
+
+        {isConnected && (
+          <SettingRow
+            label="Dossier Drive du vault"
+            description="ID du dossier Drive = racine de ce vault. Les nouveaux Google Docs/Sheets/Slides y sont créés (sous-dossiers résolus par nom), puis Google Drive Desktop redescend le fichier dans le bon dossier. Vide = racine My Drive. Trouve l'ID dans l'URL Drive : drive.google.com/drive/folders/<ID>."
+          >
+            <Input
+              type="text"
+              placeholder="1AbCdEf… (ID du dossier racine)"
+              value={googleDrive.driveRootFolderId}
+              onChange={(e) => updateGoogleDrive({ driveRootFolderId: e.target.value.trim() })}
+              onBlur={() => void saveSettings()}
+              className="w-96"
+            />
+          </SettingRow>
+        )}
       </SettingSection>
 
       <SettingSection

@@ -96,6 +96,8 @@ import { useUpdateFolder, useReorderFolders, useMoveFolder } from "./hooks";
 import { trpc, trpcVanillaClient } from "@/lib/trpc/client";
 import { folderAccentVars } from "@/lib/folderAccent";
 import { useConfirm } from "@/hooks/usePrompt";
+import { GOOGLE_DOC_KINDS, type GoogleDocKind } from "@/lib/google-drive";
+import { DRIVE_DOC_ICONS, DRIVE_DOC_ORDER } from "./driveDocMeta";
 import {
   cloudRoomSlug,
   cloudVaultId,
@@ -190,6 +192,17 @@ function useExpanded(): ExpandedContextValue {
   }
   return ctx;
 }
+
+/**
+ * Crée un Google Doc/Sheet/Slides dans un dossier donné, ou `null` si Google
+ * Drive n'est pas connecté. Fourni à la racine du FileTree pour éviter de
+ * câbler le handler à travers chaque `FolderNode` récursif — la simple présence
+ * d'une valeur non-null sert de gate : pas connecté → pas d'items « Nouveau
+ * Google … » dans les menus contextuels.
+ */
+const NewDriveDocContext = createContext<
+  ((kind: GoogleDocKind, parent: string) => void) | null
+>(null);
 
 
 // 12-color palette shown in the popover. The picker also exposes a native
@@ -452,6 +465,12 @@ interface FileTreeProps {
   onNewFolder: (parentPath?: string | null) => void;
   /** Create a new note. When `parentPath` is provided, place it inside that folder. */
   onNewNote: (parentPath?: string | null) => void;
+  /**
+   * Create a Google Doc/Sheet/Slides in the given folder. Absent (undefined)
+   * when Google Drive isn't connected → the "Nouveau Google …" context-menu
+   * items are hidden.
+   */
+  onNewDriveDoc?: (kind: GoogleDocKind, parent: string) => void;
   /** Right-click → "Renommer" (opens a prompt modal). Optional; menu item hidden when absent. */
   onRenameFolder?: (path: string) => void;
   /**
@@ -500,6 +519,7 @@ export function FileTree({
   onSelectFolder,
   onNewFolder,
   onNewNote,
+  onNewDriveDoc,
   onRenameFolder,
   onRenameFolderInline,
   onDeleteFolder,
@@ -869,6 +889,7 @@ export function FileTree({
 
       <ExpandedContext.Provider value={expandedCtx}>
         <MountContext.Provider value={mountCtx}>
+        <NewDriveDocContext.Provider value={onNewDriveDoc ?? null}>
         <FolderDndContext.Provider value={{ nestTarget, reparentTarget, childOrders }}>
           <DndContext
             sensors={dndSensors}
@@ -939,6 +960,7 @@ export function FileTree({
             </nav>
           </DndContext>
         </FolderDndContext.Provider>
+        </NewDriveDocContext.Provider>
         </MountContext.Provider>
       </ExpandedContext.Provider>
 
@@ -1015,6 +1037,8 @@ function FolderNode({
   const utils = trpc.useUtils();
   // Racine de coffre monté ? (par chemin — seules les top-level y figurent).
   const { mountRoots, onDisconnectMount } = useContext(MountContext);
+  // Présent uniquement quand Google Drive est connecté (cf. FileTreeProps).
+  const onNewDriveDoc = useContext(NewDriveDocContext);
   const mountMeta = mountRoots.get(folder.path) ?? null;
   const isMountRoot = mountMeta !== null;
   // « Scoped » = ce nœud est la racine d'un montage OU imbriqué sous un
@@ -1153,6 +1177,21 @@ function FolderNode({
           setExpanded(folder.path, true);
         },
       },
+      // Google Doc/Sheet/Slides — seulement si Drive connecté (handler présent).
+      ...(onNewDriveDoc
+        ? DRIVE_DOC_ORDER.map((kind) => {
+            const Icon = DRIVE_DOC_ICONS[kind];
+            return {
+              key: `new-drive-${kind}`,
+              label: `Nouveau ${GOOGLE_DOC_KINDS[kind].label} ici`,
+              icon: <Icon size={14} />,
+              onPress: () => {
+                onNewDriveDoc(kind, folder.path);
+                setExpanded(folder.path, true);
+              },
+            };
+          })
+        : []),
       {
         key: "rename",
         label: "Renommer",

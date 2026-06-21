@@ -10,6 +10,7 @@ import {
   useNoteList,
   useFolderTree,
   useCreateNote,
+  useCreateDriveDoc,
   useCreateFolder,
   useDeleteFolder,
   useRenameFolder,
@@ -32,6 +33,9 @@ import {
 import { useShortcuts } from "@/lib/keyboard";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { Plus } from "@phosphor-icons/react";
+import { useSettings } from "@/components/settings/SettingsContext";
+import { type GoogleDocKind, GOOGLE_DOC_KINDS } from "@/lib/google-drive";
+import { NewItemSheet } from "@/components/notes/NewItemSheet";
 
 function NotesPageContent() {
   const router = useRouter();
@@ -60,6 +64,7 @@ function NotesPageContent() {
   const { notes: allNotes } = useNoteList(null);
   const { folders, isLoading: foldersLoading } = useFolderTree();
   const { createNote } = useCreateNote();
+  const { createDriveDoc } = useCreateDriveDoc();
   const { createFolder } = useCreateFolder();
   const { renameFolder } = useRenameFolder();
   const { deleteFolder } = useDeleteFolder();
@@ -71,6 +76,14 @@ function NotesPageContent() {
   const prompt = usePrompt();
   const confirm = useConfirm();
   const { toast } = useToast();
+  const { settings } = useSettings();
+  // « Drive connecté » = clientId configuré ET un compte lié. C'est la condition
+  // pour proposer la création de Doc/Sheet/Slides (sinon `createDriveFile`
+  // échouerait faute de token). Sert aussi de gate UI : on ne passe
+  // `onNewDriveDoc` aux surfaces de création que dans ce cas.
+  const driveConnected =
+    !!settings.googleDrive?.connectedEmail && !!settings.googleDrive?.clientId?.trim();
+  const [newSheetOpen, setNewSheetOpen] = useState(false);
 
   const handleSelectFolder = useCallback((path: string) => {
     setSelectedFolder(path);
@@ -110,6 +123,38 @@ function NotesPageContent() {
       console.error("[handleNewNote] createNote failed", err);
     }
   }, [createNote, router]);
+
+  const handleNewDriveDoc = useCallback(
+    async (kind: GoogleDocKind, parentPath?: string | null) => {
+      const safeParent = typeof parentPath === "string" ? parentPath : null;
+      const folder = safeParent ?? selectedFolderRef.current ?? "Inbox";
+      const meta = GOOGLE_DOC_KINDS[kind];
+      const raw = await prompt(`Nom — ${meta.label}`, {
+        placeholder: meta.defaultName,
+        defaultValue: meta.defaultName,
+      });
+      if (raw === null) return; // annulé
+      const name = raw.trim() || meta.defaultName;
+      try {
+        const { url, placedInFolder } = await createDriveDoc({ kind, folder, name });
+        // Pas de fichier local écrit : on ouvre le Doc tout de suite ; il
+        // apparaîtra dans le dossier de l'app après la synchro Google Drive
+        // Desktop (le `.gdoc` est créé par Drive, pas par nous → pas de blocage
+        // Chrome sur l'écriture des extensions Google).
+        if (typeof window !== "undefined") window.open(url, "_blank", "noopener");
+        toast({
+          title: `${meta.label} créé dans Drive`,
+          description: placedInFolder
+            ? "Il apparaîtra dans ce dossier après la synchro Google Drive."
+            : "Créé à la racine My Drive (dossier racine Drive non configuré ou sous-dossier introuvable).",
+        });
+      } catch (err) {
+        console.error("[handleNewDriveDoc] failed", err);
+        toast({ title: `Impossible de créer le ${meta.label}`, variant: "danger" });
+      }
+    },
+    [createDriveDoc, prompt, toast],
+  );
 
   const handleNewFolder = useCallback(async (parentPath?: string | null) => {
     const safeParent = typeof parentPath === "string" ? parentPath : null;
@@ -323,10 +368,22 @@ function NotesPageContent() {
     : null;
   useMobileTitle(mobileTitleText, mobileSubtitleText);
   const onFabPress = useCallback(() => {
+    // Drive connecté → laisser l'utilisateur choisir Note / Doc / Sheet / Slides.
+    // Sinon, raccourci direct vers une nouvelle note (comportement historique).
+    if (driveConnected) {
+      setNewSheetOpen(true);
+      return;
+    }
     void handleNewNote(selectedFolderRef.current);
-  }, [handleNewNote]);
+  }, [driveConnected, handleNewNote]);
   useMobileFab(
-    isMobile ? { icon: Plus, label: "Nouvelle note", onPress: onFabPress } : null,
+    isMobile
+      ? {
+          icon: Plus,
+          label: driveConnected ? "Créer" : "Nouvelle note",
+          onPress: onFabPress,
+        }
+      : null,
   );
 
   return (
@@ -338,6 +395,7 @@ function NotesPageContent() {
           onSelectFolder={handleSelectFolder}
           onNewFolder={handleNewFolder}
           onNewNote={handleNewNote}
+          onNewDriveDoc={driveConnected ? handleNewDriveDoc : undefined}
           onRenameFolder={handleRenameFolder}
           onRenameFolderInline={handleRenameFolderInline}
           onDeleteFolder={handleDeleteFolder}
@@ -379,8 +437,20 @@ function NotesPageContent() {
         className="hidden flex-1 flex-col overflow-hidden md:flex"
         style={{ backgroundColor: "var(--surface-0)" }}
       >
-        <EmptyEditor onNewNote={handleNewNote} />
+        <EmptyEditor
+          onNewNote={handleNewNote}
+          onNewDriveDoc={driveConnected ? handleNewDriveDoc : undefined}
+        />
       </div>
+
+      {/* Sélecteur de création mobile (FAB → Note / Doc / Sheet / Slides). Monté
+          inconditionnellement ; n'est ouvert que quand Drive est connecté. */}
+      <NewItemSheet
+        isOpen={newSheetOpen}
+        onOpenChange={setNewSheetOpen}
+        onNewNote={() => void handleNewNote(selectedFolderRef.current)}
+        onNewDriveDoc={(kind) => void handleNewDriveDoc(kind, selectedFolderRef.current)}
+      />
     </div>
   );
 }

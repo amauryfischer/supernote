@@ -51,6 +51,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   googleDrive: {
     clientId: "",
     connectedEmail: "",
+    driveRootFolderId: "",
   },
 };
 

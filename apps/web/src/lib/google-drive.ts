@@ -27,9 +27,15 @@
 const GIS_SCRIPT_URL = "https://accounts.google.com/gsi/client";
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.readonly";
 const SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets.readonly";
-// On demande les deux scopes en une seule consent : résolution Drive (.gsheet)
-// + lecture des valeurs d'une feuille privée (bloc Google Sheet).
-const OAUTH_SCOPE = `${DRIVE_SCOPE} ${SHEETS_SCOPE}`;
+// `drive.file` : accès per-fichier aux fichiers créés/ouverts PAR l'app. Suffit
+// pour `files.create` (création d'un Doc/Sheet/Slides vide) sans demander
+// l'accès large `drive`. C'est ce scope qui autorise « Nouveau Google Doc ».
+const DRIVE_FILE_SCOPE = "https://www.googleapis.com/auth/drive.file";
+// On demande les trois scopes en une seule consent : résolution Drive (.gsheet)
+// + lecture des valeurs d'une feuille privée (bloc Google Sheet) + création de
+// nouveaux fichiers Workspace depuis l'app. Ajouter un scope force un nouveau
+// consentement aux comptes déjà connectés (incrémental, géré par GIS).
+const OAUTH_SCOPE = `${DRIVE_SCOPE} ${SHEETS_SCOPE} ${DRIVE_FILE_SCOPE}`;
 const DRIVE_API_BASE = "https://www.googleapis.com/drive/v3";
 const SHEETS_API_BASE = "https://sheets.googleapis.com/v4/spreadsheets";
 
@@ -242,6 +248,114 @@ export async function searchFiles(
   }
   const json = (await res.json()) as { files?: DriveFile[] };
   return json.files ?? [];
+}
+
+/** Type de fichier Google Workspace créable depuis l'app. */
+export type GoogleDocKind = "document" | "spreadsheet" | "presentation";
+
+/**
+ * Métadonnées par type : MIME Drive (pour `files.create`), extension du
+ * fichier placeholder écrit dans le coffre (que `GDocViewer` sait rendre),
+ * libellé UI et nom par défaut proposé dans le prompt de création.
+ */
+export const GOOGLE_DOC_KINDS: Record<
+  GoogleDocKind,
+  { mimeType: string; ext: string; label: string; defaultName: string }
+> = {
+  document: {
+    mimeType: "application/vnd.google-apps.document",
+    ext: ".gdoc",
+    label: "Google Docs",
+    defaultName: "Nouveau document",
+  },
+  spreadsheet: {
+    mimeType: "application/vnd.google-apps.spreadsheet",
+    ext: ".gsheet",
+    label: "Google Sheets",
+    defaultName: "Nouvelle feuille",
+  },
+  presentation: {
+    mimeType: "application/vnd.google-apps.presentation",
+    ext: ".gslides",
+    label: "Google Slides",
+    defaultName: "Nouvelle présentation",
+  },
+};
+
+/**
+ * Crée un fichier Google Workspace vide (Doc/Sheet/Slides) dans le Drive du
+ * compte connecté via `POST /drive/v3/files` avec un `mimeType` Workspace —
+ * Drive matérialise alors le document directement (pas d'upload de contenu).
+ *
+ * Le fichier atterrit à la racine *My Drive* (aucun `parents` fourni). Comme
+ * on stocke l'`id` retourné dans le placeholder `.gdoc`, l'emplacement Drive
+ * réel n'a aucune importance pour la résolution côté app — l'utilisateur peut
+ * le ranger où il veut dans Drive ensuite.
+ *
+ * Nécessite le scope `drive.file` (inclus dans `OAUTH_SCOPE`).
+ */
+export async function createDriveFile(
+  clientId: string,
+  name: string,
+  mimeType: string,
+  parentFolderId?: string,
+): Promise<DriveFile> {
+  const token = await requestAccessToken(clientId, { prompt: "" });
+  const body: { name: string; mimeType: string; parents?: string[] } = { name, mimeType };
+  // Place the file inside the matching Drive folder so Google Drive Desktop
+  // materialises the `.gdoc` shortcut in the right local folder. Omitted →
+  // lands at My Drive root.
+  if (parentFolderId) body.parents = [parentFolderId];
+  const res = await fetch(`${DRIVE_API_BASE}/files?fields=id,name,mimeType,webViewLink`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Drive create ${res.status}: ${text.slice(0, 300)}`);
+  }
+  return (await res.json()) as DriveFile;
+}
+
+/**
+ * Resolve a vault sub-path (e.g. ["Antennes","Saint-Malo"]) to its Drive
+ * folder ID by walking the folder-name chain DOWN from `rootFolderId`. Each
+ * step lists child folders of the current parent matching the segment name.
+ *
+ * Returns the deepest resolved folder ID. If a segment can't be found (the
+ * local folder isn't actually Drive-synced, or a name mismatch), returns the
+ * last successfully-resolved ID so the caller can still create the file in the
+ * closest existing ancestor rather than failing outright. Empty segments →
+ * returns `rootFolderId`.
+ */
+export async function resolveDriveSubfolder(
+  clientId: string,
+  rootFolderId: string,
+  segments: string[],
+): Promise<{ folderId: string; unresolved: string[] }> {
+  const token = await requestAccessToken(clientId, { prompt: "" });
+  let parentId = rootFolderId;
+  const clean = segments.filter((s) => s && s.trim());
+  for (let i = 0; i < clean.length; i++) {
+    const name = clean[i]!;
+    const escaped = name.replace(/'/g, "\\'");
+    const q = `name = '${escaped}' and '${parentId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
+    const url = `${DRIVE_API_BASE}/files?q=${encodeURIComponent(q)}&fields=files(id,name)&pageSize=1`;
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) {
+      // Treat an API hiccup as "stop here" — return what we have + the rest.
+      return { folderId: parentId, unresolved: clean.slice(i) };
+    }
+    const json = (await res.json()) as { files?: Array<{ id: string }> };
+    const hit = json.files?.[0];
+    if (!hit) return { folderId: parentId, unresolved: clean.slice(i) };
+    parentId = hit.id;
+  }
+  return { folderId: parentId, unresolved: [] };
 }
 
 /**

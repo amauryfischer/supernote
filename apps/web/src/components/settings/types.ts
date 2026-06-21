@@ -86,6 +86,15 @@ export interface GoogleDriveSettings {
    * to decide whether to show "Connect" vs "Disconnect" buttons.
    */
   connectedEmail: string;
+  /**
+   * Drive folder ID matching the vault root. When set, "Nouveau Google
+   * Doc/Sheet/Slides" creates the real file INSIDE the matching Drive folder
+   * (root + resolved sub-path), so Google Drive Desktop materialises the
+   * `.gdoc` shortcut in the right local folder — one source of truth. Empty =
+   * files land at My Drive root (you move them yourself).
+   * Get it from the folder's URL in Drive: drive.google.com/drive/folders/<ID>.
+   */
+  driveRootFolderId: string;
 }
 
 export interface AppSettings {
