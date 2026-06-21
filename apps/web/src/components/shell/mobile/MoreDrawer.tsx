@@ -10,6 +10,7 @@ import {
   Function,
   Gear,
   GridNine,
+  Keyboard,
   Lightning,
   Moon,
   Plugs,
@@ -26,6 +27,7 @@ import { memo, useCallback, useEffect, useState } from "react";
 import { NotificationBadge, useNotifications } from "@supernote/notifications/renderer";
 import { useVault } from "@/lib/pwa/PwaVaultSetup";
 import { MobileVaultSwitcher } from "./MobileVaultSwitcher";
+import { ShortcutsCheatSheet } from "@/components/notes/ShortcutsCheatSheet";
 
 const THEME_CYCLE: ThemeValue[] = ["light", "dark", "system"];
 
@@ -140,6 +142,7 @@ export const MoreDrawer = memo(function MoreDrawer({
   const { unreadCount } = useNotifications();
   const vault = useVault();
   const [switcherOpen, setSwitcherOpen] = useState(false);
+  const [cheatOpen, setCheatOpen] = useState(false);
   // Reset to the menu whenever the drawer closes, so reopening "Plus" never
   // lands back on the switcher sub-view (the X / backdrop / Bell paths close
   // the drawer without touching switcherOpen).
@@ -385,10 +388,51 @@ export const MoreDrawer = memo(function MoreDrawer({
               </button>
             </div>
           </div>
+
+          {/* Raccourcis clavier — cheat-sheet éditeur accessible depuis le
+              tiroir mobile, sans quitter l'app. */}
+          <div className="mb-6">
+            <p
+              className="mb-1.5 px-3 text-[11px] font-semibold uppercase tracking-wider"
+              style={{ color: "var(--text-muted)" }}
+            >
+              Éditeur
+            </p>
+            <div
+              className="overflow-hidden rounded-2xl"
+              style={{ backgroundColor: "var(--surface-1)" }}
+            >
+              <Button
+                variant="ghost"
+                onPress={() => setCheatOpen(true)}
+                className="flex w-full items-center gap-3 px-4 py-3 text-left rounded-none"
+                style={{ color: "var(--text-primary)" }}
+              >
+                <span
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
+                  style={{
+                    backgroundColor:
+                      "color-mix(in oklch, oklch(0.62 0.18 270) 18%, transparent)",
+                    color: "oklch(0.62 0.18 270)",
+                  }}
+                >
+                  <Keyboard size={18} weight="duotone" />
+                </span>
+                <span className="flex-1 text-[15px] font-medium">
+                  Raccourcis clavier
+                </span>
+                <CaretRight size={14} style={{ color: "var(--text-muted)" }} />
+              </Button>
+            </div>
+          </div>
             </>
           )}
         </div>
       </div>
+      <ShortcutsCheatSheet
+        isOpen={cheatOpen}
+        onClose={() => setCheatOpen(false)}
+      />
     </Drawer>
   );
 });
