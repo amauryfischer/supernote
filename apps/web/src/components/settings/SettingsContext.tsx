@@ -47,6 +47,7 @@ function loadInitialSettings(): AppSettings {
       notifications: { ...DEFAULT_SETTINGS.notifications, ...(parsed.notifications ?? {}) },
       plugins: parsed.plugins ?? DEFAULT_SETTINGS.plugins,
       shortcuts: parsed.shortcuts ?? DEFAULT_SETTINGS.shortcuts,
+      editorShortcuts: parsed.editorShortcuts ?? DEFAULT_SETTINGS.editorShortcuts,
     };
   } catch {
     return DEFAULT_SETTINGS;
