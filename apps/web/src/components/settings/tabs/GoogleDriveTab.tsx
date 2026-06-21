@@ -2,15 +2,20 @@
 
 import { useState } from "react";
 import { Button, Input } from "@heroui/react";
-import { GoogleLogo, LinkSimple, Plug, Warning, CheckCircle } from "@phosphor-icons/react";
+import { GoogleLogo, LinkSimple, Plug, Warning, CheckCircle, MagnifyingGlass } from "@phosphor-icons/react";
 import { useSettings } from "../SettingsContext";
 import { SettingRow } from "../SettingRow";
 import { SettingSection } from "../SettingSection";
+import { useVault } from "@/lib/pwa/PwaVaultSetup";
 import {
   requestAccessToken,
   getUserEmail,
   clearAccessToken,
+  searchFiles,
+  type DriveFile,
 } from "@/lib/google-drive";
+
+const DRIVE_FOLDER_MIME = "application/vnd.google-apps.folder";
 
 /**
  * Google Drive integration tab — lets the user wire up a Google Cloud
@@ -22,11 +27,58 @@ import {
 export function GoogleDriveTab() {
   const { settings, updateSettings, saveSettings } = useSettings();
   const { googleDrive } = settings;
+  const vault = useVault();
   const [connecting, setConnecting] = useState(false);
   const [connectError, setConnectError] = useState<string | null>(null);
+  const [detecting, setDetecting] = useState(false);
+  const [detectMsg, setDetectMsg] = useState<string | null>(null);
+  const [detectMatches, setDetectMatches] = useState<DriveFile[]>([]);
 
   const updateGoogleDrive = (patch: Partial<typeof googleDrive>) =>
     updateSettings("googleDrive", { ...googleDrive, ...patch });
+
+  const pickDetected = async (folder: DriveFile) => {
+    updateGoogleDrive({ driveRootFolderId: folder.id });
+    setDetectMatches([]);
+    setDetectMsg(`Dossier « ${folder.name} » lié (${folder.id}).`);
+    await saveSettings();
+  };
+
+  /**
+   * Auto-détecte l'ID du dossier Drive correspondant à la racine du vault en
+   * cherchant un dossier Drive du même NOM (le seul indice exploitable : FSA
+   * n'expose pas le chemin absolu local). 1 résultat → on remplit ; plusieurs
+   * → l'utilisateur choisit ; 0 → saisie manuelle.
+   */
+  const handleDetect = async () => {
+    const name = vault?.vaultName?.trim();
+    setDetectMsg(null);
+    setDetectMatches([]);
+    if (!googleDrive.clientId.trim()) {
+      setDetectMsg("Connecte d'abord Google Drive.");
+      return;
+    }
+    if (!name || name === "Coffre cloud") {
+      setDetectMsg("Vault sans nom de dossier exploitable (coffre cloud). Saisie manuelle.");
+      return;
+    }
+    setDetecting(true);
+    try {
+      const folders = await searchFiles(googleDrive.clientId.trim(), name, DRIVE_FOLDER_MIME);
+      if (folders.length === 0) {
+        setDetectMsg(`Aucun dossier Drive nommé « ${name} ». Vérifie le nom ou saisis l'ID.`);
+      } else if (folders.length === 1) {
+        await pickDetected(folders[0]!);
+      } else {
+        setDetectMatches(folders);
+        setDetectMsg(`${folders.length} dossiers nommés « ${name} » — choisis le bon :`);
+      }
+    } catch (err) {
+      setDetectMsg(err instanceof Error ? err.message : String(err));
+    } finally {
+      setDetecting(false);
+    }
+  };
 
   const handleConnect = async () => {
     if (!googleDrive.clientId.trim()) {
@@ -148,16 +200,54 @@ export function GoogleDriveTab() {
         {isConnected && (
           <SettingRow
             label="Dossier Drive du vault"
-            description="ID du dossier Drive = racine de ce vault. Les nouveaux Google Docs/Sheets/Slides y sont créés (sous-dossiers résolus par nom), puis Google Drive Desktop redescend le fichier dans le bon dossier. Vide = racine My Drive. Trouve l'ID dans l'URL Drive : drive.google.com/drive/folders/<ID>."
+            description="ID du dossier Drive = racine de ce vault. Les nouveaux Google Docs/Sheets/Slides y sont créés (sous-dossiers résolus par nom), puis Google Drive Desktop redescend le fichier dans le bon dossier. Vide = racine My Drive. « Détecter » cherche un dossier Drive du même nom que le vault."
           >
-            <Input
-              type="text"
-              placeholder="1AbCdEf… (ID du dossier racine)"
-              value={googleDrive.driveRootFolderId}
-              onChange={(e) => updateGoogleDrive({ driveRootFolderId: e.target.value.trim() })}
-              onBlur={() => void saveSettings()}
-              className="w-96"
-            />
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center gap-2">
+                <Input
+                  type="text"
+                  placeholder="1AbCdEf… (ID du dossier racine)"
+                  value={googleDrive.driveRootFolderId}
+                  onChange={(e) => updateGoogleDrive({ driveRootFolderId: e.target.value.trim() })}
+                  onBlur={() => void saveSettings()}
+                  className="w-96"
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onPress={handleDetect}
+                  isDisabled={detecting}
+                >
+                  <MagnifyingGlass size={14} />
+                  {detecting ? "Recherche…" : "Détecter"}
+                </Button>
+              </div>
+
+              {detectMsg && (
+                <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>
+                  {detectMsg}
+                </span>
+              )}
+
+              {detectMatches.length > 1 && (
+                <div className="flex max-w-md flex-col gap-1">
+                  {detectMatches.map((f) => (
+                    <Button
+                      key={f.id}
+                      variant="ghost"
+                      size="sm"
+                      onPress={() => void pickDetected(f)}
+                      className="justify-start"
+                    >
+                      <span className="truncate">{f.name}</span>
+                      <span className="ml-auto text-[10px]" style={{ color: "var(--text-muted)" }}>
+                        {f.id.slice(0, 14)}…
+                      </span>
+                    </Button>
+                  ))}
+                </div>
+              )}
+            </div>
           </SettingRow>
         )}
       </SettingSection>
