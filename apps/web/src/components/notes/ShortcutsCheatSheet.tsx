@@ -11,6 +11,7 @@ import { ACTION_META } from "@supernote/editor";
 import { Modal } from "@supernote/ui";
 import { useEditorBindings } from "@/lib/editor-shortcuts/useEditorBindings";
 import { prettyCombo } from "@/lib/editor-shortcuts/prettyCombo";
+import { BUILTIN_FORMAT_SHORTCUTS } from "@/lib/editor-shortcuts/builtins";
 
 const CATEGORY_LABELS: Record<string, string> = {
   navigation: "Navigation",
@@ -43,6 +44,17 @@ export function ShortcutsCheatSheet({ isOpen, onClose }: ShortcutsCheatSheetProp
     return map;
   }, [search]);
 
+  // Filter builtin format shortcuts by search
+  const filteredBuiltins = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return BUILTIN_FORMAT_SHORTCUTS;
+    return BUILTIN_FORMAT_SHORTCUTS.filter((s) =>
+      s.label.toLowerCase().includes(q),
+    );
+  }, [search]);
+
+  const hasResults = grouped.size > 0 || filteredBuiltins.length > 0;
+
   return (
     <Modal
       isOpen={isOpen}
@@ -59,64 +71,121 @@ export function ShortcutsCheatSheet({ isOpen, onClose }: ShortcutsCheatSheetProp
           aria-label="Rechercher un raccourci"
         />
 
-        {grouped.size === 0 ? (
+        {!hasResults ? (
           <p className="py-4 text-center text-sm" style={{ color: "var(--text-muted)" }}>
             Aucun raccourci ne correspond à « {search} »
           </p>
         ) : (
-          Array.from(grouped.entries()).map(([category, actions]) => (
-            <div key={category}>
-              <p
-                className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider"
-                style={{ color: "var(--text-muted)" }}
-              >
-                {CATEGORY_LABELS[category] ?? category}
-              </p>
-              <div
-                className="overflow-hidden rounded-xl"
-                style={{ backgroundColor: "var(--surface-2)" }}
-              >
-                {actions.map((action, idx) => {
-                  const combo = resolved.byAction[action.id] ?? "";
-                  const pretty = prettyCombo(combo);
-                  const isLast = idx === actions.length - 1;
-                  return (
-                    <div
-                      key={action.id}
-                      className="flex items-center justify-between px-4 py-2.5"
-                      style={{
-                        borderBottom: isLast
-                          ? undefined
-                          : "1px solid var(--border-subtle)",
-                      }}
-                    >
-                      <span
-                        className="text-sm"
-                        style={{ color: "var(--text-primary)" }}
+          <>
+            {Array.from(grouped.entries()).map(([category, actions]) => (
+              <div key={category}>
+                <p
+                  className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  {CATEGORY_LABELS[category] ?? category}
+                </p>
+                <div
+                  className="overflow-hidden rounded-xl"
+                  style={{ backgroundColor: "var(--surface-2)" }}
+                >
+                  {actions.map((action, idx) => {
+                    const combo = resolved.byAction[action.id] ?? "";
+                    const pretty = prettyCombo(combo);
+                    const isLast = idx === actions.length - 1;
+                    return (
+                      <div
+                        key={action.id}
+                        className="flex items-center justify-between px-4 py-2.5"
+                        style={{
+                          borderBottom: isLast
+                            ? undefined
+                            : "1px solid var(--border-subtle)",
+                        }}
                       >
-                        {action.label}
-                      </span>
-                      {pretty ? (
+                        <span
+                          className="text-sm"
+                          style={{ color: "var(--text-primary)" }}
+                        >
+                          {action.label}
+                        </span>
+                        {pretty ? (
+                          <Chip
+                            variant="soft"
+                            className="font-mono text-xs"
+                          >
+                            {pretty}
+                          </Chip>
+                        ) : (
+                          <span
+                            className="text-xs"
+                            style={{ color: "var(--text-muted)" }}
+                          >
+                            —
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+
+            {filteredBuiltins.length > 0 && (
+              <div>
+                <p
+                  className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  Format (intégrés)
+                </p>
+                <div
+                  className="overflow-hidden rounded-xl"
+                  style={{ backgroundColor: "var(--surface-2)" }}
+                >
+                  {filteredBuiltins.map((shortcut, idx) => {
+                    const pretty = prettyCombo(shortcut.combo);
+                    const isLast = idx === filteredBuiltins.length - 1;
+                    return (
+                      <div
+                        key={shortcut.combo}
+                        className="flex items-center justify-between px-4 py-2.5"
+                        style={{
+                          borderBottom: isLast
+                            ? undefined
+                            : "1px solid var(--border-subtle)",
+                        }}
+                      >
+                        <span
+                          className="text-sm"
+                          style={{ color: "var(--text-primary)" }}
+                        >
+                          {shortcut.label}
+                        </span>
                         <Chip
                           variant="soft"
                           className="font-mono text-xs"
                         >
                           {pretty}
                         </Chip>
-                      ) : (
-                        <span
-                          className="text-xs"
-                          style={{ color: "var(--text-muted)" }}
-                        >
-                          —
-                        </span>
-                      )}
-                    </div>
-                  );
-                })}
+                      </div>
+                    );
+                  })}
+                  <div
+                    className="px-4 py-2"
+                    style={{ borderTop: "1px solid var(--border-subtle)" }}
+                  >
+                    <span
+                      className="text-[11px]"
+                      style={{ color: "var(--text-muted)" }}
+                    >
+                      Gérés par l'éditeur — non réassignables.
+                    </span>
+                  </div>
+                </div>
               </div>
-            </div>
-          ))
+            )}
+          </>
         )}
       </div>
     </Modal>
