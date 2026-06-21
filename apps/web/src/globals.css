@@ -70,6 +70,19 @@
   --radius-lg: 10px;
   --radius-xl: 14px;
 
+  /* Z-index scale — consumed by @supernote/ui overlays (Modal, Drawer, Tooltip,
+     Toast, Dropdown…) via `z-[var(--z-*)]`. Mirrors packages/ui/src/tokens.css.
+     Without these the app left them undefined → overlays fell back to HeroUI's
+     default z-index, breaking layering (e.g. toast under modal). */
+  --z-base:     0;
+  --z-raised:   10;
+  --z-dropdown: 100;
+  --z-sticky:   200;
+  --z-overlay:  300;
+  --z-modal:    400;
+  --z-toast:    500;
+  --z-tooltip:  600;
+
   /* ── Motion system ──────────────────────────────────────────────────────
    * The app's shared "liquid motion" vocabulary, distilled from the smooth
    * caret (SmoothCaret.tsx): decelerate-to-rest, quick, continuous, settled.

@@ -57,41 +57,49 @@ export function Modal({
 }: ModalProps) {
   return (
     <ModalRoot isOpen={isOpen} onOpenChange={onOpenChange}>
+      {/* HeroUI v3 anatomy REQUIRES `Modal.Container` to be NESTED inside
+          `Modal.Backdrop` (not a sibling). When rendered as siblings, the
+          backdrop has its own presence subtree with nothing in it, so closing
+          tears down the container/dialog but leaves the backdrop orphaned in
+          `<body>` — a full-viewport `backdrop-filter: blur` overlay that blurs
+          and blocks the entire app until reload. Nesting ties both to the same
+          open/exit lifecycle so the backdrop is removed on close. */}
       <ModalBackdrop
         isDismissable={isDismissable}
         className="fixed inset-0 z-[var(--z-overlay)] bg-[var(--surface-0)]/60 backdrop-blur-sm"
-      />
-      {/* `h-full w-full` is load-bearing: HeroUI's `.modal__container` slot ships
-          `width: fit-content`, which over-constrains `inset-0` (left:0 + right:0 +
-          explicit width → right is ignored), collapsing the centering layer to the
-          dialog's width pinned top-left. Forcing full size restores a viewport-sized
-          flex box so `items-center justify-center` actually centers on screen. */}
-      <ModalContainer className="fixed inset-0 z-[var(--z-modal)] flex h-full w-full items-center justify-center p-4">
-        <ModalDialog
-          className={cn(
-            "w-full rounded-[var(--radius-xl)] border border-[var(--border-subtle)] bg-[var(--surface-1)] [box-shadow:var(--shadow-xl)]",
-            sizeClass[size],
-            className
-          )}
-        >
-          {title && (
-            <ModalHeader className="flex items-center justify-between border-b border-[var(--border-subtle)] px-6 py-4">
-              <ModalHeading className="text-base font-semibold text-[var(--text-primary)]">
-                {title}
-              </ModalHeading>
-              <ModalCloseTrigger className="text-[var(--text-muted)] hover:text-[var(--text-primary)]" />
-            </ModalHeader>
-          )}
-          <ModalBody className="px-6 py-4 text-[var(--text-primary)]">
-            {children}
-          </ModalBody>
-          {footer && (
-            <ModalFooter className="border-t border-[var(--border-subtle)] px-6 py-4">
-              {footer}
-            </ModalFooter>
-          )}
-        </ModalDialog>
-      </ModalContainer>
+      >
+        {/* `h-full w-full` is load-bearing: HeroUI's `.modal__container` slot ships
+            `width: fit-content`, which over-constrains `inset-0` (left:0 + right:0 +
+            explicit width → right is ignored), collapsing the centering layer to the
+            dialog's width pinned top-left. Forcing full size restores a viewport-sized
+            flex box so `items-center justify-center` actually centers on screen. */}
+        <ModalContainer className="fixed inset-0 z-[var(--z-modal)] flex h-full w-full items-center justify-center p-4">
+          <ModalDialog
+            className={cn(
+              "w-full rounded-[var(--radius-xl)] border border-[var(--border-subtle)] bg-[var(--surface-1)] [box-shadow:var(--shadow-xl)]",
+              sizeClass[size],
+              className
+            )}
+          >
+            {title && (
+              <ModalHeader className="flex items-center justify-between border-b border-[var(--border-subtle)] px-6 py-4">
+                <ModalHeading className="text-base font-semibold text-[var(--text-primary)]">
+                  {title}
+                </ModalHeading>
+                <ModalCloseTrigger className="text-[var(--text-muted)] hover:text-[var(--text-primary)]" />
+              </ModalHeader>
+            )}
+            <ModalBody className="px-6 py-4 text-[var(--text-primary)]">
+              {children}
+            </ModalBody>
+            {footer && (
+              <ModalFooter className="border-t border-[var(--border-subtle)] px-6 py-4">
+                {footer}
+              </ModalFooter>
+            )}
+          </ModalDialog>
+        </ModalContainer>
+      </ModalBackdrop>
     </ModalRoot>
   );
 }

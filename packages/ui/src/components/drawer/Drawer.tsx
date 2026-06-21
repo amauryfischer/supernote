@@ -48,36 +48,40 @@ export function Drawer({
 }: DrawerProps) {
   return (
     <DrawerRoot isOpen={isOpen} onOpenChange={onOpenChange}>
+      {/* HeroUI v3 anatomy: `Drawer.Content` must be NESTED inside
+          `Drawer.Backdrop`. As siblings, closing leaves the backdrop orphaned
+          (full-viewport blur overlay stuck in `<body>`). Same bug/fix as Modal. */}
       <DrawerBackdrop
         isDismissable={isDismissable}
         className="fixed inset-0 z-[var(--z-overlay)] bg-[var(--surface-0)]/60 backdrop-blur-sm"
-      />
-      <DrawerContent
-        placement={placement}
-        className={cn(
-          "fixed z-[var(--z-modal)] border-[var(--border-subtle)] bg-[var(--surface-1)] [box-shadow:var(--shadow-2xl)]",
-          className
-        )}
       >
-        <DrawerDialog>
-          {title && (
-            <DrawerHeader className="flex items-center justify-between border-b border-[var(--border-subtle)] px-6 py-4">
-              <DrawerHeading className="text-base font-semibold text-[var(--text-primary)]">
-                {title}
-              </DrawerHeading>
-              <DrawerCloseTrigger className="text-[var(--text-muted)] hover:text-[var(--text-primary)]" />
-            </DrawerHeader>
+        <DrawerContent
+          placement={placement}
+          className={cn(
+            "fixed z-[var(--z-modal)] border-[var(--border-subtle)] bg-[var(--surface-1)] [box-shadow:var(--shadow-2xl)]",
+            className
           )}
-          <DrawerBody className="px-6 py-4 text-[var(--text-primary)]">
-            {children}
-          </DrawerBody>
-          {footer && (
-            <DrawerFooter className="border-t border-[var(--border-subtle)] px-6 py-4">
-              {footer}
-            </DrawerFooter>
-          )}
-        </DrawerDialog>
-      </DrawerContent>
+        >
+          <DrawerDialog>
+            {title && (
+              <DrawerHeader className="flex items-center justify-between border-b border-[var(--border-subtle)] px-6 py-4">
+                <DrawerHeading className="text-base font-semibold text-[var(--text-primary)]">
+                  {title}
+                </DrawerHeading>
+                <DrawerCloseTrigger className="text-[var(--text-muted)] hover:text-[var(--text-primary)]" />
+              </DrawerHeader>
+            )}
+            <DrawerBody className="px-6 py-4 text-[var(--text-primary)]">
+              {children}
+            </DrawerBody>
+            {footer && (
+              <DrawerFooter className="border-t border-[var(--border-subtle)] px-6 py-4">
+                {footer}
+              </DrawerFooter>
+            )}
+          </DrawerDialog>
+        </DrawerContent>
+      </DrawerBackdrop>
     </DrawerRoot>
   );
 }
