@@ -136,4 +136,6 @@ export interface SupernoteEditorProps {
    * absent, le bloc affiche son iframe pubhtml self-contained.
    */
   renderGoogleSheet?: (props: { spreadsheetId: string; gid: string; url: string; onClear: () => void }) => React.ReactNode;
+  /** Map résolue combo->actionId pour les raccourcis éditeur. Défaut : registre. */
+  getKeymapBindings?: () => Record<string, string>;
 }

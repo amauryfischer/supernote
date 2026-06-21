@@ -12,7 +12,6 @@
 // sur la liste des textblocks du document — les nœuds non-textuels
 // (databaseView, formula…) sont simplement sautés.
 
-import { Extension } from "@tiptap/core";
 import type { Editor } from "@tiptap/core";
 
 export type BlockNavDirection = "up" | "down" | "left" | "right";
@@ -122,22 +121,3 @@ export function collectTextblockRanges(editor: Editor): BlockRange[] {
   return ranges;
 }
 
-function navigate(editor: Editor, dir: BlockNavDirection): boolean {
-  const head = editor.state.selection.head;
-  const target = resolveBlockNavTarget(collectTextblockRanges(editor), head, dir);
-  if (target == null) return true; // consommé : pas de saut natif incohérent
-  return editor.chain().setTextSelection(target).scrollIntoView().run();
-}
-
-/** Extension Tiptap branchée dans SupernoteEditor via `_tiptapOptions`. */
-export const blockNavExtension = Extension.create({
-  name: "supernoteBlockNav",
-  addKeyboardShortcuts() {
-    return {
-      "Mod-ArrowUp": ({ editor }) => navigate(editor, "up"),
-      "Mod-ArrowDown": ({ editor }) => navigate(editor, "down"),
-      "Mod-ArrowLeft": ({ editor }) => navigate(editor, "left"),
-      "Mod-ArrowRight": ({ editor }) => navigate(editor, "right"),
-    };
-  },
-});

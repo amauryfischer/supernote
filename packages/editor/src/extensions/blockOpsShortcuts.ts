@@ -118,22 +118,6 @@ export function createBlockOpsExtension(
     name: "supernoteBlockOps",
     addKeyboardShortcuts() {
       return {
-        "Alt-ArrowUp": () => {
-          const bn = getBlockNote();
-          if (!bn) return false;
-          bn.moveBlocksUp();
-          return true;
-        },
-        "Alt-ArrowDown": () => {
-          const bn = getBlockNote();
-          if (!bn) return false;
-          bn.moveBlocksDown();
-          return true;
-        },
-        "Mod-d": () => {
-          const bn = getBlockNote();
-          return bn ? duplicateCurrentBlock(bn) : false;
-        },
         "Mod-Shift-ArrowUp": ({ editor }) => extendSelection(editor, "up"),
         "Mod-Shift-ArrowDown": ({ editor }) => extendSelection(editor, "down"),
         "Mod-x": ({ editor }) => selectBlockForCut(editor),
