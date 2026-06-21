@@ -31,6 +31,7 @@ import { renderNoteFormula, NoteFormulaModalHost } from "./NoteFormulaBridge";
 import { renderNotePortal } from "./NotePortal";
 import { renderDoodle } from "./DoodleRenderer";
 import { renderGoogleSheet } from "./GoogleSheetView";
+import { ShortcutsCheatSheet } from "./ShortcutsCheatSheet";
 import { AmbianceSelector, ambianceClass, asAmbiance, asTypo, type NoteAmbiance, type NoteTypo } from "./AmbianceSelector";
 import { CoverBackdrop, CoverButton, asCover } from "./NoteCover";
 import { NoteIcon, IconButton, asIcon } from "./NoteIcon";
@@ -43,6 +44,7 @@ import { useFolderTree, useRenameFolder } from "./hooks";
 import { useRouter } from "next/navigation";
 import { useSettings } from "@/components/settings/SettingsContext";
 import { useDateFormat } from "@/lib/dateFormat";
+import { useEditorBindings } from "@/lib/editor-shortcuts/useEditorBindings";
 
 // Dynamic import to avoid SSR issues — BlockNote uses browser-only APIs
 const SupernoteEditor = dynamic<SupernoteEditorProps>(
@@ -191,6 +193,8 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
   const [aiLoading, setAiLoading] = useState(false);
   // Move-to-folder: opened from the breadcrumb's right-click menu.
   const [moveModalOpen, setMoveModalOpen] = useState(false);
+  // Cheat-sheet des raccourcis éditeur — ouverte via `?` hors d'un champ éditable.
+  const [cheatOpen, setCheatOpen] = useState(false);
   // Bumped when the note's body changes externally (e.g. another tab or the
   // /todos page rewriting a checkbox state). Used as part of the editor's
   // `key` so the BlockNote instance fully remounts with the new content —
@@ -255,6 +259,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
   // (Aujourd'hui / Hier / Il y a N jours) ignores it by design.
   const { settings } = useSettings();
   const dateFormatPref = settings.general.dateFormat;
+  const { getBindings, bindingsKey } = useEditorBindings();
 
   // ── AI inline actions wiring ───────────────────────────────────────────────
   const aiClient = useMemo(() => createOllamaClient({}), []);
@@ -444,6 +449,26 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
   useEffect(() => {
     saveStatusRef.current = saveStatus;
   }, [saveStatus]);
+
+  // `?` key → cheat-sheet des raccourcis éditeur (hors champ éditable).
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "?") return;
+      const el = document.activeElement;
+      if (!el) return;
+      const tag = el.tagName.toLowerCase();
+      if (
+        tag === "input" ||
+        tag === "textarea" ||
+        (el as HTMLElement).getAttribute("contenteditable") === "true"
+      )
+        return;
+      e.preventDefault();
+      setCheatOpen(true);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   // Cleanup timers on unmount + flush any pending body save so navigating
   // away from the note doesn't drop the latest keystrokes on the floor.
@@ -1312,7 +1337,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
               />
             )}
             <SupernoteEditor
-              key={`${note.id}:${externalBodyVersion}`}
+              key={`${note.id}:${externalBodyVersion}:${bindingsKey}`}
               initialMarkdown={pendingBody ?? note.body}
               onChange={handleEditorChange}
               onSave={handleManualSave}
@@ -1332,6 +1357,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
               noteTitle={title}
               onAIError={onAIError}
               onAIWarning={onAIWarning}
+              getKeymapBindings={getBindings}
             />
           </div>
           {aiMargins && (
@@ -1392,6 +1418,10 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
         currentFolder={note.folderPath}
         onConfirm={(next) => void handleConfirmMove(next)}
         onCancel={() => setMoveModalOpen(false)}
+      />
+      <ShortcutsCheatSheet
+        isOpen={cheatOpen}
+        onClose={() => setCheatOpen(false)}
       />
       <ContextMenu state={ctxMenu.state} onClose={ctxMenu.close} />
     </div>

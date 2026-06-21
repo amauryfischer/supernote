@@ -12,7 +12,6 @@
 // sur la liste des textblocks du document — les nœuds non-textuels
 // (databaseView, formula…) sont simplement sautés.
 
-import { Extension } from "@tiptap/core";
 import type { Editor } from "@tiptap/core";
 
 export type BlockNavDirection = "up" | "down" | "left" | "right";
@@ -91,6 +90,24 @@ export function resolveSelectExtendTarget(
   return next ? next.to : null;
 }
 
+/** Positions de début des blocs `heading` du document, ordonnées. */
+export function collectHeadingStarts(editor: Editor): number[] {
+  const starts: number[] = [];
+  editor.state.doc.descendants((node, pos) => {
+    if (node.type.name === "heading") { starts.push(pos + 1); return false; }
+    return true;
+  });
+  return starts;
+}
+
+/** Position du titre précédent/suivant strict par rapport à `head`, ou null. */
+export function resolveHeadingTarget(
+  starts: number[], head: number, dir: "prev" | "next",
+): number | null {
+  if (dir === "next") { const n = starts.find((s) => s > head); return n ?? null; }
+  const p = [...starts].reverse().find((s) => s < head); return p ?? null;
+}
+
 /** Collecte les plages curseur de tous les textblocks du document. */
 export function collectTextblockRanges(editor: Editor): BlockRange[] {
   const ranges: BlockRange[] = [];
@@ -104,22 +121,3 @@ export function collectTextblockRanges(editor: Editor): BlockRange[] {
   return ranges;
 }
 
-function navigate(editor: Editor, dir: BlockNavDirection): boolean {
-  const head = editor.state.selection.head;
-  const target = resolveBlockNavTarget(collectTextblockRanges(editor), head, dir);
-  if (target == null) return true; // consommé : pas de saut natif incohérent
-  return editor.chain().setTextSelection(target).scrollIntoView().run();
-}
-
-/** Extension Tiptap branchée dans SupernoteEditor via `_tiptapOptions`. */
-export const blockNavExtension = Extension.create({
-  name: "supernoteBlockNav",
-  addKeyboardShortcuts() {
-    return {
-      "Mod-ArrowUp": ({ editor }) => navigate(editor, "up"),
-      "Mod-ArrowDown": ({ editor }) => navigate(editor, "down"),
-      "Mod-ArrowLeft": ({ editor }) => navigate(editor, "left"),
-      "Mod-ArrowRight": ({ editor }) => navigate(editor, "right"),
-    };
-  },
-});

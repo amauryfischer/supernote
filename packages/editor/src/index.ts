@@ -64,5 +64,10 @@ export { useAIAction, type UseAIActionDeps, type UseAIActionApi } from "./ai/use
 export { AIActionsMenu, type AIActionsMenuProps } from "./ai/AIActionsMenu.js";
 export { extractSelection, type ExtractedSelection } from "./ai/extractSelection.js";
 
+// Keymap registry
+export { createEditorKeymapExtension } from "./extensions/editorKeymap.js";
+export { ACTION_META } from "./keymap/actions.js";
+export type { EditorActionMeta, EditorActionCategory } from "./keymap/types.js";
+
 // Demo (for development only)
 export { EditorDemo } from "./demo/EditorDemo.js";

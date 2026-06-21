@@ -105,6 +105,8 @@ export interface AppSettings {
   plugins: Plugin[];
   api: ApiSettings;
   shortcuts: Shortcut[];
+  /** Overrides utilisateur des raccourcis éditeur : actionId -> combo canonique. Absent = défaut. */
+  editorShortcuts: Record<string, string>;
   notifications: NotificationSettings;
   googleDrive: GoogleDriveSettings;
 }

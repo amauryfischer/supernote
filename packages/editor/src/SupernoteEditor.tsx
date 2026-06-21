@@ -30,11 +30,12 @@ import {
 } from "./extensions/slashMenu.js";
 import type { EntityLinkItemConfig } from "./extensions/slashMenu.js";
 import { createSaveExtension } from "./extensions/saveShortcut.js";
-import { blockNavExtension } from "./extensions/blockNavShortcuts.js";
+import { createEditorKeymapExtension } from "./extensions/editorKeymap.js";
 import {
   createBlockOpsExtension,
   type BlockOpsEditorLike,
 } from "./extensions/blockOpsShortcuts.js";
+import { ACTION_META } from "./keymap/actions.js";
 import { attachCheckShortcut } from "./extensions/checkShortcut.js";
 import { smartTypographyExtension } from "./extensions/smartTypography.js";
 import {
@@ -52,6 +53,13 @@ import {
 } from "./extensions/editorChrome.js";
 import type { AIActionId } from "@supernote/ai/actions";
 import type { StreamingInsertHandle } from "./types.js";
+
+/** Bindings par défaut (combo->actionId) dérivés du registre, si l'app n'en fournit pas. */
+const defaultBindings = (): Record<string, string> => {
+  const m: Record<string, string> = {};
+  for (const a of ACTION_META) if (a.defaultCombo) m[a.defaultCombo] = a.id;
+  return m;
+};
 
 /** Main Supernote rich-text editor */
 export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element {
@@ -78,6 +86,7 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
     onAIError,
     onAIWarning,
     smartTypography = true,
+    getKeymapBindings,
   } = props;
 
   const onSaveRef = useRef(onSave);
@@ -153,7 +162,7 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
         extensions: [
           createSaveExtension(handleSave),
           enterTagExtension,
-          blockNavExtension,
+          createEditorKeymapExtension(getKeymapBindings ?? defaultBindings, () => blockNoteRef.current),
           createBlockOpsExtension(() => blockNoteRef.current),
           // Remplacements typographiques à la frappe (->, --, ..., (c)…).
           // Désactivable via la prop `smartTypography`.

@@ -42,6 +42,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     { id: "go-notes", label: "Aller aux notes", keys: "Cmd+1" },
     { id: "go-contacts", label: "Aller aux contacts", keys: "Cmd+2" },
   ],
+  editorShortcuts: {},
   notifications: {
     osNotifications: true,
     sounds: false,
