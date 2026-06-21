@@ -43,6 +43,7 @@ import { useFolderTree, useRenameFolder } from "./hooks";
 import { useRouter } from "next/navigation";
 import { useSettings } from "@/components/settings/SettingsContext";
 import { useDateFormat } from "@/lib/dateFormat";
+import { useEditorBindings } from "@/lib/editor-shortcuts/useEditorBindings";
 
 // Dynamic import to avoid SSR issues — BlockNote uses browser-only APIs
 const SupernoteEditor = dynamic<SupernoteEditorProps>(
@@ -255,6 +256,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
   // (Aujourd'hui / Hier / Il y a N jours) ignores it by design.
   const { settings } = useSettings();
   const dateFormatPref = settings.general.dateFormat;
+  const { getBindings, bindingsKey } = useEditorBindings();
 
   // ── AI inline actions wiring ───────────────────────────────────────────────
   const aiClient = useMemo(() => createOllamaClient({}), []);
@@ -1312,7 +1314,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
               />
             )}
             <SupernoteEditor
-              key={`${note.id}:${externalBodyVersion}`}
+              key={`${note.id}:${externalBodyVersion}:${bindingsKey}`}
               initialMarkdown={pendingBody ?? note.body}
               onChange={handleEditorChange}
               onSave={handleManualSave}
@@ -1332,6 +1334,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
               noteTitle={title}
               onAIError={onAIError}
               onAIWarning={onAIWarning}
+              getKeymapBindings={getBindings}
             />
           </div>
           {aiMargins && (
