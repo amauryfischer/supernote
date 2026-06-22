@@ -80,7 +80,18 @@ function buildEmbedUrl(docId: string, type: GDocType): string {
 
 export function GDocViewer({ note, path }: AttachmentViewerProps) {
   const { loading, error, text } = useAttachmentBlob(path);
-  const updateMutation = trpc.entities.update.useMutation();
+  const utils = trpc.useUtils();
+  const updateMutation = trpc.entities.update.useMutation({
+    onSuccess: (data) => {
+      // Refetch the note so the freshly-persisted `gdocResolvedId` /
+      // `gdocOverrideUrl` reaches this component via the `note` prop (sourced
+      // from `entities.get` through `useNote`). Without this the resolved id is
+      // written to the DB but never read back, so auto-resolution succeeds yet
+      // the viewer stays stuck on the "non disponible localement" prompt.
+      void utils.entities.get.invalidate({ id: data.id });
+      void utils.entities.list.invalidate();
+    },
+  });
 
   const basename = path.split("/").pop() ?? path;
   const ext = getExt(path);
