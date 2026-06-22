@@ -46,6 +46,7 @@ import {
   buildVaultFormulaContext,
 } from "./variables";
 import { resolveMountWrite, crossProvenanceCollision, isMountedPath } from "./mount-provenance";
+import { resolveFileNameStem } from "./entity-filename";
 import { decodeTagPaths } from "./tag-paths";
 import { sanitizePath, stripPathSlashes, sanitizeFolderPath, derivePath } from "./path-utils";
 
@@ -820,7 +821,18 @@ export function buildRouter(
         : `${requestedFullPath}/${id}.md`;
       delete fields["filePath"];
     } else {
-      const fileName = `${id}.md`;
+      // Derive the filename from the type's fileNamePattern (e.g. note →
+      // "{title}") so the on-disk file — and any Drive/iCloud/GitHub mirror —
+      // is named after the entity's title, not its ULID. Empty title → fall
+      // back to the id so the path stays unique.
+      const stem =
+        resolveFileNameStem(
+          (typeRow["fileNamePattern"] as string) ?? "",
+          fields,
+          id,
+          ts,
+        ) || id;
+      const fileName = `${stem}.md`;
       const dir = stripPathSlashes((typeRow["defaultPath"] as string) ?? "");
       relativePath = dir ? `${dir}/${fileName}` : fileName;
     }
@@ -950,8 +962,8 @@ export function buildRouter(
     // slashes so a malicious caller can't escape the vault root.
     const cleanedNextPath =
       typeof rawNextPath === "string" ? sanitizePath(rawNextPath) : "";
-    const isMove = cleanedNextPath.length > 0 && cleanedNextPath !== oldPath;
-    const effectivePath = isMove ? cleanedNextPath : oldPath;
+    let isMove = cleanedNextPath.length > 0 && cleanedNextPath !== oldPath;
+    let effectivePath = isMove ? cleanedNextPath : oldPath;
 
     // Read-only mount structure (V1): a mounted entity (sourceVaultId non-null)
     // must NOT be moved out of its `@mounts/<slug>/…` prefix. A path-change here
@@ -960,6 +972,51 @@ export function buildRouter(
     // the SOURCE mount room — corrupting it. Content/fields edits stay allowed.
     if (provenance !== null && isMove) {
       throw new Error("Lecture seule : impossible de déplacer une note d'un vault monté.");
+    }
+
+    // Title-driven auto-rename. Keep the on-disk filename — and therefore the
+    // name shown by any folder-sync (Google Drive, iCloud, GitHub) — in step
+    // with the entity's title. We only act when the caller did NOT request an
+    // explicit move, the entity isn't a mounted read-only one, and the current
+    // file is a markdown note. The new stem comes from the type's
+    // fileNamePattern; if it differs from the current filename we promote the
+    // edit to a move so the write-new/delete-old machinery below renames the
+    // file. The directory is preserved; a collision with another entity gets a
+    // `-N` suffix (same policy as entitiesCreate).
+    if (
+      !isMove &&
+      provenance === null &&
+      fields !== undefined &&
+      oldPath.toLowerCase().endsWith(".md")
+    ) {
+      const typeMeta = row(db.exec(
+        `SELECT fileNamePattern FROM entity_type WHERE id = ?`,
+        [existing["typeId"] ?? null],
+      ));
+      const pattern = (typeMeta?.["fileNamePattern"] as string) ?? "";
+      const stem = pattern ? resolveFileNameStem(pattern, newFields, id, ts) : "";
+      if (stem) {
+        const slash = oldPath.lastIndexOf("/");
+        const dir = slash >= 0 ? oldPath.slice(0, slash) : "";
+        const build = (s: string): string => (dir ? `${dir}/${s}.md` : `${s}.md`);
+        const takenByOther = (p: string): boolean => {
+          const r = row(db.exec(
+            `SELECT id FROM entity WHERE vaultId = ? AND filePath = ? LIMIT 1`,
+            [vaultId, p],
+          ));
+          return !!r && (r["id"] as string) !== id;
+        };
+        let candidate = build(stem);
+        if (candidate !== oldPath && takenByOther(candidate)) {
+          let n = 2;
+          while (takenByOther(build(`${stem}-${n}`)) && n < 9999) n++;
+          candidate = build(`${stem}-${n}`);
+        }
+        if (candidate !== oldPath && !isMountedPath(candidate)) {
+          effectivePath = candidate;
+          isMove = true;
+        }
+      }
     }
 
     // Canvas split on update: mirrors entitiesCreate. If the incoming
