@@ -37,13 +37,13 @@
   "devDependencies": {
     "@supernote/tsconfig": "workspace:*",
     "@testing-library/react": "^16.0.0",
-    "@types/node": "^22.10.0",
+    "@types/node": "^26.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "shiki": "^3.0.0",
-    "typescript": "^5.7.2",
+    "typescript": "^6.0.3",
     "vite": "^6.0.0",
     "vitest": "^3.0.0"
   }
