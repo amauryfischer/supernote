@@ -13,6 +13,11 @@ import { CaptureEmailModal } from "@/components/mail/CaptureEmailModal";
 import { getThread, type EmailThread } from "@/lib/gmail";
 import { useToast } from "@supernote/ui";
 
+// Boîte par défaut : emails non archivés (= non « done » au sens Gmail).
+// Ajuster ici si une convention « done » différente est utilisée
+// (ex. `-label:Done`, `is:unread`).
+const DEFAULT_MAIL_QUERY = "in:inbox";
+
 export default function MailPage() {
   const { settings } = useSettings();
   const navigate = useNavigate();
@@ -79,7 +84,7 @@ export default function MailPage() {
       <div className="flex h-full flex-col gap-4 px-4 py-6 md:flex-row md:px-10">
         <div className="w-full md:w-96 md:flex-shrink-0">
           <h1 className="mb-4 hidden text-xl font-semibold md:block">Mail</h1>
-          <EmailPicker onSelect={openThread} />
+          <EmailPicker onSelect={openThread} initialQuery={DEFAULT_MAIL_QUERY} />
         </div>
         <div className="min-w-0 flex-1">
           {loading && (
