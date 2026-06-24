@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Button } from "@heroui/react";
-import { FilePlus } from "@phosphor-icons/react";
+import { FilePlus, Database } from "@phosphor-icons/react";
 import { useNavigate } from "react-router-dom";
 import { useSettings } from "@/components/settings/SettingsContext";
 import { useMobileTitle } from "@/components/shell";
@@ -9,6 +9,7 @@ import { useGmailConnected } from "@/hooks/useGmailConnected";
 import { EmailPicker } from "@/components/mail/EmailPicker";
 import { EmailThreadView } from "@/components/mail/EmailThreadView";
 import { useCaptureEmail } from "@/components/mail/useCaptureEmail";
+import { CaptureEmailModal } from "@/components/mail/CaptureEmailModal";
 import { getThread, type EmailThread } from "@/lib/gmail";
 import { useToast } from "@supernote/ui";
 
@@ -27,6 +28,7 @@ export default function MailPage() {
   const [thread, setThread] = useState<EmailThread | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [captureOpen, setCaptureOpen] = useState(false);
 
   const handleCaptureNote = async () => {
     const msg = thread?.messages[0];
@@ -71,38 +73,48 @@ export default function MailPage() {
   }
 
   return (
-    <div className="flex h-full flex-col gap-4 px-4 py-6 md:flex-row md:px-10">
-      <div className="w-full md:w-96 md:flex-shrink-0">
-        <h1 className="mb-4 hidden text-xl font-semibold md:block">Mail</h1>
-        <EmailPicker onSelect={openThread} />
+    <>
+      <div className="flex h-full flex-col gap-4 px-4 py-6 md:flex-row md:px-10">
+        <div className="w-full md:w-96 md:flex-shrink-0">
+          <h1 className="mb-4 hidden text-xl font-semibold md:block">Mail</h1>
+          <EmailPicker onSelect={openThread} />
+        </div>
+        <div className="min-w-0 flex-1">
+          {loading && (
+            <p className="text-sm" style={{ color: "var(--text-muted)" }}>
+              Chargement…
+            </p>
+          )}
+          {error && (
+            <p className="text-sm" style={{ color: "var(--color-danger, #ef4444)" }}>
+              {error}
+            </p>
+          )}
+          {!loading && !error && thread && (
+            <>
+              <div className="mb-3 flex gap-2">
+                <Button variant="ghost" size="sm" onPress={() => void handleCaptureNote()}>
+                  <FilePlus size={16} /> Capturer en note
+                </Button>
+                <Button variant="ghost" size="sm" onPress={() => setCaptureOpen(true)} isDisabled={!thread?.messages[0]}>
+                  <Database size={16} /> Capturer dans une base
+                </Button>
+              </div>
+              <EmailThreadView thread={thread} />
+            </>
+          )}
+          {!loading && !error && !thread && (
+            <p className="text-sm" style={{ color: "var(--text-muted)" }}>
+              Sélectionne un email.
+            </p>
+          )}
+        </div>
       </div>
-      <div className="min-w-0 flex-1">
-        {loading && (
-          <p className="text-sm" style={{ color: "var(--text-muted)" }}>
-            Chargement…
-          </p>
-        )}
-        {error && (
-          <p className="text-sm" style={{ color: "var(--color-danger, #ef4444)" }}>
-            {error}
-          </p>
-        )}
-        {!loading && !error && thread && (
-          <>
-            <div className="mb-3 flex gap-2">
-              <Button variant="ghost" size="sm" onPress={() => void handleCaptureNote()}>
-                <FilePlus size={16} /> Capturer en note
-              </Button>
-            </div>
-            <EmailThreadView thread={thread} />
-          </>
-        )}
-        {!loading && !error && !thread && (
-          <p className="text-sm" style={{ color: "var(--text-muted)" }}>
-            Sélectionne un email.
-          </p>
-        )}
-      </div>
-    </div>
+      <CaptureEmailModal
+        isOpen={captureOpen}
+        message={thread?.messages[0] ?? null}
+        onClose={() => setCaptureOpen(false)}
+      />
+    </>
   );
 }
