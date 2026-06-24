@@ -36,7 +36,7 @@ import {
   usePluginEnabled,
 } from "@/hooks/usePluginEnabled";
 import { Button } from "@supernote/ui";
-import { useSettings } from "@/components/settings";
+import { useGmailConnected } from "@/hooks/useGmailConnected";
 
 // NotificationCenter is heavy and only mounts when the panel is open. Loading
 // it lazily keeps the initial sidebar bundle small (Turbopack can tree-shake
@@ -165,9 +165,7 @@ export const Sidebar = memo(function Sidebar() {
   // href → enabled map that the render pass consults below.
   const journalEnabled = usePluginEnabled("journal", false);
   const routinesEnabled = usePluginEnabled("routines", true);
-  const { settings } = useSettings();
-  const gmailConnected =
-    !!settings.gmail.connectedEmail && !!settings.googleDrive.clientId.trim();
+  const gmailConnected = useGmailConnected();
   const pluginEnabledByHref: Record<string, boolean> = {
     [PLUGIN_HREF_BY_SLUG.journal]: journalEnabled,
     [PLUGIN_HREF_BY_SLUG.routines]: routinesEnabled,

@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { useSettings } from "@/components/settings/SettingsContext";
 import { useMobileTitle } from "@/components/shell";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { useGmailConnected } from "@/hooks/useGmailConnected";
 import { EmailPicker } from "@/components/mail/EmailPicker";
 import { EmailThreadView } from "@/components/mail/EmailThreadView";
 import { getThread, type EmailThread } from "@/lib/gmail";
@@ -15,7 +16,7 @@ export default function MailPage() {
   useMobileTitle(isMobile ? "Mail" : null);
 
   const clientId = settings.googleDrive.clientId.trim();
-  const connected = !!settings.gmail.connectedEmail && !!clientId;
+  const connected = useGmailConnected();
 
   const [thread, setThread] = useState<EmailThread | null>(null);
   const [loading, setLoading] = useState(false);

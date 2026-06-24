@@ -27,7 +27,7 @@ import { Button, Drawer, useAppTheme, type ThemeValue } from "@supernote/ui";
 import { memo, useCallback, useEffect, useState } from "react";
 import { NotificationBadge, useNotifications } from "@supernote/notifications/renderer";
 import { useVault } from "@/lib/pwa/PwaVaultSetup";
-import { useSettings } from "@/components/settings";
+import { useGmailConnected } from "@/hooks/useGmailConnected";
 import { MobileVaultSwitcher } from "./MobileVaultSwitcher";
 import { ShortcutsCheatSheet } from "@/components/notes/ShortcutsCheatSheet";
 
@@ -144,9 +144,7 @@ export const MoreDrawer = memo(function MoreDrawer({
 }) {
   const { unreadCount } = useNotifications();
   const vault = useVault();
-  const { settings } = useSettings();
-  const gmailConnected =
-    !!settings.gmail.connectedEmail && !!settings.googleDrive.clientId.trim();
+  const gmailConnected = useGmailConnected();
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [cheatOpen, setCheatOpen] = useState(false);
   // Reset to the menu whenever the drawer closes, so reopening "Plus" never
