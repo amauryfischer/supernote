@@ -31,6 +31,8 @@ import { renderNoteFormula, NoteFormulaModalHost } from "./NoteFormulaBridge";
 import { renderNotePortal } from "./NotePortal";
 import { renderDoodle } from "./DoodleRenderer";
 import { renderGoogleSheet } from "./GoogleSheetView";
+import { renderGmailMessage } from "./GmailMessageView";
+import { GmailPickerModal } from "./GmailPickerModal";
 import { ShortcutsCheatSheet } from "./ShortcutsCheatSheet";
 import { AmbianceSelector, ambianceClass, asAmbiance, asTypo, type NoteAmbiance, type NoteTypo } from "./AmbianceSelector";
 import { CoverBackdrop, CoverButton, asCover } from "./NoteCover";
@@ -216,6 +218,31 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
   // Factory exposed by SupernoteEditor to insert AI answers token by token.
   const editorStreamRef = useRef<(() => StreamingInsertHandle) | null>(null);
   const editorContainerRef = useRef<HTMLDivElement | null>(null);
+
+  // Bloc embed Gmail (Phase 2) : le bloc appelle `pickEmail()` qui ouvre une
+  // modal EmailPicker ; on résout la promesse avec le threadId choisi (ou null
+  // si annulé) via un ref-resolver.
+  const [gmailPickerOpen, setGmailPickerOpen] = useState(false);
+  const gmailResolveRef = useRef<((id: string | null) => void) | null>(null);
+  const pickEmail = useCallback(
+    () =>
+      new Promise<string | null>((resolve) => {
+        gmailResolveRef.current = resolve;
+        setGmailPickerOpen(true);
+      }),
+    [],
+  );
+  const handleGmailSelect = useCallback((id: string) => {
+    setGmailPickerOpen(false);
+    gmailResolveRef.current?.(id);
+    gmailResolveRef.current = null;
+  }, []);
+  const handleGmailCancel = useCallback(() => {
+    setGmailPickerOpen(false);
+    gmailResolveRef.current?.(null);
+    gmailResolveRef.current = null;
+  }, []);
+  const gmailEmbed = useMemo(() => ({ render: renderGmailMessage, pickEmail }), [pickEmail]);
   // Mirror saveStatus into a ref so the external-body guard below can read
   // the latest status without re-running the effect on every status flip
   // (which would otherwise re-evaluate the remount decision the moment a
@@ -1352,6 +1379,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
               renderEmbed={renderNotePortal}
               renderDoodle={renderDoodle}
               renderGoogleSheet={renderGoogleSheet}
+              gmailEmbed={gmailEmbed}
               aiClient={aiClient}
               aiPromptResolver={aiPromptResolver}
               noteTitle={title}
@@ -1383,6 +1411,11 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
       </div>
       <NoteFormulaModalHost
         stubBase={{ id: "_note", name: "Note", plural: "Notes", fields: [], defaultPath: "", fileNamePattern: "{name}" }}
+      />
+      <GmailPickerModal
+        isOpen={gmailPickerOpen}
+        onSelect={handleGmailSelect}
+        onClose={handleGmailCancel}
       />
 
       {presenting && (
