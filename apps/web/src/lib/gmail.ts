@@ -218,3 +218,36 @@ export function buildRawMessage(input: { to?: string; subject: string; body: str
   lines.push(input.body);
   return lines.join("\r\n");
 }
+
+export interface DraftResult {
+  draftId: string;
+}
+
+/**
+ * Crée un brouillon Gmail (jamais d'envoi). Scope `gmail.compose` demandé en
+ * incrémental (consentement au 1ᵉʳ appel). Le message raw est un RFC 2822
+ * encodé base64url. L'utilisateur relit/envoie depuis Gmail.
+ */
+export async function createDraft(
+  clientId: string,
+  input: { to?: string; subject: string; body: string },
+): Promise<DraftResult> {
+  const token = await requestAccessToken(clientId, { scope: GMAIL_COMPOSE_SCOPE, prompt: "" });
+  const raw = toBase64Url(buildRawMessage(input));
+  const res = await fetch(`${GMAIL_API_BASE}/drafts`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ message: { raw } }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Gmail draft ${res.status}: ${text.slice(0, 300)}`);
+  }
+  const json = (await res.json()) as { id?: string };
+  return { draftId: json.id ?? "" };
+}
+
+/** URL web d'un brouillon Gmail (à ouvrir après création). */
+export function buildGmailDraftUrl(draftId: string): string {
+  return `https://mail.google.com/mail/u/0/#drafts?compose=${encodeURIComponent(draftId)}`;
+}
