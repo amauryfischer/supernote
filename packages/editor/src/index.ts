@@ -41,6 +41,10 @@ export {
   parseGoogleSheetUrl,
   buildPubhtmlUrl,
   buildOpenUrl,
+  gmailMessageBlockSpec,
+  GmailEmbedProvider,
+  useGmailEmbed,
+  buildGmailThreadUrl,
 } from "./blocks/index.js";
 export type {
   CodeLanguage,
@@ -54,6 +58,8 @@ export type {
   GoogleSheetRenderProps,
   GoogleSheetRenderer,
   GoogleSheetRef,
+  GmailEmbedApi,
+  GmailEmbedRenderProps,
 } from "./blocks/index.js";
 
 // Serialization utilities

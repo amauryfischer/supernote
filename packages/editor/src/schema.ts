@@ -13,6 +13,7 @@ import {
   doodleBlockSpec,
   embedBlockSpec,
   googleSheetBlockSpec,
+  gmailMessageBlockSpec,
   heroCheckListItemSpec,
   wikilinkInlineSpec,
   mentionInlineSpec,
@@ -39,6 +40,7 @@ export const supernoteSchema = BlockNoteSchema.create({
     databaseView: databaseViewBlockSpec(),
     formula: formulaBlockSpec(),
     googleSheet: googleSheetBlockSpec(),
+    gmailMessage: gmailMessageBlockSpec(),
   },
   inlineContentSpecs: {
     ...defaultInlineContentSpecs,

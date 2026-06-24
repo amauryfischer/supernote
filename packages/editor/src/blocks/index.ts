@@ -32,6 +32,13 @@ export {
 } from "./googleSheetUrl.js";
 export type { GoogleSheetRef } from "./googleSheetUrl.js";
 export {
+  gmailMessageBlockSpec,
+  GmailEmbedProvider,
+  useGmailEmbed,
+} from "./gmailMessage.js";
+export type { GmailEmbedApi, GmailEmbedRenderProps } from "./gmailMessage.js";
+export { buildGmailThreadUrl } from "./gmailEmbedUrl.js";
+export {
   databaseViewBlockSpec,
   DatabaseViewProvider,
   useDatabaseViewRenderer,
