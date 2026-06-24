@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Button } from "@heroui/react";
+import { FilePlus } from "@phosphor-icons/react";
 import { useNavigate } from "react-router-dom";
 import { useSettings } from "@/components/settings/SettingsContext";
 import { useMobileTitle } from "@/components/shell";
@@ -7,7 +8,9 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import { useGmailConnected } from "@/hooks/useGmailConnected";
 import { EmailPicker } from "@/components/mail/EmailPicker";
 import { EmailThreadView } from "@/components/mail/EmailThreadView";
+import { useCaptureEmail } from "@/components/mail/useCaptureEmail";
 import { getThread, type EmailThread } from "@/lib/gmail";
+import { useToast } from "@supernote/ui";
 
 export default function MailPage() {
   const { settings } = useSettings();
@@ -18,9 +21,28 @@ export default function MailPage() {
   const clientId = settings.googleDrive.clientId.trim();
   const connected = useGmailConnected();
 
+  const { captureToNote } = useCaptureEmail();
+  const { toast } = useToast();
+
   const [thread, setThread] = useState<EmailThread | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const handleCaptureNote = async () => {
+    const msg = thread?.messages[0];
+    if (!msg) return;
+    try {
+      const id = await captureToNote(msg);
+      toast({ title: "Note créée depuis l'email", description: "Dans Inbox." });
+      navigate(`/notes/${id}`);
+    } catch (err) {
+      toast({
+        title: "Échec de la capture",
+        description: err instanceof Error ? err.message : String(err),
+        variant: "danger",
+      });
+    }
+  };
 
   const openThread = async (threadId: string) => {
     setLoading(true);
@@ -65,7 +87,16 @@ export default function MailPage() {
             {error}
           </p>
         )}
-        {!loading && !error && thread && <EmailThreadView thread={thread} />}
+        {!loading && !error && thread && (
+          <>
+            <div className="mb-3 flex gap-2">
+              <Button variant="ghost" size="sm" onPress={() => void handleCaptureNote()}>
+                <FilePlus size={16} /> Capturer en note
+              </Button>
+            </div>
+            <EmailThreadView thread={thread} />
+          </>
+        )}
         {!loading && !error && !thread && (
           <p className="text-sm" style={{ color: "var(--text-muted)" }}>
             Sélectionne un email.
