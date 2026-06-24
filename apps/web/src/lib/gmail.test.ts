@@ -235,6 +235,12 @@ describe("createDraft", () => {
     await expect(createDraft("cid", { subject: "s", body: "b" })).rejects.toThrow(/Gmail draft 403/);
     vi.unstubAllGlobals();
   });
+
+  it("lève si la réponse 200 n'a pas d'id (pas de fausse réussite)", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({}) })));
+    await expect(createDraft("cid", { subject: "s", body: "b" })).rejects.toThrow(/sans id/);
+    vi.unstubAllGlobals();
+  });
 });
 
 describe("buildGmailDraftUrl", () => {

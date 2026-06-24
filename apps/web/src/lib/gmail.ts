@@ -244,7 +244,10 @@ export async function createDraft(
     throw new Error(`Gmail draft ${res.status}: ${text.slice(0, 300)}`);
   }
   const json = (await res.json()) as { id?: string };
-  return { draftId: json.id ?? "" };
+  if (!json.id) {
+    throw new Error("Réponse Gmail inattendue : brouillon sans id.");
+  }
+  return { draftId: json.id };
 }
 
 /** URL web d'un brouillon Gmail (à ouvrir après création). */
