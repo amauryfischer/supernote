@@ -70,6 +70,10 @@ export function buildMailOverlay(
   for (const it of items) {
     if (consumed.has(it.id)) continue;
     const key = it.from.email || it.from.name;
+    // From illisible (name+email vides) → ne pas regrouper sous une clé "" :
+    // ça fusionnerait des expéditeurs distincts en un faux groupe sans titre.
+    // On laisse ces items tomber en lignes seules.
+    if (!key) continue;
     const arr = bySender.get(key);
     if (arr) arr.push(it);
     else bySender.set(key, [it]);
