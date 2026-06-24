@@ -86,4 +86,35 @@ describe("parseGmailMessage", () => {
     expect(m.from).toEqual({ name: "", email: "" });
     expect(m.bodyText).toBe("");
   });
+
+  it("ne renvoie pas un mono-part binaire comme corps", () => {
+    const m = parseGmailMessage({
+      id: "b",
+      threadId: "b",
+      payload: {
+        mimeType: "image/png",
+        headers: [{ name: "Subject", value: "Photo" }],
+        body: { data: "iVBORw0KGgo" }, // entête PNG, pas du texte
+      },
+    });
+    expect(m.bodyText).toBe("");
+  });
+
+  it("descend dans un multipart imbriqué (mixed → alternative → text/plain)", () => {
+    const m = parseGmailMessage({
+      id: "n",
+      threadId: "n",
+      payload: {
+        mimeType: "multipart/mixed",
+        headers: [],
+        parts: [
+          {
+            mimeType: "multipart/alternative",
+            parts: [{ mimeType: "text/plain", body: { data: "Qm9uam91cg" } }], // "Bonjour"
+          },
+        ],
+      },
+    });
+    expect(m.bodyText).toBe("Bonjour");
+  });
 });

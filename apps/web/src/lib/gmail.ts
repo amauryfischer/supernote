@@ -107,8 +107,10 @@ function findPlainText(part: GmailPart | undefined): string {
     const found = findPlainText(sub);
     if (found) return found;
   }
-  // Fallback : payload mono-part sans mimeType explicite mais avec data.
-  if (!part.parts && part.body?.data && !part.mimeType?.startsWith("text/html")) {
+  // Fallback : payload mono-part text/plain (ou sans mimeType explicite). On
+  // NE décode PAS un mono-part binaire (image/pdf/octet-stream) — sinon on
+  // renverrait du charabia comme corps.
+  if (!part.parts && part.body?.data && (!part.mimeType || part.mimeType === "text/plain")) {
     return decodeBody(part.body.data);
   }
   return "";
@@ -128,6 +130,9 @@ export function parseGmailMessage(raw: GmailRawMessage): EmailMessage {
     threadId: raw.threadId,
     subject: header(p, "Subject"),
     from: parseAddress(header(p, "From")),
+    // Limite P1 connue : split naïf sur "," → une virgule dans un nom affiché
+    // entre guillemets ("Nom, Prénom" <a@b>) casse la liste. Acceptable : rare,
+    // n'affecte que l'affichage des destinataires (pas la sécurité ni le corps).
     to: toRaw ? toRaw.split(",").map((a) => parseAddress(a)) : [],
     date: toIsoDate(header(p, "Date")),
     snippet: raw.snippet ?? "",
