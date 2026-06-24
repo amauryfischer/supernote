@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { getGmailProfile, parseGmailMessage, parseAddress, decodeBody, type GmailRawMessage } from "./gmail";
+import { searchThreads, getThread, type ThreadSummary } from "./gmail";
 
 // requestAccessToken touche GIS → on le stubbe pour tous les tests gmail.
 vi.mock("./google-drive", () => ({
@@ -116,5 +117,58 @@ describe("parseGmailMessage", () => {
       },
     });
     expect(m.bodyText).toBe("Bonjour");
+  });
+});
+
+describe("searchThreads", () => {
+  it("retourne les threads (id + snippet)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => ({
+          threads: [
+            { id: "t1", snippet: "premier" },
+            { id: "t2", snippet: "second" },
+          ],
+        }),
+      })),
+    );
+    const out: ThreadSummary[] = await searchThreads("cid", "is:unread");
+    expect(out.map((t) => t.id)).toEqual(["t1", "t2"]);
+    vi.unstubAllGlobals();
+  });
+
+  it("aucun résultat → []", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({}) })));
+    expect(await searchThreads("cid", "vide")).toEqual([]);
+    vi.unstubAllGlobals();
+  });
+});
+
+describe("getThread", () => {
+  it("parse tous les messages du thread", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => ({
+          id: "t1",
+          messages: [
+            {
+              id: "m1",
+              threadId: "t1",
+              snippet: "s",
+              payload: { headers: [{ name: "Subject", value: "Hi" }] },
+            },
+          ],
+        }),
+      })),
+    );
+    const thread = await getThread("cid", "t1");
+    expect(thread.id).toBe("t1");
+    expect(thread.messages).toHaveLength(1);
+    expect(thread.messages[0]!.subject).toBe("Hi");
+    vi.unstubAllGlobals();
   });
 });

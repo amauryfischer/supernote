@@ -140,3 +140,44 @@ export function parseGmailMessage(raw: GmailRawMessage): EmailMessage {
     webLink: `https://mail.google.com/mail/u/0/#all/${raw.id}`,
   };
 }
+
+// ─── Thread search & read (P1) ────────────────────────────────────────────────
+
+export interface ThreadSummary {
+  id: string;
+  snippet: string;
+}
+
+export interface EmailThread {
+  id: string;
+  messages: EmailMessage[];
+}
+
+/**
+ * Recherche de threads via la syntaxe Gmail (`q`) : `from:`, `is:unread`,
+ * `subject:`, `after:`, etc. `maxResults` borne la page (défaut 20).
+ */
+export async function searchThreads(
+  clientId: string,
+  query: string,
+  maxResults = 20,
+): Promise<ThreadSummary[]> {
+  const qs = `?q=${encodeURIComponent(query)}&maxResults=${maxResults}`;
+  const json = await gmailFetch<{ threads?: Array<{ id: string; snippet?: string }> }>(
+    clientId,
+    `/threads${qs}`,
+  );
+  return (json.threads ?? []).map((t) => ({ id: t.id, snippet: t.snippet ?? "" }));
+}
+
+/** Lit un thread complet (format=full) et parse chaque message. */
+export async function getThread(clientId: string, threadId: string): Promise<EmailThread> {
+  const json = await gmailFetch<{ id: string; messages?: GmailRawMessage[] }>(
+    clientId,
+    `/threads/${encodeURIComponent(threadId)}?format=full`,
+  );
+  return {
+    id: json.id,
+    messages: (json.messages ?? []).map((m) => parseGmailMessage(m)),
+  };
+}
