@@ -110,40 +110,48 @@ function loadGis(): Promise<void> {
 
 // ── Token management ────────────────────────────────────────────────────────
 
-interface CachedToken {
+export interface CachedToken {
   accessToken: string;
   expiresAt: number;
   clientId: string;
+  scope: string;
 }
 
-let cachedToken: CachedToken | null = null;
+// Cache un token PAR (clientId, scope) : Drive et Gmail demandent des scopes
+// différents et ne doivent pas s'écraser. Clé = `${clientId} ${scope}`.
+const tokenCache = new Map<string, CachedToken>();
 
-function isTokenFresh(token: CachedToken | null, clientId: string): boolean {
+const cacheKey = (clientId: string, scope: string) => `${clientId} ${scope}`;
+
+/** Exporté pour les tests — ne pas utiliser ailleurs. */
+export function __isTokenFresh(
+  token: CachedToken | null,
+  clientId: string,
+  scope: string,
+): boolean {
   if (!token) return false;
   if (token.clientId !== clientId) return false;
-  // 60 s safety margin so we don't try to use a token that expires
-  // mid-request.
+  if (token.scope !== scope) return false;
+  // 60 s de marge pour ne pas utiliser un token qui expire en plein vol.
   return token.expiresAt > Date.now() + 60_000;
 }
 
 /**
- * Get an access token for the configured Drive scope. Reuses the cached
- * token if still fresh; otherwise pops the OAuth grant flow.
+ * Récupère un access token pour `scope` (défaut = scopes Drive). Réutilise le
+ * token caché s'il est frais ; sinon lance le flux de consentement OAuth.
  *
- * `prompt`:
- *   - `""` (default): silent grant if the user has already approved the
- *     scope in this Google session — otherwise pops the consent dialog.
- *   - `"consent"`: always shows the consent dialog (use for "Connect"
- *     button to make the act of authorising explicit).
- *   - `"none"`: never prompts — fails if no silent grant available.
+ * `prompt` : "" (silencieux si déjà accordé), "consent" (force le dialogue),
+ * "none" (échoue si pas de grant silencieux).
  */
 export async function requestAccessToken(
   clientId: string,
-  opts: { prompt?: "" | "consent" | "none" } = {},
+  opts: { prompt?: "" | "consent" | "none"; scope?: string } = {},
 ): Promise<string> {
-  if (!clientId) throw new Error("Google Drive: no clientId configured");
-  if (isTokenFresh(cachedToken, clientId)) {
-    return cachedToken!.accessToken;
+  if (!clientId) throw new Error("Google: no clientId configured");
+  const scope = opts.scope ?? OAUTH_SCOPE;
+  const cached = tokenCache.get(cacheKey(clientId, scope)) ?? null;
+  if (__isTokenFresh(cached, clientId, scope)) {
+    return cached!.accessToken;
   }
   await loadGis();
   const google = window.google;
@@ -152,7 +160,7 @@ export async function requestAccessToken(
   return new Promise<string>((resolve, reject) => {
     const tokenClient = google.accounts.oauth2.initTokenClient({
       client_id: clientId,
-      scope: OAUTH_SCOPE,
+      scope,
       callback: (response) => {
         if (response.error) {
           reject(new Error(`OAuth error: ${response.error} ${response.error_description ?? ""}`));
@@ -162,11 +170,12 @@ export async function requestAccessToken(
           reject(new Error("OAuth response missing access_token"));
           return;
         }
-        cachedToken = {
+        tokenCache.set(cacheKey(clientId, scope), {
           accessToken: response.access_token,
           expiresAt: Date.now() + (response.expires_in ?? 3600) * 1000,
           clientId,
-        };
+          scope,
+        });
         resolve(response.access_token);
       },
       error_callback: (err) => {
@@ -177,17 +186,18 @@ export async function requestAccessToken(
   });
 }
 
-/** Clear the in-memory token (e.g. on "Disconnect" from settings). */
-export function clearAccessToken(): void {
-  if (cachedToken) {
-    const token = cachedToken.accessToken;
-    cachedToken = null;
-    // Best-effort: revoke the grant so the next request shows the consent
-    // dialog. Fire-and-forget — the user disconnected, we don't care if
-    // the revoke fails.
+/**
+ * Vide les tokens en cache. `scope` fourni → ne révoque/efface que ce scope
+ * (ex. déconnexion Gmail sans casser Drive). Sans scope → tout.
+ */
+export function clearAccessToken(opts: { clientId?: string; scope?: string } = {}): void {
+  for (const [key, token] of [...tokenCache.entries()]) {
+    if (opts.clientId && token.clientId !== opts.clientId) continue;
+    if (opts.scope && token.scope !== opts.scope) continue;
+    tokenCache.delete(key);
     if (window.google?.accounts?.oauth2) {
       try {
-        window.google.accounts.oauth2.revoke(token);
+        window.google.accounts.oauth2.revoke(token.accessToken);
       } catch {
         /* ignore */
       }
@@ -195,9 +205,9 @@ export function clearAccessToken(): void {
   }
 }
 
-/** True if we have a non-expired cached token for this clientId. */
-export function hasValidToken(clientId: string): boolean {
-  return isTokenFresh(cachedToken, clientId);
+/** True si un token frais existe pour ce clientId+scope (défaut Drive). */
+export function hasValidToken(clientId: string, scope: string = OAUTH_SCOPE): boolean {
+  return __isTokenFresh(tokenCache.get(cacheKey(clientId, scope)) ?? null, clientId, scope);
 }
 
 // ── Drive API ────────────────────────────────────────────────────────────────
