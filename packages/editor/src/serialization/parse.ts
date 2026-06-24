@@ -206,6 +206,15 @@ function parseLine(line: string): AnyBlock | null {
     };
   }
 
+  // Bloc gmailMessage — sérialisé par serialize.ts en `[gmail threadId="..."]`.
+  const gmailMatch = /^\[gmail\s+threadId="((?:[^"\\]|\\.)*)"\]\s*$/.exec(line);
+  if (gmailMatch) {
+    return {
+      type: "gmailMessage",
+      props: { threadId: unescapeAttr(gmailMatch[1] ?? "") },
+    };
+  }
+
   // Embed: ![[target]] or ![[target|alias]]
   const embedMatch = /^!\[\[([^\]|]+)(?:\|([^\]]+))?\]\]$/.exec(line);
   if (embedMatch) {

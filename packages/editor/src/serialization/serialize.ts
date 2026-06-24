@@ -183,6 +183,13 @@ function blockToMarkdownLine(block: AnyBlock): string {
       return `[googleSheet url="${escapeAttr(url)}"]`;
     }
 
+    case "gmailMessage": {
+      // Bloc Gmail — ligne dédiée pour que le round-trip markdown préserve le
+      // thread (threadId vide sérialisé quand même pour survivre au reload).
+      const threadId = (props.threadId as string) ?? "";
+      return `[gmail threadId="${escapeAttr(threadId)}"]`;
+    }
+
     default:
       return serializeInlineContent(block.content);
   }

@@ -205,6 +205,38 @@ describe("googleSheet block", () => {
   });
 });
 
+// ── Gmail Message ─────────────────────────────────────────────
+
+describe("gmailMessage block", () => {
+  it("round-trip bloc gmailMessage", () => {
+    const md = '[gmail threadId="thread_abc123"]';
+    const blocks = markdownToBlocks(md);
+    expect(blocks).toHaveLength(1);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const b = blocks[0] as any;
+    expect(b.type).toBe("gmailMessage");
+    expect(b.props.threadId).toBe("thread_abc123");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const back = blocksToMarkdown(blocks as any);
+    expect(back.trim()).toBe(md);
+  });
+
+  it("round-trips un threadId vide (bloc vierge survit au reload)", () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const blocks: any[] = [
+      { type: "gmailMessage", props: { threadId: "" }, content: undefined, children: [] },
+    ];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const md = blocksToMarkdown(blocks as any);
+    expect(md).toBe('[gmail threadId=""]');
+    const parsed = markdownToBlocks(md);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const b = parsed[0] as any;
+    expect(b.type).toBe("gmailMessage");
+    expect(b.props.threadId).toBe("");
+  });
+});
+
 // ── Mention ───────────────────────────────────────────────────
 
 describe("mention inline", () => {
