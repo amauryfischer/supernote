@@ -414,13 +414,37 @@ export function getSupernoteSlashMenuItems(
     },
   };
 
+  // Gmail — embed lecture-seule d'un thread Gmail.
+  // contentEditable=false → paragraphe trailing pour ne pas piéger le curseur.
+  const gmailItem: DefaultReactSuggestionItem = {
+    title: "Email",
+    subtext: "Insère un email Gmail (lecture seule)",
+    group: "Bases",
+    aliases: ["email", "mail", "gmail", "courriel", "message"],
+    icon: <span aria-hidden="true">✉️</span>,
+    onItemClick() {
+      const inserted = editor.insertBlocks(
+        [
+          { type: "gmailMessage" as any, props: { threadId: "" } } as any,
+          { type: "paragraph" } as any,
+        ],
+        editor.getTextCursorPosition().block,
+        "after",
+      );
+      const trailing = inserted?.[1];
+      if (trailing) {
+        editor.setTextCursorPosition(trailing as any, "start");
+      }
+    },
+  };
+
   const entityLinkItems = ENTITY_LINK_CONFIGS.map((cfg) =>
     makeEntityLinkItem(editor, cfg, openPicker)
   );
 
   const aiItems: DefaultReactSuggestionItem[] = onAskAi ? [makeAskAiItem(onAskAi)] : [];
 
-  return [...defaults, ...calloutItems, codeItem, embedItem, databaseViewItem, googleSheetItem, formulaItem, ...liveFormulaItems, doodleItem, ...entityLinkItems, ...aiItems];
+  return [...defaults, ...calloutItems, codeItem, embedItem, databaseViewItem, googleSheetItem, gmailItem, formulaItem, ...liveFormulaItems, doodleItem, ...entityLinkItems, ...aiItems];
 }
 
 // ── Suggestion menu renderer ──────────────────────────────────────────────────
