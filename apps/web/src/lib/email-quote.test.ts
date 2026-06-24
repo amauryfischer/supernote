@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { splitQuotedReply } from "./email-quote";
+import { splitQuotedReply, stripSignature, parseEmailBody } from "./email-quote";
 
 describe("splitQuotedReply", () => {
   it("sépare le texte neuf de la citation (top-post)", () => {
@@ -45,5 +45,52 @@ describe("splitQuotedReply", () => {
 
   it("chaîne vide → vide", () => {
     expect(splitQuotedReply("")).toEqual({ body: "", quoted: "" });
+  });
+});
+
+describe("stripSignature", () => {
+  it("coupe au délimiteur standard '-- '", () => {
+    const raw = ["Le texte du mail.", "-- ", "Jean Dupont", "01 23 45 67 89"].join("\n");
+    const { body, signature } = stripSignature(raw);
+    expect(body).toBe("Le texte du mail.");
+    expect(signature).toContain("Jean Dupont");
+  });
+
+  it("coupe à une salutation précédée de contenu", () => {
+    const raw = ["Voici ma réponse.", "", "Cordialement,", "Jean Dupont", "[image]"].join("\n");
+    const { body, signature } = stripSignature(raw);
+    expect(body).toBe("Voici ma réponse.");
+    expect(signature).toContain("Cordialement,");
+    expect(signature).toContain("[image]");
+  });
+
+  it("salutation seule (pas de contenu avant) → NON coupée", () => {
+    const { body, signature } = stripSignature("Merci");
+    expect(body).toBe("Merci");
+    expect(signature).toBe("");
+  });
+
+  it("sans signature → tout en body", () => {
+    const { body, signature } = stripSignature("Une simple ligne.");
+    expect(body).toBe("Une simple ligne.");
+    expect(signature).toBe("");
+  });
+});
+
+describe("parseEmailBody", () => {
+  it("retire citation ET signature", () => {
+    const raw = [
+      "Bien reçu, merci !",
+      "",
+      "Cordialement,",
+      "Ada",
+      "",
+      "Le 24 juin 2026, Bob a écrit :",
+      "> message d'origine",
+    ].join("\n");
+    const { body, quoted, signature } = parseEmailBody(raw);
+    expect(body).toBe("Bien reçu, merci !");
+    expect(signature).toContain("Cordialement,");
+    expect(quoted).toContain("> message d'origine");
   });
 });

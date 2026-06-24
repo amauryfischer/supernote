@@ -67,7 +67,9 @@ function GmailMessageView({ threadId, url, onClear }: GmailEmbedRenderProps) {
       </div>
       {loading && <p className="text-sm" style={{ color: "var(--text-muted)" }}>Chargement…</p>}
       {error && <p className="text-sm" style={{ color: "var(--color-danger, #ef4444)" }}>{error}</p>}
-      {!loading && !error && thread && <EmailThreadView thread={thread} />}
+      {!loading && !error && thread && (
+        <EmailThreadView thread={thread} selfEmail={settings.gmail.connectedEmail} />
+      )}
     </div>
   );
 }

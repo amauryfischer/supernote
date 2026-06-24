@@ -59,3 +59,55 @@ export function splitQuotedReply(raw: string): SplitReply {
   const quoted = lines.slice(cut).join("\n").trim();
   return { body, quoted };
 }
+
+// Lignes de salutation/clôture qui ouvrent une signature.
+const SIGNOFF =
+  /^(cordialement|bien (?:à|a) vous|bien cordialement|cordialement v[oô]tre|bonne (?:journée|soir[ée]e|r[ée]ception|continuation)|sinc[èe]res salutations|salutations(?: distingu[ée]es)?|merci(?: d'avance| par avance)?|[àa] bient[ôo]t|[àa] tr[èe]s bient[ôo]t|regards|best(?: regards)?|kind regards|cheers|thanks|thank you)\b[\s,.!–-]*$/i;
+
+export interface StripSignature {
+  /** Texte sans la signature. */
+  body: string;
+  /** Bloc signature retiré, vide s'il n'y en a pas. */
+  signature: string;
+}
+
+/**
+ * Sépare le texte de sa signature. Coupe au délimiteur standard `-- ` (RFC 3676)
+ * ou, à défaut, à la première ligne de salutation (« Cordialement, »…) PRÉCÉDÉE
+ * de contenu — pour ne pas masquer une réponse qui n'est qu'un « Merci ». Pur.
+ */
+export function stripSignature(text: string): StripSignature {
+  if (!text) return { body: "", signature: "" };
+  const lines = text.split(/\r?\n/);
+
+  let cut = lines.findIndex((l) => l === "-- " || l.trim() === "--");
+  if (cut === -1) {
+    for (let i = 0; i < lines.length; i++) {
+      if (SIGNOFF.test(lines[i]!.trim()) && lines.slice(0, i).some((l) => l.trim() !== "")) {
+        cut = i;
+        break;
+      }
+    }
+  }
+  if (cut === -1) return { body: text.replace(/\s+$/, ""), signature: "" };
+
+  const body = lines.slice(0, cut).join("\n").replace(/\s+$/, "");
+  const signature = lines.slice(cut).join("\n").trim();
+  return { body, signature };
+}
+
+export interface ParsedBody {
+  /** Texte neuf de la réponse (citation + signature retirées). */
+  body: string;
+  /** Citation rajoutée. */
+  quoted: string;
+  /** Signature. */
+  signature: string;
+}
+
+/** Découpe complète : retire la citation puis la signature du reste. */
+export function parseEmailBody(raw: string): ParsedBody {
+  const { body: afterQuote, quoted } = splitQuotedReply(raw);
+  const { body, signature } = stripSignature(afterQuote);
+  return { body, quoted, signature };
+}

@@ -191,7 +191,7 @@ export default function MailPage() {
         <>
           {captureBar}
           <div className="flex-1 overflow-y-auto px-4 pb-6">
-            <EmailThreadView thread={thread} />
+            <EmailThreadView thread={thread} selfEmail={settings.gmail.connectedEmail} />
           </div>
         </>
       )}
