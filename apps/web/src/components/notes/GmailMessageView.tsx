@@ -57,6 +57,9 @@ function GmailMessageView({ threadId, url, onClear }: GmailEmbedRenderProps) {
               Ouvrir ↗
             </a>
           )}
+          {/* <button> natif : chrome interne d'un bloc éditeur self-contained
+              (même exception que FallbackCard du bloc gmailMessage) — pas de
+              Button HeroUI ici pour rester léger dans le rendu de bloc. */}
           <button type="button" onClick={onClear} style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer" }}>
             changer
           </button>

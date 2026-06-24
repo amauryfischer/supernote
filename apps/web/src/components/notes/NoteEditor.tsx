@@ -227,6 +227,10 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
   const pickEmail = useCallback(
     () =>
       new Promise<string | null>((resolve) => {
+        // Si un picker précédent est resté en attente (cas multi-blocs), on le
+        // clôt proprement (null) avant d'écraser le resolver — évite une
+        // promesse suspendue à jamais.
+        gmailResolveRef.current?.(null);
         gmailResolveRef.current = resolve;
         setGmailPickerOpen(true);
       }),
