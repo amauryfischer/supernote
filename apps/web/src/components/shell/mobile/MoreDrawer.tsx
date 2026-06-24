@@ -7,6 +7,7 @@ import {
   Calendar,
   Cloud,
   Desktop,
+  EnvelopeSimple,
   Function,
   Gear,
   GridNine,
@@ -26,6 +27,7 @@ import { Button, Drawer, useAppTheme, type ThemeValue } from "@supernote/ui";
 import { memo, useCallback, useEffect, useState } from "react";
 import { NotificationBadge, useNotifications } from "@supernote/notifications/renderer";
 import { useVault } from "@/lib/pwa/PwaVaultSetup";
+import { useSettings } from "@/components/settings";
 import { MobileVaultSwitcher } from "./MobileVaultSwitcher";
 import { ShortcutsCheatSheet } from "@/components/notes/ShortcutsCheatSheet";
 
@@ -102,6 +104,7 @@ const SECTIONS: MoreSection[] = [
       { label: "Habitudes", href: "/habits", icon: GridNine, tint: "oklch(0.62 0.20 295)" },
       { label: "Journal", href: "/journal", icon: Calendar, tint: "oklch(0.65 0.20 30)" },
       { label: "Contacts", href: "/contacts", icon: Users, tint: "oklch(0.62 0.20 220)" },
+      { label: "Mail", href: "/mail", icon: EnvelopeSimple, tint: "oklch(0.62 0.20 20)" },
       { label: "Finance", href: "/finance", icon: Wallet, tint: "oklch(0.62 0.20 150)" },
       { label: "Archive", href: "/archive", icon: Archive, tint: "oklch(0.55 0.05 260)" },
     ],
@@ -141,6 +144,9 @@ export const MoreDrawer = memo(function MoreDrawer({
 }) {
   const { unreadCount } = useNotifications();
   const vault = useVault();
+  const { settings } = useSettings();
+  const gmailConnected =
+    !!settings.gmail.connectedEmail && !!settings.googleDrive.clientId.trim();
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [cheatOpen, setCheatOpen] = useState(false);
   // Reset to the menu whenever the drawer closes, so reopening "Plus" never
@@ -296,7 +302,12 @@ export const MoreDrawer = memo(function MoreDrawer({
               its rows, with a small uppercase label above. Rows separated
               by a 1 px hairline so the card reads as a list, not a stack of
               independent buttons. */}
-          {SECTIONS.map((section) => (
+          {SECTIONS.map((section) => {
+            const visibleItems = section.items.filter(
+              (item) => item.href !== "/mail" || gmailConnected,
+            );
+            if (visibleItems.length === 0) return null;
+            return (
             <div key={section.title} className="mb-6">
               <p
                 className="mb-1.5 px-3 text-[11px] font-semibold uppercase tracking-wider"
@@ -308,9 +319,9 @@ export const MoreDrawer = memo(function MoreDrawer({
                 className="overflow-hidden rounded-2xl"
                 style={{ backgroundColor: "var(--surface-1)" }}
               >
-                {section.items.map((item, idx) => {
+                {visibleItems.map((item, idx) => {
                   const Icon = item.icon;
-                  const isLast = idx === section.items.length - 1;
+                  const isLast = idx === visibleItems.length - 1;
                   return (
                     <Link
                       key={item.href}
@@ -347,7 +358,8 @@ export const MoreDrawer = memo(function MoreDrawer({
                 })}
               </div>
             </div>
-          ))}
+            );
+          })}
 
           {/* Coffres — entrée pour connecter un salon cloud (ouvre la même
               modale que le bouton « Connecter un vault » du FileTree desktop). */}
