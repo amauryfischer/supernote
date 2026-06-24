@@ -42,3 +42,96 @@ export async function getGmailProfile(clientId: string): Promise<string> {
   const json = await gmailFetch<{ emailAddress?: string }>(clientId, "/profile");
   return json.emailAddress ?? "";
 }
+
+// ─── Types & parseurs purs (P1) ───────────────────────────────────────────────
+
+export interface EmailAddress {
+  name: string;
+  email: string;
+}
+
+export interface EmailMessage {
+  id: string;
+  threadId: string;
+  subject: string;
+  from: EmailAddress;
+  to: EmailAddress[];
+  date: string; // ISO, "" si non parsable
+  snippet: string;
+  bodyText: string; // text/plain uniquement en P1 (pas de HTML)
+  webLink: string;
+}
+
+export interface GmailRawMessage {
+  id: string;
+  threadId: string;
+  snippet?: string;
+  payload?: GmailPart;
+}
+
+interface GmailPart {
+  mimeType?: string;
+  headers?: Array<{ name: string; value: string }>;
+  body?: { data?: string; size?: number };
+  parts?: GmailPart[];
+}
+
+/** Décode le base64url Gmail (- _ , pas de padding) en chaîne UTF-8. */
+export function decodeBody(data: string): string {
+  if (!data) return "";
+  const b64 = data.replace(/-/g, "+").replace(/_/g, "/");
+  const bin = atob(b64);
+  const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
+  return new TextDecoder("utf-8").decode(bytes);
+}
+
+/** Parse "Nom <email>" ou "email" en {name,email}. */
+export function parseAddress(raw: string): EmailAddress {
+  const s = raw.trim();
+  if (!s) return { name: "", email: "" };
+  const m = s.match(/^(.*?)\s*<([^>]+)>$/);
+  if (m) return { name: m[1]!.trim().replace(/^"|"$/g, ""), email: m[2]!.trim() };
+  return { name: s, email: s };
+}
+
+function header(part: GmailPart | undefined, name: string): string {
+  const h = part?.headers?.find((x) => x.name.toLowerCase() === name.toLowerCase());
+  return h?.value ?? "";
+}
+
+/** Trouve récursivement le premier corps text/plain dans l'arbre des parts. */
+function findPlainText(part: GmailPart | undefined): string {
+  if (!part) return "";
+  if (part.mimeType === "text/plain" && part.body?.data) return decodeBody(part.body.data);
+  for (const sub of part.parts ?? []) {
+    const found = findPlainText(sub);
+    if (found) return found;
+  }
+  // Fallback : payload mono-part sans mimeType explicite mais avec data.
+  if (!part.parts && part.body?.data && !part.mimeType?.startsWith("text/html")) {
+    return decodeBody(part.body.data);
+  }
+  return "";
+}
+
+function toIsoDate(raw: string): string {
+  if (!raw) return "";
+  const t = Date.parse(raw);
+  return Number.isNaN(t) ? "" : new Date(t).toISOString();
+}
+
+export function parseGmailMessage(raw: GmailRawMessage): EmailMessage {
+  const p = raw.payload;
+  const toRaw = header(p, "To");
+  return {
+    id: raw.id,
+    threadId: raw.threadId,
+    subject: header(p, "Subject"),
+    from: parseAddress(header(p, "From")),
+    to: toRaw ? toRaw.split(",").map((a) => parseAddress(a)) : [],
+    date: toIsoDate(header(p, "Date")),
+    snippet: raw.snippet ?? "",
+    bodyText: findPlainText(p),
+    webLink: `https://mail.google.com/mail/u/0/#all/${raw.id}`,
+  };
+}
