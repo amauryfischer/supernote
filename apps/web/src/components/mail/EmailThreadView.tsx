@@ -1,7 +1,9 @@
 "use client";
 
+import { useState } from "react";
 import { ArrowSquareOut } from "@phosphor-icons/react";
 import type { EmailThread, EmailMessage } from "@/lib/gmail";
+import { splitQuotedReply } from "@/lib/email-quote";
 
 /**
  * Affichage lecture seule d'un thread Gmail. Corps rendu en TEXTE BRUT
@@ -27,6 +29,10 @@ export function EmailThreadView({ thread }: { thread: EmailThread }) {
 
 function MessageCard({ message }: { message: EmailMessage }) {
   const date = message.date ? new Date(message.date).toLocaleString() : "";
+  // Sépare le texte neuf de la citation rajoutée (chaîne du message d'origine)
+  // pour ne montrer que la réponse ; la citation reste dépliable.
+  const { body, quoted } = splitQuotedReply(message.bodyText || message.snippet);
+  const [showQuote, setShowQuote] = useState(false);
   return (
     <div
       className="rounded-lg border p-4"
@@ -48,12 +54,41 @@ function MessageCard({ message }: { message: EmailMessage }) {
           {message.subject}
         </p>
       )}
-      <p
-        className="whitespace-pre-wrap break-words text-sm"
-        style={{ color: "var(--text-secondary)" }}
-      >
-        {message.bodyText || message.snippet}
-      </p>
+      {body && (
+        <p
+          className="whitespace-pre-wrap break-words text-sm"
+          style={{ color: "var(--text-secondary)" }}
+        >
+          {body}
+        </p>
+      )}
+      {!body && !quoted && (
+        <p className="text-sm italic" style={{ color: "var(--text-muted)" }}>
+          (message vide)
+        </p>
+      )}
+      {quoted && (
+        <div className="mt-2">
+          {/* Affordance inline (toggle citation) — bouton natif, composant
+              présentational self-contained (même esprit que le lien Gmail). */}
+          <button
+            type="button"
+            onClick={() => setShowQuote((v) => !v)}
+            className="text-xs"
+            style={{ color: "var(--text-muted)", background: "none", border: "none", cursor: "pointer", padding: 0 }}
+          >
+            {showQuote ? "Masquer la citation" : "··· Afficher la citation"}
+          </button>
+          {showQuote && (
+            <p
+              className="mt-1 whitespace-pre-wrap break-words border-l pl-2 text-sm"
+              style={{ color: "var(--text-muted)", borderColor: "var(--border-subtle)" }}
+            >
+              {quoted}
+            </p>
+          )}
+        </div>
+      )}
       {message.webLink && (
         <a
           href={message.webLink}
