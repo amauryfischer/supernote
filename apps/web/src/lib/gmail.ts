@@ -66,6 +66,7 @@ export interface GmailRawMessage {
   id: string;
   threadId: string;
   snippet?: string;
+  labelIds?: string[];
   payload?: GmailPart;
 }
 
@@ -189,6 +190,7 @@ export interface ThreadListItem {
   from: EmailAddress;
   date: string;
   snippet: string;
+  labelIds: string[];
 }
 
 /**
@@ -204,12 +206,14 @@ async function getThreadListItem(clientId: string, threadId: string): Promise<Th
   const msgs = json.messages ?? [];
   const last = msgs[msgs.length - 1];
   const parsed = last ? parseGmailMessage(last) : null;
+  const labelIds = [...new Set(msgs.flatMap((m) => m.labelIds ?? []))];
   return {
     id: threadId,
     subject: parsed?.subject || "(sans objet)",
     from: parsed?.from ?? { name: "", email: "" },
     date: parsed?.date ?? "",
     snippet: json.snippet ?? parsed?.snippet ?? "",
+    labelIds,
   };
 }
 
@@ -225,6 +229,24 @@ export async function listThreadSummaries(
 ): Promise<ThreadListItem[]> {
   const threads = await searchThreads(clientId, query, maxResults);
   return Promise.all(threads.map((t) => getThreadListItem(clientId, t.id)));
+}
+
+// ─── Labels (P2) ─────────────────────────────────────────────────────────────
+
+export interface GmailLabel {
+  id: string;
+  name: string;
+}
+
+/** Labels utilisateur (exclut les labels système Gmail). */
+export async function listLabels(clientId: string): Promise<GmailLabel[]> {
+  const json = await gmailFetch<{ labels?: Array<{ id: string; name: string; type?: string }> }>(
+    clientId,
+    "/labels",
+  );
+  return (json.labels ?? [])
+    .filter((l) => l.type === "user")
+    .map((l) => ({ id: l.id, name: l.name }));
 }
 
 // ─── Primitives compose (P3) ──────────────────────────────────────────────────

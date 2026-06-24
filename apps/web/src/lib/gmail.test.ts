@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { getGmailProfile, parseGmailMessage, parseAddress, decodeBody, type GmailRawMessage } from "./gmail";
-import { searchThreads, getThread, listThreadSummaries, type ThreadSummary } from "./gmail";
+import { searchThreads, getThread, listThreadSummaries, listLabels, type ThreadSummary } from "./gmail";
 import { toBase64Url, buildRawMessage, GMAIL_COMPOSE_SCOPE } from "./gmail";
 
 // requestAccessToken touche GIS → on le stubbe pour tous les tests gmail.
@@ -194,6 +194,7 @@ describe("listThreadSummaries", () => {
               id: "m1",
               threadId: "t1",
               snippet: "snip",
+              labelIds: ["Label_1", "INBOX"],
               payload: {
                 headers: [
                   { name: "Subject", value: "Réunion" },
@@ -215,6 +216,28 @@ describe("listThreadSummaries", () => {
       snippet: "snip",
     });
     expect(items[0]!.date).toMatch(/^2026-06-23/);
+    expect(items[0]!.labelIds).toContain("Label_1");
+    vi.unstubAllGlobals();
+  });
+});
+
+describe("listLabels", () => {
+  it("ne renvoie que les labels utilisateur (exclut système)", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        labels: [
+          { id: "Label_1", name: "Projet", type: "user" },
+          { id: "INBOX", name: "INBOX", type: "system" },
+          { id: "Label_2", name: "Perso", type: "user" },
+        ],
+      }),
+    })));
+    const labels = await listLabels("cid");
+    expect(labels).toEqual([
+      { id: "Label_1", name: "Projet" },
+      { id: "Label_2", name: "Perso" },
+    ]);
     vi.unstubAllGlobals();
   });
 });
