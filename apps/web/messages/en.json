@@ -256,6 +256,8 @@
       "securite": "Security",
       "templates": "Templates",
       "schemas": "Schemas",
+      "googleDrive": "Google Drive",
+      "gmail": "Gmail",
       "coda": "Coda",
       "about": "About"
     },

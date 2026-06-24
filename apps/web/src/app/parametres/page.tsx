@@ -18,6 +18,7 @@ import {
   BookmarkSimple,
   Database,
   Table,
+  EnvelopeSimple,
 } from "@phosphor-icons/react";
 import { AppShell, useMobileTitle } from "@/components/shell";
 import { useIsMobile } from "@/hooks/useIsMobile";
@@ -37,6 +38,7 @@ import {
   TemplatesTab,
   SchemasTab,
   GoogleDriveTab,
+  GmailTab,
   CodaTab,
 } from "@/components/settings";
 import type { SettingsTab } from "@/components/settings";
@@ -62,6 +64,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: "templates", labelKey: "settings.tabs.templates", icon: BookmarkSimple },
   { id: "schemas", labelKey: "settings.tabs.schemas", icon: Database },
   { id: "google-drive", labelKey: "settings.tabs.googleDrive", icon: Database },
+  { id: "gmail", labelKey: "settings.tabs.gmail", icon: EnvelopeSimple },
   { id: "coda", labelKey: "settings.tabs.coda", icon: Table },
   { id: "about", labelKey: "settings.tabs.about", icon: Info },
 ];
@@ -81,6 +84,7 @@ function TabContent({ active }: { active: SettingsTab }) {
     case "templates": return <TemplatesTab />;
     case "schemas": return <SchemasTab />;
     case "google-drive": return <GoogleDriveTab />;
+    case "gmail": return <GmailTab />;
     case "coda": return <CodaTab />;
     case "about": return <AboutTab />;
   }
