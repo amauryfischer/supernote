@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { emailToMarkdown, emailSourceValue, autoMapBaseFields } from "./mail-capture";
+import {
+  emailToMarkdown,
+  emailSourceValue,
+  autoMapBaseFields,
+  isCapturableFieldType,
+} from "./mail-capture";
 import type { EmailMessage } from "@/lib/gmail";
 
 const msg: EmailMessage = {
@@ -47,5 +52,18 @@ describe("autoMapBaseFields", () => {
     expect(map.email).toBe("fromEmail");
     expect(map.received).toBe("date");
     expect(map.priority).toBe(""); // select non auto-mappable
+  });
+});
+
+describe("isCapturableFieldType", () => {
+  it("accepte texte/date/email, refuse number/select/relation/bool", () => {
+    expect(isCapturableFieldType("text")).toBe(true);
+    expect(isCapturableFieldType("longtext")).toBe(true);
+    expect(isCapturableFieldType("date")).toBe(true);
+    expect(isCapturableFieldType("email")).toBe(true);
+    expect(isCapturableFieldType("number")).toBe(false);
+    expect(isCapturableFieldType("select")).toBe(false);
+    expect(isCapturableFieldType("relation")).toBe(false);
+    expect(isCapturableFieldType("bool")).toBe(false);
   });
 });

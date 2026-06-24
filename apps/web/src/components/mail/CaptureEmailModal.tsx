@@ -8,6 +8,7 @@ import {
   EMAIL_FIELD_SOURCE_LABELS,
   emailSourceValue,
   autoMapBaseFields,
+  isCapturableFieldType,
   type EmailFieldSource,
 } from "@/lib/mail-capture";
 import { NativeSelect } from "@/components/settings/NativeSelect";
@@ -50,6 +51,13 @@ export function CaptureEmailModal({
     [bases],
   );
   const selected = targets.find((b) => b.id === typeId) ?? null;
+  // Seuls les champs texte/date/email peuvent recevoir une valeur d'email sans
+  // corrompre la base (pas de coercition côté worker). number/select/relation
+  // sont masqués du mapping.
+  const capturableFields = useMemo(
+    () => (selected?.fields ?? []).filter((f) => isCapturableFieldType(String(f.type))),
+    [selected],
+  );
 
   const chooseBase = (id: string) => {
     setTypeId(id);
@@ -72,7 +80,7 @@ export function CaptureEmailModal({
     setBusy(true);
     try {
       const fields: Record<string, FieldValue> = {};
-      for (const f of selected.fields) {
+      for (const f of capturableFields) {
         const src = mapping[f.name];
         if (src) fields[f.name] = emailSourceValue(message, src);
       }
@@ -130,7 +138,12 @@ export function CaptureEmailModal({
             <span className="text-xs" style={{ color: "var(--text-muted)" }}>
               Mapping des champs
             </span>
-            {selected.fields.map((f) => (
+            {capturableFields.length === 0 && (
+              <span className="text-sm" style={{ color: "var(--text-muted)" }}>
+                Aucun champ texte/date mappable dans cette base.
+              </span>
+            )}
+            {capturableFields.map((f) => (
               <div key={f.name} className="flex items-center justify-between gap-3">
                 <span className="text-sm">{f.label ?? f.name}</span>
                 <NativeSelect
@@ -147,7 +160,7 @@ export function CaptureEmailModal({
             ))}
             <Button
               variant="primary"
-              isDisabled={busy}
+              isDisabled={busy || capturableFields.length === 0}
               onPress={() => void submit()}
               className="mt-2 self-end"
             >

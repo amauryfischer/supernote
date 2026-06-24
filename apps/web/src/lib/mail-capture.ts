@@ -47,6 +47,27 @@ interface MappableField {
 }
 
 /**
+ * Types de champ de base acceptant une valeur texte/date issue d'un email.
+ * On exclut number/select/relation/bool : y écrire une string brute
+ * corromprait la base (aucune validation/coercition côté worker).
+ */
+export const CAPTURABLE_FIELD_TYPES = new Set([
+  "text",
+  "longtext",
+  "markdown",
+  "url",
+  "email",
+  "phone",
+  "date",
+  "datetime",
+]);
+
+/** True si un champ de base peut recevoir une valeur d'email (texte/date). */
+export function isCapturableFieldType(type: string): boolean {
+  return CAPTURABLE_FIELD_TYPES.has(type);
+}
+
+/**
  * Auto-mappe les champs d'une base vers des sources email par heuristique
  * (nom + type). Champs non text/date/email → non mappés (""). L'utilisateur
  * ajuste ensuite.
