@@ -181,3 +181,40 @@ export async function getThread(clientId: string, threadId: string): Promise<Ema
     messages: (json.messages ?? []).map((m) => parseGmailMessage(m)),
   };
 }
+
+// ─── Primitives compose (P3) ──────────────────────────────────────────────────
+
+export const GMAIL_COMPOSE_SCOPE = "https://www.googleapis.com/auth/gmail.compose";
+
+/** Bytes UTF-8 → base64 standard (binaire via btoa). */
+function bytesToBase64(bytes: Uint8Array): string {
+  let bin = "";
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]!);
+  return btoa(bin);
+}
+
+/** Chaîne UTF-8 → base64url sans padding (inverse de decodeBody). */
+export function toBase64Url(str: string): string {
+  const bytes = new TextEncoder().encode(str);
+  return bytesToBase64(bytes).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+/** Encode un en-tête non-ASCII en mot encodé RFC 2047 (=?UTF-8?B?…?=). */
+function encodeHeaderWord(value: string): string {
+  // eslint-disable-next-line no-control-regex
+  if (!/[^\x00-\x7F]/.test(value)) return value;
+  const b64 = bytesToBase64(new TextEncoder().encode(value));
+  return `=?UTF-8?B?${b64}?=`;
+}
+
+/** Construit un message RFC 2822 (texte brut UTF-8) pour `drafts.create`. */
+export function buildRawMessage(input: { to?: string; subject: string; body: string }): string {
+  const lines: string[] = [];
+  if (input.to) lines.push(`To: ${input.to}`);
+  lines.push(`Subject: ${encodeHeaderWord(input.subject)}`);
+  lines.push("MIME-Version: 1.0");
+  lines.push('Content-Type: text/plain; charset="UTF-8"');
+  lines.push("");
+  lines.push(input.body);
+  return lines.join("\r\n");
+}

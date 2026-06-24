@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { getGmailProfile, parseGmailMessage, parseAddress, decodeBody, type GmailRawMessage } from "./gmail";
 import { searchThreads, getThread, type ThreadSummary } from "./gmail";
+import { toBase64Url, buildRawMessage, GMAIL_COMPOSE_SCOPE } from "./gmail";
 
 // requestAccessToken touche GIS → on le stubbe pour tous les tests gmail.
 vi.mock("./google-drive", () => ({
@@ -170,5 +171,37 @@ describe("getThread", () => {
     expect(thread.messages).toHaveLength(1);
     expect(thread.messages[0]!.subject).toBe("Hi");
     vi.unstubAllGlobals();
+  });
+});
+
+describe("toBase64Url", () => {
+  it("encode en base64url et round-trip avec decodeBody", () => {
+    const enc = toBase64Url("Héllo 👋");
+    expect(enc).not.toMatch(/[+/=]/); // url-safe, sans padding
+    expect(decodeBody(enc)).toBe("Héllo 👋");
+  });
+});
+
+describe("buildRawMessage", () => {
+  it("inclut To, Subject, corps, charset UTF-8", () => {
+    const raw = buildRawMessage({ to: "ada@calc.io", subject: "Bonjour", body: "Coucou" });
+    expect(raw).toContain("To: ada@calc.io");
+    expect(raw).toContain("Subject: Bonjour");
+    expect(raw).toMatch(/charset="?UTF-8"?/i);
+    expect(raw).toContain("Coucou");
+  });
+  it("encode (RFC2047) un sujet non-ASCII", () => {
+    const raw = buildRawMessage({ subject: "Réunion café", body: "x" });
+    expect(raw).toMatch(/Subject: =\?UTF-8\?B\?.+\?=/);
+  });
+  it("omet To si absent", () => {
+    const raw = buildRawMessage({ subject: "s", body: "b" });
+    expect(raw).not.toMatch(/^To:/m);
+  });
+});
+
+describe("GMAIL_COMPOSE_SCOPE", () => {
+  it("est le scope compose", () => {
+    expect(GMAIL_COMPOSE_SCOPE).toBe("https://www.googleapis.com/auth/gmail.compose");
   });
 });
