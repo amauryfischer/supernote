@@ -8,7 +8,7 @@
  */
 
 import { Button, Modal } from "@supernote/ui";
-import { FileText } from "@phosphor-icons/react";
+import { EnvelopeSimple, FileText } from "@phosphor-icons/react";
 
 import { GOOGLE_DOC_KINDS, type GoogleDocKind } from "@/lib/google-drive";
 import { DRIVE_DOC_ICONS, DRIVE_DOC_ORDER, type IconComponent } from "./driveDocMeta";
@@ -20,6 +20,8 @@ interface NewItemSheetProps {
   onNewNote: () => void;
   /** Crée un fichier Google Workspace du type donné. */
   onNewDriveDoc: (kind: GoogleDocKind) => void;
+  /** Crée un brouillon Gmail vierge et l'ouvre dans un onglet. */
+  onNewDraft?: () => void;
 }
 
 export function NewItemSheet({
@@ -27,6 +29,7 @@ export function NewItemSheet({
   onOpenChange,
   onNewNote,
   onNewDriveDoc,
+  onNewDraft,
 }: NewItemSheetProps) {
   // Ferme la feuille AVANT de déclencher l'action (qui ouvre un prompt /
   // navigue) — sinon le modal reste empilé par-dessus.
@@ -47,6 +50,9 @@ export function NewItemSheet({
             onPress={() => pick(() => onNewDriveDoc(kind))}
           />
         ))}
+        {onNewDraft && (
+          <SheetRow icon={EnvelopeSimple} label="Email" onPress={() => pick(onNewDraft)} />
+        )}
       </div>
     </Modal>
   );

@@ -36,6 +36,8 @@ import { Plus } from "@phosphor-icons/react";
 import { useSettings } from "@/components/settings/SettingsContext";
 import { type GoogleDocKind, GOOGLE_DOC_KINDS } from "@/lib/google-drive";
 import { NewItemSheet } from "@/components/notes/NewItemSheet";
+import { useCreateDraft } from "@/components/notes/useCreateDraft";
+import { useGmailConnected } from "@/hooks/useGmailConnected";
 
 function NotesPageContent() {
   const router = useRouter();
@@ -84,6 +86,8 @@ function NotesPageContent() {
   const driveConnected =
     !!settings.googleDrive?.connectedEmail && !!settings.googleDrive?.clientId?.trim();
   const [newSheetOpen, setNewSheetOpen] = useState(false);
+  const { createDraft } = useCreateDraft();
+  const gmailConnected = useGmailConnected();
 
   const handleSelectFolder = useCallback((path: string) => {
     setSelectedFolder(path);
@@ -155,6 +159,16 @@ function NotesPageContent() {
     },
     [createDriveDoc, prompt, toast],
   );
+
+  const handleNewDraft = useCallback(async () => {
+    try {
+      const { url } = await createDraft({ subject: "", body: "" });
+      if (typeof window !== "undefined") window.open(url, "_blank", "noopener");
+      toast({ title: "Brouillon Gmail créé" });
+    } catch (err) {
+      toast({ title: "Échec du brouillon", description: err instanceof Error ? err.message : String(err), variant: "danger" });
+    }
+  }, [createDraft, toast]);
 
   const handleNewFolder = useCallback(async (parentPath?: string | null) => {
     const safeParent = typeof parentPath === "string" ? parentPath : null;
@@ -450,6 +464,7 @@ function NotesPageContent() {
         onOpenChange={setNewSheetOpen}
         onNewNote={() => void handleNewNote(selectedFolderRef.current)}
         onNewDriveDoc={(kind) => void handleNewDriveDoc(kind, selectedFolderRef.current)}
+        onNewDraft={gmailConnected ? () => void handleNewDraft() : undefined}
       />
     </div>
   );
