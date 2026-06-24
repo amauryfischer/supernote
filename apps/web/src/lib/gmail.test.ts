@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { getGmailProfile, parseGmailMessage, parseAddress, decodeBody, type GmailRawMessage } from "./gmail";
-import { searchThreads, getThread, type ThreadSummary } from "./gmail";
+import { searchThreads, getThread, listThreadSummaries, type ThreadSummary } from "./gmail";
 import { toBase64Url, buildRawMessage, GMAIL_COMPOSE_SCOPE } from "./gmail";
 
 // requestAccessToken touche GIS → on le stubbe pour tous les tests gmail.
@@ -170,6 +170,51 @@ describe("getThread", () => {
     expect(thread.id).toBe("t1");
     expect(thread.messages).toHaveLength(1);
     expect(thread.messages[0]!.subject).toBe("Hi");
+    vi.unstubAllGlobals();
+  });
+});
+
+describe("listThreadSummaries", () => {
+  it("enrichit chaque thread avec sujet/expéditeur/date (list + metadata)", async () => {
+    const fetchMock = vi
+      .fn()
+      // 1) threads.list
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ threads: [{ id: "t1", snippet: "snip" }] }),
+      })
+      // 2) threads.get?format=metadata (t1)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          id: "t1",
+          snippet: "snip",
+          messages: [
+            {
+              id: "m1",
+              threadId: "t1",
+              snippet: "snip",
+              payload: {
+                headers: [
+                  { name: "Subject", value: "Réunion" },
+                  { name: "From", value: "Ada <ada@calc.io>" },
+                  { name: "Date", value: "Tue, 23 Jun 2026 10:00:00 +0200" },
+                ],
+              },
+            },
+          ],
+        }),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+    const items = await listThreadSummaries("cid", "in:inbox");
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      id: "t1",
+      subject: "Réunion",
+      from: { name: "Ada", email: "ada@calc.io" },
+      snippet: "snip",
+    });
+    expect(items[0]!.date).toMatch(/^2026-06-23/);
     vi.unstubAllGlobals();
   });
 });

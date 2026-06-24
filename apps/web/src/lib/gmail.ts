@@ -182,6 +182,51 @@ export async function getThread(clientId: string, threadId: string): Promise<Ema
   };
 }
 
+/** Ligne de liste enrichie d'un thread (pour l'affichage façon boîte mail). */
+export interface ThreadListItem {
+  id: string;
+  subject: string;
+  from: EmailAddress;
+  date: string;
+  snippet: string;
+}
+
+/**
+ * Métadonnées légères d'un thread (Subject/From/Date du message le plus récent)
+ * via `format=metadata` — bien plus léger que `format=full`. Utilisé pour
+ * peupler la liste de gauche.
+ */
+async function getThreadListItem(clientId: string, threadId: string): Promise<ThreadListItem> {
+  const json = await gmailFetch<{ id: string; snippet?: string; messages?: GmailRawMessage[] }>(
+    clientId,
+    `/threads/${encodeURIComponent(threadId)}?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=Date`,
+  );
+  const msgs = json.messages ?? [];
+  const last = msgs[msgs.length - 1];
+  const parsed = last ? parseGmailMessage(last) : null;
+  return {
+    id: threadId,
+    subject: parsed?.subject || "(sans objet)",
+    from: parsed?.from ?? { name: "", email: "" },
+    date: parsed?.date ?? "",
+    snippet: json.snippet ?? parsed?.snippet ?? "",
+  };
+}
+
+/**
+ * Recherche + enrichit chaque thread (sujet/expéditeur/date) pour un affichage
+ * façon boîte mail. 1 appel `threads.list` + N appels `format=metadata`
+ * (parallèles). N borné par `maxResults`.
+ */
+export async function listThreadSummaries(
+  clientId: string,
+  query: string,
+  maxResults = 20,
+): Promise<ThreadListItem[]> {
+  const threads = await searchThreads(clientId, query, maxResults);
+  return Promise.all(threads.map((t) => getThreadListItem(clientId, t.id)));
+}
+
 // ─── Primitives compose (P3) ──────────────────────────────────────────────────
 
 export const GMAIL_COMPOSE_SCOPE = "https://www.googleapis.com/auth/gmail.compose";
