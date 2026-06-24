@@ -3,7 +3,7 @@ import { Button } from "@heroui/react";
 import { FilePlus, Database } from "@phosphor-icons/react";
 import { useNavigate } from "react-router-dom";
 import { useSettings } from "@/components/settings/SettingsContext";
-import { useMobileTitle } from "@/components/shell";
+import { AppShell, useMobileTitle } from "@/components/shell";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useGmailConnected } from "@/hooks/useGmailConnected";
 import { EmailPicker } from "@/components/mail/EmailPicker";
@@ -60,20 +60,22 @@ export default function MailPage() {
 
   if (!connected) {
     return (
-      <div className="px-4 py-10 md:px-10">
-        <div className="mx-auto max-w-md text-center">
-          <h1 className="mb-2 text-xl font-semibold">Mail</h1>
-          <p className="mb-4 text-sm" style={{ color: "var(--text-muted)" }}>
-            Connecte un compte Gmail pour lire tes emails ici.
-          </p>
-          <Button onPress={() => navigate("/parametres")}>Connecter Gmail</Button>
+      <AppShell>
+        <div className="px-4 py-10 md:px-10">
+          <div className="mx-auto max-w-md text-center">
+            <h1 className="mb-2 text-xl font-semibold">Mail</h1>
+            <p className="mb-4 text-sm" style={{ color: "var(--text-muted)" }}>
+              Connecte un compte Gmail pour lire tes emails ici.
+            </p>
+            <Button onPress={() => navigate("/parametres")}>Connecter Gmail</Button>
+          </div>
         </div>
-      </div>
+      </AppShell>
     );
   }
 
   return (
-    <>
+    <AppShell>
       <div className="flex h-full flex-col gap-4 px-4 py-6 md:flex-row md:px-10">
         <div className="w-full md:w-96 md:flex-shrink-0">
           <h1 className="mb-4 hidden text-xl font-semibold md:block">Mail</h1>
@@ -115,6 +117,6 @@ export default function MailPage() {
         message={thread?.messages[0] ?? null}
         onClose={() => setCaptureOpen(false)}
       />
-    </>
+    </AppShell>
   );
 }
