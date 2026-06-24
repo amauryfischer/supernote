@@ -32,6 +32,7 @@ import {
   ArrowsInSimple,
   ArrowsOutSimple,
   CaretDoubleRight,
+  EnvelopeSimple,
   FolderSimple,
   ListBullets,
 } from "@phosphor-icons/react";
@@ -46,6 +47,9 @@ import {
 import { useShortcuts } from "@/lib/keyboard";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { Article, Plus, SquareSplitHorizontal } from "@phosphor-icons/react";
+import { useCreateDraft } from "@/components/notes/useCreateDraft";
+import { useGmailConnected } from "@/hooks/useGmailConnected";
+import { useToast } from "@supernote/ui";
 
 type NoteViewMode = "note" | "canvas";
 
@@ -509,6 +513,28 @@ function NoteDetailContent() {
   const showCollapsedFileTree = !isMobile && !focusMode && fileTreeCollapsed;
   const showCollapsedNoteList = !isMobile && !focusMode && noteListCollapsed;
 
+  // ── Emailer cette note (mobile) ───────────────────────────────────────────
+  const { createDraft } = useCreateDraft();
+  const { toast } = useToast();
+  const gmailConnected = useGmailConnected();
+
+  const handleEmailNote = useCallback(async () => {
+    if (!note) return;
+    const subject =
+      typeof note.fields?.["title"] === "string" && note.fields["title"]
+        ? (note.fields["title"] as string)
+        : typeof note.fields?.["name"] === "string" && note.fields["name"]
+          ? (note.fields["name"] as string)
+          : "Sans titre";
+    try {
+      const { url } = await createDraft({ subject, body: note.body ?? "" });
+      if (typeof window !== "undefined") window.open(url, "_blank", "noopener");
+      toast({ title: "Brouillon Gmail créé", description: "Relisez et envoyez depuis Gmail." });
+    } catch (err) {
+      toast({ title: "Échec du brouillon", description: err instanceof Error ? err.message : String(err), variant: "danger" });
+    }
+  }, [createDraft, toast, note]);
+
   // Mobile chrome — title comes from the note, header actions expose the
   // canvas/note view toggle as a single icon button so the user can flip
   // without hunting for the desktop ViewToggle widget.
@@ -526,6 +552,16 @@ function NoteDetailContent() {
           label: viewMode === "note" ? "Vue canvas" : "Vue note",
           onPress: () => handleSetViewMode(viewMode === "note" ? "canvas" : "note"),
         },
+        ...(gmailConnected && note
+          ? [
+              {
+                id: "email-note",
+                icon: EnvelopeSimple,
+                label: "Emailer",
+                onPress: () => void handleEmailNote(),
+              } satisfies MobileHeaderAction,
+            ]
+          : []),
       ]
     : [];
   useMobileHeaderActions(mobileActions);
@@ -637,11 +673,11 @@ function NoteDetailContent() {
               {typeof note.fields?.["attachmentFile"] === "string" ? (
                 <AttachmentRouter note={note} />
               ) : viewMode === "note" ? (
-                // Typewriter focus : en mode focus, les blocs hors caret
-                // sont atténués pour garder l'œil sur la ligne d'écriture.
                 // StackedColumns gère la nav empilée des [[wikilinks]] ; sans
                 // colonne empilée, le rendu est identique à l'éditeur seul.
-                <StackedColumns primaryNote={note} dimBlocks={focusMode} />
+                // (Le mode focus masque les colonnes latérales mais ne grise
+                // plus le contenu hors caret — atténuation typewriter retirée.)
+                <StackedColumns primaryNote={note} />
               ) : (
                 <NoteCanvasView note={note} />
               )}

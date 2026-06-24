@@ -33,6 +33,10 @@ import { renderDoodle } from "./DoodleRenderer";
 import { renderGoogleSheet } from "./GoogleSheetView";
 import { renderGmailMessage } from "./GmailMessageView";
 import { GmailPickerModal } from "./GmailPickerModal";
+import { useCreateDraft } from "./useCreateDraft";
+import { useGmailConnected } from "@/hooks/useGmailConnected";
+import { useToast } from "@supernote/ui";
+import { EnvelopeSimple } from "@phosphor-icons/react";
 import { ShortcutsCheatSheet } from "./ShortcutsCheatSheet";
 import { AmbianceSelector, ambianceClass, asAmbiance, asTypo, type NoteAmbiance, type NoteTypo } from "./AmbianceSelector";
 import { CoverBackdrop, CoverButton, asCover } from "./NoteCover";
@@ -247,6 +251,29 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
     gmailResolveRef.current = null;
   }, []);
   const gmailEmbed = useMemo(() => ({ render: renderGmailMessage, pickEmail }), [pickEmail]);
+
+  // ── Emailer cette note ─────────────────────────────────────────────────────
+  const { createDraft } = useCreateDraft();
+  const { toast } = useToast();
+  const gmailConnected = useGmailConnected();
+  const [emailing, setEmailing] = useState(false);
+
+  const handleEmailNote = useCallback(async () => {
+    setEmailing(true);
+    try {
+      const { url } = await createDraft({
+        subject: title || "Sans titre",
+        body: bodyRef.current,
+      });
+      if (typeof window !== "undefined") window.open(url, "_blank", "noopener");
+      toast({ title: "Brouillon Gmail créé", description: "Relisez et envoyez depuis Gmail." });
+    } catch (err) {
+      toast({ title: "Échec du brouillon", description: err instanceof Error ? err.message : String(err), variant: "danger" });
+    } finally {
+      setEmailing(false);
+    }
+  }, [createDraft, toast, title]);
+
   // Mirror saveStatus into a ref so the external-body guard below can read
   // the latest status without re-running the effect on every status flip
   // (which would otherwise re-evaluate the remount decision the moment a
@@ -1258,6 +1285,20 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
             >
               <Sparkle size={13} weight={aiMargins ? "fill" : "regular"} />
               Marges IA
+            </Button>
+          )}
+          {gmailConnected && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onPress={() => void handleEmailNote()}
+              isDisabled={emailing}
+              className="h-7 min-w-0 gap-1 px-2 text-xs"
+              style={{ color: "var(--text-muted)" }}
+              aria-label="Emailer cette note"
+            >
+              <EnvelopeSimple size={13} />
+              Emailer
             </Button>
           )}
           <Button
