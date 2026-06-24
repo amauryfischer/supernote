@@ -54,6 +54,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
     connectedEmail: "",
     driveRootFolderId: "",
   },
+  gmail: {
+    connectedEmail: "",
+  },
 };
 
 export const ACCENT_COLORS = [

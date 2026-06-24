@@ -12,6 +12,7 @@ export type SettingsTab =
   | "templates"
   | "schemas"
   | "google-drive"
+  | "gmail"
   | "coda"
   | "about";
 
@@ -97,6 +98,15 @@ export interface GoogleDriveSettings {
   driveRootFolderId: string;
 }
 
+export interface GmailSettings {
+  /**
+   * Email du compte Gmail relié — vide = déconnecté. Le Client ID OAuth est
+   * réutilisé depuis `googleDrive.clientId` (même projet Google Cloud, avec
+   * l'API Gmail activée + scope readonly autorisé).
+   */
+  connectedEmail: string;
+}
+
 export interface AppSettings {
   general: GeneralSettings;
   appearance: AppearanceSettings;
@@ -109,4 +119,5 @@ export interface AppSettings {
   editorShortcuts: Record<string, string>;
   notifications: NotificationSettings;
   googleDrive: GoogleDriveSettings;
+  gmail: GmailSettings;
 }
