@@ -95,6 +95,33 @@ export function parseAddress(raw: string): EmailAddress {
   return { name: s, email: s };
 }
 
+/** Catégorie d'un message dans l'affichage chat (couleur + alignement). */
+export type BubbleKind = "mine" | "internal" | "external";
+
+/** Domaine (minuscule) d'une adresse, "" si pas de "@" exploitable. */
+function emailDomain(email: string): string {
+  const s = (email ?? "").trim().toLowerCase();
+  const at = s.lastIndexOf("@");
+  return at >= 0 && at < s.length - 1 ? s.slice(at + 1) : "";
+}
+
+/**
+ * Classe un expéditeur vis-à-vis du compte connecté, pour l'affichage chat :
+ *  - "mine"     : expéditeur === compte connecté (priorité absolue).
+ *  - "internal" : même domaine que le compte connecté (collègue interne).
+ *  - "external" : le reste (ou `selfEmail` absent / sans domaine).
+ * Insensible à la casse. Pur, testable. Le domaine « interne » est dérivé du
+ * compte connecté — aucun domaine codé en dur.
+ */
+export function classifyBubble(fromEmail: string, selfEmail: string | undefined): BubbleKind {
+  const from = (fromEmail ?? "").trim().toLowerCase();
+  const self = (selfEmail ?? "").trim().toLowerCase();
+  if (self && from === self) return "mine";
+  const selfDomain = emailDomain(self);
+  if (selfDomain && emailDomain(from) === selfDomain) return "internal";
+  return "external";
+}
+
 function header(part: GmailPart | undefined, name: string): string {
   const h = part?.headers?.find((x) => x.name.toLowerCase() === name.toLowerCase());
   return h?.value ?? "";
@@ -152,6 +179,13 @@ export interface ThreadSummary {
 export interface EmailThread {
   id: string;
   messages: EmailMessage[];
+  /** Union dédupliquée des labelIds de tous les messages du thread. */
+  labelIds: string[];
+}
+
+/** Union dédupliquée des labelIds d'un ensemble de messages (pur, testable). */
+export function unionLabelIds(messages: Array<{ labelIds?: string[] }>): string[] {
+  return [...new Set(messages.flatMap((m) => m.labelIds ?? []))];
 }
 
 /**
@@ -177,9 +211,11 @@ export async function getThread(clientId: string, threadId: string): Promise<Ema
     clientId,
     `/threads/${encodeURIComponent(threadId)}?format=full`,
   );
+  const rawMsgs = json.messages ?? [];
   return {
     id: json.id,
-    messages: (json.messages ?? []).map((m) => parseGmailMessage(m)),
+    messages: rawMsgs.map((m) => parseGmailMessage(m)),
+    labelIds: unionLabelIds(rawMsgs),
   };
 }
 
@@ -206,7 +242,7 @@ async function getThreadListItem(clientId: string, threadId: string): Promise<Th
   const msgs = json.messages ?? [];
   const last = msgs[msgs.length - 1];
   const parsed = last ? parseGmailMessage(last) : null;
-  const labelIds = [...new Set(msgs.flatMap((m) => m.labelIds ?? []))];
+  const labelIds = unionLabelIds(msgs);
   return {
     id: threadId,
     subject: parsed?.subject || "(sans objet)",
@@ -249,6 +285,58 @@ export async function listLabels(clientId: string): Promise<GmailLabel[]> {
     .map((l) => ({ id: l.id, name: l.name }));
 }
 
+/**
+ * Résout des labelIds (bruts, incluant les systèmes) en labels utilisateur
+ * affichables, en s'appuyant sur la liste des labels utilisateur. Les labels
+ * système (INBOX, UNREAD, CATEGORY_*, SENT…) sont naturellement écartés car
+ * absents de `userLabels`. Pur, testable. Préserve l'ordre de `userLabels`.
+ */
+export function resolveUserLabels(labelIds: string[], userLabels: GmailLabel[]): GmailLabel[] {
+  const set = new Set(labelIds);
+  return userLabels.filter((l) => set.has(l.id));
+}
+
+/**
+ * Scope `gmail.modify` (RESTRICTED) — requis pour AJOUTER/RETIRER des labels.
+ * Demandé en consentement INCRÉMENTAL à la 1ʳᵉ mutation (mode testing : bandeau
+ * "app non vérifiée", token 7 j). Token caché séparément (cache per-scope).
+ */
+export const GMAIL_MODIFY_SCOPE = "https://www.googleapis.com/auth/gmail.modify";
+
+/**
+ * Ajoute/retire des labels sur TOUS les messages d'un thread via
+ * `threads.modify`. Token scope `modify` (consentement paresseux au 1ᵉʳ appel).
+ */
+export async function modifyThreadLabels(
+  clientId: string,
+  threadId: string,
+  changes: { addLabelIds?: string[]; removeLabelIds?: string[] },
+): Promise<void> {
+  const token = await requestAccessToken(clientId, { scope: GMAIL_MODIFY_SCOPE, prompt: "" });
+  const res = await fetch(`${GMAIL_API_BASE}/threads/${encodeURIComponent(threadId)}/modify`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      addLabelIds: changes.addLabelIds ?? [],
+      removeLabelIds: changes.removeLabelIds ?? [],
+    }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Gmail modify ${res.status}: ${text.slice(0, 300)}`);
+  }
+}
+
+/** Raccourci : ajoute un label à un thread. */
+export function addThreadLabel(clientId: string, threadId: string, labelId: string): Promise<void> {
+  return modifyThreadLabels(clientId, threadId, { addLabelIds: [labelId] });
+}
+
+/** Raccourci : retire un label d'un thread. */
+export function removeThreadLabel(clientId: string, threadId: string, labelId: string): Promise<void> {
+  return modifyThreadLabels(clientId, threadId, { removeLabelIds: [labelId] });
+}
+
 // ─── Primitives compose (P3) ──────────────────────────────────────────────────
 
 export const GMAIL_COMPOSE_SCOPE = "https://www.googleapis.com/auth/gmail.compose";
@@ -274,10 +362,25 @@ function encodeHeaderWord(value: string): string {
   return `=?UTF-8?B?${b64}?=`;
 }
 
+/**
+ * Normalise un ou plusieurs destinataires en valeur d'en-tête `To` (séparés
+ * par ", "). Trim chaque adresse, ignore les vides. Rétro-compatible : une
+ * simple chaîne reste inchangée.
+ */
+export function formatRecipients(to: string | string[] | undefined): string {
+  if (!to) return "";
+  const list = Array.isArray(to) ? to : [to];
+  return list
+    .map((a) => a.trim())
+    .filter((a) => a.length > 0)
+    .join(", ");
+}
+
 /** Construit un message RFC 2822 (texte brut UTF-8) pour `drafts.create`. */
-export function buildRawMessage(input: { to?: string; subject: string; body: string }): string {
+export function buildRawMessage(input: { to?: string | string[]; subject: string; body: string }): string {
   const lines: string[] = [];
-  if (input.to) lines.push(`To: ${input.to}`);
+  const to = formatRecipients(input.to);
+  if (to) lines.push(`To: ${to}`);
   lines.push(`Subject: ${encodeHeaderWord(input.subject)}`);
   lines.push("MIME-Version: 1.0");
   lines.push('Content-Type: text/plain; charset="UTF-8"');
@@ -297,7 +400,7 @@ export interface DraftResult {
  */
 export async function createDraft(
   clientId: string,
-  input: { to?: string; subject: string; body: string },
+  input: { to?: string | string[]; subject: string; body: string },
 ): Promise<DraftResult> {
   const token = await requestAccessToken(clientId, { scope: GMAIL_COMPOSE_SCOPE, prompt: "" });
   const raw = toBase64Url(buildRawMessage(input));

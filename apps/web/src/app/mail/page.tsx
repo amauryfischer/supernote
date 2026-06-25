@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
 import { Button, Input } from "@heroui/react";
-import { FilePlus, Database, ArrowLeft, MagnifyingGlass } from "@phosphor-icons/react";
+import { FilePlus, Database, ArrowLeft, MagnifyingGlass, PencilSimple } from "@phosphor-icons/react";
 import { useNavigate } from "react-router-dom";
 import { useSettings } from "@/components/settings/SettingsContext";
-import { AppShell, useMobileTitle } from "@/components/shell";
+import { AppShell, useMobileTitle, useMobileFab } from "@/components/shell";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useGmailConnected } from "@/hooks/useGmailConnected";
 import { EmailThreadView } from "@/components/mail/EmailThreadView";
@@ -11,8 +11,10 @@ import { MailOverlayList } from "@/components/mail/MailOverlayList";
 import { MailGroupList } from "@/components/mail/MailGroupList";
 import { useCaptureEmail } from "@/components/mail/useCaptureEmail";
 import { CaptureEmailModal } from "@/components/mail/CaptureEmailModal";
+import { ComposeModal } from "@/components/mail/ComposeModal";
 import { listThreadSummaries, listLabels, getThread, type EmailThread } from "@/lib/gmail";
 import { buildMailOverlay, type OverlayRow } from "@/lib/mail-overlay";
+import { prefersReducedMotion } from "@/lib/motion";
 import { useToast } from "@supernote/ui";
 
 const DEFAULT_MAIL_QUERY = "in:inbox";
@@ -43,6 +45,14 @@ export default function MailPage() {
   const [threadError, setThreadError] = useState<string | null>(null);
 
   const [captureOpen, setCaptureOpen] = useState(false);
+  const [composeOpen, setComposeOpen] = useState(false);
+
+  // Action « créer » → FAB sur mobile (équivalent du bouton « Nouveau » desktop).
+  useMobileFab(
+    connected
+      ? { icon: PencilSimple, label: "Nouveau message", onPress: () => setComposeOpen(true) }
+      : null,
+  );
 
   const loadList = useCallback(
     async (q: string) => {
@@ -115,6 +125,11 @@ export default function MailPage() {
 
   const searchBox = (
     <div className="flex gap-2 p-3">
+      {!isMobile && (
+        <Button variant="primary" onPress={() => setComposeOpen(true)}>
+          <PencilSimple size={16} /> Nouveau
+        </Button>
+      )}
       <Input
         value={query}
         onChange={(e) => setQuery(e.target.value)}
@@ -188,12 +203,15 @@ export default function MailPage() {
         </p>
       )}
       {!threadLoading && !threadError && thread && (
-        <>
+        <div
+          key={selectedThreadId ?? "thread"}
+          className="sn-overlay-in flex min-h-0 flex-1 flex-col overflow-hidden"
+        >
           {captureBar}
           <div className="flex-1 overflow-y-auto px-4 pb-6">
             <EmailThreadView thread={thread} selfEmail={settings.gmail.connectedEmail} />
           </div>
-        </>
+        </div>
       )}
       {!threadLoading && !threadError && !thread && (
         <p className="px-4 py-4 text-sm" style={{ color: "var(--text-muted)" }}>
@@ -246,6 +264,7 @@ export default function MailPage() {
             message={thread?.messages[0] ?? null}
             onClose={() => setCaptureOpen(false)}
           />
+          <ComposeModal isOpen={composeOpen} onClose={() => setComposeOpen(false)} />
         </AppShell>
       );
     }
@@ -277,6 +296,7 @@ export default function MailPage() {
             message={thread?.messages[0] ?? null}
             onClose={() => setCaptureOpen(false)}
           />
+          <ComposeModal isOpen={composeOpen} onClose={() => setComposeOpen(false)} />
         </AppShell>
       );
     }
@@ -295,25 +315,50 @@ export default function MailPage() {
     );
   }
 
-  // Desktop : 3 volets côte à côte
+  // Desktop : colonnes glissantes animées.
+  //   list         → liste 50 % | (thread 50 % vide : placeholder)
+  //   single       → liste 50 % | thread 50 %
+  //   group        → liste 50 % | groupe 50 %
+  //   group-thread → liste ~280px + groupe ~320px POUSSÉS à gauche | thread (reste)
+  // La « poussée » émerge du reflow flex : on anime le flex-basis de chaque
+  // colonne avec l'easing « liquid » de grands déplacements de layout.
+  const view: "list" | "single" | "group" | "group-thread" =
+    selectedGroup && selectedThreadId
+      ? "group-thread"
+      : selectedGroup
+        ? "group"
+        : selectedThreadId
+          ? "single"
+          : "list";
+
+  const basisTransition = `flex-basis ${prefersReducedMotion() ? "0ms" : "var(--sn-dur-4)"} var(--sn-ease-out)`;
+  const listBasis = view === "group-thread" ? "17.5rem" : "50%";
+  const groupBasis = view === "group" ? "50%" : view === "group-thread" ? "20rem" : "0px";
+
   return (
     <AppShell>
       <div className="flex h-full overflow-hidden">
-        <div className="w-80 shrink-0">
+        <div
+          className="h-full shrink-0 overflow-hidden"
+          style={{ flexGrow: 0, flexShrink: 0, flexBasis: listBasis, transition: basisTransition }}
+        >
           {pane1}
         </div>
-        {selectedGroup && (
-          <div className="w-80 shrink-0">
-            {pane2}
-          </div>
-        )}
-        {pane3}
+        <div
+          className="h-full shrink-0 overflow-hidden"
+          style={{ flexGrow: 0, flexShrink: 0, flexBasis: groupBasis, transition: basisTransition }}
+          aria-hidden={!selectedGroup}
+        >
+          {pane2}
+        </div>
+        <div className="h-full min-w-0 flex-1 overflow-hidden">{pane3}</div>
       </div>
       <CaptureEmailModal
         isOpen={captureOpen}
         message={thread?.messages[0] ?? null}
         onClose={() => setCaptureOpen(false)}
       />
+      <ComposeModal isOpen={composeOpen} onClose={() => setComposeOpen(false)} />
     </AppShell>
   );
 }

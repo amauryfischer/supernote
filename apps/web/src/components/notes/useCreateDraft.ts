@@ -3,7 +3,7 @@ import { useSettings } from "@/components/settings/SettingsContext";
 import { createDraft, buildGmailDraftUrl } from "@/lib/gmail";
 
 export interface CreateDraftOptions {
-  to?: string;
+  to?: string | string[];
   subject: string;
   body: string;
 }

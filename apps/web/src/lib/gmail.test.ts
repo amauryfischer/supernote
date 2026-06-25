@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { getGmailProfile, parseGmailMessage, parseAddress, decodeBody, type GmailRawMessage } from "./gmail";
+import { getGmailProfile, parseGmailMessage, parseAddress, decodeBody, classifyBubble, type GmailRawMessage } from "./gmail";
 import { searchThreads, getThread, listThreadSummaries, listLabels, type ThreadSummary } from "./gmail";
-import { toBase64Url, buildRawMessage, GMAIL_COMPOSE_SCOPE } from "./gmail";
+import { toBase64Url, buildRawMessage, formatRecipients, GMAIL_COMPOSE_SCOPE } from "./gmail";
+import { unionLabelIds, resolveUserLabels, modifyThreadLabels, GMAIL_MODIFY_SCOPE, type GmailLabel } from "./gmail";
 
 // requestAccessToken touche GIS → on le stubbe pour tous les tests gmail.
 vi.mock("./google-drive", () => ({
@@ -242,6 +243,82 @@ describe("listLabels", () => {
   });
 });
 
+describe("unionLabelIds", () => {
+  it("union dédupliquée des labelIds des messages", () => {
+    expect(unionLabelIds([{ labelIds: ["A", "B"] }, { labelIds: ["B", "C"] }, {}])).toEqual(["A", "B", "C"]);
+  });
+  it("aucun label → []", () => {
+    expect(unionLabelIds([{}, { labelIds: [] }])).toEqual([]);
+  });
+});
+
+describe("resolveUserLabels", () => {
+  const user: GmailLabel[] = [
+    { id: "Label_1", name: "Projet" },
+    { id: "Label_2", name: "Perso" },
+  ];
+  it("ne garde que les labels utilisateur présents (ignore système)", () => {
+    expect(resolveUserLabels(["Label_1", "INBOX", "UNREAD"], user)).toEqual([
+      { id: "Label_1", name: "Projet" },
+    ]);
+  });
+  it("préserve l'ordre de userLabels", () => {
+    expect(resolveUserLabels(["Label_2", "Label_1"], user)).toEqual(user);
+  });
+});
+
+describe("getThread (labels)", () => {
+  it("expose l'union des labelIds du thread", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => ({
+          id: "t1",
+          messages: [
+            { id: "m1", threadId: "t1", labelIds: ["Label_1", "INBOX"], payload: { headers: [] } },
+            { id: "m2", threadId: "t1", labelIds: ["Label_1", "Label_2"], payload: { headers: [] } },
+          ],
+        }),
+      })),
+    );
+    const thread = await getThread("cid", "t1");
+    expect(thread.labelIds).toEqual(["Label_1", "INBOX", "Label_2"]);
+    vi.unstubAllGlobals();
+  });
+});
+
+describe("modifyThreadLabels", () => {
+  it("POST /modify avec add/removeLabelIds; scope modify", async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true, json: async () => ({}) }));
+    vi.stubGlobal("fetch", fetchMock);
+    await modifyThreadLabels("cid", "t1", { addLabelIds: ["Label_1"], removeLabelIds: ["Label_2"] });
+    expect(vi.mocked(requestAccessToken)).toHaveBeenCalledWith(
+      "cid",
+      expect.objectContaining({ scope: GMAIL_MODIFY_SCOPE }),
+    );
+    const call = fetchMock.mock.calls[0] as [unknown, RequestInit] | undefined;
+    expect(String(call?.[0])).toContain("/threads/t1/modify");
+    const init = call?.[1] as RequestInit;
+    expect(init.method).toBe("POST");
+    expect(String(init.body)).toContain("Label_1");
+    expect(String(init.body)).toContain("Label_2");
+    vi.unstubAllGlobals();
+  });
+
+  it("lève sur réponse non-ok", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 403, text: async () => "denied" })));
+    await expect(modifyThreadLabels("cid", "t1", { addLabelIds: ["X"] })).rejects.toThrow(/Gmail modify 403/);
+    vi.unstubAllGlobals();
+  });
+});
+
+describe("GMAIL_MODIFY_SCOPE", () => {
+  it("est le scope modify", () => {
+    expect(GMAIL_MODIFY_SCOPE).toBe("https://www.googleapis.com/auth/gmail.modify");
+  });
+});
+
 describe("toBase64Url", () => {
   it("encode en base64url et round-trip avec decodeBody", () => {
     const enc = toBase64Url("Héllo 👋");
@@ -265,6 +342,26 @@ describe("buildRawMessage", () => {
   it("omet To si absent", () => {
     const raw = buildRawMessage({ subject: "s", body: "b" });
     expect(raw).not.toMatch(/^To:/m);
+  });
+  it("joint plusieurs destinataires (tableau) sur l'en-tête To", () => {
+    const raw = buildRawMessage({ to: ["a@x.io", "b@x.io"], subject: "s", body: "b" });
+    expect(raw).toMatch(/^To: a@x\.io, b@x\.io$/m);
+  });
+  it("omet To si tableau vide ou que des vides", () => {
+    expect(buildRawMessage({ to: [], subject: "s", body: "b" })).not.toMatch(/^To:/m);
+    expect(buildRawMessage({ to: ["  ", ""], subject: "s", body: "b" })).not.toMatch(/^To:/m);
+  });
+});
+
+describe("formatRecipients", () => {
+  it("chaîne simple → inchangée (trim)", () => {
+    expect(formatRecipients("  a@x.io ")).toBe("a@x.io");
+  });
+  it("tableau → joint par ', ' en ignorant les vides", () => {
+    expect(formatRecipients(["a@x.io", "  ", "b@x.io"])).toBe("a@x.io, b@x.io");
+  });
+  it("undefined → chaîne vide", () => {
+    expect(formatRecipients(undefined)).toBe("");
   });
 });
 
@@ -315,5 +412,35 @@ describe("buildGmailDraftUrl", () => {
   it("construit l'URL du brouillon", () => {
     expect(buildGmailDraftUrl("draft_1")).toContain("draft_1");
     expect(buildGmailDraftUrl("draft_1")).toMatch(/^https:\/\/mail\.google\.com\//);
+  });
+});
+
+describe("classifyBubble", () => {
+  const self = "amaury.fischer@numerisk.fr";
+  it("expéditeur === compte connecté → mine", () => {
+    expect(classifyBubble("amaury.fischer@numerisk.fr", self)).toBe("mine");
+  });
+  it("même domaine que le compte connecté → internal", () => {
+    expect(classifyBubble("bob@numerisk.fr", self)).toBe("internal");
+  });
+  it("domaine différent → external", () => {
+    expect(classifyBubble("client@example.com", self)).toBe("external");
+  });
+  it("insensible à la casse (adresse ET domaine)", () => {
+    expect(classifyBubble("AMAURY.FISCHER@NUMERISK.FR", self)).toBe("mine");
+    expect(classifyBubble("Bob@NumerisK.fr", self)).toBe("internal");
+  });
+  it("« moi » prime sur « interne » (même si je suis du domaine)", () => {
+    expect(classifyBubble(self, self)).toBe("mine");
+  });
+  it("expéditeur sans @ → external", () => {
+    expect(classifyBubble("mailer-daemon", self)).toBe("external");
+  });
+  it("selfEmail absent ou vide → external (jamais mine/internal)", () => {
+    expect(classifyBubble("bob@numerisk.fr", undefined)).toBe("external");
+    expect(classifyBubble("bob@numerisk.fr", "")).toBe("external");
+  });
+  it("selfEmail sans domaine exploitable → external", () => {
+    expect(classifyBubble("bob@numerisk.fr", "weird-self")).toBe("external");
   });
 });
