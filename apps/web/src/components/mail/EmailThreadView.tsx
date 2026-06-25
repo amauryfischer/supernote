@@ -41,7 +41,13 @@ import { buildForwardSubject, buildForwardedBody } from "@/lib/mail-forward";
 import { TriageBar } from "./TriageBar";
 import { EnrichContactFromEmail } from "./EnrichContactFromEmail";
 import { EmailToEventButton } from "./EmailToEventButton";
-import type { TriageAction } from "@/lib/mail-triage";
+import { MailEisenhowerPicker } from "./MailEisenhowerPicker";
+import { INBOX_LABEL, type TriageAction } from "@/lib/mail-triage";
+import { modifyThreadLabels } from "@/lib/gmail";
+import { quadrantToTodoFields, type EisenhowerQuadrant } from "@/lib/mail-eisenhower";
+import { addBinding } from "@/lib/mail-todo-binding";
+import { trpcVanillaClient } from "@/lib/trpc/client";
+import { TODO_TYPE_ID } from "@/hooks/useTodoSync";
 
 /**
  * Affichage d'un thread Gmail façon messagerie (chat) : mes messages alignés à
@@ -74,6 +80,7 @@ export function EmailThreadView({
   onReplied,
   onLabelsChanged,
   onForward,
+  onConvertedToTodo,
 }: {
   thread: EmailThread;
   selfEmail?: string;
@@ -97,6 +104,12 @@ export function EmailThreadView({
    * ComposeModal pré-rempli (objet « Fwd: … » + corps cité), destinataire vide.
    */
   onForward?: (prefill: { subject: string; body: string }) => void;
+  /**
+   * Appelé après la conversion réussie d'un email en tâche Eisenhower (création
+   * de l'entité `todo` + liaison locale + retrait d'`INBOX`) — l'appelant retire
+   * le fil de la liste inbox, comme pour un triage « Fait ».
+   */
+  onConvertedToTodo?: () => void;
 }) {
   const { settings } = useSettings();
   const clientId = settings.googleDrive.clientId.trim();
@@ -250,6 +263,55 @@ export function EmailThreadView({
     });
   };
 
+  // ─── Conversion email → tâche Eisenhower ──────────────────────────────────
+  // Verrou anti-double clic pendant la création de l'entité + la mutation Gmail.
+  const [convertBusy, setConvertBusy] = useState(false);
+  const convertToTodo = async (quadrant: EisenhowerQuadrant) => {
+    if (!clientId || convertBusy) return;
+    const subject = thread.messages[0]?.subject?.trim() || "Email sans sujet";
+    setConvertBusy(true);
+    try {
+      // 1. Crée l'entité `todo` (mêmes champs que /todos standalone) + axes du
+      //    quadrant choisi (urgent + importance). On récupère son id.
+      const fields = quadrantToTodoFields(quadrant);
+      const todo = await trpcVanillaClient.entities.create.mutate({
+        typeId: TODO_TYPE_ID,
+        fields: {
+          text: subject,
+          done: false,
+          priority: 5,
+          importance: fields.importance,
+          urgent: fields.urgent,
+        },
+      });
+      // 2. Mémorise la liaison thread ↔ todo (store local best-effort).
+      addBinding({
+        threadId: thread.id,
+        todoId: todo.id,
+        quadrant,
+        subject,
+        createdAt: Date.now(),
+      });
+      // 3. Sort le fil de l'inbox (retrait du label système INBOX), comme un
+      //    « Fait » de triage — la tâche prend le relais côté /todos.
+      await modifyThreadLabels(clientId, thread.id, {
+        addLabelIds: [],
+        removeLabelIds: [INBOX_LABEL],
+      });
+      toast({ title: "Email converti en tâche", variant: "success" });
+      // 4. Notifie l'appelant pour qu'il retire le fil de la liste inbox.
+      onConvertedToTodo?.();
+    } catch (e) {
+      toast({
+        title: "Échec de la conversion en tâche",
+        description: e instanceof Error ? e.message : String(e),
+        variant: "danger",
+      });
+    } finally {
+      setConvertBusy(false);
+    }
+  };
+
   const openPicker = () => {
     if (triggerRef.current) setAnchorRect(triggerRef.current.getBoundingClientRect());
     setPickerOpen(true);
@@ -380,7 +442,10 @@ export function EmailThreadView({
               <span />
             )}
           </div>
-          <div className="flex shrink-0 items-center gap-1.5">
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+            {clientId && (
+              <MailEisenhowerPicker onConvert={(q) => void convertToTodo(q)} isBusy={convertBusy} />
+            )}
             {onForward && (
               <Button
                 variant="ghost"

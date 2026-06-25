@@ -12,10 +12,21 @@ import { MailGroupList } from "@/components/mail/MailGroupList";
 import { useCaptureEmail } from "@/components/mail/useCaptureEmail";
 import { CaptureEmailModal } from "@/components/mail/CaptureEmailModal";
 import { ComposeModal } from "@/components/mail/ComposeModal";
+import { MailEisenhowerBoard } from "@/components/mail/MailEisenhowerBoard";
 import { listThreadSummariesPage, listLabels, getThread, modifyThreadLabels, markThreadRead, toggleStar, type EmailThread, type GmailLabelColor, type ThreadListItem } from "@/lib/gmail";
 import { listDue, removeSnooze, applyTriage, undoTriage, INBOX_LABEL, type TriageAction } from "@/lib/mail-triage";
 import { buildMailOverlay, type OverlayRow } from "@/lib/mail-overlay";
 import { toggleRowSelection, pruneSelection } from "@/lib/mail-selection";
+import {
+  loadBindings,
+  getBinding,
+  removeBinding,
+  updateBindingQuadrant,
+  type MailTodoBinding,
+} from "@/lib/mail-todo-binding";
+import { quadrantToTodoFields, type EisenhowerQuadrant } from "@/lib/mail-eisenhower";
+import { trpcVanillaClient } from "@/lib/trpc/client";
+import { TODO_TYPE_ID } from "@/hooks/useTodoSync";
 import { prefersReducedMotion } from "@/lib/motion";
 import { useToast } from "@supernote/ui";
 
@@ -66,6 +77,14 @@ export default function MailPage() {
   const [selectedThreadIds, setSelectedThreadIds] = useState<Set<string>>(new Set());
   // Action groupée en cours (désactive la barre pendant l'appel réseau).
   const [bulkBusy, setBulkBusy] = useState(false);
+
+  // Onglet du pane gauche : « inbox » (liste Gmail, défaut) ou « todo » (grille
+  // Eisenhower des emails convertis en tâches, alimentée par le store local).
+  const [mailTab, setMailTab] = useState<"inbox" | "todo">("inbox");
+  // Miroir local des liaisons thread ↔ todo (source de vérité = localStorage).
+  // Rechargé à l'ouverture de l'onglet Todo et après chaque mutation optimiste.
+  const [todoBindings, setTodoBindings] = useState<MailTodoBinding[]>([]);
+  const refreshTodoBindings = useCallback(() => setTodoBindings(loadBindings()), []);
 
   const [selectedGroup, setSelectedGroup] = useState<GroupRow | null>(null);
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
@@ -121,7 +140,10 @@ export default function MailPage() {
         );
         setCumItems(page.items);
         setNextPageToken(page.nextPageToken);
-        setRows(buildMailOverlay(page.items, names, settings.gmail.connectedEmail));
+        // Sécurité : exclut de l'inbox les fils déjà convertis en tâche (binding
+        // local) — au cas où un fil todo'd traînerait encore dans la liste.
+        const visible = page.items.filter((it) => !getBinding(it.id));
+        setRows(buildMailOverlay(visible, names, settings.gmail.connectedEmail));
       } catch (err) {
         setListError(err instanceof Error ? err.message : String(err));
       } finally {
@@ -144,7 +166,9 @@ export default function MailPage() {
       setCumItems((prev) => {
         const seen = new Set(prev.map((it) => it.id));
         const merged = [...prev, ...page.items.filter((it) => !seen.has(it.id))];
-        setRows(buildMailOverlay(merged, labelNames, settings.gmail.connectedEmail));
+        // Même exclusion que loadList : on cache les fils déjà convertis en tâche.
+        const visible = merged.filter((it) => !getBinding(it.id));
+        setRows(buildMailOverlay(visible, labelNames, settings.gmail.connectedEmail));
         return merged;
       });
       setNextPageToken(page.nextPageToken);
@@ -541,6 +565,105 @@ export default function MailPage() {
     [selectedThreadId, offerUndo],
   );
 
+  // Après conversion d'un email en tâche Eisenhower (EmailThreadView a déjà créé
+  // l'entité `todo`, enregistré la liaison et retiré `INBOX` côté Gmail) : on
+  // retire le fil de la liste + on referme le fil ouvert, comme un « Fait ».
+  // Pas d'« Annuler » ici (la tâche a été créée ; l'annulation serait ambiguë).
+  const handleConvertedToTodo = useCallback(() => {
+    const id = selectedThreadId;
+    setSelectedThreadId(null);
+    setThread(null);
+    if (!id) return;
+    setRows((rs) =>
+      rs.flatMap<OverlayRow>((r) => {
+        if (r.kind === "single") return r.item.id === id ? [] : [r];
+        const items = r.items.filter((it) => it.id !== id);
+        return items.length ? [{ ...r, items }] : [];
+      }),
+    );
+    setSelectedGroup((g) => {
+      if (!g) return g;
+      const items = g.items.filter((it) => it.id !== id);
+      return items.length ? { ...g, items } : null;
+    });
+    // Resynchronise le miroir local des liaisons : la nouvelle tâche y figure.
+    refreshTodoBindings();
+  }, [selectedThreadId, refreshTodoBindings]);
+
+  // ─── Onglet Todo : grille Eisenhower des emails convertis en tâches ──────────
+  // Ouvrir un email-todo : charge le fil dans le pane de droite. La grille reste
+  // affichée tant que l'onglet Todo est actif (le fil ouvert vit dans pane3).
+  const handleTodoOpen = useCallback(
+    (threadId: string) => {
+      setSelectedGroup(null);
+      void openThread(threadId);
+    },
+    // openThread est stable comportementalement (lit via setters / clientId).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+
+  // « Fait » sur une carte : marque la tâche `done` (entities.update), retire la
+  // liaison locale, et met à jour la grille de façon optimiste. Si la mise à jour
+  // réseau échoue, on retire quand même la liaison (la carte ne doit pas rester
+  // bloquée) mais on prévient l'utilisateur.
+  const handleTodoDone = useCallback(
+    (binding: MailTodoBinding) => {
+      setTodoBindings((prev) => prev.filter((b) => b.threadId !== binding.threadId));
+      removeBinding(binding.threadId);
+      trpcVanillaClient.entities.update
+        .mutate({ id: binding.todoId, fields: { done: true } })
+        .then(() => {
+          toast({ title: "Tâche marquée comme faite" });
+        })
+        .catch((err) => {
+          toast({
+            title: "Mise à jour de la tâche échouée",
+            description: err instanceof Error ? err.message : String(err),
+            variant: "danger",
+          });
+        });
+    },
+    [toast],
+  );
+
+  // « → quadrant » : reclasse la tâche. MAJ optimiste du store local + des axes
+  // urgent/importance de l'entité todo (entities.update). Rollback du miroir
+  // local + du store si l'appel réseau échoue.
+  const handleTodoMoveQuadrant = useCallback(
+    (binding: MailTodoBinding, quadrant: EisenhowerQuadrant) => {
+      if (quadrant === binding.quadrant) return;
+      const prevQuadrant = binding.quadrant;
+      setTodoBindings((prev) =>
+        prev.map((b) => (b.threadId === binding.threadId ? { ...b, quadrant } : b)),
+      );
+      updateBindingQuadrant(binding.threadId, quadrant);
+      const axes = quadrantToTodoFields(quadrant);
+      trpcVanillaClient.entities.update
+        .mutate({ id: binding.todoId, fields: { urgent: axes.urgent, importance: axes.importance } })
+        .catch((err) => {
+          setTodoBindings((prev) =>
+            prev.map((b) =>
+              b.threadId === binding.threadId ? { ...b, quadrant: prevQuadrant } : b,
+            ),
+          );
+          updateBindingQuadrant(binding.threadId, prevQuadrant);
+          toast({
+            title: "Déplacement de la tâche échoué",
+            description: err instanceof Error ? err.message : String(err),
+            variant: "danger",
+          });
+        });
+    },
+    [toast],
+  );
+
+  // Recharge le miroir des liaisons à l'entrée dans l'onglet Todo (le store a pu
+  // changer via une conversion faite depuis la fiche email entre-temps).
+  useEffect(() => {
+    if (mailTab === "todo") refreshTodoBindings();
+  }, [mailTab, refreshTodoBindings]);
+
   // Resynchronise les labelIds optimistes d'un thread (étoile / non-lu) dans la
   // liste de gauche, le groupe ouvert et le fil ouvert — sans rechargement.
   const syncThreadLabels = useCallback((id: string, labelIds: string[]) => {
@@ -654,8 +777,62 @@ export default function MailPage() {
       </div>
     ) : null;
 
-  const pane1 = (
+  // Bandeau d'onglets « Inbox » / « Todo » au-dessus de la liste (pane1). Strip
+  // de boutons (cohérent avec ViewTabs / la nav de /bases), pas le composant
+  // Tabs : on garde la maîtrise du contenu rendu sous chaque onglet.
+  const tabStrip = (
+    <div
+      className="flex items-center gap-1 border-b px-3 py-2"
+      style={{ borderColor: "var(--border-subtle)" }}
+    >
+      {(
+        [
+          { id: "inbox" as const, label: "Inbox" },
+          { id: "todo" as const, label: "Todo" },
+        ] satisfies { id: "inbox" | "todo"; label: string }[]
+      ).map((t) => {
+        const active = mailTab === t.id;
+        return (
+          <Button
+            key={t.id}
+            variant="ghost"
+            size="sm"
+            onPress={() => setMailTab(t.id)}
+            className="sn-motion-colors sn-pressable rounded-md px-3 py-1.5 text-[13px] font-medium"
+            style={
+              active
+                ? { backgroundColor: "var(--surface-2)", color: "var(--text-primary)" }
+                : { color: "var(--text-muted)" }
+            }
+            aria-pressed={active}
+          >
+            {t.label}
+            {t.id === "todo" && todoBindings.length > 0 ? ` · ${todoBindings.length}` : ""}
+          </Button>
+        );
+      })}
+    </div>
+  );
+
+  const pane1 =
+    mailTab === "todo" ? (
+      <div
+        className="flex h-full flex-col overflow-hidden"
+        style={{ borderRight: "1px solid var(--border-subtle)" }}
+      >
+        {tabStrip}
+        <div className="flex-1 overflow-y-auto pb-4">
+          <MailEisenhowerBoard
+            bindings={todoBindings}
+            onOpen={handleTodoOpen}
+            onDone={handleTodoDone}
+            onMoveQuadrant={handleTodoMoveQuadrant}
+          />
+        </div>
+      </div>
+    ) : (
     <div className="flex h-full flex-col overflow-hidden" style={{ borderRight: "1px solid var(--border-subtle)" }}>
+      {tabStrip}
       {searchBox}
       {bulkBar}
       <div ref={listScrollRef} className="flex-1 overflow-y-auto px-2 pb-4">
@@ -750,6 +927,7 @@ export default function MailPage() {
               onReplied={handleReplied}
               onLabelsChanged={syncThreadLabels}
               onForward={handleForward}
+              onConvertedToTodo={handleConvertedToTodo}
             />
           </div>
         </div>
