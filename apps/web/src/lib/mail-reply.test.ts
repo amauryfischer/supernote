@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { ensureRe, pickReplyTo, replyHeaders, buildReplyParams } from "./mail-reply";
+import {
+  ensureRe,
+  pickReplyTo,
+  replyHeaders,
+  buildReplyParams,
+  pickReplyAll,
+  buildQuotedBody,
+} from "./mail-reply";
 import type { EmailThread, EmailMessage } from "./gmail";
 
 function msg(p: Partial<EmailMessage>): EmailMessage {
@@ -13,6 +20,7 @@ function msg(p: Partial<EmailMessage>): EmailMessage {
     snippet: "",
     bodyText: "",
     webLink: "",
+    attachments: [],
     ...p,
   };
 }
@@ -62,6 +70,102 @@ describe("replyHeaders", () => {
   });
   it("sans messageId → {}", () => {
     expect(replyHeaders(thread([msg({})]))).toEqual({});
+  });
+});
+
+describe("pickReplyAll", () => {
+  it("destinataire principal = pickReplyTo, les autres en cc, dédupliqués", () => {
+    const t = thread([
+      msg({
+        from: { name: "A", email: "a@x.fr" },
+        to: [
+          { name: "Me", email: "me@x.fr" },
+          { name: "B", email: "b@y.fr" },
+        ],
+      }),
+      msg({
+        from: { name: "B", email: "b@y.fr" },
+        to: [
+          { name: "A", email: "a@x.fr" },
+          { name: "C", email: "c@z.fr" },
+          { name: "Me", email: "me@x.fr" },
+        ],
+      }),
+    ]);
+    // Dernier message vient de B → réponse simple = B ; cc = A, C (pas moi, pas B).
+    expect(pickReplyAll(t, "me@x.fr")).toEqual({ to: "b@y.fr", cc: ["a@x.fr", "c@z.fr"] });
+  });
+
+  it("exclut soi-même de cc (insensible à la casse)", () => {
+    const t = thread([
+      msg({ from: { name: "A", email: "a@x.fr" }, to: [{ name: "Me", email: "ME@X.fr" }] }),
+    ]);
+    expect(pickReplyAll(t, "me@x.fr")).toEqual({ to: "a@x.fr", cc: [] });
+  });
+
+  it("n'inclut pas le destinataire principal dans cc", () => {
+    const t = thread([
+      msg({
+        from: { name: "A", email: "a@x.fr" },
+        to: [{ name: "B", email: "b@y.fr" }],
+      }),
+    ]);
+    expect(pickReplyAll(t, "me@x.fr")).toEqual({ to: "a@x.fr", cc: ["b@y.fr"] });
+  });
+
+  it("dernier message de moi → to = destinataire, cc = autres participants", () => {
+    const t = thread([
+      msg({ from: { name: "A", email: "a@x.fr" }, to: [{ name: "Me", email: "me@x.fr" }] }),
+      msg({
+        from: { name: "Me", email: "me@x.fr" },
+        to: [
+          { name: "A", email: "a@x.fr" },
+          { name: "C", email: "c@z.fr" },
+        ],
+      }),
+    ]);
+    expect(pickReplyAll(t, "me@x.fr")).toEqual({ to: "a@x.fr", cc: ["c@z.fr"] });
+  });
+
+  it("thread vide → to '' et cc []", () => {
+    expect(pickReplyAll(thread([]), "me@x.fr")).toEqual({ to: "", cc: [] });
+  });
+});
+
+describe("buildQuotedBody", () => {
+  it("ligne d'attribution + corps préfixé '> '", () => {
+    const m = msg({
+      from: { name: "Alice", email: "a@x.fr" },
+      date: "2024-01-02T10:00:00.000Z",
+      bodyText: "Bonjour\nÇa va ?",
+    });
+    const out = buildQuotedBody(m);
+    const lines = out.split("\n");
+    expect(lines[0]).toMatch(/^Le .+, Alice a écrit :$/);
+    expect(lines[1]).toBe("> Bonjour");
+    expect(lines[2]).toBe("> Ça va ?");
+  });
+
+  it("préfixe les lignes vides par '>' seul", () => {
+    const m = msg({
+      from: { name: "", email: "b@y.fr" },
+      date: "2024-01-02T10:00:00.000Z",
+      bodyText: "Para 1\n\nPara 2",
+    });
+    const lines = buildQuotedBody(m).split("\n");
+    expect(lines.slice(1)).toEqual(["> Para 1", ">", "> Para 2"]);
+  });
+
+  it("utilise l'email si pas de nom, le snippet si pas de bodyText", () => {
+    const m = msg({ from: { name: "", email: "b@y.fr" }, date: "", snippet: "extrait" });
+    const out = buildQuotedBody(m);
+    expect(out.startsWith("b@y.fr a écrit :\n")).toBe(true);
+    expect(out.endsWith("> extrait")).toBe(true);
+  });
+
+  it("date absente/illisible → attribution sans 'Le …'", () => {
+    const m = msg({ from: { name: "Bob", email: "b@y.fr" }, date: "", bodyText: "x" });
+    expect(buildQuotedBody(m).split("\n")[0]).toBe("Bob a écrit :");
   });
 });
 

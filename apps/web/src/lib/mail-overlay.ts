@@ -17,6 +17,17 @@ function mostRecent(items: ThreadListItem[]): string {
 }
 
 /**
+ * Une ligne d'overlay est « non lue » dès qu'au moins un de ses threads porte le
+ * label système `UNREAD` (single : le thread ; group : n'importe lequel de ses
+ * items). Pur & testable.
+ */
+export function rowHasUnread(row: OverlayRow): boolean {
+  return row.kind === "single"
+    ? row.item.labelIds.includes("UNREAD")
+    : row.items.some((it) => it.labelIds.includes("UNREAD"));
+}
+
+/**
  * Surcouche de regroupement. Label d'abord (≥2 items partageant un label user),
  * puis expéditeur (≥2 items restants même from.email), puis lignes seules. Tri
  * par date la plus récente. Pur & déterministe.

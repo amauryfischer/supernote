@@ -50,6 +50,21 @@ export interface EmailAddress {
   email: string;
 }
 
+/**
+ * Pièce jointe d'un message (part avec `filename` non vide ET `body.attachmentId`).
+ * `data` n'est PAS inclus : on télécharge le contenu à la demande via
+ * `fetchAttachment(clientId, messageId, attachmentId)` (les parts `format=full`
+ * ne renvoient que les métadonnées, pas les octets des grosses pièces jointes).
+ */
+export interface EmailAttachment {
+  filename: string;
+  mimeType: string;
+  size: number;
+  attachmentId: string;
+  /** Id du message porteur (nécessaire pour l'appel `messages/{id}/attachments/...`). */
+  messageId: string;
+}
+
 export interface EmailMessage {
   id: string;
   threadId: string;
@@ -60,6 +75,8 @@ export interface EmailMessage {
   snippet: string;
   bodyText: string; // text/plain uniquement en P1 (pas de HTML)
   webLink: string;
+  /** Pièces jointes (métadonnées seules ; contenu téléchargé à la demande). */
+  attachments: EmailAttachment[];
   /** Message-ID RFC822 (sert d'In-Reply-To/References pour une réponse threadée). */
   messageId?: string;
   references?: string;
@@ -75,8 +92,9 @@ export interface GmailRawMessage {
 
 interface GmailPart {
   mimeType?: string;
+  filename?: string;
   headers?: Array<{ name: string; value: string }>;
-  body?: { data?: string; size?: number };
+  body?: { data?: string; size?: number; attachmentId?: string };
   parts?: GmailPart[];
 }
 
@@ -227,6 +245,33 @@ function findPlainText(part: GmailPart | undefined): string {
   return "";
 }
 
+/**
+ * Collecte récursivement les pièces jointes d'un arbre de parts : toute part
+ * dotée d'un `filename` non vide ET d'un `body.attachmentId` (les pièces jointes
+ * "vraies", par opposition aux corps text/plain ou html inline). On ne descend
+ * jamais dans le contenu : `data` n'est pas exposé (téléchargé à la demande).
+ * Pur, testable.
+ */
+function collectAttachments(part: GmailPart | undefined, messageId: string): EmailAttachment[] {
+  if (!part) return [];
+  const out: EmailAttachment[] = [];
+  const filename = (part.filename ?? "").trim();
+  const attachmentId = part.body?.attachmentId;
+  if (filename && attachmentId) {
+    out.push({
+      filename,
+      mimeType: part.mimeType ?? "application/octet-stream",
+      size: part.body?.size ?? 0,
+      attachmentId,
+      messageId,
+    });
+  }
+  for (const sub of part.parts ?? []) {
+    out.push(...collectAttachments(sub, messageId));
+  }
+  return out;
+}
+
 function toIsoDate(raw: string): string {
   if (!raw) return "";
   const t = Date.parse(raw);
@@ -249,6 +294,7 @@ export function parseGmailMessage(raw: GmailRawMessage): EmailMessage {
     snippet: raw.snippet ?? "",
     bodyText: findPlainText(p),
     webLink: `https://mail.google.com/mail/u/0/#all/${raw.id}`,
+    attachments: collectAttachments(p, raw.id),
     messageId: header(p, "Message-ID") || header(p, "Message-Id"),
     references: header(p, "References"),
   };
@@ -273,21 +319,48 @@ export function unionLabelIds(messages: Array<{ labelIds?: string[] }>): string[
   return [...new Set(messages.flatMap((m) => m.labelIds ?? []))];
 }
 
+/** Une page de résultats `threads.list` : les items + le curseur page suivante. */
+export interface ThreadsPage {
+  items: ThreadSummary[];
+  /** Curseur opaque à repasser en `pageToken` ; absent = plus de page. */
+  nextPageToken?: string;
+}
+
+/**
+ * Recherche paginée de threads via la syntaxe Gmail (`q`). Renvoie la page +
+ * `nextPageToken` (curseur opaque Gmail). `pageToken` charge une page suivante.
+ * Base de `searchThreads` (qui n'expose que les items, rétro-compatible).
+ */
+export async function searchThreadsPage(
+  clientId: string,
+  query: string,
+  opts: { maxResults?: number; pageToken?: string } = {},
+): Promise<ThreadsPage> {
+  const maxResults = opts.maxResults ?? 20;
+  const token = opts.pageToken ? `&pageToken=${encodeURIComponent(opts.pageToken)}` : "";
+  const qs = `?q=${encodeURIComponent(query)}&maxResults=${maxResults}${token}`;
+  const json = await gmailFetch<{
+    threads?: Array<{ id: string; snippet?: string }>;
+    nextPageToken?: string;
+  }>(clientId, `/threads${qs}`);
+  return {
+    items: (json.threads ?? []).map((t) => ({ id: t.id, snippet: t.snippet ?? "" })),
+    nextPageToken: json.nextPageToken,
+  };
+}
+
 /**
  * Recherche de threads via la syntaxe Gmail (`q`) : `from:`, `is:unread`,
- * `subject:`, `after:`, etc. `maxResults` borne la page (défaut 20).
+ * `subject:`, `after:`, etc. `maxResults` borne la page (défaut 20). Variante
+ * historique (items uniquement) : pour paginer, voir `searchThreadsPage`.
  */
 export async function searchThreads(
   clientId: string,
   query: string,
   maxResults = 20,
 ): Promise<ThreadSummary[]> {
-  const qs = `?q=${encodeURIComponent(query)}&maxResults=${maxResults}`;
-  const json = await gmailFetch<{ threads?: Array<{ id: string; snippet?: string }> }>(
-    clientId,
-    `/threads${qs}`,
-  );
-  return (json.threads ?? []).map((t) => ({ id: t.id, snippet: t.snippet ?? "" }));
+  const page = await searchThreadsPage(clientId, query, { maxResults });
+  return page.items;
 }
 
 /** Lit un thread complet (format=full) et parse chaque message. */
@@ -338,18 +411,42 @@ async function getThreadListItem(clientId: string, threadId: string): Promise<Th
   };
 }
 
+/** Page enrichie de threads (items affichables) + curseur page suivante. */
+export interface ThreadListPage {
+  items: ThreadListItem[];
+  /** Curseur opaque à repasser en `pageToken` ; absent = plus de page. */
+  nextPageToken?: string;
+}
+
+/**
+ * Variante paginée de `listThreadSummaries` : recherche + enrichit une page de
+ * threads (sujet/expéditeur/date) et renvoie le `nextPageToken`. `pageToken`
+ * charge la page suivante. 1 appel `threads.list` + N `format=metadata`
+ * (parallèles), N borné par `maxResults`.
+ */
+export async function listThreadSummariesPage(
+  clientId: string,
+  query: string,
+  opts: { maxResults?: number; pageToken?: string } = {},
+): Promise<ThreadListPage> {
+  const page = await searchThreadsPage(clientId, query, opts);
+  const items = await Promise.all(page.items.map((t) => getThreadListItem(clientId, t.id)));
+  return { items, nextPageToken: page.nextPageToken };
+}
+
 /**
  * Recherche + enrichit chaque thread (sujet/expéditeur/date) pour un affichage
  * façon boîte mail. 1 appel `threads.list` + N appels `format=metadata`
- * (parallèles). N borné par `maxResults`.
+ * (parallèles). N borné par `maxResults`. Variante historique (items uniquement) :
+ * pour paginer (« Charger plus »), voir `listThreadSummariesPage`.
  */
 export async function listThreadSummaries(
   clientId: string,
   query: string,
   maxResults = 20,
 ): Promise<ThreadListItem[]> {
-  const threads = await searchThreads(clientId, query, maxResults);
-  return Promise.all(threads.map((t) => getThreadListItem(clientId, t.id)));
+  const page = await listThreadSummariesPage(clientId, query, { maxResults });
+  return page.items;
 }
 
 // ─── Labels (P2) ─────────────────────────────────────────────────────────────
@@ -443,6 +540,15 @@ export function removeThreadLabel(clientId: string, threadId: string, labelId: s
 }
 
 /**
+ * Marque un thread comme lu : retire le label système `UNREAD` de tous ses
+ * messages via `threads.modify`. Scope `gmail.modify`. Idempotent côté Gmail
+ * (retirer un label déjà absent est un no-op).
+ */
+export function markThreadRead(clientId: string, threadId: string): Promise<void> {
+  return modifyThreadLabels(clientId, threadId, { removeLabelIds: ["UNREAD"] });
+}
+
+/**
  * Met un thread entier à la corbeille Gmail via `threads.trash` (RÉVERSIBLE :
  * Gmail conserve 30 j, restaurable). Scope `gmail.modify`. On évite le DELETE
  * permanent (qui exigerait le scope complet `https://mail.google.com/`).
@@ -501,6 +607,7 @@ export function formatRecipients(to: string | string[] | undefined): string {
 /** Construit un message RFC 2822 (texte brut UTF-8) pour `drafts.create` / `messages.send`. */
 export function buildRawMessage(input: {
   to?: string | string[];
+  cc?: string | string[];
   subject: string;
   body: string;
   inReplyTo?: string;
@@ -509,6 +616,8 @@ export function buildRawMessage(input: {
   const lines: string[] = [];
   const to = formatRecipients(input.to);
   if (to) lines.push(`To: ${to}`);
+  const cc = formatRecipients(input.cc);
+  if (cc) lines.push(`Cc: ${cc}`);
   lines.push(`Subject: ${encodeHeaderWord(input.subject)}`);
   if (input.inReplyTo) lines.push(`In-Reply-To: ${input.inReplyTo}`);
   if (input.references) lines.push(`References: ${input.references}`);
@@ -532,6 +641,7 @@ export async function createDraft(
   clientId: string,
   input: {
     to?: string | string[];
+    cc?: string | string[];
     subject: string;
     body: string;
     threadId?: string;
@@ -575,6 +685,7 @@ export async function sendReply(
   input: {
     threadId: string;
     to?: string | string[];
+    cc?: string | string[];
     subject: string;
     body: string;
     inReplyTo?: string;
@@ -591,5 +702,75 @@ export async function sendReply(
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(`Gmail send ${res.status}: ${text.slice(0, 300)}`);
+  }
+}
+
+// ─── Pièces jointes (téléchargement) ──────────────────────────────────────────
+
+/**
+ * Télécharge le contenu d'une pièce jointe : `GET
+ * /messages/{messageId}/attachments/{attachmentId}`. Renvoie le `body.data`
+ * (base64url) — à décoder via `base64UrlToBytes`. Scope `gmail.readonly` suffit
+ * (lecture seule).
+ */
+export async function fetchAttachment(
+  clientId: string,
+  messageId: string,
+  attachmentId: string,
+): Promise<{ data: string }> {
+  const json = await gmailFetch<{ data?: string; size?: number }>(
+    clientId,
+    `/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(attachmentId)}`,
+  );
+  return { data: json.data ?? "" };
+}
+
+/** Décode du base64url (Gmail) en octets bruts (binaire, sans hypothèse UTF-8). */
+export function base64UrlToBytes(data: string): Uint8Array {
+  if (!data) return new Uint8Array(0);
+  const b64 = data.replace(/-/g, "+").replace(/_/g, "/");
+  const bin = atob(b64);
+  return Uint8Array.from(bin, (c) => c.charCodeAt(0));
+}
+
+/**
+ * Formate une taille en octets de façon lisible (B / Ko / Mo / Go). Base 1024,
+ * 1 décimale au-delà du kilo. Pur, testable.
+ */
+export function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 o";
+  const units = ["o", "Ko", "Mo", "Go", "To"];
+  const exp = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)));
+  const value = bytes / Math.pow(1024, exp);
+  const rounded = exp === 0 ? Math.round(value) : Math.round(value * 10) / 10;
+  return `${rounded} ${units[exp]}`;
+}
+
+/**
+ * Télécharge une pièce jointe et déclenche un téléchargement navigateur (Blob du
+ * bon mimeType → `<a download>`). Effet de bord DOM — non pur. Le contenu n'est
+ * JAMAIS interprété comme HTML (Blob brut), donc pas de surface XSS.
+ */
+export async function downloadAttachment(
+  clientId: string,
+  attachment: EmailAttachment,
+): Promise<void> {
+  const { data } = await fetchAttachment(clientId, attachment.messageId, attachment.attachmentId);
+  const bytes = base64UrlToBytes(data);
+  // Copie dans un ArrayBuffer propre pour satisfaire BlobPart (évite SharedArrayBuffer).
+  const buf = bytes.slice().buffer;
+  const blob = new Blob([buf], {
+    type: attachment.mimeType || "application/octet-stream",
+  });
+  const url = URL.createObjectURL(blob);
+  try {
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = attachment.filename || "piece-jointe";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  } finally {
+    URL.revokeObjectURL(url);
   }
 }

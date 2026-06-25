@@ -1,8 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { getGmailProfile, parseGmailMessage, parseAddress, decodeBody, decodeQuotedPrintable, normalizeWhitespace, classifyBubble, type GmailRawMessage } from "./gmail";
 import { searchThreads, getThread, listThreadSummaries, listLabels, type ThreadSummary } from "./gmail";
+import { searchThreadsPage, listThreadSummariesPage } from "./gmail";
 import { toBase64Url, buildRawMessage, formatRecipients, GMAIL_COMPOSE_SCOPE } from "./gmail";
-import { unionLabelIds, resolveUserLabels, modifyThreadLabels, GMAIL_MODIFY_SCOPE, type GmailLabel } from "./gmail";
+import { unionLabelIds, resolveUserLabels, modifyThreadLabels, markThreadRead, GMAIL_MODIFY_SCOPE, type GmailLabel } from "./gmail";
+import { fetchAttachment, base64UrlToBytes, formatBytes } from "./gmail";
 
 // requestAccessToken touche GIS → on le stubbe pour tous les tests gmail.
 vi.mock("./google-drive", () => ({
@@ -219,6 +221,85 @@ describe("searchThreads", () => {
   });
 });
 
+describe("searchThreadsPage", () => {
+  it("expose les items + nextPageToken", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => ({
+          threads: [{ id: "t1", snippet: "a" }],
+          nextPageToken: "TOKEN_2",
+        }),
+      })),
+    );
+    const page = await searchThreadsPage("cid", "in:inbox");
+    expect(page.items.map((t) => t.id)).toEqual(["t1"]);
+    expect(page.nextPageToken).toBe("TOKEN_2");
+    vi.unstubAllGlobals();
+  });
+
+  it("dernière page → nextPageToken absent", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: true, json: async () => ({ threads: [{ id: "t9" }] }) })),
+    );
+    const page = await searchThreadsPage("cid", "in:inbox");
+    expect(page.nextPageToken).toBeUndefined();
+    vi.unstubAllGlobals();
+  });
+
+  it("transmet pageToken dans l'URL de la requête", async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true, json: async () => ({ threads: [] }) }));
+    vi.stubGlobal("fetch", fetchMock);
+    await searchThreadsPage("cid", "in:inbox", { pageToken: "abc123" });
+    const call = fetchMock.mock.calls[0] as [unknown, RequestInit] | undefined;
+    expect(String(call?.[0])).toContain("pageToken=abc123");
+    vi.unstubAllGlobals();
+  });
+});
+
+describe("listThreadSummariesPage", () => {
+  it("enrichit la page et propage le nextPageToken", async () => {
+    const fetchMock = vi
+      .fn()
+      // 1) threads.list (avec nextPageToken)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ threads: [{ id: "t1", snippet: "snip" }], nextPageToken: "NEXT" }),
+      })
+      // 2) threads.get?format=metadata (t1)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          id: "t1",
+          snippet: "snip",
+          messages: [
+            {
+              id: "m1",
+              threadId: "t1",
+              snippet: "snip",
+              labelIds: ["INBOX"],
+              payload: {
+                headers: [
+                  { name: "Subject", value: "Sujet" },
+                  { name: "From", value: "Ada <ada@calc.io>" },
+                  { name: "Date", value: "Tue, 23 Jun 2026 10:00:00 +0200" },
+                ],
+              },
+            },
+          ],
+        }),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+    const page = await listThreadSummariesPage("cid", "in:inbox");
+    expect(page.items).toHaveLength(1);
+    expect(page.items[0]).toMatchObject({ id: "t1", subject: "Sujet" });
+    expect(page.nextPageToken).toBe("NEXT");
+    vi.unstubAllGlobals();
+  });
+});
+
 describe("getThread", () => {
   it("parse tous les messages du thread", async () => {
     vi.stubGlobal(
@@ -384,6 +465,32 @@ describe("modifyThreadLabels", () => {
   });
 });
 
+describe("markThreadRead", () => {
+  it("POST /modify en retirant le label UNREAD; scope modify", async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true, json: async () => ({}) }));
+    vi.stubGlobal("fetch", fetchMock);
+    await markThreadRead("cid", "t1");
+    expect(vi.mocked(requestAccessToken)).toHaveBeenCalledWith(
+      "cid",
+      expect.objectContaining({ scope: GMAIL_MODIFY_SCOPE }),
+    );
+    const call = fetchMock.mock.calls[0] as [unknown, RequestInit] | undefined;
+    expect(String(call?.[0])).toContain("/threads/t1/modify");
+    const init = call?.[1] as RequestInit;
+    expect(init.method).toBe("POST");
+    const body = JSON.parse(String(init.body)) as { addLabelIds: string[]; removeLabelIds: string[] };
+    expect(body.removeLabelIds).toEqual(["UNREAD"]);
+    expect(body.addLabelIds).toEqual([]);
+    vi.unstubAllGlobals();
+  });
+
+  it("lève sur réponse non-ok", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 403, text: async () => "denied" })));
+    await expect(markThreadRead("cid", "t1")).rejects.toThrow(/Gmail modify 403/);
+    vi.unstubAllGlobals();
+  });
+});
+
 describe("GMAIL_MODIFY_SCOPE", () => {
   it("est le scope modify", () => {
     expect(GMAIL_MODIFY_SCOPE).toBe("https://www.googleapis.com/auth/gmail.modify");
@@ -421,6 +528,21 @@ describe("buildRawMessage", () => {
   it("omet To si tableau vide ou que des vides", () => {
     expect(buildRawMessage({ to: [], subject: "s", body: "b" })).not.toMatch(/^To:/m);
     expect(buildRawMessage({ to: ["  ", ""], subject: "s", body: "b" })).not.toMatch(/^To:/m);
+  });
+  it("ajoute un en-tête Cc (tableau joint par ', ')", () => {
+    const raw = buildRawMessage({
+      to: "a@x.io",
+      cc: ["b@x.io", "c@x.io"],
+      subject: "s",
+      body: "b",
+    });
+    expect(raw).toMatch(/^Cc: b@x\.io, c@x\.io$/m);
+  });
+  it("omet Cc si absent ou que des vides", () => {
+    expect(buildRawMessage({ to: "a@x.io", subject: "s", body: "b" })).not.toMatch(/^Cc:/m);
+    expect(
+      buildRawMessage({ to: "a@x.io", cc: ["  ", ""], subject: "s", body: "b" }),
+    ).not.toMatch(/^Cc:/m);
   });
 });
 
@@ -513,5 +635,122 @@ describe("classifyBubble", () => {
   });
   it("selfEmail sans domaine exploitable → external", () => {
     expect(classifyBubble("bob@numerisk.fr", "weird-self")).toBe("external");
+  });
+});
+
+describe("parseGmailMessage (pièces jointes)", () => {
+  it("collecte les parts avec filename + attachmentId (récursif)", () => {
+    const m = parseGmailMessage({
+      id: "ma",
+      threadId: "ta",
+      payload: {
+        mimeType: "multipart/mixed",
+        headers: [{ name: "Subject", value: "Avec PJ" }],
+        parts: [
+          { mimeType: "text/plain", body: { data: "Qm9uam91cg" } }, // corps, pas une PJ
+          {
+            mimeType: "application/pdf",
+            filename: "contrat.pdf",
+            body: { attachmentId: "att_1", size: 12345 },
+          },
+          {
+            mimeType: "multipart/related",
+            parts: [
+              {
+                mimeType: "image/png",
+                filename: "logo.png",
+                body: { attachmentId: "att_2", size: 678 },
+              },
+            ],
+          },
+        ],
+      },
+    });
+    expect(m.attachments).toEqual([
+      { filename: "contrat.pdf", mimeType: "application/pdf", size: 12345, attachmentId: "att_1", messageId: "ma" },
+      { filename: "logo.png", mimeType: "image/png", size: 678, attachmentId: "att_2", messageId: "ma" },
+    ]);
+  });
+
+  it("ignore les parts sans attachmentId ou sans filename", () => {
+    const m = parseGmailMessage({
+      id: "mb",
+      threadId: "tb",
+      payload: {
+        mimeType: "multipart/mixed",
+        headers: [],
+        parts: [
+          { mimeType: "text/plain", body: { data: "Qm9uam91cg" } }, // pas de filename
+          { mimeType: "image/png", filename: "inline.png", body: { data: "AAAA" } }, // inline (data, pas attachmentId)
+          { mimeType: "application/octet-stream", filename: "", body: { attachmentId: "x" } }, // filename vide
+        ],
+      },
+    });
+    expect(m.attachments).toEqual([]);
+  });
+
+  it("message sans PJ → tableau vide", () => {
+    const m = parseGmailMessage({ id: "mc", threadId: "tc", payload: { headers: [] } });
+    expect(m.attachments).toEqual([]);
+  });
+});
+
+describe("fetchAttachment", () => {
+  it("GET /messages/{id}/attachments/{attId} et renvoie data", async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ data: "SGVsbG8", size: 5 }),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    const out = await fetchAttachment("cid", "msg_1", "att_1");
+    expect(out.data).toBe("SGVsbG8");
+    const call = fetchMock.mock.calls[0] as [unknown, RequestInit] | undefined;
+    expect(String(call?.[0])).toContain("/messages/msg_1/attachments/att_1");
+    vi.unstubAllGlobals();
+  });
+
+  it("data absent → chaîne vide", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({}) })));
+    expect((await fetchAttachment("cid", "m", "a")).data).toBe("");
+    vi.unstubAllGlobals();
+  });
+
+  it("lève sur réponse non-ok", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 404, text: async () => "nope" })));
+    await expect(fetchAttachment("cid", "m", "a")).rejects.toThrow(/Gmail API 404/);
+    vi.unstubAllGlobals();
+  });
+});
+
+describe("base64UrlToBytes", () => {
+  it("décode du base64url en octets bruts", () => {
+    // "Hello" → base64 "SGVsbG8="
+    expect(Array.from(base64UrlToBytes("SGVsbG8"))).toEqual([72, 101, 108, 108, 111]);
+  });
+  it("gère les caractères url-safe (- et _)", () => {
+    // octets 0xFB 0xFF → base64 "+/8=", url-safe "-_8"
+    expect(Array.from(base64UrlToBytes("-_8"))).toEqual([0xfb, 0xff]);
+  });
+  it("chaîne vide → tableau vide", () => {
+    expect(base64UrlToBytes("").length).toBe(0);
+  });
+});
+
+describe("formatBytes", () => {
+  it("octets bruts en dessous du kilo", () => {
+    expect(formatBytes(0)).toBe("0 o");
+    expect(formatBytes(512)).toBe("512 o");
+  });
+  it("kilo-octets avec 1 décimale", () => {
+    expect(formatBytes(1024)).toBe("1 Ko");
+    expect(formatBytes(1536)).toBe("1.5 Ko");
+  });
+  it("méga-octets", () => {
+    expect(formatBytes(1024 * 1024)).toBe("1 Mo");
+    expect(formatBytes(5 * 1024 * 1024)).toBe("5 Mo");
+  });
+  it("valeur négative ou non finie → 0 o", () => {
+    expect(formatBytes(-1)).toBe("0 o");
+    expect(formatBytes(Number.NaN)).toBe("0 o");
   });
 });

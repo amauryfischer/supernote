@@ -17,6 +17,7 @@ const msg: EmailMessage = {
   snippet: "Voici le compte rendu…",
   bodyText: "Bonjour,\n\nVoici le compte rendu.\n\nAda",
   webLink: "https://mail.google.com/mail/u/0/#all/m1",
+  attachments: [],
 };
 
 describe("emailToMarkdown", () => {

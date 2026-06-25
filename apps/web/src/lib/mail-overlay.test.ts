@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildMailOverlay } from "./mail-overlay";
+import { buildMailOverlay, rowHasUnread } from "./mail-overlay";
 import type { ThreadListItem } from "@/lib/gmail";
 
 function item(id: string, fromEmail: string, date: string, labelIds: string[] = [], subject = "s"): ThreadListItem {
@@ -196,5 +196,36 @@ describe("buildMailOverlay", () => {
       labels,
     );
     expect(rows.find((r) => r.kind === "group")).toMatchObject({ groupType: "sender", count: 2 });
+  });
+});
+
+describe("rowHasUnread", () => {
+  it("single avec UNREAD → true", () => {
+    expect(rowHasUnread({ kind: "single", item: item("a", "a@x.io", "2026-06-20T10:00:00Z", ["INBOX", "UNREAD"]) })).toBe(true);
+  });
+  it("single sans UNREAD → false", () => {
+    expect(rowHasUnread({ kind: "single", item: item("a", "a@x.io", "2026-06-20T10:00:00Z", ["INBOX"]) })).toBe(false);
+  });
+  it("group → true dès qu'un item est non lu", () => {
+    const rows = buildMailOverlay(
+      [
+        item("a", "ada@x.io", "2026-06-20T10:00:00Z", ["L1"]),
+        item("b", "bob@x.io", "2026-06-21T10:00:00Z", ["L1", "UNREAD"]),
+      ],
+      labels,
+    );
+    const group = rows.find((r) => r.kind === "group")!;
+    expect(rowHasUnread(group)).toBe(true);
+  });
+  it("group tout lu → false", () => {
+    const rows = buildMailOverlay(
+      [
+        item("a", "ada@x.io", "2026-06-20T10:00:00Z", ["L1"]),
+        item("b", "bob@x.io", "2026-06-21T10:00:00Z", ["L1"]),
+      ],
+      labels,
+    );
+    const group = rows.find((r) => r.kind === "group")!;
+    expect(rowHasUnread(group)).toBe(false);
   });
 });

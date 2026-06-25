@@ -2,7 +2,7 @@
 
 import { Button } from "@heroui/react";
 import { Tag } from "@phosphor-icons/react";
-import type { OverlayRow } from "@/lib/mail-overlay";
+import { rowHasUnread, type OverlayRow } from "@/lib/mail-overlay";
 import type { GmailLabelColor } from "@/lib/gmail";
 
 function shortDate(d: string): string {
@@ -14,15 +14,22 @@ export function MailOverlayList({
   activeKey,
   onPick,
   labelColors,
+  selectedIndex,
 }: {
   rows: OverlayRow[];
   activeKey?: string;
   onPick: (row: OverlayRow) => void;
   labelColors?: Map<string, GmailLabelColor>;
+  /**
+   * Index de la ligne sélectionnée au clavier (navigation j/k). Distinct de
+   * `activeKey` (ligne réellement ouverte) : surligne la cible du curseur sans
+   * forcément l'ouvrir. Le marqueur `data-mail-row-index` permet le scroll-into-view.
+   */
+  selectedIndex?: number;
 }) {
   return (
     <div className="flex flex-col gap-1" role="listbox" aria-label="Boîte mail">
-      {rows.map((row) => {
+      {rows.map((row, idx) => {
         const key = row.kind === "single" ? `t:${row.item.id}` : row.key;
         const title = row.kind === "single" ? row.item.from.name || row.item.from.email : row.title;
         const subject = row.kind === "single" ? row.item.subject : row.items[0]?.subject ?? "";
@@ -33,19 +40,35 @@ export function MailOverlayList({
             ? row.key.slice("label:".length)
             : null;
         const labelColor = labelId ? labelColors?.get(labelId) : undefined;
+        const unread = rowHasUnread(row);
+        const cursored = selectedIndex === idx;
         return (
           <Button
             key={key}
+            data-mail-row-index={idx}
             variant={activeKey === key ? "primary" : "ghost"}
             onPress={() => onPick(row)}
-            className="h-auto w-full justify-start whitespace-normal px-3 py-2 text-left"
+            className={`h-auto w-full justify-start whitespace-normal px-3 py-2 text-left${
+              cursored && activeKey !== key
+                ? " ring-2 ring-inset ring-[var(--accent)] ring-offset-0"
+                : ""
+            }`}
+            aria-selected={cursored || activeKey === key}
           >
             <span className="flex w-full min-w-0 flex-col gap-0.5">
               <span className="flex items-baseline justify-between gap-2">
                 <span className="flex min-w-0 items-center gap-1.5">
+                  {unread && (
+                    <span
+                      aria-label="Non lu"
+                      title="Non lu"
+                      className="h-2 w-2 shrink-0 rounded-full"
+                      style={{ backgroundColor: "var(--accent)" }}
+                    />
+                  )}
                   {isLabel ? (
                     <span
-                      className="inline-flex min-w-0 items-center gap-1 truncate rounded-full px-2 py-0.5 text-xs font-medium"
+                      className={`inline-flex min-w-0 items-center gap-1 truncate rounded-full px-2 py-0.5 text-xs ${unread ? "font-bold" : "font-medium"}`}
                       style={
                         labelColor
                           ? { backgroundColor: labelColor.backgroundColor, color: labelColor.textColor }
@@ -56,7 +79,7 @@ export function MailOverlayList({
                       <span className="truncate">{title}</span>
                     </span>
                   ) : (
-                    <span className="truncate text-sm font-medium">{title}</span>
+                    <span className={`truncate text-sm ${unread ? "font-bold" : "font-medium"}`}>{title}</span>
                   )}
                   {row.kind === "group" && (
                     <span

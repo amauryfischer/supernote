@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowSquareOut, Plus, X, Tag, MagnifyingGlass, Check, PaperPlaneTilt } from "@phosphor-icons/react";
+import { ArrowSquareOut, Plus, X, Tag, MagnifyingGlass, Check, PaperPlaneTilt, Quotes, Paperclip } from "@phosphor-icons/react";
 import { Button, Input } from "@heroui/react";
 import { useToast } from "@supernote/ui";
 import { useSettings } from "@/components/settings/SettingsContext";
@@ -10,17 +10,21 @@ import {
   resolveUserLabels,
   addThreadLabel,
   removeThreadLabel,
+  markThreadRead,
   sendReply,
   createDraft,
   buildGmailDraftUrl,
   classifyBubble,
+  downloadAttachment,
+  formatBytes,
   type EmailThread,
   type EmailMessage,
+  type EmailAttachment,
   type GmailLabel,
   type BubbleKind,
 } from "@/lib/gmail";
 import { parseEmailBody } from "@/lib/email-quote";
-import { buildReplyParams } from "@/lib/mail-reply";
+import { buildReplyParams, pickReplyAll, buildQuotedBody } from "@/lib/mail-reply";
 import { TriageBar } from "./TriageBar";
 import { EnrichContactFromEmail } from "./EnrichContactFromEmail";
 import { EmailToEventButton } from "./EmailToEventButton";
@@ -50,12 +54,19 @@ export function EmailThreadView({
   selfEmail,
   enableShortcuts = true,
   onTriaged,
+  onReplied,
 }: {
   thread: EmailThread;
   selfEmail?: string;
   enableShortcuts?: boolean;
   /** Appelé après un triage réussi (Done/Archive/Snooze) — l'appelant retire le fil de la liste. */
   onTriaged?: (action: TriageAction) => void;
+  /**
+   * Appelé après un ENVOI de réponse réussi (mode `send` uniquement, pas le
+   * brouillon) — l'appelant re-fetch le fil + la liste pour afficher la réponse
+   * sans rechargement manuel.
+   */
+  onReplied?: () => void;
 }) {
   const { settings } = useSettings();
   const clientId = settings.googleDrive.clientId.trim();
@@ -67,10 +78,26 @@ export function EmailThreadView({
   const [pickerOpen, setPickerOpen] = useState(false);
   const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  // Garde anti-double : 1 seul markThreadRead par thread ouvert.
+  const readMarkedRef = useRef<string | null>(null);
 
   useEffect(() => {
     setLabelIds(thread.labelIds);
   }, [thread]);
+
+  // À l'ouverture d'un thread non lu : le marquer lu (optimiste + best-effort).
+  // Une seule fois par thread.id ; si l'appel échoue, on resté en silence (le
+  // thread reste « non lu » côté Gmail, resync au prochain chargement de liste).
+  useEffect(() => {
+    if (!clientId) return;
+    if (readMarkedRef.current === thread.id) return;
+    if (!thread.labelIds.includes("UNREAD")) return;
+    readMarkedRef.current = thread.id;
+    setLabelIds((prev) => prev.filter((id) => id !== "UNREAD"));
+    markThreadRead(clientId, thread.id).catch(() => {
+      /* best-effort : pas de toast pour un marquage-lu silencieux */
+    });
+  }, [thread.id, thread.labelIds, clientId]);
 
   useEffect(() => {
     if (!clientId) return undefined;
@@ -95,20 +122,42 @@ export function EmailThreadView({
 
   // ─── Réponse rapide (barre fixe en bas) ───────────────────────────────────
   const replyParams = useMemo(() => buildReplyParams(thread, selfEmail), [thread, selfEmail]);
+  // « Répondre à tous » : tous les participants du fil sauf soi (Cc inclus à l'envoi).
+  const replyAll = useMemo(() => pickReplyAll(thread, selfEmail), [thread, selfEmail]);
   const [replyBody, setReplyBody] = useState("");
   const [replyBusy, setReplyBusy] = useState<"send" | "draft" | null>(null);
-  useEffect(() => setReplyBody(""), [thread]);
+  // Toggle « Répondre à tous » : défaut = réponse simple. Pas de Cc à ajouter
+  // (seul le destinataire principal) → l'option est sans effet, on la masque.
+  const [replyToAll, setReplyToAll] = useState(false);
+  const hasCc = replyAll.cc.length > 0;
+  useEffect(() => {
+    setReplyBody("");
+    setReplyToAll(false);
+  }, [thread]);
+
+  // Insère la citation du dernier message en tête de la zone de texte.
+  const insertQuote = () => {
+    const last = thread.messages[thread.messages.length - 1];
+    if (!last) return;
+    const quote = buildQuotedBody(last);
+    setReplyBody((prev) => (prev.trim() ? `${prev}\n\n${quote}\n` : `${quote}\n`));
+  };
 
   const submitReply = async (mode: "send" | "draft") => {
     const body = replyBody.trim();
     if (!body || !clientId) return;
+    const cc = replyToAll && hasCc ? replyAll.cc : undefined;
     setReplyBusy(mode);
     try {
       if (mode === "send") {
-        await sendReply(clientId, { ...replyParams, body });
+        await sendReply(clientId, { ...replyParams, cc, body });
         toast({ title: "Réponse envoyée", variant: "success" });
+        setReplyBody("");
+        // Re-fetch fil + liste côté appelant pour faire apparaître la réponse.
+        onReplied?.();
+        return;
       } else {
-        const { draftId } = await createDraft(clientId, { ...replyParams, body });
+        const { draftId } = await createDraft(clientId, { ...replyParams, cc, body });
         window.open(buildGmailDraftUrl(draftId), "_blank", "noopener");
         toast({ title: "Brouillon créé", description: "Ouvert dans Gmail." });
       }
@@ -238,7 +287,12 @@ export function EmailThreadView({
       </div>
 
       {thread.messages.map((m) => (
-        <MessageBubble key={m.id} message={m} kind={classifyBubble(m.from.email, selfEmail)} />
+        <MessageBubble
+          key={m.id}
+          message={m}
+          kind={classifyBubble(m.from.email, selfEmail)}
+          clientId={clientId}
+        />
       ))}
 
       {clientId && replyParams.to && (
@@ -265,11 +319,34 @@ export function EmailThreadView({
               color: "var(--text-primary)",
             }}
           />
-          <div className="mt-1.5 flex items-center justify-between gap-2">
-            <span className="min-w-0 truncate text-xs" style={{ color: "var(--text-muted)" }}>
-              À : {replyParams.to} · ⌘/Ctrl+↵ pour envoyer
-            </span>
-            <div className="flex shrink-0 gap-2">
+          <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs" style={{ color: "var(--text-muted)" }}>
+              <span className="min-w-0 truncate">
+                À : {replyToAll && hasCc ? replyAll.to : replyParams.to}
+                {replyToAll && hasCc && ` · Cc : ${replyAll.cc.join(", ")}`}
+              </span>
+              <span className="shrink-0">⌘/Ctrl+↵ pour envoyer</span>
+            </div>
+            <div className="flex shrink-0 flex-wrap items-center gap-2">
+              {hasCc && (
+                <Button
+                  variant={replyToAll ? "primary" : "ghost"}
+                  size="sm"
+                  onPress={() => setReplyToAll((v) => !v)}
+                  aria-pressed={replyToAll}
+                  aria-label="Répondre à tous : inclure tous les participants du fil en copie"
+                >
+                  Répondre à tous
+                </Button>
+              )}
+              <Button
+                variant="ghost"
+                size="sm"
+                onPress={insertQuote}
+                aria-label="Citer le message précédent"
+              >
+                <Quotes size={14} /> Citer
+              </Button>
               <Button
                 variant="ghost"
                 size="sm"
@@ -460,7 +537,15 @@ const INTERNAL_BG = "color-mix(in oklch, var(--success) 14%, transparent)";
 const INTERNAL_BORDER = "color-mix(in oklch, var(--success) 35%, transparent)";
 const INTERNAL_ACCENT = "var(--success)";
 
-function MessageBubble({ message, kind }: { message: EmailMessage; kind: BubbleKind }) {
+function MessageBubble({
+  message,
+  kind,
+  clientId,
+}: {
+  message: EmailMessage;
+  kind: BubbleKind;
+  clientId: string;
+}) {
   const mine = kind === "mine";
   const internal = kind === "internal";
   const date = message.date ? new Date(message.date).toLocaleString() : "";
@@ -512,6 +597,14 @@ function MessageBubble({ message, kind }: { message: EmailMessage; kind: BubbleK
           <CollapsibleBlock openLabel="··· Afficher la citation" closeLabel="Masquer la citation" text={quoted} />
         )}
 
+        {message.attachments.length > 0 && clientId && (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {message.attachments.map((att) => (
+              <AttachmentChip key={att.attachmentId} attachment={att} clientId={clientId} />
+            ))}
+          </div>
+        )}
+
         {message.webLink && (
           <a
             href={message.webLink}
@@ -525,6 +618,61 @@ function MessageBubble({ message, kind }: { message: EmailMessage; kind: BubbleK
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * Chip de pièce jointe cliquable : icône trombone + nom + taille lisible.
+ * Au clic, télécharge le contenu (scope readonly) et déclenche un download
+ * navigateur via Blob (jamais de rendu HTML → pas de surface XSS). Cible tactile
+ * suffisante (min-h-8) pour le mobile. État « busy » pendant le téléchargement.
+ */
+function AttachmentChip({
+  attachment,
+  clientId,
+}: {
+  attachment: EmailAttachment;
+  clientId: string;
+}) {
+  const { toast } = useToast();
+  const [busy, setBusy] = useState(false);
+  const onDownload = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await downloadAttachment(clientId, attachment);
+    } catch (e) {
+      toast({
+        title: "Téléchargement échoué",
+        description: e instanceof Error ? e.message : String(e),
+        variant: "danger",
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      onPress={() => void onDownload()}
+      isDisabled={busy}
+      aria-label={`Télécharger ${attachment.filename}${attachment.size ? ` (${formatBytes(attachment.size)})` : ""}`}
+      className="flex h-auto min-h-8 max-w-full items-center gap-1.5 rounded-full px-2.5 py-1 text-xs"
+      style={{
+        border: "1px solid var(--border-subtle)",
+        backgroundColor: "var(--surface-2, var(--surface-1))",
+        color: "var(--text-secondary)",
+      }}
+    >
+      <Paperclip size={13} className="shrink-0" style={{ color: "var(--text-muted)" }} />
+      <span className="min-w-0 truncate">{attachment.filename}</span>
+      {attachment.size > 0 && (
+        <span className="shrink-0" style={{ color: "var(--text-muted)" }}>
+          {busy ? "…" : formatBytes(attachment.size)}
+        </span>
+      )}
+    </Button>
   );
 }
 

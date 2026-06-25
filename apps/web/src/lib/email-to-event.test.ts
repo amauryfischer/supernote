@@ -22,6 +22,7 @@ function msg(over: Partial<EmailMessage> = {}): EmailMessage {
     snippet: "On se voit bientôt",
     bodyText: "Bonjour,\n\nOn se cale ça ?\n\nCordialement,\nAlice",
     webLink: "https://mail.google.com/mail/u/0/#all/m1",
+    attachments: [],
     ...over,
   };
 }

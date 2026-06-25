@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Button, Input } from "@heroui/react";
 import { FilePlus, Database, ArrowLeft, MagnifyingGlass, PencilSimple } from "@phosphor-icons/react";
 import { useNavigate } from "react-router-dom";
@@ -12,7 +12,8 @@ import { MailGroupList } from "@/components/mail/MailGroupList";
 import { useCaptureEmail } from "@/components/mail/useCaptureEmail";
 import { CaptureEmailModal } from "@/components/mail/CaptureEmailModal";
 import { ComposeModal } from "@/components/mail/ComposeModal";
-import { listThreadSummaries, listLabels, getThread, type EmailThread, type GmailLabelColor } from "@/lib/gmail";
+import { listThreadSummariesPage, listLabels, getThread, modifyThreadLabels, type EmailThread, type GmailLabelColor, type ThreadListItem } from "@/lib/gmail";
+import { listDue, removeSnooze, applyTriage, INBOX_LABEL } from "@/lib/mail-triage";
 import { buildMailOverlay, type OverlayRow } from "@/lib/mail-overlay";
 import { prefersReducedMotion } from "@/lib/motion";
 import { useToast } from "@supernote/ui";
@@ -37,6 +38,17 @@ export default function MailPage() {
   const [rows, setRows] = useState<OverlayRow[]>([]);
   const [listLoading, setListLoading] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
+  // Pagination « Charger plus » : items cumulés (toutes pages), map labelId→nom
+  // (pour RECONSTRUIRE l'overlay sur l'ensemble cumulé), curseur page suivante.
+  const [cumItems, setCumItems] = useState<ThreadListItem[]>([]);
+  const [labelNames, setLabelNames] = useState<Map<string, string>>(new Map());
+  const [nextPageToken, setNextPageToken] = useState<string | undefined>(undefined);
+  const [moreLoading, setMoreLoading] = useState(false);
+  // Navigation clavier desktop : index de la ligne « curseur » dans `rows`
+  // (distinct du fil ouvert). -1 = aucune sélection. Conteneur scrollable de la
+  // liste pour le scroll-into-view de la ligne sélectionnée.
+  const [selectedRowIndex, setSelectedRowIndex] = useState(-1);
+  const listScrollRef = useRef<HTMLDivElement | null>(null);
 
   const [selectedGroup, setSelectedGroup] = useState<GroupRow | null>(null);
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
@@ -63,16 +75,18 @@ export default function MailPage() {
       setSelectedThreadId(null);
       setThread(null);
       try {
-        const [items, labels] = await Promise.all([
-          listThreadSummaries(clientId, q),
+        const [page, labels] = await Promise.all([
+          listThreadSummariesPage(clientId, q),
           listLabels(clientId).catch(() => [] as Awaited<ReturnType<typeof listLabels>>),
         ]);
+        const names = new Map(labels.map((l) => [l.id, l.name]));
+        setLabelNames(names);
         setLabelColors(
           new Map(labels.flatMap((l) => (l.color ? [[l.id, l.color] as const] : []))),
         );
-        setRows(
-          buildMailOverlay(items, new Map(labels.map((l) => [l.id, l.name])), settings.gmail.connectedEmail),
-        );
+        setCumItems(page.items);
+        setNextPageToken(page.nextPageToken);
+        setRows(buildMailOverlay(page.items, names, settings.gmail.connectedEmail));
       } catch (err) {
         setListError(err instanceof Error ? err.message : String(err));
       } finally {
@@ -82,15 +96,75 @@ export default function MailPage() {
     [clientId, settings.gmail.connectedEmail],
   );
 
+  // « Charger plus » : récupère la page suivante (via nextPageToken), APPEND aux
+  // items cumulés, puis RECONSTRUIT l'overlay sur l'ENSEMBLE cumulé (sinon le
+  // regroupement label/expéditeur serait calculé page par page, donc faux).
+  // Déduplication par id : Gmail peut renvoyer un thread déjà vu en bord de page.
+  const loadMore = useCallback(async () => {
+    if (!nextPageToken || moreLoading) return;
+    setMoreLoading(true);
+    setListError(null);
+    try {
+      const page = await listThreadSummariesPage(clientId, query, { pageToken: nextPageToken });
+      setCumItems((prev) => {
+        const seen = new Set(prev.map((it) => it.id));
+        const merged = [...prev, ...page.items.filter((it) => !seen.has(it.id))];
+        setRows(buildMailOverlay(merged, labelNames, settings.gmail.connectedEmail));
+        return merged;
+      });
+      setNextPageToken(page.nextPageToken);
+    } catch (err) {
+      setListError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setMoreLoading(false);
+    }
+  }, [clientId, query, nextPageToken, moreLoading, labelNames, settings.gmail.connectedEmail]);
+
   useEffect(() => {
     if (connected) void loadList(DEFAULT_MAIL_QUERY);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connected]);
 
+  // Réveil auto des snoozes échus : au montage (compte connecté), on remet les
+  // threads dont l'échéance est dépassée dans la boîte de réception, puis on
+  // purge leur entrée snooze. Best-effort, non bloquant : chaque thread est
+  // traité en parallèle et toute erreur réseau est avalée par thread (un échec
+  // ne doit pas empêcher le réveil des autres ni perturber loadList).
+  useEffect(() => {
+    if (!connected || !clientId) return;
+    const due = listDue(Date.now());
+    for (const e of due) {
+      void modifyThreadLabels(clientId, e.threadId, { addLabelIds: [INBOX_LABEL] })
+        .then(() => removeSnooze(e.threadId))
+        .catch(() => {
+          /* réveil best-effort : on retentera au prochain montage */
+        });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connected, clientId]);
+
   const openThread = async (threadId: string) => {
     setThreadLoading(true);
     setThreadError(null);
     setSelectedThreadId(threadId);
+    // Optimiste : ouvrir un fil le marque lu (cf. EmailThreadView) → retirer
+    // UNREAD de la ligne correspondante pour que le style « non lu » disparaisse.
+    setRows((rs) =>
+      rs.map<OverlayRow>((r) => {
+        if (r.kind === "single") {
+          return r.item.id === threadId
+            ? { ...r, item: { ...r.item, labelIds: r.item.labelIds.filter((id) => id !== "UNREAD") } }
+            : r;
+        }
+        if (!r.items.some((it) => it.id === threadId)) return r;
+        return {
+          ...r,
+          items: r.items.map((it) =>
+            it.id === threadId ? { ...it, labelIds: it.labelIds.filter((id) => id !== "UNREAD") } : it,
+          ),
+        };
+      }),
+    );
     try {
       setThread(await getThread(clientId, threadId));
     } catch (err) {
@@ -110,6 +184,134 @@ export default function MailPage() {
       setThread(null);
     }
   };
+
+  // Retire un fil (par id) de la liste de gauche + désélectionne s'il était
+  // ouvert. Mutualise la mécanique de `handleTriaged` pour le triage clavier sur
+  // une ligne « curseur » (qui n'est pas forcément le fil ouvert).
+  const dropThreadFromList = useCallback((id: string) => {
+    setRows((rs) =>
+      rs.flatMap<OverlayRow>((r) => {
+        if (r.kind === "single") return r.item.id === id ? [] : [r];
+        const items = r.items.filter((it) => it.id !== id);
+        return items.length ? [{ ...r, items, count: items.length }] : [];
+      }),
+    );
+    setSelectedGroup((g) => {
+      if (!g) return g;
+      const items = g.items.filter((it) => it.id !== id);
+      return items.length ? { ...g, items, count: items.length } : null;
+    });
+    setSelectedThreadId((cur) => {
+      if (cur === id) {
+        setThread(null);
+        return null;
+      }
+      return cur;
+    });
+  }, []);
+
+  // Triage clavier d'une ligne « single » sélectionnée (archive `e`, delete `#`).
+  // Optimiste : on retire la ligne immédiatement, puis on appelle Gmail. En cas
+  // d'échec réseau on recharge la liste (source de vérité) et on prévient.
+  const triageRowAt = useCallback(
+    (index: number, action: "archive" | "delete") => {
+      const row = rows[index];
+      if (!row || row.kind !== "single" || !clientId) return;
+      const id = row.item.id;
+      dropThreadFromList(id);
+      applyTriage(clientId, id, action)
+        .then(() => {
+          toast({ title: action === "delete" ? "Email supprimé" : "Email archivé" });
+        })
+        .catch((err) => {
+          toast({
+            title: action === "delete" ? "Suppression échouée" : "Archivage échoué",
+            description: err instanceof Error ? err.message : String(err),
+            variant: "danger",
+          });
+          void loadList(query);
+        });
+    },
+    [rows, clientId, dropThreadFromList, toast, loadList, query],
+  );
+
+  // Clamp/réinitialise le curseur clavier quand la liste change (recherche,
+  // pagination, triage). Garde l'index dans [0, rows.length-1] ; -1 si vide.
+  useEffect(() => {
+    setSelectedRowIndex((cur) => {
+      if (rows.length === 0) return -1;
+      if (cur < 0) return cur; // pas encore activé : on ne force pas une sélection
+      return Math.min(cur, rows.length - 1);
+    });
+  }, [rows]);
+
+  // Scroll-into-view de la ligne sélectionnée au clavier.
+  useEffect(() => {
+    if (selectedRowIndex < 0) return;
+    const el = listScrollRef.current?.querySelector<HTMLElement>(
+      `[data-mail-row-index="${selectedRowIndex}"]`,
+    );
+    el?.scrollIntoView({ block: "nearest" });
+  }, [selectedRowIndex]);
+
+  // Navigation clavier desktop sur la liste (pas de listener sur mobile).
+  // Désactivée quand le focus est dans un champ de saisie / contenteditable, ou
+  // qu'une modale est ouverte (capture/compose), pour ne pas voler les frappes.
+  useEffect(() => {
+    if (isMobile || !connected) return undefined;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (captureOpen || composeOpen) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+
+      switch (e.key) {
+        case "j":
+        case "ArrowDown":
+          e.preventDefault();
+          // Première frappe sans sélection → curseur en tête ; sinon descend.
+          setSelectedRowIndex((cur) =>
+            rows.length === 0 ? -1 : cur < 0 ? 0 : Math.min(cur + 1, rows.length - 1),
+          );
+          break;
+        case "k":
+        case "ArrowUp":
+          e.preventDefault();
+          setSelectedRowIndex((cur) =>
+            rows.length === 0 ? -1 : cur < 0 ? 0 : Math.max(cur - 1, 0),
+          );
+          break;
+        case "Enter":
+        case "r":
+        case "R": {
+          if (selectedRowIndex < 0) return;
+          const row = rows[selectedRowIndex];
+          if (!row) return;
+          e.preventDefault();
+          onPick(row);
+          break;
+        }
+        case "e":
+        case "E":
+          if (selectedRowIndex < 0) return;
+          e.preventDefault();
+          triageRowAt(selectedRowIndex, "archive");
+          break;
+        case "#":
+          if (selectedRowIndex < 0) return;
+          e.preventDefault();
+          triageRowAt(selectedRowIndex, "delete");
+          break;
+        default:
+          break;
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+    // `onPick` est stable au sens comportemental (lit l'état via setters) ; on
+    // dépend des valeurs réellement lues dans le handler.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isMobile, connected, captureOpen, composeOpen, rows, selectedRowIndex, triageRowAt]);
 
   const handleCaptureNote = async () => {
     const msg = thread?.messages[0];
@@ -147,6 +349,23 @@ export default function MailPage() {
     });
   }, [selectedThreadId]);
 
+  // Après l'ENVOI d'une réponse : re-fetch le fil courant (la réponse y apparaît)
+  // + recharge la liste pour refléter le nouvel état (ordre, snippet, non-lu).
+  // `loadList` désélectionne le fil au passage : on le restaure ensuite pour que
+  // le fil ouvert reste ouvert avec sa réponse fraîchement envoyée.
+  const handleReplied = useCallback(() => {
+    const id = selectedThreadId;
+    void loadList(query).then(() => {
+      if (!id) return;
+      setSelectedThreadId(id);
+      getThread(clientId, id)
+        .then((t) => setThread(t))
+        .catch(() => {
+          /* re-fetch best-effort : la liste rechargée reflète déjà l'envoi */
+        });
+    });
+  }, [clientId, selectedThreadId, query, loadList]);
+
   const activeKey = selectedGroup?.key ?? (selectedThreadId ? `t:${selectedThreadId}` : undefined);
 
   const searchBox = (
@@ -174,7 +393,7 @@ export default function MailPage() {
   const pane1 = (
     <div className="flex h-full flex-col overflow-hidden" style={{ borderRight: "1px solid var(--border-subtle)" }}>
       {searchBox}
-      <div className="flex-1 overflow-y-auto px-2 pb-4">
+      <div ref={listScrollRef} className="flex-1 overflow-y-auto px-2 pb-4">
         {listLoading && (
           <p className="px-3 py-2 text-sm" style={{ color: "var(--text-muted)" }}>
             Chargement…
@@ -186,7 +405,28 @@ export default function MailPage() {
           </p>
         )}
         {!listLoading && !listError && (
-          <MailOverlayList rows={rows} activeKey={activeKey} onPick={onPick} labelColors={labelColors} />
+          <>
+            <MailOverlayList
+              rows={rows}
+              activeKey={activeKey}
+              onPick={onPick}
+              labelColors={labelColors}
+              selectedIndex={isMobile ? undefined : selectedRowIndex}
+            />
+            {nextPageToken && (
+              <div className="px-1 pt-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="w-full"
+                  isDisabled={moreLoading}
+                  onPress={() => void loadMore()}
+                >
+                  {moreLoading ? "Chargement…" : "Charger plus"}
+                </Button>
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>
@@ -239,6 +479,7 @@ export default function MailPage() {
               thread={thread}
               selfEmail={settings.gmail.connectedEmail}
               onTriaged={handleTriaged}
+              onReplied={handleReplied}
             />
           </div>
         </div>
