@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowSquareOut, Plus, X, Tag, MagnifyingGlass, Check, PaperPlaneTilt, Quotes, Paperclip } from "@phosphor-icons/react";
+import { ArrowSquareOut, Plus, X, Tag, MagnifyingGlass, Check, PaperPlaneTilt, Quotes, Paperclip, Star, Envelope, ArrowBendUpRight } from "@phosphor-icons/react";
 import { Button, Input } from "@heroui/react";
 import { useToast } from "@supernote/ui";
 import { useSettings } from "@/components/settings/SettingsContext";
@@ -11,6 +11,8 @@ import {
   addThreadLabel,
   removeThreadLabel,
   markThreadRead,
+  markThreadUnread,
+  toggleStar,
   sendReply,
   createDraft,
   buildGmailDraftUrl,
@@ -24,7 +26,18 @@ import {
   type BubbleKind,
 } from "@/lib/gmail";
 import { parseEmailBody } from "@/lib/email-quote";
+import { sanitizeEmailHtml } from "@/lib/mail-html";
+import {
+  filesToAttachments,
+  toOutgoing,
+  totalAttachmentsSize,
+  exceedsAttachmentLimit,
+  attachmentLabel,
+  MAX_ATTACHMENTS_BYTES,
+  type PendingAttachment,
+} from "@/lib/mail-attachments";
 import { buildReplyParams, pickReplyAll, buildQuotedBody } from "@/lib/mail-reply";
+import { buildForwardSubject, buildForwardedBody } from "@/lib/mail-forward";
 import { TriageBar } from "./TriageBar";
 import { EnrichContactFromEmail } from "./EnrichContactFromEmail";
 import { EmailToEventButton } from "./EmailToEventButton";
@@ -32,9 +45,13 @@ import type { TriageAction } from "@/lib/mail-triage";
 
 /**
  * Affichage d'un thread Gmail façon messagerie (chat) : mes messages alignés à
- * droite, ceux du correspondant à gauche. Corps en TEXTE BRUT (jamais de HTML —
- * pas de sanitizer, anti-XSS). Citation et signature retirées du corps mais
- * dépliables.
+ * droite, ceux du correspondant à gauche.
+ *
+ * Corps : deux chemins. Si le message a un corps text/html (`bodyHtml`), il est
+ * rendu SANITIZÉ via DOMPurify (`sanitizeEmailHtml`, voir `lib/mail-html.ts`)
+ * dans un conteneur isolé — pas d'extraction citation/signature sur ce chemin.
+ * Sinon, fallback TEXTE BRUT historique (`bodyText`) avec citation/signature
+ * retirées mais dépliables. Aucun HTML non sanitizé n'est jamais rendu (anti-XSS).
  *
  * En-tête : les labels utilisateur du thread sont affichés en badges supprimables
  * (X → retire le label) ; un bouton « + Label » (ou la touche `l` au clavier)
@@ -55,6 +72,8 @@ export function EmailThreadView({
   enableShortcuts = true,
   onTriaged,
   onReplied,
+  onLabelsChanged,
+  onForward,
 }: {
   thread: EmailThread;
   selfEmail?: string;
@@ -67,6 +86,17 @@ export function EmailThreadView({
    * sans rechargement manuel.
    */
   onReplied?: () => void;
+  /**
+   * Appelé quand les labelIds optimistes du thread changent (étoile, marqué non
+   * lu) — l'appelant resynchronise la ligne correspondante dans la liste de
+   * gauche (étoile, pastille « non lu ») sans rechargement.
+   */
+  onLabelsChanged?: (threadId: string, labelIds: string[]) => void;
+  /**
+   * Appelé quand l'utilisateur clique « Transférer » — l'appelant ouvre le
+   * ComposeModal pré-rempli (objet « Fwd: … » + corps cité), destinataire vide.
+   */
+  onForward?: (prefill: { subject: string; body: string }) => void;
 }) {
   const { settings } = useSettings();
   const clientId = settings.googleDrive.clientId.trim();
@@ -130,10 +160,41 @@ export function EmailThreadView({
   // (seul le destinataire principal) → l'option est sans effet, on la masque.
   const [replyToAll, setReplyToAll] = useState(false);
   const hasCc = replyAll.cc.length > 0;
+  // Pièces jointes de la réponse en cours (réinitialisées au changement de fil).
+  const [replyAttachments, setReplyAttachments] = useState<PendingAttachment[]>([]);
+  const replyFileRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     setReplyBody("");
     setReplyToAll(false);
+    setReplyAttachments([]);
   }, [thread]);
+
+  const onPickReplyFiles = async (fileList: FileList | null) => {
+    if (!fileList || fileList.length === 0) return;
+    try {
+      const added = await filesToAttachments(Array.from(fileList));
+      setReplyAttachments((prev) => {
+        const next = [...prev, ...added];
+        if (exceedsAttachmentLimit(next)) {
+          toast({
+            title: "Pièces jointes volumineuses",
+            description: `Total ${formatBytes(totalAttachmentsSize(next))} > ${formatBytes(MAX_ATTACHMENTS_BYTES)} : l'envoi Gmail risque d'échouer.`,
+            variant: "warning",
+          });
+        }
+        return next;
+      });
+    } catch (e) {
+      toast({
+        title: "Lecture du fichier échouée",
+        description: e instanceof Error ? e.message : String(e),
+        variant: "danger",
+      });
+    }
+  };
+  const removeReplyAttachment = (index: number) => {
+    setReplyAttachments((prev) => prev.filter((_, i) => i !== index));
+  };
 
   // Insère la citation du dernier message en tête de la zone de texte.
   const insertQuote = () => {
@@ -147,21 +208,24 @@ export function EmailThreadView({
     const body = replyBody.trim();
     if (!body || !clientId) return;
     const cc = replyToAll && hasCc ? replyAll.cc : undefined;
+    const attachments = replyAttachments.length ? toOutgoing(replyAttachments) : undefined;
     setReplyBusy(mode);
     try {
       if (mode === "send") {
-        await sendReply(clientId, { ...replyParams, cc, body });
+        await sendReply(clientId, { ...replyParams, cc, body, attachments });
         toast({ title: "Réponse envoyée", variant: "success" });
         setReplyBody("");
+        setReplyAttachments([]);
         // Re-fetch fil + liste côté appelant pour faire apparaître la réponse.
         onReplied?.();
         return;
       } else {
-        const { draftId } = await createDraft(clientId, { ...replyParams, cc, body });
+        const { draftId } = await createDraft(clientId, { ...replyParams, cc, body, attachments });
         window.open(buildGmailDraftUrl(draftId), "_blank", "noopener");
         toast({ title: "Brouillon créé", description: "Ouvert dans Gmail." });
       }
       setReplyBody("");
+      setReplyAttachments([]);
     } catch (e) {
       toast({
         title: mode === "send" ? "Échec de l'envoi" : "Échec du brouillon",
@@ -171,6 +235,19 @@ export function EmailThreadView({
     } finally {
       setReplyBusy(null);
     }
+  };
+
+  // Transférer : pré-remplit le compose à partir du dernier message du fil
+  // (objet « Fwd: … » + bloc « Message transféré » cité). Délégué à l'appelant
+  // qui possède le ComposeModal. Destinataire laissé vide.
+  const onForwardClick = () => {
+    if (!onForward) return;
+    const last = thread.messages[thread.messages.length - 1];
+    if (!last) return;
+    onForward({
+      subject: buildForwardSubject(last.subject || thread.messages[0]?.subject || ""),
+      body: buildForwardedBody(last),
+    });
   };
 
   const openPicker = () => {
@@ -211,6 +288,52 @@ export function EmailThreadView({
     }
   };
 
+  // Étoile : toggle optimiste sur l'état local `labelIds` + appel Gmail (scope
+  // modify), rollback sur échec. Notifie l'appelant pour resync de la ligne.
+  const starred = labelIds.includes("STARRED");
+  const onToggleStar = async () => {
+    if (!clientId) return;
+    const next = !starred;
+    const prev = labelIds;
+    const nextIds = next ? [...labelIds, "STARRED"] : labelIds.filter((id) => id !== "STARRED");
+    setLabelIds(nextIds);
+    onLabelsChanged?.(thread.id, nextIds);
+    try {
+      await toggleStar(clientId, thread.id, next);
+    } catch (err) {
+      setLabelIds(prev);
+      onLabelsChanged?.(thread.id, prev);
+      toast({
+        title: next ? "Ajout de l'étoile échoué" : "Retrait de l'étoile échoué",
+        description: err instanceof Error ? err.message : String(err),
+        variant: "danger",
+      });
+    }
+  };
+
+  // Marquer non lu : ajoute UNREAD (optimiste) + appel Gmail. On arme la garde
+  // anti-double pour que l'effet de marquage-lu ne re-marque pas lu aussitôt.
+  const onMarkUnread = async () => {
+    if (!clientId) return;
+    readMarkedRef.current = thread.id;
+    const prev = labelIds;
+    const nextIds = labelIds.includes("UNREAD") ? labelIds : [...labelIds, "UNREAD"];
+    setLabelIds(nextIds);
+    onLabelsChanged?.(thread.id, nextIds);
+    try {
+      await markThreadUnread(clientId, thread.id);
+      toast({ title: "Marqué non lu" });
+    } catch (err) {
+      setLabelIds(prev);
+      onLabelsChanged?.(thread.id, prev);
+      toast({
+        title: "Marquage non lu échoué",
+        description: err instanceof Error ? err.message : String(err),
+        variant: "danger",
+      });
+    }
+  };
+
   if (!thread.messages.length) {
     return (
       <p className="text-sm" style={{ color: "var(--text-muted)" }}>
@@ -231,16 +354,57 @@ export function EmailThreadView({
     <div className="flex flex-col gap-3">
       <div className="flex flex-col gap-2">
         <div className="flex items-start justify-between gap-3">
-          {subject ? (
-            <h2 className="text-base font-semibold" style={{ color: "var(--text-primary)" }}>
-              {subject}
-            </h2>
-          ) : (
-            <span />
-          )}
-          {clientId && (
-            <TriageBar clientId={clientId} threadId={thread.id} onTriaged={onTriaged} />
-          )}
+          <div className="flex min-w-0 items-start gap-1.5">
+            {clientId && (
+              <Button
+                isIconOnly
+                variant="ghost"
+                size="sm"
+                onPress={() => void onToggleStar()}
+                aria-label={starred ? "Retirer l'étoile" : "Mettre une étoile"}
+                aria-pressed={starred}
+                className="h-auto min-h-0 min-w-0 shrink-0 p-0.5"
+              >
+                <Star
+                  size={18}
+                  weight={starred ? "fill" : "regular"}
+                  style={{ color: starred ? "#f5b300" : "var(--text-muted)" }}
+                />
+              </Button>
+            )}
+            {subject ? (
+              <h2 className="min-w-0 text-base font-semibold" style={{ color: "var(--text-primary)" }}>
+                {subject}
+              </h2>
+            ) : (
+              <span />
+            )}
+          </div>
+          <div className="flex shrink-0 items-center gap-1.5">
+            {onForward && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onPress={onForwardClick}
+                aria-label="Transférer le message"
+              >
+                <ArrowBendUpRight size={14} /> Transférer
+              </Button>
+            )}
+            {clientId && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onPress={() => void onMarkUnread()}
+                aria-label="Marquer comme non lu"
+              >
+                <Envelope size={14} /> Non lu
+              </Button>
+            )}
+            {clientId && (
+              <TriageBar clientId={clientId} threadId={thread.id} onTriaged={onTriaged} />
+            )}
+          </div>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
           {current.map((l) => (
@@ -319,6 +483,45 @@ export function EmailThreadView({
               color: "var(--text-primary)",
             }}
           />
+          {/* input file natif (exception justifiée : pas d'équivalent HeroUI). */}
+          <input
+            ref={replyFileRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={(e) => {
+              void onPickReplyFiles(e.target.files);
+              e.target.value = "";
+            }}
+          />
+          {replyAttachments.length > 0 && (
+            <div className="mt-1.5 flex flex-wrap gap-1.5">
+              {replyAttachments.map((att, i) => (
+                <span
+                  key={`${att.filename}-${i}`}
+                  className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs"
+                  style={{
+                    borderColor: "var(--border-subtle)",
+                    backgroundColor: "var(--surface-2)",
+                    color: "var(--text-primary)",
+                  }}
+                >
+                  <Paperclip size={11} />
+                  <span className="max-w-[200px] truncate">{attachmentLabel(att)}</span>
+                  <Button
+                    isIconOnly
+                    variant="ghost"
+                    size="sm"
+                    onPress={() => removeReplyAttachment(i)}
+                    aria-label={`Retirer ${att.filename}`}
+                    className="h-4 w-4 min-h-0 min-w-0 p-0"
+                  >
+                    <X size={11} />
+                  </Button>
+                </span>
+              ))}
+            </div>
+          )}
           <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2">
             <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs" style={{ color: "var(--text-muted)" }}>
               <span className="min-w-0 truncate">
@@ -339,6 +542,14 @@ export function EmailThreadView({
                   Répondre à tous
                 </Button>
               )}
+              <Button
+                variant="ghost"
+                size="sm"
+                onPress={() => replyFileRef.current?.click()}
+                aria-label="Joindre des fichiers"
+              >
+                <Paperclip size={14} /> Joindre
+              </Button>
               <Button
                 variant="ghost"
                 size="sm"
@@ -537,6 +748,30 @@ const INTERNAL_BG = "color-mix(in oklch, var(--success) 14%, transparent)";
 const INTERNAL_BORDER = "color-mix(in oklch, var(--success) 35%, transparent)";
 const INTERNAL_ACCENT = "var(--success)";
 
+/**
+ * CSS scopé au conteneur de corps HTML d'e-mail (chemin `bodyHtml`). Injecté une
+ * seule fois au niveau module (pas de modif globals.css — règle WIP). Borne les
+ * débordements (images/tables/pré larges) pour rester dans la bulle, sans
+ * réécrire le HTML de l'expéditeur. Mobile : images fluides, scroll horizontal
+ * local pour les tables larges plutôt qu'un débordement de la page.
+ */
+const MAIL_HTML_STYLE_ID = "sn-mail-html-style";
+const MAIL_HTML_CSS = `
+.sn-mail-html img { max-width: 100%; height: auto; }
+.sn-mail-html table { max-width: 100%; border-collapse: collapse; }
+.sn-mail-html pre { white-space: pre-wrap; word-break: break-word; }
+.sn-mail-html a { color: var(--accent); }
+.sn-mail-html blockquote { margin: 0.5em 0; padding-left: 0.75em; border-left: 2px solid var(--border-subtle); color: var(--text-muted); }
+`;
+function ensureMailHtmlStyle(): void {
+  if (typeof document === "undefined") return;
+  if (document.getElementById(MAIL_HTML_STYLE_ID)) return;
+  const el = document.createElement("style");
+  el.id = MAIL_HTML_STYLE_ID;
+  el.textContent = MAIL_HTML_CSS;
+  document.head.appendChild(el);
+}
+
 function MessageBubble({
   message,
   kind,
@@ -549,7 +784,22 @@ function MessageBubble({
   const mine = kind === "mine";
   const internal = kind === "internal";
   const date = message.date ? new Date(message.date).toLocaleString() : "";
-  const { body, quoted, signature } = parseEmailBody(message.bodyText || message.snippet);
+  // Chemin HTML : si le mail a un corps text/html, on le rend sanitizé (DOMPurify)
+  // SANS extraire citation/signature (on affiche le HTML complet, tel que conçu
+  // par l'expéditeur). Mémoïsé : la sanitization touche le DOM (template parse).
+  const safeHtml = useMemo(
+    () => (message.bodyHtml ? sanitizeEmailHtml(message.bodyHtml) : ""),
+    [message.bodyHtml],
+  );
+  // Chemin texte (fallback historique) : parse uniquement quand pas de HTML.
+  const { body, quoted, signature } = useMemo(
+    () => (safeHtml ? { body: "", quoted: "", signature: "" } : parseEmailBody(message.bodyText || message.snippet)),
+    [safeHtml, message.bodyText, message.snippet],
+  );
+  // Injecte le CSS scopé du conteneur HTML à la 1ʳᵉ bulle HTML rendue.
+  useEffect(() => {
+    if (safeHtml) ensureMailHtmlStyle();
+  }, [safeHtml]);
   return (
     <div className={`flex ${mine ? "justify-end" : "justify-start"}`}>
       <div
@@ -579,22 +829,36 @@ function MessageBubble({
           </span>
         </div>
 
-        {body && (
-          <p className="whitespace-pre-wrap break-words text-sm" style={{ color: "var(--text-secondary)" }}>
-            {body}
-          </p>
-        )}
-        {!body && !quoted && !signature && (
-          <p className="text-sm italic" style={{ color: "var(--text-muted)" }}>
-            (message vide)
-          </p>
-        )}
+        {safeHtml ? (
+          // Corps HTML sanitizé (DOMPurify) — conteneur isolé : largeur bornée,
+          // retour à la ligne des longs contenus, images responsives. Pas de
+          // citation/signature dépliable sur ce chemin (HTML complet affiché).
+          <div
+            className="sn-mail-html max-w-full overflow-x-auto break-words text-sm"
+            style={{ color: "var(--text-secondary)" }}
+            // eslint-disable-next-line react/no-danger -- contenu sanitizé en amont (sanitizeEmailHtml)
+            dangerouslySetInnerHTML={{ __html: safeHtml }}
+          />
+        ) : (
+          <>
+            {body && (
+              <p className="whitespace-pre-wrap break-words text-sm" style={{ color: "var(--text-secondary)" }}>
+                {body}
+              </p>
+            )}
+            {!body && !quoted && !signature && (
+              <p className="text-sm italic" style={{ color: "var(--text-muted)" }}>
+                (message vide)
+              </p>
+            )}
 
-        {signature && (
-          <CollapsibleBlock openLabel="··· Afficher la signature" closeLabel="Masquer la signature" text={signature} />
-        )}
-        {quoted && (
-          <CollapsibleBlock openLabel="··· Afficher la citation" closeLabel="Masquer la citation" text={quoted} />
+            {signature && (
+              <CollapsibleBlock openLabel="··· Afficher la signature" closeLabel="Masquer la signature" text={signature} />
+            )}
+            {quoted && (
+              <CollapsibleBlock openLabel="··· Afficher la citation" closeLabel="Masquer la citation" text={quoted} />
+            )}
+          </>
         )}
 
         {message.attachments.length > 0 && clientId && (

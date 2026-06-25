@@ -25,7 +25,7 @@
  * isolé dans `actionToLabelOps`, 100 % pur et testé.
  */
 
-import { modifyThreadLabels, trashThread } from "./gmail";
+import { modifyThreadLabels, trashThread, untrashThread } from "./gmail";
 
 /** Actions de triage exposées par la barre d'actions du thread. */
 export type TriageAction = "done" | "archive" | "snooze" | "delete";
@@ -228,5 +228,57 @@ export async function applyTriage(
     return;
   }
   const ops = actionToLabelOps(action);
+  await modifyThreadLabels(clientId, threadId, ops);
+}
+
+// ─── Annulation (undo) d'un triage ────────────────────────────────────────────
+
+/**
+ * Mappe une action de triage de labels (done/archive/snooze) sur les opérations
+ * de labels qui la DÉFONT : toutes ré-ajoutent `INBOX` (le thread revient en
+ * boîte de réception) et ne retirent rien. PUR — symétrique d'`actionToLabelOps`.
+ * Le store snooze (échéance locale) est purgé séparément par `undoTriage`.
+ */
+export function undoLabelOps(action: LabelTriageAction): LabelOps {
+  switch (action) {
+    case "done":
+    case "archive":
+    case "snooze":
+      return { addLabelIds: [INBOX_LABEL], removeLabelIds: [] };
+    default: {
+      const never: never = action;
+      throw new Error(`Action de triage inconnue : ${String(never)}`);
+    }
+  }
+}
+
+/**
+ * Annule un triage côté Gmail (mécanisme « Annuler » du toast) :
+ *  - `delete`            : `untrashThread` (sort de la corbeille) PUIS ré-ajoute
+ *                          `INBOX` (untrash seul ne remet pas en boîte de
+ *                          réception).
+ *  - `done` / `archive`  : ré-ajoute `INBOX`.
+ *  - `snooze`            : ré-ajoute `INBOX` ET purge l'échéance locale
+ *                          (`removeSnooze`) — sinon le réveil auto re-bougerait
+ *                          le thread.
+ *
+ * Effet de bord réseau isolé (comme `applyTriage`). Lève en cas d'échec réseau →
+ * l'appelant affiche un toast d'erreur. L'appelant doit ensuite re-charger la
+ * liste pour ré-afficher le fil restauré.
+ */
+export async function undoTriage(
+  clientId: string,
+  threadId: string,
+  action: TriageAction,
+): Promise<void> {
+  if (action === "delete") {
+    await untrashThread(clientId, threadId);
+    await modifyThreadLabels(clientId, threadId, { addLabelIds: [INBOX_LABEL], removeLabelIds: [] });
+    return;
+  }
+  if (action === "snooze") {
+    removeSnooze(threadId);
+  }
+  const ops = undoLabelOps(action);
   await modifyThreadLabels(clientId, threadId, ops);
 }

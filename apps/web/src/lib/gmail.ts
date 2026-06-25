@@ -43,6 +43,26 @@ export async function getGmailProfile(clientId: string): Promise<string> {
   return json.emailAddress ?? "";
 }
 
+/**
+ * Nombre de fils NON LUS en boîte de réception, pour le compteur discret de la
+ * nav latérale (« Mail »).
+ *
+ * Source choisie : `labels.get` sur le label système `INBOX` → champ
+ * `threadsUnread` (un seul appel REST léger, valeur déjà agrégée par Gmail). On
+ * privilégie `threadsUnread` plutôt que `messagesUnread` car toute l'UI Mail
+ * raisonne en FILS (la liste, le triage, le marquage-lu agissent au thread). Le
+ * scope `gmail.readonly` déjà demandé suffit (pas de nouveau consentement). On
+ * borne à `>= 0` par prudence (un payload partiel renvoie 0 = pas de badge).
+ */
+export async function getInboxUnreadCount(clientId: string): Promise<number> {
+  const json = await gmailFetch<{ threadsUnread?: number; messagesUnread?: number }>(
+    clientId,
+    "/labels/INBOX",
+  );
+  const n = json.threadsUnread ?? json.messagesUnread ?? 0;
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
 // ─── Types & parseurs purs (P1) ───────────────────────────────────────────────
 
 export interface EmailAddress {
@@ -73,7 +93,14 @@ export interface EmailMessage {
   to: EmailAddress[];
   date: string; // ISO, "" si non parsable
   snippet: string;
-  bodyText: string; // text/plain uniquement en P1 (pas de HTML)
+  bodyText: string; // text/plain (toujours présent : chemin texte/citation/signature)
+  /**
+   * Corps text/html du 1ᵉʳ part HTML, décodé (base64url + quoted-printable +
+   * normalisation), NON sanitizé (sanitization déléguée à la VUE via DOMPurify,
+   * jamais stocké/rendu tel quel). Absent si le message n'a pas de part HTML
+   * (chemin texte conservé). Voir `findHtml`.
+   */
+  bodyHtml?: string;
   webLink: string;
   /** Pièces jointes (métadonnées seules ; contenu téléchargé à la demande). */
   attachments: EmailAttachment[];
@@ -246,6 +273,27 @@ function findPlainText(part: GmailPart | undefined): string {
 }
 
 /**
+ * Trouve récursivement le premier corps text/html dans l'arbre des parts, décodé
+ * (base64url → quoted-printable si requis → normalisation des espaces), exactement
+ * comme `findPlainText` mais ciblant `text/html`. Renvoie `undefined` si aucune
+ * part HTML — le chemin texte reste le défaut.
+ *
+ * NB : le contenu N'EST PAS sanitizé ici (pur, pas de DOM côté worker/lib). La
+ * sanitization (DOMPurify) se fait à l'affichage. On ne descend jamais dans un
+ * mono-part binaire (image/pdf) — on ne renverrait que du HTML si la part est
+ * explicitement `text/html`.
+ */
+function findHtml(part: GmailPart | undefined): string | undefined {
+  if (!part) return undefined;
+  if (part.mimeType === "text/html" && part.body?.data) return decodePartText(part);
+  for (const sub of part.parts ?? []) {
+    const found = findHtml(sub);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+/**
  * Collecte récursivement les pièces jointes d'un arbre de parts : toute part
  * dotée d'un `filename` non vide ET d'un `body.attachmentId` (les pièces jointes
  * "vraies", par opposition aux corps text/plain ou html inline). On ne descend
@@ -281,7 +329,8 @@ function toIsoDate(raw: string): string {
 export function parseGmailMessage(raw: GmailRawMessage): EmailMessage {
   const p = raw.payload;
   const toRaw = header(p, "To");
-  return {
+  const bodyHtml = findHtml(p);
+  const msg: EmailMessage = {
     id: raw.id,
     threadId: raw.threadId,
     subject: header(p, "Subject"),
@@ -298,6 +347,10 @@ export function parseGmailMessage(raw: GmailRawMessage): EmailMessage {
     messageId: header(p, "Message-ID") || header(p, "Message-Id"),
     references: header(p, "References"),
   };
+  // Propriété optionnelle : on ne l'attache que si une part HTML existe (les
+  // consommateurs testent `bodyHtml` en présence → chemin HTML, sinon texte).
+  if (bodyHtml) msg.bodyHtml = bodyHtml;
+  return msg;
 }
 
 // ─── Thread search & read (P1) ────────────────────────────────────────────────
@@ -549,6 +602,28 @@ export function markThreadRead(clientId: string, threadId: string): Promise<void
 }
 
 /**
+ * Marque un thread comme NON lu : ajoute le label système `UNREAD` à tous ses
+ * messages via `threads.modify`. Scope `gmail.modify`. Idempotent côté Gmail
+ * (ajouter un label déjà présent est un no-op). Symétrique de `markThreadRead`.
+ */
+export function markThreadUnread(clientId: string, threadId: string): Promise<void> {
+  return modifyThreadLabels(clientId, threadId, { addLabelIds: ["UNREAD"] });
+}
+
+/**
+ * Étoile / dé-étoile un thread : ajoute ou retire le label système `STARRED` de
+ * tous ses messages via `threads.modify`. Scope `gmail.modify`. `starred=true`
+ * ajoute l'étoile, `false` la retire. Idempotent côté Gmail.
+ */
+export function toggleStar(clientId: string, threadId: string, starred: boolean): Promise<void> {
+  return modifyThreadLabels(
+    clientId,
+    threadId,
+    starred ? { addLabelIds: ["STARRED"] } : { removeLabelIds: ["STARRED"] },
+  );
+}
+
+/**
  * Met un thread entier à la corbeille Gmail via `threads.trash` (RÉVERSIBLE :
  * Gmail conserve 30 j, restaurable). Scope `gmail.modify`. On évite le DELETE
  * permanent (qui exigerait le scope complet `https://mail.google.com/`).
@@ -562,6 +637,25 @@ export async function trashThread(clientId: string, threadId: string): Promise<v
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(`Gmail trash ${res.status}: ${text.slice(0, 300)}`);
+  }
+}
+
+/**
+ * Restaure un thread depuis la corbeille Gmail via `threads.untrash` (inverse de
+ * `trashThread`). Scope `gmail.modify`. Le thread retiré de TRASH n'est PAS
+ * automatiquement remis dans l'inbox — l'appelant qui veut le re-afficher en
+ * boîte de réception doit aussi ré-ajouter le label `INBOX` (voir l'undo de
+ * triage côté page Mail). Sert au mécanisme « Annuler » après une suppression.
+ */
+export async function untrashThread(clientId: string, threadId: string): Promise<void> {
+  const token = await requestAccessToken(clientId, { scope: GMAIL_MODIFY_SCOPE, prompt: "" });
+  const res = await fetch(`${GMAIL_API_BASE}/threads/${encodeURIComponent(threadId)}/untrash`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Gmail untrash ${res.status}: ${text.slice(0, 300)}`);
   }
 }
 
@@ -604,7 +698,47 @@ export function formatRecipients(to: string | string[] | undefined): string {
     .join(", ");
 }
 
-/** Construit un message RFC 2822 (texte brut UTF-8) pour `drafts.create` / `messages.send`. */
+/**
+ * Pièce jointe à JOINDRE à un message sortant (réponse / brouillon / compose).
+ * `base64` = contenu encodé base64 STANDARD (pas base64url ; tel que produit par
+ * `FileReader.readAsDataURL` après retrait du préfixe `data:`). Distinct de
+ * `EmailAttachment` (entrant, métadonnées seules, téléchargé à la demande).
+ */
+export interface OutgoingAttachment {
+  filename: string;
+  mimeType: string;
+  /** Contenu en base64 standard (avec ou sans padding ; ré-emballé en lignes de 76). */
+  base64: string;
+}
+
+/** Génère un boundary MIME unique (préfixe lisible + aléa). Pur (hors `Math.random`). */
+function makeBoundary(): string {
+  return `=_supernote_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
+}
+
+/** Re-emballe une chaîne base64 en lignes de 76 caractères (RFC 2045). Pur. */
+function wrapBase64(b64: string): string {
+  const clean = b64.replace(/[\r\n]/g, "");
+  const out: string[] = [];
+  for (let i = 0; i < clean.length; i += 76) out.push(clean.slice(i, i + 76));
+  return out.join("\r\n");
+}
+
+/** Échappe les guillemets/backslash d'un nom de fichier pour un header MIME. */
+function quoteFilename(name: string): string {
+  return name.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+/**
+ * Construit un message RFC 2822 pour `drafts.create` / `messages.send`.
+ *
+ * Sans pièce jointe : message MONO-PART `text/plain; charset=UTF-8` (chemin
+ * historique inchangé, rétro-compatible). Avec une ou plusieurs pièces jointes :
+ * message `multipart/mixed` — une 1ʳᵉ part `text/plain` (le corps), puis une part
+ * par pièce jointe (`Content-Type: <mime>; name=…`, `Content-Transfer-Encoding:
+ * base64`, `Content-Disposition: attachment; filename=…`, octets base64 en lignes
+ * de 76). Pur, testable.
+ */
 export function buildRawMessage(input: {
   to?: string | string[];
   cc?: string | string[];
@@ -612,19 +746,44 @@ export function buildRawMessage(input: {
   body: string;
   inReplyTo?: string;
   references?: string;
+  attachments?: OutgoingAttachment[];
 }): string {
-  const lines: string[] = [];
+  const headers: string[] = [];
   const to = formatRecipients(input.to);
-  if (to) lines.push(`To: ${to}`);
+  if (to) headers.push(`To: ${to}`);
   const cc = formatRecipients(input.cc);
-  if (cc) lines.push(`Cc: ${cc}`);
-  lines.push(`Subject: ${encodeHeaderWord(input.subject)}`);
-  if (input.inReplyTo) lines.push(`In-Reply-To: ${input.inReplyTo}`);
-  if (input.references) lines.push(`References: ${input.references}`);
-  lines.push("MIME-Version: 1.0");
+  if (cc) headers.push(`Cc: ${cc}`);
+  headers.push(`Subject: ${encodeHeaderWord(input.subject)}`);
+  if (input.inReplyTo) headers.push(`In-Reply-To: ${input.inReplyTo}`);
+  if (input.references) headers.push(`References: ${input.references}`);
+  headers.push("MIME-Version: 1.0");
+
+  const attachments = (input.attachments ?? []).filter((a) => a && a.base64);
+  if (attachments.length === 0) {
+    // Chemin historique mono-part : aucune régression sur l'envoi sans PJ.
+    return [...headers, 'Content-Type: text/plain; charset="UTF-8"', "", input.body].join("\r\n");
+  }
+
+  const boundary = makeBoundary();
+  const lines: string[] = [...headers, `Content-Type: multipart/mixed; boundary="${boundary}"`, ""];
+  // Part 1 : le corps texte.
+  lines.push(`--${boundary}`);
   lines.push('Content-Type: text/plain; charset="UTF-8"');
+  lines.push("Content-Transfer-Encoding: 8bit");
   lines.push("");
   lines.push(input.body);
+  // Une part par pièce jointe.
+  for (const att of attachments) {
+    const mime = att.mimeType || "application/octet-stream";
+    const name = quoteFilename(att.filename || "piece-jointe");
+    lines.push(`--${boundary}`);
+    lines.push(`Content-Type: ${mime}; name="${name}"`);
+    lines.push("Content-Transfer-Encoding: base64");
+    lines.push(`Content-Disposition: attachment; filename="${name}"`);
+    lines.push("");
+    lines.push(wrapBase64(att.base64));
+  }
+  lines.push(`--${boundary}--`);
   return lines.join("\r\n");
 }
 
@@ -647,6 +806,7 @@ export async function createDraft(
     threadId?: string;
     inReplyTo?: string;
     references?: string;
+    attachments?: OutgoingAttachment[];
   },
 ): Promise<DraftResult> {
   const token = await requestAccessToken(clientId, { scope: GMAIL_COMPOSE_SCOPE, prompt: "" });
@@ -690,6 +850,7 @@ export async function sendReply(
     body: string;
     inReplyTo?: string;
     references?: string;
+    attachments?: OutgoingAttachment[];
   },
 ): Promise<void> {
   const token = await requestAccessToken(clientId, { scope: GMAIL_COMPOSE_SCOPE, prompt: "" });

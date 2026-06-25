@@ -66,8 +66,15 @@ export function TriageBar({ clientId, threadId, onTriaged }: TriageBarProps) {
     async (action: TriageAction) => {
       try {
         await applyTriage(clientId, threadId, action);
-        onTriaged?.(action);
-        toast({ title: ACTION_LABEL[action], variant: "success" });
+        // Quand un parent gère le post-triage (`onTriaged`), il prend en charge
+        // la notification — et propose l'« Annuler » (toast-action) côté page
+        // Mail. On évite donc un double toast ici ; le toast de confirmation
+        // local ne sert qu'aux usages autonomes de la barre (sans `onTriaged`).
+        if (onTriaged) {
+          onTriaged(action);
+        } else {
+          toast({ title: ACTION_LABEL[action], variant: "success" });
+        }
       } catch (e) {
         throw e instanceof Error ? e : new Error(String(e));
       }

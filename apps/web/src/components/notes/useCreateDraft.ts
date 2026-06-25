@@ -1,11 +1,13 @@
 import { useCallback } from "react";
 import { useSettings } from "@/components/settings/SettingsContext";
-import { createDraft, buildGmailDraftUrl } from "@/lib/gmail";
+import { createDraft, buildGmailDraftUrl, type OutgoingAttachment } from "@/lib/gmail";
 
 export interface CreateDraftOptions {
   to?: string | string[];
   subject: string;
   body: string;
+  /** Pièces jointes (base64 standard) — message multipart/mixed si non vide. */
+  attachments?: OutgoingAttachment[];
 }
 
 export interface CreateDraftResult {

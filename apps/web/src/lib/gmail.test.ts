@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { getGmailProfile, parseGmailMessage, parseAddress, decodeBody, decodeQuotedPrintable, normalizeWhitespace, classifyBubble, type GmailRawMessage } from "./gmail";
+import { getGmailProfile, getInboxUnreadCount, parseGmailMessage, parseAddress, decodeBody, decodeQuotedPrintable, normalizeWhitespace, classifyBubble, type GmailRawMessage } from "./gmail";
 import { searchThreads, getThread, listThreadSummaries, listLabels, type ThreadSummary } from "./gmail";
 import { searchThreadsPage, listThreadSummariesPage } from "./gmail";
 import { toBase64Url, buildRawMessage, formatRecipients, GMAIL_COMPOSE_SCOPE } from "./gmail";
-import { unionLabelIds, resolveUserLabels, modifyThreadLabels, markThreadRead, GMAIL_MODIFY_SCOPE, type GmailLabel } from "./gmail";
+import { unionLabelIds, resolveUserLabels, modifyThreadLabels, markThreadRead, markThreadUnread, toggleStar, trashThread, untrashThread, GMAIL_MODIFY_SCOPE, type GmailLabel } from "./gmail";
 import { fetchAttachment, base64UrlToBytes, formatBytes } from "./gmail";
 
 // requestAccessToken touche GIS → on le stubbe pour tous les tests gmail.
@@ -26,6 +26,42 @@ describe("getGmailProfile", () => {
   it("renvoie l'adresse du compte connecté", async () => {
     const email = await getGmailProfile("cid");
     expect(email).toBe("me@example.com");
+  });
+});
+
+describe("getInboxUnreadCount", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("renvoie threadsUnread du label INBOX", async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ id: "INBOX", threadsUnread: 7, messagesUnread: 12 }),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    expect(await getInboxUnreadCount("cid")).toBe(7);
+    // Bonne route : labels.get sur INBOX.
+    expect(String((fetchMock.mock.calls[0] as unknown[])[0])).toContain("/labels/INBOX");
+  });
+
+  it("fallback sur messagesUnread si threadsUnread absent", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: true, json: async () => ({ id: "INBOX", messagesUnread: 3 }) })),
+    );
+    expect(await getInboxUnreadCount("cid")).toBe(3);
+  });
+
+  it("payload partiel / zéro → 0 (pas de badge)", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ id: "INBOX" }) })));
+    expect(await getInboxUnreadCount("cid")).toBe(0);
+  });
+
+  it("valeur négative bornée à 0", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: true, json: async () => ({ threadsUnread: -1 }) })),
+    );
+    expect(await getInboxUnreadCount("cid")).toBe(0);
   });
 });
 
@@ -113,6 +149,69 @@ describe("parseGmailMessage", () => {
     expect(m.bodyText).toBe("Bonjour");
     expect(m.date).toMatch(/^2026-06-23/);
     expect(m.webLink).toBe("https://mail.google.com/mail/u/0/#all/m1");
+  });
+
+  it("extrait bodyHtml du 1ᵉʳ part text/html (sans casser bodyText)", () => {
+    const m = parseGmailMessage(raw);
+    expect(m.bodyHtml).toBe("<b>hi</b>"); // décodé depuis "PGI+aGk8L2I+"
+    expect(m.bodyText).toBe("Bonjour"); // chemin texte intact
+  });
+
+  it("bodyHtml absent quand le message n'a pas de part HTML", () => {
+    const m = parseGmailMessage({
+      id: "noh",
+      threadId: "noh",
+      payload: {
+        mimeType: "text/plain",
+        headers: [],
+        body: { data: "Qm9uam91cg" }, // "Bonjour"
+      },
+    });
+    expect(m.bodyHtml).toBeUndefined();
+    expect(m.bodyText).toBe("Bonjour");
+  });
+
+  it("bodyHtml décode le quoted-printable (=C3=A9 → é) comme bodyText", () => {
+    // "<p>=C3=A9t=C3=A9</p>" base64url, CTE quoted-printable.
+    const qpHtml = "PHA+PUMzPUE5dD1DMz1BOTwvcD4";
+    const m = parseGmailMessage({
+      id: "qph",
+      threadId: "qph",
+      payload: {
+        mimeType: "multipart/alternative",
+        headers: [],
+        parts: [
+          {
+            mimeType: "text/html",
+            headers: [{ name: "Content-Transfer-Encoding", value: "quoted-printable" }],
+            body: { data: qpHtml },
+          },
+        ],
+      },
+    });
+    expect(m.bodyHtml).toBe("<p>été</p>");
+  });
+
+  it("descend dans un multipart imbriqué pour trouver le HTML", () => {
+    const m = parseGmailMessage({
+      id: "nh",
+      threadId: "nh",
+      payload: {
+        mimeType: "multipart/mixed",
+        headers: [],
+        parts: [
+          {
+            mimeType: "multipart/alternative",
+            parts: [
+              { mimeType: "text/plain", body: { data: "Qm9uam91cg" } },
+              { mimeType: "text/html", body: { data: "PGI+aGk8L2I+" } }, // "<b>hi</b>"
+            ],
+          },
+        ],
+      },
+    });
+    expect(m.bodyHtml).toBe("<b>hi</b>");
+    expect(m.bodyText).toBe("Bonjour");
   });
 
   it("headers manquants → champs vides, pas de throw", () => {
@@ -491,6 +590,63 @@ describe("markThreadRead", () => {
   });
 });
 
+describe("markThreadUnread", () => {
+  it("POST /modify en ajoutant le label UNREAD; scope modify", async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true, json: async () => ({}) }));
+    vi.stubGlobal("fetch", fetchMock);
+    await markThreadUnread("cid", "t1");
+    expect(vi.mocked(requestAccessToken)).toHaveBeenCalledWith(
+      "cid",
+      expect.objectContaining({ scope: GMAIL_MODIFY_SCOPE }),
+    );
+    const call = fetchMock.mock.calls[0] as [unknown, RequestInit] | undefined;
+    expect(String(call?.[0])).toContain("/threads/t1/modify");
+    const init = call?.[1] as RequestInit;
+    expect(init.method).toBe("POST");
+    const body = JSON.parse(String(init.body)) as { addLabelIds: string[]; removeLabelIds: string[] };
+    expect(body.addLabelIds).toEqual(["UNREAD"]);
+    expect(body.removeLabelIds).toEqual([]);
+    vi.unstubAllGlobals();
+  });
+});
+
+describe("toggleStar", () => {
+  it("ajoute STARRED quand starred=true", async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true, json: async () => ({}) }));
+    vi.stubGlobal("fetch", fetchMock);
+    await toggleStar("cid", "t1", true);
+    const call = fetchMock.mock.calls[0] as [unknown, RequestInit] | undefined;
+    expect(String(call?.[0])).toContain("/threads/t1/modify");
+    const body = JSON.parse(String((call?.[1] as RequestInit).body)) as {
+      addLabelIds: string[];
+      removeLabelIds: string[];
+    };
+    expect(body.addLabelIds).toEqual(["STARRED"]);
+    expect(body.removeLabelIds).toEqual([]);
+    vi.unstubAllGlobals();
+  });
+
+  it("retire STARRED quand starred=false", async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true, json: async () => ({}) }));
+    vi.stubGlobal("fetch", fetchMock);
+    await toggleStar("cid", "t1", false);
+    const call = fetchMock.mock.calls[0] as [unknown, RequestInit] | undefined;
+    const body = JSON.parse(String((call?.[1] as RequestInit).body)) as {
+      addLabelIds: string[];
+      removeLabelIds: string[];
+    };
+    expect(body.removeLabelIds).toEqual(["STARRED"]);
+    expect(body.addLabelIds).toEqual([]);
+    vi.unstubAllGlobals();
+  });
+
+  it("lève sur réponse non-ok", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 403, text: async () => "denied" })));
+    await expect(toggleStar("cid", "t1", true)).rejects.toThrow(/Gmail modify 403/);
+    vi.unstubAllGlobals();
+  });
+});
+
 describe("GMAIL_MODIFY_SCOPE", () => {
   it("est le scope modify", () => {
     expect(GMAIL_MODIFY_SCOPE).toBe("https://www.googleapis.com/auth/gmail.modify");
@@ -543,6 +699,65 @@ describe("buildRawMessage", () => {
     expect(
       buildRawMessage({ to: "a@x.io", cc: ["  ", ""], subject: "s", body: "b" }),
     ).not.toMatch(/^Cc:/m);
+  });
+  it("reste mono-part text/plain sans pièce jointe", () => {
+    const raw = buildRawMessage({ subject: "s", body: "b", attachments: [] });
+    expect(raw).toContain('Content-Type: text/plain; charset="UTF-8"');
+    expect(raw).not.toContain("multipart/mixed");
+    expect(raw).not.toContain("boundary");
+  });
+  it("produit un multipart/mixed avec boundary, Content-Disposition et la base64 pour 1 PJ", () => {
+    const b64 = "SGVsbG8="; // "Hello"
+    const raw = buildRawMessage({
+      to: "a@x.io",
+      subject: "Avec PJ",
+      body: "corps",
+      attachments: [{ filename: "note.txt", mimeType: "text/plain", base64: b64 }],
+    });
+    const m = raw.match(/Content-Type: multipart\/mixed; boundary="([^"]+)"/);
+    expect(m).not.toBeNull();
+    const boundary = m![1]!;
+    expect(raw).toContain(`--${boundary}`);
+    expect(raw).toContain(`--${boundary}--`); // boundary de clôture
+    expect(raw).toContain('Content-Type: text/plain; name="note.txt"');
+    expect(raw).toContain("Content-Transfer-Encoding: base64");
+    expect(raw).toContain('Content-Disposition: attachment; filename="note.txt"');
+    expect(raw).toContain(b64);
+    expect(raw).toContain("corps"); // le corps texte reste présent
+  });
+  it("émet une part par pièce jointe", () => {
+    const raw = buildRawMessage({
+      subject: "s",
+      body: "b",
+      attachments: [
+        { filename: "a.bin", mimeType: "application/octet-stream", base64: "AAA=" },
+        { filename: "b.bin", mimeType: "application/octet-stream", base64: "BBB=" },
+      ],
+    });
+    expect(raw).toContain('filename="a.bin"');
+    expect(raw).toContain('filename="b.bin"');
+    expect((raw.match(/Content-Disposition: attachment/g) ?? []).length).toBe(2);
+  });
+  it("découpe la base64 en lignes de 76 caractères", () => {
+    const long = "A".repeat(200);
+    const raw = buildRawMessage({
+      subject: "s",
+      body: "b",
+      attachments: [{ filename: "big.dat", mimeType: "application/octet-stream", base64: long }],
+    });
+    // Aucune ligne base64 ne dépasse 76 caractères.
+    const lines = raw.split("\r\n");
+    const aLines = lines.filter((l) => /^A+$/.test(l));
+    expect(aLines.length).toBeGreaterThan(1);
+    expect(aLines.every((l) => l.length <= 76)).toBe(true);
+  });
+  it("ignore les pièces jointes sans contenu base64 (mono-part)", () => {
+    const raw = buildRawMessage({
+      subject: "s",
+      body: "b",
+      attachments: [{ filename: "vide.txt", mimeType: "text/plain", base64: "" }],
+    });
+    expect(raw).not.toContain("multipart/mixed");
   });
 });
 
@@ -605,6 +820,50 @@ describe("buildGmailDraftUrl", () => {
   it("construit l'URL du brouillon", () => {
     expect(buildGmailDraftUrl("draft_1")).toContain("draft_1");
     expect(buildGmailDraftUrl("draft_1")).toMatch(/^https:\/\/mail\.google\.com\//);
+  });
+});
+
+describe("trashThread", () => {
+  it("POST /threads/{id}/trash; scope modify", async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true, json: async () => ({}) }));
+    vi.stubGlobal("fetch", fetchMock);
+    await trashThread("cid", "t1");
+    expect(vi.mocked(requestAccessToken)).toHaveBeenCalledWith(
+      "cid",
+      expect.objectContaining({ scope: GMAIL_MODIFY_SCOPE }),
+    );
+    const call = fetchMock.mock.calls[0] as [unknown, RequestInit] | undefined;
+    expect(String(call?.[0])).toContain("/threads/t1/trash");
+    expect((call?.[1] as RequestInit).method).toBe("POST");
+    vi.unstubAllGlobals();
+  });
+
+  it("lève sur réponse non-ok", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 403, text: async () => "denied" })));
+    await expect(trashThread("cid", "t1")).rejects.toThrow(/Gmail trash 403/);
+    vi.unstubAllGlobals();
+  });
+});
+
+describe("untrashThread", () => {
+  it("POST /threads/{id}/untrash; scope modify", async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true, json: async () => ({}) }));
+    vi.stubGlobal("fetch", fetchMock);
+    await untrashThread("cid", "t1");
+    expect(vi.mocked(requestAccessToken)).toHaveBeenCalledWith(
+      "cid",
+      expect.objectContaining({ scope: GMAIL_MODIFY_SCOPE }),
+    );
+    const call = fetchMock.mock.calls[0] as [unknown, RequestInit] | undefined;
+    expect(String(call?.[0])).toContain("/threads/t1/untrash");
+    expect((call?.[1] as RequestInit).method).toBe("POST");
+    vi.unstubAllGlobals();
+  });
+
+  it("lève sur réponse non-ok", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 404, text: async () => "nope" })));
+    await expect(untrashThread("cid", "t1")).rejects.toThrow(/Gmail untrash 404/);
+    vi.unstubAllGlobals();
   });
 });
 

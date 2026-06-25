@@ -36,6 +36,7 @@ import {
 } from "@/hooks/usePluginEnabled";
 import { Button } from "@supernote/ui";
 import { useGmailConnected } from "@/hooks/useGmailConnected";
+import { useInboxUnreadCount } from "@/hooks/useInboxUnreadCount";
 
 // NotificationCenter is heavy and only mounts when the panel is open. Loading
 // it lazily keeps the initial sidebar bundle small (Turbopack can tree-shake
@@ -95,10 +96,17 @@ const NavLink = memo(function NavLink({
   item,
   active,
   label,
+  badgeCount = 0,
 }: {
   item: NavItem;
   active: boolean;
   label: string;
+  /**
+   * Compteur discret affiché à droite de l'entrée (ex: fils non lus pour Mail).
+   * 0 → pas de badge (rétro-compatible, n'altère pas le style des autres items).
+   * Au-delà de 99 → « 99+ » pour ne pas casser la largeur de la nav.
+   */
+  badgeCount?: number;
 }) {
   // Hover state is applied via direct style mutation on inactive items —
   // a Tailwind `hover:bg-…` would lose to the inline `color` set below
@@ -145,7 +153,19 @@ const NavLink = memo(function NavLink({
       }}
     >
       <item.icon size={15} />
-      {label}
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+      {badgeCount > 0 && (
+        <span
+          aria-label={`${badgeCount} non lu${badgeCount > 1 ? "s" : ""}`}
+          className="ml-auto shrink-0 rounded-full px-1.5 text-[10px] font-semibold leading-[1.4]"
+          style={{
+            backgroundColor: active ? "var(--accent)" : "var(--accent-subtle)",
+            color: active ? "var(--accent-foreground)" : "var(--accent)",
+          }}
+        >
+          {badgeCount > 99 ? "99+" : badgeCount}
+        </span>
+      )}
     </Link>
   );
 });
@@ -164,6 +184,9 @@ export const Sidebar = memo(function Sidebar() {
   const journalEnabled = usePluginEnabled("journal", false);
   const routinesEnabled = usePluginEnabled("routines", true);
   const gmailConnected = useGmailConnected();
+  // Fils non lus en boîte de réception → badge discret sur l'entrée « Mail ».
+  // Le hook renvoie 0 (donc pas de badge) tant que Gmail n'est pas connecté.
+  const mailUnread = useInboxUnreadCount();
   const pluginEnabledByHref: Record<string, boolean> = {
     [PLUGIN_HREF_BY_SLUG.journal]: journalEnabled,
     [PLUGIN_HREF_BY_SLUG.routines]: routinesEnabled,
@@ -378,6 +401,7 @@ export const Sidebar = memo(function Sidebar() {
                     item={item}
                     active={isActive(item.href)}
                     label={t(item.labelKey)}
+                    badgeCount={item.href === "/mail" ? mailUnread : 0}
                   />
                 ))}
               </div>

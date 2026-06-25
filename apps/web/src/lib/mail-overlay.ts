@@ -28,6 +28,30 @@ export function rowHasUnread(row: OverlayRow): boolean {
 }
 
 /**
+ * Nombre de fils NON LUS dans une ligne d'overlay : 0/1 pour une ligne `single`,
+ * 0..N pour un groupe (items portant le label système `UNREAD`). Sert au badge
+ * de count d'un groupe (sous-compte non-lus). Pur & testable.
+ */
+export function rowUnreadCount(row: OverlayRow): number {
+  return row.kind === "single"
+    ? row.item.labelIds.includes("UNREAD")
+      ? 1
+      : 0
+    : row.items.reduce((n, it) => n + (it.labelIds.includes("UNREAD") ? 1 : 0), 0);
+}
+
+/**
+ * Une ligne d'overlay est « étoilée » dès qu'au moins un de ses threads porte le
+ * label système `STARRED` (single : le thread ; group : n'importe lequel de ses
+ * items). Pur & testable.
+ */
+export function rowHasStar(row: OverlayRow): boolean {
+  return row.kind === "single"
+    ? row.item.labelIds.includes("STARRED")
+    : row.items.some((it) => it.labelIds.includes("STARRED"));
+}
+
+/**
  * Surcouche de regroupement. Label d'abord (≥2 items partageant un label user),
  * puis expéditeur (≥2 items restants même from.email), puis lignes seules. Tri
  * par date la plus récente. Pur & déterministe.

@@ -1,4 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// Effets réseau mockés pour tester `undoTriage` (mutation Gmail) sans réseau.
+vi.mock("./gmail", () => ({
+  modifyThreadLabels: vi.fn(async () => undefined),
+  trashThread: vi.fn(async () => undefined),
+  untrashThread: vi.fn(async () => undefined),
+}));
+
 import {
   actionToLabelOps,
   addSnooze,
@@ -12,8 +20,11 @@ import {
   SNOOZE_STORAGE_KEY,
   tonight,
   tomorrowMorning,
+  undoLabelOps,
+  undoTriage,
   type SnoozeEntry,
 } from "./mail-triage";
+import { modifyThreadLabels, untrashThread } from "./gmail";
 
 // ─── Stub localStorage (l'environnement vitest est `node`, pas de DOM) ────────
 
@@ -56,6 +67,61 @@ describe("actionToLabelOps", () => {
 
   it("Snooze retire INBOX (l'échéance est gérée par le store, pas par les labels)", () => {
     expect(actionToLabelOps("snooze")).toEqual({ addLabelIds: [], removeLabelIds: ["INBOX"] });
+  });
+});
+
+// ─── undoLabelOps (mapping inverse pur) ───────────────────────────────────────
+
+describe("undoLabelOps", () => {
+  it("Done ré-ajoute INBOX, ne retire rien (inverse de actionToLabelOps)", () => {
+    expect(undoLabelOps("done")).toEqual({ addLabelIds: [INBOX_LABEL], removeLabelIds: [] });
+  });
+
+  it("Archive ré-ajoute INBOX", () => {
+    expect(undoLabelOps("archive")).toEqual({ addLabelIds: ["INBOX"], removeLabelIds: [] });
+  });
+
+  it("Snooze ré-ajoute INBOX (l'échéance locale est purgée séparément)", () => {
+    expect(undoLabelOps("snooze")).toEqual({ addLabelIds: ["INBOX"], removeLabelIds: [] });
+  });
+});
+
+// ─── undoTriage (effet réseau mocké) ──────────────────────────────────────────
+
+describe("undoTriage", () => {
+  beforeEach(() => {
+    installLocalStorage();
+    vi.mocked(modifyThreadLabels).mockClear();
+    vi.mocked(untrashThread).mockClear();
+  });
+
+  it("done/archive : ré-ajoute INBOX via modifyThreadLabels, sans untrash", async () => {
+    await undoTriage("cid", "t1", "archive");
+    expect(vi.mocked(modifyThreadLabels)).toHaveBeenCalledWith("cid", "t1", {
+      addLabelIds: [INBOX_LABEL],
+      removeLabelIds: [],
+    });
+    expect(vi.mocked(untrashThread)).not.toHaveBeenCalled();
+  });
+
+  it("snooze : ré-ajoute INBOX ET purge l'échéance locale", async () => {
+    addSnooze("t1", 9_999_999);
+    await undoTriage("cid", "t1", "snooze");
+    expect(vi.mocked(modifyThreadLabels)).toHaveBeenCalledWith("cid", "t1", {
+      addLabelIds: [INBOX_LABEL],
+      removeLabelIds: [],
+    });
+    // L'entrée snooze a été retirée → plus de réveil auto.
+    expect(loadSnoozed()).toEqual([]);
+  });
+
+  it("delete : untrash PUIS ré-ajoute INBOX (untrash seul ne remet pas en inbox)", async () => {
+    await undoTriage("cid", "t1", "delete");
+    expect(vi.mocked(untrashThread)).toHaveBeenCalledWith("cid", "t1");
+    expect(vi.mocked(modifyThreadLabels)).toHaveBeenCalledWith("cid", "t1", {
+      addLabelIds: [INBOX_LABEL],
+      removeLabelIds: [],
+    });
   });
 });
 

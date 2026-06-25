@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Button, Input } from "@heroui/react";
-import { FilePlus, Database, ArrowLeft, MagnifyingGlass, PencilSimple } from "@phosphor-icons/react";
+import { FilePlus, Database, ArrowLeft, MagnifyingGlass, PencilSimple, Archive, Trash, EnvelopeOpen, X } from "@phosphor-icons/react";
 import { useNavigate } from "react-router-dom";
 import { useSettings } from "@/components/settings/SettingsContext";
 import { AppShell, useMobileTitle, useMobileFab } from "@/components/shell";
@@ -12,15 +12,27 @@ import { MailGroupList } from "@/components/mail/MailGroupList";
 import { useCaptureEmail } from "@/components/mail/useCaptureEmail";
 import { CaptureEmailModal } from "@/components/mail/CaptureEmailModal";
 import { ComposeModal } from "@/components/mail/ComposeModal";
-import { listThreadSummariesPage, listLabels, getThread, modifyThreadLabels, type EmailThread, type GmailLabelColor, type ThreadListItem } from "@/lib/gmail";
-import { listDue, removeSnooze, applyTriage, INBOX_LABEL } from "@/lib/mail-triage";
+import { listThreadSummariesPage, listLabels, getThread, modifyThreadLabels, markThreadRead, toggleStar, type EmailThread, type GmailLabelColor, type ThreadListItem } from "@/lib/gmail";
+import { listDue, removeSnooze, applyTriage, undoTriage, INBOX_LABEL, type TriageAction } from "@/lib/mail-triage";
 import { buildMailOverlay, type OverlayRow } from "@/lib/mail-overlay";
+import { toggleRowSelection, pruneSelection } from "@/lib/mail-selection";
 import { prefersReducedMotion } from "@/lib/motion";
 import { useToast } from "@supernote/ui";
 
 const DEFAULT_MAIL_QUERY = "in:inbox";
 
 type GroupRow = Extract<OverlayRow, { kind: "group" }>;
+
+/** Libellé du toast de confirmation par action de triage. */
+const TRIAGE_DONE_LABEL: Record<TriageAction, string> = {
+  done: "Email marqué comme fait",
+  archive: "Email archivé",
+  snooze: "Email reporté",
+  delete: "Email supprimé",
+};
+
+/** Durée du toast « Annuler » : assez longue pour cliquer, sans gêner (6 s). */
+const UNDO_TOAST_DURATION_MS = 6000;
 
 export default function MailPage() {
   const { settings } = useSettings();
@@ -49,6 +61,11 @@ export default function MailPage() {
   // liste pour le scroll-into-view de la ligne sélectionnée.
   const [selectedRowIndex, setSelectedRowIndex] = useState(-1);
   const listScrollRef = useRef<HTMLDivElement | null>(null);
+  // Sélection multiple (desktop) : Set des threadIds cochés. Cocher un groupe
+  // coche tous ses threads (cf. mail-selection). Pas activée sur mobile.
+  const [selectedThreadIds, setSelectedThreadIds] = useState<Set<string>>(new Set());
+  // Action groupée en cours (désactive la barre pendant l'appel réseau).
+  const [bulkBusy, setBulkBusy] = useState(false);
 
   const [selectedGroup, setSelectedGroup] = useState<GroupRow | null>(null);
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
@@ -58,12 +75,30 @@ export default function MailPage() {
 
   const [captureOpen, setCaptureOpen] = useState(false);
   const [composeOpen, setComposeOpen] = useState(false);
+  // Valeurs initiales du compose (transfert d'un message → objet/corps pré-remplis).
+  const [composeInitial, setComposeInitial] = useState<{ subject: string; body: string }>({
+    subject: "",
+    body: "",
+  });
   const [labelColors, setLabelColors] = useState<Map<string, GmailLabelColor>>(new Map());
+
+  // Ouvre un compose vierge (« Nouveau message ») : réinitialise les valeurs
+  // initiales pour ne pas réutiliser un transfert précédent.
+  const openCompose = useCallback(() => {
+    setComposeInitial({ subject: "", body: "" });
+    setComposeOpen(true);
+  }, []);
+
+  // Transfert : pré-remplit le compose (objet « Fwd: … » + corps cité), To vide.
+  const handleForward = useCallback((prefill: { subject: string; body: string }) => {
+    setComposeInitial(prefill);
+    setComposeOpen(true);
+  }, []);
 
   // Action « créer » → FAB sur mobile (équivalent du bouton « Nouveau » desktop).
   useMobileFab(
     connected
-      ? { icon: PencilSimple, label: "Nouveau message", onPress: () => setComposeOpen(true) }
+      ? { icon: PencilSimple, label: "Nouveau message", onPress: openCompose }
       : null,
   );
 
@@ -210,6 +245,46 @@ export default function MailPage() {
     });
   }, []);
 
+  // Mécanisme « Annuler » (toast-action) : après un triage réussi, on affiche un
+  // toast ~6 s avec un bouton « Annuler ». Au clic, on défait la mutation Gmail
+  // (undoTriage : ré-ajoute INBOX ; untrash pour delete ; purge snooze) puis on
+  // recharge la liste — le plus simple pour RE-AFFICHER le fil restauré (l'undo
+  // a pu changer l'ordre / le snippet / les labels). On choisit le toast-action
+  // plutôt qu'une bannière inline car `useToast` (@supernote/ui) supporte
+  // nativement `action: { label, onClick }` et `duration` — pas de surface UI à
+  // maintenir, cohérent avec les autres notifications de la page.
+  const offerUndo = useCallback(
+    (id: string, action: TriageAction) => {
+      if (!clientId) {
+        toast({ title: TRIAGE_DONE_LABEL[action] });
+        return;
+      }
+      toast({
+        title: TRIAGE_DONE_LABEL[action],
+        duration: UNDO_TOAST_DURATION_MS,
+        action: {
+          label: "Annuler",
+          onClick: () => {
+            undoTriage(clientId, id, action)
+              .then(() => {
+                // Re-affiche le fil restauré : la liste est la source de vérité.
+                void loadList(query);
+                toast({ title: "Triage annulé", variant: "success" });
+              })
+              .catch((err) => {
+                toast({
+                  title: "Annulation impossible",
+                  description: err instanceof Error ? err.message : String(err),
+                  variant: "danger",
+                });
+              });
+          },
+        },
+      });
+    },
+    [clientId, toast, loadList, query],
+  );
+
   // Triage clavier d'une ligne « single » sélectionnée (archive `e`, delete `#`).
   // Optimiste : on retire la ligne immédiatement, puis on appelle Gmail. En cas
   // d'échec réseau on recharge la liste (source de vérité) et on prévient.
@@ -221,7 +296,7 @@ export default function MailPage() {
       dropThreadFromList(id);
       applyTriage(clientId, id, action)
         .then(() => {
-          toast({ title: action === "delete" ? "Email supprimé" : "Email archivé" });
+          offerUndo(id, action);
         })
         .catch((err) => {
           toast({
@@ -232,7 +307,76 @@ export default function MailPage() {
           void loadList(query);
         });
     },
-    [rows, clientId, dropThreadFromList, toast, loadList, query],
+    [rows, clientId, dropThreadFromList, toast, loadList, query, offerUndo],
+  );
+
+  // ─── Sélection multiple (desktop) ──────────────────────────────────────────
+  // Bascule la sélection de TOUS les threads d'une ligne (single ou groupe).
+  const toggleRowSelected = useCallback((row: OverlayRow) => {
+    setSelectedThreadIds((prev) => toggleRowSelection(row, prev));
+  }, []);
+
+  const clearSelection = useCallback(() => setSelectedThreadIds(new Set()), []);
+
+  // Coche/décoche la ligne « curseur » de la nav clavier (raccourci `x`).
+  const toggleSelectedRowAtCursor = useCallback(() => {
+    setSelectedRowIndex((idx) => {
+      const row = rows[idx];
+      if (row) setSelectedThreadIds((prev) => toggleRowSelection(row, prev));
+      return idx;
+    });
+  }, [rows]);
+
+  // Action groupée optimiste sur la sélection : on retire les threads de la liste
+  // immédiatement, on applique l'effet (archive / delete / markRead) EN PARALLÈLE
+  // sur chaque threadId, puis on recharge la liste (source de vérité). Tout échec
+  // → toast + rechargement. La sélection est vidée dans tous les cas.
+  const runBulkAction = useCallback(
+    async (kind: "archive" | "delete" | "read") => {
+      if (!clientId || selectedThreadIds.size === 0 || bulkBusy) return;
+      const ids = [...selectedThreadIds];
+      setBulkBusy(true);
+      // Optimiste : archive/delete sortent de la liste ; markRead retire UNREAD.
+      if (kind === "read") {
+        setRows((rs) =>
+          rs.map<OverlayRow>((r) => {
+            const strip = (it: ThreadListItem): ThreadListItem =>
+              ids.includes(it.id) ? { ...it, labelIds: it.labelIds.filter((l) => l !== "UNREAD") } : it;
+            return r.kind === "single" ? { ...r, item: strip(r.item) } : { ...r, items: r.items.map(strip) };
+          }),
+        );
+      } else {
+        for (const id of ids) dropThreadFromList(id);
+      }
+      try {
+        await Promise.all(
+          ids.map((id) =>
+            kind === "read"
+              ? markThreadRead(clientId, id)
+              : applyTriage(clientId, id, kind === "delete" ? "delete" : "archive"),
+          ),
+        );
+        toast({
+          title:
+            kind === "read"
+              ? `${ids.length} email(s) marqué(s) lu(s)`
+              : kind === "delete"
+                ? `${ids.length} email(s) supprimé(s)`
+                : `${ids.length} email(s) archivé(s)`,
+        });
+      } catch (err) {
+        toast({
+          title: "Action groupée partiellement échouée",
+          description: err instanceof Error ? err.message : String(err),
+          variant: "danger",
+        });
+      } finally {
+        setSelectedThreadIds(new Set());
+        setBulkBusy(false);
+        void loadList(query);
+      }
+    },
+    [clientId, selectedThreadIds, bulkBusy, dropThreadFromList, toast, loadList, query],
   );
 
   // Clamp/réinitialise le curseur clavier quand la liste change (recherche,
@@ -242,6 +386,16 @@ export default function MailPage() {
       if (rows.length === 0) return -1;
       if (cur < 0) return cur; // pas encore activé : on ne force pas une sélection
       return Math.min(cur, rows.length - 1);
+    });
+  }, [rows]);
+
+  // Nettoie la sélection des threadIds qui ne sont plus dans la liste (après un
+  // rechargement / triage). Évite d'agir sur des threads disparus.
+  useEffect(() => {
+    setSelectedThreadIds((prev) => {
+      if (prev.size === 0) return prev;
+      const next = pruneSelection(prev, rows);
+      return next.size === prev.size ? prev : next;
     });
   }, [rows]);
 
@@ -302,6 +456,26 @@ export default function MailPage() {
           e.preventDefault();
           triageRowAt(selectedRowIndex, "delete");
           break;
+        case "x":
+        case "X":
+          // Coche/décoche la ligne courante (sélection multiple). Active la
+          // sélection même sans curseur (première frappe → tête de liste).
+          e.preventDefault();
+          if (selectedRowIndex < 0) {
+            setSelectedRowIndex(rows.length === 0 ? -1 : 0);
+            const first = rows[0];
+            if (first) toggleRowSelected(first);
+          } else {
+            toggleSelectedRowAtCursor();
+          }
+          break;
+        case "Escape":
+          // Échap vide la sélection si elle est active (sinon laisse passer).
+          if (selectedThreadIds.size > 0) {
+            e.preventDefault();
+            clearSelection();
+          }
+          break;
         default:
           break;
       }
@@ -311,7 +485,19 @@ export default function MailPage() {
     // `onPick` est stable au sens comportemental (lit l'état via setters) ; on
     // dépend des valeurs réellement lues dans le handler.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isMobile, connected, captureOpen, composeOpen, rows, selectedRowIndex, triageRowAt]);
+  }, [
+    isMobile,
+    connected,
+    captureOpen,
+    composeOpen,
+    rows,
+    selectedRowIndex,
+    triageRowAt,
+    toggleRowSelected,
+    toggleSelectedRowAtCursor,
+    clearSelection,
+    selectedThreadIds,
+  ]);
 
   const handleCaptureNote = async () => {
     const msg = thread?.messages[0];
@@ -329,25 +515,76 @@ export default function MailPage() {
     }
   };
 
-  // Après un triage (Done/Archive/Snooze) : retire le fil de la liste + désélectionne.
-  const handleTriaged = useCallback(() => {
-    const id = selectedThreadId;
-    setSelectedThreadId(null);
-    setThread(null);
-    if (!id) return;
+  // Après un triage (Done/Archive/Snooze/Supprimer) : retire le fil de la liste +
+  // désélectionne, puis propose « Annuler » (toast-action). `action` vient de
+  // TriageBar via EmailThreadView.onTriaged(action).
+  const handleTriaged = useCallback(
+    (action: TriageAction) => {
+      const id = selectedThreadId;
+      setSelectedThreadId(null);
+      setThread(null);
+      if (!id) return;
+      setRows((rs) =>
+        rs.flatMap<OverlayRow>((r) => {
+          if (r.kind === "single") return r.item.id === id ? [] : [r];
+          const items = r.items.filter((it) => it.id !== id);
+          return items.length ? [{ ...r, items }] : [];
+        }),
+      );
+      setSelectedGroup((g) => {
+        if (!g) return g;
+        const items = g.items.filter((it) => it.id !== id);
+        return items.length ? { ...g, items } : null;
+      });
+      offerUndo(id, action);
+    },
+    [selectedThreadId, offerUndo],
+  );
+
+  // Resynchronise les labelIds optimistes d'un thread (étoile / non-lu) dans la
+  // liste de gauche, le groupe ouvert et le fil ouvert — sans rechargement.
+  const syncThreadLabels = useCallback((id: string, labelIds: string[]) => {
+    const apply = (it: ThreadListItem): ThreadListItem =>
+      it.id === id ? { ...it, labelIds } : it;
     setRows((rs) =>
-      rs.flatMap<OverlayRow>((r) => {
-        if (r.kind === "single") return r.item.id === id ? [] : [r];
-        const items = r.items.filter((it) => it.id !== id);
-        return items.length ? [{ ...r, items }] : [];
-      }),
+      rs.map<OverlayRow>((r) =>
+        r.kind === "single"
+          ? r.item.id === id
+            ? { ...r, item: apply(r.item) }
+            : r
+          : r.items.some((it) => it.id === id)
+            ? { ...r, items: r.items.map(apply) }
+            : r,
+      ),
     );
-    setSelectedGroup((g) => {
-      if (!g) return g;
-      const items = g.items.filter((it) => it.id !== id);
-      return items.length ? { ...g, items } : null;
-    });
-  }, [selectedThreadId]);
+    setSelectedGroup((g) =>
+      g && g.items.some((it) => it.id === id) ? { ...g, items: g.items.map(apply) } : g,
+    );
+    setThread((t) =>
+      t && t.id === id
+        ? { ...t, labelIds, messages: t.messages.map((m) => ({ ...m })) }
+        : t,
+    );
+  }, []);
+
+  // Toggle étoile depuis une ligne de la liste (optimiste, sans ouvrir le fil).
+  const toggleRowStar = useCallback(
+    (id: string, current: string[]) => {
+      if (!clientId) return;
+      const next = !current.includes("STARRED");
+      const nextIds = next ? [...current, "STARRED"] : current.filter((l) => l !== "STARRED");
+      syncThreadLabels(id, nextIds);
+      toggleStar(clientId, id, next).catch((err) => {
+        syncThreadLabels(id, current);
+        toast({
+          title: next ? "Ajout de l'étoile échoué" : "Retrait de l'étoile échoué",
+          description: err instanceof Error ? err.message : String(err),
+          variant: "danger",
+        });
+      });
+    },
+    [clientId, syncThreadLabels, toast],
+  );
 
   // Après l'ENVOI d'une réponse : re-fetch le fil courant (la réponse y apparaît)
   // + recharge la liste pour refléter le nouvel état (ordre, snippet, non-lu).
@@ -371,7 +608,7 @@ export default function MailPage() {
   const searchBox = (
     <div className="flex gap-2 p-3">
       {!isMobile && (
-        <Button variant="primary" onPress={() => setComposeOpen(true)}>
+        <Button variant="primary" onPress={openCompose}>
           <PencilSimple size={16} /> Nouveau
         </Button>
       )}
@@ -390,9 +627,37 @@ export default function MailPage() {
     </div>
   );
 
+  // Barre d'actions groupées (desktop uniquement) : visible dès qu'au moins un
+  // thread est sélectionné. Archiver / Supprimer / Marquer lu en parallèle.
+  const bulkBar =
+    !isMobile && selectedThreadIds.size > 0 ? (
+      <div
+        className="sn-overlay-in flex items-center gap-2 px-3 py-2"
+        style={{ borderBottom: "1px solid var(--border-subtle)", background: "var(--accent-subtle)" }}
+      >
+        <Button size="sm" variant="ghost" isIconOnly aria-label="Tout désélectionner" onPress={clearSelection}>
+          <X size={16} />
+        </Button>
+        <span className="text-sm font-medium" style={{ color: "var(--accent)" }}>
+          {selectedThreadIds.size} sélectionné{selectedThreadIds.size > 1 ? "s" : ""}
+        </span>
+        <span className="flex-1" />
+        <Button size="sm" variant="ghost" isDisabled={bulkBusy} onPress={() => void runBulkAction("read")}>
+          <EnvelopeOpen size={16} /> Marquer lu
+        </Button>
+        <Button size="sm" variant="ghost" isDisabled={bulkBusy} onPress={() => void runBulkAction("archive")}>
+          <Archive size={16} /> Archiver
+        </Button>
+        <Button size="sm" variant="ghost" isDisabled={bulkBusy} onPress={() => void runBulkAction("delete")}>
+          <Trash size={16} /> Supprimer
+        </Button>
+      </div>
+    ) : null;
+
   const pane1 = (
     <div className="flex h-full flex-col overflow-hidden" style={{ borderRight: "1px solid var(--border-subtle)" }}>
       {searchBox}
+      {bulkBar}
       <div ref={listScrollRef} className="flex-1 overflow-y-auto px-2 pb-4">
         {listLoading && (
           <p className="px-3 py-2 text-sm" style={{ color: "var(--text-muted)" }}>
@@ -410,8 +675,11 @@ export default function MailPage() {
               rows={rows}
               activeKey={activeKey}
               onPick={onPick}
+              onToggleStar={toggleRowStar}
               labelColors={labelColors}
               selectedIndex={isMobile ? undefined : selectedRowIndex}
+              selectedThreadIds={isMobile ? undefined : selectedThreadIds}
+              onToggleRowSelection={isMobile ? undefined : toggleRowSelected}
             />
             {nextPageToken && (
               <div className="px-1 pt-2">
@@ -480,6 +748,8 @@ export default function MailPage() {
               selfEmail={settings.gmail.connectedEmail}
               onTriaged={handleTriaged}
               onReplied={handleReplied}
+              onLabelsChanged={syncThreadLabels}
+              onForward={handleForward}
             />
           </div>
         </div>
@@ -535,7 +805,12 @@ export default function MailPage() {
             message={thread?.messages[0] ?? null}
             onClose={() => setCaptureOpen(false)}
           />
-          <ComposeModal isOpen={composeOpen} onClose={() => setComposeOpen(false)} />
+          <ComposeModal
+            isOpen={composeOpen}
+            onClose={() => setComposeOpen(false)}
+            initialSubject={composeInitial.subject}
+            initialBody={composeInitial.body}
+          />
         </AppShell>
       );
     }
@@ -567,7 +842,12 @@ export default function MailPage() {
             message={thread?.messages[0] ?? null}
             onClose={() => setCaptureOpen(false)}
           />
-          <ComposeModal isOpen={composeOpen} onClose={() => setComposeOpen(false)} />
+          <ComposeModal
+            isOpen={composeOpen}
+            onClose={() => setComposeOpen(false)}
+            initialSubject={composeInitial.subject}
+            initialBody={composeInitial.body}
+          />
         </AppShell>
       );
     }
@@ -629,7 +909,12 @@ export default function MailPage() {
         message={thread?.messages[0] ?? null}
         onClose={() => setCaptureOpen(false)}
       />
-      <ComposeModal isOpen={composeOpen} onClose={() => setComposeOpen(false)} />
+      <ComposeModal
+        isOpen={composeOpen}
+        onClose={() => setComposeOpen(false)}
+        initialSubject={composeInitial.subject}
+        initialBody={composeInitial.body}
+      />
     </AppShell>
   );
 }

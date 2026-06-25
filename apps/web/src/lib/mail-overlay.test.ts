@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildMailOverlay, rowHasUnread } from "./mail-overlay";
+import { buildMailOverlay, rowHasUnread, rowHasStar, rowUnreadCount } from "./mail-overlay";
 import type { ThreadListItem } from "@/lib/gmail";
 
 function item(id: string, fromEmail: string, date: string, labelIds: string[] = [], subject = "s"): ThreadListItem {
@@ -227,5 +227,62 @@ describe("rowHasUnread", () => {
     );
     const group = rows.find((r) => r.kind === "group")!;
     expect(rowHasUnread(group)).toBe(false);
+  });
+});
+
+describe("rowUnreadCount", () => {
+  it("single non lu → 1", () => {
+    expect(
+      rowUnreadCount({ kind: "single", item: item("a", "a@x.io", "2026-06-20T10:00:00Z", ["INBOX", "UNREAD"]) }),
+    ).toBe(1);
+  });
+  it("single lu → 0", () => {
+    expect(
+      rowUnreadCount({ kind: "single", item: item("a", "a@x.io", "2026-06-20T10:00:00Z", ["INBOX"]) }),
+    ).toBe(0);
+  });
+  it("group → compte les items non lus", () => {
+    const rows = buildMailOverlay(
+      [
+        item("a", "ada@x.io", "2026-06-20T10:00:00Z", ["L1", "UNREAD"]),
+        item("b", "ada@x.io", "2026-06-21T10:00:00Z", ["L1"]),
+        item("c", "ada@x.io", "2026-06-22T10:00:00Z", ["L1", "UNREAD"]),
+      ],
+      labels,
+    );
+    const group = rows.find((r) => r.kind === "group")!;
+    expect(group.kind === "group" && group.count).toBe(3);
+    expect(rowUnreadCount(group)).toBe(2);
+  });
+  it("group tout lu → 0", () => {
+    const rows = buildMailOverlay(
+      [
+        item("a", "ada@x.io", "2026-06-20T10:00:00Z", ["L1"]),
+        item("b", "ada@x.io", "2026-06-21T10:00:00Z", ["L1"]),
+      ],
+      labels,
+    );
+    const group = rows.find((r) => r.kind === "group")!;
+    expect(rowUnreadCount(group)).toBe(0);
+  });
+});
+
+describe("rowHasStar", () => {
+  it("single avec STARRED → true", () => {
+    expect(rowHasStar({ kind: "single", item: item("a", "a@x.io", "2026-06-20T10:00:00Z", ["INBOX", "STARRED"]) })).toBe(true);
+  });
+  it("single sans STARRED → false", () => {
+    expect(rowHasStar({ kind: "single", item: item("a", "a@x.io", "2026-06-20T10:00:00Z", ["INBOX"]) })).toBe(false);
+  });
+  it("group → true dès qu'un item est étoilé", () => {
+    const rows = buildMailOverlay(
+      [
+        item("a", "ada@x.io", "2026-06-20T10:00:00Z", ["L1"]),
+        item("b", "bob@x.io", "2026-06-21T10:00:00Z", ["L1", "STARRED"]),
+      ],
+      labels,
+    );
+    const group = rows.find((r) => r.kind === "group")!;
+    expect(rowHasStar(group)).toBe(true);
   });
 });

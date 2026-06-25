@@ -1,11 +1,21 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Modal, Button, Input, Textarea, useToast } from "@supernote/ui";
-import { Gear, ArrowSquareOut, X } from "@phosphor-icons/react";
+import { Gear, ArrowSquareOut, X, Paperclip } from "@phosphor-icons/react";
 import { applyTemplate, type MailTemplate } from "@/lib/mail-templates";
 import { dedupeEmails, parseRecipientInput } from "@/lib/mail-recipients";
 import { useCreateDraft } from "@/components/notes/useCreateDraft";
+import {
+  filesToAttachments,
+  toOutgoing,
+  totalAttachmentsSize,
+  exceedsAttachmentLimit,
+  attachmentLabel,
+  MAX_ATTACHMENTS_BYTES,
+  type PendingAttachment,
+} from "@/lib/mail-attachments";
+import { formatBytes } from "@/lib/gmail";
 import { useMailTemplates } from "./useMailTemplates";
 import { TemplatePicker } from "./TemplatePicker";
 import { TemplateManager } from "./TemplateManager";
@@ -39,6 +49,8 @@ export function ComposeModal({
   const [body, setBody] = useState(initialBody);
   const [busy, setBusy] = useState(false);
   const [managerOpen, setManagerOpen] = useState(false);
+  const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Réinitialise les champs à l'ouverture.
   useEffect(() => {
@@ -47,8 +59,36 @@ export function ComposeModal({
       setToInput("");
       setSubject(initialSubject);
       setBody(initialBody);
+      setAttachments([]);
     }
   }, [isOpen, initialTo, initialSubject, initialBody]);
+
+  const onPickFiles = async (fileList: FileList | null) => {
+    if (!fileList || fileList.length === 0) return;
+    try {
+      const added = await filesToAttachments(Array.from(fileList));
+      setAttachments((prev) => {
+        const next = [...prev, ...added];
+        if (exceedsAttachmentLimit(next)) {
+          toast({
+            title: "Pièces jointes volumineuses",
+            description: `Total ${formatBytes(totalAttachmentsSize(next))} > ${formatBytes(MAX_ATTACHMENTS_BYTES)} : l'envoi Gmail risque d'échouer.`,
+            variant: "warning",
+          });
+        }
+        return next;
+      });
+    } catch (err) {
+      toast({
+        title: "Lecture du fichier échouée",
+        description: err instanceof Error ? err.message : String(err),
+        variant: "danger",
+      });
+    }
+  };
+  const removeAttachment = (index: number) => {
+    setAttachments((prev) => prev.filter((_, i) => i !== index));
+  };
 
   const addRecipients = (emails: string[]) => {
     setRecipients((prev) => dedupeEmails([...prev, ...emails]));
@@ -78,7 +118,12 @@ export function ComposeModal({
     const allTo = dedupeEmails([...recipients, ...parseRecipientInput(toInput)]);
     setBusy(true);
     try {
-      const { url } = await createDraft({ to: allTo.length ? allTo : undefined, subject, body });
+      const { url } = await createDraft({
+        to: allTo.length ? allTo : undefined,
+        subject,
+        body,
+        attachments: attachments.length ? toOutgoing(attachments) : undefined,
+      });
       toast({ title: "Brouillon créé dans Gmail" });
       window.open(url, "_blank", "noopener,noreferrer");
       onClose();
@@ -182,6 +227,57 @@ export function ComposeModal({
               rows={10}
               placeholder="Votre message…"
             />
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+                Pièces jointes
+                {attachments.length > 0 && ` · ${formatBytes(totalAttachmentsSize(attachments))}`}
+              </span>
+              <Button size="sm" variant="ghost" onPress={() => fileInputRef.current?.click()}>
+                <Paperclip size={14} /> Joindre
+              </Button>
+            </div>
+            {/* input file natif (exception justifiée : pas d'équivalent HeroUI). */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              className="hidden"
+              onChange={(e) => {
+                void onPickFiles(e.target.files);
+                e.target.value = "";
+              }}
+            />
+            {attachments.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {attachments.map((att, i) => (
+                  <span
+                    key={`${att.filename}-${i}`}
+                    className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs"
+                    style={{
+                      borderColor: "var(--border-subtle)",
+                      backgroundColor: "var(--surface-2)",
+                      color: "var(--text-primary)",
+                    }}
+                  >
+                    <Paperclip size={11} />
+                    <span className="max-w-[220px] truncate">{attachmentLabel(att)}</span>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      isIconOnly
+                      onPress={() => removeAttachment(i)}
+                      aria-label={`Retirer ${att.filename}`}
+                      className="h-4 w-4 min-h-0 min-w-0 p-0"
+                    >
+                      <X size={11} />
+                    </Button>
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="flex items-center justify-end gap-2">
