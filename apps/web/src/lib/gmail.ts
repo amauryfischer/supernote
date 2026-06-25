@@ -60,6 +60,9 @@ export interface EmailMessage {
   snippet: string;
   bodyText: string; // text/plain uniquement en P1 (pas de HTML)
   webLink: string;
+  /** Message-ID RFC822 (sert d'In-Reply-To/References pour une réponse threadée). */
+  messageId?: string;
+  references?: string;
 }
 
 export interface GmailRawMessage {
@@ -246,6 +249,8 @@ export function parseGmailMessage(raw: GmailRawMessage): EmailMessage {
     snippet: raw.snippet ?? "",
     bodyText: findPlainText(p),
     webLink: `https://mail.google.com/mail/u/0/#all/${raw.id}`,
+    messageId: header(p, "Message-ID") || header(p, "Message-Id"),
+    references: header(p, "References"),
   };
 }
 
@@ -493,12 +498,20 @@ export function formatRecipients(to: string | string[] | undefined): string {
     .join(", ");
 }
 
-/** Construit un message RFC 2822 (texte brut UTF-8) pour `drafts.create`. */
-export function buildRawMessage(input: { to?: string | string[]; subject: string; body: string }): string {
+/** Construit un message RFC 2822 (texte brut UTF-8) pour `drafts.create` / `messages.send`. */
+export function buildRawMessage(input: {
+  to?: string | string[];
+  subject: string;
+  body: string;
+  inReplyTo?: string;
+  references?: string;
+}): string {
   const lines: string[] = [];
   const to = formatRecipients(input.to);
   if (to) lines.push(`To: ${to}`);
   lines.push(`Subject: ${encodeHeaderWord(input.subject)}`);
+  if (input.inReplyTo) lines.push(`In-Reply-To: ${input.inReplyTo}`);
+  if (input.references) lines.push(`References: ${input.references}`);
   lines.push("MIME-Version: 1.0");
   lines.push('Content-Type: text/plain; charset="UTF-8"');
   lines.push("");
@@ -517,14 +530,23 @@ export interface DraftResult {
  */
 export async function createDraft(
   clientId: string,
-  input: { to?: string | string[]; subject: string; body: string },
+  input: {
+    to?: string | string[];
+    subject: string;
+    body: string;
+    threadId?: string;
+    inReplyTo?: string;
+    references?: string;
+  },
 ): Promise<DraftResult> {
   const token = await requestAccessToken(clientId, { scope: GMAIL_COMPOSE_SCOPE, prompt: "" });
   const raw = toBase64Url(buildRawMessage(input));
+  const message: { raw: string; threadId?: string } = { raw };
+  if (input.threadId) message.threadId = input.threadId;
   const res = await fetch(`${GMAIL_API_BASE}/drafts`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ message: { raw } }),
+    body: JSON.stringify({ message }),
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -540,4 +562,34 @@ export async function createDraft(
 /** URL web d'un brouillon Gmail (à ouvrir après création). */
 export function buildGmailDraftUrl(draftId: string): string {
   return `https://mail.google.com/mail/u/0/#drafts?compose=${encodeURIComponent(draftId)}`;
+}
+
+/**
+ * Envoie un message (réponse) DANS un thread via `messages.send`. Scope
+ * `gmail.compose` (qui autorise l'envoi). ⚠️ IRRÉVERSIBLE : le mail part
+ * immédiatement (contrairement aux brouillons). `threadId` rattache la réponse
+ * au fil ; `inReplyTo`/`references` assurent le threading côté autres clients.
+ */
+export async function sendReply(
+  clientId: string,
+  input: {
+    threadId: string;
+    to?: string | string[];
+    subject: string;
+    body: string;
+    inReplyTo?: string;
+    references?: string;
+  },
+): Promise<void> {
+  const token = await requestAccessToken(clientId, { scope: GMAIL_COMPOSE_SCOPE, prompt: "" });
+  const raw = toBase64Url(buildRawMessage(input));
+  const res = await fetch(`${GMAIL_API_BASE}/messages/send`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ raw, threadId: input.threadId }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Gmail send ${res.status}: ${text.slice(0, 300)}`);
+  }
 }

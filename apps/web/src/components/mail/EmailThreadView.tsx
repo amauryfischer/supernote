@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowSquareOut, Plus, X, Tag, MagnifyingGlass, Check } from "@phosphor-icons/react";
+import { ArrowSquareOut, Plus, X, Tag, MagnifyingGlass, Check, PaperPlaneTilt } from "@phosphor-icons/react";
 import { Button, Input } from "@heroui/react";
 import { useToast } from "@supernote/ui";
 import { useSettings } from "@/components/settings/SettingsContext";
@@ -10,6 +10,9 @@ import {
   resolveUserLabels,
   addThreadLabel,
   removeThreadLabel,
+  sendReply,
+  createDraft,
+  buildGmailDraftUrl,
   classifyBubble,
   type EmailThread,
   type EmailMessage,
@@ -17,6 +20,7 @@ import {
   type BubbleKind,
 } from "@/lib/gmail";
 import { parseEmailBody } from "@/lib/email-quote";
+import { buildReplyParams } from "@/lib/mail-reply";
 import { TriageBar } from "./TriageBar";
 import { EnrichContactFromEmail } from "./EnrichContactFromEmail";
 import { EmailToEventButton } from "./EmailToEventButton";
@@ -88,6 +92,37 @@ export function EmailThreadView({
     () => allLabels.filter((l) => !labelIds.includes(l.id)),
     [allLabels, labelIds],
   );
+
+  // ─── Réponse rapide (barre fixe en bas) ───────────────────────────────────
+  const replyParams = useMemo(() => buildReplyParams(thread, selfEmail), [thread, selfEmail]);
+  const [replyBody, setReplyBody] = useState("");
+  const [replyBusy, setReplyBusy] = useState<"send" | "draft" | null>(null);
+  useEffect(() => setReplyBody(""), [thread]);
+
+  const submitReply = async (mode: "send" | "draft") => {
+    const body = replyBody.trim();
+    if (!body || !clientId) return;
+    setReplyBusy(mode);
+    try {
+      if (mode === "send") {
+        await sendReply(clientId, { ...replyParams, body });
+        toast({ title: "Réponse envoyée", variant: "success" });
+      } else {
+        const { draftId } = await createDraft(clientId, { ...replyParams, body });
+        window.open(buildGmailDraftUrl(draftId), "_blank", "noopener");
+        toast({ title: "Brouillon créé", description: "Ouvert dans Gmail." });
+      }
+      setReplyBody("");
+    } catch (e) {
+      toast({
+        title: mode === "send" ? "Échec de l'envoi" : "Échec du brouillon",
+        description: e instanceof Error ? e.message : String(e),
+        variant: "danger",
+      });
+    } finally {
+      setReplyBusy(null);
+    }
+  };
 
   const openPicker = () => {
     if (triggerRef.current) setAnchorRect(triggerRef.current.getBoundingClientRect());
@@ -205,6 +240,56 @@ export function EmailThreadView({
       {thread.messages.map((m) => (
         <MessageBubble key={m.id} message={m} kind={classifyBubble(m.from.email, selfEmail)} />
       ))}
+
+      {clientId && replyParams.to && (
+        <div
+          className="sticky bottom-0 mt-1 border-t px-1 pb-2 pt-2"
+          style={{ background: "var(--surface-1)", borderColor: "var(--border-subtle)" }}
+        >
+          {/* textarea natif justifié : composeur inline compact (envoi ⌘/Ctrl+↵). */}
+          <textarea
+            value={replyBody}
+            onChange={(e) => setReplyBody(e.target.value)}
+            onKeyDown={(e) => {
+              if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                e.preventDefault();
+                void submitReply("send");
+              }
+            }}
+            rows={2}
+            placeholder={`Répondre à ${replyParams.to}…`}
+            className="w-full resize-y rounded-lg border px-3 py-2 text-sm outline-none"
+            style={{
+              borderColor: "var(--border-subtle)",
+              background: "var(--surface-0, var(--background))",
+              color: "var(--text-primary)",
+            }}
+          />
+          <div className="mt-1.5 flex items-center justify-between gap-2">
+            <span className="min-w-0 truncate text-xs" style={{ color: "var(--text-muted)" }}>
+              À : {replyParams.to} · ⌘/Ctrl+↵ pour envoyer
+            </span>
+            <div className="flex shrink-0 gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onPress={() => void submitReply("draft")}
+                isDisabled={!replyBody.trim() || replyBusy !== null}
+              >
+                Brouillon
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                onPress={() => void submitReply("send")}
+                isDisabled={!replyBody.trim() || replyBusy !== null}
+              >
+                <PaperPlaneTilt size={14} /> {replyBusy === "send" ? "Envoi…" : "Envoyer"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <LabelPicker
         open={pickerOpen}
