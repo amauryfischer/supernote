@@ -66,6 +66,20 @@ export const FieldDefinitionSchema = z.object({
   formulaExpr: z.string().optional(),
   formulaOutputKind: z.enum(["text", "number", "date", "bool"]).optional(),
   formulaOutputFormat: z.string().optional(),
+  // Number-family params (number/currency/percent/rating/progress/duration).
+  // Stored raw by the worker; without them on the schema the output validator
+  // strips them on read, so the editor would forget the config.
+  min: z.number().optional(),
+  max: z.number().optional(),
+  precision: z.number().int().min(0).max(10).optional(),
+  currencyCode: z.string().optional(),
+  // Date / datetime display pattern (e.g. "YYYY-MM-DD").
+  format: z.string().optional(),
+  // Rollup / lookup wiring: which relation field to walk + which target field
+  // to pull, plus the aggregation for rollups.
+  relationFieldId: z.string().optional(),
+  targetFieldId: z.string().optional(),
+  aggregation: z.enum(["count", "sum", "avg", "min", "max", "all", "any"]).optional(),
   aiPrompt: z.string().optional(),
   aiOutputKind: z.enum(["text", "longtext", "number", "bool", "select"]).optional(),
   aiModel: z.string().optional(),

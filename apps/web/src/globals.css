@@ -353,6 +353,12 @@ html, body {
 
 .sn-datagrid-row {
   transition: background-color 120ms ease;
+  /* Virtualisation native : Chromium saute layout+paint des lignes hors
+     écran. `contain-intrinsic-size` réserve la hauteur estimée pour garder la
+     scrollbar correcte. Zéro restructuration du <table> → sticky header/col,
+     sélection, DnD et conditional-format restent intacts. */
+  content-visibility: auto;
+  contain-intrinsic-size: auto var(--sn-row-height, 40px);
 }
 .sn-datagrid-row:hover {
   background-color: var(--surface-1);
@@ -473,12 +479,56 @@ html, body {
   background: transparent;
   width: 100%;
   text-align: left;
+  justify-content: flex-start;
   white-space: nowrap;
   border-radius: 5px;
+  font: inherit;
+  line-height: 1.25;
 }
 .sn-col-menu-item:hover {
   background: var(--surface-2);
   color: var(--text-primary);
+}
+/* Icône en gouttière fixe — alignement vertical net façon Notion. */
+.sn-col-menu-item > svg {
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+.sn-col-menu-item:hover > svg {
+  color: inherit;
+}
+.sn-col-menu-item--danger > svg {
+  color: currentColor;
+}
+/* En-tête de menu : champ ciblé + son type. */
+.sn-col-menu-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 10px 6px;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+.sn-col-menu-title-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sn-col-menu-title > svg {
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+/* Coche d'état de tri, poussée à droite. */
+.sn-col-menu-check {
+  margin-left: auto;
+  color: var(--accent);
+  font-weight: 700;
+}
+/* Indice clavier sous l'input de renommage. */
+.sn-col-menu-hint {
+  padding: 2px 10px 6px;
+  font-size: 10px;
+  color: var(--text-muted);
 }
 .sn-col-menu-item-sub {
   font-size: 11px;

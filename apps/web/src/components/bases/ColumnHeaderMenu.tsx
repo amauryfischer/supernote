@@ -9,18 +9,19 @@
 
 import { useEffect, useLayoutEffect, useRef, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { Button } from "@heroui/react";
 import {
   SortAscending,
   SortDescending,
   EyeSlash,
   Trash,
   PencilSimple,
+  SlidersHorizontal,
   X,
   FunctionIcon,
 } from "@phosphor-icons/react";
 import type { EntityType, Field } from "@supernote/core";
 import type { SortClause } from "@supernote/ipc";
+import { FieldKindIcon } from "./FieldKindIcon";
 import { FormulaInputEditor } from "./FormulaInputEditor";
 
 type FormulaOutputKind = "text" | "number" | "date" | "bool";
@@ -152,6 +153,11 @@ export function ColumnHeaderMenu({
   if (phase === "rename") {
     return createPortal((
       <div ref={menuRef} style={portalStyle} onClick={(e) => e.stopPropagation()} className="sn-col-menu" role="dialog" aria-label="Renommer la colonne">
+        <div className="sn-col-menu-title">
+          <PencilSimple size={14} />
+          <span className="sn-col-menu-title-label">Renommer</span>
+        </div>
+        <div className="sn-col-menu-separator" />
         <input
           ref={renameInputRef}
           className="sn-col-menu-rename-input"
@@ -162,6 +168,7 @@ export function ColumnHeaderMenu({
           placeholder="Nom de la colonne"
           aria-label="Nom de la colonne"
         />
+        <p className="sn-col-menu-hint">Entrée pour valider · Échap pour annuler</p>
       </div>
     ), document.body);
   }
@@ -173,22 +180,20 @@ export function ColumnHeaderMenu({
           Supprimer « {field.label || field.name} » ?
         </div>
         <div className="sn-col-menu-separator" />
-        <Button
-          variant="ghost"
-          size="sm"
+        <button
+          type="button"
           className="sn-col-menu-item sn-col-menu-item--danger"
-          onPress={() => { onDelete(); onClose(); }}
+          onClick={() => { onDelete(); onClose(); }}
         >
-          <Trash size={13} /> Supprimer
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
+          <Trash size={15} /> Supprimer
+        </button>
+        <button
+          type="button"
           className="sn-col-menu-item"
-          onPress={() => setPhase("menu")}
+          onClick={() => setPhase("menu")}
         >
-          <X size={13} /> Annuler
-        </Button>
+          <X size={15} /> Annuler
+        </button>
       </div>
     ), document.body);
   }
@@ -227,105 +232,77 @@ export function ColumnHeaderMenu({
 
   return createPortal((
     <div ref={menuRef} style={portalStyle} onClick={(e) => e.stopPropagation()} className="sn-col-menu" role="menu">
-      {/* Renommer */}
-      <Button
-        variant="ghost"
-        size="sm"
-        className="sn-col-menu-item"
+      {/* En-tête : nom + type du champ */}
+      <div className="sn-col-menu-title">
+        <FieldKindIcon kind={field.kind} size={14} />
+        <span className="sn-col-menu-title-label">{field.label || field.name}</span>
+      </div>
 
-        onPress={() => setPhase("rename")}
-      >
-        <PencilSimple size={13} /> Renommer
-      </Button>
+      <div className="sn-col-menu-separator" />
+
+      {/* Renommer */}
+      <button type="button" className="sn-col-menu-item" onClick={() => setPhase("rename")}>
+        <PencilSimple size={15} /> Renommer
+      </button>
 
       {/* Éditer le champ (ouvre la sidebar) */}
-      <Button
-        variant="ghost"
-        size="sm"
-        className="sn-col-menu-item"
-
-        onPress={() => { onEditField(); onClose(); }}
-      >
-        <PencilSimple size={13} /> Modifier le champ…
-      </Button>
+      <button type="button" className="sn-col-menu-item" onClick={() => { onEditField(); onClose(); }}>
+        <SlidersHorizontal size={15} /> Modifier le champ…
+      </button>
 
       {/* Formule */}
-      <Button
-        variant="ghost"
-        size="sm"
-        className="sn-col-menu-item"
-
-        onPress={() => setPhase("formula")}
-      >
-        <FunctionIcon size={13} /> Convertir en formule…
-      </Button>
+      <button type="button" className="sn-col-menu-item" onClick={() => setPhase("formula")}>
+        <FunctionIcon size={15} /> Convertir en formule…
+      </button>
 
       <div className="sn-col-menu-separator" />
 
       {/* Tri */}
-      <Button
-        variant="ghost"
-        size="sm"
+      <button
+        type="button"
         className="sn-col-menu-item"
-
-        onPress={() => { onSort("asc"); onClose(); }}
+        onClick={() => { onSort("asc"); onClose(); }}
         aria-pressed={currentSort?.direction === "asc"}
       >
-        <SortAscending size={13} /> Trier croissant
+        <SortAscending size={15} /> Trier croissant
         {currentSort?.direction === "asc" && (
-          <span style={{ marginLeft: "auto", color: "var(--accent)" }}>✓</span>
+          <span className="sn-col-menu-check">✓</span>
         )}
-      </Button>
-      <Button
-        variant="ghost"
-        size="sm"
+      </button>
+      <button
+        type="button"
         className="sn-col-menu-item"
-
-        onPress={() => { onSort("desc"); onClose(); }}
+        onClick={() => { onSort("desc"); onClose(); }}
         aria-pressed={currentSort?.direction === "desc"}
       >
-        <SortDescending size={13} /> Trier décroissant
+        <SortDescending size={15} /> Trier décroissant
         {currentSort?.direction === "desc" && (
-          <span style={{ marginLeft: "auto", color: "var(--accent)" }}>✓</span>
+          <span className="sn-col-menu-check">✓</span>
         )}
-      </Button>
+      </button>
       {currentSort && (
-        <Button
-          variant="ghost"
-          size="sm"
-          className="sn-col-menu-item"
-  
-          onPress={() => { onSort(null); onClose(); }}
-        >
-          <X size={13} /> Effacer le tri
-        </Button>
+        <button type="button" className="sn-col-menu-item" onClick={() => { onSort(null); onClose(); }}>
+          <X size={15} /> Effacer le tri
+        </button>
       )}
 
       <div className="sn-col-menu-separator" />
 
       {/* Masquer */}
-      <Button
-        variant="ghost"
-        size="sm"
-        className="sn-col-menu-item"
-
-        onPress={() => { onHide(); onClose(); }}
-      >
-        <EyeSlash size={13} /> Masquer la colonne
-      </Button>
+      <button type="button" className="sn-col-menu-item" onClick={() => { onHide(); onClose(); }}>
+        <EyeSlash size={15} /> Masquer la colonne
+      </button>
 
       <div className="sn-col-menu-separator" />
 
       {/* Supprimer */}
-      <Button
-        variant="ghost"
-        size="sm"
+      <button
+        type="button"
         className="sn-col-menu-item sn-col-menu-item--danger"
-
-        onPress={() => setPhase("confirm-delete")}
+        onClick={() => setPhase("confirm-delete")}
       >
-        <Trash size={13} /> Supprimer la colonne
-      </Button>
+        <Trash size={15} /> Supprimer la colonne
+      </button>
     </div>
   ), document.body);
 }

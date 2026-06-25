@@ -9,6 +9,8 @@
  */
 
 import { useEffect, useMemo } from "react";
+import { useQueryClient, type QueryKey } from "@tanstack/react-query";
+import { getQueryKey } from "@trpc/react-query";
 import { useToast } from "@supernote/ui";
 import { trpc } from "@/lib/trpc/client";
 import type { View, FilterClause, SortClause } from "@supernote/ipc";
@@ -71,17 +73,115 @@ export function useViewMutations() {
   };
 }
 
-/** Mutations on entities (rows) that propagate to every open view. */
+/**
+ * A grid row as cached by `views.queryForView`. Extra (derived) fields ride
+ * along under the index signature so optimistic spreads preserve them.
+ */
+type RowEntity = {
+  id: string;
+  typeId: string;
+  filePath?: string;
+  fields: Record<string, unknown>;
+  body?: string;
+  createdAt: string;
+  updatedAt: string;
+  [k: string]: unknown;
+};
+type ViewData = { items: RowEntity[] };
+type RowSnapshot = [QueryKey, ViewData | undefined];
+type MutContext = { snaps: RowSnapshot[] };
+
+/** Mutations on entities (rows) that propagate to every open view.
+ *
+ * Writes are OPTIMISTIC: `onMutate` patches every cached `views.queryForView`
+ * result for this Base in place (insert / merge / remove) so the grid reacts
+ * instantly with zero round-trip flicker — Notion-style. `onError` rolls the
+ * snapshots back; `onSettled` reconciles against the worker (derived fields,
+ * sort order) without a visible reflow since rows keep identity by id. */
 export function useEntityMutations(typeId: string | undefined) {
   const utils = trpc.useUtils();
+  const queryClient = useQueryClient();
   const { toast } = useToast();
-  const refresh = () => {
+
+  // Prefix that matches EVERY queryForView cache regardless of filters/sorts —
+  // a Base can be open in several views/inline blocks at once; all must update.
+  const viewsPrefix = getQueryKey(trpc.views.queryForView);
+
+  /** Patch all queryForView caches for `typeId`; return snapshots for rollback. */
+  const patchRows = (fn: (rows: RowEntity[]) => RowEntity[]): RowSnapshot[] => {
+    if (!typeId) return [];
+    const snaps: RowSnapshot[] = [];
+    for (const [key, data] of queryClient.getQueriesData<ViewData>({ queryKey: viewsPrefix })) {
+      const input = (key as [unknown, { input?: { typeId?: string } }])?.[1]?.input;
+      if (!input || input.typeId !== typeId) continue;
+      snaps.push([key, data]);
+      if (data && Array.isArray(data.items)) {
+        queryClient.setQueryData<ViewData>(key, { ...data, items: fn(data.items) });
+      }
+    }
+    return snaps;
+  };
+  const rollback = (ctx: MutContext | undefined) => {
+    if (!ctx) return;
+    for (const [key, data] of ctx.snaps) queryClient.setQueryData(key, data);
+  };
+  const reconcile = () => {
     void utils.views.queryForView.invalidate();
     void utils.entities.list.invalidate();
   };
-  const create = trpc.entities.create.useMutation({ onSuccess: refresh });
-  const update = trpc.entities.update.useMutation({ onSuccess: refresh });
-  const del = trpc.entities.delete.useMutation({ onSuccess: refresh });
+
+  const create = trpc.entities.create.useMutation({
+    onMutate: async (vars): Promise<MutContext> => {
+      await utils.views.queryForView.cancel();
+      const ts = new Date().toISOString();
+      const optimistic: RowEntity = {
+        id: `__opt_${ts}_${Math.round(performance.now())}`,
+        typeId: vars.typeId,
+        filePath: "",
+        body: vars.body ?? "",
+        fields: (vars.fields ?? {}) as Record<string, unknown>,
+        createdAt: ts,
+        updatedAt: ts,
+      };
+      // Sorted by createdAt ASC server-side → fresh row lands at the bottom.
+      return { snaps: patchRows((rows) => [...rows, optimistic]) };
+    },
+    onError: (_e, _v, ctx) => rollback(ctx),
+    onSettled: reconcile,
+  });
+
+  const update = trpc.entities.update.useMutation({
+    onMutate: async (vars): Promise<MutContext> => {
+      await utils.views.queryForView.cancel();
+      const ts = new Date().toISOString();
+      // Mirror the worker's merge semantics: { ...existingFields, ...patch }.
+      return {
+        snaps: patchRows((rows) =>
+          rows.map((r) =>
+            r.id === vars.id
+              ? {
+                  ...r,
+                  fields: { ...r.fields, ...(vars.fields ?? {}) },
+                  body: vars.body ?? r.body,
+                  updatedAt: ts,
+                }
+              : r,
+          ),
+        ),
+      };
+    },
+    onError: (_e, _v, ctx) => rollback(ctx),
+    onSettled: reconcile,
+  });
+
+  const del = trpc.entities.delete.useMutation({
+    onMutate: async (vars): Promise<MutContext> => {
+      await utils.views.queryForView.cancel();
+      return { snaps: patchRows((rows) => rows.filter((r) => r.id !== vars.id)) };
+    },
+    onError: (_e, _v, ctx) => rollback(ctx),
+    onSettled: reconcile,
+  });
 
   // A Coda-mirrored base is read-only: block every write at the single
   // chokepoint every view goes through, so no view kind (grid, kanban, form…)

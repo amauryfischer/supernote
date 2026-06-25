@@ -804,8 +804,29 @@ export function buildRouter(
     };
     const id = generateId();
     const ts = now();
-    const typeRow = row(db.exec(`SELECT name, defaultPath, fileNamePattern FROM entity_type WHERE id = ?`, [typeId]));
+    const typeRow = row(db.exec(`SELECT name, defaultPath, fileNamePattern, fields FROM entity_type WHERE id = ?`, [typeId]));
     if (!typeRow) throw new Error(`EntityType not found: ${typeId}`);
+
+    // Applique les valeurs par défaut déclarées au schéma pour chaque champ
+    // absent du payload — une nouvelle ligne hérite des defaults (façon Notion).
+    try {
+      const defs = JSON.parse((typeRow["fields"] as string) || "[]") as Array<{
+        name?: string;
+        defaultValue?: unknown;
+      }>;
+      for (const def of defs) {
+        if (
+          def &&
+          typeof def.name === "string" &&
+          def.defaultValue !== undefined &&
+          fields[def.name] === undefined
+        ) {
+          fields[def.name] = def.defaultValue;
+        }
+      }
+    } catch {
+      /* schéma sans defaults exploitables — on ignore */
+    }
 
     // Determine file path. Caller can pass `fields.filePath` (already a
     // full relative path like "Inbox/nouvelle-note.md") — that wins over
@@ -929,12 +950,15 @@ export function buildRouter(
   };
 
   const entitiesUpdate = async (input: unknown): Promise<unknown> => {
-    const { id, fields, body, tags, filePath: rawNextPath } = input as {
+    const { id, fields, body, tags, filePath: rawNextPath, __skipInverseSync: skipInverseSync } = input as {
       id: string;
       fields?: Record<string, unknown>;
       body?: string;
       tags?: string[];
       filePath?: string;
+      // Garde anti-récursion : posé quand on met à jour le champ inverse d'une
+      // relation pour éviter le ping-pong A↔B.
+      __skipInverseSync?: boolean;
     };
     return runSerialized(id, async () => {
     const ts = now();
@@ -956,6 +980,60 @@ export function buildRouter(
     const existingFields = safeParseFieldsBlob((existing["fields"] as string) || "{}");
     const newFields = fields ? { ...existingFields, ...fields } : existingFields;
     const newBody = body ?? (existing["body"] as string) ?? "";
+
+    // ── Relations bidirectionnelles (best-effort, gardé) ──────────────────
+    // Quand un champ relation change ET qu'un champ relation inverse apparié
+    // (même relationTypeId, cible = type courant) existe côté cible, on reflète
+    // l'ajout/retrait sur ce champ inverse. No-op si pas d'appariement explicite
+    // → zéro impact sur les bases sans relations bidi. `__skipInverseSync`
+    // empêche le ping-pong A↔B.
+    if (fields && !skipInverseSync) {
+      try {
+        const parseIds = (v: unknown): string[] => {
+          if (!v) return [];
+          if (Array.isArray(v)) return v.map(String).filter(Boolean);
+          if (typeof v === "string") {
+            if (v.startsWith("[")) { try { return (JSON.parse(v) as unknown[]).map(String).filter(Boolean); } catch { /* */ } }
+            return v ? [v] : [];
+          }
+          return [];
+        };
+        type RelDef = { id?: string; kind?: string; type?: string; targetTypeId?: string; relationTypeId?: string };
+        const typeFieldsOf = (tid: string): RelDef[] => {
+          const tr = row(db.exec(`SELECT fields FROM entity_type WHERE id = ?`, [tid]));
+          try { return JSON.parse((tr?.["fields"] as string) || "[]") as RelDef[]; } catch { return []; }
+        };
+        const myTypeId = existing["typeId"] as string;
+        for (const f of typeFieldsOf(myTypeId)) {
+          if ((f.type ?? f.kind) !== "relation" || !f.id || !f.relationTypeId || !f.targetTypeId) continue;
+          if (!(f.id in fields)) continue;
+          const before = new Set(parseIds(existingFields[f.id]));
+          const after = new Set(parseIds(newFields[f.id]));
+          const added = [...after].filter((x) => !before.has(x));
+          const removed = [...before].filter((x) => !after.has(x));
+          if (added.length === 0 && removed.length === 0) continue;
+          const inverse = typeFieldsOf(f.targetTypeId).find(
+            (g) => (g.type ?? g.kind) === "relation" && g.relationTypeId === f.relationTypeId && g.targetTypeId === myTypeId && g.id,
+          );
+          if (!inverse?.id) continue;
+          const invId = inverse.id;
+          const applyTo = async (targetId: string, add: boolean) => {
+            // Auto-référence : éviter le re-lock runSerialized(id) → deadlock.
+            if (targetId === id) return;
+            const tr = row(db.exec(`SELECT fields FROM entity WHERE id = ? AND vaultId = ?`, [targetId, vaultId]));
+            if (!tr) return;
+            const tf = safeParseFieldsBlob((tr["fields"] as string) || "{}");
+            const cur = new Set(parseIds(tf[invId]));
+            if (add) cur.add(id); else cur.delete(id);
+            await entitiesUpdate({ id: targetId, fields: { [invId]: [...cur] }, __skipInverseSync: true });
+          };
+          for (const x of added) await applyTo(x, true);
+          for (const x of removed) await applyTo(x, false);
+        }
+      } catch (err) {
+        console.warn("[relations] sync inverse échouée", err);
+      }
+    }
 
     const oldPath = (existing["filePath"] as string) ?? "";
     // Normalize the requested path: strip ".." segments and leading/trailing
@@ -1331,6 +1409,72 @@ export function buildRouter(
         id,
       ],
     );
+
+    // Coercition des valeurs existantes quand le KIND d'un champ change (ex :
+    // texte → nombre). Sans ça, les valeurs restent dans l'ancien format et
+    // s'affichent/évaluent mal. On passe par entitiesUpdate (DB + fichier +
+    // op sync) pour que la conversion se propage partout.
+    if (Array.isArray(patch.fields)) {
+      try {
+        const coerceForKind = (v: unknown, kind: string): unknown => {
+          switch (kind) {
+            case "number": case "currency": case "percent": case "rating":
+            case "progress": case "duration": case "autoNumber": {
+              const n = Number(v as never);
+              return Number.isFinite(n) ? n : null;
+            }
+            case "bool":
+              if (v === true || v === "true" || v === 1) return true;
+              if (v === false || v === "false" || v === 0) return false;
+              return null;
+            case "date": case "datetime": {
+              const d = new Date(String(v));
+              return isNaN(d.getTime()) ? null : d.toISOString();
+            }
+            case "multiselect":
+              return Array.isArray(v) ? v.map(String) : typeof v === "string" && v ? [v] : [];
+            case "select": case "status":
+              return Array.isArray(v) ? String(v[0] ?? "") : String(v);
+            default:
+              return v == null ? v : String(v);
+          }
+        };
+        type FieldLite = { id?: string; name?: string; type?: string; kind?: string };
+        const oldFields = JSON.parse((existing["fields"] as string) || "[]") as FieldLite[];
+        const newFields = patch.fields as FieldLite[];
+        const oldById = new Map(oldFields.map((f) => [f.id, f]));
+        const changed = newFields
+          .map((nf) => {
+            const of = oldById.get(nf.id);
+            const oldKind = of?.type ?? of?.kind;
+            const newKind = nf.type ?? nf.kind;
+            return of && oldKind && newKind && oldKind !== newKind
+              ? { name: nf.name ?? "", kind: newKind }
+              : null;
+          })
+          .filter((x): x is { name: string; kind: string } => !!x && !!x.name);
+
+        if (changed.length > 0) {
+          const ents = rows(db.exec(`SELECT id, fields FROM entity WHERE typeId = ? AND vaultId = ?`, [id, vaultId]));
+          for (const e of ents) {
+            const fields = JSON.parse((e["fields"] as string) || "{}") as Record<string, unknown>;
+            const fieldPatch: Record<string, unknown> = {};
+            for (const ch of changed) {
+              const cur = fields[ch.name];
+              if (cur === undefined || cur === null || cur === "") continue;
+              const next = coerceForKind(cur, ch.kind);
+              if (next !== cur) fieldPatch[ch.name] = next;
+            }
+            if (Object.keys(fieldPatch).length > 0) {
+              await entitiesUpdate({ id: e["id"], fields: fieldPatch });
+            }
+          }
+        }
+      } catch (err) {
+        console.warn("[schema] coercition au changement de type échouée", err);
+      }
+    }
+
     return schemasList().then((list) => (list as unknown[]).find((s: unknown) => (s as { id: string }).id === id));
   };
 

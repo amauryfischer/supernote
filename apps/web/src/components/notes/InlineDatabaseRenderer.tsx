@@ -17,8 +17,8 @@
  * picks.
  */
 
-import { useMemo, useRef, useState } from "react";
-import { Button, Input, Checkbox } from "@heroui/react";
+import { useMemo, useState, type ReactNode } from "react";
+import { Button, Input } from "@heroui/react";
 import {
   requestDatabaseBlockReconfigure,
   type DatabaseViewBlockProps,
@@ -28,7 +28,17 @@ import { trpc } from "@/lib/trpc/client";
 import { ipcEntityTypeToCore } from "@/components/schemas/adapters";
 import { BaseView, useViews } from "@/components/bases";
 import { getIcon } from "@/components/schemas/icon-map";
-import { Plus, Link as LinkIcon, Database } from "@phosphor-icons/react";
+import { Plus, Link as LinkIcon, MagnifyingGlass, Table, CaretRight } from "@phosphor-icons/react";
+
+// Shared input chrome for the picker (HeroUI v3 Input is a bare styled field —
+// labels live in sibling <label> text, no built-in start adornment).
+const PICKER_INPUT_CLS =
+  "w-full rounded-lg border px-2.5 py-1.5 text-sm outline-none transition-shadow focus:ring-2 focus:ring-[var(--accent)]";
+const PICKER_INPUT_STYLE = {
+  borderColor: "var(--border)",
+  backgroundColor: "var(--surface-1)",
+  color: "var(--text-primary)",
+} as const;
 
 /** Public entry — pass this to <DatabaseViewProvider renderer={...} />. */
 export const renderInlineDatabase: DatabaseViewRenderer = (props) => (
@@ -88,36 +98,106 @@ function InlineBaseHeader({
   base: { name: string; plural: string; icon?: string; color?: string };
 }) {
   const Icon = getIcon(base.icon ?? "Database");
+  const accent = base.color ?? "var(--accent)";
   return (
     <div
-      className="flex items-center gap-2 border-b px-3 py-1.5 text-xs"
-      style={{
-        borderColor: "var(--border-subtle)",
-        backgroundColor: "var(--surface-1)",
-      }}
+      className="flex items-center gap-2 border-b px-3 py-2 text-xs"
+      style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-1)" }}
     >
-      <Icon size={12} style={{ color: base.color ?? "var(--accent)" }} weight="fill" />
-      <span style={{ color: "var(--text-secondary)", fontWeight: 600 }}>{base.plural}</span>
-      <span style={{ color: "var(--text-muted)" }}>· vue inline</span>
+      <span
+        className="inline-flex h-5 w-5 items-center justify-center rounded-md"
+        style={{ backgroundColor: `color-mix(in srgb, ${accent} 16%, transparent)`, color: accent }}
+      >
+        <Icon size={12} weight="fill" />
+      </span>
+      <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>{base.plural}</span>
+      <span style={{ color: "var(--text-muted)" }}>vue inline</span>
     </div>
   );
+}
+
+// ── Picker chrome (shared card shell + header) ─────────────────────────────
+//
+// The inline `/base` picker is the first thing a user sees when wiring a
+// database into a note. It gets a polished card — soft border, layered
+// shadow, generous spacing, a glide-in — so it reads as a deliberate surface,
+// not a raw form. Both BasePicker and ViewLinkPicker render through it.
+
+function PickerShell({ children }: { children: ReactNode }) {
+  return (
+    <div
+      className="sn-base-picker w-full max-w-md overflow-hidden rounded-xl border"
+      style={{
+        borderColor: "var(--border-subtle)",
+        backgroundColor: "var(--surface-0)",
+        boxShadow: "0 1px 2px rgb(0 0 0 / 0.04), 0 12px 32px -20px rgb(0 0 0 / 0.22)",
+        transition: "var(--sn-transition-glide)",
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function PickerHeader({
+  icon,
+  title,
+  subtitle,
+}: {
+  icon: ReactNode;
+  title: string;
+  subtitle: string;
+}) {
+  return (
+    <div className="flex items-center gap-2.5 px-3.5 pb-2.5 pt-3">
+      <span
+        className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg"
+        style={{ backgroundColor: "var(--accent-subtle)", color: "var(--accent)" }}
+      >
+        {icon}
+      </span>
+      <div className="min-w-0">
+        <p className="text-sm font-semibold leading-tight" style={{ color: "var(--text-primary)" }}>
+          {title}
+        </p>
+        <p className="truncate text-xs leading-tight" style={{ color: "var(--text-muted)" }}>
+          {subtitle}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// Hover affordance without the `.sn-pressable` cascade (avoids the global
+// scale-on-press that misbehaves on full-width list rows). Inline so the
+// active row keeps its accent tint on hover.
+function rowHoverIn(active: boolean) {
+  return (e: React.MouseEvent<HTMLElement>) => {
+    if (!active) e.currentTarget.style.backgroundColor = "var(--surface-2)";
+  };
+}
+function rowHoverOut(active: boolean) {
+  return (e: React.MouseEvent<HTMLElement>) => {
+    if (!active) e.currentTarget.style.backgroundColor = "transparent";
+  };
 }
 
 // ── Picker ────────────────────────────────────────────────────────────────
 
 function BasePicker({ currentId }: { currentId: string }) {
-  const [open, setOpen] = useState(true);
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
   const [newPlural, setNewPlural] = useState("");
   const [search, setSearch] = useState("");
   const [showSystem, setShowSystem] = useState(false);
-  const nameRef = useRef<HTMLInputElement>(null);
   const { data: ipcTypes, isLoading } = trpc.schemas.list.useQuery(
     { search: undefined },
     { staleTime: 30_000 },
   );
   const utils = trpc.useUtils();
+
+  const userCount = (ipcTypes ?? []).filter((t) => !t.isSystem).length;
+  const systemCount = (ipcTypes ?? []).filter((t) => t.isSystem).length;
 
   // Liste utilisateur d'abord, system masqué par défaut. Recherche fuzzy
   // simple sur name + plural pour scaler à beaucoup de Bases.
@@ -134,8 +214,6 @@ function BasePicker({ currentId }: { currentId: string }) {
         );
       });
   }, [ipcTypes, search, showSystem]);
-
-  const systemCount = (ipcTypes ?? []).filter((t) => t.isSystem).length;
 
   const createSchema = trpc.schemas.create.useMutation({
     onSuccess: async (created) => {
@@ -158,179 +236,200 @@ function BasePicker({ currentId }: { currentId: string }) {
     });
   };
 
-  const openCreateForm = () => {
-    setCreating(true);
-    setNewName("");
-    setNewPlural("");
-    setTimeout(() => nameRef.current?.focus(), 0);
-  };
-
-  if (!open) {
+  // ── Create-base view ──────────────────────────────────────────────────
+  if (creating) {
+    const canCreate = !!newName.trim() && !createSchema.isPending;
     return (
-      <Button
-        onPress={() => setOpen(true)}
-        className="block w-full rounded border border-dashed px-3 py-3 text-center text-xs"
-        style={{
-          borderColor: "var(--border-subtle)",
-          color: "var(--text-muted)",
-          backgroundColor: "var(--surface-1)",
-        }}
-      >
-        Sélectionner une Base à afficher
-      </Button>
-    );
-  }
-
-  return (
-    <div
-      className="rounded border px-3 py-3"
-      style={{
-        borderColor: "var(--border-subtle)",
-        backgroundColor: "var(--surface-1)",
-      }}
-    >
-      <p className="mb-2 text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
-        Choisir ou créer une Base
-      </p>
-
-      {/* Search input */}
-      <Input
-        type="text"
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        placeholder={`Rechercher parmi ${(ipcTypes ?? []).filter((t) => showSystem || !t.isSystem).length} Bases…`}
-        aria-label="Rechercher une Base"
-        className="mb-2 w-full rounded border bg-transparent px-2 py-1 text-xs"
-        style={{ borderColor: "var(--border-subtle)", color: "var(--text-primary)" }}
-      />
-
-      {/* Existing bases */}
-      {isLoading ? (
-        <p className="mb-2 text-xs" style={{ color: "var(--text-muted)" }}>Chargement…</p>
-      ) : filteredTypes.length === 0 ? (
-        <p className="mb-2 text-xs" style={{ color: "var(--text-muted)" }}>
-          {search ? "Aucun résultat." : "Aucune Base — créez-en une."}
-        </p>
-      ) : (
-        <div
-          className="mb-2 flex max-h-40 flex-wrap gap-1.5 overflow-y-auto"
-        >
-          {filteredTypes.map((t) => (
-            <Button
-              key={t.id}
-              onPress={() => requestReconfigure(t.id, "")}
-              className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium hover:bg-[var(--surface-2)]"
-              style={{
-                backgroundColor: t.id === currentId ? "var(--surface-3)" : "transparent",
-                color: "var(--text-primary)",
-                border: "1px solid var(--border-subtle)",
-              }}
-            >
-              {t.icon ? t.icon : <Database size={11} />}
-              {" "}{t.plural}
-              {t.isSystem && (
-                <span className="text-[9px]" style={{ color: "var(--text-muted)" }}>·sys</span>
-              )}
-            </Button>
-          ))}
-        </div>
-      )}
-
-      {systemCount > 0 && (
-        <Checkbox
-          isSelected={showSystem}
-          onChange={setShowSystem}
-          className="mb-2 flex cursor-pointer items-center gap-1.5 text-[11px]"
-          style={{ color: "var(--text-muted)" }}
-        >
-          Afficher les Bases système ({systemCount})
-        </Checkbox>
-      )}
-
-      {/* Create new base form */}
-      {!creating ? (
-        <Button
-          onPress={openCreateForm}
-          className="flex items-center gap-1.5 rounded-md border border-dashed px-2 py-1.5 text-xs"
-          style={{
-            borderColor: "var(--border-subtle)",
-            color: "var(--accent)",
-          }}
-        >
-          <Plus size={11} /> Nouvelle Base
-        </Button>
-      ) : (
-        <div
-          className="mt-1 rounded border p-2"
-          style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-0)" }}
-        >
-          <p
-            className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide"
-            style={{ color: "var(--text-muted)" }}
-          >
-            Nouvelle Base
-          </p>
-          <div className="flex flex-col gap-1.5">
-            <input
-              ref={nameRef}
-              type="text"
-              placeholder="Nom (ex : Client)"
+      <PickerShell>
+        <PickerHeader
+          icon={<Plus size={15} weight="bold" />}
+          title="Nouvelle base"
+          subtitle="Nommez-la — vous ajusterez les colonnes ensuite."
+        />
+        <div className="flex flex-col gap-2.5 px-3.5 pb-3.5">
+          <label className="flex flex-col gap-1 text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
+            Nom (singulier)
+            <Input
+              autoFocus
+              placeholder="Client"
               value={newName}
               onChange={(e) => {
                 setNewName(e.target.value);
-                setNewPlural(e.target.value.trim() + "s");
+                setNewPlural(e.target.value.trim() ? e.target.value.trim() + "s" : "");
               }}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && !createSchema.isPending) handleCreate();
+                if (e.key === "Enter" && canCreate) handleCreate();
                 if (e.key === "Escape") setCreating(false);
               }}
-              aria-label="Nom de la Base"
-              className="rounded border bg-transparent px-2 py-1 text-xs"
-              style={{ borderColor: "var(--border-subtle)", color: "var(--text-primary)" }}
+              className={PICKER_INPUT_CLS}
+              style={PICKER_INPUT_STYLE}
             />
-            <input
-              type="text"
-              placeholder="Pluriel (ex : Clients)"
+          </label>
+          <label className="flex flex-col gap-1 text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
+            Pluriel
+            <Input
+              placeholder="Clients"
               value={newPlural}
               onChange={(e) => setNewPlural(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && !createSchema.isPending) handleCreate();
+                if (e.key === "Enter" && canCreate) handleCreate();
                 if (e.key === "Escape") setCreating(false);
               }}
-              aria-label="Nom pluriel de la Base"
-              className="rounded border bg-transparent px-2 py-1 text-xs"
-              style={{ borderColor: "var(--border-subtle)", color: "var(--text-primary)" }}
+              className={PICKER_INPUT_CLS}
+              style={PICKER_INPUT_STYLE}
             />
-            {createSchema.error && (
-              <p className="text-[11px]" style={{ color: "var(--destructive)" }}>
-                Erreur : {createSchema.error.message}
-              </p>
-            )}
-            <div className="flex items-center justify-end gap-1.5 pt-0.5">
-              <Button
-                onPress={() => setCreating(false)}
-                className="rounded px-2 py-1 text-xs"
-                style={{ color: "var(--text-muted)" }}
-              >
-                Annuler
-              </Button>
-              <Button
-                onPress={handleCreate}
-                isDisabled={!newName.trim() || createSchema.isPending}
-                className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium"
-                style={{
-                  backgroundColor: "var(--accent)",
-                  color: "var(--accent-foreground)",
-                  opacity: !newName.trim() || createSchema.isPending ? 0.5 : 1,
-                }}
-              >
-                <Plus size={10} /> {createSchema.isPending ? "Création…" : "Créer"}
-              </Button>
-            </div>
+          </label>
+          {createSchema.error && (
+            <p className="text-xs" style={{ color: "var(--danger)" }}>
+              {createSchema.error.message}
+            </p>
+          )}
+          <div className="mt-0.5 flex items-center justify-end gap-2">
+            <Button size="sm" variant="ghost" onPress={() => setCreating(false)}>
+              Annuler
+            </Button>
+            <Button
+              size="sm"
+              onPress={handleCreate}
+              isDisabled={!canCreate}
+              className="flex items-center gap-1.5"
+              style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
+            >
+              {!createSchema.isPending && <Plus size={14} weight="bold" />}
+              {createSchema.isPending ? "Création…" : "Créer la base"}
+            </Button>
           </div>
         </div>
+      </PickerShell>
+    );
+  }
+
+  // ── Choose-base view ──────────────────────────────────────────────────
+  return (
+    <PickerShell>
+      <PickerHeader
+        icon={<Table size={15} weight="duotone" />}
+        title="Choisir une base"
+        subtitle="Affichez et éditez vos données en tableau, dans la note."
+      />
+
+      {userCount > 0 && (
+        <div className="relative px-3.5 pb-2">
+          <MagnifyingGlass
+            size={14}
+            className="pointer-events-none absolute left-6 top-2 -translate-y-0 z-10"
+            style={{ color: "var(--text-muted)", top: "8px" }}
+          />
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Rechercher une base…"
+            aria-label="Rechercher une base"
+            className={`${PICKER_INPUT_CLS} pl-8`}
+            style={PICKER_INPUT_STYLE}
+          />
+        </div>
       )}
-    </div>
+
+      {/* Base list */}
+      <div className="max-h-56 overflow-y-auto px-1.5 pb-1.5">
+        {isLoading ? (
+          <p className="px-2 py-6 text-center text-xs" style={{ color: "var(--text-muted)" }}>
+            Chargement…
+          </p>
+        ) : filteredTypes.length === 0 ? (
+          <div className="px-2 py-7 text-center">
+            <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+              {search ? "Aucune base ne correspond." : "Aucune base pour l'instant."}
+            </p>
+            {!search && (
+              <p className="mt-0.5 text-xs" style={{ color: "var(--text-muted)" }}>
+                Créez-en une pour démarrer.
+              </p>
+            )}
+          </div>
+        ) : (
+          <div className="flex flex-col gap-0.5">
+            {filteredTypes.map((t) => {
+              const Icon = getIcon(t.icon ?? "Database");
+              const active = t.id === currentId;
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => requestReconfigure(t.id, "")}
+                  onMouseEnter={rowHoverIn(active)}
+                  onMouseLeave={rowHoverOut(active)}
+                  className="group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left"
+                  style={{
+                    backgroundColor: active ? "var(--accent-subtle)" : "transparent",
+                    transition: "var(--sn-transition-colors)",
+                  }}
+                >
+                  <span
+                    className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md"
+                    style={{ backgroundColor: "var(--surface-2)", color: t.color ?? "var(--accent)" }}
+                  >
+                    <Icon size={13} weight="fill" />
+                  </span>
+                  <span
+                    className="min-w-0 flex-1 truncate text-sm"
+                    style={{ color: "var(--text-primary)" }}
+                  >
+                    {t.plural}
+                  </span>
+                  {t.isSystem && (
+                    <span
+                      className="text-[10px] uppercase tracking-wide"
+                      style={{ color: "var(--text-muted)" }}
+                    >
+                      système
+                    </span>
+                  )}
+                  <CaretRight
+                    size={13}
+                    className="opacity-0 transition-opacity group-hover:opacity-100"
+                    style={{ color: "var(--text-muted)" }}
+                  />
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Footer actions */}
+      <div
+        className="flex items-center justify-between gap-2 border-t px-3 py-2.5"
+        style={{ borderColor: "var(--border-subtle)" }}
+      >
+        {systemCount > 0 ? (
+          <Button
+            size="sm"
+            variant="ghost"
+            onPress={() => setShowSystem((s) => !s)}
+            className="text-xs"
+            style={{ color: "var(--text-muted)" }}
+          >
+            {showSystem ? "Masquer" : "Afficher"} les bases système ({systemCount})
+          </Button>
+        ) : (
+          <span />
+        )}
+        <Button
+          size="sm"
+          onPress={() => {
+            setCreating(true);
+            setNewName("");
+            setNewPlural("");
+          }}
+          className="flex items-center gap-1.5"
+          style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
+        >
+          <Plus size={14} weight="bold" /> Nouvelle base
+        </Button>
+      </div>
+    </PickerShell>
   );
 }
 
@@ -377,95 +476,98 @@ function ViewLinkPicker({
   };
 
   return (
-    <div
-      className="rounded border px-3 py-3"
-      style={{
-        borderColor: "var(--border-subtle)",
-        backgroundColor: "var(--surface-1)",
-      }}
-    >
-      <p className="mb-2 text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
-        Choisir une vue de « {basePlural} »
-      </p>
+    <PickerShell>
+      <PickerHeader
+        icon={<LinkIcon size={15} weight="bold" />}
+        title={`Vue de « ${basePlural} »`}
+        subtitle="Liez une vue existante, ou créez-en une dédiée à cette note."
+      />
 
       {/* Existing views */}
-      {isLoading ? (
-        <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-          Chargement…
-        </p>
-      ) : (
-        <div className="mb-3 flex flex-wrap gap-1.5">
-          {views.map((v) => (
-            <Button
-              key={v.id}
-              onPress={() => requestReconfigure(baseId, v.id)}
-              className="flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs hover:bg-[var(--surface-2)]"
-              style={{
-                borderColor: "var(--border-subtle)",
-                color: "var(--text-primary)",
-              }}
-            >
-              <LinkIcon size={10} />
-              {v.name}
-              {v.isSystem && (
-                <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>
-                  (par défaut)
-                </span>
-              )}
-            </Button>
-          ))}
-        </div>
-      )}
-
-      {/* New view */}
-      <div
-        className="rounded border-dashed border p-2"
-        style={{
-          borderColor: "var(--border-subtle)",
-          backgroundColor: "var(--surface-0)",
-        }}
-      >
-        <p
-          className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide"
-          style={{ color: "var(--text-muted)" }}
-        >
-          Nouvelle vue dédiée
-        </p>
-        <div className="flex items-center gap-1.5">
-          <Input
-            type="text"
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !createView.isPending) createAndLink();
-            }}
-            aria-label="Nom de la nouvelle vue"
-            className="flex-1 rounded border bg-transparent px-1.5 py-1 text-xs"
-            style={{
-              borderColor: "var(--border-subtle)",
-              color: "var(--text-primary)",
-            }}
-            placeholder={`Vue inline – ${basePlural}`}
-          />
-          <Button
-            isDisabled={createView.isPending}
-            onPress={createAndLink}
-            className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium"
-            style={{
-              backgroundColor: "var(--accent)",
-              color: "var(--accent-foreground)",
-              opacity: createView.isPending ? 0.6 : 1,
-            }}
-          >
-            <Plus size={10} /> {createView.isPending ? "Création…" : "Créer"}
-          </Button>
-        </div>
-        {createView.error && (
-          <p className="mt-1 text-[11px]" style={{ color: "var(--destructive)" }}>
-            Erreur : {createView.error.message}
+      <div className="max-h-44 overflow-y-auto px-1.5 pb-1.5">
+        {isLoading ? (
+          <p className="px-2 py-6 text-center text-xs" style={{ color: "var(--text-muted)" }}>
+            Chargement…
           </p>
+        ) : views.length === 0 ? (
+          <p className="px-2 py-5 text-center text-xs" style={{ color: "var(--text-muted)" }}>
+            Aucune vue encore — créez-en une ci-dessous.
+          </p>
+        ) : (
+          <div className="flex flex-col gap-0.5">
+            {views.map((v) => (
+              <button
+                key={v.id}
+                type="button"
+                onClick={() => requestReconfigure(baseId, v.id)}
+                onMouseEnter={rowHoverIn(false)}
+                onMouseLeave={rowHoverOut(false)}
+                className="group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left"
+                style={{ transition: "var(--sn-transition-colors)" }}
+              >
+                <span
+                  className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md"
+                  style={{ backgroundColor: "var(--surface-2)", color: "var(--text-secondary)" }}
+                >
+                  <LinkIcon size={12} />
+                </span>
+                <span
+                  className="min-w-0 flex-1 truncate text-sm"
+                  style={{ color: "var(--text-primary)" }}
+                >
+                  {v.name}
+                </span>
+                {v.isSystem && (
+                  <span
+                    className="text-[10px] uppercase tracking-wide"
+                    style={{ color: "var(--text-muted)" }}
+                  >
+                    défaut
+                  </span>
+                )}
+                <CaretRight
+                  size={13}
+                  className="opacity-0 transition-opacity group-hover:opacity-100"
+                  style={{ color: "var(--text-muted)" }}
+                />
+              </button>
+            ))}
+          </div>
         )}
       </div>
-    </div>
+
+      {/* New dedicated view */}
+      <div
+        className="flex items-center gap-2 border-t px-3 py-2.5"
+        style={{ borderColor: "var(--border-subtle)" }}
+      >
+        <Input
+          value={newName}
+          onChange={(e) => setNewName(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !createView.isPending) createAndLink();
+          }}
+          aria-label="Nom de la nouvelle vue"
+          className={`${PICKER_INPUT_CLS} flex-1`}
+          style={PICKER_INPUT_STYLE}
+          placeholder={`Vue inline – ${basePlural}`}
+        />
+        <Button
+          size="sm"
+          isDisabled={createView.isPending}
+          onPress={createAndLink}
+          className="flex items-center gap-1.5"
+          style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
+        >
+          {!createView.isPending && <Plus size={14} weight="bold" />}
+          {createView.isPending ? "Création…" : "Créer"}
+        </Button>
+      </div>
+      {createView.error && (
+        <p className="px-3.5 pb-2.5 text-xs" style={{ color: "var(--danger)" }}>
+          {createView.error.message}
+        </p>
+      )}
+    </PickerShell>
   );
 }

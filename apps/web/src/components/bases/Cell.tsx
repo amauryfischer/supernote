@@ -12,7 +12,8 @@
  * from the grid in Phase 1.
  */
 
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { Field, FieldValue, RelationField, SelectOption } from "@supernote/core";
 import { trpc } from "@/lib/trpc/client";
 import { RelationPicker } from "./RelationPicker";
@@ -263,6 +264,21 @@ export const Cell = memo(CellInner, (a, b) => {
 
 // ── Display ─────────────────────────────────────────────────────────────────
 
+const MONTHS_SHORT_FR = [
+  "janv.", "févr.", "mars", "avr.", "mai", "juin",
+  "juil.", "août", "sept.", "oct.", "nov.", "déc.",
+];
+/** Applique un patron type "DD/MM/YYYY", "DD MMM YYYY", "YYYY-MM-DD HH:mm". */
+function applyDatePattern(d: Date, pattern: string): string {
+  return pattern
+    .replace("YYYY", String(d.getFullYear()).padStart(4, "0"))
+    .replace("MMM", MONTHS_SHORT_FR[d.getMonth()] ?? "")
+    .replace("MM", String(d.getMonth() + 1).padStart(2, "0"))
+    .replace("DD", String(d.getDate()).padStart(2, "0"))
+    .replace("HH", String(d.getHours()).padStart(2, "0"))
+    .replace("mm", String(d.getMinutes()).padStart(2, "0"));
+}
+
 function CellDisplay({ field, value }: { field: Field; value: unknown }) {
   if (value === null || value === undefined || value === "") {
     return <span style={{ color: "var(--text-muted)" }}>—</span>;
@@ -273,8 +289,15 @@ function CellDisplay({ field, value }: { field: Field; value: unknown }) {
     case "date":
     case "datetime":
     case "createdAt":
-    case "updatedAt":
-      return <span>{formatDate(value, field.kind === "datetime" || field.kind === "createdAt" || field.kind === "updatedAt")}</span>;
+    case "updatedAt": {
+      const isDateTime = field.kind === "datetime" || field.kind === "createdAt" || field.kind === "updatedAt";
+      const fmt = (field as { format?: string }).format;
+      if (fmt) {
+        const d = value instanceof Date ? value : new Date(String(value));
+        if (!isNaN(d.getTime())) return <span>{applyDatePattern(d, fmt)}</span>;
+      }
+      return <span>{formatDate(value, isDateTime)}</span>;
+    }
     case "select":
     case "status": {
       const opt = (field as { options: SelectOption[] }).options.find(
@@ -341,20 +364,50 @@ function CellDisplay({ field, value }: { field: Field; value: unknown }) {
         </a>
       );
     case "rating": {
-      const n = Math.max(0, Math.min(5, Number(value) || 0));
-      return <span>{"★".repeat(n) + "☆".repeat(5 - n)}</span>;
+      const max = Math.max(1, Math.min(10, (field as { max?: number }).max ?? 5));
+      const n = Math.max(0, Math.min(max, Math.round(Number(value) || 0)));
+      return <span style={{ color: "var(--warning)" }}>{"★".repeat(n) + "☆".repeat(max - n)}</span>;
     }
     case "percent": {
+      const prec = (field as { precision?: number }).precision ?? 0;
       const n = Number(value) || 0;
-      return <span>{n.toFixed(0)}%</span>;
+      return <span className="tabular-nums">{n.toFixed(prec)}%</span>;
     }
-    case "currency":
-      return <span>{formatNumber(Number(value), 2)} €</span>;
+    case "currency": {
+      const code = (field as { currencyCode?: string }).currencyCode || "EUR";
+      const prec = (field as { precision?: number }).precision ?? 2;
+      const n = Number(value) || 0;
+      try {
+        return (
+          <span className="tabular-nums">
+            {n.toLocaleString(undefined, { style: "currency", currency: code, minimumFractionDigits: prec, maximumFractionDigits: prec })}
+          </span>
+        );
+      } catch {
+        return <span className="tabular-nums">{formatNumber(n, prec)} {code}</span>;
+      }
+    }
+    case "progress": {
+      const min = (field as { min?: number }).min ?? 0;
+      const max = (field as { max?: number }).max ?? 100;
+      const n = Number(value) || 0;
+      const pct = max > min ? Math.max(0, Math.min(100, ((n - min) / (max - min)) * 100)) : 0;
+      return (
+        <span className="inline-flex w-full items-center gap-2">
+          <span className="relative h-1.5 min-w-8 flex-1 overflow-hidden rounded-full" style={{ backgroundColor: "var(--surface-3)" }}>
+            <span className="absolute inset-y-0 left-0 rounded-full" style={{ width: `${pct}%`, backgroundColor: "var(--accent)", transition: "width var(--sn-dur-2, 150ms) var(--sn-ease-glide, ease-out)" }} />
+          </span>
+          <span className="shrink-0 tabular-nums text-[11px]" style={{ color: "var(--text-muted)" }}>{Math.round(pct)}%</span>
+        </span>
+      );
+    }
     case "number":
     case "duration":
-    case "progress":
-    case "autoNumber":
-      return <span>{formatNumber(Number(value))}</span>;
+    case "autoNumber": {
+      const prec = (field as { precision?: number }).precision;
+      const n = Number(value) || 0;
+      return <span className="tabular-nums">{prec != null ? formatNumber(n, prec) : formatNumber(n)}</span>;
+    }
     case "color":
       return (
         <span className="inline-flex items-center gap-1.5">
@@ -452,6 +505,118 @@ function CellDisplay({ field, value }: { field: Field; value: unknown }) {
   }
 }
 
+// ── Select / Status editor (popover coloré + recherche) ──────────────────────
+//
+// Remplace le <select> natif : panneau ancré sous la cellule (portal), options
+// colorées avec pastille, recherche, commit au clic. Réutilise les styles
+// `.sn-col-menu`. Le blur de la recherche (clic extérieur) annule ; les clics
+// d'option gardent le focus via mousedown preventDefault.
+
+function SelectCellEditor({
+  field,
+  value,
+  onCommit,
+  onCancel,
+}: {
+  field: Field;
+  value: unknown;
+  onCommit: (v: FieldValue) => void;
+  onCancel: () => void;
+}) {
+  const opts = (field as { options?: SelectOption[] }).options ?? [];
+  const [search, setSearch] = useState("");
+  const anchorRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ left: number; top: number; width: number } | null>(null);
+
+  useLayoutEffect(() => {
+    const el = anchorRef.current;
+    if (!el) return;
+    const update = () => {
+      const r = el.getBoundingClientRect();
+      setPos({ left: r.left, top: r.bottom, width: r.width });
+    };
+    update();
+    window.addEventListener("scroll", update, true);
+    window.addEventListener("resize", update);
+    return () => {
+      window.removeEventListener("scroll", update, true);
+      window.removeEventListener("resize", update);
+    };
+  }, []);
+
+  // Annulation au clic extérieur (anchor + panneau portal exclus). Plus robuste
+  // que `onBlur` qui se déclenchait AVANT le clic d'option → commit perdu.
+  useEffect(() => {
+    const onDown = (e: PointerEvent) => {
+      const t = e.target as Node;
+      if (anchorRef.current?.contains(t) || panelRef.current?.contains(t)) return;
+      onCancel();
+    };
+    document.addEventListener("pointerdown", onDown, true);
+    return () => document.removeEventListener("pointerdown", onDown, true);
+  }, [onCancel]);
+
+  const cur = String(value ?? "");
+  const q = search.trim().toLowerCase();
+  const filtered = q ? opts.filter((o) => o.label.toLowerCase().includes(q)) : opts;
+  const curOpt = opts.find((o) => o.value === cur);
+
+  return (
+    <div ref={anchorRef} className="flex h-full w-full items-center px-3 outline-none ring-2 ring-[var(--accent)]">
+      {curOpt ? (
+        <span
+          className="rounded px-1.5 py-0.5 text-xs font-medium"
+          style={{ backgroundColor: (curOpt.color ?? "#64748B") + "22", color: curOpt.color ?? "var(--text-primary)" }}
+        >
+          {curOpt.label}
+        </span>
+      ) : (
+        <span style={{ color: "var(--text-muted)" }}>—</span>
+      )}
+      {pos &&
+        createPortal(
+          <div
+            ref={panelRef}
+            className="sn-col-menu"
+            style={{ position: "fixed", left: pos.left, top: pos.top + 2, minWidth: Math.max(190, pos.width), zIndex: 9999 }}
+            role="listbox"
+          >
+            <input
+              autoFocus
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") { e.preventDefault(); onCancel(); }
+                else if (e.key === "Enter") { e.preventDefault(); const f = filtered[0]; if (f) onCommit(f.value as FieldValue); }
+              }}
+              placeholder="Rechercher…"
+              className="sn-col-menu-rename-input"
+              aria-label="Rechercher une option"
+            />
+            <div className="sn-col-menu-separator" />
+            <div style={{ maxHeight: 220, overflowY: "auto" }}>
+              <button type="button" className="sn-col-menu-item" onClick={() => onCommit("" as FieldValue)}>
+                <span style={{ color: "var(--text-muted)" }}>— Aucune</span>
+              </button>
+              {filtered.map((o) => (
+                <button key={o.value} type="button" className="sn-col-menu-item" onClick={() => onCommit(o.value as FieldValue)}>
+                  <span className="inline-block size-2.5 shrink-0 rounded-full" style={{ backgroundColor: o.color ?? "#64748B" }} />
+                  <span style={{ color: "var(--text-primary)" }}>{o.label}</span>
+                  {o.value === cur && <span className="sn-col-menu-check">✓</span>}
+                </button>
+              ))}
+              {filtered.length === 0 && (
+                <div className="px-3 py-2 text-xs" style={{ color: "var(--text-muted)" }}>Aucune option</div>
+              )}
+            </div>
+          </div>,
+          document.body,
+        )}
+    </div>
+  );
+}
+
 // ── Editor ──────────────────────────────────────────────────────────────────
 
 interface CellEditorProps {
@@ -514,8 +679,12 @@ function CellEditor({ field, value, onCommit, onCancel, initialChar }: CellEdito
     }
   };
 
-  const baseInputClass =
-    "h-full w-full bg-transparent px-2 py-1 text-sm outline-none ring-2 ring-[var(--accent)]";
+  // Le centrage vertical natif d'un <input h-full> échoue dans un <td>
+  // (vertical-align:top) → caret en haut. On reprend EXACTEMENT le conteneur
+  // de la cellule d'affichage (`flex h-full items-center px-3`), qui lui centre
+  // correctement : l'input devient un enfant auto-hauteur centré par le flex.
+  const CELL_EDIT_WRAP = "flex h-full w-full items-center px-3 outline-none ring-2 ring-[var(--accent)]";
+  const baseInputClass = "w-full bg-transparent text-[13.5px] outline-none";
 
   switch (field.kind) {
     case "longtext":
@@ -525,7 +694,7 @@ function CellEditor({ field, value, onCommit, onCancel, initialChar }: CellEdito
           ref={(el) => {
             ref.current = el;
           }}
-          className={baseInputClass}
+          className="h-full w-full bg-transparent px-3 py-1.5 text-[13.5px] outline-none ring-2 ring-[var(--accent)]"
           rows={3}
           value={String(draft ?? "")}
           onChange={(e) => setDraft(e.target.value)}
@@ -536,23 +705,110 @@ function CellEditor({ field, value, onCommit, onCancel, initialChar }: CellEdito
     case "number":
     case "currency":
     case "percent":
-    case "rating":
-    case "progress":
-    case "duration":
+    case "duration": {
+      const nf = field as { min?: number; max?: number; precision?: number };
+      const step = nf.precision != null && nf.precision > 0 ? 1 / 10 ** nf.precision : "any";
+      const clampCommit = (advance?: AdvanceDir) => {
+        let out: FieldValue = draft as FieldValue;
+        if (typeof draft === "number" && Number.isFinite(draft)) {
+          let n = draft;
+          if (nf.min != null) n = Math.max(nf.min, n);
+          if (nf.max != null) n = Math.min(nf.max, n);
+          out = n as FieldValue;
+        }
+        onCommit(out, advance);
+      };
       return (
-        <input
-          ref={(el) => {
-            ref.current = el;
-          }}
-          type="number"
-          step="any"
-          className={baseInputClass}
-          value={String(draft ?? "")}
-          onChange={(e) => setDraft(e.target.value === "" ? "" : Number(e.target.value))}
-          onBlur={() => commit()}
-          onKeyDown={keyHandler}
-        />
+        <div className={CELL_EDIT_WRAP}>
+          <input
+            ref={(el) => {
+              ref.current = el;
+            }}
+            type="number"
+            step={step}
+            min={nf.min}
+            max={nf.max}
+            className={`${baseInputClass} tabular-nums`}
+            value={String(draft ?? "")}
+            onChange={(e) => setDraft(e.target.value === "" ? "" : Number(e.target.value))}
+            onBlur={() => clampCommit()}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") { e.preventDefault(); onCancel(); return; }
+              if (e.key === "Tab") { e.preventDefault(); clampCommit(e.shiftKey ? "shift-tab" : "tab"); return; }
+              if (e.key === "Enter") { e.preventDefault(); clampCommit(e.shiftKey ? "shift-enter" : "enter"); }
+            }}
+          />
+        </div>
       );
+    }
+    case "rating": {
+      const max = Math.max(1, Math.min(10, (field as { max?: number }).max ?? 5));
+      const cur = Math.round(Number(draft) || 0);
+      return (
+        <div
+          className="flex h-full w-full items-center gap-0.5 px-3 outline-none ring-2 ring-[var(--accent)]"
+          tabIndex={0}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") { e.preventDefault(); onCancel(); }
+            else if (e.key === "ArrowRight") { e.preventDefault(); setDraft(Math.min(max, cur + 1)); }
+            else if (e.key === "ArrowLeft") { e.preventDefault(); setDraft(Math.max(0, cur - 1)); }
+            else if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); onCommit(cur as FieldValue, e.key === "Tab" ? (e.shiftKey ? "shift-tab" : "tab") : undefined); }
+          }}
+          ref={(el) => { if (el && !el.dataset.focused) { el.dataset.focused = "1"; el.focus(); } }}
+        >
+          {Array.from({ length: max }, (_, i) => i + 1).map((n) => (
+            <button
+              key={n}
+              type="button"
+              className="text-base leading-none transition-transform hover:scale-110"
+              style={{ color: n <= cur ? "var(--warning)" : "var(--text-muted)" }}
+              onClick={() => onCommit(n as FieldValue)}
+              aria-label={`Note ${n}/${max}`}
+            >
+              {n <= cur ? "★" : "☆"}
+            </button>
+          ))}
+          {cur > 0 && (
+            <button
+              type="button"
+              className="ml-1 text-[10px]"
+              style={{ color: "var(--text-muted)" }}
+              onClick={() => onCommit(0 as FieldValue)}
+              aria-label="Effacer la note"
+            >
+              ✕
+            </button>
+          )}
+        </div>
+      );
+    }
+    case "progress": {
+      const min = (field as { min?: number }).min ?? 0;
+      const max = (field as { max?: number }).max ?? 100;
+      const raw = Number(draft);
+      const val = Number.isFinite(raw) ? Math.max(min, Math.min(max, raw)) : min;
+      const pct = max > min ? Math.round(((val - min) / (max - min)) * 100) : 0;
+      return (
+        <div className="flex h-full w-full items-center gap-2 px-3 outline-none ring-2 ring-[var(--accent)]">
+          <input
+            type="range"
+            min={min}
+            max={max}
+            step="any"
+            value={val}
+            autoFocus
+            className="flex-1 accent-[var(--accent)]"
+            onChange={(e) => setDraft(Number(e.target.value))}
+            onBlur={() => commit()}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") { e.preventDefault(); onCancel(); }
+              else if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); commit(e.key === "Tab" ? (e.shiftKey ? "shift-tab" : "tab") : "enter"); }
+            }}
+          />
+          <span className="w-9 shrink-0 text-right tabular-nums text-[11px]" style={{ color: "var(--text-muted)" }}>{pct}%</span>
+        </div>
+      );
+    }
     case "bool":
       return (
         <input
@@ -574,44 +830,30 @@ function CellEditor({ field, value, onCommit, onCancel, initialChar }: CellEdito
     case "date":
     case "datetime":
       return (
-        <input
-          ref={(el) => {
-            ref.current = el;
-          }}
-          type={field.kind === "datetime" ? "datetime-local" : "date"}
-          className={baseInputClass}
-          value={toInputDate(draft, field.kind === "datetime")}
-          onChange={(e) => setDraft(e.target.value)}
-          onBlur={() => commit()}
-          onKeyDown={keyHandler}
-        />
+        <div className={CELL_EDIT_WRAP}>
+          <input
+            ref={(el) => {
+              ref.current = el;
+            }}
+            type={field.kind === "datetime" ? "datetime-local" : "date"}
+            className={baseInputClass}
+            value={toInputDate(draft, field.kind === "datetime")}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={() => commit()}
+            onKeyDown={keyHandler}
+          />
+        </div>
       );
     case "select":
-    case "status": {
-      const opts = (field as { options: SelectOption[] }).options;
+    case "status":
       return (
-        <select
-          ref={(el) => {
-            ref.current = el;
-          }}
-          className={baseInputClass}
-          value={String(draft ?? "")}
-          onChange={(e) => {
-            setDraft(e.target.value);
-            onCommit(e.target.value);
-          }}
-          onBlur={() => commit()}
-          onKeyDown={keyHandler}
-        >
-          <option value="">—</option>
-          {opts.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </select>
+        <SelectCellEditor
+          field={field}
+          value={draft}
+          onCommit={(v) => onCommit(v)}
+          onCancel={onCancel}
+        />
       );
-    }
     case "multiselect": {
       const opts = (field as { options: SelectOption[] }).options;
       const selected = new Set(asStringArray(draft));
@@ -679,17 +921,19 @@ function CellEditor({ field, value, onCommit, onCancel, initialChar }: CellEdito
     default:
       // text, url, email, phone, color, …
       return (
-        <input
-          ref={(el) => {
-            ref.current = el;
-          }}
-          type="text"
-          className={baseInputClass}
-          value={String(draft ?? "")}
-          onChange={(e) => setDraft(e.target.value)}
-          onBlur={() => commit()}
-          onKeyDown={keyHandler}
-        />
+        <div className={CELL_EDIT_WRAP}>
+          <input
+            ref={(el) => {
+              ref.current = el;
+            }}
+            type="text"
+            className={baseInputClass}
+            value={String(draft ?? "")}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={() => commit()}
+            onKeyDown={keyHandler}
+          />
+        </div>
       );
   }
 }

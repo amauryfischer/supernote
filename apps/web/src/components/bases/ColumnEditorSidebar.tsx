@@ -285,6 +285,11 @@ function SectionLabel({ label }: { label: string }) {
   );
 }
 
+// Icône-bouton compact partagé (HeroUI v3 Button ajoute son propre box-model
+// qui rend les micro-boutons d'action incohérents — on reste en <button> natif).
+const ICON_BTN =
+  "inline-flex items-center justify-center rounded-md transition-colors text-[var(--text-muted)] hover:bg-[var(--surface-3)] hover:text-[var(--text-secondary)] disabled:pointer-events-none disabled:opacity-25";
+
 // ── FieldRow ──────────────────────────────────────────────────────────────────
 
 interface FieldRowProps {
@@ -327,92 +332,87 @@ function FieldRow({
   return (
     <div>
       <div
-        className={`group flex items-center gap-1.5 px-3 py-1.5 transition-colors hover:bg-[var(--surface-2)] ${
-          !isVisible ? "opacity-50" : ""
+        className={`group flex items-center gap-2 rounded-md px-2 py-1.5 transition-colors hover:bg-[var(--surface-2)] ${
+          !isVisible ? "opacity-55" : ""
         }`}
       >
-        {/* Reorder arrows */}
-        {isVisible && (
-          <div className="flex flex-col">
-            <Button
-              variant="ghost"
-              size="sm"
-              onPress={onMoveUp}
-              isDisabled={!canMoveUp}
-              className="rounded p-0.5 hover:bg-[var(--surface-3)] disabled:opacity-20"
-              style={{ color: "var(--text-muted)" }}
-            >
-              <CaretUp size={9} />
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onPress={onMoveDown}
-              isDisabled={!canMoveDown}
-              className="rounded p-0.5 hover:bg-[var(--surface-3)] disabled:opacity-20"
-              style={{ color: "var(--text-muted)" }}
-            >
-              <CaretDown size={9} />
-            </Button>
-          </div>
-        )}
+        {/* Reorder arrows — compacts, révélés au survol */}
+        <div className="flex w-4 flex-col items-center opacity-0 transition-opacity group-hover:opacity-100">
+          {isVisible ? (
+            <>
+              <button
+                type="button"
+                onClick={onMoveUp}
+                disabled={!canMoveUp}
+                aria-label="Monter"
+                className={`${ICON_BTN} h-3.5 w-4`}
+              >
+                <CaretUp size={10} weight="bold" />
+              </button>
+              <button
+                type="button"
+                onClick={onMoveDown}
+                disabled={!canMoveDown}
+                aria-label="Descendre"
+                className={`${ICON_BTN} h-3.5 w-4`}
+              >
+                <CaretDown size={10} weight="bold" />
+              </button>
+            </>
+          ) : null}
+        </div>
 
         {/* Visibility toggle */}
-        <Button
-          variant="ghost"
-          size="sm"
-          onPress={onToggle}
-          className="rounded p-1 transition-colors hover:bg-[var(--surface-3)]"
-          style={{ color: "var(--text-muted)" }}
+        <button
+          type="button"
+          onClick={onToggle}
+          className={`${ICON_BTN} h-7 w-7`}
           aria-label={isVisible ? "Masquer" : "Afficher"}
         >
-          {isVisible ? <Eye size={12} /> : <EyeSlash size={12} />}
-        </Button>
+          {isVisible ? <Eye size={14} /> : <EyeSlash size={14} />}
+        </button>
 
         {/* Kind badge + label */}
         <FieldKindBadge kind={field.kind} />
-        <span className="flex-1 truncate text-xs" style={{ color: "var(--text-primary)" }}>
+        <span className="flex-1 truncate text-sm" style={{ color: "var(--text-primary)" }}>
           {labelForField(field)}
         </span>
 
         {/* Actions */}
         <div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
-          <Button
-            variant="ghost"
-            size="sm"
-            onPress={onEdit}
-            className="rounded p-1 hover:bg-[var(--surface-3)]"
-            style={{ color: isEditing ? "var(--accent)" : "var(--text-muted)" }}
+          <button
+            type="button"
+            onClick={onEdit}
+            className={`${ICON_BTN} h-7 w-7`}
+            style={isEditing ? { color: "var(--accent)" } : undefined}
             aria-label="Modifier"
           >
-            <PencilSimple size={12} />
-          </Button>
-          <Button
-              variant="ghost"
-              size="sm"
-              onPress={async () => {
-                const fieldLabel = field.label || field.name;
-                const ok = await confirm({
-                  title: "Supprimer ce champ ?",
-                  body: (
-                    <>
-                      Le champ <strong>{fieldLabel}</strong> et toutes ses valeurs sur les entités existantes
-                      seront perdus. Cette action est irréversible.
-                    </>
-                  ),
-                  confirmLabel: "Supprimer",
-                  variant: "danger",
-                });
-                if (ok) {
-                  onDelete();
-                }
-              }}
-              className="rounded p-1 hover:bg-[var(--surface-3)]"
-              style={{ color: "var(--text-muted)" }}
-              aria-label="Supprimer"
-            >
-              <Trash size={12} />
-            </Button>
+            <PencilSimple size={14} />
+          </button>
+          <button
+            type="button"
+            onClick={async () => {
+              const fieldLabel = field.label || field.name;
+              const ok = await confirm({
+                title: "Supprimer ce champ ?",
+                body: (
+                  <>
+                    Le champ <strong>{fieldLabel}</strong> et toutes ses valeurs sur les entités existantes
+                    seront perdus. Cette action est irréversible.
+                  </>
+                ),
+                confirmLabel: "Supprimer",
+                variant: "danger",
+              });
+              if (ok) {
+                onDelete();
+              }
+            }}
+            className={`${ICON_BTN} h-7 w-7`}
+            aria-label="Supprimer"
+          >
+            <Trash size={14} />
+          </button>
         </div>
       </div>
 
@@ -448,6 +448,27 @@ interface FieldEditFormProps {
 }
 
 type FormulaOutputKind = "text" | "number" | "date" | "bool";
+type RollupAgg = "count" | "sum" | "avg" | "min" | "max" | "all" | "any";
+
+// Familles de kinds partageant un même paramétrage.
+const NUMBER_KINDS = new Set<FieldKind>([
+  "number", "currency", "percent", "rating", "progress", "duration",
+]);
+// Kinds pour lesquels une « valeur par défaut » a du sens (saisie simple).
+const DEFAULTABLE_KINDS = new Set<FieldKind>([
+  "text", "longtext", "url", "email", "phone",
+  "number", "currency", "percent", "rating", "progress", "duration",
+  "bool", "select", "status", "date", "datetime",
+]);
+const AGG_LABELS: Record<RollupAgg, string> = {
+  count: "Compter", sum: "Somme", avg: "Moyenne", min: "Minimum",
+  max: "Maximum", all: "Tous vrais", any: "Au moins un",
+};
+const SELECT_TRIGGER_CLS = "w-full rounded border px-2 py-1.5 text-xs";
+const SELECT_TRIGGER_STYLE = {
+  borderColor: "var(--border)", backgroundColor: "var(--surface-1)", color: "var(--text-primary)",
+} as const;
+const FIELD_LABEL_CLS = "mb-1 block text-xs font-medium";
 
 function FieldEditForm({ field, isSaving, prefill, currentBaseId, currentBasePlural, onSave, onCancel }: FieldEditFormProps) {
   const [label, setLabel] = useState(field?.label ?? (prefill ? "Formule" : ""));
@@ -469,8 +490,37 @@ function FieldEditForm({ field, isSaving, prefill, currentBaseId, currentBasePlu
   const [relCardinality, setRelCardinality] = useState<"one_to_one" | "one_to_many" | "many_to_many">(
     ((field as { cardinality?: "one_to_one" | "one_to_many" | "many_to_many" })?.cardinality ?? "many_to_many"),
   );
+  // Valeur par défaut (typée selon le kind à l'enregistrement).
+  const [defaultValue, setDefaultValue] = useState<string>(() => {
+    const dv = field?.defaultValue;
+    if (dv === undefined || dv === null) return "";
+    return typeof dv === "boolean" ? String(dv) : String(dv);
+  });
+  // Params famille « nombre ».
+  const numF = field as { min?: number; max?: number; precision?: number; currencyCode?: string } | null;
+  const [minVal, setMinVal] = useState<string>(numF?.min != null ? String(numF.min) : "");
+  const [maxVal, setMaxVal] = useState<string>(numF?.max != null ? String(numF.max) : "");
+  const [precision, setPrecision] = useState<string>(numF?.precision != null ? String(numF.precision) : "");
+  const [currencyCode, setCurrencyCode] = useState<string>(numF?.currencyCode ?? "EUR");
+  // Format date.
+  const [dateFormat, setDateFormat] = useState<string>((field as { format?: string } | null)?.format ?? "");
+  // Lookup / rollup wiring.
+  const lrF = field as { relationFieldId?: string; targetFieldId?: string; aggregation?: RollupAgg } | null;
+  const [relationFieldId, setRelationFieldId] = useState<string>(lrF?.relationFieldId ?? "");
+  const [targetFieldId, setTargetFieldId] = useState<string>(lrF?.targetFieldId ?? "");
+  const [aggregation, setAggregation] = useState<RollupAgg>(lrF?.aggregation ?? "count");
   const { data: allBases } = trpc.schemas.list.useQuery({ search: undefined });
   const [error, setError] = useState<string | null>(null);
+
+  // Données pour les pickers lookup/rollup : champs Relation de la base courante,
+  // puis champs de la base cible du champ Relation sélectionné.
+  const currentBase = (allBases ?? []).find((b) => b.id === currentBaseId);
+  const relationFields = (currentBase?.fields ?? []).filter((f) => f.type === "relation");
+  const selectedRelation = relationFields.find((f) => f.id === relationFieldId);
+  const targetBase = selectedRelation
+    ? (allBases ?? []).find((b) => b.id === selectedRelation.targetTypeId)
+    : undefined;
+  const targetFields = targetBase?.fields ?? [];
 
   const handleLabelChange = (v: string) => {
     setLabel(v);
@@ -479,25 +529,50 @@ function FieldEditForm({ field, isSaving, prefill, currentBaseId, currentBasePlu
 
   const handleSave = () => {
     if (!label.trim()) { setError("Le nom est requis"); return; }
-    if (!name.trim()) { setError("Le slug est requis"); return; }
     if ((kind === "select" || kind === "multiselect" || kind === "status") && options.length === 0) {
       setError("Au moins une option est requise");
       return;
     }
+    if ((kind === "lookup" || kind === "rollup")) {
+      if (!relationFieldId) { setError("Choisir un champ Relation"); return; }
+      if (!targetFieldId) { setError("Choisir le champ à récupérer"); return; }
+    }
     setError(null);
 
-    const base = { id: field?.id ?? newFieldId(), name: name.trim(), label: label.trim(), required, unique: field?.unique ?? false };
+    // Slug auto-dérivé du libellé — l'utilisateur ne le gère plus.
+    const finalName = (name.trim() || makeSlug(label.trim()) || field?.name || newFieldId());
+    const base = { id: field?.id ?? newFieldId(), name: finalName, label: label.trim(), required, unique: field?.unique ?? false };
+
+    // Valeur par défaut, coercée selon le kind.
+    const coerceDefault = (): unknown => {
+      if (!DEFAULTABLE_KINDS.has(kind) || defaultValue === "") return undefined;
+      if (NUMBER_KINDS.has(kind)) { const n = Number(defaultValue); return Number.isFinite(n) ? n : undefined; }
+      if (kind === "bool") return defaultValue === "true";
+      return defaultValue;
+    };
+    const dv = coerceDefault();
+
     let extra: Record<string, unknown> = {};
     if (kind === "select" || kind === "multiselect" || kind === "status") extra = { options };
     else if (kind === "formula") extra = { expression: expression.trim(), outputKind };
-    else if (kind === "rollup") extra = { relationFieldId: "", targetFieldId: "", aggregation: "count" };
-    else if (kind === "lookup") extra = { relationFieldId: "", targetFieldId: "" };
+    else if (kind === "rollup") extra = { relationFieldId, targetFieldId, aggregation };
+    else if (kind === "lookup") extra = { relationFieldId, targetFieldId };
     else if (kind === "relation") {
       if (!relTargetTypeId) { setError("Choisir une base cible"); return; }
       extra = { targetTypeId: relTargetTypeId, cardinality: relCardinality };
+    } else if (NUMBER_KINDS.has(kind)) {
+      const num = (s: string) => (s.trim() === "" ? undefined : Number(s));
+      extra = {
+        min: num(minVal),
+        max: num(maxVal),
+        precision: precision.trim() === "" ? undefined : Math.max(0, Math.min(10, Number(precision) || 0)),
+        ...(kind === "currency" ? { currencyCode: currencyCode.trim() || "EUR" } : {}),
+      };
+    } else if (kind === "date" || kind === "datetime") {
+      extra = { format: dateFormat.trim() || undefined };
     }
 
-    onSave({ ...base, kind, ...extra } as Field);
+    onSave({ ...base, kind, ...(dv !== undefined ? { defaultValue: dv } : {}), ...extra } as Field);
   };
 
   const needsOptions = kind === "select" || kind === "multiselect" || kind === "status";
@@ -517,18 +592,6 @@ function FieldEditForm({ field, isSaving, prefill, currentBaseId, currentBasePlu
           placeholder="Ex : Montant"
           className="w-full text-xs"
           autoFocus
-          onKeyDown={(e) => { if (e.key === "Enter") handleSave(); if (e.key === "Escape") onCancel(); }}
-        />
-      </div>
-
-      {/* Slug */}
-      <div>
-        <label className="mb-1 block text-xs font-medium" style={{ color: "var(--text-secondary)" }}>Slug</label>
-        <Input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="Ex : montant"
-          className="w-full font-mono text-xs"
           onKeyDown={(e) => { if (e.key === "Enter") handleSave(); if (e.key === "Escape") onCancel(); }}
         />
       </div>
@@ -666,6 +729,179 @@ function FieldEditForm({ field, isSaving, prefill, currentBaseId, currentBasePlu
           <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>
             Cellule affiche un picker de lignes dans la base cible.
           </p>
+        </div>
+      )}
+
+      {/* Params famille nombre (number/currency/percent/rating/progress/duration) */}
+      {NUMBER_KINDS.has(kind) && (
+        <div className="flex flex-col gap-2">
+          <div className="grid grid-cols-3 gap-2">
+            <label className={FIELD_LABEL_CLS} style={{ color: "var(--text-secondary)" }}>
+              Min
+              <Input value={minVal} onChange={(e) => setMinVal(e.target.value)} placeholder="—" inputMode="decimal" className="w-full text-xs" />
+            </label>
+            <label className={FIELD_LABEL_CLS} style={{ color: "var(--text-secondary)" }}>
+              Max
+              <Input value={maxVal} onChange={(e) => setMaxVal(e.target.value)} placeholder="—" inputMode="decimal" className="w-full text-xs" />
+            </label>
+            <label className={FIELD_LABEL_CLS} style={{ color: "var(--text-secondary)" }}>
+              Décimales
+              <Input value={precision} onChange={(e) => setPrecision(e.target.value)} placeholder="0" inputMode="numeric" className="w-full text-xs" />
+            </label>
+          </div>
+          {kind === "currency" && (
+            <label className={FIELD_LABEL_CLS} style={{ color: "var(--text-secondary)" }}>
+              Devise (code ISO)
+              <Input value={currencyCode} onChange={(e) => setCurrencyCode(e.target.value)} placeholder="EUR" className="w-full text-xs" />
+            </label>
+          )}
+          {(kind === "progress" || kind === "rating") && (
+            <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>
+              Min/Max bornent {kind === "progress" ? "la barre de progression" : "la note"}.
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Format date */}
+      {(kind === "date" || kind === "datetime") && (
+        <div>
+          <label className={FIELD_LABEL_CLS} style={{ color: "var(--text-secondary)" }}>Format d'affichage</label>
+          <SelectRoot
+            selectedKey={dateFormat || "__auto"}
+            onSelectionChange={(k) => setDateFormat(k === "__auto" || k == null ? "" : String(k))}
+            className="w-full text-xs"
+          >
+            <SelectTrigger className={SELECT_TRIGGER_CLS} style={SELECT_TRIGGER_STYLE}><SelectValue /></SelectTrigger>
+            <SelectPopover>
+              <ListBox>
+                <ListBoxItem id="__auto">Auto (locale)</ListBoxItem>
+                <ListBoxItem id="YYYY-MM-DD">2026-06-24</ListBoxItem>
+                <ListBoxItem id="DD/MM/YYYY">24/06/2026</ListBoxItem>
+                <ListBoxItem id="DD MMM YYYY">24 juin 2026</ListBoxItem>
+                {kind === "datetime" && <ListBoxItem id="DD/MM/YYYY HH:mm">24/06/2026 14:30</ListBoxItem>}
+              </ListBox>
+            </SelectPopover>
+          </SelectRoot>
+        </div>
+      )}
+
+      {/* Config lookup / rollup */}
+      {(kind === "lookup" || kind === "rollup") && (
+        <div className="flex flex-col gap-2 rounded border px-2 py-2" style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-0)" }}>
+          {relationFields.length === 0 ? (
+            <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>
+              Crée d'abord un champ <strong>Relation</strong> vers une autre base, puis reviens configurer ce champ.
+            </p>
+          ) : (
+            <>
+              <label className="block text-[10px] font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+                Via le champ relation
+              </label>
+              <SelectRoot
+                selectedKey={relationFieldId || null}
+                onSelectionChange={(k) => { setRelationFieldId(k ? String(k) : ""); setTargetFieldId(""); }}
+                className="w-full text-xs"
+              >
+                <SelectTrigger className={SELECT_TRIGGER_CLS} style={SELECT_TRIGGER_STYLE}><SelectValue /></SelectTrigger>
+                <SelectPopover>
+                  <ListBox>
+                    {relationFields.map((rf) => (
+                      <ListBoxItem key={rf.id} id={rf.id}>{rf.label || rf.name}</ListBoxItem>
+                    ))}
+                  </ListBox>
+                </SelectPopover>
+              </SelectRoot>
+
+              <label className="block text-[10px] font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+                {kind === "rollup" ? "Agréger le champ" : "Récupérer le champ"}
+                {targetBase ? ` de « ${targetBase.plural || targetBase.name} »` : ""}
+              </label>
+              <SelectRoot
+                selectedKey={targetFieldId || null}
+                onSelectionChange={(k) => setTargetFieldId(k ? String(k) : "")}
+                isDisabled={!selectedRelation}
+                className="w-full text-xs"
+              >
+                <SelectTrigger className={SELECT_TRIGGER_CLS} style={SELECT_TRIGGER_STYLE}><SelectValue /></SelectTrigger>
+                <SelectPopover>
+                  <ListBox>
+                    {targetFields.map((tf) => (
+                      <ListBoxItem key={tf.id} id={tf.id}>{tf.label || tf.name}</ListBoxItem>
+                    ))}
+                  </ListBox>
+                </SelectPopover>
+              </SelectRoot>
+
+              {kind === "rollup" && (
+                <>
+                  <label className="block text-[10px] font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+                    Agrégation
+                  </label>
+                  <SelectRoot
+                    selectedKey={aggregation}
+                    onSelectionChange={(k) => { if (k != null) setAggregation(k as RollupAgg); }}
+                    className="w-full text-xs"
+                  >
+                    <SelectTrigger className={SELECT_TRIGGER_CLS} style={SELECT_TRIGGER_STYLE}><SelectValue /></SelectTrigger>
+                    <SelectPopover>
+                      <ListBox>
+                        {(Object.keys(AGG_LABELS) as RollupAgg[]).map((a) => (
+                          <ListBoxItem key={a} id={a}>{AGG_LABELS[a]}</ListBoxItem>
+                        ))}
+                      </ListBox>
+                    </SelectPopover>
+                  </SelectRoot>
+                </>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Valeur par défaut (selon le type) */}
+      {DEFAULTABLE_KINDS.has(kind) && (
+        <div>
+          <label className={FIELD_LABEL_CLS} style={{ color: "var(--text-secondary)" }}>Valeur par défaut</label>
+          {kind === "bool" ? (
+            <SelectRoot
+              selectedKey={defaultValue || "false"}
+              onSelectionChange={(k) => setDefaultValue(String(k))}
+              className="w-full text-xs"
+            >
+              <SelectTrigger className={SELECT_TRIGGER_CLS} style={SELECT_TRIGGER_STYLE}><SelectValue /></SelectTrigger>
+              <SelectPopover>
+                <ListBox>
+                  <ListBoxItem id="false">Non coché</ListBoxItem>
+                  <ListBoxItem id="true">Coché</ListBoxItem>
+                </ListBox>
+              </SelectPopover>
+            </SelectRoot>
+          ) : kind === "select" || kind === "status" ? (
+            <SelectRoot
+              selectedKey={defaultValue || "__none"}
+              onSelectionChange={(k) => setDefaultValue(k === "__none" || k == null ? "" : String(k))}
+              className="w-full text-xs"
+            >
+              <SelectTrigger className={SELECT_TRIGGER_CLS} style={SELECT_TRIGGER_STYLE}><SelectValue /></SelectTrigger>
+              <SelectPopover>
+                <ListBox>
+                  <ListBoxItem id="__none">Aucune</ListBoxItem>
+                  {options.map((o) => (
+                    <ListBoxItem key={o.value} id={o.value}>{o.label}</ListBoxItem>
+                  ))}
+                </ListBox>
+              </SelectPopover>
+            </SelectRoot>
+          ) : (
+            <Input
+              value={defaultValue}
+              onChange={(e) => setDefaultValue(e.target.value)}
+              placeholder={NUMBER_KINDS.has(kind) ? "Ex : 0" : kind === "date" || kind === "datetime" ? "YYYY-MM-DD" : "—"}
+              inputMode={NUMBER_KINDS.has(kind) ? "decimal" : undefined}
+              className="w-full text-xs"
+            />
+          )}
         </div>
       )}
 

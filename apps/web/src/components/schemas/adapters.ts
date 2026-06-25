@@ -5,7 +5,18 @@
  * while the UI uses the discriminated `Field` union with a `kind` field.
  */
 
-import type { EntityType, Field, FieldKind, SelectOption, RelationType, Cardinality } from "@supernote/core";
+import type { EntityType, Field, FieldKind, FieldValue, SelectOption, RelationType, Cardinality } from "@supernote/core";
+
+// Kinds de la famille « nombre » qui partagent min/max/precision/currencyCode.
+const NUMBER_KINDS = new Set<FieldKind>([
+  "number",
+  "currency",
+  "percent",
+  "rating",
+  "progress",
+  "duration",
+  "autoNumber",
+]);
 import type {
   EntityType as IpcEntityType,
   FieldDefinition,
@@ -24,6 +35,7 @@ export function ipcFieldToCore(f: FieldDefinition): Field {
     unique: f.unique ?? false,
     helpText: f.helpText,
     group: f.group,
+    defaultValue: f.defaultValue as FieldValue | undefined,
   };
   // Rétro-compatibilité : les seeds historiques persistaient `kind` alors que
   // le contrat IPC actuel utilise `type`. On accepte les deux pour que les
@@ -46,10 +58,34 @@ export function ipcFieldToCore(f: FieldDefinition): Field {
     };
   }
   if (kind === "rollup") {
-    return { ...base, kind, relationFieldId: "", targetFieldId: "", aggregation: "count" };
+    return {
+      ...base,
+      kind,
+      relationFieldId: f.relationFieldId ?? "",
+      targetFieldId: f.targetFieldId ?? "",
+      aggregation: f.aggregation ?? "count",
+    };
   }
   if (kind === "lookup") {
-    return { ...base, kind, relationFieldId: "", targetFieldId: "" };
+    return {
+      ...base,
+      kind,
+      relationFieldId: f.relationFieldId ?? "",
+      targetFieldId: f.targetFieldId ?? "",
+    };
+  }
+  if (NUMBER_KINDS.has(kind)) {
+    return {
+      ...base,
+      kind,
+      min: f.min,
+      max: f.max,
+      precision: f.precision,
+      currencyCode: f.currencyCode,
+    } as Field;
+  }
+  if (kind === "date" || kind === "datetime") {
+    return { ...base, kind, format: f.format } as Field;
   }
   if (kind === "ai") {
     return {
@@ -101,9 +137,29 @@ export function coreFieldToIpc(f: Field): FieldDefinition {
     helpText: f.helpText,
     group: f.group,
   };
+  if (f.defaultValue !== undefined) base.defaultValue = f.defaultValue;
 
   if (f.kind === "select" || f.kind === "multiselect" || f.kind === "status") {
     base.options = [...f.options] as FieldDefinition["options"];
+  }
+  if (NUMBER_KINDS.has(f.kind)) {
+    const nf = f as { min?: number; max?: number; precision?: number; currencyCode?: string };
+    if (nf.min !== undefined) base.min = nf.min;
+    if (nf.max !== undefined) base.max = nf.max;
+    if (nf.precision !== undefined) base.precision = nf.precision;
+    if (nf.currencyCode) base.currencyCode = nf.currencyCode;
+  }
+  if (f.kind === "date" || f.kind === "datetime") {
+    if (f.format) base.format = f.format;
+  }
+  if (f.kind === "rollup") {
+    base.relationFieldId = f.relationFieldId;
+    base.targetFieldId = f.targetFieldId;
+    base.aggregation = f.aggregation;
+  }
+  if (f.kind === "lookup") {
+    base.relationFieldId = f.relationFieldId;
+    base.targetFieldId = f.targetFieldId;
   }
   if (f.kind === "formula") {
     base.formulaExpr = f.expression;

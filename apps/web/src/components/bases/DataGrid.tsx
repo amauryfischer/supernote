@@ -13,7 +13,7 @@
  * Phase 3: menu colonne (⋯), resize, drag-reorder.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Button } from "@heroui/react";
 import { Plus, Trash, ArrowUp, ArrowDown, CaretDown } from "@phosphor-icons/react";
@@ -32,8 +32,10 @@ import {
 import { ColumnHeaderMenu } from "./ColumnHeaderMenu";
 import { FooterSummarize } from "./FooterSummarize";
 import { resolveConditionalFormat, cfStyleToCss } from "./conditional-format";
+import { resolveGroupByField } from "./entity-summary";
 import { FieldKindIcon } from "./FieldKindIcon";
 import { useShellChrome } from "@/components/shell/shell-chrome-context";
+import { useIsMobile } from "@/hooks/useIsMobile";
 
 type SummarizeOp = NonNullable<View["summarize"]>[string];
 
@@ -168,6 +170,17 @@ export function DataGrid({ base, view, maxHeight, readOnly = false }: DataGridPr
 
   // ── Multi-sélection lignes ─────────────────────────────────────────────────
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  // Groupes repliés (par valeur de groupe) quand `view.groupByField` est actif.
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  const toggleGroup = useCallback((key: string) => {
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
+  const isMobile = useIsMobile();
   const lastSelectedIdRef = useRef<string | null>(null);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
 
@@ -301,6 +314,9 @@ export function DataGrid({ base, view, maxHeight, readOnly = false }: DataGridPr
   );
   const [justEdited, setJustEdited] = useState<{ entityId: string; fieldId: string; ts: number } | null>(null);
   const justEditedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Pile d'annulation des éditions de cellule (Ctrl+Z). Chaque édition pousse
+  // la valeur précédente ; l'undo réapplique sans re-pousser (mutate direct).
+  const undoStackRef = useRef<Array<{ entityId: string; fieldId: string; prev: unknown }>>([]);
 
   // computeAdvanceRef : indirection pour éviter d'invalider le cache de handlers
   // quand items / visibleIds changent. Pointé vers la dernière fonction via
@@ -316,6 +332,11 @@ export function DataGrid({ base, view, maxHeight, readOnly = false }: DataGridPr
       const cached = cache.get(key);
       if (cached) return cached;
       const handler = (next: unknown, advance?: AdvanceDir) => {
+        const prev = itemsRef.current.find((e) => e.id === entityId)?.fields[fieldId];
+        if (prev !== next) {
+          undoStackRef.current.push({ entityId, fieldId, prev });
+          if (undoStackRef.current.length > 100) undoStackRef.current.shift();
+        }
         updateRef.current.mutate({
           id: entityId,
           fields: { [fieldId]: next as never },
@@ -681,6 +702,32 @@ export function DataGrid({ base, view, maxHeight, readOnly = false }: DataGridPr
         });
         return;
       }
+
+      // ── Recopier vers le bas Cmd/Ctrl+D ───────────────────────────────────
+      if ((e.metaKey || e.ctrlKey) && e.key === "d" && target.hasAttribute("data-cell-display")) {
+        const td = target.closest("td[data-cell-row]") as HTMLElement | null;
+        if (!td) return;
+        const rowIdx = Number(td.dataset.cellRow);
+        const fieldId = td.dataset.fieldId;
+        if (!fieldId || rowIdx <= 0) { e.preventDefault(); return; }
+        const above = itemsRef.current[rowIdx - 1];
+        const cur = itemsRef.current[rowIdx];
+        const field = fieldByIdRef.current.get(fieldId);
+        if (!above || !cur || !field || READONLY_PASTE_KINDS.has(field.kind)) return;
+        e.preventDefault();
+        getCellHandler(cur.id, fieldId)(above.fields[fieldId] ?? "");
+        return;
+      }
+
+      // ── Annuler la dernière édition Cmd/Ctrl+Z ────────────────────────────
+      if ((e.metaKey || e.ctrlKey) && e.key === "z" && target.hasAttribute("data-cell-display")) {
+        const entry = undoStackRef.current.pop();
+        if (!entry) return;
+        e.preventDefault();
+        // mutate direct : ne repasse pas par le handler → pas de re-push undo.
+        updateRef.current.mutate({ id: entry.entityId, fields: { [entry.fieldId]: entry.prev as never } });
+        return;
+      }
     },
     [visibleIds.length, getCellHandler],
   );
@@ -784,6 +831,68 @@ export function DataGrid({ base, view, maxHeight, readOnly = false }: DataGridPr
   );
 
   // ── Rendu ─────────────────────────────────────────────────────────────────
+
+  // Mobile (<768px) : pas de tableau à scroll horizontal — chaque entrée
+  // devient une carte empilée (libellé + valeur éditable via <Cell>), conforme
+  // à la règle mobile-parity. Le desktop garde le DataGrid table ci-dessous.
+  if (isMobile) {
+    return (
+      <div
+        className="flex flex-col gap-2.5 p-3"
+        style={{ maxHeight: maxHeight ?? "100%", overflowY: "auto", backgroundColor: "var(--surface-0)" }}
+      >
+        {isLoading ? (
+          <p className="py-8 text-center text-sm" style={{ color: "var(--text-muted)" }}>Chargement…</p>
+        ) : items.length === 0 ? (
+          <p className="py-8 text-center text-sm" style={{ color: "var(--text-muted)" }}>Aucune entrée.</p>
+        ) : (
+          items.map((entity) => (
+            <div
+              key={entity.id}
+              className="overflow-hidden rounded-xl border"
+              style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-1)" }}
+            >
+              {visibleIds.map((fid, i) => {
+                const f = fieldById.get(fid);
+                if (!f) return null;
+                return (
+                  <div
+                    key={fid}
+                    className="flex items-start gap-3 px-3 py-2"
+                    style={{ borderTop: i === 0 ? undefined : "1px solid var(--border-subtle)" }}
+                  >
+                    <span className="w-24 shrink-0 pt-2 text-xs" style={{ color: "var(--text-muted)" }}>
+                      {f.label || f.name}
+                    </span>
+                    <div className="min-h-8 min-w-0 flex-1">
+                      <Cell
+                        field={f}
+                        value={entity.fields[fid]}
+                        onChange={getCellHandler(entity.id, fid)}
+                        rowFields={entity.fields}
+                        baseFields={base.fields as unknown as Field[]}
+                        readOnly={readOnly}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ))
+        )}
+        {!readOnly && (
+          <Button
+            variant="ghost"
+            onPress={addRow}
+            className="flex items-center justify-center gap-1.5 rounded-lg border border-dashed py-2.5 text-sm"
+            style={{ borderColor: "var(--border-subtle)", color: "var(--accent)" }}
+          >
+            <Plus size={15} /> Nouvelle entrée
+          </Button>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div
@@ -1039,7 +1148,8 @@ export function DataGrid({ base, view, maxHeight, readOnly = false }: DataGridPr
               </td>
             </tr>
           )}
-          {items.map((entity, idx) => {
+          {(() => {
+            const renderRow = (entity: (typeof items)[number], idx: number) => {
             const isSelected = selectedIds.has(entity.id);
             const fresh = isFreshRow(entity.id);
             const isLastRow = idx === items.length - 1;
@@ -1188,7 +1298,59 @@ export function DataGrid({ base, view, maxHeight, readOnly = false }: DataGridPr
                 </td>
               </tr>
             );
-          })}
+            };
+            // Table plate par défaut ; groupée seulement si `groupByField` est
+            // explicitement choisi (zéro régression sur l'usage courant).
+            const gf = view.groupByField ? resolveGroupByField(base, view.groupByField) : null;
+            if (!gf) return items.map((e, i) => renderRow(e, i));
+            const idxOf = new Map(items.map((e, i) => [e.id, i] as const));
+            const opts = ((gf as { options?: SelectOption[] }).options ?? []) as SelectOption[];
+            const buckets = new Map<string, typeof items>();
+            buckets.set("__none", []);
+            opts.forEach((o) => buckets.set(o.value, []));
+            for (const it of items) {
+              const raw = it.fields[gf.id];
+              const k = raw === null || raw === undefined || raw === "" ? "__none" : String(raw);
+              if (!buckets.has(k)) buckets.set(k, []);
+              buckets.get(k)!.push(it);
+            }
+            const sections = [
+              { key: "__none", label: "Sans valeur", color: undefined as string | undefined, items: buckets.get("__none") ?? [] },
+              ...opts.map((o) => ({ key: o.value, label: o.label, color: o.color, items: buckets.get(o.value) ?? [] })),
+            ].filter((s) => s.items.length > 0);
+            return sections.map((sec) => (
+              <Fragment key={`grp-${sec.key}`}>
+                <tr className="sn-datagrid-group-row" style={{ borderBottom: "1px solid var(--border-subtle)", backgroundColor: "var(--surface-1)" }}>
+                  <td colSpan={visibleIds.length + 3} className="px-2 py-1.5">
+                    <button
+                      type="button"
+                      onClick={() => toggleGroup(sec.key)}
+                      className="flex items-center gap-2 text-xs font-medium"
+                      style={{ color: "var(--text-secondary)" }}
+                    >
+                      <CaretDown
+                        size={12}
+                        weight="bold"
+                        style={{
+                          transform: collapsedGroups.has(sec.key) ? "rotate(-90deg)" : "none",
+                          transition: "transform var(--sn-dur-1, 90ms)",
+                        }}
+                      />
+                      {sec.color ? (
+                        <span className="rounded px-1.5 py-0.5" style={{ backgroundColor: sec.color + "22", color: sec.color }}>
+                          {sec.label}
+                        </span>
+                      ) : (
+                        <span>{sec.label}</span>
+                      )}
+                      <span style={{ color: "var(--text-muted)" }}>{sec.items.length}</span>
+                    </button>
+                  </td>
+                </tr>
+                {!collapsedGroups.has(sec.key) && sec.items.map((it) => renderRow(it, idxOf.get(it.id) ?? 0))}
+              </Fragment>
+            ));
+          })()}
 
           {/* + Nouvelle entrée — toute la ligne est cliquable */}
           {!readOnly && (
