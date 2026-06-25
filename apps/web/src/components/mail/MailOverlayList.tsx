@@ -3,6 +3,7 @@
 import { Button } from "@heroui/react";
 import { Tag } from "@phosphor-icons/react";
 import type { OverlayRow } from "@/lib/mail-overlay";
+import type { GmailLabelColor } from "@/lib/gmail";
 
 function shortDate(d: string): string {
   return d ? new Date(d).toLocaleDateString(undefined, { day: "2-digit", month: "short" }) : "";
@@ -12,10 +13,12 @@ export function MailOverlayList({
   rows,
   activeKey,
   onPick,
+  labelColors,
 }: {
   rows: OverlayRow[];
   activeKey?: string;
   onPick: (row: OverlayRow) => void;
+  labelColors?: Map<string, GmailLabelColor>;
 }) {
   return (
     <div className="flex flex-col gap-1" role="listbox" aria-label="Boîte mail">
@@ -25,6 +28,11 @@ export function MailOverlayList({
         const subject = row.kind === "single" ? row.item.subject : row.items[0]?.subject ?? "";
         const date = row.kind === "single" ? row.item.date : row.date;
         const isLabel = row.kind === "group" && row.groupType === "label";
+        const labelId =
+          row.kind === "group" && row.groupType === "label" && row.key.startsWith("label:")
+            ? row.key.slice("label:".length)
+            : null;
+        const labelColor = labelId ? labelColors?.get(labelId) : undefined;
         return (
           <Button
             key={key}
@@ -35,8 +43,21 @@ export function MailOverlayList({
             <span className="flex w-full min-w-0 flex-col gap-0.5">
               <span className="flex items-baseline justify-between gap-2">
                 <span className="flex min-w-0 items-center gap-1.5">
-                  {isLabel && <Tag size={13} aria-hidden />}
-                  <span className="truncate text-sm font-medium">{title}</span>
+                  {isLabel ? (
+                    <span
+                      className="inline-flex min-w-0 items-center gap-1 truncate rounded-full px-2 py-0.5 text-xs font-medium"
+                      style={
+                        labelColor
+                          ? { backgroundColor: labelColor.backgroundColor, color: labelColor.textColor }
+                          : { backgroundColor: "var(--accent-subtle)", color: "var(--accent)" }
+                      }
+                    >
+                      <Tag size={11} aria-hidden />
+                      <span className="truncate">{title}</span>
+                    </span>
+                  ) : (
+                    <span className="truncate text-sm font-medium">{title}</span>
+                  )}
                   {row.kind === "group" && (
                     <span
                       className="shrink-0 rounded-full px-1.5 text-xs"

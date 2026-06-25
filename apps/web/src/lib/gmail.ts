@@ -349,20 +349,40 @@ export async function listThreadSummaries(
 
 // ─── Labels (P2) ─────────────────────────────────────────────────────────────
 
+export interface GmailLabelColor {
+  textColor: string;
+  backgroundColor: string;
+}
+
 export interface GmailLabel {
   id: string;
   name: string;
+  /** Couleur Gmail (palette fixe) si l'utilisateur en a défini une ; sinon absente. */
+  color?: GmailLabelColor;
 }
 
-/** Labels utilisateur (exclut les labels système Gmail). */
+/** Labels utilisateur (exclut les labels système Gmail). `color` inclus par labels.list. */
 export async function listLabels(clientId: string): Promise<GmailLabel[]> {
-  const json = await gmailFetch<{ labels?: Array<{ id: string; name: string; type?: string }> }>(
-    clientId,
-    "/labels",
-  );
+  const json = await gmailFetch<{
+    labels?: Array<{
+      id: string;
+      name: string;
+      type?: string;
+      color?: { textColor?: string; backgroundColor?: string };
+    }>;
+  }>(clientId, "/labels");
   return (json.labels ?? [])
     .filter((l) => l.type === "user")
-    .map((l) => ({ id: l.id, name: l.name }));
+    .map((l) => {
+      const bg = l.color?.backgroundColor;
+      return bg
+        ? {
+            id: l.id,
+            name: l.name,
+            color: { backgroundColor: bg, textColor: l.color?.textColor ?? "#ffffff" },
+          }
+        : { id: l.id, name: l.name };
+    });
 }
 
 /**

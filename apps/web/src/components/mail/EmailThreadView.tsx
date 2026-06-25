@@ -163,7 +163,11 @@ export function EmailThreadView({
             <span
               key={l.id}
               className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium"
-              style={{ backgroundColor: "var(--accent-subtle)", color: "var(--accent)" }}
+              style={
+                l.color
+                  ? { backgroundColor: l.color.backgroundColor, color: l.color.textColor }
+                  : { backgroundColor: "var(--accent-subtle)", color: "var(--accent)" }
+              }
             >
               <Tag size={10} />
               <span className="max-w-[12rem] truncate">{l.name}</span>

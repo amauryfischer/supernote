@@ -12,7 +12,7 @@ import { MailGroupList } from "@/components/mail/MailGroupList";
 import { useCaptureEmail } from "@/components/mail/useCaptureEmail";
 import { CaptureEmailModal } from "@/components/mail/CaptureEmailModal";
 import { ComposeModal } from "@/components/mail/ComposeModal";
-import { listThreadSummaries, listLabels, getThread, type EmailThread } from "@/lib/gmail";
+import { listThreadSummaries, listLabels, getThread, type EmailThread, type GmailLabelColor } from "@/lib/gmail";
 import { buildMailOverlay, type OverlayRow } from "@/lib/mail-overlay";
 import { prefersReducedMotion } from "@/lib/motion";
 import { useToast } from "@supernote/ui";
@@ -46,6 +46,7 @@ export default function MailPage() {
 
   const [captureOpen, setCaptureOpen] = useState(false);
   const [composeOpen, setComposeOpen] = useState(false);
+  const [labelColors, setLabelColors] = useState<Map<string, GmailLabelColor>>(new Map());
 
   // Action « créer » → FAB sur mobile (équivalent du bouton « Nouveau » desktop).
   useMobileFab(
@@ -66,6 +67,9 @@ export default function MailPage() {
           listThreadSummaries(clientId, q),
           listLabels(clientId).catch(() => [] as Awaited<ReturnType<typeof listLabels>>),
         ]);
+        setLabelColors(
+          new Map(labels.flatMap((l) => (l.color ? [[l.id, l.color] as const] : []))),
+        );
         setRows(
           buildMailOverlay(items, new Map(labels.map((l) => [l.id, l.name])), settings.gmail.connectedEmail),
         );
@@ -182,7 +186,7 @@ export default function MailPage() {
           </p>
         )}
         {!listLoading && !listError && (
-          <MailOverlayList rows={rows} activeKey={activeKey} onPick={onPick} />
+          <MailOverlayList rows={rows} activeKey={activeKey} onPick={onPick} labelColors={labelColors} />
         )}
       </div>
     </div>
