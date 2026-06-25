@@ -66,14 +66,16 @@ export default function MailPage() {
           listThreadSummaries(clientId, q),
           listLabels(clientId).catch(() => [] as Awaited<ReturnType<typeof listLabels>>),
         ]);
-        setRows(buildMailOverlay(items, new Map(labels.map((l) => [l.id, l.name]))));
+        setRows(
+          buildMailOverlay(items, new Map(labels.map((l) => [l.id, l.name])), settings.gmail.connectedEmail),
+        );
       } catch (err) {
         setListError(err instanceof Error ? err.message : String(err));
       } finally {
         setListLoading(false);
       }
     },
-    [clientId],
+    [clientId, settings.gmail.connectedEmail],
   );
 
   useEffect(() => {

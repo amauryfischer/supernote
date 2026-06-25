@@ -23,11 +23,17 @@ function mostRecent(items: ThreadListItem[]): string {
  *
  * `userLabels` : map labelId → nom (labels user uniquement). Un item multi-label
  * rejoint le plus gros groupe-label (tie-break : taille desc, puis nom asc).
+ *
+ * `selfEmail` : compte connecté → exclu du regroupement par expéditeur (évite un
+ * gros groupe parasite « moi ») ; ces items retombent en lignes seules. Le
+ * regroupement par label (traité avant) reste possible pour un thread « à moi ».
  */
 export function buildMailOverlay(
   items: ThreadListItem[],
   userLabels: Map<string, string>,
+  selfEmail?: string,
 ): OverlayRow[] {
+  const self = (selfEmail ?? "").toLowerCase();
   const consumed = new Set<string>();
 
   // 1. Indexer par label user.
@@ -74,6 +80,9 @@ export function buildMailOverlay(
     // ça fusionnerait des expéditeurs distincts en un faux groupe sans titre.
     // On laisse ces items tomber en lignes seules.
     if (!key) continue;
+    // Compte connecté : pas de groupe-expéditeur « moi » (parasite). Ces items
+    // retombent en lignes seules (le label, traité avant, a pu les capter).
+    if (self && it.from.email.toLowerCase() === self) continue;
     const arr = bySender.get(key);
     if (arr) arr.push(it);
     else bySender.set(key, [it]);

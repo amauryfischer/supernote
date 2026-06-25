@@ -131,4 +131,70 @@ describe("buildMailOverlay", () => {
     const titles = rows.filter((r) => r.kind === "group").map((r) => (r.kind === "group" ? r.title : ""));
     expect(titles.sort()).toEqual(["Perso", "Projet"]);
   });
+
+  it("compte connecté (self) : ≥2 threads de moi → pas de groupe-expéditeur, restent singles", () => {
+    const rows = buildMailOverlay(
+      [
+        item("a", "me@x.io", "2026-06-20T10:00:00Z"),
+        item("b", "me@x.io", "2026-06-21T10:00:00Z"),
+      ],
+      labels,
+      "me@x.io",
+    );
+    expect(rows.every((r) => r.kind === "single")).toBe(true);
+    expect(rows).toHaveLength(2);
+  });
+
+  it("self exclu mais les autres expéditeurs groupent normalement", () => {
+    const rows = buildMailOverlay(
+      [
+        item("a", "me@x.io", "2026-06-20T10:00:00Z"),
+        item("b", "me@x.io", "2026-06-21T10:00:00Z"),
+        item("c", "bob@x.io", "2026-06-22T10:00:00Z"),
+        item("d", "bob@x.io", "2026-06-23T10:00:00Z"),
+      ],
+      labels,
+      "me@x.io",
+    );
+    const sender = rows.filter((r) => r.kind === "group" && r.groupType === "sender");
+    expect(sender).toHaveLength(1);
+    expect(sender[0]).toMatchObject({ count: 2, title: "bob" });
+    expect(rows.filter((r) => r.kind === "single")).toHaveLength(2); // les 2 « moi »
+  });
+
+  it("self insensible à la casse", () => {
+    const rows = buildMailOverlay(
+      [
+        item("a", "Me@X.io", "2026-06-20T10:00:00Z"),
+        item("b", "ME@x.IO", "2026-06-21T10:00:00Z"),
+      ],
+      labels,
+      "me@x.io",
+    );
+    expect(rows.every((r) => r.kind === "single")).toBe(true);
+  });
+
+  it("self + label : le label prime (thread de moi rejoint le groupe-label)", () => {
+    const rows = buildMailOverlay(
+      [
+        item("a", "me@x.io", "2026-06-20T10:00:00Z", ["L1"]),
+        item("b", "bob@x.io", "2026-06-21T10:00:00Z", ["L1"]),
+      ],
+      labels,
+      "me@x.io",
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ kind: "group", groupType: "label", title: "Projet", count: 2 });
+  });
+
+  it("selfEmail absent → comportement inchangé (mes threads groupent par expéditeur)", () => {
+    const rows = buildMailOverlay(
+      [
+        item("a", "me@x.io", "2026-06-20T10:00:00Z"),
+        item("b", "me@x.io", "2026-06-21T10:00:00Z"),
+      ],
+      labels,
+    );
+    expect(rows.find((r) => r.kind === "group")).toMatchObject({ groupType: "sender", count: 2 });
+  });
 });
