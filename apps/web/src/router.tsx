@@ -88,7 +88,6 @@ export const router: any = createBrowserRouter([
       { path: "notes", lazy: lazyPage(() => import("./app/notes/page")) },
       { path: "notes/:id", lazy: lazyPage(() => import("./app/notes/[id]/page")) },
       { path: "archive", lazy: lazyPage(() => import("./app/archive/page")) },
-      { path: "garden", lazy: lazyPage(() => import("./app/garden/page")) },
 
       // ── Mail (Gmail) ──────────────────────────────────────────────────
       { path: "mail", lazy: lazyPage(() => import("./app/mail/page")) },
