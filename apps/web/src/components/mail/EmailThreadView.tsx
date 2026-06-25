@@ -17,6 +17,10 @@ import {
   type BubbleKind,
 } from "@/lib/gmail";
 import { parseEmailBody } from "@/lib/email-quote";
+import { TriageBar } from "./TriageBar";
+import { EnrichContactFromEmail } from "./EnrichContactFromEmail";
+import { EmailToEventButton } from "./EmailToEventButton";
+import type { TriageAction } from "@/lib/mail-triage";
 
 /**
  * Affichage d'un thread Gmail façon messagerie (chat) : mes messages alignés à
@@ -41,10 +45,13 @@ export function EmailThreadView({
   thread,
   selfEmail,
   enableShortcuts = true,
+  onTriaged,
 }: {
   thread: EmailThread;
   selfEmail?: string;
   enableShortcuts?: boolean;
+  /** Appelé après un triage réussi (Done/Archive/Snooze) — l'appelant retire le fil de la liste. */
+  onTriaged?: (action: TriageAction) => void;
 }) {
   const { settings } = useSettings();
   const clientId = settings.googleDrive.clientId.trim();
@@ -128,15 +135,29 @@ export function EmailThreadView({
     );
   }
   const subject = thread.messages[0]?.subject;
+  const firstMsg = thread.messages[0]!;
+  const self = (selfEmail ?? "").toLowerCase();
+  // Pour l'enrichissement : dernier message du correspondant (pas « moi »).
+  const correspondentMsg =
+    (self
+      ? [...thread.messages].reverse().find((m) => m.from.email.toLowerCase() !== self)
+      : thread.messages[thread.messages.length - 1]) ?? null;
 
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-col gap-2">
-        {subject && (
-          <h2 className="text-base font-semibold" style={{ color: "var(--text-primary)" }}>
-            {subject}
-          </h2>
-        )}
+        <div className="flex items-start justify-between gap-3">
+          {subject ? (
+            <h2 className="text-base font-semibold" style={{ color: "var(--text-primary)" }}>
+              {subject}
+            </h2>
+          ) : (
+            <span />
+          )}
+          {clientId && (
+            <TriageBar clientId={clientId} threadId={thread.id} onTriaged={onTriaged} />
+          )}
+        </div>
         <div className="flex flex-wrap items-center gap-1.5">
           {current.map((l) => (
             <span
@@ -169,6 +190,11 @@ export function EmailThreadView({
           >
             <Plus size={10} weight="bold" /> Label
           </Button>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          {correspondentMsg && <EnrichContactFromEmail message={correspondentMsg} />}
+          <EmailToEventButton message={firstMsg} />
         </div>
       </div>
 

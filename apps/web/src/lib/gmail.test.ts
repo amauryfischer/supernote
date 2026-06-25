@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { getGmailProfile, parseGmailMessage, parseAddress, decodeBody, classifyBubble, type GmailRawMessage } from "./gmail";
+import { getGmailProfile, parseGmailMessage, parseAddress, decodeBody, decodeQuotedPrintable, normalizeWhitespace, classifyBubble, type GmailRawMessage } from "./gmail";
 import { searchThreads, getThread, listThreadSummaries, listLabels, type ThreadSummary } from "./gmail";
 import { toBase64Url, buildRawMessage, formatRecipients, GMAIL_COMPOSE_SCOPE } from "./gmail";
 import { unionLabelIds, resolveUserLabels, modifyThreadLabels, GMAIL_MODIFY_SCOPE, type GmailLabel } from "./gmail";
@@ -44,6 +44,36 @@ describe("decodeBody", () => {
     // "Héllo" en UTF-8 → base64url
     const b64url = "SMOpbGxv";
     expect(decodeBody(b64url)).toBe("Héllo");
+  });
+});
+
+describe("decodeQuotedPrintable", () => {
+  it("décode =20 en espace", () => {
+    expect(decodeQuotedPrintable("Bonjour=20Ada")).toBe("Bonjour Ada");
+  });
+  it("décode une séquence UTF-8 multi-octets (=C3=A9 → é)", () => {
+    expect(decodeQuotedPrintable("=C3=A9t=C3=A9")).toBe("été");
+  });
+  it("supprime le soft line break (= en fin de ligne)", () => {
+    expect(decodeQuotedPrintable("ca=\nfe")).toBe("cafe");
+  });
+  it("laisse un =XX invalide tel quel (robuste)", () => {
+    expect(decodeQuotedPrintable("100=ZZ")).toBe("100=ZZ");
+  });
+  it("texte sans QP → inchangé", () => {
+    expect(decodeQuotedPrintable("texte normal")).toBe("texte normal");
+  });
+});
+
+describe("normalizeWhitespace", () => {
+  it("convertit NBSP (U+00A0) en espace normal", () => {
+    expect(normalizeWhitespace("Tarif : 100 €")).toBe("Tarif : 100 €");
+  });
+  it("convertit le NBSP étroit (U+202F) en espace normal", () => {
+    expect(normalizeWhitespace("10 000")).toBe("10 000");
+  });
+  it("supprime les espaces en fin de ligne et normalise CRLF", () => {
+    expect(normalizeWhitespace("a   \r\nb")).toBe("a\nb");
   });
 });
 
@@ -119,6 +149,47 @@ describe("parseGmailMessage", () => {
       },
     });
     expect(m.bodyText).toBe("Bonjour");
+  });
+
+  it("décode une part quoted-printable signalée par l'en-tête (=20, =C3=A9, soft break)", () => {
+    // base64url d'un corps text/plain ENCORE en quoted-printable.
+    const qpData =
+      "Qm9uam91cj0yMEFkYSw9MEE9MEFWb2ljaT0yMHVuPTIwYWNjZW50PTIwOj0yMD1DMz1BOXQ9QzM9QTk9MjBldD0yMGNhPQpmZS4";
+    const m = parseGmailMessage({
+      id: "qp",
+      threadId: "qp",
+      payload: {
+        mimeType: "text/plain",
+        headers: [{ name: "Content-Transfer-Encoding", value: "quoted-printable" }],
+        body: { data: qpData },
+      },
+    });
+    expect(m.bodyText).toContain("Bonjour Ada");
+    expect(m.bodyText).toContain("été");
+    expect(m.bodyText).toContain("cafe"); // soft break recollé
+    expect(m.bodyText).not.toMatch(/=20|=C3/); // plus d'artefact QP
+  });
+
+  it("décode le QP même sans en-tête (détection heuristique)", () => {
+    const qpData = "Qm9uam91cj0yMEFkYQ"; // "Bonjour=20Ada"
+    const m = parseGmailMessage({
+      id: "qp2",
+      threadId: "qp2",
+      payload: { mimeType: "text/plain", headers: [], body: { data: qpData } },
+    });
+    expect(m.bodyText).toBe("Bonjour Ada");
+  });
+
+  it("normalise NBSP et espaces de fin de ligne dans le corps", () => {
+    // "Tarif : 100 €  \nfin" → NBSP en espaces, fin de ligne trim.
+    const data = "VGFyaWYgOsKgMTAwwqDigqwgIApmaW4";
+    const m = parseGmailMessage({
+      id: "nb",
+      threadId: "nb",
+      payload: { mimeType: "text/plain", headers: [], body: { data } },
+    });
+    expect(m.bodyText).toBe("Tarif : 100 €\nfin");
+    expect(m.bodyText).not.toMatch(/ /);
   });
 });
 

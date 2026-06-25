@@ -86,6 +86,71 @@ export function decodeBody(data: string): string {
   return new TextDecoder("utf-8").decode(bytes);
 }
 
+/**
+ * Décode un corps quoted-printable (RFC 2045) en chaîne UTF-8.
+ *
+ * Certaines parts text/plain remontent encore encodées en quoted-printable
+ * (selon le client émetteur) une fois le base64url Gmail décodé : `=20`=espace,
+ * `=C3=A9`=« é », et le « soft line break » (`=` en toute fin de ligne) qui doit
+ * être supprimé avec le saut de ligne. Sans ce décodage, les espaces et accents
+ * apparaissent mal parsés (« =20 », « =C3=A9 », lignes recollées à `=`).
+ *
+ * On décode octet par octet pour reconstituer l'UTF-8 multi-octets, puis on
+ * applique TextDecoder. Les `=XX` invalides sont laissés tels quels (robuste).
+ * Pur.
+ */
+export function decodeQuotedPrintable(text: string): string {
+  if (!text) return "";
+  // Soft line breaks : "=" suivi d'un CRLF/LF en fin de ligne → suppression.
+  const unfolded = text.replace(/=\r?\n/g, "");
+  const out: number[] = [];
+  const encoder = new TextEncoder();
+  for (let i = 0; i < unfolded.length; i++) {
+    const ch = unfolded[i]!;
+    if (ch === "=" && i + 2 < unfolded.length) {
+      const hex = unfolded.slice(i + 1, i + 3);
+      if (/^[0-9A-Fa-f]{2}$/.test(hex)) {
+        out.push(parseInt(hex, 16));
+        i += 2;
+        continue;
+      }
+    }
+    // Caractère littéral : ASCII → octet brut ; non-ASCII résiduel → UTF-8.
+    // (Le QP n'émet que de l'ASCII ; on reste robuste si du non-ASCII traîne.)
+    const code = ch.charCodeAt(0);
+    if (code < 0x80) {
+      out.push(code);
+    } else {
+      for (const b of encoder.encode(ch)) out.push(b);
+    }
+  }
+  return new TextDecoder("utf-8").decode(Uint8Array.from(out));
+}
+
+/**
+ * Détecte une chaîne (déjà base64-décodée) qui est en réalité encore encodée en
+ * quoted-printable : présence de soft line breaks ou de séquences `=XX`
+ * hexadécimales. Heuristique conservatrice — pas de `=` isolé déclencheur.
+ */
+function looksQuotedPrintable(text: string): boolean {
+  return /=\r?\n/.test(text) || /=[0-9A-Fa-f]{2}/.test(text);
+}
+
+/**
+ * Normalise les espaces d'un corps texte pour un affichage correct :
+ *  - NBSP (U+00A0) et NBSP étroit (U+202F) → espace normal ;
+ *  - espaces/tabs en fin de ligne supprimés ;
+ *  - CRLF → LF.
+ * Conserve les retours à la ligne (pas de réécriture du flux). Pur.
+ */
+export function normalizeWhitespace(text: string): string {
+  if (!text) return "";
+  return text
+    .replace(/\r\n/g, "\n")
+    .replace(/[  ]/g, " ")
+    .replace(/[ \t]+$/gm, "");
+}
+
 /** Parse "Nom <email>" ou "email" en {name,email}. */
 export function parseAddress(raw: string): EmailAddress {
   const s = raw.trim();
@@ -127,10 +192,25 @@ function header(part: GmailPart | undefined, name: string): string {
   return h?.value ?? "";
 }
 
+/**
+ * Décode le corps d'une part : base64url Gmail, puis quoted-printable si le
+ * Content-Transfer-Encoding l'impose (ou détection heuristique), puis
+ * normalisation des espaces (NBSP, fins de ligne). Centralise la chaîne de
+ * décodage pour que TOUTES les parts text/plain remontées soient propres.
+ */
+function decodePartText(part: GmailPart): string {
+  let text = decodeBody(part.body!.data!);
+  const cte = header(part, "Content-Transfer-Encoding").toLowerCase();
+  if (cte === "quoted-printable" || (cte === "" && looksQuotedPrintable(text))) {
+    text = decodeQuotedPrintable(text);
+  }
+  return normalizeWhitespace(text);
+}
+
 /** Trouve récursivement le premier corps text/plain dans l'arbre des parts. */
 function findPlainText(part: GmailPart | undefined): string {
   if (!part) return "";
-  if (part.mimeType === "text/plain" && part.body?.data) return decodeBody(part.body.data);
+  if (part.mimeType === "text/plain" && part.body?.data) return decodePartText(part);
   for (const sub of part.parts ?? []) {
     const found = findPlainText(sub);
     if (found) return found;
@@ -139,7 +219,7 @@ function findPlainText(part: GmailPart | undefined): string {
   // NE décode PAS un mono-part binaire (image/pdf/octet-stream) — sinon on
   // renverrait du charabia comme corps.
   if (!part.parts && part.body?.data && (!part.mimeType || part.mimeType === "text/plain")) {
-    return decodeBody(part.body.data);
+    return decodePartText(part);
   }
   return "";
 }

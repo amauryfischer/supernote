@@ -123,6 +123,26 @@ export default function MailPage() {
     }
   };
 
+  // Après un triage (Done/Archive/Snooze) : retire le fil de la liste + désélectionne.
+  const handleTriaged = useCallback(() => {
+    const id = selectedThreadId;
+    setSelectedThreadId(null);
+    setThread(null);
+    if (!id) return;
+    setRows((rs) =>
+      rs.flatMap<OverlayRow>((r) => {
+        if (r.kind === "single") return r.item.id === id ? [] : [r];
+        const items = r.items.filter((it) => it.id !== id);
+        return items.length ? [{ ...r, items }] : [];
+      }),
+    );
+    setSelectedGroup((g) => {
+      if (!g) return g;
+      const items = g.items.filter((it) => it.id !== id);
+      return items.length ? { ...g, items } : null;
+    });
+  }, [selectedThreadId]);
+
   const activeKey = selectedGroup?.key ?? (selectedThreadId ? `t:${selectedThreadId}` : undefined);
 
   const searchBox = (
@@ -211,7 +231,11 @@ export default function MailPage() {
         >
           {captureBar}
           <div className="flex-1 overflow-y-auto px-4 pb-6">
-            <EmailThreadView thread={thread} selfEmail={settings.gmail.connectedEmail} />
+            <EmailThreadView
+              thread={thread}
+              selfEmail={settings.gmail.connectedEmail}
+              onTriaged={handleTriaged}
+            />
           </div>
         </div>
       )}

@@ -24,8 +24,10 @@ import { Button, TextArea } from "@heroui/react";
 import { trpc } from "@/lib/trpc/client";
 import type { RelationEdge, FieldValue } from "@supernote/ipc";
 import { localStore } from "@/lib/local-store";
+import { useSettings } from "@/components/settings/SettingsContext";
+import { ContactEmailTimeline } from "@/components/contacts/ContactEmailTimeline";
 
-type Tab = "notes" | "timeline" | "liens" | "finance" | "activite";
+type Tab = "notes" | "timeline" | "emails" | "liens" | "finance" | "activite";
 
 // ── Small UI helpers ──────────────────────────────────────────────────────────
 
@@ -360,6 +362,7 @@ export default function ContactDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [tab, setTab] = useState<Tab>("notes");
   const isMobile = useIsMobile();
+  const { settings } = useSettings();
 
   // Try to load via tRPC first; fall back to fixture / localStore.
   const { data: trpcEntity, isError: entityError } = trpc.entities.get.useQuery(
@@ -439,6 +442,7 @@ export default function ContactDetailPage() {
   const TABS: { id: Tab; label: string }[] = [
     { id: "notes", label: "Notes" },
     { id: "timeline", label: "Timeline" },
+    { id: "emails", label: "Emails" },
     { id: "liens", label: "Liens" },
     { id: "finance", label: "Finance" },
     { id: "activite", label: "Activité" },
@@ -529,6 +533,14 @@ export default function ContactDetailPage() {
 
               {tab === "timeline" && (
                 <TimelineTab contactId={id} fixtureInteractions={fixtureInteractions} />
+              )}
+
+              {tab === "emails" && (
+                <ContactEmailTimeline
+                  clientId={settings.googleDrive.clientId}
+                  emails={contact.emails.map((e) => e.value).filter(Boolean)}
+                  selfEmail={settings.gmail.connectedEmail}
+                />
               )}
 
               {tab === "liens" && (

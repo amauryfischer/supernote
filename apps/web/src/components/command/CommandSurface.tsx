@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useShortcut } from "@/lib/keyboard/hooks";
 import { useRegisterCommands } from "@/lib/commands/hooks";
 import { SEED_COMMANDS } from "@/lib/commands/seed";
+import { UnifiedSearchModal } from "@/components/mail/UnifiedSearchModal";
 
 // CommandPalette pulls in the entire command catalogue UI; defer it until the
 // user actually opens the palette. The first Cmd+K mounts it; subsequent opens
@@ -25,6 +26,7 @@ const CommandPalette = dynamic(
  */
 export function CommandSurface() {
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [unifiedOpen, setUnifiedOpen] = useState(false);
 
   // Register seed commands
   useRegisterCommands(SEED_COMMANDS);
@@ -86,6 +88,19 @@ export function CommandSurface() {
     },
   });
 
+  // Cmd+Shift+K — recherche unifiée (emails + notes + bases). Cmd+K est déjà
+  // pris par la palette de commandes : on prend un combo libre dédié.
+  useShortcut({
+    id: "search.unified",
+    keys: "mod+shift+k",
+    scope: "global",
+    description: "Recherche unifiée (emails, notes, bases)",
+    handler: () => {
+      setUnifiedOpen((prev) => !prev);
+      return true;
+    },
+  });
+
   // Cmd+N — handled inside the notes view (see /notes & /notes/[id]) so it
   // can call the real `handleNewNote` with the active folder. Registering it
   // globally here would shadow the per-page handler (first-match-wins).
@@ -118,5 +133,10 @@ export function CommandSurface() {
 
   // Only mount the dynamic palette when it's actually been opened at least
   // once — `dynamic` will fetch the chunk only when this branch first renders.
-  return paletteOpen ? <CommandPalette open={paletteOpen} onClose={closePalette} /> : null;
+  return (
+    <>
+      {paletteOpen && <CommandPalette open={paletteOpen} onClose={closePalette} />}
+      <UnifiedSearchModal isOpen={unifiedOpen} onClose={() => setUnifiedOpen(false)} />
+    </>
+  );
 }
