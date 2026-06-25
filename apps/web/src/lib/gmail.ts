@@ -724,9 +724,23 @@ function wrapBase64(b64: string): string {
   return out.join("\r\n");
 }
 
+/**
+ * Neutralise une valeur d'en-tête : retire CR, LF et caractères de contrôle pour
+ * empêcher l'injection d'en-têtes (CRLF injection). Critique car certaines
+ * valeurs proviennent d'emails REÇUS donc non fiables (Message-ID/References
+ * recopiés dans In-Reply-To/References d'une réponse). Un `\r\n` non filtré
+ * permettrait d'injecter un `Bcc:`/`Content-Type:` arbitraire. Pur.
+ */
+function sanitizeHeaderValue(value: string): string {
+  // CR (0x0D), LF (0x0A) et tous les autres caractères de contrôle (0x00-0x1F, 0x7F).
+  // eslint-disable-next-line no-control-regex
+  return value.replace(/[\x00-\x1F\x7F]/g, "");
+}
+
 /** Échappe les guillemets/backslash d'un nom de fichier pour un header MIME. */
 function quoteFilename(name: string): string {
-  return name.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  // Neutralise d'abord CR/LF/contrôle (anti-injection) puis échappe " et \.
+  return sanitizeHeaderValue(name).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
 /**
@@ -749,13 +763,16 @@ export function buildRawMessage(input: {
   attachments?: OutgoingAttachment[];
 }): string {
   const headers: string[] = [];
-  const to = formatRecipients(input.to);
+  // Anti-injection d'en-têtes : on retire CR/LF/contrôle de TOUTES les valeurs
+  // d'en-tête avant assemblage (cf. sanitizeHeaderValue). In-Reply-To/References
+  // viennent d'emails reçus (Message-ID non fiable) → strictement à filtrer.
+  const to = sanitizeHeaderValue(formatRecipients(input.to));
   if (to) headers.push(`To: ${to}`);
-  const cc = formatRecipients(input.cc);
+  const cc = sanitizeHeaderValue(formatRecipients(input.cc));
   if (cc) headers.push(`Cc: ${cc}`);
-  headers.push(`Subject: ${encodeHeaderWord(input.subject)}`);
-  if (input.inReplyTo) headers.push(`In-Reply-To: ${input.inReplyTo}`);
-  if (input.references) headers.push(`References: ${input.references}`);
+  headers.push(`Subject: ${encodeHeaderWord(sanitizeHeaderValue(input.subject))}`);
+  if (input.inReplyTo) headers.push(`In-Reply-To: ${sanitizeHeaderValue(input.inReplyTo)}`);
+  if (input.references) headers.push(`References: ${sanitizeHeaderValue(input.references)}`);
   headers.push("MIME-Version: 1.0");
 
   const attachments = (input.attachments ?? []).filter((a) => a && a.base64);

@@ -42,12 +42,25 @@ describe("dedupeEmails", () => {
 });
 
 describe("parseRecipientInput", () => {
-  it("découpe sur virgules, points-virgules, espaces et retours ligne", () => {
+  it("découpe sur virgules, points-virgules et retours ligne", () => {
     expect(parseRecipientInput("a@x.io, b@x.io; c@x.io\nd@x.io")).toEqual([
       "a@x.io",
       "b@x.io",
       "c@x.io",
       "d@x.io",
+    ]);
+  });
+
+  it("NE coupe PAS sur les espaces : format display-name préservé", () => {
+    expect(parseRecipientInput("John Doe <john@example.com>")).toEqual([
+      "John Doe <john@example.com>",
+    ]);
+  });
+
+  it("plusieurs destinataires display-name séparés par virgule", () => {
+    expect(parseRecipientInput("John Doe <john@example.com>, Jane Roe <jane@example.com>")).toEqual([
+      "John Doe <john@example.com>",
+      "Jane Roe <jane@example.com>",
     ]);
   });
 

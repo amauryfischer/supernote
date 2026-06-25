@@ -172,7 +172,7 @@ export function ComposeModal({
                       isIconOnly
                       onPress={() => removeRecipient(r)}
                       aria-label={`Retirer ${r}`}
-                      className="h-4 w-4 min-h-0 min-w-0 p-0"
+                      className="-my-1.5 ml-0.5 inline-flex h-8 min-h-8 w-8 min-w-8 shrink-0 items-center justify-center p-0 hover:opacity-70"
                     >
                       <X size={11} />
                     </Button>
@@ -270,7 +270,7 @@ export function ComposeModal({
                       isIconOnly
                       onPress={() => removeAttachment(i)}
                       aria-label={`Retirer ${att.filename}`}
-                      className="h-4 w-4 min-h-0 min-w-0 p-0"
+                      className="-my-1.5 ml-0.5 inline-flex h-8 min-h-8 w-8 min-w-8 shrink-0 items-center justify-center p-0 hover:opacity-70"
                     >
                       <X size={11} />
                     </Button>

@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowSquareOut, Plus, X, Tag, MagnifyingGlass, Check, PaperPlaneTilt, Quotes, Paperclip, Star, Envelope, ArrowBendUpRight, Sparkle, MagicWand, ArrowsClockwise, CaretUp } from "@phosphor-icons/react";
-import { Button, Input, Spinner, Checkbox } from "@heroui/react";
+import { ArrowSquareOut, Plus, X, Tag, MagnifyingGlass, Check, PaperPlaneTilt, Quotes, Paperclip, Star, Envelope, ArrowBendUpRight, Sparkle, MagicWand, ArrowsClockwise, CaretUp, DotsThreeVertical } from "@phosphor-icons/react";
+import { Button, Input, Spinner, Checkbox, Popover } from "@heroui/react";
 import { useToast } from "@supernote/ui";
 import { useSettings } from "@/components/settings/SettingsContext";
 import {
@@ -57,6 +57,20 @@ import {
   type MailAiThread,
 } from "@/lib/mail-ai";
 
+// ─── Styles du menu overflow (« Plus ») ──────────────────────────────────────
+// Ligne de menu pour une action SIMPLE (Button direct) : pleine largeur, alignée
+// à gauche, padding tactile (~36px de haut ≥ cible 32px mobile).
+const MENU_ROW =
+  "flex h-auto w-full items-center justify-start gap-2.5 rounded-md px-3 py-2 text-sm";
+// Conteneur qui uniformise un COMPOSANT-action self-contained (ExtractActions,
+// MailEisenhowerPicker, EnrichContact, EmailToEvent — chacun apporte son propre
+// déclencheur + overlay) en « ligne de menu » pleine largeur. Le sélecteur
+// descendant ne touche QUE le déclencheur encore dans l'arbre : le contenu de
+// l'overlay (Popover/Modal/Dropdown) est porté ailleurs via portal, donc non
+// stylé ici. Les composants restent inchangés (juste déplacés dans le menu).
+const MENU_COMPONENT_ROW =
+  "w-full [&_button]:h-auto [&_button]:min-h-9 [&_button]:w-full [&_button]:justify-start [&_button]:gap-2.5 [&_button]:rounded-md [&_button]:px-3 [&_button]:py-2 [&_button]:text-sm";
+
 /**
  * Affichage d'un thread Gmail façon messagerie (chat) : mes messages alignés à
  * droite, ceux du correspondant à gauche.
@@ -79,11 +93,15 @@ import {
  * `enableShortcuts` : active le raccourci clavier global `l` (défaut true). Mis à
  * false dans l'embed note (`GmailMessageView`) pour ne pas capturer `l` dans
  * l'éditeur.
+ * `embedded` : mode embed note (défaut false). MASQUE le menu d'actions
+ * secondaires (« Plus ») et DÉSACTIVE le composeur de réponse inline (remplacé
+ * par un lien « Ouvrir dans Gmail »). Posé par `GmailMessageView`.
  */
 export function EmailThreadView({
   thread,
   selfEmail,
   enableShortcuts = true,
+  embedded = false,
   onTriaged,
   onReplied,
   onLabelsChanged,
@@ -93,6 +111,11 @@ export function EmailThreadView({
   thread: EmailThread;
   selfEmail?: string;
   enableShortcuts?: boolean;
+  /**
+   * Mode embed (bloc note) : masque les actions secondaires (menu « Plus ») et
+   * désactive le composeur inline au profit d'un lien « Ouvrir dans Gmail ».
+   */
+  embedded?: boolean;
   /** Appelé après un triage réussi (Done/Archive/Snooze) — l'appelant retire le fil de la liste. */
   onTriaged?: (action: TriageAction) => void;
   /**
@@ -127,6 +150,8 @@ export function EmailThreadView({
   // État optimiste des labels du thread (resynchronisé à chaque thread chargé).
   const [labelIds, setLabelIds] = useState<string[]>(thread.labelIds);
   const [pickerOpen, setPickerOpen] = useState(false);
+  // Ouverture du menu overflow « Plus » (actions secondaires regroupées).
+  const [moreOpen, setMoreOpen] = useState(false);
   const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   // Garde anti-double : 1 seul markThreadRead par thread ouvert.
@@ -399,7 +424,19 @@ export function EmailThreadView({
           urgent: fields.urgent,
         },
       });
-      // 2. Mémorise la liaison thread ↔ todo (store local best-effort).
+      // 2. Sort le fil de l'inbox (retrait du label système INBOX), comme un
+      //    « Fait » de triage. On le fait AVANT la liaison locale : si cette
+      //    mutation Gmail échoue, on n'aura PAS écrit de binding → le fil ne
+      //    sera donc pas masqué par le filtre `getBinding` de la liste (il reste
+      //    visible dans l'inbox), et la tâche déjà créée reste visible dans
+      //    /todos (rollback partiel volontaire, non silencieux : toast d'erreur).
+      await modifyThreadLabels(clientId, thread.id, {
+        addLabelIds: [],
+        removeLabelIds: [INBOX_LABEL],
+      });
+      // 3. Mutation Gmail réussie → on mémorise la liaison thread ↔ todo (store
+      //    local) ET on notifie l'appelant pour qu'il retire le fil de la liste.
+      //    Ces deux effets (qui masquent le fil) n'ont lieu QU'APRÈS le succès.
       addBinding({
         threadId: thread.id,
         todoId: todo.id,
@@ -407,14 +444,7 @@ export function EmailThreadView({
         subject,
         createdAt: Date.now(),
       });
-      // 3. Sort le fil de l'inbox (retrait du label système INBOX), comme un
-      //    « Fait » de triage — la tâche prend le relais côté /todos.
-      await modifyThreadLabels(clientId, thread.id, {
-        addLabelIds: [],
-        removeLabelIds: [INBOX_LABEL],
-      });
       toast({ title: "Email converti en tâche", variant: "success" });
-      // 4. Notifie l'appelant pour qu'il retire le fil de la liste inbox.
       onConvertedToTodo?.();
     } catch (e) {
       toast({
@@ -531,7 +561,7 @@ export function EmailThreadView({
     <div className="flex flex-col gap-3">
       <div className="flex flex-col gap-2">
         <div className="flex items-start justify-between gap-3">
-          <div className="flex min-w-0 items-start gap-1.5">
+          <div className="flex min-w-0 flex-1 items-center gap-1.5">
             {clientId && (
               <Button
                 isIconOnly
@@ -540,7 +570,7 @@ export function EmailThreadView({
                 onPress={() => void onToggleStar()}
                 aria-label={starred ? "Retirer l'étoile" : "Mettre une étoile"}
                 aria-pressed={starred}
-                className="h-auto min-h-0 min-w-0 shrink-0 p-0.5"
+                className="h-8 min-h-8 w-8 min-w-8 shrink-0"
               >
                 <Star
                   size={18}
@@ -550,70 +580,117 @@ export function EmailThreadView({
               </Button>
             )}
             {subject ? (
-              <h2 className="min-w-0 text-base font-semibold" style={{ color: "var(--text-primary)" }}>
+              <h2 className="min-w-0 flex-1 truncate text-base font-semibold" style={{ color: "var(--text-primary)" }}>
                 {subject}
               </h2>
             ) : (
               <span />
             )}
           </div>
-          <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
-            {aiConfigured && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onPress={onSummaryClick}
-                isDisabled={summaryBusy}
-                aria-label="Résumer le fil avec l'IA locale"
-              >
-                {summaryBusy ? <Spinner size="sm" /> : <Sparkle size={14} />} Résumer
-              </Button>
-            )}
-            {aiConfigured && <ExtractActionsButton thread={aiThread} />}
-            {clientId && (
-              <>
-                {aiConfigured && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onPress={() => void runSuggestQuadrant()}
-                    isDisabled={suggestBusy}
-                    aria-label="Suggérer un quadrant Eisenhower avec l'IA locale"
-                    className="h-9 gap-1.5"
-                  >
-                    {suggestBusy ? <Spinner size="sm" /> : <Sparkle size={14} />}
-                    <span className="hidden sm:inline">Suggérer quadrant</span>
-                  </Button>
-                )}
-                <MailEisenhowerPicker
-                  onConvert={(q) => void convertToTodo(q)}
-                  isBusy={convertBusy}
-                  suggestedQuadrant={suggestedQuadrant}
-                />
-              </>
-            )}
-            {onForward && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onPress={onForwardClick}
-                aria-label="Transférer le message"
-              >
-                <ArrowBendUpRight size={14} /> Transférer
-              </Button>
-            )}
-            {clientId && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onPress={() => void onMarkUnread()}
-                aria-label="Marquer comme non lu"
-              >
-                <Envelope size={14} /> Non lu
-              </Button>
-            )}
+          {/* Boutons DIRECTS : seulement Étoile (à gauche du sujet) + TriageBar.
+              Toutes les actions SECONDAIRES sont regroupées dans le menu « Plus »
+              (kebab) ci-dessous — masqué en mode embed. On garde un Popover (et
+              non DropdownMenu items) car 4 actions sont des composants
+              self-contained à overlay propre : on les déplace tels quels. */}
+          <div className="flex shrink-0 items-center justify-end gap-1.5">
             {clientId && (
               <TriageBar clientId={clientId} threadId={thread.id} onTriaged={onTriaged} />
+            )}
+            {!embedded && (
+              <Popover isOpen={moreOpen} onOpenChange={setMoreOpen}>
+                <Button
+                  isIconOnly
+                  variant="ghost"
+                  size="sm"
+                  aria-label="Plus d'actions"
+                  className="h-8 min-h-8 w-8 min-w-8 shrink-0"
+                >
+                  <DotsThreeVertical size={18} aria-hidden />
+                </Button>
+                <Popover.Content className="w-64 p-1">
+                  <Popover.Dialog className="outline-none">
+                    <div className="flex flex-col gap-0.5">
+                      {aiConfigured && (
+                        <Button
+                          variant="ghost"
+                          onPress={() => {
+                            setMoreOpen(false);
+                            onSummaryClick();
+                          }}
+                          isDisabled={summaryBusy}
+                          className={MENU_ROW}
+                          aria-label="Résumer le fil avec l'IA locale"
+                        >
+                          {summaryBusy ? <Spinner size="sm" /> : <Sparkle size={16} />}
+                          <span>Résumer</span>
+                        </Button>
+                      )}
+                      {aiConfigured && (
+                        <div className={MENU_COMPONENT_ROW}>
+                          <ExtractActionsButton thread={aiThread} />
+                        </div>
+                      )}
+                      {clientId && aiConfigured && (
+                        <Button
+                          variant="ghost"
+                          onPress={() => void runSuggestQuadrant()}
+                          isDisabled={suggestBusy}
+                          className={MENU_ROW}
+                          aria-label="Suggérer un quadrant Eisenhower avec l'IA locale"
+                        >
+                          {suggestBusy ? <Spinner size="sm" /> : <Sparkle size={16} />}
+                          <span>Suggérer quadrant</span>
+                        </Button>
+                      )}
+                      {clientId && (
+                        <div className={MENU_COMPONENT_ROW}>
+                          <MailEisenhowerPicker
+                            onConvert={(q) => void convertToTodo(q)}
+                            isBusy={convertBusy}
+                            suggestedQuadrant={suggestedQuadrant}
+                          />
+                        </div>
+                      )}
+                      {onForward && (
+                        <Button
+                          variant="ghost"
+                          onPress={() => {
+                            setMoreOpen(false);
+                            onForwardClick();
+                          }}
+                          className={MENU_ROW}
+                          aria-label="Transférer le message"
+                        >
+                          <ArrowBendUpRight size={16} />
+                          <span>Transférer</span>
+                        </Button>
+                      )}
+                      {clientId && (
+                        <Button
+                          variant="ghost"
+                          onPress={() => {
+                            setMoreOpen(false);
+                            void onMarkUnread();
+                          }}
+                          className={MENU_ROW}
+                          aria-label="Marquer comme non lu"
+                        >
+                          <Envelope size={16} />
+                          <span>Non lu</span>
+                        </Button>
+                      )}
+                      {correspondentMsg && (
+                        <div className={MENU_COMPONENT_ROW}>
+                          <EnrichContactFromEmail message={correspondentMsg} />
+                        </div>
+                      )}
+                      <div className={MENU_COMPONENT_ROW}>
+                        <EmailToEventButton message={firstMsg} />
+                      </div>
+                    </div>
+                  </Popover.Dialog>
+                </Popover.Content>
+              </Popover>
             )}
           </div>
         </div>
@@ -636,7 +713,9 @@ export function EmailThreadView({
                 size="sm"
                 onPress={() => void mutate(l.id, "remove")}
                 aria-label={`Retirer le label ${l.name}`}
-                className="ml-0.5 h-auto min-h-0 min-w-0 p-0 hover:opacity-70"
+                /* Icône petite mais zone cliquable ≥32px (cible tactile) ; marge
+                   négative pour ne pas gonfler la hauteur du badge. */
+                className="-my-1.5 ml-0.5 inline-flex h-8 min-h-8 w-8 min-w-8 shrink-0 items-center justify-center p-0 hover:opacity-70"
               >
                 <X size={10} />
               </Button>
@@ -655,10 +734,6 @@ export function EmailThreadView({
           </Button>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          {correspondentMsg && <EnrichContactFromEmail message={correspondentMsg} />}
-          <EmailToEventButton message={firstMsg} />
-        </div>
       </div>
 
       {aiConfigured && summaryOpen && (
@@ -726,7 +801,26 @@ export function EmailThreadView({
         />
       ))}
 
-      {clientId && replyParams.to && (
+      {/* Mode embed : pas de composeur inline (on ne répond pas depuis un bloc
+          note) → lien direct vers le fil dans Gmail à la place. */}
+      {embedded && (
+        <div
+          className="mt-1 flex justify-end border-t px-1 pt-2"
+          style={{ borderColor: "var(--border-subtle)" }}
+        >
+          <a
+            href={thread.messages[thread.messages.length - 1]?.webLink ?? firstMsg.webLink}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-xs"
+            style={{ color: "var(--accent)", textDecoration: "none" }}
+          >
+            Ouvrir dans Gmail <ArrowSquareOut size={12} />
+          </a>
+        </div>
+      )}
+
+      {!embedded && clientId && replyParams.to && (
         <div
           className="sticky bottom-0 mt-1 border-t px-1 pb-2 pt-2"
           style={{ background: "var(--surface-1)", borderColor: "var(--border-subtle)" }}
@@ -781,7 +875,9 @@ export function EmailThreadView({
                     size="sm"
                     onPress={() => removeReplyAttachment(i)}
                     aria-label={`Retirer ${att.filename}`}
-                    className="h-4 w-4 min-h-0 min-w-0 p-0"
+                    /* Icône petite mais zone cliquable ≥32px (cible tactile) ;
+                       marge négative pour ne pas gonfler la hauteur du chip. */
+                    className="-my-1.5 inline-flex h-8 min-h-8 w-8 min-w-8 shrink-0 items-center justify-center p-0"
                   >
                     <X size={11} />
                   </Button>

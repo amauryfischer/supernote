@@ -27,7 +27,12 @@
  *  - Le CSS inline (`style="…"`) reste autorisé par défaut pour préserver la
  *    mise en forme ; il est borné côté conteneur (max-width, overflow) mais peut
  *    déborder visuellement. DOMPurify neutralise les `style` dangereux
- *    (expression(), url(javascript:)…).
+ *    (expression(), url(javascript:)…). En complément, on RETIRE le CSS de mise
+ *    en page hors-flux (`position: fixed/absolute/sticky`, `z-index`,
+ *    `top/right/bottom/left`, `inset`) qui permettrait à un email de dessiner un
+ *    overlay plein écran captant les clics (clickjacking) — voir
+ *    `sanitizeLayoutStyle`. Les déclarations bénignes (couleurs/typo) sont
+ *    conservées.
  */
 
 import DOMPurify from "dompurify";
@@ -35,16 +40,73 @@ import DOMPurify from "dompurify";
 let hookRegistered = false;
 
 /**
- * Enregistre (une seule fois) le hook qui force des attributs de lien sûrs.
- * Idempotent : on garde un flag pour ne pas empiler le hook à chaque appel.
+ * Propriétés CSS de positionnement retirées inconditionnellement d'un `style`
+ * inline : sans positionnement hors-flux elles sont sans effet, mais combinées à
+ * `position` elles servent à construire un overlay (clickjacking). On les retire
+ * donc systématiquement. `position` est traité à part (seules les valeurs
+ * hors-flux fixed/absolute/sticky sont retirées ; relative/static restent).
+ */
+const BLOCKED_LAYOUT_PROPS = new Set([
+  "z-index",
+  "top",
+  "right",
+  "bottom",
+  "left",
+  "inset",
+  "inset-block",
+  "inset-block-start",
+  "inset-block-end",
+  "inset-inline",
+  "inset-inline-start",
+  "inset-inline-end",
+]);
+
+/**
+ * Neutralise le CSS de mise en page dangereux d'un attribut `style` inline
+ * (chaîne `prop: val; …`). Retire `position` hors-flux (fixed/absolute/sticky) et
+ * toutes les propriétés de `BLOCKED_LAYOUT_PROPS` ; conserve le reste à
+ * l'identique (couleurs, typo…). Traitement chaîne (indépendant du CSSOM) pour
+ * rester robuste quel que soit le moteur (jsdom/navigateur). Renvoie la chaîne
+ * de style nettoyée (éventuellement vide). Pur.
+ */
+function sanitizeLayoutStyle(style: string): string {
+  const kept: string[] = [];
+  for (const decl of style.split(";")) {
+    const idx = decl.indexOf(":");
+    if (idx === -1) continue;
+    const prop = decl.slice(0, idx).trim().toLowerCase();
+    const value = decl.slice(idx + 1).trim();
+    if (!prop || !value) continue;
+    if (prop === "position") {
+      const v = value.toLowerCase();
+      if (v === "fixed" || v === "absolute" || v === "sticky") continue;
+    } else if (BLOCKED_LAYOUT_PROPS.has(prop)) {
+      continue;
+    }
+    kept.push(`${prop}: ${value}`);
+  }
+  return kept.join("; ");
+}
+
+/**
+ * Enregistre (une seule fois) le hook `afterSanitizeAttributes` qui (1) force des
+ * attributs de lien sûrs (`target=_blank` + `rel`) et (2) neutralise le CSS de
+ * mise en page dangereux des `style` inline (anti-clickjacking, cf.
+ * `sanitizeLayoutStyle`). Idempotent : un flag évite d'empiler le hook.
  */
 function ensureLinkHook(): void {
   if (hookRegistered) return;
   hookRegistered = true;
   DOMPurify.addHook("afterSanitizeAttributes", (node) => {
-    if (node instanceof Element && node.tagName === "A") {
+    if (!(node instanceof Element)) return;
+    if (node.tagName === "A") {
       node.setAttribute("target", "_blank");
       node.setAttribute("rel", "noopener noreferrer");
+    }
+    if (node.hasAttribute("style")) {
+      const cleaned = sanitizeLayoutStyle(node.getAttribute("style") ?? "");
+      if (cleaned) node.setAttribute("style", cleaned);
+      else node.removeAttribute("style");
     }
   });
 }

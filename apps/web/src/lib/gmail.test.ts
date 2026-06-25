@@ -759,6 +759,37 @@ describe("buildRawMessage", () => {
     });
     expect(raw).not.toContain("multipart/mixed");
   });
+
+  it("retire CR/LF d'un sujet (empêche l'injection d'en-tête)", () => {
+    const raw = buildRawMessage({ subject: "Hello\r\nBcc: evil@x.io", body: "b" });
+    // Aucun en-tête Bcc injecté ; le sujet reste sur une seule ligne.
+    expect(raw).not.toMatch(/^Bcc:/m);
+    const subjectLine = raw.split("\r\n").find((l) => l.startsWith("Subject:"));
+    expect(subjectLine).toBe("Subject: HelloBcc: evil@x.io");
+  });
+
+  it("retire CR/LF des References (valeur issue d'un email reçu, non fiable)", () => {
+    const raw = buildRawMessage({
+      subject: "s",
+      body: "b",
+      references: "<a@x>\r\nBcc: evil@x.io",
+    });
+    expect(raw).not.toMatch(/^Bcc:/m);
+    const refLine = raw.split("\r\n").find((l) => l.startsWith("References:"));
+    expect(refLine).toBe("References: <a@x>Bcc: evil@x.io");
+  });
+
+  it("retire CR/LF du filename d'une pièce jointe (anti-injection MIME)", () => {
+    const raw = buildRawMessage({
+      subject: "s",
+      body: "b",
+      attachments: [
+        { filename: "a\r\nContent-Type: text/html", mimeType: "text/plain", base64: "AAA=" },
+      ],
+    });
+    // Le filename est recollé sur une seule ligne, aucun header injecté.
+    expect(raw).toContain('filename="aContent-Type: text/html"');
+  });
 });
 
 describe("formatRecipients", () => {

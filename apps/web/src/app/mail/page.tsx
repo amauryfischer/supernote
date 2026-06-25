@@ -72,6 +72,13 @@ export default function MailPage() {
   // liste pour le scroll-into-view de la ligne sélectionnée.
   const [selectedRowIndex, setSelectedRowIndex] = useState(-1);
   const listScrollRef = useRef<HTMLDivElement | null>(null);
+  // Anti-course (race guards). Chaque ouverture de fil / rechargement de liste
+  // s'attribue un jeton croissant ; une réponse réseau plus lente qu'un
+  // souhait plus récent est ignorée (cf. emailReqIdRef de UnifiedSearchModal).
+  //   reqRef     → openThread (et restauration de fil dans handleReplied)
+  //   loadReqRef → loadList
+  const reqRef = useRef(0);
+  const loadReqRef = useRef(0);
   // Sélection multiple (desktop) : Set des threadIds cochés. Cocher un groupe
   // coche tous ses threads (cf. mail-selection). Pas activée sur mobile.
   const [selectedThreadIds, setSelectedThreadIds] = useState<Set<string>>(new Set());
@@ -123,6 +130,7 @@ export default function MailPage() {
 
   const loadList = useCallback(
     async (q: string) => {
+      const reqId = ++loadReqRef.current;
       setListLoading(true);
       setListError(null);
       setSelectedGroup(null);
@@ -133,6 +141,9 @@ export default function MailPage() {
           listThreadSummariesPage(clientId, q),
           listLabels(clientId).catch(() => [] as Awaited<ReturnType<typeof listLabels>>),
         ]);
+        // Un rechargement plus récent a démarré entre-temps → on n'écrase pas son
+        // état (rows / curseur / labels / pagination) avec une réponse périmée.
+        if (reqId !== loadReqRef.current) return;
         const names = new Map(labels.map((l) => [l.id, l.name]));
         setLabelNames(names);
         setLabelColors(
@@ -145,9 +156,10 @@ export default function MailPage() {
         const visible = page.items.filter((it) => !getBinding(it.id));
         setRows(buildMailOverlay(visible, names, settings.gmail.connectedEmail));
       } catch (err) {
+        if (reqId !== loadReqRef.current) return;
         setListError(err instanceof Error ? err.message : String(err));
       } finally {
-        setListLoading(false);
+        if (reqId === loadReqRef.current) setListLoading(false);
       }
     },
     [clientId, settings.gmail.connectedEmail],
@@ -203,6 +215,7 @@ export default function MailPage() {
   }, [connected, clientId]);
 
   const openThread = async (threadId: string) => {
+    const reqId = ++reqRef.current;
     setThreadLoading(true);
     setThreadError(null);
     setSelectedThreadId(threadId);
@@ -225,11 +238,16 @@ export default function MailPage() {
       }),
     );
     try {
-      setThread(await getThread(clientId, threadId));
+      const t = await getThread(clientId, threadId);
+      // Un fil plus récent a été ouvert pendant le fetch → on ignore ce résultat
+      // périmé pour ne pas écraser le fil courant.
+      if (reqId !== reqRef.current) return;
+      setThread(t);
     } catch (err) {
+      if (reqId !== reqRef.current) return;
       setThreadError(err instanceof Error ? err.message : String(err));
     } finally {
-      setThreadLoading(false);
+      if (reqId === reqRef.current) setThreadLoading(false);
     }
   };
 
@@ -715,16 +733,28 @@ export default function MailPage() {
   // le fil ouvert reste ouvert avec sa réponse fraîchement envoyée.
   const handleReplied = useCallback(() => {
     const id = selectedThreadId;
+    const group = selectedGroup;
+    // Jeton « dernier souhait » : openThread incrémente reqRef. S'il change
+    // pendant le rechargement, c'est que l'utilisateur a ouvert un autre fil →
+    // on ne restaure pas l'ancien (sinon on écraserait sa navigation).
+    const wishToken = reqRef.current;
     void loadList(query).then(() => {
       if (!id) return;
+      if (reqRef.current !== wishToken) return;
+      // Restaure le fil ouvert ET le volet groupe (loadList les a remis à null).
+      setSelectedGroup(group);
       setSelectedThreadId(id);
+      const reqId = ++reqRef.current;
       getThread(clientId, id)
-        .then((t) => setThread(t))
+        .then((t) => {
+          if (reqId !== reqRef.current) return;
+          setThread(t);
+        })
         .catch(() => {
           /* re-fetch best-effort : la liste rechargée reflète déjà l'envoi */
         });
     });
-  }, [clientId, selectedThreadId, query, loadList]);
+  }, [clientId, selectedThreadId, selectedGroup, query, loadList]);
 
   const activeKey = selectedGroup?.key ?? (selectedThreadId ? `t:${selectedThreadId}` : undefined);
 

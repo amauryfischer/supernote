@@ -5,8 +5,9 @@
  *   "pro", sinon la première non vide).
  * - `dedupeEmails` : dé-duplique une liste d'adresses (insensible à la casse),
  *   conserve la première occurrence, retire les vides.
- * - `parseRecipientInput` : découpe une saisie libre ("," ";" espaces, retours
- *   ligne) en adresses.
+ * - `parseRecipientInput` : découpe une saisie libre ("," ";" retours ligne) en
+ *   destinataires. NE coupe PAS sur les espaces (un token peut être un nom
+ *   affiché « Nom Prénom <a@b.com> »).
  *
  * Sans dépendance React/IPC → testable isolément.
  */
@@ -46,10 +47,15 @@ export function dedupeEmails(emails: string[]): string[] {
   return out;
 }
 
-/** Découpe une saisie manuelle (",", ";", espaces, retours ligne) en adresses. */
+/**
+ * Découpe une saisie manuelle en destinataires. Sépare UNIQUEMENT sur les
+ * virgules, points-virgules et retours ligne — PAS sur les espaces : un token
+ * peut être un destinataire au format display-name « Nom Prénom <a@b.com> »,
+ * conservé tel quel.
+ */
 export function parseRecipientInput(input: string): string[] {
   return input
-    .split(/[,;\s]+/)
+    .split(/[,;\r\n]+/)
     .map((s) => s.trim())
     .filter((s) => s.length > 0);
 }
