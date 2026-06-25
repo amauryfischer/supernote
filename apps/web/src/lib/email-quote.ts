@@ -26,6 +26,28 @@ function isDivider(line: string): boolean {
   );
 }
 
+// Labels d'en-tête d'un message cité/transféré (FR/EN).
+const FWD_LABEL =
+  /^(de|from|exp[ée]diteur|[àa]|to|envoy[ée]|sent|date|objet|subject|cc|copie)\s*:/i;
+
+/**
+ * Une ligne `De :`/`From:`/`Expéditeur:` qui ouvre un BLOC d'en-têtes de message
+ * cité (≥2 labels d'en-tête dans les ~7 lignes suivantes), p.ex. webmail/Outlook :
+ *   De : "X" <x@…>
+ *   À : "Y" <y@…>
+ *   Envoyé : jeudi …
+ *   Objet : Re: …
+ * Évite les faux positifs (une ligne « From: moi » isolée dans le corps).
+ */
+function isForwardHeaderBlock(lines: string[], i: number): boolean {
+  if (!/^(de|from|exp[ée]diteur)\s*:/i.test(lines[i]!.trim())) return false;
+  let labels = 0;
+  for (let j = i; j < Math.min(lines.length, i + 7); j++) {
+    if (FWD_LABEL.test(lines[j]!.trim())) labels++;
+  }
+  return labels >= 2;
+}
+
 export interface SplitReply {
   /** Texte neuf de la réponse (citation retirée). */
   body: string;
@@ -40,7 +62,7 @@ export function splitQuotedReply(raw: string): SplitReply {
   let cut = -1;
   for (let i = 0; i < lines.length; i++) {
     const t = lines[i]!.trim();
-    if (t.startsWith(">") || isDivider(t) || isAttribution(t)) {
+    if (t.startsWith(">") || isDivider(t) || isAttribution(t) || isForwardHeaderBlock(lines, i)) {
       cut = i;
       // Remonter pour inclure une ligne d'attribution juste avant le bloc cité
       // (« Le … a écrit : » suivie de lignes « > »).

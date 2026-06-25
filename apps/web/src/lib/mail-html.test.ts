@@ -1,6 +1,42 @@
 // @vitest-environment jsdom
 import { describe, it, expect } from "vitest";
-import { sanitizeEmailHtml } from "./mail-html";
+import { sanitizeEmailHtml, splitQuotedHtml } from "./mail-html";
+
+describe("splitQuotedHtml", () => {
+  it("sépare un conteneur gmail_quote", () => {
+    const html = `<div>Bonjour</div><div class="gmail_quote"><div>On Thu wrote:</div><blockquote>ancien</blockquote></div>`;
+    const { body, quoted } = splitQuotedHtml(html);
+    expect(body).toContain("Bonjour");
+    expect(body).not.toContain("ancien");
+    expect(quoted).toContain("ancien");
+  });
+
+  it("sépare un blockquote final", () => {
+    const { body, quoted } = splitQuotedHtml("<p>Nouveau</p><blockquote>cité</blockquote>");
+    expect(body).toContain("Nouveau");
+    expect(body).not.toContain("cité");
+    expect(quoted).toContain("cité");
+  });
+
+  it("inclut la ligne d'attribution juste avant le bloc cité", () => {
+    const html = `<div>Salut</div><div>On Thu, Jun 25, 2026 at 3:38 PM a@b wrote:</div><blockquote>vieux</blockquote>`;
+    const { body, quoted } = splitQuotedHtml(html);
+    expect(body).toContain("Salut");
+    expect(body).not.toMatch(/wrote:/);
+    expect(quoted).toMatch(/wrote:/);
+    expect(quoted).toContain("vieux");
+  });
+
+  it("sans citation → tout en body", () => {
+    const { body, quoted } = splitQuotedHtml("<p>Juste un message</p>");
+    expect(body).toContain("Juste un message");
+    expect(quoted).toBe("");
+  });
+
+  it("vide → vide", () => {
+    expect(splitQuotedHtml("")).toEqual({ body: "", quoted: "" });
+  });
+});
 
 describe("sanitizeEmailHtml", () => {
   it("conserve le HTML de mise en forme basique", () => {

@@ -26,7 +26,7 @@ import {
   type BubbleKind,
 } from "@/lib/gmail";
 import { parseEmailBody } from "@/lib/email-quote";
-import { sanitizeEmailHtml } from "@/lib/mail-html";
+import { sanitizeEmailHtml, splitQuotedHtml } from "@/lib/mail-html";
 import {
   filesToAttachments,
   toOutgoing,
@@ -1172,19 +1172,22 @@ function MessageBubble({
   // Chemin HTML : si le mail a un corps text/html, on le rend sanitizé (DOMPurify)
   // SANS extraire citation/signature (on affiche le HTML complet, tel que conçu
   // par l'expéditeur). Mémoïsé : la sanitization touche le DOM (template parse).
-  const safeHtml = useMemo(
-    () => (message.bodyHtml ? sanitizeEmailHtml(message.bodyHtml) : ""),
+  // Chemin HTML : sanitize PUIS sépare le contenu neuf de la citation (historique
+  // de réponses/transfert) pour ne pas afficher de « blocs rémanents ». La
+  // citation reste accessible via un bloc repliable.
+  const htmlParts = useMemo(
+    () => (message.bodyHtml ? splitQuotedHtml(sanitizeEmailHtml(message.bodyHtml)) : null),
     [message.bodyHtml],
   );
   // Chemin texte (fallback historique) : parse uniquement quand pas de HTML.
   const { body, quoted, signature } = useMemo(
-    () => (safeHtml ? { body: "", quoted: "", signature: "" } : parseEmailBody(message.bodyText || message.snippet)),
-    [safeHtml, message.bodyText, message.snippet],
+    () => (htmlParts ? { body: "", quoted: "", signature: "" } : parseEmailBody(message.bodyText || message.snippet)),
+    [htmlParts, message.bodyText, message.snippet],
   );
   // Injecte le CSS scopé du conteneur HTML à la 1ʳᵉ bulle HTML rendue.
   useEffect(() => {
-    if (safeHtml) ensureMailHtmlStyle();
-  }, [safeHtml]);
+    if (htmlParts) ensureMailHtmlStyle();
+  }, [htmlParts]);
   return (
     <div className={`flex ${mine ? "justify-end" : "justify-start"}`}>
       <div
@@ -1214,16 +1217,27 @@ function MessageBubble({
           </span>
         </div>
 
-        {safeHtml ? (
+        {htmlParts ? (
           // Corps HTML sanitizé (DOMPurify) — conteneur isolé : largeur bornée,
-          // retour à la ligne des longs contenus, images responsives. Pas de
-          // citation/signature dépliable sur ce chemin (HTML complet affiché).
-          <div
-            className="sn-mail-html max-w-full overflow-x-auto break-words text-sm"
-            style={{ color: "var(--text-secondary)" }}
-            // eslint-disable-next-line react/no-danger -- contenu sanitizé en amont (sanitizeEmailHtml)
-            dangerouslySetInnerHTML={{ __html: safeHtml }}
-          />
+          // retour à la ligne, images responsives. La citation (historique) est
+          // séparée et repliée pour éviter les « blocs rémanents ».
+          <>
+            {htmlParts.body && (
+              <div
+                className="sn-mail-html max-w-full overflow-x-auto break-words text-sm"
+                style={{ color: "var(--text-secondary)" }}
+                // eslint-disable-next-line react/no-danger -- contenu sanitizé en amont (sanitizeEmailHtml)
+                dangerouslySetInnerHTML={{ __html: htmlParts.body }}
+              />
+            )}
+            {htmlParts.quoted && (
+              <CollapsibleHtml
+                openLabel="··· Afficher la citation"
+                closeLabel="Masquer la citation"
+                html={htmlParts.quoted}
+              />
+            )}
+          </>
         ) : (
           <>
             {body && (
@@ -1356,6 +1370,42 @@ function CollapsibleBlock({
         >
           {text}
         </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Variante de `CollapsibleBlock` pour la citation du chemin HTML : rend du HTML
+ * DÉJÀ sanitizé (sortie de `splitQuotedHtml(sanitizeEmailHtml(...))`).
+ */
+function CollapsibleHtml({
+  openLabel,
+  closeLabel,
+  html,
+}: {
+  openLabel: string;
+  closeLabel: string;
+  html: string;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mt-1.5">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="text-xs"
+        style={{ color: "var(--text-muted)", background: "none", border: "none", cursor: "pointer", padding: 0 }}
+      >
+        {open ? closeLabel : openLabel}
+      </button>
+      {open && (
+        <div
+          className="sn-mail-html mt-1 max-w-full overflow-x-auto break-words border-l pl-2 text-sm"
+          style={{ color: "var(--text-muted)", borderColor: "var(--border-subtle)" }}
+          // eslint-disable-next-line react/no-danger -- HTML déjà sanitizé en amont
+          dangerouslySetInnerHTML={{ __html: html }}
+        />
       )}
     </div>
   );

@@ -117,6 +117,56 @@ function ensureLinkHook(): void {
  * vue de l'appelant (pas d'effet de bord observable hors enregistrement unique
  * du hook DOMPurify). Renvoie `""` pour une entrée vide.
  */
+/**
+ * Conteneurs de citation reconnus par les clients courants (Gmail, Yahoo,
+ * ProtonMail, Outlook `#appendonsend`, Thunderbird `.moz-cite-prefix`).
+ */
+const QUOTE_SELECTOR =
+  "blockquote, .gmail_quote, [class*='gmail_quote'], .gmail_extra, .yahoo_quoted, .protonmail_quote, #appendonsend, .moz-cite-prefix";
+
+/** Ligne d'attribution (« … a écrit : » / « … wrote: ») terminant un paragraphe. */
+const HTML_ATTR_RE = /\b(?:wrote|a[\s ]+[ée]crit|[ée]crit)\s*:?\s*$/i;
+
+/**
+ * Sépare un corps HTML d'e-mail DÉJÀ sanitizé en { body, quoted } : le contenu
+ * « neuf » vs l'historique cité (chaîne de réponses/transfert). Coupe au PREMIER
+ * conteneur de citation (cf. `QUOTE_SELECTOR`), en incluant une éventuelle ligne
+ * d'attribution juste avant ; tout ce qui suit part dans `quoted`. Sans marqueur
+ * → tout reste `body`. Opère sur du HTML déjà nettoyé (donc `quoted` reste sûr).
+ * Pur (DOMParser, pas d'effet de bord). En l'absence de DOMParser → no-op.
+ */
+export function splitQuotedHtml(html: string): { body: string; quoted: string } {
+  if (!html || typeof DOMParser === "undefined") return { body: html, quoted: "" };
+  let doc: Document;
+  try {
+    doc = new DOMParser().parseFromString(html, "text/html");
+  } catch {
+    return { body: html, quoted: "" };
+  }
+  const root = doc.body;
+  const q = root.querySelector(QUOTE_SELECTOR);
+  if (!q) return { body: html, quoted: "" };
+  // Remonter jusqu'à l'ancêtre enfant direct de <body>.
+  let top: Element = q;
+  while (top.parentElement && top.parentElement !== root) top = top.parentElement;
+  // Inclure une ligne d'attribution (« … wrote: ») juste avant le bloc cité.
+  let firstQuoted: Node = top;
+  let prev: Node | null = top.previousSibling;
+  while (prev && prev.nodeType === 3 && (prev.textContent ?? "").trim() === "") {
+    prev = prev.previousSibling;
+  }
+  if (prev && prev.nodeType === 1 && HTML_ATTR_RE.test((prev.textContent ?? "").trim())) {
+    firstQuoted = prev;
+  }
+  const quotedNodes: Node[] = [];
+  for (let n: Node | null = firstQuoted; n; n = n.nextSibling) quotedNodes.push(n);
+  const serialize = (node: Node) =>
+    node.nodeType === 1 ? (node as Element).outerHTML : node.textContent ?? "";
+  const quoted = quotedNodes.map(serialize).join("");
+  for (const node of quotedNodes) node.parentNode?.removeChild(node);
+  return { body: root.innerHTML.trim(), quoted: quoted.trim() };
+}
+
 export function sanitizeEmailHtml(dirty: string): string {
   if (!dirty) return "";
   ensureLinkHook();

@@ -118,6 +118,30 @@ describe("collapseBlankLines", () => {
   });
 });
 
+describe("splitQuotedReply — bloc d'en-têtes de transfert (De:/Envoyé:/Objet:)", () => {
+  it("coupe au bloc d'en-têtes cités", () => {
+    const raw = [
+      "Voici l'info.",
+      "",
+      'De : "Hadrien Buguet" <hadrien@x.fr>',
+      'À : "Amaury" <amaury@x.fr>',
+      "Envoyé: jeudi 25 Juin 2026 14:46",
+      "Objet : Re: Séisme",
+      "Bonjour monsieur,",
+    ].join("\n");
+    const { body, quoted } = splitQuotedReply(raw);
+    expect(body).toBe("Voici l'info.");
+    expect(quoted).toContain("De :");
+    expect(quoted).toContain("Bonjour monsieur");
+  });
+
+  it("une ligne « From: … » isolée n'est PAS prise pour une citation", () => {
+    const { body, quoted } = splitQuotedReply("From: moi, je pense que oui.\nLa suite du message.");
+    expect(quoted).toBe("");
+    expect(body).toContain("La suite");
+  });
+});
+
 describe("cleanBody (exemple A — liens inline Outlook)", () => {
   const exA = [
     "Charlotte de Longcamp",
