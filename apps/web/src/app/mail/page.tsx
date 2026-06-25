@@ -881,36 +881,45 @@ export default function MailPage() {
   // de boutons (cohérent avec ViewTabs / la nav de /bases), pas le composant
   // Tabs : on garde la maîtrise du contenu rendu sous chaque onglet.
   const tabStrip = (
-    <div
-      className="flex items-center gap-1 border-b px-3 py-2"
-      style={{ borderColor: "var(--border-subtle)" }}
-    >
-      {(
-        [
-          { id: "inbox" as const, label: "Inbox" },
-          { id: "todo" as const, label: "Todo" },
-        ] satisfies { id: "inbox" | "todo"; label: string }[]
-      ).map((t) => {
-        const active = mailTab === t.id;
-        return (
-          <Button
-            key={t.id}
-            variant="ghost"
-            size="sm"
-            onPress={() => setMailTab(t.id)}
-            className="sn-motion-colors sn-pressable rounded-md px-3 py-1.5 text-[13px] font-medium"
-            style={
-              active
-                ? { backgroundColor: "var(--surface-2)", color: "var(--text-primary)" }
-                : { color: "var(--text-muted)" }
-            }
-            aria-pressed={active}
-          >
-            {t.label}
-            {t.id === "todo" && todoBindings.length > 0 ? ` · ${todoBindings.length}` : ""}
-          </Button>
-        );
-      })}
+    <div className="border-b px-3 py-2" style={{ borderColor: "var(--border-subtle)" }}>
+      {/* Segmented control (pilule) — onglet actif = pastille surface-0 + accent. */}
+      <div
+        className="inline-flex rounded-full p-0.5"
+        style={{ backgroundColor: "var(--surface-2)" }}
+        role="tablist"
+        aria-label="Vue mail"
+      >
+        {(
+          [
+            { id: "inbox" as const, label: "Inbox" },
+            { id: "todo" as const, label: "Todo" },
+          ] satisfies { id: "inbox" | "todo"; label: string }[]
+        ).map((t) => {
+          const active = mailTab === t.id;
+          return (
+            <Button
+              key={t.id}
+              variant="ghost"
+              size="sm"
+              onPress={() => setMailTab(t.id)}
+              className="sn-motion-colors rounded-full px-3.5 py-1 text-sm font-medium"
+              style={
+                active
+                  ? {
+                      backgroundColor: "var(--surface-0)",
+                      color: "var(--accent)",
+                      boxShadow: "0 1px 2px rgb(0 0 0 / 0.08)",
+                    }
+                  : { backgroundColor: "transparent", color: "var(--text-muted)" }
+              }
+              aria-pressed={active}
+            >
+              {t.label}
+              {t.id === "todo" && todoBindings.length > 0 ? ` · ${todoBindings.length}` : ""}
+            </Button>
+          );
+        })}
+      </div>
     </div>
   );
 

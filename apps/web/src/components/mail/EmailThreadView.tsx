@@ -1144,7 +1144,7 @@ function MessageBubble({
   return (
     <div className={`flex ${mine ? "justify-end" : "justify-start"}`}>
       <div
-        className="max-w-[85%] rounded-2xl border px-3.5 py-2.5"
+        className="max-w-[80%] rounded-2xl border px-3.5 py-2.5"
         style={{
           backgroundColor: mine ? "var(--accent-subtle)" : internal ? INTERNAL_BG : "var(--surface-1)",
           borderColor: internal ? INTERNAL_BORDER : "var(--border-subtle)",
@@ -1194,7 +1194,7 @@ function MessageBubble({
         ) : (
           <>
             {body && (
-              <p className="whitespace-pre-wrap break-words text-sm" style={{ color: "var(--text-secondary)" }}>
+              <p className="whitespace-pre-wrap break-words text-sm leading-relaxed" style={{ color: "var(--text-secondary)" }}>
                 {body}
               </p>
             )}

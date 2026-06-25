@@ -8,6 +8,7 @@ import { rowCheckState } from "@/lib/mail-selection";
 import { QUADRANTS, type EisenhowerQuadrant } from "@/lib/mail-eisenhower";
 import { SNOOZE_PRESETS, type TriageAction } from "@/lib/mail-triage";
 import type { GmailLabelColor } from "@/lib/gmail";
+import { initials, avatarColor } from "@/lib/mail-avatar";
 
 function shortDate(d: string): string {
   return d ? new Date(d).toLocaleDateString(undefined, { day: "2-digit", month: "short" }) : "";
@@ -89,12 +90,21 @@ export function MailOverlayList({
         const singleItem = row.kind === "single" ? row.item : null;
         const cursored = selectedIndex === idx;
         const checkState = selectable ? rowCheckState(row, selectedThreadIds!) : "unchecked";
+        // Monogramme + aperçu : expéditeur (single / groupe sender) et 1ʳᵉ ligne
+        // de snippet. Couleur déterministe sobre dérivée de l'email/nom.
+        const fromAddr =
+          singleItem?.from ??
+          (row.kind === "group" && row.groupType === "sender" ? row.items[0]?.from : undefined);
+        const preview =
+          row.kind === "single" ? row.item.snippet : row.kind === "group" ? row.items[0]?.snippet ?? "" : "";
+        const avatar = avatarColor(fromAddr?.email || fromAddr?.name || title);
+        const mono = initials(fromAddr?.name ?? "", fromAddr?.email ?? title);
         const rowButton = (
           <Button
             data-mail-row-index={idx}
             variant="ghost"
             onPress={() => onPick(row)}
-            className={`h-auto w-full min-w-0 flex-1 justify-start whitespace-normal rounded-lg px-3 py-2 text-left${
+            className={`h-auto w-full min-w-0 flex-1 justify-start whitespace-normal rounded-lg px-2.5 py-2.5 text-left${
               cursored && activeKey !== key
                 ? " ring-2 ring-inset ring-[var(--accent)] ring-offset-0"
                 : ""
@@ -109,37 +119,47 @@ export function MailOverlayList({
             }
             aria-selected={cursored || activeKey === key}
           >
-            <span className="flex w-full min-w-0 flex-col gap-0.5">
-              <span className="flex items-baseline justify-between gap-2">
+            <span className="flex w-full min-w-0 items-start gap-2.5">
+              {/* Monogramme expéditeur (signature visuelle) : tuile de label
+                  colorée, ou initiales sur fond déterministe sobre. Pastille
+                  non-lu en surimpression coin haut-gauche. */}
+              <span className="relative shrink-0">
+                <span
+                  aria-hidden
+                  className="flex h-8 w-8 items-center justify-center rounded-lg text-xs font-semibold"
+                  style={
+                    isLabel
+                      ? {
+                          backgroundColor: labelColor?.backgroundColor ?? "var(--accent-subtle)",
+                          color: labelColor?.textColor ?? "var(--accent)",
+                        }
+                      : { backgroundColor: avatar.bg, color: avatar.fg }
+                  }
+                >
+                  {isLabel ? <Tag size={14} /> : mono}
+                </span>
+                {unread && (
+                  <span
+                    aria-label="Non lu"
+                    title="Non lu"
+                    className="absolute -left-1 -top-1 h-2.5 w-2.5 rounded-full"
+                    style={{ backgroundColor: "var(--accent)", boxShadow: "0 0 0 2px var(--surface-0)" }}
+                  />
+                )}
+              </span>
+
+              {/* Colonne texte : expéditeur · objet · aperçu (toutes tronquées). */}
+              <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                 <span className="flex min-w-0 items-center gap-1.5">
-                  {unread && (
-                    <span
-                      aria-label="Non lu"
-                      title="Non lu"
-                      className="h-2 w-2 shrink-0 rounded-full"
-                      style={{ backgroundColor: "var(--accent)" }}
-                    />
-                  )}
-                  {isLabel ? (
-                    <span
-                      className={`inline-flex min-w-0 items-center gap-1 truncate rounded-full px-2 py-0.5 text-xs ${unread ? "font-bold" : "font-medium"}`}
-                      style={
-                        labelColor
-                          ? { backgroundColor: labelColor.backgroundColor, color: labelColor.textColor }
-                          : { backgroundColor: "var(--accent-subtle)", color: "var(--accent)" }
-                      }
-                    >
-                      <Tag size={11} aria-hidden />
-                      <span className="truncate">{title}</span>
-                    </span>
-                  ) : (
-                    <span className={`truncate text-sm ${unread ? "font-bold" : "font-medium"}`}>{title}</span>
-                  )}
+                  <span
+                    className={`truncate text-sm ${unread ? "font-semibold" : "font-medium"}`}
+                    style={{ color: "var(--text-primary)" }}
+                  >
+                    {title}
+                  </span>
                   {row.kind === "group" && (
                     <span
-                      className={`shrink-0 rounded-full px-1.5 text-xs ${
-                        groupUnread > 0 ? "font-bold" : ""
-                      }`}
+                      className={`shrink-0 rounded-full px-1.5 text-xs ${groupUnread > 0 ? "font-bold" : ""}`}
                       title={
                         groupUnread > 0
                           ? `${groupUnread} non lu${groupUnread > 1 ? "s" : ""} sur ${row.count}`
@@ -151,52 +171,59 @@ export function MailOverlayList({
                     </span>
                   )}
                 </span>
-                <span className="flex shrink-0 items-center gap-1">
-                  {/* Étoile : native (interactive imbriquée dans la ligne-Button →
-                      pas de Button HeroUI nesté). stopPropagation = ne pas ouvrir
-                      le fil. Sur un groupe : indicateur passif non cliquable. */}
-                  {singleItem && onToggleStar ? (
-                    <span
-                      role="button"
-                      tabIndex={0}
-                      aria-label={starred ? "Retirer l'étoile" : "Mettre une étoile"}
-                      aria-pressed={starred}
-                      className="inline-flex shrink-0 cursor-pointer p-0.5"
-                      onClick={(e) => {
+                <span className="truncate text-[13px]" style={{ color: "var(--text-secondary)" }}>
+                  {subject}
+                </span>
+                {preview && (
+                  <span className="truncate text-xs" style={{ color: "var(--text-muted)" }}>
+                    {preview}
+                  </span>
+                )}
+              </span>
+
+              {/* Méta droite : date + étoile. */}
+              <span className="flex shrink-0 flex-col items-end gap-1">
+                <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+                  {shortDate(date)}
+                </span>
+                {/* Étoile : native (interactive imbriquée dans la ligne-Button →
+                    pas de Button HeroUI nesté). stopPropagation = ne pas ouvrir
+                    le fil. Sur un groupe : indicateur passif non cliquable. */}
+                {singleItem && onToggleStar ? (
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    aria-label={starred ? "Retirer l'étoile" : "Mettre une étoile"}
+                    aria-pressed={starred}
+                    className="inline-flex shrink-0 cursor-pointer p-0.5"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onToggleStar(singleItem.id, singleItem.labelIds);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
                         e.stopPropagation();
                         onToggleStar(singleItem.id, singleItem.labelIds);
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          onToggleStar(singleItem.id, singleItem.labelIds);
-                        }
-                      }}
-                    >
-                      <Star
-                        size={14}
-                        weight={starred ? "fill" : "regular"}
-                        style={{ color: starred ? "#f5b300" : "var(--text-muted)" }}
-                      />
-                    </span>
-                  ) : (
-                    starred && (
-                      <Star
-                        size={14}
-                        weight="fill"
-                        aria-label="Contient un message étoilé"
-                        style={{ color: "#f5b300" }}
-                      />
-                    )
-                  )}
-                  <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-                    {shortDate(date)}
+                      }
+                    }}
+                  >
+                    <Star
+                      size={14}
+                      weight={starred ? "fill" : "regular"}
+                      style={{ color: starred ? "#f5b300" : "var(--text-muted)" }}
+                    />
                   </span>
-                </span>
-              </span>
-              <span className="truncate text-sm" style={{ color: "var(--text-secondary)" }}>
-                {subject}
+                ) : (
+                  starred && (
+                    <Star
+                      size={14}
+                      weight="fill"
+                      aria-label="Contient un message étoilé"
+                      style={{ color: "#f5b300" }}
+                    />
+                  )
+                )}
               </span>
             </span>
           </Button>
