@@ -79,13 +79,21 @@ export function MailOverlayList({
           <Button
             key={selectable ? undefined : key}
             data-mail-row-index={idx}
-            variant={activeKey === key ? "primary" : "ghost"}
+            variant="ghost"
             onPress={() => onPick(row)}
-            className={`h-auto w-full min-w-0 flex-1 justify-start whitespace-normal px-3 py-2 text-left${
+            className={`h-auto w-full min-w-0 flex-1 justify-start whitespace-normal rounded-lg px-3 py-2 text-left${
               cursored && activeKey !== key
                 ? " ring-2 ring-inset ring-[var(--accent)] ring-offset-0"
                 : ""
             }`}
+            // Ligne ouverte : surlignage SOBRE (accent-subtle + barre accent à
+            // gauche), cohérent avec l'item actif de la sidebar — pas un bloc
+            // violet plein.
+            style={
+              activeKey === key
+                ? { backgroundColor: "var(--accent-subtle)", boxShadow: "inset 3px 0 0 0 var(--accent)" }
+                : undefined
+            }
             aria-selected={cursored || activeKey === key}
           >
             <span className="flex w-full min-w-0 flex-col gap-0.5">

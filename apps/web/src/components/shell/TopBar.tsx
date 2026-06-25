@@ -13,6 +13,13 @@ import { OnlineSyncIndicator } from "@/lib/online-sync/OnlineSyncIndicator";
 
 const ROUTE_LABELS: Record<string, string> = {
   notes: "Notes",
+  mail: "Mail",
+  archive: "Archive",
+  todos: "Todos",
+  habits: "Habitudes",
+  tags: "Tags",
+  ai: "Assistant IA",
+  pomodoro: "Pomodoro",
   journal: "Journal",
   contacts: "Contacts",
   finance: "Finance",

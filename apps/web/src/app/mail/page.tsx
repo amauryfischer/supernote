@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Button, Input } from "@heroui/react";
+import { Button, Input, Spinner } from "@heroui/react";
 import { FilePlus, Database, ArrowLeft, MagnifyingGlass, PencilSimple, Archive, Trash, EnvelopeOpen, X } from "@phosphor-icons/react";
 import { useNavigate } from "react-router-dom";
 import { useSettings } from "@/components/settings/SettingsContext";
@@ -58,6 +58,10 @@ export default function MailPage() {
   const { toast } = useToast();
 
   const [query, setQuery] = useState(DEFAULT_MAIL_QUERY);
+  // Texte de recherche AFFICHÉ (vide par défaut → placeholder). La requête Gmail
+  // effective (`query`) reste `in:inbox` quand le champ est vide : on ne montre
+  // jamais la syntaxe brute « in:inbox » à l'utilisateur.
+  const [searchText, setSearchText] = useState("");
   const [rows, setRows] = useState<OverlayRow[]>([]);
   const [listLoading, setListLoading] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
@@ -758,23 +762,30 @@ export default function MailPage() {
 
   const activeKey = selectedGroup?.key ?? (selectedThreadId ? `t:${selectedThreadId}` : undefined);
 
+  // Lance une recherche : requête effective = texte saisi, sinon l'inbox par
+  // défaut (jamais la syntaxe `in:inbox` exposée dans le champ).
+  const submitSearch = () => {
+    const q = searchText.trim() || DEFAULT_MAIL_QUERY;
+    setQuery(q);
+    void loadList(q);
+  };
   const searchBox = (
     <div className="flex gap-2 p-3">
       {!isMobile && (
         <Button variant="primary" onPress={openCompose}>
-          <PencilSimple size={16} /> Nouveau
+          <PencilSimple size={16} /> Nouveau message
         </Button>
       )}
       <Input
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        placeholder="Rechercher…"
+        value={searchText}
+        onChange={(e) => setSearchText(e.target.value)}
+        placeholder="Rechercher dans les emails…"
         className="flex-1"
         onKeyDown={(e) => {
-          if (e.key === "Enter") void loadList(query);
+          if (e.key === "Enter") submitSearch();
         }}
       />
-      <Button size="sm" variant="ghost" onPress={() => void loadList(query)} isIconOnly aria-label="Rechercher">
+      <Button size="sm" variant="ghost" onPress={submitSearch} isIconOnly aria-label="Rechercher">
         <MagnifyingGlass size={16} />
       </Button>
     </div>
@@ -920,13 +931,24 @@ export default function MailPage() {
     </div>
   ) : null;
 
+  // Capture = action SECONDAIRE → rangée discrète (petits boutons muets), pour ne
+  // pas concurrencer le triage/la réponse en haut du fil.
   const captureBar = thread ? (
-    <div className="flex shrink-0 gap-2 px-4 pb-2 pt-3">
-      <Button variant="ghost" size="sm" onPress={() => void handleCaptureNote()}>
-        <FilePlus size={16} /> Capturer en note
+    <div className="flex shrink-0 items-center gap-1 px-4 pb-1 pt-2">
+      <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+        Capturer :
+      </span>
+      <Button variant="ghost" size="sm" className="h-7 text-xs" onPress={() => void handleCaptureNote()}>
+        <FilePlus size={14} /> Note
       </Button>
-      <Button variant="ghost" size="sm" onPress={() => setCaptureOpen(true)} isDisabled={!thread?.messages[0]}>
-        <Database size={16} /> Capturer dans une base
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-7 text-xs"
+        onPress={() => setCaptureOpen(true)}
+        isDisabled={!thread?.messages[0]}
+      >
+        <Database size={14} /> Base
       </Button>
     </div>
   ) : null;
@@ -934,14 +956,16 @@ export default function MailPage() {
   const pane3 = (
     <div className="flex h-full min-w-0 flex-1 flex-col overflow-hidden">
       {threadLoading && (
-        <p className="px-4 py-4 text-sm" style={{ color: "var(--text-muted)" }}>
-          Chargement…
-        </p>
+        <div className="flex flex-1 items-center justify-center">
+          <Spinner aria-label="Chargement de l'email" />
+        </div>
       )}
-      {threadError && (
-        <p className="px-4 py-4 text-sm" style={{ color: "var(--color-danger, #ef4444)" }}>
-          {threadError}
-        </p>
+      {!threadLoading && threadError && (
+        <div className="flex flex-1 items-center justify-center px-6 text-center">
+          <p className="text-sm" style={{ color: "var(--color-danger, #ef4444)" }}>
+            {threadError}
+          </p>
+        </div>
       )}
       {!threadLoading && !threadError && thread && (
         <div
@@ -963,9 +987,13 @@ export default function MailPage() {
         </div>
       )}
       {!threadLoading && !threadError && !thread && (
-        <p className="px-4 py-4 text-sm" style={{ color: "var(--text-muted)" }}>
-          Sélectionne un email.
-        </p>
+        <div
+          className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center"
+          style={{ color: "var(--text-muted)" }}
+        >
+          <EnvelopeOpen size={32} weight="thin" aria-hidden />
+          <p className="text-sm">Sélectionne un email pour le lire ici.</p>
+        </div>
       )}
     </div>
   );
