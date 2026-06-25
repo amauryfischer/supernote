@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowSquareOut, Plus, X, Tag, MagnifyingGlass, Check, PaperPlaneTilt, Quotes, Paperclip, Star, Envelope, ArrowBendUpRight } from "@phosphor-icons/react";
-import { Button, Input } from "@heroui/react";
+import { ArrowSquareOut, Plus, X, Tag, MagnifyingGlass, Check, PaperPlaneTilt, Quotes, Paperclip, Star, Envelope, ArrowBendUpRight, Sparkle, MagicWand, ArrowsClockwise, CaretUp } from "@phosphor-icons/react";
+import { Button, Input, Spinner, Checkbox } from "@heroui/react";
 import { useToast } from "@supernote/ui";
 import { useSettings } from "@/components/settings/SettingsContext";
 import {
@@ -42,12 +42,20 @@ import { TriageBar } from "./TriageBar";
 import { EnrichContactFromEmail } from "./EnrichContactFromEmail";
 import { EmailToEventButton } from "./EmailToEventButton";
 import { MailEisenhowerPicker } from "./MailEisenhowerPicker";
+import { ExtractActionsButton } from "./ExtractActionsButton";
 import { INBOX_LABEL, type TriageAction } from "@/lib/mail-triage";
 import { modifyThreadLabels } from "@/lib/gmail";
 import { quadrantToTodoFields, type EisenhowerQuadrant } from "@/lib/mail-eisenhower";
 import { addBinding } from "@/lib/mail-todo-binding";
 import { trpcVanillaClient } from "@/lib/trpc/client";
 import { TODO_TYPE_ID } from "@/hooks/useTodoSync";
+import {
+  isAiConfigured,
+  summarizeThread,
+  draftReply,
+  suggestQuadrant,
+  type MailAiThread,
+} from "@/lib/mail-ai";
 
 /**
  * Affichage d'un thread Gmail façon messagerie (chat) : mes messages alignés à
@@ -176,11 +184,118 @@ export function EmailThreadView({
   // Pièces jointes de la réponse en cours (réinitialisées au changement de fil).
   const [replyAttachments, setReplyAttachments] = useState<PendingAttachment[]>([]);
   const replyFileRef = useRef<HTMLInputElement>(null);
+  // ─── IA locale (Ollama) : résumé du fil + brouillon de réponse ─────────────
+  // États dédiés ; resynchronisés au changement de fil (le résumé d'un fil ne
+  // doit pas « fuiter » sur le suivant).
+  const [summary, setSummary] = useState<string | null>(null);
+  const [summaryOpen, setSummaryOpen] = useState(false);
+  const [summaryBusy, setSummaryBusy] = useState(false);
+  const [draftBusy, setDraftBusy] = useState(false);
+  const [useNotes, setUseNotes] = useState(false);
+  // Quadrant Eisenhower suggéré par l'IA (best-effort) → pré-sélectionné dans le
+  // MailEisenhowerPicker (ouvre le Popover sur la cellule). Réinitialisé par fil.
+  const [suggestedQuadrant, setSuggestedQuadrant] = useState<EisenhowerQuadrant | null>(null);
+  const [suggestBusy, setSuggestBusy] = useState(false);
   useEffect(() => {
     setReplyBody("");
     setReplyToAll(false);
     setReplyAttachments([]);
+    setSummary(null);
+    setSummaryOpen(false);
+    setSuggestedQuadrant(null);
   }, [thread]);
+
+  // Gate d'affichage des features IA : visibles seulement si un modèle Ollama
+  // est configuré dans les réglages. Réactif au modèle des réglages.
+  const aiConfigured = useMemo(() => isAiConfigured(), [settings.ia.ollamaModel]);
+  // Adaptateur EmailThread → MailAiThread : on ne passe QUE du texte brut au
+  // prompt (bodyText/snippet, JAMAIS le HTML de l'expéditeur → pas d'injection).
+  const aiThread = useMemo<MailAiThread>(
+    () => ({
+      id: thread.id,
+      messages: thread.messages.map((m) => ({
+        subject: m.subject,
+        from: { name: m.from.name, email: m.from.email },
+        date: m.date,
+        bodyText: m.bodyText || m.snippet || "",
+      })),
+    }),
+    [thread],
+  );
+
+  const runSummary = async () => {
+    if (summaryBusy) return;
+    setSummaryOpen(true);
+    setSummaryBusy(true);
+    try {
+      const text = await summarizeThread(aiThread);
+      setSummary(text);
+    } catch (e) {
+      toast({
+        title: "Résumé impossible",
+        description: e instanceof Error ? e.message : "Ollama injoignable",
+        variant: "danger",
+      });
+    } finally {
+      setSummaryBusy(false);
+    }
+  };
+
+  // Clic « Résumer » : génère au 1ᵉʳ appel, sinon replie/déplie l'encart existant.
+  const onSummaryClick = () => {
+    if (summary === null && !summaryBusy) {
+      void runSummary();
+    } else {
+      setSummaryOpen((o) => !o);
+    }
+  };
+
+  const runDraft = async () => {
+    if (draftBusy) return;
+    setDraftBusy(true);
+    try {
+      const text = (await draftReply(aiThread, { useNotes })).trim();
+      if (!text) {
+        toast({
+          title: "Brouillon vide",
+          description: "Le modèle n'a renvoyé aucun texte.",
+          variant: "warning",
+        });
+        return;
+      }
+      // Ne pas écraser un texte déjà saisi : on ajoute en dessous (sinon remplace).
+      setReplyBody((prev) => (prev.trim() ? `${prev}\n\n${text}` : text));
+    } catch (e) {
+      toast({
+        title: "Brouillon IA impossible",
+        description: e instanceof Error ? e.message : "Ollama injoignable",
+        variant: "danger",
+      });
+    } finally {
+      setDraftBusy(false);
+    }
+  };
+
+  // Suggestion IA d'un quadrant Eisenhower (best-effort, non bloquant). On reset
+  // d'abord à null pour que MailEisenhowerPicker rouvre même si la suggestion est
+  // identique à la précédente (null → q = toujours un changement).
+  const runSuggestQuadrant = async () => {
+    if (suggestBusy) return;
+    setSuggestBusy(true);
+    setSuggestedQuadrant(null);
+    try {
+      const q = await suggestQuadrant(aiThread);
+      setSuggestedQuadrant(q);
+    } catch (e) {
+      toast({
+        title: "Suggestion de quadrant impossible",
+        description: e instanceof Error ? e.message : "Ollama injoignable",
+        variant: "danger",
+      });
+    } finally {
+      setSuggestBusy(false);
+    }
+  };
 
   const onPickReplyFiles = async (fileList: FileList | null) => {
     if (!fileList || fileList.length === 0) return;
@@ -443,8 +558,39 @@ export function EmailThreadView({
             )}
           </div>
           <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+            {aiConfigured && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onPress={onSummaryClick}
+                isDisabled={summaryBusy}
+                aria-label="Résumer le fil avec l'IA locale"
+              >
+                {summaryBusy ? <Spinner size="sm" /> : <Sparkle size={14} />} Résumer
+              </Button>
+            )}
+            {aiConfigured && <ExtractActionsButton thread={aiThread} />}
             {clientId && (
-              <MailEisenhowerPicker onConvert={(q) => void convertToTodo(q)} isBusy={convertBusy} />
+              <>
+                {aiConfigured && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onPress={() => void runSuggestQuadrant()}
+                    isDisabled={suggestBusy}
+                    aria-label="Suggérer un quadrant Eisenhower avec l'IA locale"
+                    className="h-9 gap-1.5"
+                  >
+                    {suggestBusy ? <Spinner size="sm" /> : <Sparkle size={14} />}
+                    <span className="hidden sm:inline">Suggérer quadrant</span>
+                  </Button>
+                )}
+                <MailEisenhowerPicker
+                  onConvert={(q) => void convertToTodo(q)}
+                  isBusy={convertBusy}
+                  suggestedQuadrant={suggestedQuadrant}
+                />
+              </>
             )}
             {onForward && (
               <Button
@@ -514,6 +660,62 @@ export function EmailThreadView({
           <EmailToEventButton message={firstMsg} />
         </div>
       </div>
+
+      {aiConfigured && summaryOpen && (
+        <div
+          className="rounded-xl border px-3 py-2.5"
+          style={{ background: "var(--surface-1)", borderColor: "var(--border-subtle)" }}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <span
+              className="flex items-center gap-1.5 text-xs font-semibold"
+              style={{ color: "var(--text-primary)" }}
+            >
+              <Sparkle size={13} style={{ color: "var(--accent)" }} /> Résumé IA
+            </span>
+            <div className="flex shrink-0 items-center gap-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                onPress={() => void runSummary()}
+                isDisabled={summaryBusy}
+                aria-label="Régénérer le résumé"
+                className="h-auto min-h-0 px-1.5 py-0.5 text-xs"
+              >
+                <ArrowsClockwise size={12} /> Régénérer
+              </Button>
+              <Button
+                isIconOnly
+                variant="ghost"
+                size="sm"
+                onPress={() => setSummaryOpen(false)}
+                aria-label="Replier le résumé"
+                className="h-auto min-h-0 min-w-0 p-1"
+              >
+                <CaretUp size={12} />
+              </Button>
+            </div>
+          </div>
+          <div className="mt-1.5">
+            {summaryBusy ? (
+              <span className="flex items-center gap-2 text-sm" style={{ color: "var(--text-muted)" }}>
+                <Spinner size="sm" /> Génération du résumé…
+              </span>
+            ) : summary ? (
+              <p
+                className="whitespace-pre-wrap break-words text-sm"
+                style={{ color: "var(--text-secondary)" }}
+              >
+                {summary}
+              </p>
+            ) : (
+              <p className="text-sm italic" style={{ color: "var(--text-muted)" }}>
+                Aucun résumé pour le moment.
+              </p>
+            )}
+          </div>
+        </div>
+      )}
 
       {thread.messages.map((m) => (
         <MessageBubble
@@ -596,6 +798,28 @@ export function EmailThreadView({
               <span className="shrink-0">⌘/Ctrl+↵ pour envoyer</span>
             </div>
             <div className="flex shrink-0 flex-wrap items-center gap-2">
+              {aiConfigured && (
+                <>
+                  <Checkbox
+                    isSelected={useNotes}
+                    onChange={(sel) => setUseNotes(Boolean(sel))}
+                    aria-label="Rédiger le brouillon à partir de mes notes (RAG)"
+                  >
+                    <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+                      Mes notes
+                    </span>
+                  </Checkbox>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onPress={() => void runDraft()}
+                    isDisabled={draftBusy || replyBusy !== null}
+                    aria-label="Générer un brouillon de réponse avec l'IA locale"
+                  >
+                    {draftBusy ? <Spinner size="sm" /> : <MagicWand size={14} />} Brouillon IA
+                  </Button>
+                </>
+              )}
               {hasCc && (
                 <Button
                   variant={replyToAll ? "primary" : "ghost"}

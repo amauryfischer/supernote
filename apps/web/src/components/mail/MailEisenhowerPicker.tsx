@@ -17,9 +17,9 @@
  * min-w borné) sans débordement horizontal.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button, Popover } from "@heroui/react";
-import { ListChecks } from "@phosphor-icons/react";
+import { ListChecks, Sparkle } from "@phosphor-icons/react";
 import { QUADRANTS, type EisenhowerQuadrant } from "@/lib/mail-eisenhower";
 
 export interface MailEisenhowerPickerProps {
@@ -27,6 +27,14 @@ export interface MailEisenhowerPickerProps {
   onConvert: (quadrant: EisenhowerQuadrant) => void;
   /** Verrouille le déclencheur pendant une conversion en cours. */
   isBusy?: boolean;
+  /**
+   * Quadrant suggéré par l'IA (best-effort). Quand il passe d'absent à présent,
+   * le Popover s'ouvre automatiquement et la cellule correspondante est mise en
+   * évidence (anneau + pastille « Suggéré ») — l'utilisateur garde le dernier
+   * mot (il peut choisir un autre quadrant ou fermer). Optionnel : sans cette
+   * prop le composant se comporte exactement comme avant.
+   */
+  suggestedQuadrant?: EisenhowerQuadrant | null;
 }
 
 /** Sous-titre d'aide par quadrant (axes urgence/importance lisibles). */
@@ -45,8 +53,18 @@ const QUADRANT_ACCENT: Record<EisenhowerQuadrant, string> = {
   eliminate: "var(--text-muted)",
 };
 
-export function MailEisenhowerPicker({ onConvert, isBusy = false }: MailEisenhowerPickerProps) {
+export function MailEisenhowerPicker({
+  onConvert,
+  isBusy = false,
+  suggestedQuadrant = null,
+}: MailEisenhowerPickerProps) {
   const [open, setOpen] = useState(false);
+
+  // Suggestion IA reçue → ouvre le Popover sur la matrice (cellule suggérée mise
+  // en évidence). On ne déclenche AUCUNE conversion : best-effort, non bloquant.
+  useEffect(() => {
+    if (suggestedQuadrant) setOpen(true);
+  }, [suggestedQuadrant]);
 
   const pick = (quadrant: EisenhowerQuadrant) => {
     setOpen(false);
@@ -76,33 +94,47 @@ export function MailEisenhowerPicker({ onConvert, isBusy = false }: MailEisenhow
             </p>
           </div>
           <div className="grid grid-cols-2 gap-1.5" aria-label="Quadrants d'Eisenhower">
-            {QUADRANTS.map((q) => (
-              <Button
-                key={q.id}
-                variant="ghost"
-                onPress={() => pick(q.id)}
-                isDisabled={isBusy}
-                className="flex h-auto min-h-16 w-full flex-col items-start justify-start gap-0.5 rounded-lg border px-2.5 py-2 text-left"
-                style={{
-                  borderColor: "var(--border-subtle)",
-                  backgroundColor: "var(--surface-1)",
-                }}
-                aria-label={`${q.label} — ${QUADRANT_HINT[q.id]}`}
-              >
-                <span
-                  className="text-sm font-semibold leading-tight"
-                  style={{ color: QUADRANT_ACCENT[q.id] }}
+            {QUADRANTS.map((q) => {
+              const isSuggested = suggestedQuadrant === q.id;
+              return (
+                <Button
+                  key={q.id}
+                  variant="ghost"
+                  onPress={() => pick(q.id)}
+                  isDisabled={isBusy}
+                  className="relative flex h-auto min-h-16 w-full flex-col items-start justify-start gap-0.5 rounded-lg border px-2.5 py-2 text-left"
+                  style={{
+                    borderColor: isSuggested ? QUADRANT_ACCENT[q.id] : "var(--border-subtle)",
+                    backgroundColor: isSuggested
+                      ? "var(--accent-subtle)"
+                      : "var(--surface-1)",
+                    boxShadow: isSuggested ? `0 0 0 1px ${QUADRANT_ACCENT[q.id]}` : undefined,
+                  }}
+                  aria-label={`${q.label} — ${QUADRANT_HINT[q.id]}${isSuggested ? " (suggéré par l'IA)" : ""}`}
                 >
-                  {q.label}
-                </span>
-                <span
-                  className="text-[11px] leading-tight"
-                  style={{ color: "var(--text-muted)" }}
-                >
-                  {QUADRANT_HINT[q.id]}
-                </span>
-              </Button>
-            ))}
+                  {isSuggested && (
+                    <span
+                      className="absolute right-1.5 top-1.5 inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[9px] font-semibold"
+                      style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground, #fff)" }}
+                    >
+                      <Sparkle size={9} weight="fill" aria-hidden /> Suggéré
+                    </span>
+                  )}
+                  <span
+                    className="text-sm font-semibold leading-tight"
+                    style={{ color: QUADRANT_ACCENT[q.id] }}
+                  >
+                    {q.label}
+                  </span>
+                  <span
+                    className="text-[11px] leading-tight"
+                    style={{ color: "var(--text-muted)" }}
+                  >
+                    {QUADRANT_HINT[q.id]}
+                  </span>
+                </Button>
+              );
+            })}
           </div>
         </Popover.Dialog>
       </Popover.Content>
