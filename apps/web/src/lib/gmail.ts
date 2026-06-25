@@ -437,6 +437,23 @@ export function removeThreadLabel(clientId: string, threadId: string, labelId: s
   return modifyThreadLabels(clientId, threadId, { removeLabelIds: [labelId] });
 }
 
+/**
+ * Met un thread entier à la corbeille Gmail via `threads.trash` (RÉVERSIBLE :
+ * Gmail conserve 30 j, restaurable). Scope `gmail.modify`. On évite le DELETE
+ * permanent (qui exigerait le scope complet `https://mail.google.com/`).
+ */
+export async function trashThread(clientId: string, threadId: string): Promise<void> {
+  const token = await requestAccessToken(clientId, { scope: GMAIL_MODIFY_SCOPE, prompt: "" });
+  const res = await fetch(`${GMAIL_API_BASE}/threads/${encodeURIComponent(threadId)}/trash`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Gmail trash ${res.status}: ${text.slice(0, 300)}`);
+  }
+}
+
 // ─── Primitives compose (P3) ──────────────────────────────────────────────────
 
 export const GMAIL_COMPOSE_SCOPE = "https://www.googleapis.com/auth/gmail.compose";

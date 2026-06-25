@@ -26,7 +26,7 @@
 
 import { useCallback, useState } from "react";
 import { Button, Popover } from "@heroui/react";
-import { Archive, CheckCircle, Clock } from "@phosphor-icons/react";
+import { Archive, CheckCircle, Clock, Trash } from "@phosphor-icons/react";
 import { useToast } from "@supernote/ui";
 import {
   addSnooze,
@@ -51,6 +51,7 @@ const ACTION_LABEL: Record<TriageAction, string> = {
   done: "Fait",
   archive: "Archivé",
   snooze: "Reporté",
+  delete: "Supprimé",
 };
 
 export function TriageBar({ clientId, threadId, onTriaged }: TriageBarProps) {
@@ -75,7 +76,7 @@ export function TriageBar({ clientId, threadId, onTriaged }: TriageBarProps) {
   );
 
   const handleSimple = useCallback(
-    (action: "done" | "archive") => {
+    (action: "done" | "archive" | "delete") => {
       setPending(action);
       void runMutation(action)
         .catch((e: Error) => {
@@ -168,6 +169,18 @@ export function TriageBar({ clientId, threadId, onTriaged }: TriageBarProps) {
           </Popover.Dialog>
         </Popover.Content>
       </Popover>
+
+      <Button
+        variant="ghost"
+        size="sm"
+        onPress={() => handleSimple("delete")}
+        isDisabled={busy}
+        className="h-9 gap-1.5"
+        aria-label="Supprimer (corbeille)"
+      >
+        <Trash size={18} aria-hidden />
+        <span className="hidden sm:inline">Supprimer</span>
+      </Button>
     </div>
   );
 }

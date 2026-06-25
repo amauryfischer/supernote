@@ -25,10 +25,13 @@
  * isolé dans `actionToLabelOps`, 100 % pur et testé.
  */
 
-import { modifyThreadLabels } from "./gmail";
+import { modifyThreadLabels, trashThread } from "./gmail";
 
-/** Les trois actions de triage exposées par la barre d'actions du thread. */
-export type TriageAction = "done" | "archive" | "snooze";
+/** Actions de triage exposées par la barre d'actions du thread. */
+export type TriageAction = "done" | "archive" | "snooze" | "delete";
+
+/** Sous-ensemble géré par mutation de labels (la corbeille a son propre endpoint). */
+type LabelTriageAction = "done" | "archive" | "snooze";
 
 /** Label système Gmail retiré pour « sortir de la boîte de réception ». */
 export const INBOX_LABEL = "INBOX";
@@ -45,7 +48,7 @@ export interface LabelOps {
  * tous deux `INBOX` (Gmail ne distingue pas les deux) ; Snooze également (le
  * suivi de l'échéance est géré séparément par le store snooze).
  */
-export function actionToLabelOps(action: TriageAction): LabelOps {
+export function actionToLabelOps(action: LabelTriageAction): LabelOps {
   switch (action) {
     case "done":
     case "archive":
@@ -219,6 +222,11 @@ export async function applyTriage(
   threadId: string,
   action: TriageAction,
 ): Promise<void> {
+  // « Supprimer » = corbeille (endpoint dédié, pas une mutation de labels).
+  if (action === "delete") {
+    await trashThread(clientId, threadId);
+    return;
+  }
   const ops = actionToLabelOps(action);
   await modifyThreadLabels(clientId, threadId, ops);
 }
