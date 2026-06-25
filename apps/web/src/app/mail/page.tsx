@@ -13,8 +13,9 @@ import { useCaptureEmail } from "@/components/mail/useCaptureEmail";
 import { CaptureEmailModal } from "@/components/mail/CaptureEmailModal";
 import { ComposeModal } from "@/components/mail/ComposeModal";
 import { MailEisenhowerBoard } from "@/components/mail/MailEisenhowerBoard";
-import { listThreadSummariesPage, listLabels, getThread, modifyThreadLabels, markThreadRead, toggleStar, type EmailThread, type GmailLabelColor, type ThreadListItem } from "@/lib/gmail";
-import { listDue, removeSnooze, applyTriage, undoTriage, INBOX_LABEL, type TriageAction } from "@/lib/mail-triage";
+import { listThreadSummariesPage, listLabels, getThread, modifyThreadLabels, markThreadRead, markThreadUnread, toggleStar, type EmailThread, type GmailLabelColor, type ThreadListItem } from "@/lib/gmail";
+import { listDue, removeSnooze, addSnooze, applyTriage, undoTriage, INBOX_LABEL, type TriageAction } from "@/lib/mail-triage";
+import { useConvertToTodo } from "@/components/mail/useConvertToTodo";
 import { buildMailOverlay, type OverlayRow } from "@/lib/mail-overlay";
 import { toggleRowSelection, pruneSelection } from "@/lib/mail-selection";
 import {
@@ -731,6 +732,64 @@ export default function MailPage() {
     [clientId, syncThreadLabels, toast],
   );
 
+  // ─── Menu contextuel (clic droit) de la liste ─────────────────────────────
+  const { convert: convertRowToTodo } = useConvertToTodo(clientId);
+
+  // Convertir une ligne single en tâche Eisenhower ; au succès, retire le fil.
+  const handleConvertRow = useCallback(
+    (row: OverlayRow, quadrant: EisenhowerQuadrant) => {
+      if (row.kind !== "single") return;
+      const it = row.item;
+      void convertRowToTodo({ threadId: it.id, subject: it.subject, quadrant }).then((ok) => {
+        if (ok) dropThreadFromList(it.id);
+      });
+    },
+    [convertRowToTodo, dropThreadFromList],
+  );
+
+  // Triage rapide d'une ligne single (Fait/Archiver/Reporter/Supprimer), optimiste
+  // + Annuler. Pour le snooze, on note l'échéance avant la mutation (rollback si KO).
+  const handleTriageRow = useCallback(
+    (row: OverlayRow, action: TriageAction, until?: number) => {
+      if (row.kind !== "single" || !clientId) return;
+      const id = row.item.id;
+      dropThreadFromList(id);
+      if (action === "snooze" && until != null) addSnooze(id, until);
+      applyTriage(clientId, id, action)
+        .then(() => offerUndo(id, action))
+        .catch((err) => {
+          if (action === "snooze") removeSnooze(id);
+          toast({
+            title: "Triage échoué",
+            description: err instanceof Error ? err.message : String(err),
+            variant: "danger",
+          });
+          void loadList(query);
+        });
+    },
+    [clientId, dropThreadFromList, offerUndo, toast, loadList, query],
+  );
+
+  // Marquer lu / non-lu une ligne single (optimiste + rollback).
+  const handleMarkRowRead = useCallback(
+    (row: OverlayRow, read: boolean) => {
+      if (row.kind !== "single" || !clientId) return;
+      const id = row.item.id;
+      const current = row.item.labelIds;
+      const nextIds = read ? current.filter((l) => l !== "UNREAD") : [...current, "UNREAD"];
+      syncThreadLabels(id, nextIds);
+      (read ? markThreadRead(clientId, id) : markThreadUnread(clientId, id)).catch((err) => {
+        syncThreadLabels(id, current);
+        toast({
+          title: read ? "Marquage « lu » échoué" : "Marquage « non lu » échoué",
+          description: err instanceof Error ? err.message : String(err),
+          variant: "danger",
+        });
+      });
+    },
+    [clientId, syncThreadLabels, toast],
+  );
+
   // Après l'ENVOI d'une réponse : re-fetch le fil courant (la réponse y apparaît)
   // + recharge la liste pour refléter le nouvel état (ordre, snippet, non-lu).
   // `loadList` désélectionne le fil au passage : on le restaure ensuite pour que
@@ -898,6 +957,9 @@ export default function MailPage() {
               selectedIndex={isMobile ? undefined : selectedRowIndex}
               selectedThreadIds={isMobile ? undefined : selectedThreadIds}
               onToggleRowSelection={isMobile ? undefined : toggleRowSelected}
+              onConvertRowToTodo={handleConvertRow}
+              onTriageRow={handleTriageRow}
+              onMarkRowRead={handleMarkRowRead}
             />
             {nextPageToken && (
               <div className="px-1 pt-2">

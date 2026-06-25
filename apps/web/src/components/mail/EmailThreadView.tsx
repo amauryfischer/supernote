@@ -43,12 +43,9 @@ import { EnrichContactFromEmail } from "./EnrichContactFromEmail";
 import { EmailToEventButton } from "./EmailToEventButton";
 import { MailEisenhowerPicker } from "./MailEisenhowerPicker";
 import { ExtractActionsButton } from "./ExtractActionsButton";
-import { INBOX_LABEL, type TriageAction } from "@/lib/mail-triage";
-import { modifyThreadLabels } from "@/lib/gmail";
-import { quadrantToTodoFields, type EisenhowerQuadrant } from "@/lib/mail-eisenhower";
-import { addBinding } from "@/lib/mail-todo-binding";
-import { trpcVanillaClient } from "@/lib/trpc/client";
-import { TODO_TYPE_ID } from "@/hooks/useTodoSync";
+import { type TriageAction } from "@/lib/mail-triage";
+import { type EisenhowerQuadrant } from "@/lib/mail-eisenhower";
+import { useConvertToTodo } from "./useConvertToTodo";
 import {
   isAiConfigured,
   summarizeThread,
@@ -405,56 +402,12 @@ export function EmailThreadView({
 
   // ─── Conversion email → tâche Eisenhower ──────────────────────────────────
   // Verrou anti-double clic pendant la création de l'entité + la mutation Gmail.
-  const [convertBusy, setConvertBusy] = useState(false);
+  // Conversion mutualisée (vue lecture + menu contextuel de la liste).
+  const { convert: convertEmailToTodo, busy: convertBusy } = useConvertToTodo(clientId);
   const convertToTodo = async (quadrant: EisenhowerQuadrant) => {
-    if (!clientId || convertBusy) return;
-    const subject = thread.messages[0]?.subject?.trim() || "Email sans sujet";
-    setConvertBusy(true);
-    try {
-      // 1. Crée l'entité `todo` (mêmes champs que /todos standalone) + axes du
-      //    quadrant choisi (urgent + importance). On récupère son id.
-      const fields = quadrantToTodoFields(quadrant);
-      const todo = await trpcVanillaClient.entities.create.mutate({
-        typeId: TODO_TYPE_ID,
-        fields: {
-          text: subject,
-          done: false,
-          priority: 5,
-          importance: fields.importance,
-          urgent: fields.urgent,
-        },
-      });
-      // 2. Sort le fil de l'inbox (retrait du label système INBOX), comme un
-      //    « Fait » de triage. On le fait AVANT la liaison locale : si cette
-      //    mutation Gmail échoue, on n'aura PAS écrit de binding → le fil ne
-      //    sera donc pas masqué par le filtre `getBinding` de la liste (il reste
-      //    visible dans l'inbox), et la tâche déjà créée reste visible dans
-      //    /todos (rollback partiel volontaire, non silencieux : toast d'erreur).
-      await modifyThreadLabels(clientId, thread.id, {
-        addLabelIds: [],
-        removeLabelIds: [INBOX_LABEL],
-      });
-      // 3. Mutation Gmail réussie → on mémorise la liaison thread ↔ todo (store
-      //    local) ET on notifie l'appelant pour qu'il retire le fil de la liste.
-      //    Ces deux effets (qui masquent le fil) n'ont lieu QU'APRÈS le succès.
-      addBinding({
-        threadId: thread.id,
-        todoId: todo.id,
-        quadrant,
-        subject,
-        createdAt: Date.now(),
-      });
-      toast({ title: "Email converti en tâche", variant: "success" });
-      onConvertedToTodo?.();
-    } catch (e) {
-      toast({
-        title: "Échec de la conversion en tâche",
-        description: e instanceof Error ? e.message : String(e),
-        variant: "danger",
-      });
-    } finally {
-      setConvertBusy(false);
-    }
+    const subject = thread.messages[0]?.subject ?? "";
+    const ok = await convertEmailToTodo({ threadId: thread.id, subject, quadrant });
+    if (ok) onConvertedToTodo?.();
   };
 
   const openPicker = () => {

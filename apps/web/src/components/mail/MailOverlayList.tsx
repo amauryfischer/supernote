@@ -1,9 +1,12 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import { Button, Checkbox } from "@heroui/react";
 import { Tag, Star } from "@phosphor-icons/react";
 import { rowHasUnread, rowHasStar, rowUnreadCount, type OverlayRow } from "@/lib/mail-overlay";
 import { rowCheckState } from "@/lib/mail-selection";
+import { QUADRANTS, type EisenhowerQuadrant } from "@/lib/mail-eisenhower";
+import { SNOOZE_PRESETS, type TriageAction } from "@/lib/mail-triage";
 import type { GmailLabelColor } from "@/lib/gmail";
 
 function shortDate(d: string): string {
@@ -19,6 +22,9 @@ export function MailOverlayList({
   selectedIndex,
   selectedThreadIds,
   onToggleRowSelection,
+  onConvertRowToTodo,
+  onTriageRow,
+  onMarkRowRead,
 }: {
   rows: OverlayRow[];
   activeKey?: string;
@@ -45,13 +51,21 @@ export function MailOverlayList({
   selectedThreadIds?: ReadonlySet<string>;
   /** Bascule la sélection de TOUS les threads d'une ligne (single ou groupe). */
   onToggleRowSelection?: (row: OverlayRow) => void;
+  /** Clic droit : convertir une ligne single en tâche Eisenhower. */
+  onConvertRowToTodo?: (row: OverlayRow, quadrant: EisenhowerQuadrant) => void;
+  /** Clic droit : triage rapide d'une ligne single (`until` = échéance snooze). */
+  onTriageRow?: (row: OverlayRow, action: TriageAction, until?: number) => void;
+  /** Clic droit : marquer lu/non-lu une ligne single. */
+  onMarkRowRead?: (row: OverlayRow, read: boolean) => void;
 }) {
   const selectable = Boolean(selectedThreadIds && onToggleRowSelection);
   // Au moins une coche → on garde toutes les cases visibles (mode sélection
   // assumé) ; sinon, chaque case n'apparaît qu'au survol de sa ligne (group-hover).
   const anySelected = (selectedThreadIds?.size ?? 0) > 0;
+  const [ctx, setCtx] = useState<{ x: number; y: number; row: OverlayRow } | null>(null);
   return (
-    <div className="flex flex-col gap-1" role="listbox" aria-label="Boîte mail">
+    <>
+      <div className="flex flex-col gap-1" role="listbox" aria-label="Boîte mail">
       {rows.map((row, idx) => {
         const key = row.kind === "single" ? `t:${row.item.id}` : row.key;
         const title = row.kind === "single" ? row.item.from.name || row.item.from.email : row.title;
@@ -77,7 +91,6 @@ export function MailOverlayList({
         const checkState = selectable ? rowCheckState(row, selectedThreadIds!) : "unchecked";
         const rowButton = (
           <Button
-            key={selectable ? undefined : key}
             data-mail-row-index={idx}
             variant="ghost"
             onPress={() => onPick(row)}
@@ -188,31 +201,201 @@ export function MailOverlayList({
             </span>
           </Button>
         );
-        if (!selectable) return rowButton;
-        // Mode sélection : la Checkbox vit À CÔTÉ de la ligne-Button (jamais
-        // imbriquée — un control interactif dans un Button serait invalide). On
-        // déplace la `key` sur le wrapper. La case n'apparaît qu'au survol de la
-        // ligne (`group`/`group-hover`) tant qu'aucune sélection n'est active ;
-        // dès qu'une case est cochée OU que la ligne est cochée, on la garde
-        // visible (focus-within → accès clavier). Hit-target tactile ≥32px.
-        const showBox = anySelected || checkState !== "unchecked";
+        // Toute ligne est enveloppée pour porter le clic droit (menu contextuel)
+        // et, en mode sélection, la Checkbox à côté du Button (jamais imbriquée —
+        // un control interactif dans un Button serait invalide). La case n'apparaît
+        // qu'au survol tant qu'aucune sélection n'est active ; visible dès qu'une
+        // case (ou la ligne) est cochée. Hit-target tactile ≥32px.
+        const showBox = selectable && (anySelected || checkState !== "unchecked");
         return (
-          <div key={key} className="group flex items-center gap-1">
-            <Checkbox
-              isSelected={checkState === "checked"}
-              isIndeterminate={checkState === "indeterminate"}
-              onChange={() => onToggleRowSelection!(row)}
-              className={`shrink-0 pl-1 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 ${
-                showBox ? "opacity-100" : "opacity-0"
-              }`}
-              aria-label={
-                checkState === "checked" ? "Désélectionner cette ligne" : "Sélectionner cette ligne"
-              }
-            />
+          <div
+            key={key}
+            className={`flex items-center gap-1${selectable ? " group" : ""}`}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              setCtx({ x: e.clientX, y: e.clientY, row });
+            }}
+          >
+            {selectable && (
+              <Checkbox
+                isSelected={checkState === "checked"}
+                isIndeterminate={checkState === "indeterminate"}
+                onChange={() => onToggleRowSelection!(row)}
+                className={`shrink-0 pl-1 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 ${
+                  showBox ? "opacity-100" : "opacity-0"
+                }`}
+                aria-label={
+                  checkState === "checked" ? "Désélectionner cette ligne" : "Sélectionner cette ligne"
+                }
+              />
+            )}
             {rowButton}
           </div>
         );
       })}
+      </div>
+      {ctx && (
+        <MailRowContextMenu
+          x={ctx.x}
+          y={ctx.y}
+          row={ctx.row}
+          onClose={() => setCtx(null)}
+          onPick={onPick}
+          onToggleStar={onToggleStar}
+          onConvert={onConvertRowToTodo}
+          onTriage={onTriageRow}
+          onMarkRead={onMarkRowRead}
+        />
+      )}
+    </>
+  );
+}
+
+/**
+ * Menu contextuel (clic droit) d'une ligne de la boîte mail. Positionné en fixe
+ * au curseur, fermé au clic-extérieur / Échap. Actions selon `row.kind` : une
+ * ligne `single` propose ouvrir / étoile / lu-non lu / → Todo (4 quadrants) /
+ * triage (Fait/Archiver/Reporter/Supprimer) ; un groupe → « Ouvrir ».
+ */
+function MailRowContextMenu({
+  x,
+  y,
+  row,
+  onClose,
+  onPick,
+  onToggleStar,
+  onConvert,
+  onTriage,
+  onMarkRead,
+}: {
+  x: number;
+  y: number;
+  row: OverlayRow;
+  onClose: () => void;
+  onPick: (row: OverlayRow) => void;
+  onToggleStar?: (threadId: string, labelIds: string[]) => void;
+  onConvert?: (row: OverlayRow, quadrant: EisenhowerQuadrant) => void;
+  onTriage?: (row: OverlayRow, action: TriageAction, until?: number) => void;
+  onMarkRead?: (row: OverlayRow, read: boolean) => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onClose();
+      }
+    };
+    const id = window.setTimeout(() => document.addEventListener("mousedown", onDown), 0);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      window.clearTimeout(id);
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [onClose]);
+
+  const single = row.kind === "single" ? row.item : null;
+  const unread = rowHasUnread(row);
+  const starred = rowHasStar(row);
+  const run = (fn: () => void) => {
+    fn();
+    onClose();
+  };
+
+  const W = 230;
+  const left = Math.min(x, window.innerWidth - W - 8);
+  const top = Math.min(y, Math.max(8, window.innerHeight - 380));
+
+  return (
+    <div
+      ref={ref}
+      role="menu"
+      className="fixed z-50 flex w-[230px] flex-col gap-0.5 rounded-lg p-1 shadow-xl"
+      style={{ left, top, backgroundColor: "var(--surface-1)", border: "1px solid var(--border-subtle)" }}
+    >
+      <CtxItem label="Ouvrir" onClick={() => run(() => onPick(row))} />
+      {single && onToggleStar && (
+        <CtxItem
+          label={starred ? "Retirer l'étoile" : "Mettre une étoile"}
+          onClick={() => run(() => onToggleStar(single.id, single.labelIds))}
+        />
+      )}
+      {single && onMarkRead && (
+        <CtxItem
+          label={unread ? "Marquer comme lu" : "Marquer comme non lu"}
+          onClick={() => run(() => onMarkRead(row, unread))}
+        />
+      )}
+      {single && onConvert && (
+        <>
+          <CtxSep />
+          <CtxLabel text="Convertir en tâche" />
+          {QUADRANTS.map((q) => (
+            <CtxItem key={q.id} label={q.label} indent onClick={() => run(() => onConvert(row, q.id))} />
+          ))}
+        </>
+      )}
+      {single && onTriage && (
+        <>
+          <CtxSep />
+          <CtxItem label="Fait" onClick={() => run(() => onTriage(row, "done"))} />
+          <CtxItem label="Archiver" onClick={() => run(() => onTriage(row, "archive"))} />
+          <CtxLabel text="Reporter" />
+          {SNOOZE_PRESETS.map((p) => (
+            <CtxItem
+              key={p.id}
+              label={p.label}
+              indent
+              onClick={() => run(() => onTriage(row, "snooze", p.computeUntil(new Date())))}
+            />
+          ))}
+          <CtxSep />
+          <CtxItem label="Supprimer" danger onClick={() => run(() => onTriage(row, "delete"))} />
+        </>
+      )}
+    </div>
+  );
+}
+
+function CtxItem({
+  label,
+  onClick,
+  danger,
+  indent,
+}: {
+  label: string;
+  onClick: () => void;
+  danger?: boolean;
+  indent?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      onClick={onClick}
+      className={`w-full rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-[var(--surface-2)] ${indent ? "pl-4" : ""}`}
+      style={{ color: danger ? "var(--color-danger, #ef4444)" : "var(--text-primary)" }}
+    >
+      {label}
+    </button>
+  );
+}
+
+function CtxSep() {
+  return <div className="my-0.5 h-px" style={{ backgroundColor: "var(--border-subtle)" }} />;
+}
+
+function CtxLabel({ text }: { text: string }) {
+  return (
+    <div
+      className="px-2 pt-1 text-[11px] font-medium uppercase tracking-wide"
+      style={{ color: "var(--text-muted)" }}
+    >
+      {text}
     </div>
   );
 }
