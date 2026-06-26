@@ -59,23 +59,36 @@ export function rowHasStar(row: OverlayRow): boolean {
  * `userLabels` : map labelId → nom (labels user uniquement). Un item multi-label
  * rejoint le plus gros groupe-label (tie-break : taille desc, puis nom asc).
  *
- * `selfEmail` : compte connecté → exclu du regroupement par expéditeur (évite un
- * gros groupe parasite « moi ») ; ces items retombent en lignes seules. Le
- * regroupement par label (traité avant) reste possible pour un thread « à moi ».
+ * `selfEmails` : adresses « à moi » (compte connecté + alias/boîtes partagées,
+ * une string ou une liste) → exclues du regroupement par expéditeur (évite un
+ * gros groupe parasite « moi »/interne) ; ces items retombent en lignes seules.
+ * En plus, un LABEL dont le NOM est l'une de ces adresses (filtre Gmail nommé
+ * d'après une boîte partagée, ex. `contact@…`) n'engendre PAS de groupe-label :
+ * ses items retombent sur leur vrai expéditeur / en lignes seules. Insensible à
+ * la casse, vides ignorés. Les autres labels (tags réels) groupent normalement.
  */
 export function buildMailOverlay(
   items: ThreadListItem[],
   userLabels: Map<string, string>,
-  selfEmail?: string,
+  selfEmails?: string | readonly string[],
 ): OverlayRow[] {
-  const self = (selfEmail ?? "").toLowerCase();
+  const selfSet = new Set(
+    (typeof selfEmails === "string" ? [selfEmails] : (selfEmails ?? []))
+      .map((e) => e.trim().toLowerCase())
+      .filter(Boolean),
+  );
   const consumed = new Set<string>();
 
-  // 1. Indexer par label user.
+  // 1. Indexer par label user. On saute les labels dont le NOM est une adresse
+  // « à moi » (filtre Gmail nommé d'après une boîte partagée) : ils ne doivent
+  // pas former un groupe parasite, leurs items retombent sur leur vrai
+  // expéditeur / en lignes seules.
   const byLabel = new Map<string, ThreadListItem[]>();
   for (const it of items) {
     for (const lid of it.labelIds) {
-      if (!userLabels.has(lid)) continue;
+      const name = userLabels.get(lid);
+      if (name === undefined) continue;
+      if (selfSet.has(name.trim().toLowerCase())) continue;
       const arr = byLabel.get(lid);
       if (arr) arr.push(it);
       else byLabel.set(lid, [it]);
@@ -115,9 +128,10 @@ export function buildMailOverlay(
     // ça fusionnerait des expéditeurs distincts en un faux groupe sans titre.
     // On laisse ces items tomber en lignes seules.
     if (!key) continue;
-    // Compte connecté : pas de groupe-expéditeur « moi » (parasite). Ces items
-    // retombent en lignes seules (le label, traité avant, a pu les capter).
-    if (self && it.from.email.toLowerCase() === self) continue;
+    // Adresses « à moi » (compte + alias) : pas de groupe-expéditeur parasite.
+    // Ces items retombent en lignes seules (le label, traité avant, a pu les
+    // capter).
+    if (selfSet.size && selfSet.has(it.from.email.trim().toLowerCase())) continue;
     const arr = bySender.get(key);
     if (arr) arr.push(it);
     else bySender.set(key, [it]);

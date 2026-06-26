@@ -197,6 +197,76 @@ describe("buildMailOverlay", () => {
     );
     expect(rows.find((r) => r.kind === "group")).toMatchObject({ groupType: "sender", count: 2 });
   });
+
+  it("liste self (compte + alias) : chaque adresse à moi exclue du groupe-expéditeur", () => {
+    const rows = buildMailOverlay(
+      [
+        item("a", "me@x.io", "2026-06-20T10:00:00Z"),
+        item("b", "me@x.io", "2026-06-21T10:00:00Z"),
+        item("c", "contact@x.io", "2026-06-22T10:00:00Z"),
+        item("d", "contact@x.io", "2026-06-23T10:00:00Z"),
+        item("e", "bob@x.io", "2026-06-24T10:00:00Z"),
+        item("f", "bob@x.io", "2026-06-25T10:00:00Z"),
+      ],
+      labels,
+      ["me@x.io", "contact@x.io"],
+    );
+    // Seul bob (tiers) forme un groupe ; me + contact retombent en singles.
+    const sender = rows.filter((r) => r.kind === "group" && r.groupType === "sender");
+    expect(sender).toHaveLength(1);
+    expect(sender[0]).toMatchObject({ title: "bob", count: 2 });
+    expect(rows.filter((r) => r.kind === "single")).toHaveLength(4);
+  });
+
+  it("liste self : casse insensible + entrées vides ignorées", () => {
+    const rows = buildMailOverlay(
+      [
+        item("a", "Contact@X.io", "2026-06-20T10:00:00Z"),
+        item("b", "CONTACT@x.IO", "2026-06-21T10:00:00Z"),
+      ],
+      labels,
+      ["", "  ", "contact@x.io"],
+    );
+    expect(rows.every((r) => r.kind === "single")).toBe(true);
+    expect(rows).toHaveLength(2);
+  });
+
+  it("label nommé comme une adresse à moi → pas de groupe-label (boîte partagée)", () => {
+    // L3 = label Gmail nommé « contact@x.io » (filtre boîte partagée). 3 threads
+    // d'expéditeurs variés le portent : ils NE doivent PAS former un groupe
+    // « contact@x.io », mais retomber sur leur vrai expéditeur → 3 singles.
+    const labelsWithSelf = new Map([
+      ["L3", "contact@x.io"],
+      ["L1", "Projet"],
+    ]);
+    const rows = buildMailOverlay(
+      [
+        item("a", "google@x.io", "2026-06-20T10:00:00Z", ["L3"]),
+        item("b", "bob@y.io", "2026-06-21T10:00:00Z", ["L3"]),
+        item("c", "amazon@z.io", "2026-06-22T10:00:00Z", ["L3"]),
+      ],
+      labelsWithSelf,
+      ["me@x.io", "contact@x.io"],
+    );
+    expect(rows.every((r) => r.kind === "single")).toBe(true);
+    expect(rows).toHaveLength(3);
+  });
+
+  it("un vrai tag groupe encore même avec des adresses à moi fournies", () => {
+    const rows = buildMailOverlay(
+      [
+        item("a", "x@x.io", "2026-06-20T10:00:00Z", ["L1"]),
+        item("b", "y@y.io", "2026-06-21T10:00:00Z", ["L1"]),
+      ],
+      labels,
+      ["me@x.io", "contact@x.io"],
+    );
+    expect(rows.find((r) => r.kind === "group")).toMatchObject({
+      groupType: "label",
+      title: "Projet",
+      count: 2,
+    });
+  });
 });
 
 describe("rowHasUnread", () => {
