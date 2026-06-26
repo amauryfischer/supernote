@@ -1565,11 +1565,17 @@ export default function MailPage() {
           : "list";
 
   // Fil ouvert → la BOÎTE reste en fond (vue normale, pleine largeur) et le
-  // contenu de l'email s'affiche en DRAWER par-dessus (ombre à gauche). La
-  // poignée du drawer le pousse à droite → on revoit la boîte initiale.
-  // `peekList` = drawer poussé (boîte révélée large).
-  const drawerLeft = peekList ? "64%" : "34%";
+  // contenu de l'email s'affiche en DRAWER par-dessus (ombre à gauche), large.
+  // - en lecture : la bande de boîte visible à gauche FERME le drawer au clic ;
+  // - poignée : pousse le drawer à droite (`peekList`) → boîte révélée large +
+  //   cliquable pour piocher un autre email.
+  const drawerLeft = peekList ? "62%" : "18rem";
   const slide = `left ${prefersReducedMotion() ? "0ms" : "var(--sn-dur-4)"} var(--sn-ease-out)`;
+  const closeThread = () => {
+    setSelectedThreadId(null);
+    setThread(null);
+    setPeekList(false);
+  };
 
   return (
     <AppShell>
@@ -1579,6 +1585,18 @@ export default function MailPage() {
             {/* La boîte, en fond, pleine largeur (vue normale) — interactive sur
                 la partie laissée libre par le drawer. */}
             <div className="absolute inset-0 overflow-hidden">{pane1}</div>
+            {/* Zone de fermeture : clic sur la bande de boîte visible (lecture)
+                → ferme le drawer. Masquée en mode peek (boîte alors cliquable). */}
+            {!peekList && (
+              <button
+                type="button"
+                onClick={closeThread}
+                aria-label="Fermer l'email (revenir à la boîte)"
+                title="Cliquer pour revenir à la boîte"
+                className="absolute inset-y-0 left-0 z-10 cursor-pointer transition-colors hover:bg-[color-mix(in_oklch,var(--accent)_8%,transparent)]"
+                style={{ width: drawerLeft }}
+              />
+            )}
             {/* Contenu de l'email PAR-DESSUS, glissant. */}
             <div
               className="sn-overlay-in absolute inset-y-0 right-0 z-20 flex overflow-hidden"
