@@ -88,6 +88,9 @@ export default function MailPage() {
   // liste pour le scroll-into-view de la ligne sélectionnée.
   const [selectedRowIndex, setSelectedRowIndex] = useState(-1);
   const listScrollRef = useRef<HTMLDivElement | null>(null);
+  // Conteneur scrollable du fil ouvert : on s'y positionne EN BAS à l'ouverture
+  // (dernier message = le plus récent) plutôt qu'en haut.
+  const threadScrollRef = useRef<HTMLDivElement | null>(null);
   // Anti-course (race guards). Chaque ouverture de fil / rechargement de liste
   // s'attribue un jeton croissant ; une réponse réseau plus lente qu'un
   // souhait plus récent est ignorée (cf. emailReqIdRef de UnifiedSearchModal).
@@ -291,6 +294,24 @@ export default function MailPage() {
     setSearchParams(next, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, connected, clientId]);
+
+  // À l'ouverture (ou re-fetch) d'un fil : on se place EN BAS du scroll (dernier
+  // message). rAF + court délai pour rattraper les images du mail qui rallongent
+  // la hauteur après le 1ᵉʳ rendu.
+  useEffect(() => {
+    if (!thread) return undefined;
+    const el = threadScrollRef.current;
+    if (!el) return undefined;
+    const toBottom = () => {
+      el.scrollTop = el.scrollHeight;
+    };
+    const raf = requestAnimationFrame(toBottom);
+    const t = setTimeout(toBottom, 220);
+    return () => {
+      cancelAnimationFrame(raf);
+      clearTimeout(t);
+    };
+  }, [thread]);
 
   const onPick = (row: OverlayRow) => {
     setPeekList(false); // sélection faite → referme l'overlay liste éventuel
@@ -1392,7 +1413,7 @@ export default function MailPage() {
               mobile elle s'affiche en overlay plein écran (cf. plus bas). */}
           <div className="flex min-h-0 flex-1 overflow-hidden">
             {/* Pas de pb : le composeur (sticky bottom-0) affleure le bas. */}
-            <div className="min-w-0 flex-1 overflow-y-auto px-4">
+            <div ref={threadScrollRef} className="min-w-0 flex-1 overflow-y-auto px-4">
               <EmailThreadView
                 ref={threadRef}
                 thread={thread}
