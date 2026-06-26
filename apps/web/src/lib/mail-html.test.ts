@@ -27,6 +27,23 @@ describe("splitQuotedHtml", () => {
     expect(quoted).toContain("vieux");
   });
 
+  it("contenu neuf + citation dans le MÊME wrapper → ne perd pas le neuf", () => {
+    // Régression : Outlook/Apple Mail enveloppent texte neuf ET citation dans un
+    // même `<div dir="auto">`. Remonter au top-level mettait TOUT en citation.
+    const html = `<div dir="auto"><div>Réponse neuve de Paul</div><br><blockquote>historique cité</blockquote></div>`;
+    const { body, quoted } = splitQuotedHtml(html);
+    expect(body).toContain("Réponse neuve de Paul");
+    expect(body).not.toContain("historique cité");
+    expect(quoted).toContain("historique cité");
+  });
+
+  it("wrapper n'enveloppant QUE la citation → absorbé (pas de div vide résiduel)", () => {
+    const html = `<div>Neuf</div><div class="wrap"><blockquote>vieux</blockquote></div>`;
+    const { body, quoted } = splitQuotedHtml(html);
+    expect(body).toBe("<div>Neuf</div>");
+    expect(quoted).toContain("vieux");
+  });
+
   it("sans citation → tout en body", () => {
     const { body, quoted } = splitQuotedHtml("<p>Juste un message</p>");
     expect(body).toContain("Juste un message");

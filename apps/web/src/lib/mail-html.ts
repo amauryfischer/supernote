@@ -146,24 +146,54 @@ export function splitQuotedHtml(html: string): { body: string; quoted: string } 
   const root = doc.body;
   const q = root.querySelector(QUOTE_SELECTOR);
   if (!q) return { body: html, quoted: "" };
-  // Remonter jusqu'à l'ancêtre enfant direct de <body>.
-  let top: Element = q;
-  while (top.parentElement && top.parentElement !== root) top = top.parentElement;
-  // Inclure une ligne d'attribution (« … wrote: ») juste avant le bloc cité.
-  let firstQuoted: Node = top;
-  let prev: Node | null = top.previousSibling;
+
+  // Point de coupe = le bloc cité À SON PROPRE NIVEAU (et non remonté jusqu'à
+  // l'enfant direct de <body>). Inclut une ligne d'attribution (« … a écrit : »)
+  // juste avant. Crucial : si le contenu NEUF et la citation partagent un même
+  // wrapper (`<div dir="auto">…texte…<blockquote>…`, courant chez Outlook/Apple
+  // Mail/Gmail mobile), remonter au top-level engloutirait le texte neuf → corps
+  // vide. On coupe donc l'arbre en document-order à ce nœud.
+  let start: Node = q;
+  let prev: Node | null = q.previousSibling;
   while (prev && prev.nodeType === 3 && (prev.textContent ?? "").trim() === "") {
     prev = prev.previousSibling;
   }
   if (prev && prev.nodeType === 1 && HTML_ATTR_RE.test((prev.textContent ?? "").trim())) {
-    firstQuoted = prev;
+    start = prev;
   }
+
+  // Y a-t-il du contenu « neuf » AVANT `node` dans son parent ? (texte non vide
+  // ou image — ex. logo de signature). Si oui, on s'arrête : ce parent garde le
+  // contenu neuf. Sinon le parent n'enveloppe que la citation → on l'absorbe
+  // (évite de laisser un wrapper vide dans le corps).
+  const hasContentBefore = (node: Node): boolean => {
+    for (let s = node.previousSibling; s; s = s.previousSibling) {
+      if ((s.textContent ?? "").trim() !== "") return true;
+      if (s.nodeType === 1 && (s as Element).querySelector("img")) return true;
+    }
+    return false;
+  };
+  while (start.parentElement && start.parentElement !== root && !hasContentBefore(start)) {
+    start = start.parentElement;
+  }
+
+  // Collecte en document-order tout ce qui est À/APRÈS `start` : au niveau
+  // courant `start` + ses suivants ; puis on monte et on prend les frères
+  // suivants de chaque ancêtre (leur contenu AVANT `start` reste dans le corps).
   const quotedNodes: Node[] = [];
-  for (let n: Node | null = firstQuoted; n; n = n.nextSibling) quotedNodes.push(n);
-  const serialize = (node: Node) =>
-    node.nodeType === 1 ? (node as Element).outerHTML : node.textContent ?? "";
+  let node: Node | null = start;
+  let includeSelf = true;
+  while (node && node !== root) {
+    for (let s: Node | null = includeSelf ? node : node.nextSibling; s; s = s.nextSibling) {
+      quotedNodes.push(s);
+    }
+    node = node.parentElement;
+    includeSelf = false;
+  }
+  const serialize = (n: Node) =>
+    n.nodeType === 1 ? (n as Element).outerHTML : n.textContent ?? "";
   const quoted = quotedNodes.map(serialize).join("");
-  for (const node of quotedNodes) node.parentNode?.removeChild(node);
+  for (const n of quotedNodes) n.parentNode?.removeChild(n);
   return { body: root.innerHTML.trim(), quoted: quoted.trim() };
 }
 
