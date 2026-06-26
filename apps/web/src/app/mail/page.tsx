@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Button, Input, Spinner, Checkbox } from "@heroui/react";
-import { FilePlus, Database, ArrowLeft, MagnifyingGlass, PencilSimple, Archive, Trash, EnvelopeOpen, X, CaretRight, MagicWand, ArrowsClockwise } from "@phosphor-icons/react";
+import { FilePlus, Database, ArrowLeft, MagnifyingGlass, PencilSimple, Archive, Trash, EnvelopeOpen, X, CaretDoubleRight, MagicWand, ArrowsClockwise } from "@phosphor-icons/react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useSettings } from "@/components/settings/SettingsContext";
 import { AppShell, useMobileTitle, useMobileFab } from "@/components/shell";
@@ -17,7 +17,7 @@ import { MailEisenhowerBoard } from "@/components/mail/MailEisenhowerBoard";
 import { listThreadSummariesPage, listLabels, getThread, modifyThreadLabels, markThreadRead, markThreadUnread, toggleStar, type EmailThread, type GmailLabelColor, type ThreadListItem } from "@/lib/gmail";
 import { listDue, removeSnooze, addSnooze, applyTriage, undoTriage, INBOX_LABEL, SNOOZE_PRESETS, type TriageAction } from "@/lib/mail-triage";
 import { useConvertToTodo } from "@/components/mail/useConvertToTodo";
-import { buildMailOverlay, type OverlayRow } from "@/lib/mail-overlay";
+import { buildMailOverlay, rowUnreadCount, type OverlayRow } from "@/lib/mail-overlay";
 import { draftReplyVariants, type ReplyVariant, type MailAiThread, isAiConfigured } from "@/lib/mail-ai";
 import { pickReplyTo } from "@/lib/mail-reply";
 import { toggleRowSelection, pruneSelection } from "@/lib/mail-selection";
@@ -1564,12 +1564,14 @@ export default function MailPage() {
           ? "single"
           : "list";
 
-  // Fil ouvert → la liste devient un RAIL de 30px (« savoir qu'elle existe ») ;
-  // tout le reste (groupe/fil/brouillons) prend la place. Pour piocher un autre
-  // email : clic sur le rail → la liste se déplie PAR-DESSUS (overlay + scrim).
+  // Fil ouvert → la liste devient un RAIL fin (« savoir qu'elle existe ») ; tout
+  // le reste (groupe/fil/brouillons) prend la place. Clic sur le rail → la liste
+  // se déplie PAR-DESSUS (overlay + scrim). Cible élargie (~46px) pour revenir
+  // dessus facilement + compteur de non-lus en repère.
   const listCollapsed = !!selectedThreadId;
+  const railUnread = listCollapsed ? rows.reduce((n, r) => n + rowUnreadCount(r), 0) : 0;
   const basisTransition = `flex-basis ${prefersReducedMotion() ? "0ms" : "var(--sn-dur-4)"} var(--sn-ease-out)`;
-  const listBasis = listCollapsed ? "1.875rem" : "50%";
+  const listBasis = listCollapsed ? "2.875rem" : "50%";
   const groupBasis = view === "group" ? "50%" : view === "group-thread" ? "20rem" : "0px";
 
   return (
@@ -1583,13 +1585,27 @@ export default function MailPage() {
             <button
               type="button"
               onClick={() => setPeekList(true)}
-              aria-label="Afficher la liste des emails"
-              className="flex h-full w-full flex-col items-center gap-2 border-r py-3 transition-colors hover:bg-[var(--surface-2)]"
+              aria-label={`Afficher la liste des emails${railUnread > 0 ? ` (${railUnread} non lus)` : ""}`}
+              title="Afficher la boîte"
+              className="group flex h-full w-full flex-col items-center gap-2.5 border-r py-3 transition-colors hover:bg-[var(--accent-subtle)]"
               style={{ borderColor: "var(--border-subtle)", background: "var(--surface-1)" }}
             >
-              <CaretRight size={14} style={{ color: "var(--text-muted)" }} />
+              <CaretDoubleRight
+                size={16}
+                weight="bold"
+                className="transition-colors group-hover:text-[var(--accent)]"
+                style={{ color: "var(--text-muted)" }}
+              />
+              {railUnread > 0 && (
+                <span
+                  className="flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[10px] font-bold"
+                  style={{ background: "var(--accent)", color: "var(--surface-0)" }}
+                >
+                  {railUnread > 99 ? "99+" : railUnread}
+                </span>
+              )}
               <span
-                className="text-[10px] font-semibold uppercase tracking-wider [writing-mode:vertical-rl]"
+                className="text-[11px] font-semibold uppercase tracking-wider transition-colors [writing-mode:vertical-rl] group-hover:text-[var(--accent)]"
                 style={{ color: "var(--text-muted)" }}
               >
                 Boîte
