@@ -146,6 +146,12 @@ export interface BuildReplyPromptOptions {
   contextNotes?: string[];
   /** Consigne libre de l'utilisateur (ton, contenu attendu…). */
   instruction?: string;
+  /**
+   * Destinataire visé (« Nom <email> »). Quand notre organisation (associés/
+   * collègues) et un tiers échangent, on répond AU TIERS, pas à nos collègues :
+   * leurs messages restent du contexte. Absent → réponse au dernier message.
+   */
+  recipient?: string;
 }
 
 /**
@@ -162,6 +168,14 @@ export function buildReplyPrompt(
     "N'invente aucun fait : appuie-toi uniquement sur le fil et le contexte fourni.",
     "Ne génère que le corps du message (pas d'objet, pas d'en-têtes).",
   ];
+
+  if (opts.recipient && opts.recipient.trim()) {
+    lines.push(
+      "",
+      `Ta réponse est ADRESSÉE à : ${opts.recipient.trim()}. Réponds à CETTE personne, au nom de notre organisation.`,
+      "Les messages provenant de notre organisation (mes associés / collègues) sont de NOTRE côté : ne leur réponds pas, tiens-en compte comme contexte.",
+    );
+  }
 
   if (opts.instruction && opts.instruction.trim()) {
     lines.push("", `Consigne de l'utilisateur : ${opts.instruction.trim()}`);
@@ -391,6 +405,7 @@ export async function draftReply(
   const client = buildClient();
   const promptOpts: BuildReplyPromptOptions = { contextNotes };
   if (opts.instruction !== undefined) promptOpts.instruction = opts.instruction;
+  if (opts.recipient !== undefined) promptOpts.recipient = opts.recipient;
   try {
     const text = await client.generate({
       prompt: buildReplyPrompt(thread, promptOpts),
@@ -400,6 +415,86 @@ export async function draftReply(
   } catch (err) {
     throw asReachabilityError(err);
   }
+}
+
+/** Un brouillon de réponse proposé, avec son angle/ton. */
+export interface ReplyVariant {
+  /** Identifiant stable de l'angle (clé React). */
+  tone: string;
+  /** Libellé court affiché sur la carte. */
+  label: string;
+  /** Corps du brouillon généré. */
+  text: string;
+}
+
+/** Les angles proposés : favorable / réservé / précisions (cf. demande type). */
+const REPLY_ANGLES: ReadonlyArray<{ tone: string; label: string; instruction: string }> = [
+  {
+    tone: "favorable",
+    label: "Favorable",
+    instruction:
+      "Rédige une réponse FAVORABLE et positive : accepte la demande ou avance dans son sens, de façon engageante.",
+  },
+  {
+    tone: "reserve",
+    label: "Réservé",
+    instruction:
+      "Rédige une réponse qui exprime des RÉSERVES ou DÉCLINE poliment, avec un motif courtois et professionnel.",
+  },
+  {
+    tone: "precisions",
+    label: "Précisions",
+    instruction:
+      "Rédige une réponse NEUTRE qui demande des PRÉCISIONS ou temporise, sans s'engager fermement.",
+  },
+];
+
+/**
+ * Génère PLUSIEURS brouillons de réponse, un par angle (favorable / réservé /
+ * précisions), pour que l'utilisateur choisisse. RAG (notes) résolu UNE fois.
+ *
+ * SÉQUENTIEL (pas en parallèle) à dessein : Ollama sérialise les requêtes sur un
+ * même modèle ; lancer 3 prompts longs en parallèle fait dépasser le timeout aux
+ * 2ᵉ/3ᵉ (→ une seule réponse survivait). En série, chacun a son budget de temps.
+ * `onPartial` est appelé à chaque brouillon prêt → rendu progressif côté UI.
+ * Angles en échec ignorés ; si TOUT échoue, on relaie l'erreur (Ollama injoignable).
+ */
+export async function draftReplyVariants(
+  thread: MailAiThread,
+  opts: DraftReplyOptions = {},
+  onPartial?: (variant: ReplyVariant) => void,
+): Promise<ReplyVariant[]> {
+  let contextNotes = opts.contextNotes ?? [];
+  if (opts.useNotes) {
+    try {
+      contextNotes = await retrieveNotesForThread(thread);
+    } catch {
+      contextNotes = [];
+    }
+  }
+  const out: ReplyVariant[] = [];
+  let lastErr: unknown = null;
+  for (const angle of REPLY_ANGLES) {
+    try {
+      const text = (
+        await draftReply(thread, {
+          contextNotes,
+          instruction: angle.instruction,
+          ...(opts.recipient !== undefined ? { recipient: opts.recipient } : {}),
+        })
+      ).trim();
+      if (!text) continue;
+      const variant: ReplyVariant = { tone: angle.tone, label: angle.label, text };
+      out.push(variant);
+      onPartial?.(variant);
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  if (out.length === 0) {
+    throw lastErr ? asReachabilityError(lastErr) : new Error("Aucun brouillon généré.");
+  }
+  return out;
 }
 
 /**

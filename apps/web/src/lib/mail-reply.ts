@@ -5,6 +5,7 @@
  */
 
 import type { EmailThread, EmailMessage, EmailAddress } from "./gmail";
+import { classifyBubble } from "./gmail";
 import { dedupeEmails } from "./mail-recipients";
 
 /** Préfixe « Re: » si absent (insensible à la casse, tolère les espaces). */
@@ -19,14 +20,39 @@ function lastMessage(thread: EmailThread): EmailMessage | undefined {
 }
 
 /**
- * Destinataire d'une réponse simple : l'expéditeur du dernier message s'il n'est
- * pas « moi » ; sinon (dernier message envoyé par moi) le premier destinataire
- * de ce message qui n'est pas moi. "" si indéterminable.
+ * « Externe » = ni moi, ni un collègue/associé du MÊME domaine que le compte
+ * connecté (cf. `classifyBubble` → "external"). On répond à l'externe.
+ */
+function isExternal(email: string, selfEmail?: string): boolean {
+  return !!email && classifyBubble(email, selfEmail) === "external";
+}
+
+/**
+ * Destinataire d'une réponse simple. On vise l'INTERLOCUTEUR EXTERNE, pas un
+ * associé/collègue de notre organisation (même domaine) :
+ *  1. expéditeur externe le plus récent (la personne X qui nous écrit) ;
+ *  2. sinon (c'est NOTRE côté — moi ou mon associé — qui a écrit à X), le
+ *     destinataire externe le plus récent → on répond à X ;
+ *  3. sinon (tout le monde est interne, ex. seulement mon associé et moi) :
+ *     comportement classique = expéditeur du dernier message s'il n'est pas moi,
+ *     sinon 1er destinataire ≠ moi.
+ * "" si indéterminable. `selfEmail` absent → tout est « externe » (legacy).
  */
 export function pickReplyTo(thread: EmailThread, selfEmail?: string): string {
-  const self = (selfEmail ?? "").toLowerCase();
   const last = lastMessage(thread);
   if (!last) return "";
+  // 1. Expéditeur externe le plus récent.
+  for (let i = thread.messages.length - 1; i >= 0; i--) {
+    const from = thread.messages[i]!.from.email;
+    if (isExternal(from, selfEmail)) return from;
+  }
+  // 2. Aucun expéditeur externe → destinataire externe le plus récent.
+  for (let i = thread.messages.length - 1; i >= 0; i--) {
+    const ext = thread.messages[i]!.to.find((a) => isExternal(a.email, selfEmail));
+    if (ext) return ext.email;
+  }
+  // 3. Fil 100 % interne → fallback historique.
+  const self = (selfEmail ?? "").toLowerCase();
   const from = last.from.email;
   if (from && from.toLowerCase() !== self) return from;
   const other = last.to.find((a) => a.email && a.email.toLowerCase() !== self);

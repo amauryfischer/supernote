@@ -57,6 +57,44 @@ describe("pickReplyTo", () => {
     expect(pickReplyTo(t, "me@x.fr")).toBe("c@z.fr");
   });
   it("thread vide → ''", () => expect(pickReplyTo(thread([]), "me@x.fr")).toBe(""));
+
+  it("associé interne écrivant à un externe (je suis en copie) → on répond à l'externe", () => {
+    // Paul (interne, même domaine) écrit au client (externe), moi en copie :
+    // on répond au CLIENT, pas à Paul.
+    const t = thread([
+      msg({
+        from: { name: "Paul", email: "paul@numerisk.fr" },
+        to: [
+          { name: "Client", email: "client@acme.com" },
+          { name: "Moi", email: "moi@numerisk.fr" },
+        ],
+      }),
+    ]);
+    expect(pickReplyTo(t, "moi@numerisk.fr")).toBe("client@acme.com");
+  });
+
+  it("fil 100 % interne (associé + moi seulement) → on répond à l'associé", () => {
+    const t = thread([
+      msg({
+        from: { name: "Paul", email: "paul@numerisk.fr" },
+        to: [{ name: "Moi", email: "moi@numerisk.fr" }],
+      }),
+    ]);
+    expect(pickReplyTo(t, "moi@numerisk.fr")).toBe("paul@numerisk.fr");
+  });
+
+  it("externe écrivant, associé en copie → on répond à l'externe", () => {
+    const t = thread([
+      msg({
+        from: { name: "Client", email: "client@acme.com" },
+        to: [
+          { name: "Paul", email: "paul@numerisk.fr" },
+          { name: "Moi", email: "moi@numerisk.fr" },
+        ],
+      }),
+    ]);
+    expect(pickReplyTo(t, "moi@numerisk.fr")).toBe("client@acme.com");
+  });
 });
 
 describe("replyHeaders", () => {
@@ -103,28 +141,30 @@ describe("pickReplyAll", () => {
     expect(pickReplyAll(t, "me@x.fr")).toEqual({ to: "a@x.fr", cc: [] });
   });
 
-  it("n'inclut pas le destinataire principal dans cc", () => {
+  it("associé interne ↔ tiers externe → on répond au TIERS, associé en cc", () => {
+    // a@x.fr (même domaine que moi = mon associé) écrit à b@y.fr (externe) :
+    // la cible est l'externe ; l'associé reste en copie.
     const t = thread([
       msg({
         from: { name: "A", email: "a@x.fr" },
         to: [{ name: "B", email: "b@y.fr" }],
       }),
     ]);
-    expect(pickReplyAll(t, "me@x.fr")).toEqual({ to: "a@x.fr", cc: ["b@y.fr"] });
+    expect(pickReplyAll(t, "me@x.fr")).toEqual({ to: "b@y.fr", cc: ["a@x.fr"] });
   });
 
-  it("dernier message de moi → to = destinataire, cc = autres participants", () => {
+  it("dernier message de moi à [associé + externe] → to = externe, cc = associé", () => {
     const t = thread([
       msg({ from: { name: "A", email: "a@x.fr" }, to: [{ name: "Me", email: "me@x.fr" }] }),
       msg({
         from: { name: "Me", email: "me@x.fr" },
         to: [
-          { name: "A", email: "a@x.fr" },
-          { name: "C", email: "c@z.fr" },
+          { name: "A", email: "a@x.fr" }, // associé interne (même domaine)
+          { name: "C", email: "c@z.fr" }, // externe
         ],
       }),
     ]);
-    expect(pickReplyAll(t, "me@x.fr")).toEqual({ to: "a@x.fr", cc: ["c@z.fr"] });
+    expect(pickReplyAll(t, "me@x.fr")).toEqual({ to: "c@z.fr", cc: ["a@x.fr"] });
   });
 
   it("thread vide → to '' et cc []", () => {

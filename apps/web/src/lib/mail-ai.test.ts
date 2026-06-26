@@ -189,6 +189,17 @@ describe("buildReplyPrompt", () => {
     const p = buildReplyPrompt(makeThread(), { contextNotes: [] });
     expect(p).not.toContain("Contexte issu de tes notes");
   });
+
+  it("cible le destinataire externe quand `recipient` fourni (associé = contexte)", () => {
+    const p = buildReplyPrompt(makeThread(), { recipient: "Client <client@acme.com>" });
+    expect(p).toContain("ADRESSÉE à : Client <client@acme.com>");
+    expect(p).toMatch(/notre organisation.*NOTRE côté/s);
+  });
+
+  it("pas de section destinataire sans `recipient`", () => {
+    const p = buildReplyPrompt(makeThread());
+    expect(p).not.toContain("ADRESSÉE à");
+  });
 });
 
 describe("buildClassifyQuadrantPrompt", () => {
