@@ -9,10 +9,7 @@ import { QUADRANTS, type EisenhowerQuadrant } from "@/lib/mail-eisenhower";
 import { SNOOZE_PRESETS, type TriageAction } from "@/lib/mail-triage";
 import type { GmailLabelColor } from "@/lib/gmail";
 import { initials, avatarColor } from "@/lib/mail-avatar";
-
-function shortDate(d: string): string {
-  return d ? new Date(d).toLocaleDateString(undefined, { day: "2-digit", month: "short" }) : "";
-}
+import { formatMailDate } from "@/lib/mail-date";
 
 export function MailOverlayList({
   rows,
@@ -184,7 +181,7 @@ export function MailOverlayList({
               {/* Méta droite : date + étoile. */}
               <span className="flex shrink-0 flex-col items-end gap-1">
                 <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-                  {shortDate(date)}
+                  {formatMailDate(date)}
                 </span>
                 {/* Étoile : native (interactive imbriquée dans la ligne-Button →
                     pas de Button HeroUI nesté). stopPropagation = ne pas ouvrir

@@ -45,6 +45,7 @@ function loadInitialSettings(): AppSettings {
       sync: { ...DEFAULT_SETTINGS.sync, ...(parsed.sync ?? {}) },
       api: { ...DEFAULT_SETTINGS.api, ...(parsed.api ?? {}) },
       notifications: { ...DEFAULT_SETTINGS.notifications, ...(parsed.notifications ?? {}) },
+      gmail: { ...DEFAULT_SETTINGS.gmail, ...(parsed.gmail ?? {}) },
       plugins: parsed.plugins ?? DEFAULT_SETTINGS.plugins,
       shortcuts: parsed.shortcuts ?? DEFAULT_SETTINGS.shortcuts,
       editorShortcuts: parsed.editorShortcuts ?? DEFAULT_SETTINGS.editorShortcuts,

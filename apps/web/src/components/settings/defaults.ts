@@ -56,6 +56,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   },
   gmail: {
     connectedEmail: "",
+    aliases: [],
   },
 };
 

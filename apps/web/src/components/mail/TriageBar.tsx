@@ -19,15 +19,16 @@
  * réussi via `onTriaged(action)` pour que l'appelant retire la carte / passe au
  * thread suivant.
  *
- * Mobile : boutons à hit-target tactile (h-9 ≈ 36px), libellés masqués sous
- * `sm` (icône seule) pour éviter tout débordement ; le Popover snooze reste
- * pleine largeur des options.
+ * UI : boutons icône-seule (h-9 ≈ 36px hit-target tactile) + `Tooltip` au survol
+ * (sauf le déclencheur snooze, qui porte déjà un Popover → on garde l'aria-label
+ * sans Tooltip pour ne pas perturber le trigger). Le Popover snooze reste pleine
+ * largeur des options.
  */
 
 import { useCallback, useState } from "react";
 import { Button, Popover } from "@heroui/react";
 import { Archive, CheckCircle, Clock, Trash } from "@phosphor-icons/react";
-import { useToast } from "@supernote/ui";
+import { useToast, Tooltip } from "@supernote/ui";
 import {
   addSnooze,
   applyTriage,
@@ -122,41 +123,45 @@ export function TriageBar({ clientId, threadId, onTriaged }: TriageBarProps) {
   );
 
   return (
-    <div className="flex items-center gap-2" role="group" aria-label="Triage du fil">
-      <Button
-        variant="ghost"
-        size="sm"
-        onPress={() => handleSimple("done")}
-        isDisabled={busy}
-        className="h-9 gap-1.5"
-        aria-label="Marquer comme fait"
-      >
-        <CheckCircle size={18} weight="bold" aria-hidden />
-        <span className="hidden sm:inline">Fait</span>
-      </Button>
+    <div className="flex items-center gap-1" role="group" aria-label="Triage du fil">
+      <Tooltip content="Marquer comme fait">
+        <Button
+          variant="ghost"
+          size="sm"
+          isIconOnly
+          onPress={() => handleSimple("done")}
+          isDisabled={busy}
+          className="h-9"
+          aria-label="Marquer comme fait"
+        >
+          <CheckCircle size={18} weight="bold" aria-hidden />
+        </Button>
+      </Tooltip>
 
-      <Button
-        variant="ghost"
-        size="sm"
-        onPress={() => handleSimple("archive")}
-        isDisabled={busy}
-        className="h-9 gap-1.5"
-        aria-label="Archiver"
-      >
-        <Archive size={18} aria-hidden />
-        <span className="hidden sm:inline">Archiver</span>
-      </Button>
+      <Tooltip content="Archiver">
+        <Button
+          variant="ghost"
+          size="sm"
+          isIconOnly
+          onPress={() => handleSimple("archive")}
+          isDisabled={busy}
+          className="h-9"
+          aria-label="Archiver"
+        >
+          <Archive size={18} aria-hidden />
+        </Button>
+      </Tooltip>
 
       <Popover isOpen={snoozeOpen} onOpenChange={setSnoozeOpen}>
         <Button
           variant="ghost"
           size="sm"
+          isIconOnly
           isDisabled={busy}
-          className="h-9 gap-1.5"
+          className="h-9"
           aria-label="Reporter (snooze)"
         >
           <Clock size={18} aria-hidden />
-          <span className="hidden sm:inline">Reporter</span>
         </Button>
         <Popover.Content className="min-w-44 p-1">
           <Popover.Dialog className="outline-none">
@@ -177,17 +182,19 @@ export function TriageBar({ clientId, threadId, onTriaged }: TriageBarProps) {
         </Popover.Content>
       </Popover>
 
-      <Button
-        variant="ghost"
-        size="sm"
-        onPress={() => handleSimple("delete")}
-        isDisabled={busy}
-        className="h-9 gap-1.5"
-        aria-label="Supprimer (corbeille)"
-      >
-        <Trash size={18} aria-hidden />
-        <span className="hidden sm:inline">Supprimer</span>
-      </Button>
+      <Tooltip content="Supprimer (corbeille)">
+        <Button
+          variant="ghost"
+          size="sm"
+          isIconOnly
+          onPress={() => handleSimple("delete")}
+          isDisabled={busy}
+          className="h-9"
+          aria-label="Supprimer (corbeille)"
+        >
+          <Trash size={18} aria-hidden />
+        </Button>
+      </Tooltip>
     </div>
   );
 }

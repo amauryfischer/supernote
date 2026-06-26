@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowSquareOut, Plus, X, Tag, MagnifyingGlass, Check, PaperPlaneTilt, Quotes, Paperclip, Star, Envelope, ArrowBendUpRight, Sparkle, MagicWand, ArrowsClockwise, CaretUp, DotsThreeVertical } from "@phosphor-icons/react";
-import { Button, Input, Spinner, Checkbox, Popover } from "@heroui/react";
-import { useToast } from "@supernote/ui";
+import { useEffect, useMemo, useRef, useState, forwardRef, useImperativeHandle } from "react";
+import { ArrowSquareOut, Plus, X, Tag, MagnifyingGlass, Check, PaperPlaneTilt, Quotes, Paperclip, Star, Envelope, ArrowBendUpRight, Sparkle, MagicWand, ArrowsClockwise, CaretUp, DotsThreeVertical, Copy } from "@phosphor-icons/react";
+import { Button, Input, Spinner, Popover } from "@heroui/react";
+import { useToast, Tooltip } from "@supernote/ui";
 import { useSettings } from "@/components/settings/SettingsContext";
 import {
   listLabels,
@@ -49,7 +49,6 @@ import { useConvertToTodo } from "./useConvertToTodo";
 import {
   isAiConfigured,
   summarizeThread,
-  draftReply,
   suggestQuadrant,
   type MailAiThread,
 } from "@/lib/mail-ai";
@@ -94,17 +93,13 @@ const MENU_COMPONENT_ROW =
  * secondaires (« Plus ») et DÉSACTIVE le composeur de réponse inline (remplacé
  * par un lien « Ouvrir dans Gmail »). Posé par `GmailMessageView`.
  */
-export function EmailThreadView({
-  thread,
-  selfEmail,
-  enableShortcuts = true,
-  embedded = false,
-  onTriaged,
-  onReplied,
-  onLabelsChanged,
-  onForward,
-  onConvertedToTodo,
-}: {
+/** Handle impératif exposé au parent (page Mail) via `ref`. */
+export interface EmailThreadHandle {
+  /** Charge un texte (ex. brouillon IA choisi) dans la zone de réponse + focus. */
+  loadDraft: (text: string) => void;
+}
+
+interface EmailThreadViewProps {
   thread: EmailThread;
   selfEmail?: string;
   enableShortcuts?: boolean;
@@ -117,14 +112,12 @@ export function EmailThreadView({
   onTriaged?: (action: TriageAction) => void;
   /**
    * Appelé après un ENVOI de réponse réussi (mode `send` uniquement, pas le
-   * brouillon) — l'appelant re-fetch le fil + la liste pour afficher la réponse
-   * sans rechargement manuel.
+   * brouillon) — l'appelant re-fetch le fil + la liste pour afficher la réponse.
    */
   onReplied?: () => void;
   /**
    * Appelé quand les labelIds optimistes du thread changent (étoile, marqué non
-   * lu) — l'appelant resynchronise la ligne correspondante dans la liste de
-   * gauche (étoile, pastille « non lu ») sans rechargement.
+   * lu) — l'appelant resynchronise la ligne correspondante dans la liste.
    */
   onLabelsChanged?: (threadId: string, labelIds: string[]) => void;
   /**
@@ -133,12 +126,33 @@ export function EmailThreadView({
    */
   onForward?: (prefill: { subject: string; body: string }) => void;
   /**
-   * Appelé après la conversion réussie d'un email en tâche Eisenhower (création
-   * de l'entité `todo` + liaison locale + retrait d'`INBOX`) — l'appelant retire
-   * le fil de la liste inbox, comme pour un triage « Fait ».
+   * Appelé après la conversion réussie d'un email en tâche Eisenhower — l'appelant
+   * retire le fil de la liste inbox, comme pour un triage « Fait ».
    */
   onConvertedToTodo?: () => void;
-}) {
+  /** Déclenche la génération des brouillons IA (gérée par le parent / la colonne). */
+  onGenerateDrafts?: () => void;
+  /** Génération de brouillons en cours (état du bouton 🪄). */
+  draftsBusy?: boolean;
+}
+
+export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProps>(
+  function EmailThreadView(
+    {
+      thread,
+      selfEmail,
+      enableShortcuts = true,
+      embedded = false,
+      onTriaged,
+      onReplied,
+      onLabelsChanged,
+      onForward,
+      onConvertedToTodo,
+      onGenerateDrafts,
+      draftsBusy = false,
+    },
+    ref,
+  ) {
   const { settings } = useSettings();
   const clientId = settings.googleDrive.clientId.trim();
   const { toast } = useToast();
@@ -206,14 +220,16 @@ export function EmailThreadView({
   // Pièces jointes de la réponse en cours (réinitialisées au changement de fil).
   const [replyAttachments, setReplyAttachments] = useState<PendingAttachment[]>([]);
   const replyFileRef = useRef<HTMLInputElement>(null);
+  // Zone de saisie : grandit avec le contenu (auto-resize, plafonné). Les
+  // brouillons IA sont gérés par le parent (colonne dédiée) → `loadDraft` y
+  // injecte le texte choisi.
+  const replyTaRef = useRef<HTMLTextAreaElement>(null);
   // ─── IA locale (Ollama) : résumé du fil + brouillon de réponse ─────────────
   // États dédiés ; resynchronisés au changement de fil (le résumé d'un fil ne
   // doit pas « fuiter » sur le suivant).
   const [summary, setSummary] = useState<string | null>(null);
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [summaryBusy, setSummaryBusy] = useState(false);
-  const [draftBusy, setDraftBusy] = useState(false);
-  const [useNotes, setUseNotes] = useState(false);
   // Quadrant Eisenhower suggéré par l'IA (best-effort) → pré-sélectionné dans le
   // MailEisenhowerPicker (ouvre le Popover sur la cellule). Réinitialisé par fil.
   const [suggestedQuadrant, setSuggestedQuadrant] = useState<EisenhowerQuadrant | null>(null);
@@ -226,6 +242,29 @@ export function EmailThreadView({
     setSummaryOpen(false);
     setSuggestedQuadrant(null);
   }, [thread]);
+
+  // Handle impératif : le parent charge un brouillon IA choisi dans la zone de
+  // réponse (remplace si vide, sinon ajoute sous la saisie) puis focus.
+  useImperativeHandle(
+    ref,
+    () => ({
+      loadDraft: (text: string) => {
+        setReplyBody((prev) => (prev.trim() ? `${prev}\n\n${text}` : text));
+        requestAnimationFrame(() => replyTaRef.current?.focus());
+      },
+    }),
+    [],
+  );
+
+  // Auto-resize de la zone de réponse : grandit avec le contenu (saisie OU
+  // brouillon IA chargé) jusqu'à un plafond, pour qu'on VOIE ce qu'on écrit sans
+  // scroller un champ minuscule. `min-height` (CSS) garantit une taille de base.
+  useEffect(() => {
+    const ta = replyTaRef.current;
+    if (!ta) return;
+    ta.style.height = "auto";
+    ta.style.height = `${Math.min(ta.scrollHeight, 260)}px`;
+  }, [replyBody]);
 
   // Gate d'affichage des features IA : visibles seulement si un modèle Ollama
   // est configuré dans les réglages. Réactif au modèle des réglages.
@@ -269,32 +308,6 @@ export function EmailThreadView({
       void runSummary();
     } else {
       setSummaryOpen((o) => !o);
-    }
-  };
-
-  const runDraft = async () => {
-    if (draftBusy) return;
-    setDraftBusy(true);
-    try {
-      const text = (await draftReply(aiThread, { useNotes })).trim();
-      if (!text) {
-        toast({
-          title: "Brouillon vide",
-          description: "Le modèle n'a renvoyé aucun texte.",
-          variant: "warning",
-        });
-        return;
-      }
-      // Ne pas écraser un texte déjà saisi : on ajoute en dessous (sinon remplace).
-      setReplyBody((prev) => (prev.trim() ? `${prev}\n\n${text}` : text));
-    } catch (e) {
-      toast({
-        title: "Brouillon IA impossible",
-        description: e instanceof Error ? e.message : "Ollama injoignable",
-        variant: "danger",
-      });
-    } finally {
-      setDraftBusy(false);
     }
   };
 
@@ -406,7 +419,18 @@ export function EmailThreadView({
   const { convert: convertEmailToTodo, busy: convertBusy } = useConvertToTodo(clientId);
   const convertToTodo = async (quadrant: EisenhowerQuadrant) => {
     const subject = thread.messages[0]?.subject ?? "";
-    const ok = await convertEmailToTodo({ threadId: thread.id, subject, quadrant });
+    // Correspondant + aperçu : le dernier message du correspondant (sinon le 1ᵉʳ).
+    const src =
+      [...thread.messages].reverse().find((m) => m.from.email.toLowerCase() !== (selfEmail ?? "").toLowerCase()) ??
+      thread.messages[0];
+    const ok = await convertEmailToTodo({
+      threadId: thread.id,
+      subject,
+      quadrant,
+      snippet: src?.snippet || src?.bodyText?.slice(0, 240) || "",
+      fromName: src?.from.name,
+      fromEmail: src?.from.email,
+    });
     if (ok) onConvertedToTodo?.();
   };
 
@@ -510,9 +534,39 @@ export function EmailThreadView({
       ? [...thread.messages].reverse().find((m) => m.from.email.toLowerCase() !== self)
       : thread.messages[thread.messages.length - 1]) ?? null;
 
+  // Adresse du correspondant (celle vers laquelle on répond = l'externe X, cf.
+  // pickReplyTo) → affichée + copiable dans l'en-tête.
+  const recipientEmail = replyParams.to || correspondentMsg?.from.email || "";
+  const copyRecipient = async () => {
+    if (!recipientEmail) return;
+    try {
+      await navigator.clipboard.writeText(recipientEmail);
+      toast({ title: "Adresse copiée", description: recipientEmail });
+    } catch {
+      toast({ title: "Copie impossible", variant: "danger" });
+    }
+  };
+
   return (
-    <div className="flex flex-col gap-3">
-      <div className="flex flex-col gap-2">
+    // En pane (non-embed) : on remplit la hauteur du conteneur scrollable pour
+    // que le composeur de réponse (spacer `flex-1` + sticky ci-dessous) soit
+    // poussé EN BAS du panneau même quand le fil est court. En embed (bloc note)
+    // : hauteur naturelle, pas de composeur.
+    <div className={`flex flex-col gap-3${embedded ? "" : " min-h-full"}`}>
+      {/* En-tête (sujet + actions + labels) ÉPINGLÉ en haut du panneau : reste
+          visible pendant le défilement des messages. `-mx-4 px-4` = déborde le
+          padding du conteneur scroll pour couvrir toute la largeur ; fond opaque
+          + bordure bas pour que les messages passent DERRIÈRE. Pas en embed. */}
+      <div
+        className={`flex flex-col gap-2${
+          embedded ? "" : " sticky top-0 z-10 -mx-4 border-b px-4 pb-2 pt-1"
+        }`}
+        style={
+          embedded
+            ? undefined
+            : { background: "var(--surface-0, var(--background))", borderColor: "var(--border-subtle)" }
+        }
+      >
         <div className="flex items-start justify-between gap-3">
           <div className="flex min-w-0 flex-1 items-center gap-1.5">
             {clientId && (
@@ -647,6 +701,27 @@ export function EmailThreadView({
             )}
           </div>
         </div>
+        {/* Adresse du correspondant + copie rapide (QoL : récupérer l'email sans
+            ouvrir le composeur). Masqué en embed / si pas d'adresse. */}
+        {!embedded && recipientEmail && (
+          <div className="flex min-w-0 items-center gap-1 pl-0.5">
+            <span className="truncate text-xs" style={{ color: "var(--text-muted)" }}>
+              {recipientEmail}
+            </span>
+            <Tooltip content="Copier l'adresse">
+              <Button
+                isIconOnly
+                variant="ghost"
+                size="sm"
+                aria-label="Copier l'adresse"
+                className="h-6 min-h-6 w-6 min-w-6 shrink-0"
+                onPress={() => void copyRecipient()}
+              >
+                <Copy size={12} />
+              </Button>
+            </Tooltip>
+          </div>
+        )}
         <div className="flex flex-wrap items-center gap-1.5">
           {current.map((l) => (
             <span
@@ -674,17 +749,20 @@ export function EmailThreadView({
               </Button>
             </span>
           ))}
-          <Button
-            ref={triggerRef}
-            variant="ghost"
-            size="sm"
-            onPress={openPicker}
-            aria-label="Ajouter un label (touche l)"
-            className="flex h-auto items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium"
-            style={{ border: "1px dashed var(--border)", color: "var(--text-muted)" }}
-          >
-            <Plus size={10} weight="bold" /> Label
-          </Button>
+          <Tooltip content="Ajouter un label (l)">
+            <Button
+              ref={triggerRef}
+              variant="ghost"
+              size="sm"
+              isIconOnly
+              onPress={openPicker}
+              aria-label="Ajouter un label (touche l)"
+              className="flex h-7 min-h-7 w-7 min-w-7 items-center justify-center rounded-full p-0"
+              style={{ border: "1px dashed var(--border)", color: "var(--text-muted)" }}
+            >
+              <Plus size={12} weight="bold" />
+            </Button>
+          </Tooltip>
         </div>
 
       </div>
@@ -773,13 +851,22 @@ export function EmailThreadView({
         </div>
       )}
 
+      {/* Pousse le composeur en bas du panneau quand le fil est court (absorbe
+          l'espace restant) ; à 0 sur un fil long, où `sticky` prend le relais. */}
+      {!embedded && clientId && replyParams.to && (
+        <div className="min-h-0 flex-1" aria-hidden />
+      )}
+
       {!embedded && clientId && replyParams.to && (
         <div
           className="sticky bottom-0 mt-1 border-t px-1 pb-2 pt-2"
           style={{ background: "var(--surface-1)", borderColor: "var(--border-subtle)" }}
         >
-          {/* textarea natif justifié : composeur inline compact (envoi ⌘/Ctrl+↵). */}
+          {/* textarea natif justifié : composeur inline (envoi ⌘/Ctrl+↵).
+              Auto-resize (cf. effet) → grandit avec le contenu, `min-height` =
+              base confortable (~3 lignes) pour qu'on voie ce qu'on écrit. */}
           <textarea
+            ref={replyTaRef}
             value={replyBody}
             onChange={(e) => setReplyBody(e.target.value)}
             onKeyDown={(e) => {
@@ -788,10 +875,11 @@ export function EmailThreadView({
                 void submitReply("send");
               }
             }}
-            rows={2}
             placeholder={`Répondre à ${replyParams.to}…`}
-            className="w-full resize-y rounded-lg border px-3 py-2 text-sm outline-none"
+            className="w-full resize-none overflow-y-auto rounded-lg border px-3 py-2 text-sm outline-none"
             style={{
+              minHeight: "4.75rem",
+              maxHeight: "260px",
               borderColor: "var(--border-subtle)",
               background: "var(--surface-0, var(--background))",
               color: "var(--text-primary)",
@@ -848,26 +936,18 @@ export function EmailThreadView({
             </div>
             <div className="flex shrink-0 flex-wrap items-center gap-2">
               {aiConfigured && (
-                <>
-                  <Checkbox
-                    isSelected={useNotes}
-                    onChange={(sel) => setUseNotes(Boolean(sel))}
-                    aria-label="Rédiger le brouillon à partir de mes notes (RAG)"
-                  >
-                    <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-                      Mes notes
-                    </span>
-                  </Checkbox>
+                <Tooltip content="Proposer plusieurs brouillons (IA locale)">
                   <Button
                     variant="ghost"
                     size="sm"
-                    onPress={() => void runDraft()}
-                    isDisabled={draftBusy || replyBusy !== null}
-                    aria-label="Générer un brouillon de réponse avec l'IA locale"
+                    isIconOnly
+                    onPress={() => onGenerateDrafts?.()}
+                    isDisabled={draftsBusy || replyBusy !== null}
+                    aria-label="Proposer plusieurs brouillons de réponse avec l'IA locale"
                   >
-                    {draftBusy ? <Spinner size="sm" /> : <MagicWand size={14} />} Brouillon IA
+                    {draftsBusy ? <Spinner size="sm" /> : <MagicWand size={14} />}
                   </Button>
-                </>
+                </Tooltip>
               )}
               {hasCc && (
                 <Button
@@ -880,22 +960,28 @@ export function EmailThreadView({
                   Répondre à tous
                 </Button>
               )}
-              <Button
-                variant="ghost"
-                size="sm"
-                onPress={() => replyFileRef.current?.click()}
-                aria-label="Joindre des fichiers"
-              >
-                <Paperclip size={14} /> Joindre
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onPress={insertQuote}
-                aria-label="Citer le message précédent"
-              >
-                <Quotes size={14} /> Citer
-              </Button>
+              <Tooltip content="Joindre des fichiers">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  isIconOnly
+                  onPress={() => replyFileRef.current?.click()}
+                  aria-label="Joindre des fichiers"
+                >
+                  <Paperclip size={14} />
+                </Button>
+              </Tooltip>
+              <Tooltip content="Citer le message précédent">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  isIconOnly
+                  onPress={insertQuote}
+                  aria-label="Citer le message précédent"
+                >
+                  <Quotes size={14} />
+                </Button>
+              </Tooltip>
               <Button
                 variant="ghost"
                 size="sm"
@@ -926,7 +1012,8 @@ export function EmailThreadView({
       />
     </div>
   );
-}
+  },
+);
 
 /**
  * Sélecteur de label ancré (position fixe, même esprit que TagSelector) avec

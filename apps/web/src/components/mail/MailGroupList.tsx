@@ -1,44 +1,126 @@
 "use client";
 
 import { Button } from "@heroui/react";
+import { Tooltip } from "@supernote/ui";
+import { Trash, EnvelopeOpen } from "@phosphor-icons/react";
 import type { ThreadListItem } from "@/lib/gmail";
-
-function shortDate(d: string): string {
-  return d ? new Date(d).toLocaleDateString(undefined, { day: "2-digit", month: "short" }) : "";
-}
+import { formatMailDateTime } from "@/lib/mail-date";
+import { initials, avatarColor } from "@/lib/mail-avatar";
 
 export function MailGroupList({
   title,
   items,
   activeThreadId,
   onPick,
+  onDeleteAll,
+  onMarkAllRead,
+  deleteBusy,
 }: {
   title: string;
   items: ThreadListItem[];
   activeThreadId?: string;
   onPick: (threadId: string) => void;
+  /** Présent → affiche un bouton « tout supprimer » dans l'en-tête du groupe. */
+  onDeleteAll?: () => void;
+  /** Présent → affiche « tout marquer comme lu » (si ≥1 non lu). */
+  onMarkAllRead?: () => void;
+  deleteBusy?: boolean;
 }) {
+  const unreadCount = items.filter((it) => it.labelIds.includes("UNREAD")).length;
   return (
     <div className="flex flex-col gap-1">
-      <p className="px-3 py-1 text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
-        {title} · {items.length}
-      </p>
-      {items.map((it) => (
-        <Button
-          key={it.id}
-          variant={activeThreadId === it.id ? "primary" : "ghost"}
-          onPress={() => onPick(it.id)}
-          className="h-auto w-full justify-start whitespace-normal px-3 py-2 text-left"
-        >
-          <span className="flex w-full min-w-0 flex-col gap-0.5">
-            <span className="flex items-baseline justify-between gap-2">
-              <span className="truncate text-sm font-medium">{it.from.name || it.from.email}</span>
-              <span className="shrink-0 text-xs" style={{ color: "var(--text-muted)" }}>{shortDate(it.date)}</span>
+      <div className="flex items-center justify-between gap-2 px-3 py-1">
+        <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+          {title} · {items.length}
+        </p>
+        <div className="flex shrink-0 items-center gap-0.5">
+          {onMarkAllRead && unreadCount > 0 && (
+            <Tooltip content="Tout marquer comme lu">
+              <Button
+                size="sm"
+                variant="ghost"
+                isIconOnly
+                aria-label="Tout marquer comme lu"
+                onPress={onMarkAllRead}
+              >
+                <EnvelopeOpen size={16} />
+              </Button>
+            </Tooltip>
+          )}
+          {onDeleteAll && items.length > 0 && (
+            <Tooltip content="Supprimer tout le groupe">
+              <Button
+                size="sm"
+                variant="ghost"
+                isIconOnly
+                aria-label="Supprimer tout le groupe"
+                isDisabled={deleteBusy}
+                onPress={onDeleteAll}
+              >
+                <Trash size={16} />
+              </Button>
+            </Tooltip>
+          )}
+        </div>
+      </div>
+      {items.map((it) => {
+        const active = activeThreadId === it.id;
+        const unread = it.labelIds.includes("UNREAD");
+        const avatar = avatarColor(it.from.email || it.from.name || title);
+        const mono = initials(it.from.name ?? "", it.from.email ?? "");
+        return (
+          <Button
+            key={it.id}
+            variant="ghost"
+            onPress={() => onPick(it.id)}
+            aria-selected={active}
+            className="h-auto w-full justify-start whitespace-normal rounded-lg px-3 py-2 text-left"
+            // Ligne ouverte : surlignage SOBRE (accent-subtle + barre accent à
+            // gauche), cohérent avec MailOverlayList — pas un bloc violet plein.
+            style={
+              active
+                ? { backgroundColor: "var(--accent-subtle)", boxShadow: "inset 3px 0 0 0 var(--accent)" }
+                : undefined
+            }
+          >
+            <span className="flex w-full min-w-0 items-start gap-2.5">
+              {/* Monogramme expéditeur + pastille non-lu (parité MailOverlayList) :
+                  repère visuel + scan rapide des fils non lus dans un groupe. */}
+              <span className="relative shrink-0">
+                <span
+                  aria-hidden
+                  className="flex h-8 w-8 items-center justify-center rounded-lg text-xs font-semibold"
+                  style={{ backgroundColor: avatar.bg, color: avatar.fg }}
+                >
+                  {mono}
+                </span>
+                {unread && (
+                  <span
+                    aria-label="Non lu"
+                    title="Non lu"
+                    className="absolute -left-1 -top-1 h-2.5 w-2.5 rounded-full"
+                    style={{ backgroundColor: "var(--accent)", boxShadow: "0 0 0 2px var(--surface-0)" }}
+                  />
+                )}
+              </span>
+              <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                <span className="flex items-baseline justify-between gap-2">
+                  <span
+                    className={`truncate text-sm ${unread ? "font-semibold" : "font-medium"}`}
+                    style={{ color: "var(--text-primary)" }}
+                  >
+                    {it.from.name || it.from.email}
+                  </span>
+                  <span className="shrink-0 text-xs" style={{ color: "var(--text-muted)" }}>
+                    {formatMailDateTime(it.date)}
+                  </span>
+                </span>
+                <span className="truncate text-sm" style={{ color: "var(--text-secondary)" }}>{it.subject}</span>
+              </span>
             </span>
-            <span className="truncate text-sm" style={{ color: "var(--text-secondary)" }}>{it.subject}</span>
-          </span>
-        </Button>
-      ))}
+          </Button>
+        );
+      })}
     </div>
   );
 }

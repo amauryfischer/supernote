@@ -1,12 +1,13 @@
-import { useState, useEffect, useCallback, useRef } from "react";
-import { Button, Input, Spinner } from "@heroui/react";
-import { FilePlus, Database, ArrowLeft, MagnifyingGlass, PencilSimple, Archive, Trash, EnvelopeOpen, X } from "@phosphor-icons/react";
-import { useNavigate } from "react-router-dom";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { Button, Input, Spinner, Checkbox } from "@heroui/react";
+import { FilePlus, Database, ArrowLeft, MagnifyingGlass, PencilSimple, Archive, Trash, EnvelopeOpen, X, CaretRight, MagicWand, ArrowsClockwise } from "@phosphor-icons/react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useSettings } from "@/components/settings/SettingsContext";
 import { AppShell, useMobileTitle, useMobileFab } from "@/components/shell";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useGmailConnected } from "@/hooks/useGmailConnected";
-import { EmailThreadView } from "@/components/mail/EmailThreadView";
+import { useConfirm } from "@/hooks/usePrompt";
+import { EmailThreadView, type EmailThreadHandle } from "@/components/mail/EmailThreadView";
 import { MailOverlayList } from "@/components/mail/MailOverlayList";
 import { MailGroupList } from "@/components/mail/MailGroupList";
 import { useCaptureEmail } from "@/components/mail/useCaptureEmail";
@@ -14,9 +15,11 @@ import { CaptureEmailModal } from "@/components/mail/CaptureEmailModal";
 import { ComposeModal } from "@/components/mail/ComposeModal";
 import { MailEisenhowerBoard } from "@/components/mail/MailEisenhowerBoard";
 import { listThreadSummariesPage, listLabels, getThread, modifyThreadLabels, markThreadRead, markThreadUnread, toggleStar, type EmailThread, type GmailLabelColor, type ThreadListItem } from "@/lib/gmail";
-import { listDue, removeSnooze, addSnooze, applyTriage, undoTriage, INBOX_LABEL, type TriageAction } from "@/lib/mail-triage";
+import { listDue, removeSnooze, addSnooze, applyTriage, undoTriage, INBOX_LABEL, SNOOZE_PRESETS, type TriageAction } from "@/lib/mail-triage";
 import { useConvertToTodo } from "@/components/mail/useConvertToTodo";
 import { buildMailOverlay, type OverlayRow } from "@/lib/mail-overlay";
+import { draftReplyVariants, type ReplyVariant, type MailAiThread, isAiConfigured } from "@/lib/mail-ai";
+import { pickReplyTo } from "@/lib/mail-reply";
 import { toggleRowSelection, pruneSelection } from "@/lib/mail-selection";
 import {
   loadBindings,
@@ -29,7 +32,7 @@ import { quadrantToTodoFields, type EisenhowerQuadrant } from "@/lib/mail-eisenh
 import { trpcVanillaClient } from "@/lib/trpc/client";
 import { TODO_TYPE_ID } from "@/hooks/useTodoSync";
 import { prefersReducedMotion } from "@/lib/motion";
-import { useToast } from "@supernote/ui";
+import { useToast, Tooltip } from "@supernote/ui";
 
 const DEFAULT_MAIL_QUERY = "in:inbox";
 
@@ -49,14 +52,22 @@ const UNDO_TOAST_DURATION_MS = 6000;
 export default function MailPage() {
   const { settings } = useSettings();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const isMobile = useIsMobile();
   useMobileTitle(isMobile ? "Mail" : null);
 
   const clientId = settings.googleDrive.clientId.trim();
   const connected = useGmailConnected();
+  // Adresses « à moi » (compte connecté + alias/boîtes partagées) → exclues du
+  // regroupement par expéditeur dans la surcouche mail (cf. buildMailOverlay).
+  const selfAddresses = useMemo(
+    () => [settings.gmail.connectedEmail, ...settings.gmail.aliases],
+    [settings.gmail.connectedEmail, settings.gmail.aliases],
+  );
 
   const { captureToNote } = useCaptureEmail();
   const { toast } = useToast();
+  const confirm = useConfirm();
 
   const [query, setQuery] = useState(DEFAULT_MAIL_QUERY);
   // Texte de recherche AFFICHÉ (vide par défaut → placeholder). La requête Gmail
@@ -100,9 +111,20 @@ export default function MailPage() {
 
   const [selectedGroup, setSelectedGroup] = useState<GroupRow | null>(null);
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
+  // Quand un fil est ouvert, la liste (et le groupe en amont) se réduit à un
+  // rail de 30px — « savoir qu'elle existe ». `peekList` = on l'a dépliée par-
+  // dessus le contenu (overlay) pour piocher un autre email.
+  const [peekList, setPeekList] = useState(false);
   const [thread, setThread] = useState<EmailThread | null>(null);
   const [threadLoading, setThreadLoading] = useState(false);
   const [threadError, setThreadError] = useState<string | null>(null);
+  // Brouillons IA : colonne dédiée à droite du fil. Générés au niveau page (l'état
+  // ne « fuit » pas dans EmailThreadView) ; `loadDraft` (ref impératif) injecte le
+  // brouillon choisi dans la zone de réponse du fil.
+  const threadRef = useRef<EmailThreadHandle>(null);
+  const [draftVariants, setDraftVariants] = useState<ReplyVariant[]>([]);
+  const [draftBusy, setDraftBusy] = useState(false);
+  const [draftUseNotes, setDraftUseNotes] = useState(false);
 
   const [captureOpen, setCaptureOpen] = useState(false);
   const [composeOpen, setComposeOpen] = useState(false);
@@ -159,7 +181,7 @@ export default function MailPage() {
         // Sécurité : exclut de l'inbox les fils déjà convertis en tâche (binding
         // local) — au cas où un fil todo'd traînerait encore dans la liste.
         const visible = page.items.filter((it) => !getBinding(it.id));
-        setRows(buildMailOverlay(visible, names, settings.gmail.connectedEmail));
+        setRows(buildMailOverlay(visible, names, selfAddresses));
       } catch (err) {
         if (reqId !== loadReqRef.current) return;
         setListError(err instanceof Error ? err.message : String(err));
@@ -167,7 +189,7 @@ export default function MailPage() {
         if (reqId === loadReqRef.current) setListLoading(false);
       }
     },
-    [clientId, settings.gmail.connectedEmail],
+    [clientId, selfAddresses],
   );
 
   // « Charger plus » : récupère la page suivante (via nextPageToken), APPEND aux
@@ -185,7 +207,7 @@ export default function MailPage() {
         const merged = [...prev, ...page.items.filter((it) => !seen.has(it.id))];
         // Même exclusion que loadList : on cache les fils déjà convertis en tâche.
         const visible = merged.filter((it) => !getBinding(it.id));
-        setRows(buildMailOverlay(visible, labelNames, settings.gmail.connectedEmail));
+        setRows(buildMailOverlay(visible, labelNames, selfAddresses));
         return merged;
       });
       setNextPageToken(page.nextPageToken);
@@ -194,7 +216,7 @@ export default function MailPage() {
     } finally {
       setMoreLoading(false);
     }
-  }, [clientId, query, nextPageToken, moreLoading, labelNames, settings.gmail.connectedEmail]);
+  }, [clientId, query, nextPageToken, moreLoading, labelNames, selfAddresses]);
 
   useEffect(() => {
     if (connected) void loadList(DEFAULT_MAIL_QUERY);
@@ -224,6 +246,8 @@ export default function MailPage() {
     setThreadLoading(true);
     setThreadError(null);
     setSelectedThreadId(threadId);
+    setPeekList(false); // sélection faite → on referme l'overlay liste
+
     // Optimiste : ouvrir un fil le marque lu (cf. EmailThreadView) → retirer
     // UNREAD de la ligne correspondante pour que le style « non lu » disparaisse.
     setRows((rs) =>
@@ -256,7 +280,20 @@ export default function MailPage() {
     }
   };
 
+  // Deep-link `/mail?thread=<id>` : ouvre directement le fil (ex. depuis une tâche
+  // liée à un email dans /todos). On consomme le paramètre une fois.
+  useEffect(() => {
+    const tid = searchParams.get("thread");
+    if (!tid || !connected || !clientId) return;
+    void openThread(tid);
+    const next = new URLSearchParams(searchParams);
+    next.delete("thread");
+    setSearchParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, connected, clientId]);
+
   const onPick = (row: OverlayRow) => {
+    setPeekList(false); // sélection faite → referme l'overlay liste éventuel
     if (row.kind === "single") {
       setSelectedGroup(null);
       void openThread(row.item.id);
@@ -336,18 +373,34 @@ export default function MailPage() {
   // Optimiste : on retire la ligne immédiatement, puis on appelle Gmail. En cas
   // d'échec réseau on recharge la liste (source de vérité) et on prévient.
   const triageRowAt = useCallback(
-    (index: number, action: "archive" | "delete") => {
+    (index: number, action: TriageAction) => {
       const row = rows[index];
       if (!row || row.kind !== "single" || !clientId) return;
       const id = row.item.id;
       dropThreadFromList(id);
+      // Snooze clavier → échéance par défaut « Demain » (cf. TriageBar pour le
+      // choix fin via popover). On note l'échéance AVANT la mutation, rollback
+      // local en cas d'échec.
+      if (action === "snooze") {
+        const until = SNOOZE_PRESETS[1]!.computeUntil(new Date());
+        addSnooze(id, until);
+      }
+      const errTitle =
+        action === "delete"
+          ? "Suppression échouée"
+          : action === "snooze"
+            ? "Report échoué"
+            : action === "done"
+              ? "Action échouée"
+              : "Archivage échoué";
       applyTriage(clientId, id, action)
         .then(() => {
           offerUndo(id, action);
         })
         .catch((err) => {
+          if (action === "snooze") removeSnooze(id);
           toast({
-            title: action === "delete" ? "Suppression échouée" : "Archivage échoué",
+            title: errTitle,
             description: err instanceof Error ? err.message : String(err),
             variant: "danger",
           });
@@ -426,6 +479,146 @@ export default function MailPage() {
     [clientId, selectedThreadIds, bulkBusy, dropThreadFromList, toast, loadList, query],
   );
 
+  // Supprime TOUS les fils d'un groupe d'overlay en une fois. Destructif →
+  // confirmation. Puis retrait optimiste + fermeture de la vue groupe (ses items
+  // disparaissent), applyTriage("delete") en parallèle, et rechargement (source
+  // de vérité). Échec partiel → toast danger.
+  const deleteGroup = useCallback(
+    async (group: GroupRow) => {
+      if (!clientId || bulkBusy) return;
+      const ids = group.items.map((it) => it.id);
+      if (ids.length === 0) return;
+      const ok = await confirm({
+        title: `Supprimer ${ids.length} email${ids.length > 1 ? "s" : ""} ?`,
+        description: `Tous les emails du groupe « ${group.title} » seront déplacés dans la corbeille.`,
+        destructive: true,
+        confirmLabel: "Supprimer",
+      });
+      if (!ok) return;
+      setBulkBusy(true);
+      for (const id of ids) dropThreadFromList(id);
+      setSelectedGroup(null);
+      setSelectedThreadId(null);
+      setThread(null);
+      try {
+        await Promise.all(ids.map((id) => applyTriage(clientId, id, "delete")));
+        toast({
+          title: `${ids.length} email${ids.length > 1 ? "s" : ""} supprimé${ids.length > 1 ? "s" : ""}`,
+        });
+      } catch (err) {
+        toast({
+          title: "Suppression partiellement échouée",
+          description: err instanceof Error ? err.message : String(err),
+          variant: "danger",
+        });
+      } finally {
+        setBulkBusy(false);
+        void loadList(query);
+      }
+    },
+    [clientId, bulkBusy, confirm, dropThreadFromList, toast, loadList, query],
+  );
+
+  // Marque comme lus TOUS les fils non lus d'un groupe d'overlay. Optimiste :
+  // retire le label système `UNREAD` des items concernés (dans `rows` ET le
+  // groupe ouvert pour que l'indice non-lu disparaisse), puis markThreadRead en
+  // parallèle. Échec → toast + rechargement (source de vérité).
+  const markGroupRead = useCallback(
+    async (group: GroupRow) => {
+      if (!clientId) return;
+      const ids = group.items.filter((it) => it.labelIds.includes("UNREAD")).map((it) => it.id);
+      if (ids.length === 0) return;
+      const strip = (it: ThreadListItem): ThreadListItem =>
+        ids.includes(it.id) ? { ...it, labelIds: it.labelIds.filter((l) => l !== "UNREAD") } : it;
+      setRows((rs) =>
+        rs.map<OverlayRow>((r) =>
+          r.kind === "single" ? { ...r, item: strip(r.item) } : { ...r, items: r.items.map(strip) },
+        ),
+      );
+      setSelectedGroup((g) => (g ? { ...g, items: g.items.map(strip) } : g));
+      try {
+        await Promise.all(ids.map((id) => markThreadRead(clientId, id)));
+        toast({ title: `${ids.length} marqué${ids.length > 1 ? "s" : ""} comme lu${ids.length > 1 ? "s" : ""}` });
+      } catch (err) {
+        toast({
+          title: "Marquage « lu » partiellement échoué",
+          description: err instanceof Error ? err.message : String(err),
+          variant: "danger",
+        });
+        void loadList(query);
+      }
+    },
+    [clientId, toast, loadList, query],
+  );
+
+  // ─── Brouillons IA (colonne dédiée) ────────────────────────────────────────
+  const aiConfigured = useMemo(() => isAiConfigured(), [settings.ia.ollamaModel]);
+  // Adaptateur EmailThread → MailAiThread (texte brut uniquement, jamais le HTML).
+  const aiThread = useMemo<MailAiThread | null>(
+    () =>
+      thread
+        ? {
+            id: thread.id,
+            messages: thread.messages.map((m) => ({
+              subject: m.subject,
+              from: { name: m.from.name, email: m.from.email },
+              date: m.date,
+              bodyText: m.bodyText || m.snippet || "",
+            })),
+          }
+        : null,
+    [thread],
+  );
+  // Destinataire externe visé (« Nom <email> ») → oriente le brouillon vers X,
+  // pas vers un associé interne (cf. pickReplyTo).
+  const recipientLabel = useMemo(() => {
+    if (!thread) return "";
+    const to = pickReplyTo(thread, settings.gmail.connectedEmail).toLowerCase();
+    if (!to) return "";
+    for (const m of thread.messages) {
+      if (m.from.email.toLowerCase() === to) return m.from.name ? `${m.from.name} <${m.from.email}>` : m.from.email;
+      const a = m.to.find((x) => x.email.toLowerCase() === to);
+      if (a) return a.name ? `${a.name} <${a.email}>` : a.email;
+    }
+    return to;
+  }, [thread, settings.gmail.connectedEmail]);
+
+  // Génère plusieurs brouillons (favorable / réservé / précisions) en séquentiel,
+  // rendu progressif (chaque carte dès qu'elle est prête).
+  const generateDrafts = useCallback(async () => {
+    if (!aiThread || draftBusy) return;
+    setDraftBusy(true);
+    setDraftVariants([]);
+    try {
+      await draftReplyVariants(
+        aiThread,
+        { useNotes: draftUseNotes, ...(recipientLabel ? { recipient: recipientLabel } : {}) },
+        (v) => setDraftVariants((prev) => [...prev, v]),
+      );
+    } catch (e) {
+      toast({
+        title: "Brouillon IA impossible",
+        description: e instanceof Error ? e.message : "Ollama injoignable",
+        variant: "danger",
+      });
+    } finally {
+      setDraftBusy(false);
+    }
+  }, [aiThread, draftBusy, draftUseNotes, recipientLabel, toast]);
+
+  // Charge le brouillon choisi dans la zone de réponse du fil (via le handle ref)
+  // puis ferme la liste de propositions.
+  const applyDraft = useCallback((text: string) => {
+    threadRef.current?.loadDraft(text);
+    setDraftVariants([]);
+  }, []);
+
+  // Reset des brouillons au changement de fil (pas de « fuite » d'un fil à l'autre).
+  useEffect(() => {
+    setDraftVariants([]);
+    setDraftBusy(false);
+  }, [selectedThreadId]);
+
   // Clamp/réinitialise le curseur clavier quand la liste change (recherche,
   // pagination, triage). Garde l'index dans [0, rows.length-1] ; -1 si vide.
   useEffect(() => {
@@ -503,6 +696,18 @@ export default function MailPage() {
           e.preventDefault();
           triageRowAt(selectedRowIndex, "delete");
           break;
+        case "d":
+        case "D":
+          if (selectedRowIndex < 0) return;
+          e.preventDefault();
+          triageRowAt(selectedRowIndex, "done");
+          break;
+        case "s":
+        case "S":
+          if (selectedRowIndex < 0) return;
+          e.preventDefault();
+          triageRowAt(selectedRowIndex, "snooze");
+          break;
         case "x":
         case "X":
           // Coche/décoche la ligne courante (sélection multiple). Active la
@@ -517,8 +722,11 @@ export default function MailPage() {
           }
           break;
         case "Escape":
-          // Échap vide la sélection si elle est active (sinon laisse passer).
-          if (selectedThreadIds.size > 0) {
+          // Échap ferme d'abord l'overlay liste, sinon vide la sélection.
+          if (peekList) {
+            e.preventDefault();
+            setPeekList(false);
+          } else if (selectedThreadIds.size > 0) {
             e.preventDefault();
             clearSelection();
           }
@@ -544,7 +752,13 @@ export default function MailPage() {
     toggleSelectedRowAtCursor,
     clearSelection,
     selectedThreadIds,
+    peekList,
   ]);
+
+  // Le rail liste n'existe que fil ouvert → pas de fil ⇒ pas de peek résiduel.
+  useEffect(() => {
+    if (!selectedThreadId) setPeekList(false);
+  }, [selectedThreadId]);
 
   const handleCaptureNote = async () => {
     const msg = thread?.messages[0];
@@ -740,7 +954,14 @@ export default function MailPage() {
     (row: OverlayRow, quadrant: EisenhowerQuadrant) => {
       if (row.kind !== "single") return;
       const it = row.item;
-      void convertRowToTodo({ threadId: it.id, subject: it.subject, quadrant }).then((ok) => {
+      void convertRowToTodo({
+        threadId: it.id,
+        subject: it.subject,
+        quadrant,
+        snippet: it.snippet,
+        fromName: it.from.name,
+        fromEmail: it.from.email,
+      }).then((ok) => {
         if (ok) dropThreadFromList(it.id);
       });
     },
@@ -828,6 +1049,13 @@ export default function MailPage() {
     setQuery(q);
     void loadList(q);
   };
+  // Efface la recherche → revient à l'inbox par défaut (reset direct : on ne
+  // dépend pas du closure de `submitSearch` sur l'ancien `searchText`).
+  const clearSearch = () => {
+    setSearchText("");
+    setQuery(DEFAULT_MAIL_QUERY);
+    void loadList(DEFAULT_MAIL_QUERY);
+  };
   const searchBox = (
     <div className="flex gap-2 p-3">
       {!isMobile && (
@@ -842,8 +1070,19 @@ export default function MailPage() {
         className="flex-1"
         onKeyDown={(e) => {
           if (e.key === "Enter") submitSearch();
+          if (e.key === "Escape" && searchText) {
+            e.preventDefault();
+            clearSearch();
+          }
         }}
       />
+      {searchText && (
+        <Tooltip content="Effacer la recherche">
+          <Button size="sm" variant="ghost" onPress={clearSearch} isIconOnly aria-label="Effacer la recherche">
+            <X size={16} />
+          </Button>
+        </Tooltip>
+      )}
       <Button size="sm" variant="ghost" onPress={submitSearch} isIconOnly aria-label="Rechercher">
         <MagnifyingGlass size={16} />
       </Button>
@@ -865,15 +1104,21 @@ export default function MailPage() {
           {selectedThreadIds.size} sélectionné{selectedThreadIds.size > 1 ? "s" : ""}
         </span>
         <span className="flex-1" />
-        <Button size="sm" variant="ghost" isDisabled={bulkBusy} onPress={() => void runBulkAction("read")}>
-          <EnvelopeOpen size={16} /> Marquer lu
-        </Button>
-        <Button size="sm" variant="ghost" isDisabled={bulkBusy} onPress={() => void runBulkAction("archive")}>
-          <Archive size={16} /> Archiver
-        </Button>
-        <Button size="sm" variant="ghost" isDisabled={bulkBusy} onPress={() => void runBulkAction("delete")}>
-          <Trash size={16} /> Supprimer
-        </Button>
+        <Tooltip content="Marquer lu">
+          <Button size="sm" variant="ghost" isIconOnly aria-label="Marquer lu" isDisabled={bulkBusy} onPress={() => void runBulkAction("read")}>
+            <EnvelopeOpen size={16} />
+          </Button>
+        </Tooltip>
+        <Tooltip content="Archiver">
+          <Button size="sm" variant="ghost" isIconOnly aria-label="Archiver" isDisabled={bulkBusy} onPress={() => void runBulkAction("archive")}>
+            <Archive size={16} />
+          </Button>
+        </Tooltip>
+        <Tooltip content="Supprimer">
+          <Button size="sm" variant="ghost" isIconOnly aria-label="Supprimer" isDisabled={bulkBusy} onPress={() => void runBulkAction("delete")}>
+            <Trash size={16} />
+          </Button>
+        </Tooltip>
       </div>
     ) : null;
 
@@ -944,7 +1189,11 @@ export default function MailPage() {
       {tabStrip}
       {searchBox}
       {bulkBar}
-      <div ref={listScrollRef} className="flex-1 overflow-y-auto px-2 pb-4">
+      {/* `relative` = bloc englobant : sans ça, un descendant `position:absolute`
+          (ex. span interne de la Checkbox HeroUI par ligne) prend `html` comme
+          référent, échappe au clip de l'overflow et fait scroller TOUT le
+          document (sidebar + panneaux remontent, bande blanche en bas). */}
+      <div ref={listScrollRef} className="relative flex-1 overflow-y-auto px-2 pb-4">
         {listLoading && (
           <p className="px-3 py-2 text-sm" style={{ color: "var(--text-muted)" }}>
             Chargement…
@@ -997,6 +1246,9 @@ export default function MailPage() {
           items={selectedGroup.items}
           activeThreadId={selectedThreadId ?? undefined}
           onPick={(id) => void openThread(id)}
+          onDeleteAll={() => void deleteGroup(selectedGroup)}
+          onMarkAllRead={() => void markGroupRead(selectedGroup)}
+          deleteBusy={bulkBusy}
         />
       </div>
     </div>
@@ -1009,20 +1261,111 @@ export default function MailPage() {
       <span className="text-xs" style={{ color: "var(--text-muted)" }}>
         Capturer :
       </span>
-      <Button variant="ghost" size="sm" className="h-7 text-xs" onPress={() => void handleCaptureNote()}>
-        <FilePlus size={14} /> Note
-      </Button>
-      <Button
-        variant="ghost"
-        size="sm"
-        className="h-7 text-xs"
-        onPress={() => setCaptureOpen(true)}
-        isDisabled={!thread?.messages[0]}
-      >
-        <Database size={14} /> Base
-      </Button>
+      <Tooltip content="Capturer en note">
+        <Button variant="ghost" size="sm" isIconOnly aria-label="Capturer en note" className="h-7" onPress={() => void handleCaptureNote()}>
+          <FilePlus size={14} />
+        </Button>
+      </Tooltip>
+      <Tooltip content="Capturer dans une base">
+        <Button
+          variant="ghost"
+          size="sm"
+          isIconOnly
+          aria-label="Capturer dans une base"
+          className="h-7"
+          onPress={() => setCaptureOpen(true)}
+          isDisabled={!thread?.messages[0]}
+        >
+          <Database size={14} />
+        </Button>
+      </Tooltip>
     </div>
   ) : null;
+
+  // Colonne « Brouillons IA » : ouverte dès qu'on génère (busy) ou qu'au moins un
+  // brouillon est prêt. Cartes en GRAND (texte complet, scrollable) + 1 clic charge.
+  const draftsOpen = aiConfigured && (draftBusy || draftVariants.length > 0);
+  const draftsPanel = (
+    <div className="flex h-full flex-col overflow-hidden">
+      <div
+        className="flex shrink-0 items-center gap-1.5 border-b px-3 py-2"
+        style={{ borderColor: "var(--border-subtle)" }}
+      >
+        <MagicWand size={15} style={{ color: "var(--accent)" }} />
+        <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+          Brouillons IA
+        </span>
+        <span className="flex-1" />
+        <Checkbox
+          isSelected={draftUseNotes}
+          onChange={(sel) => setDraftUseNotes(Boolean(sel))}
+          aria-label="Rédiger à partir de mes notes (RAG)"
+        >
+          <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+            Mes notes
+          </span>
+        </Checkbox>
+        <Tooltip content="Régénérer">
+          <Button
+            isIconOnly
+            variant="ghost"
+            size="sm"
+            aria-label="Régénérer les brouillons"
+            isDisabled={draftBusy}
+            onPress={() => void generateDrafts()}
+          >
+            <ArrowsClockwise size={14} />
+          </Button>
+        </Tooltip>
+        <Tooltip content="Fermer">
+          <Button
+            isIconOnly
+            variant="ghost"
+            size="sm"
+            aria-label="Fermer les brouillons"
+            onPress={() => setDraftVariants([])}
+          >
+            <X size={14} />
+          </Button>
+        </Tooltip>
+      </div>
+      <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3">
+        {draftVariants.map((v) => (
+          <button
+            key={v.tone}
+            type="button"
+            onClick={() => applyDraft(v.text)}
+            aria-label={`Charger le brouillon ${v.label}`}
+            className="group flex flex-col gap-1.5 rounded-lg border p-2.5 text-left transition-colors hover:border-[var(--accent)]"
+            style={{ borderColor: "var(--border-subtle)", background: "var(--surface-0, var(--background))" }}
+          >
+            <span className="flex items-center justify-between gap-2">
+              <span
+                className="inline-flex rounded-full px-1.5 py-0.5 text-[11px] font-semibold"
+                style={{ background: "var(--accent-subtle)", color: "var(--accent)" }}
+              >
+                {v.label}
+              </span>
+              <span
+                className="text-[11px] font-medium opacity-0 transition-opacity group-hover:opacity-100"
+                style={{ color: "var(--accent)" }}
+              >
+                Utiliser →
+              </span>
+            </span>
+            <span className="whitespace-pre-wrap text-xs leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+              {v.text}
+            </span>
+          </button>
+        ))}
+        {draftBusy && (
+          <div className="flex items-center gap-2 px-1 py-2 text-xs" style={{ color: "var(--text-muted)" }}>
+            <Spinner size="sm" /> Génération en cours…
+          </div>
+        )}
+      </div>
+    </div>
+  );
 
   const pane3 = (
     <div className="flex h-full min-w-0 flex-1 flex-col overflow-hidden">
@@ -1044,16 +1387,39 @@ export default function MailPage() {
           className="sn-overlay-in flex min-h-0 flex-1 flex-col overflow-hidden"
         >
           {captureBar}
-          <div className="flex-1 overflow-y-auto px-4 pb-6">
-            <EmailThreadView
-              thread={thread}
-              selfEmail={settings.gmail.connectedEmail}
-              onTriaged={handleTriaged}
-              onReplied={handleReplied}
-              onLabelsChanged={syncThreadLabels}
-              onForward={handleForward}
-              onConvertedToTodo={handleConvertedToTodo}
-            />
+          {/* Ligne : fil (scroll, sticky header/composeur) + colonne BROUILLONS IA
+              à droite. La colonne pousse le fil (reflow flex) sur desktop ; sur
+              mobile elle s'affiche en overlay plein écran (cf. plus bas). */}
+          <div className="flex min-h-0 flex-1 overflow-hidden">
+            {/* Pas de pb : le composeur (sticky bottom-0) affleure le bas. */}
+            <div className="min-w-0 flex-1 overflow-y-auto px-4">
+              <EmailThreadView
+                ref={threadRef}
+                thread={thread}
+                selfEmail={settings.gmail.connectedEmail}
+                onTriaged={handleTriaged}
+                onReplied={handleReplied}
+                onLabelsChanged={syncThreadLabels}
+                onForward={handleForward}
+                onConvertedToTodo={handleConvertedToTodo}
+                onGenerateDrafts={generateDrafts}
+                draftsBusy={draftBusy}
+              />
+            </div>
+            {draftsOpen && !isMobile && (
+              <div
+                className="sn-overlay-in h-full shrink-0 overflow-hidden border-l"
+                style={{
+                  flexGrow: 0,
+                  flexShrink: 0,
+                  flexBasis: "26rem",
+                  borderColor: "var(--border-subtle)",
+                  background: "var(--surface-1)",
+                }}
+              >
+                {draftsPanel}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -1090,7 +1456,7 @@ export default function MailPage() {
     if (selectedThreadId !== null) {
       return (
         <AppShell>
-          <div className="flex h-full flex-col overflow-hidden">
+          <div className="relative flex h-full flex-col overflow-hidden">
             <div className="shrink-0 px-3 pt-3">
               <Button
                 variant="ghost"
@@ -1106,6 +1472,12 @@ export default function MailPage() {
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
               {pane3}
             </div>
+            {/* Brouillons IA en plein écran sur mobile (pas de colonne). */}
+            {draftsOpen && (
+              <div className="sn-overlay-in absolute inset-0 z-40 flex flex-col" style={{ background: "var(--surface-1)" }}>
+                {draftsPanel}
+              </div>
+            )}
           </div>
           <CaptureEmailModal
             isOpen={captureOpen}
@@ -1141,6 +1513,9 @@ export default function MailPage() {
                 items={selectedGroup.items}
                 activeThreadId={selectedThreadId ?? undefined}
                 onPick={(id) => void openThread(id)}
+                onDeleteAll={() => void deleteGroup(selectedGroup)}
+                onMarkAllRead={() => void markGroupRead(selectedGroup)}
+                deleteBusy={bulkBusy}
               />
             </div>
           </div>
@@ -1189,18 +1564,40 @@ export default function MailPage() {
           ? "single"
           : "list";
 
+  // Fil ouvert → la liste devient un RAIL de 30px (« savoir qu'elle existe ») ;
+  // tout le reste (groupe/fil/brouillons) prend la place. Pour piocher un autre
+  // email : clic sur le rail → la liste se déplie PAR-DESSUS (overlay + scrim).
+  const listCollapsed = !!selectedThreadId;
   const basisTransition = `flex-basis ${prefersReducedMotion() ? "0ms" : "var(--sn-dur-4)"} var(--sn-ease-out)`;
-  const listBasis = view === "group-thread" ? "17.5rem" : "50%";
+  const listBasis = listCollapsed ? "1.875rem" : "50%";
   const groupBasis = view === "group" ? "50%" : view === "group-thread" ? "20rem" : "0px";
 
   return (
     <AppShell>
-      <div className="flex h-full overflow-hidden">
+      <div className="relative flex h-full overflow-hidden">
         <div
           className="h-full shrink-0 overflow-hidden"
           style={{ flexGrow: 0, flexShrink: 0, flexBasis: listBasis, transition: basisTransition }}
         >
-          {pane1}
+          {listCollapsed ? (
+            <button
+              type="button"
+              onClick={() => setPeekList(true)}
+              aria-label="Afficher la liste des emails"
+              className="flex h-full w-full flex-col items-center gap-2 border-r py-3 transition-colors hover:bg-[var(--surface-2)]"
+              style={{ borderColor: "var(--border-subtle)", background: "var(--surface-1)" }}
+            >
+              <CaretRight size={14} style={{ color: "var(--text-muted)" }} />
+              <span
+                className="text-[10px] font-semibold uppercase tracking-wider [writing-mode:vertical-rl]"
+                style={{ color: "var(--text-muted)" }}
+              >
+                Boîte
+              </span>
+            </button>
+          ) : (
+            pane1
+          )}
         </div>
         <div
           className="h-full shrink-0 overflow-hidden"
@@ -1210,6 +1607,24 @@ export default function MailPage() {
           {pane2}
         </div>
         <div className="h-full min-w-0 flex-1 overflow-hidden">{pane3}</div>
+        {/* Overlay liste « peek » : déplie la boîte PAR-DESSUS le contenu pour
+            piocher un autre email sans perdre le fil courant. */}
+        {peekList && (
+          <>
+            <div
+              className="absolute inset-0 z-20"
+              style={{ background: "color-mix(in oklch, var(--text-primary) 22%, transparent)" }}
+              onClick={() => setPeekList(false)}
+              aria-hidden
+            />
+            <div
+              className="sn-overlay-in absolute left-0 top-0 z-30 h-full w-[22rem] max-w-[85%] overflow-hidden"
+              style={{ background: "var(--surface-0)", boxShadow: "var(--shadow-lg, 0 10px 40px rgba(0,0,0,0.25))" }}
+            >
+              {pane1}
+            </div>
+          </>
+        )}
       </div>
       <CaptureEmailModal
         isOpen={captureOpen}

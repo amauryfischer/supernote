@@ -105,6 +105,12 @@ export interface GmailSettings {
    * l'API Gmail activée + scope readonly autorisé).
    */
   connectedEmail: string;
+  /**
+   * Autres adresses « à moi » (alias, boîtes partagées : `contact@…`, etc.)
+   * traitées comme le compte connecté : jamais regroupées en groupe-expéditeur
+   * dans la surcouche mail (cf. `buildMailOverlay`). Insensible à la casse.
+   */
+  aliases: string[];
 }
 
 export interface AppSettings {
