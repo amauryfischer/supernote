@@ -10,7 +10,11 @@
 import { DEFAULT_SETTINGS } from "@/components/settings/defaults";
 import type { IaSettings } from "@/components/settings/types";
 
-const STORAGE_KEY = "supernote.settings.v1";
+// DOIT correspondre à la clé de SettingsContext (`supernote.settings`). Un
+// ancien `…v1` ici lisait une clé inexistante → `getAiSettings()` retombait
+// TOUJOURS sur le modèle par défaut (`llama3.2`), ignorant le modèle choisi
+// dans les réglages → IA « ne marche pas » même si Ollama tourne.
+const STORAGE_KEY = "supernote.settings";
 
 export interface AiRuntimeSettings {
   baseUrl: string;
