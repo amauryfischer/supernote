@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Button, Input, Spinner, Checkbox } from "@heroui/react";
-import { FilePlus, Database, ArrowLeft, MagnifyingGlass, PencilSimple, Archive, Trash, EnvelopeOpen, X, CaretDoubleRight, MagicWand, ArrowsClockwise } from "@phosphor-icons/react";
+import { FilePlus, Database, ArrowLeft, MagnifyingGlass, PencilSimple, Archive, Trash, EnvelopeOpen, X, CaretDoubleRight, CaretDoubleLeft, MagicWand, ArrowsClockwise } from "@phosphor-icons/react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useSettings } from "@/components/settings/SettingsContext";
 import { AppShell, useMobileTitle, useMobileFab } from "@/components/shell";
@@ -17,7 +17,7 @@ import { MailEisenhowerBoard } from "@/components/mail/MailEisenhowerBoard";
 import { listThreadSummariesPage, listLabels, getThread, modifyThreadLabels, markThreadRead, markThreadUnread, toggleStar, type EmailThread, type GmailLabelColor, type ThreadListItem } from "@/lib/gmail";
 import { listDue, removeSnooze, addSnooze, applyTriage, undoTriage, INBOX_LABEL, SNOOZE_PRESETS, type TriageAction } from "@/lib/mail-triage";
 import { useConvertToTodo } from "@/components/mail/useConvertToTodo";
-import { buildMailOverlay, rowUnreadCount, type OverlayRow } from "@/lib/mail-overlay";
+import { buildMailOverlay, type OverlayRow } from "@/lib/mail-overlay";
 import { draftReplyVariants, type ReplyVariant, type MailAiThread, isAiConfigured } from "@/lib/mail-ai";
 import { pickReplyTo } from "@/lib/mail-reply";
 import { toggleRowSelection, pruneSelection } from "@/lib/mail-selection";
@@ -1564,81 +1564,64 @@ export default function MailPage() {
           ? "single"
           : "list";
 
-  // Fil ouvert → la liste devient un RAIL fin (« savoir qu'elle existe ») ; tout
-  // le reste (groupe/fil/brouillons) prend la place. Clic sur le rail → la liste
-  // se déplie PAR-DESSUS (overlay + scrim). Cible élargie (~46px) pour revenir
-  // dessus facilement + compteur de non-lus en repère.
-  const listCollapsed = !!selectedThreadId;
-  const railUnread = listCollapsed ? rows.reduce((n, r) => n + rowUnreadCount(r), 0) : 0;
-  const basisTransition = `flex-basis ${prefersReducedMotion() ? "0ms" : "var(--sn-dur-4)"} var(--sn-ease-out)`;
-  const listBasis = listCollapsed ? "2.875rem" : "50%";
-  const groupBasis = view === "group" ? "50%" : view === "group-thread" ? "20rem" : "0px";
+  // Fil ouvert → la BOÎTE reste en fond (vue normale, pleine largeur) et le
+  // contenu de l'email s'affiche en DRAWER par-dessus (ombre à gauche). La
+  // poignée du drawer le pousse à droite → on revoit la boîte initiale.
+  // `peekList` = drawer poussé (boîte révélée large).
+  const drawerLeft = peekList ? "64%" : "34%";
+  const slide = `left ${prefersReducedMotion() ? "0ms" : "var(--sn-dur-4)"} var(--sn-ease-out)`;
 
   return (
     <AppShell>
       <div className="relative flex h-full overflow-hidden">
-        <div
-          className="h-full shrink-0 overflow-hidden"
-          style={{ flexGrow: 0, flexShrink: 0, flexBasis: listBasis, transition: basisTransition }}
-        >
-          {listCollapsed ? (
-            <button
-              type="button"
-              onClick={() => setPeekList(true)}
-              aria-label={`Afficher la liste des emails${railUnread > 0 ? ` (${railUnread} non lus)` : ""}`}
-              title="Afficher la boîte"
-              className="group flex h-full w-full flex-col items-center gap-2.5 border-r py-3 transition-colors hover:bg-[var(--accent-subtle)]"
-              style={{ borderColor: "var(--border-subtle)", background: "var(--surface-1)" }}
-            >
-              <CaretDoubleRight
-                size={16}
-                weight="bold"
-                className="transition-colors group-hover:text-[var(--accent)]"
-                style={{ color: "var(--text-muted)" }}
-              />
-              {railUnread > 0 && (
-                <span
-                  className="flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[10px] font-bold"
-                  style={{ background: "var(--accent)", color: "var(--surface-0)" }}
-                >
-                  {railUnread > 99 ? "99+" : railUnread}
-                </span>
-              )}
-              <span
-                className="text-[11px] font-semibold uppercase tracking-wider transition-colors [writing-mode:vertical-rl] group-hover:text-[var(--accent)]"
-                style={{ color: "var(--text-muted)" }}
-              >
-                Boîte
-              </span>
-            </button>
-          ) : (
-            pane1
-          )}
-        </div>
-        <div
-          className="h-full shrink-0 overflow-hidden"
-          style={{ flexGrow: 0, flexShrink: 0, flexBasis: groupBasis, transition: basisTransition }}
-          aria-hidden={!selectedGroup}
-        >
-          {pane2}
-        </div>
-        <div className="h-full min-w-0 flex-1 overflow-hidden">{pane3}</div>
-        {/* Overlay liste « peek » : déplie la boîte PAR-DESSUS le contenu pour
-            piocher un autre email sans perdre le fil courant. */}
-        {peekList && (
+        {selectedThreadId ? (
           <>
+            {/* La boîte, en fond, pleine largeur (vue normale) — interactive sur
+                la partie laissée libre par le drawer. */}
+            <div className="absolute inset-0 overflow-hidden">{pane1}</div>
+            {/* Contenu de l'email PAR-DESSUS, glissant. */}
             <div
-              className="absolute inset-0 z-20"
-              style={{ background: "color-mix(in oklch, var(--text-primary) 22%, transparent)" }}
-              onClick={() => setPeekList(false)}
-              aria-hidden
-            />
-            <div
-              className="sn-overlay-in absolute left-0 top-0 z-30 h-full w-[22rem] max-w-[85%] overflow-hidden"
-              style={{ background: "var(--surface-0)", boxShadow: "var(--shadow-lg, 0 10px 40px rgba(0,0,0,0.25))" }}
+              className="sn-overlay-in absolute inset-y-0 right-0 z-20 flex overflow-hidden"
+              style={{
+                left: drawerLeft,
+                transition: slide,
+                background: "var(--surface-0)",
+                borderLeft: "1px solid var(--border-subtle)",
+                boxShadow: "-12px 0 30px color-mix(in oklch, var(--text-primary) 14%, transparent)",
+              }}
             >
-              {pane1}
+              {/* Poignée : pousse le drawer à droite (révèle la boîte) / le ramène. */}
+              <button
+                type="button"
+                onClick={() => setPeekList((p) => !p)}
+                aria-label={peekList ? "Replier la boîte" : "Voir la boîte"}
+                title={peekList ? "Replier la boîte" : "Voir la boîte"}
+                className="group flex h-full w-4 shrink-0 items-center justify-center border-r transition-colors hover:bg-[var(--accent-subtle)]"
+                style={{ borderColor: "var(--border-subtle)", background: "var(--surface-1)" }}
+              >
+                {peekList ? (
+                  <CaretDoubleRight size={12} weight="bold" className="group-hover:text-[var(--accent)]" style={{ color: "var(--text-muted)" }} />
+                ) : (
+                  <CaretDoubleLeft size={12} weight="bold" className="group-hover:text-[var(--accent)]" style={{ color: "var(--text-muted)" }} />
+                )}
+              </button>
+              {selectedGroup && (
+                <div className="h-full shrink-0 overflow-hidden" style={{ flexBasis: "18rem" }}>
+                  {pane2}
+                </div>
+              )}
+              <div className="h-full min-w-0 flex-1 overflow-hidden">{pane3}</div>
             </div>
+          </>
+        ) : selectedGroup ? (
+          <>
+            <div className="h-full shrink-0 overflow-hidden" style={{ flexBasis: "50%" }}>{pane1}</div>
+            <div className="h-full min-w-0 flex-1 overflow-hidden">{pane2}</div>
+          </>
+        ) : (
+          <>
+            <div className="h-full shrink-0 overflow-hidden" style={{ flexBasis: "50%" }}>{pane1}</div>
+            <div className="h-full min-w-0 flex-1 overflow-hidden">{pane3}</div>
           </>
         )}
       </div>
