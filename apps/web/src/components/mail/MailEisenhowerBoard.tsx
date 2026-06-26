@@ -21,7 +21,7 @@
 
 import { useState } from "react";
 import { Button, Popover } from "@heroui/react";
-import { ArrowRight, CheckCircle, EnvelopeOpen } from "@phosphor-icons/react";
+import { ArrowRight, CheckCircle, EnvelopeOpen, Envelope } from "@phosphor-icons/react";
 import { QUADRANTS, type EisenhowerQuadrant } from "@/lib/mail-eisenhower";
 import type { MailTodoBinding } from "@/lib/mail-todo-binding";
 
@@ -73,12 +73,23 @@ function TodoCard({
       className="flex flex-col gap-2 rounded-lg border p-3"
       style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-1)" }}
     >
+      {/* En-tête « c'est un email » : icône + expéditeur → lève l'ambiguïté
+          tâche/email. Aperçu compact (snippet) en dessous = vue « quelques lignes ». */}
+      <div className="flex items-center gap-1.5 text-xs" style={{ color: "var(--text-muted)" }}>
+        <Envelope size={13} aria-hidden style={{ color: "var(--accent)" }} />
+        <span className="truncate">{binding.fromName || binding.fromEmail || "Email"}</span>
+      </div>
       <p
         className="line-clamp-2 break-words text-sm font-medium"
         style={{ color: "var(--text-primary)" }}
       >
         {binding.subject || "Email sans sujet"}
       </p>
+      {binding.snippet && (
+        <p className="line-clamp-3 break-words text-xs" style={{ color: "var(--text-secondary)" }}>
+          {binding.snippet}
+        </p>
+      )}
       <div className="flex flex-wrap items-center gap-1.5">
         <Button
           variant="ghost"

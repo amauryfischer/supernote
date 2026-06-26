@@ -27,6 +27,13 @@ export interface MailTodoBinding {
   quadrant: EisenhowerQuadrant;
   /** Sujet de l'email au moment de la création (affichage rapide). */
   subject: string;
+  /** Aperçu compact du mail (snippet Gmail) — vue « quelques lignes ». Optionnel
+   *  (liaisons créées avant cet ajout n'en ont pas). */
+  snippet?: string;
+  /** Nom de l'expéditeur/correspondant (clarté « c'est un email »). Optionnel. */
+  fromName?: string;
+  /** Email de l'expéditeur/correspondant. Optionnel. */
+  fromEmail?: string;
   /** Date de création de la liaison (epoch ms). */
   createdAt: number;
 }

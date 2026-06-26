@@ -13,6 +13,11 @@ export interface ConvertToTodoInput {
   threadId: string;
   subject: string;
   quadrant: EisenhowerQuadrant;
+  /** Aperçu compact (snippet Gmail) — affiché dans la tâche. */
+  snippet?: string;
+  /** Nom + email du correspondant (clarté « lié à un email »). */
+  fromName?: string;
+  fromEmail?: string;
 }
 
 /**
@@ -35,7 +40,7 @@ export function useConvertToTodo(clientId: string): {
   const [busy, setBusy] = useState(false);
 
   const convert = useCallback(
-    async ({ threadId, subject, quadrant }: ConvertToTodoInput): Promise<boolean> => {
+    async ({ threadId, subject, quadrant, snippet, fromName, fromEmail }: ConvertToTodoInput): Promise<boolean> => {
       if (!clientId || busy) return false;
       const text = subject.trim() || "Email sans sujet";
       setBusy(true);
@@ -55,7 +60,16 @@ export function useConvertToTodo(clientId: string): {
           addLabelIds: [],
           removeLabelIds: [INBOX_LABEL],
         });
-        addBinding({ threadId, todoId: todo.id, quadrant, subject: text, createdAt: Date.now() });
+        addBinding({
+          threadId,
+          todoId: todo.id,
+          quadrant,
+          subject: text,
+          ...(snippet ? { snippet } : {}),
+          ...(fromName ? { fromName } : {}),
+          ...(fromEmail ? { fromEmail } : {}),
+          createdAt: Date.now(),
+        });
         toast({ title: "Email converti en tâche", variant: "success" });
         return true;
       } catch (e) {

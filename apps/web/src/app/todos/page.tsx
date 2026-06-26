@@ -53,6 +53,7 @@ import { EmptyState, ContextMenu, useContextMenu, type ContextMenuItemDef } from
 import { importanceColor, importanceLabel, importanceForAxis } from "@/components/todos/TodoRow";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { loadBindings, type MailTodoBinding } from "@/lib/mail-todo-binding";
 import {
   DndContext,
   closestCenter,
@@ -369,6 +370,15 @@ export default function TodosPage() {
     return out;
   }, [notesQuery.data]);
 
+  // Liaisons email ↔ tâche (localStorage) → permet d'afficher « lié à un email »
+  // + le lien d'ouverture sur les tâches standalone créées depuis un email.
+  const [mailBindings, setMailBindings] = useState<MailTodoBinding[]>([]);
+  useEffect(() => setMailBindings(loadBindings()), []);
+  const bindingByTodo = useMemo(
+    () => new Map(mailBindings.map((b) => [b.todoId, b] as const)),
+    [mailBindings],
+  );
+
   const standaloneRows: UiTodoRow[] = useMemo(() => {
     const items = todosQuery.data?.items ?? [];
     return items
@@ -382,11 +392,14 @@ export default function TodosPage() {
       .map((e) => {
         const f = e.fields ?? {};
         const text = typeof f["text"] === "string" ? (f["text"] as string) : "(sans texte)";
+        const b = bindingByTodo.get(e.id);
         return {
           kind: "standalone" as const,
           id: e.id,
           text,
           done: f["done"] === true || f["done"] === "true",
+          sourceThreadId: b?.threadId ?? null,
+          sourceFromName: b?.fromName ?? b?.fromEmail ?? null,
           sourceNoteId: null,
           line: null,
           blockId: null,
@@ -404,7 +417,7 @@ export default function TodosPage() {
           sortOrder: typeof f["sortOrder"] === "number" ? (f["sortOrder"] as number) : null,
         };
       });
-  }, [todosQuery.data]);
+  }, [todosQuery.data, bindingByTodo]);
 
   const allTodos: UiTodoRow[] = useMemo(
     () => [...noteRows, ...standaloneRows],

@@ -43,6 +43,10 @@ export interface TodoRowData {
   reminderText?: string | null;
   /** ISO datetime stamped by the engine when the one-shot fired. */
   reminderFiredAt?: string | null;
+  /** Thread Gmail source (tâche créée depuis un email) → lien « ouvrir l'email ». */
+  sourceThreadId?: string | null;
+  /** Nom/email de l'expéditeur de l'email source (clarté). */
+  sourceFromName?: string | null;
 }
 
 interface TodoRowProps {
@@ -281,6 +285,22 @@ export function TodoRow({
         >
           <FileText size={11} />
           Note
+        </Link>
+      )}
+
+      {/* Email source : tâche créée depuis un email → badge TOUJOURS visible
+          (« c'est lié à un email ») + clic ouvre le fil (deep-link /mail). */}
+      {row.sourceThreadId && (
+        <Link
+          href={`/mail?thread=${row.sourceThreadId}`}
+          prefetch={false}
+          onClick={(e) => e.stopPropagation()}
+          className="flex min-w-0 shrink items-center gap-1 rounded px-1.5 py-0.5 text-[10px]"
+          style={{ color: "var(--accent)", background: "var(--accent-subtle)" }}
+          title={row.sourceFromName ? `Email de ${row.sourceFromName} — ouvrir` : "Ouvrir l'email source"}
+        >
+          <Envelope size={11} />
+          <span className="truncate">{row.sourceFromName || "Email"}</span>
         </Link>
       )}
 
