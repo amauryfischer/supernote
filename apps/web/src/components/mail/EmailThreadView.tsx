@@ -430,6 +430,8 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
       snippet: src?.snippet || src?.bodyText?.slice(0, 240) || "",
       fromName: src?.from.name,
       fromEmail: src?.from.email,
+      // Fil complet → résumé IA en arrière-plan (vue compacte de la tâche).
+      aiThread,
     });
     if (ok) onConvertedToTodo?.();
   };
@@ -458,12 +460,18 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
   const mutate = async (labelId: string, action: "add" | "remove") => {
     if (!clientId) return;
     const prev = labelIds;
-    setLabelIds(action === "add" ? [...labelIds, labelId] : labelIds.filter((id) => id !== labelId));
+    const nextIds =
+      action === "add" ? [...labelIds, labelId] : labelIds.filter((id) => id !== labelId);
+    setLabelIds(nextIds);
+    // Propage la maj optimiste à la liste/groupe (comme étoile + non-lu) → la
+    // ligne reflète le label sans rechargement.
+    onLabelsChanged?.(thread.id, nextIds);
     try {
       if (action === "add") await addThreadLabel(clientId, thread.id, labelId);
       else await removeThreadLabel(clientId, thread.id, labelId);
     } catch (err) {
       setLabelIds(prev);
+      onLabelsChanged?.(thread.id, prev);
       toast({
         title: action === "add" ? "Ajout du label échoué" : "Retrait du label échoué",
         description: err instanceof Error ? err.message : String(err),

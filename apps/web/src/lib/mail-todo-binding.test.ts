@@ -2,13 +2,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   addBinding,
+  buildTodoProvenanceFields,
   getBinding,
   loadBindings,
   MAIL_TODO_STORAGE_KEY,
+  reconcileBindings,
+  reconstructBindingFromEntity,
   removeBinding,
   saveBindings,
+  TODO_MAIL_FIELDS,
   updateBindingQuadrant,
+  updateBindingSummary,
   type MailTodoBinding,
+  type TodoProvenanceSource,
 } from "./mail-todo-binding";
 
 // ─── Stub localStorage (l'environnement vitest est `node`, pas de DOM) ────────
@@ -140,6 +146,175 @@ describe("updateBindingQuadrant", () => {
     updateBindingQuadrant("absent", "schedule");
     expect(getBinding("t1")?.quadrant).toBe("do");
     expect(getBinding("absent")).toBeUndefined();
+  });
+});
+
+describe("updateBindingSummary", () => {
+  beforeEach(() => {
+    installLocalStorage();
+  });
+
+  it("attache un résumé à une liaison existante", () => {
+    addBinding(makeBinding());
+    updateBindingSummary("t1", "  Résumé du fil.  ");
+    expect(getBinding("t1")?.summary).toBe("Résumé du fil.");
+  });
+
+  it("préserve les autres champs", () => {
+    addBinding(makeBinding({ todoId: "todoX", quadrant: "schedule", snippet: "snip" }));
+    updateBindingSummary("t1", "Résumé");
+    expect(getBinding("t1")).toMatchObject({
+      todoId: "todoX",
+      quadrant: "schedule",
+      snippet: "snip",
+      summary: "Résumé",
+    });
+  });
+
+  it("no-op si résumé vide (après trim)", () => {
+    addBinding(makeBinding());
+    updateBindingSummary("t1", "   ");
+    expect(getBinding("t1")?.summary).toBeUndefined();
+  });
+
+  it("no-op si le thread n'est pas lié", () => {
+    addBinding(makeBinding({ threadId: "t1" }));
+    updateBindingSummary("absent", "Résumé");
+    expect(getBinding("absent")).toBeUndefined();
+    expect(getBinding("t1")?.summary).toBeUndefined();
+  });
+
+  it("ne lève pas quand window n'a pas dispatchEvent (stub minimal)", () => {
+    addBinding(makeBinding());
+    expect(() => updateBindingSummary("t1", "Résumé")).not.toThrow();
+  });
+});
+
+describe("buildTodoProvenanceFields", () => {
+  it("écrit toujours le threadId, omet les valeurs absentes", () => {
+    expect(buildTodoProvenanceFields({ threadId: "t1" })).toEqual({
+      [TODO_MAIL_FIELDS.threadId]: "t1",
+    });
+  });
+
+  it("inclut from/snippet quand présents", () => {
+    expect(
+      buildTodoProvenanceFields({
+        threadId: "t1",
+        fromName: "Alice",
+        fromEmail: "a@x.io",
+        snippet: "aperçu",
+      }),
+    ).toEqual({
+      [TODO_MAIL_FIELDS.threadId]: "t1",
+      [TODO_MAIL_FIELDS.fromName]: "Alice",
+      [TODO_MAIL_FIELDS.fromEmail]: "a@x.io",
+      [TODO_MAIL_FIELDS.snippet]: "aperçu",
+    });
+  });
+});
+
+describe("reconstructBindingFromEntity", () => {
+  function makeEntity(fields: Record<string, unknown>, over: Partial<TodoProvenanceSource> = {}): TodoProvenanceSource {
+    return { id: "todoX", fields, createdAt: "2026-06-01T10:00:00.000Z", ...over };
+  }
+
+  it("reconstruit une liaison et dérive le quadrant depuis urgent+importance", () => {
+    const b = reconstructBindingFromEntity(
+      makeEntity({
+        [TODO_MAIL_FIELDS.threadId]: "thread-1",
+        text: "Répondre à Bob",
+        urgent: true,
+        importance: "high",
+        [TODO_MAIL_FIELDS.fromName]: "Bob",
+        [TODO_MAIL_FIELDS.snippet]: "salut",
+      }),
+    );
+    expect(b).toMatchObject({
+      threadId: "thread-1",
+      todoId: "todoX",
+      quadrant: "do", // urgent + high
+      subject: "Répondre à Bob",
+      fromName: "Bob",
+      snippet: "salut",
+    });
+    expect(b?.createdAt).toBe(Date.parse("2026-06-01T10:00:00.000Z"));
+  });
+
+  it("dérive schedule pour !urgent + high", () => {
+    const b = reconstructBindingFromEntity(
+      makeEntity({ [TODO_MAIL_FIELDS.threadId]: "t", urgent: false, importance: "high" }),
+    );
+    expect(b?.quadrant).toBe("schedule");
+  });
+
+  it("tolère les axes en string (urgent='true')", () => {
+    const b = reconstructBindingFromEntity(
+      makeEntity({ [TODO_MAIL_FIELDS.threadId]: "t", urgent: "true", importance: "low" }),
+    );
+    expect(b?.quadrant).toBe("delegate"); // urgent + non-important
+  });
+
+  it("renvoie null sans mailThreadId (todo non issu d'un email)", () => {
+    expect(reconstructBindingFromEntity(makeEntity({ text: "tâche normale" }))).toBeNull();
+  });
+
+  it("renvoie null pour une tâche faite (done) — la carte ne ressuscite pas", () => {
+    const b = reconstructBindingFromEntity(
+      makeEntity({ [TODO_MAIL_FIELDS.threadId]: "t", done: true }),
+    );
+    expect(b).toBeNull();
+  });
+
+  it("createdAt → 0 si date absente/invalide (reste une liaison valide)", () => {
+    const b = reconstructBindingFromEntity({
+      id: "todoX",
+      fields: { [TODO_MAIL_FIELDS.threadId]: "t" },
+      createdAt: null,
+    });
+    expect(b?.createdAt).toBe(0);
+  });
+});
+
+describe("reconcileBindings", () => {
+  beforeEach(() => {
+    installLocalStorage();
+  });
+
+  const entity = (id: string, threadId: string, over: Record<string, unknown> = {}): TodoProvenanceSource => ({
+    id,
+    createdAt: "2026-06-01T10:00:00.000Z",
+    fields: { [TODO_MAIL_FIELDS.threadId]: threadId, text: "s", urgent: true, importance: "high", ...over },
+  });
+
+  it("recrée les liaisons manquantes depuis la provenance coffre", () => {
+    expect(loadBindings()).toEqual([]);
+    const added = reconcileBindings([entity("todo1", "thr1"), entity("todo2", "thr2")]);
+    expect(added).toBe(2);
+    expect(loadBindings().map((b) => b.threadId).sort()).toEqual(["thr1", "thr2"]);
+  });
+
+  it("ne touche pas une liaison localStorage existante (elle gagne : résumé/quadrant optimiste)", () => {
+    addBinding(makeBinding({ threadId: "thr1", todoId: "todo1", quadrant: "eliminate", summary: "résumé local" }));
+    const added = reconcileBindings([entity("todo1", "thr1")]); // coffre dit quadrant "do"
+    expect(added).toBe(0);
+    expect(getBinding("thr1")).toMatchObject({ quadrant: "eliminate", summary: "résumé local" });
+  });
+
+  it("dédoublonne par todoId (même todo, threadId déjà lié autrement)", () => {
+    addBinding(makeBinding({ threadId: "thr1", todoId: "todo1" }));
+    const added = reconcileBindings([entity("todo1", "thr-renamed")]);
+    expect(added).toBe(0);
+  });
+
+  it("ignore les entités sans provenance email", () => {
+    const added = reconcileBindings([{ id: "todoZ", fields: { text: "normale" }, createdAt: "2026-06-01T10:00:00.000Z" }]);
+    expect(added).toBe(0);
+    expect(loadBindings()).toEqual([]);
+  });
+
+  it("renvoie 0 et n'écrit rien pour une liste vide", () => {
+    expect(reconcileBindings([])).toBe(0);
   });
 });
 

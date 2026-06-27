@@ -47,6 +47,9 @@ export interface TodoRowData {
   sourceThreadId?: string | null;
   /** Nom/email de l'expéditeur de l'email source (clarté). */
   sourceFromName?: string | null;
+  /** Aperçu compact de l'email source (résumé IA si dispo, sinon snippet) →
+   *  vue « quelques lignes » sous la tâche. */
+  sourceSummary?: string | null;
 }
 
 interface TodoRowProps {
@@ -230,29 +233,43 @@ export function TodoRow({
 
       {/* Main text — clickable to open the edit modal. The Button is a flex
           container, so `text-overflow: ellipsis` must live on an inner block
-          element (flex children clip without the "…" otherwise). */}
-      <Button
-        variant="ghost"
-        onPress={selectionMode ? onToggleSelect : onEdit}
-        className="flex-1 min-w-0 text-left leading-tight hover:underline p-0 h-auto justify-start"
-        style={{
-          color: row.done ? "var(--text-muted)" : "var(--text-primary)",
-          textDecoration: row.done ? "line-through" : undefined,
-          fontSize: isCritical ? "0.95rem" : "0.875rem",
-          fontWeight: isCritical ? 600 : 400,
-        }}
-      >
-        <span
-          title={row.text}
-          className={
-            multiline
-              ? "line-clamp-3 min-w-0 whitespace-normal [overflow-wrap:anywhere]"
-              : "block min-w-0 truncate"
-          }
+          element (flex children clip without the "…" otherwise). The wrapping
+          column also hosts the optional email-source preview line below. */}
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <Button
+          variant="ghost"
+          onPress={selectionMode ? onToggleSelect : onEdit}
+          className="w-full min-w-0 text-left leading-tight hover:underline p-0 h-auto justify-start"
+          style={{
+            color: row.done ? "var(--text-muted)" : "var(--text-primary)",
+            textDecoration: row.done ? "line-through" : undefined,
+            fontSize: isCritical ? "0.95rem" : "0.875rem",
+            fontWeight: isCritical ? 600 : 400,
+          }}
         >
-          <InlineMarkdown text={row.text} />
-        </span>
-      </Button>
+          <span
+            title={row.text}
+            className={
+              multiline
+                ? "line-clamp-3 min-w-0 whitespace-normal [overflow-wrap:anywhere]"
+                : "block min-w-0 truncate"
+            }
+          >
+            <InlineMarkdown text={row.text} />
+          </span>
+        </Button>
+        {/* Aperçu compact de l'email source (résumé IA / snippet) — seulement
+            pour les tâches issues d'un email, masqué quand la tâche est faite. */}
+        {row.sourceThreadId && row.sourceSummary && !row.done && (
+          <p
+            className="line-clamp-2 min-w-0 break-words text-[11px] leading-snug"
+            style={{ color: "var(--text-muted)" }}
+            title={row.sourceSummary}
+          >
+            {row.sourceSummary}
+          </p>
+        )}
+      </div>
 
       {/* Pending reminder badge */}
       {row.reminderAt && !row.reminderFiredAt && (

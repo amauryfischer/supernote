@@ -5,7 +5,8 @@ import { useToast } from "@supernote/ui";
 import { modifyThreadLabels } from "@/lib/gmail";
 import { INBOX_LABEL } from "@/lib/mail-triage";
 import { quadrantToTodoFields, type EisenhowerQuadrant } from "@/lib/mail-eisenhower";
-import { addBinding } from "@/lib/mail-todo-binding";
+import { addBinding, updateBindingSummary, buildTodoProvenanceFields } from "@/lib/mail-todo-binding";
+import { isAiConfigured, summarizeThread, type MailAiThread } from "@/lib/mail-ai";
 import { trpcVanillaClient } from "@/lib/trpc/client";
 import { TODO_TYPE_ID } from "@/hooks/useTodoSync";
 
@@ -18,6 +19,9 @@ export interface ConvertToTodoInput {
   /** Nom + email du correspondant (clarté « lié à un email »). */
   fromName?: string;
   fromEmail?: string;
+  /** Fil complet (texte brut) pour générer un résumé IA en arrière-plan. Quand
+   *  absent (ex : conversion depuis une ligne de liste), on garde le snippet. */
+  aiThread?: MailAiThread;
 }
 
 /**
@@ -40,7 +44,7 @@ export function useConvertToTodo(clientId: string): {
   const [busy, setBusy] = useState(false);
 
   const convert = useCallback(
-    async ({ threadId, subject, quadrant, snippet, fromName, fromEmail }: ConvertToTodoInput): Promise<boolean> => {
+    async ({ threadId, subject, quadrant, snippet, fromName, fromEmail, aiThread }: ConvertToTodoInput): Promise<boolean> => {
       if (!clientId || busy) return false;
       const text = subject.trim() || "Email sans sujet";
       setBusy(true);
@@ -54,6 +58,10 @@ export function useConvertToTodo(clientId: string): {
             priority: 5,
             importance: fields.importance,
             urgent: fields.urgent,
+            // Provenance email durable (miroir coffre) : permet à
+            // `reconcileBindings` de reconstruire la liaison si le store
+            // localStorage est perdu (cache vidé, autre origine en dev).
+            ...buildTodoProvenanceFields({ threadId, fromName, fromEmail, snippet }),
           },
         });
         await modifyThreadLabels(clientId, threadId, {
@@ -70,6 +78,18 @@ export function useConvertToTodo(clientId: string): {
           ...(fromEmail ? { fromEmail } : {}),
           createdAt: Date.now(),
         });
+        // Résumé IA en arrière-plan (best-effort) : ne bloque pas la conversion.
+        // Quand il arrive, on patche la liaison + on notifie les vues (event).
+        if (aiThread && isAiConfigured()) {
+          void summarizeThread(aiThread)
+            .then((s) => {
+              const trimmed = s.trim();
+              if (trimmed) updateBindingSummary(threadId, trimmed);
+            })
+            .catch(() => {
+              /* Ollama injoignable → on garde le snippet, pas de bruit UI. */
+            });
+        }
         toast({ title: "Email converti en tâche", variant: "success" });
         return true;
       } catch (e) {

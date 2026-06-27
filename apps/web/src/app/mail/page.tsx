@@ -14,7 +14,7 @@ import { useCaptureEmail } from "@/components/mail/useCaptureEmail";
 import { CaptureEmailModal } from "@/components/mail/CaptureEmailModal";
 import { ComposeModal } from "@/components/mail/ComposeModal";
 import { MailEisenhowerBoard } from "@/components/mail/MailEisenhowerBoard";
-import { listThreadSummariesPage, listLabels, getThread, modifyThreadLabels, markThreadRead, markThreadUnread, toggleStar, type EmailThread, type GmailLabelColor, type ThreadListItem } from "@/lib/gmail";
+import { listThreadSummariesPage, listLabels, getThread, modifyThreadLabels, addThreadLabel, markThreadRead, markThreadUnread, toggleStar, type EmailThread, type GmailLabelColor, type ThreadListItem } from "@/lib/gmail";
 import { listDue, removeSnooze, addSnooze, applyTriage, undoTriage, INBOX_LABEL, SNOOZE_PRESETS, type TriageAction } from "@/lib/mail-triage";
 import { useConvertToTodo } from "@/components/mail/useConvertToTodo";
 import { buildMailOverlay, type OverlayRow } from "@/lib/mail-overlay";
@@ -26,6 +26,8 @@ import {
   getBinding,
   removeBinding,
   updateBindingQuadrant,
+  reconcileBindings,
+  MAIL_BINDINGS_EVENT,
   type MailTodoBinding,
 } from "@/lib/mail-todo-binding";
 import { quadrantToTodoFields, type EisenhowerQuadrant } from "@/lib/mail-eisenhower";
@@ -35,6 +37,9 @@ import { prefersReducedMotion } from "@/lib/motion";
 import { useToast, Tooltip } from "@supernote/ui";
 
 const DEFAULT_MAIL_QUERY = "in:inbox";
+
+/** Nombre de fils chargés par page (chargement initial + « Charger plus »). */
+const MAIL_PAGE_SIZE = 50;
 
 type GroupRow = Extract<OverlayRow, { kind: "group" }>;
 
@@ -111,6 +116,31 @@ export default function MailPage() {
   // Rechargé à l'ouverture de l'onglet Todo et après chaque mutation optimiste.
   const [todoBindings, setTodoBindings] = useState<MailTodoBinding[]>([]);
   const refreshTodoBindings = useCallback(() => setTodoBindings(loadBindings()), []);
+  // Résumé IA arrivé après coup (génération en tâche de fond) → recharge la
+  // grille Todo pour l'afficher sans re-navigation.
+  useEffect(() => {
+    window.addEventListener(MAIL_BINDINGS_EVENT, refreshTodoBindings);
+    return () => window.removeEventListener(MAIL_BINDINGS_EVENT, refreshTodoBindings);
+  }, [refreshTodoBindings]);
+  // Auto-réparation : reconstruit les liaisons manquantes depuis la provenance
+  // durable du coffre (champs `mail*` de l'entité todo) au cas où le store
+  // localStorage a été vidé (cache, navigateur tiers, autre origine en dev). L'event
+  // émis par reconcileBindings rafraîchit le board via le listener ci-dessus.
+  // Best-effort : pas de coffre ouvert / requête échouée → silencieux.
+  useEffect(() => {
+    let cancelled = false;
+    void trpcVanillaClient.entities.list
+      .query({ typeId: TODO_TYPE_ID })
+      .then((res) => {
+        if (!cancelled) reconcileBindings(res.items);
+      })
+      .catch(() => {
+        /* pas de coffre / hors-ligne — best-effort */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const [selectedGroup, setSelectedGroup] = useState<GroupRow | null>(null);
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
@@ -168,7 +198,7 @@ export default function MailPage() {
       setThread(null);
       try {
         const [page, labels] = await Promise.all([
-          listThreadSummariesPage(clientId, q),
+          listThreadSummariesPage(clientId, q, { maxResults: MAIL_PAGE_SIZE }),
           listLabels(clientId).catch(() => [] as Awaited<ReturnType<typeof listLabels>>),
         ]);
         // Un rechargement plus récent a démarré entre-temps → on n'écrase pas son
@@ -204,7 +234,10 @@ export default function MailPage() {
     setMoreLoading(true);
     setListError(null);
     try {
-      const page = await listThreadSummariesPage(clientId, query, { pageToken: nextPageToken });
+      const page = await listThreadSummariesPage(clientId, query, {
+        pageToken: nextPageToken,
+        maxResults: MAIL_PAGE_SIZE,
+      });
       setCumItems((prev) => {
         const seen = new Set(prev.map((it) => it.id));
         const merged = [...prev, ...page.items.filter((it) => !seen.has(it.id))];
@@ -948,6 +981,57 @@ export default function MailPage() {
     );
   }, []);
 
+  // Applique un tag (label Gmail) à un thread depuis la boîte : maj optimiste de
+  // la liste cumulée + reconstruction de l'overlay (le fil migre dans le groupe-
+  // tag, prioritaire sur le groupe-expéditeur), appel Gmail en fond, rollback +
+  // toast si échec. Sert au drag-vers-groupe ET à l'action « Ajouter un tag » du
+  // menu contextuel. Patche aussi le fil ouvert s'il s'agit du même thread.
+  const handleApplyLabel = useCallback(
+    (threadId: string, labelId: string) => {
+      if (!clientId || !labelId) return;
+      const rebuild = (items: ThreadListItem[]) =>
+        setRows(buildMailOverlay(items.filter((it) => !getBinding(it.id)), labelNames, selfAddresses));
+      let prev: ThreadListItem[] | null = null;
+      setCumItems((items) => {
+        prev = items;
+        const next = items.map((it) =>
+          it.id === threadId && !it.labelIds.includes(labelId)
+            ? { ...it, labelIds: [...it.labelIds, labelId] }
+            : it,
+        );
+        rebuild(next);
+        return next;
+      });
+      setThread((t) =>
+        t && t.id === threadId && !t.labelIds.includes(labelId)
+          ? { ...t, labelIds: [...t.labelIds, labelId] }
+          : t,
+      );
+      void addThreadLabel(clientId, threadId, labelId)
+        .then(() => toast({ title: "Tag appliqué" }))
+        .catch((err) => {
+          if (prev) {
+            const restored = prev;
+            setCumItems(() => {
+              rebuild(restored);
+              return restored;
+            });
+          }
+          setThread((t) =>
+            t && t.id === threadId
+              ? { ...t, labelIds: t.labelIds.filter((l) => l !== labelId) }
+              : t,
+          );
+          toast({
+            title: "Ajout du tag échoué",
+            description: err instanceof Error ? err.message : String(err),
+            variant: "danger",
+          });
+        });
+    },
+    [clientId, labelNames, selfAddresses, toast],
+  );
+
   // Toggle étoile depuis une ligne de la liste (optimiste, sans ouvrir le fil).
   const toggleRowStar = useCallback(
     (id: string, current: string[]) => {
@@ -1239,6 +1323,8 @@ export default function MailPage() {
               onConvertRowToTodo={handleConvertRow}
               onTriageRow={handleTriageRow}
               onMarkRowRead={handleMarkRowRead}
+              onApplyLabel={isMobile ? undefined : handleApplyLabel}
+              userLabels={labelNames}
             />
             {nextPageToken && (
               <div className="px-1 pt-2">

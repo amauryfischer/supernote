@@ -21,7 +21,7 @@
 
 import { useState } from "react";
 import { Button, Popover } from "@heroui/react";
-import { ArrowRight, CheckCircle, EnvelopeOpen, Envelope } from "@phosphor-icons/react";
+import { ArrowRight, CheckCircle, EnvelopeOpen, Envelope, Sparkle } from "@phosphor-icons/react";
 import { QUADRANTS, type EisenhowerQuadrant } from "@/lib/mail-eisenhower";
 import type { MailTodoBinding } from "@/lib/mail-todo-binding";
 
@@ -85,10 +85,25 @@ function TodoCard({
       >
         {binding.subject || "Email sans sujet"}
       </p>
-      {binding.snippet && (
-        <p className="line-clamp-3 break-words text-xs" style={{ color: "var(--text-secondary)" }}>
-          {binding.snippet}
-        </p>
+      {/* Aperçu compact : résumé IA si dispo (badge ✦), sinon snippet brut. */}
+      {binding.summary ? (
+        <div className="flex flex-col gap-1">
+          <span
+            className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide"
+            style={{ color: "var(--accent)" }}
+          >
+            <Sparkle size={11} weight="fill" aria-hidden /> Résumé
+          </span>
+          <p className="line-clamp-4 break-words text-xs" style={{ color: "var(--text-secondary)" }}>
+            {binding.summary}
+          </p>
+        </div>
+      ) : (
+        binding.snippet && (
+          <p className="line-clamp-3 break-words text-xs" style={{ color: "var(--text-secondary)" }}>
+            {binding.snippet}
+          </p>
+        )
       )}
       <div className="flex flex-wrap items-center gap-1.5">
         <Button
