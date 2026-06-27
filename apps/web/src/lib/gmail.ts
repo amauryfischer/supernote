@@ -441,6 +441,39 @@ export interface ThreadListItem {
 }
 
 /**
+ * Plafond de requêtes Gmail concurrentes lors de l'enrichissement d'une page
+ * (un `format=metadata` par thread). Gmail limite les requêtes EN VOL par
+ * utilisateur : tout lancer d'un coup (`Promise.all` sur 50 items) renvoie un
+ * 429 « Too many concurrent requests for user » (RESOURCE_EXHAUSTED). On draine
+ * par pool borné.
+ */
+const GMAIL_METADATA_CONCURRENCY = 6;
+
+/**
+ * `map` borné en concurrence : exécute `fn` sur chaque item avec au plus `limit`
+ * requêtes en vol, en PRÉSERVANT l'ordre des résultats. Évite le 429 « requêtes
+ * concurrentes » de l'API Gmail quand une page enrichit beaucoup de threads.
+ */
+async function mapPool<T, R>(
+  items: readonly T[],
+  limit: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let cursor = 0;
+  const worker = async (): Promise<void> => {
+    for (;;) {
+      const i = cursor++;
+      if (i >= items.length) return;
+      results[i] = await fn(items[i]!);
+    }
+  };
+  const n = Math.max(1, Math.min(limit, items.length));
+  await Promise.all(Array.from({ length: n }, () => worker()));
+  return results;
+}
+
+/**
  * Métadonnées légères d'un thread (Subject/From/Date du message le plus récent)
  * via `format=metadata` — bien plus léger que `format=full`. Utilisé pour
  * peupler la liste de gauche.
@@ -483,7 +516,11 @@ export async function listThreadSummariesPage(
   opts: { maxResults?: number; pageToken?: string } = {},
 ): Promise<ThreadListPage> {
   const page = await searchThreadsPage(clientId, query, opts);
-  const items = await Promise.all(page.items.map((t) => getThreadListItem(clientId, t.id)));
+  // Pool borné (pas `Promise.all` brut) → évite le 429 « too many concurrent
+  // requests » quand `maxResults` est élevé (ex. 50).
+  const items = await mapPool(page.items, GMAIL_METADATA_CONCURRENCY, (t) =>
+    getThreadListItem(clientId, t.id),
+  );
   return { items, nextPageToken: page.nextPageToken };
 }
 
