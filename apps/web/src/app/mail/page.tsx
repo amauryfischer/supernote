@@ -76,6 +76,9 @@ const TRIAGE_DONE_LABEL: Record<TriageAction, string> = {
 /** Durée du toast « Annuler » : assez longue pour cliquer, sans gêner (6 s). */
 const UNDO_TOAST_DURATION_MS = 6000;
 
+/** Fenêtre du raccourci clavier « z » (annuler la dernière action) : 10 s. */
+const UNDO_WINDOW_MS = 10000;
+
 /**
  * Mutation mirror équivalente à une action de triage (modèle inbox zero). PAS de
  * `dropThread` : on retire seulement INBOX (le fil sort de la liste filtrée
@@ -629,57 +632,74 @@ export default function MailPage() {
     });
   }, []);
 
-  // Mécanisme « Annuler » (toast-action) : après un triage réussi, toast ~6 s avec
-  // un bouton « Annuler ». `opId` présent = le triage est parti par l'outbox
-  // (mirror) : on ANNULE l'op en attente (ack → supprimée si pas encore poussée)
-  // puis on enqueue l'op inverse (ré-ajoute INBOX / untrash) — convergence quel
-  // que soit l'état du push. `opId` absent (mode limité OU triage émis par
-  // EmailThreadView qui a poussé Gmail lui-même) = undo Gmail direct. Dans les
-  // deux cas, loadList re-affiche le fil restauré (mirror → reconciliation).
+  // Dernière action annulable (triage), pour le raccourci clavier « z ». Stocke
+  // l'id/action/opId + l'horodatage ; « z » l'annule si dans la fenêtre (10 s).
+  const lastUndoableRef = useRef<{
+    id: string;
+    action: TriageAction;
+    opId: string | null;
+    at: number;
+  } | null>(null);
+
+  // Annule un triage. `opId` présent = parti par l'outbox (mirror) : on ANNULE
+  // l'op en attente (ack → supprimée si pas encore poussée) puis on enqueue l'op
+  // inverse (ré-ajoute INBOX / untrash) — convergence quel que soit l'état du
+  // push. `opId` absent (mode limité OU triage émis par EmailThreadView qui a
+  // poussé Gmail lui-même) = undo Gmail direct. loadList re-affiche le fil.
+  const performUndo = useCallback(
+    (id: string, action: TriageAction, opId?: string | null) => {
+      if (!clientId) return;
+      lastUndoableRef.current = null; // consommé
+      const undo = (async () => {
+        if (opId && mirrorAvailable() && accountId) {
+          await mirrorCancelOutbox([opId]);
+          const reverse: MirrorMutation =
+            action === "delete"
+              ? { threadId: id, kind: "untrash", addLabelIds: [INBOX_LABEL] }
+              : { threadId: id, kind: "modifyLabels", addLabelIds: [INBOX_LABEL] };
+          await mirrorApplyMutation(accountId, { ...reverse, enqueue: true });
+          if (action === "snooze") removeSnooze(id);
+          pushOutboxNow();
+        } else {
+          await undoTriage(clientId, id, action);
+        }
+      })();
+      undo
+        .then(() => {
+          void loadList(query);
+          toast({ title: "Triage annulé", variant: "success" });
+        })
+        .catch((err) => {
+          toast({
+            title: "Annulation impossible",
+            description: err instanceof Error ? err.message : String(err),
+            variant: "danger",
+          });
+        });
+    },
+    [clientId, accountId, toast, loadList, query, pushOutboxNow],
+  );
+
+  // Mécanisme « Annuler » : après un triage réussi, mémorise l'action (pour « z »)
+  // ET affiche un toast ~6 s avec un bouton « Annuler ». Les deux passent par
+  // performUndo.
   const offerUndo = useCallback(
     (id: string, action: TriageAction, opId?: string | null) => {
       if (!clientId) {
         toast({ title: TRIAGE_DONE_LABEL[action] });
         return;
       }
+      lastUndoableRef.current = { id, action, opId: opId ?? null, at: Date.now() };
       toast({
         title: TRIAGE_DONE_LABEL[action],
         duration: UNDO_TOAST_DURATION_MS,
         action: {
           label: "Annuler",
-          onClick: () => {
-            const undo = (async () => {
-              if (opId && mirrorAvailable() && accountId) {
-                await mirrorCancelOutbox([opId]);
-                const reverse: MirrorMutation =
-                  action === "delete"
-                    ? { threadId: id, kind: "untrash", addLabelIds: [INBOX_LABEL] }
-                    : { threadId: id, kind: "modifyLabels", addLabelIds: [INBOX_LABEL] };
-                await mirrorApplyMutation(accountId, { ...reverse, enqueue: true });
-                if (action === "snooze") removeSnooze(id);
-                pushOutboxNow();
-              } else {
-                await undoTriage(clientId, id, action);
-              }
-            })();
-            undo
-              .then(() => {
-                // Re-affiche le fil restauré : la liste (mirror) est la vérité.
-                void loadList(query);
-                toast({ title: "Triage annulé", variant: "success" });
-              })
-              .catch((err) => {
-                toast({
-                  title: "Annulation impossible",
-                  description: err instanceof Error ? err.message : String(err),
-                  variant: "danger",
-                });
-              });
-          },
+          onClick: () => performUndo(id, action, opId),
         },
       });
     },
-    [clientId, accountId, toast, loadList, query, pushOutboxNow],
+    [clientId, toast, performUndo],
   );
 
   // Triage clavier d'une ligne « single » sélectionnée (archive `e`, delete `#`).
@@ -1041,6 +1061,17 @@ export default function MailPage() {
       const key = e.key;
       const threadOpen = selectedThreadId !== null;
 
+      // « z » : annule la dernière action triée si dans la fenêtre (10 s). Marche
+      // dans TOUS les contextes (liste, groupe, fil ouvert) → testé en premier.
+      if (key === "z" || key === "Z") {
+        const last = lastUndoableRef.current;
+        if (last && Date.now() - last.at < UNDO_WINDOW_MS) {
+          e.preventDefault();
+          performUndo(last.id, last.action, last.opId);
+        }
+        return;
+      }
+
       // ── Contexte GROUPE (pane2) : un groupe est ouvert (avec ou sans fil). ──
       // j/k parcourent les items du groupe (et ouvrent au vol si un fil est déjà
       // ouvert → on feuillette) ; Enter ouvre ; Échap/←/h ferme le fil puis sort
@@ -1279,6 +1310,7 @@ export default function MailPage() {
     triageRowAt,
     handleTriageRow,
     closeThread,
+    performUndo,
     toggleRowSelected,
     toggleSelectedRowAtCursor,
     clearSelection,
