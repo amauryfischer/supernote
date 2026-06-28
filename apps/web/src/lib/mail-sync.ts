@@ -30,6 +30,7 @@ import {
   type GmailLabel,
 } from "@/lib/gmail";
 import { trpcVanillaClient } from "@/lib/trpc/client";
+import { emitOutboxChange } from "@/lib/mail-mirror";
 
 /** Gmail query that defines what the mirror seeds + tracks as "the list". */
 export const MIRROR_SYNC_QUERY = "in:inbox";
@@ -129,9 +130,23 @@ export async function incrementalSync(
   const hist = await listHistory(clientId, startHistoryId);
   if (!hist.ok) return false;
 
+  // Rafraîchir AUSSI la liste des labels : l'historique Gmail couvre les
+  // changements d'appartenance (label posé/retiré sur un fil) mais PAS la
+  // CRÉATION/le renommage d'un label. Un label créé dans Gmail après le dernier
+  // full sync n'atteindrait jamais le mirror → les fils qui le portent ont un
+  // labelId sans nom → ils ne se regroupent pas (buildMailOverlay skippe) et le
+  // label est absent du picker des groupes. Un seul appel léger (`labels.list`).
+  const labels = await listLabels(clientId).catch(() => [] as GmailLabel[]);
+  const labelInput = labels.length ? labels.map(toLabelInput) : undefined;
+
   if (hist.changedThreadIds.length === 0) {
-    // Nothing changed — just advance the cursor + lastSyncAt.
-    await trpcVanillaClient.mail.syncUpsert.mutate({ accountId, historyId: hist.historyId });
+    // Aucun fil changé — on avance le curseur + lastSyncAt, mais on pousse quand
+    // même les labels rafraîchis (ils ont pu changer sans toucher un fil).
+    await trpcVanillaClient.mail.syncUpsert.mutate({
+      accountId,
+      labels: labelInput,
+      historyId: hist.historyId,
+    });
     return true;
   }
 
@@ -144,6 +159,7 @@ export async function incrementalSync(
   await trpcVanillaClient.mail.syncUpsert.mutate({
     accountId,
     threads: stillInbox.map(toThreadInput),
+    labels: labelInput,
     removeThreadIds: [...missing, ...leftInbox],
     historyId: hist.historyId,
   });
@@ -195,6 +211,8 @@ export function flushOutbox(clientId: string, accountId: string): Promise<void> 
 async function flushOutboxInner(clientId: string, accountId: string): Promise<void> {
   const { items } = await trpcVanillaClient.mail.listOutbox.query({ accountId });
   if (items.length === 0) return;
+  // Refresh the badge after the queue is drained / some ops fail.
+  let changed = false;
   const acked: string[] = [];
   for (const op of items) {
     try {
@@ -210,6 +228,7 @@ async function flushOutboxInner(clientId: string, accountId: string): Promise<vo
       }
       acked.push(op.opId);
     } catch (err) {
+      changed = true;
       await trpcVanillaClient.mail.resolveOutbox
         .mutate({
           opIds: [op.opId],
@@ -222,8 +241,10 @@ async function flushOutboxInner(clientId: string, accountId: string): Promise<vo
     }
   }
   if (acked.length > 0) {
+    changed = true;
     await trpcVanillaClient.mail.resolveOutbox.mutate({ opIds: acked, outcome: "ack" });
   }
+  if (changed) emitOutboxChange();
 }
 
 /**

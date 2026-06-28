@@ -17,6 +17,8 @@ import {
   ListOutboxOutput,
   ResolveOutboxInput,
   ResolveOutboxOutput,
+  RetryFailedInput,
+  RetryFailedOutput,
 } from "../schemas/mail.js";
 
 /**
@@ -91,6 +93,14 @@ export const mailRouter = router({
     .output(ResolveOutboxOutput)
     .mutation(() => {
       throw notImplemented("mail.resolveOutbox");
+    }),
+
+  /** Reset failed outbox ops to pending so the next flush retries them. */
+  retryFailed: publicProcedure
+    .input(RetryFailedInput)
+    .output(RetryFailedOutput)
+    .mutation(() => {
+      throw notImplemented("mail.retryFailed");
     }),
 });
 

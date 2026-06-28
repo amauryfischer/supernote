@@ -4013,7 +4013,14 @@ export function buildRouter(
   const mailGetState = async (input: unknown): Promise<unknown> => {
     const { accountId } = (input as { accountId: string }) ?? {};
     if (!accountId) {
-      return { historyId: null, lastFullSyncAt: 0, lastSyncAt: 0, threadCount: 0, pendingOutbox: 0 };
+      return {
+        historyId: null,
+        lastFullSyncAt: 0,
+        lastSyncAt: 0,
+        threadCount: 0,
+        pendingOutbox: 0,
+        failedOutbox: 0,
+      };
     }
     const s = row(
       db.exec(
@@ -4028,12 +4035,19 @@ export function buildRouter(
         [accountId],
       ),
     );
+    const fb = row(
+      db.exec(
+        `SELECT COUNT(*) AS c FROM mail_outbox WHERE accountId = ? AND status = 'failed'`,
+        [accountId],
+      ),
+    );
     return {
       historyId: s ? ((s["historyId"] as string | null) ?? null) : null,
       lastFullSyncAt: s ? Number(s["lastFullSyncAt"]) : 0,
       lastSyncAt: s ? Number(s["lastSyncAt"]) : 0,
       threadCount: tc ? Number(tc["c"]) : 0,
       pendingOutbox: ob ? Number(ob["c"]) : 0,
+      failedOutbox: fb ? Number(fb["c"]) : 0,
     };
   };
 
@@ -4318,6 +4332,23 @@ export function buildRouter(
     return { resolved };
   };
 
+  const mailRetryFailed = async (input: unknown): Promise<unknown> => {
+    const { accountId } = (input as { accountId: string }) ?? {};
+    if (!accountId) return { retried: 0 };
+    const before = row(
+      db.exec(
+        `SELECT COUNT(*) AS c FROM mail_outbox WHERE accountId = ? AND status = 'failed'`,
+        [accountId],
+      ),
+    );
+    db.run(
+      `UPDATE mail_outbox SET status = 'pending', attempts = 0, lastError = NULL
+         WHERE accountId = ? AND status = 'failed'`,
+      [accountId],
+    );
+    return { retried: before ? Number(before["c"]) : 0 };
+  };
+
   // ── Dispatch table ─────────────────────────────────────────────────────────
 
   return {
@@ -4401,6 +4432,7 @@ export function buildRouter(
     "mail.applyLocalMutation": mailApplyLocalMutation,
     "mail.listOutbox": mailListOutbox,
     "mail.resolveOutbox": mailResolveOutbox,
+    "mail.retryFailed": mailRetryFailed,
   };
 }
 

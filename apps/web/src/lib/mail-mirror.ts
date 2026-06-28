@@ -20,6 +20,38 @@ export function mirrorAvailable(): boolean {
   return typeof window !== "undefined" && hasWorkerBackend() && isWorkerReady();
 }
 
+/**
+ * Fired whenever the outbox changes (enqueue / cancel / retry / flush) so the
+ * pending/failed badge refreshes without polling. The background pusher fires it
+ * too, after acking/failing ops.
+ */
+export const MAIL_OUTBOX_EVENT = "supernote:mail-outbox";
+export function emitOutboxChange(): void {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent(MAIL_OUTBOX_EVENT));
+  }
+}
+
+export interface MailOutboxStatus {
+  /** Ops still queued to push (will retry). */
+  pending: number;
+  /** Ops that exhausted their retries — need a manual retry. */
+  failed: number;
+}
+
+/** Pending + failed outbox counts for the account (drives the status badge). */
+export async function mirrorOutboxStatus(accountId: string): Promise<MailOutboxStatus> {
+  const s = await trpcVanillaClient.mail.getState.query({ accountId });
+  return { pending: s.pendingOutbox, failed: s.failedOutbox };
+}
+
+/** Reset failed ops to pending so the next flush retries them. Returns count. */
+export async function mirrorRetryFailed(accountId: string): Promise<number> {
+  const r = await trpcVanillaClient.mail.retryFailed.mutate({ accountId });
+  emitOutboxChange();
+  return r.retried;
+}
+
 /** Generate an idempotent outbox op id (matches the worker's opId column). */
 function newOpId(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -101,6 +133,7 @@ export async function mirrorApplyMutation(
     dropThread: m.dropThread,
     enqueue: m.enqueue ?? true,
   });
+  if (m.enqueue ?? true) emitOutboxChange();
   return opId;
 }
 
@@ -114,4 +147,5 @@ export async function mirrorCancelOutbox(opIds: string[]): Promise<void> {
   await trpcVanillaClient.mail.resolveOutbox.mutate({ opIds, outcome: "ack" }).catch(() => {
     /* best-effort */
   });
+  emitOutboxChange();
 }

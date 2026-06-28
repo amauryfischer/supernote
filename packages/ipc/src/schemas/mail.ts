@@ -138,7 +138,10 @@ export const GetStateOutput = z.object({
   lastFullSyncAt: z.number(),
   lastSyncAt: z.number(),
   threadCount: z.number().int().nonnegative(),
+  /** Outbox ops still to push (status != 'failed'). */
   pendingOutbox: z.number().int().nonnegative(),
+  /** Outbox ops that exhausted their retries (status = 'failed'). */
+  failedOutbox: z.number().int().nonnegative(),
 });
 export type GetStateOutput = z.infer<typeof GetStateOutput>;
 
@@ -238,3 +241,15 @@ export const ResolveOutboxOutput = z.object({
   resolved: z.number().int().nonnegative(),
 });
 export type ResolveOutboxOutput = z.infer<typeof ResolveOutboxOutput>;
+
+// ── mail.retryFailed ────────────────────────────────────────────────────────
+// Reset failed outbox ops back to pending (attempts cleared) so the next flush
+// retries them. Used by the "N échec(s)" badge's retry action.
+
+export const RetryFailedInput = z.object({ accountId: z.string() });
+export type RetryFailedInput = z.infer<typeof RetryFailedInput>;
+
+export const RetryFailedOutput = z.object({
+  retried: z.number().int().nonnegative(),
+});
+export type RetryFailedOutput = z.infer<typeof RetryFailedOutput>;

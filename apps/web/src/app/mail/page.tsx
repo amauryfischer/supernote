@@ -51,6 +51,7 @@ import {
   type MailGroup,
 } from "@/lib/mail-groups";
 import { MailGroupsManager } from "@/components/mail/MailGroupsManager";
+import { MailOutboxBadge } from "@/components/mail/MailOutboxBadge";
 import { trpcVanillaClient } from "@/lib/trpc/client";
 import { TODO_TYPE_ID } from "@/hooks/useTodoSync";
 import { prefersReducedMotion } from "@/lib/motion";
@@ -1583,6 +1584,13 @@ export default function MailPage() {
           <Faders size={16} />
         </Button>
       </Tooltip>
+      {/* État de l'outbox (write path outbox-authoritative) : « N en attente » /
+          « N échec(s) » + réessayer. Invisible quand tout est synchronisé. */}
+      {accountId ? (
+        <div className="ml-auto shrink-0">
+          <MailOutboxBadge accountId={accountId} clientId={clientId} />
+        </div>
+      ) : null}
       <MailGroupsManager
         isOpen={groupsManagerOpen}
         onClose={() => setGroupsManagerOpen(false)}
