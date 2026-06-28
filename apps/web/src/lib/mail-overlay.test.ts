@@ -35,6 +35,44 @@ describe("buildMailOverlay", () => {
     expect(rows.some((r) => r.kind === "single" && r.item.id === "c")).toBe(true);
   });
 
+  it("tag isolé (1 email) → groupe-label d'un seul item, pas une ligne nue", () => {
+    const rows = buildMailOverlay(
+      [item("a", "ada@x.io", "2026-06-20T10:00:00Z", ["L1"])],
+      labels,
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ kind: "group", groupType: "label", title: "Projet", count: 1 });
+  });
+
+  it("tag isolé coexiste avec un groupe-expéditeur du reste", () => {
+    const rows = buildMailOverlay(
+      [
+        item("a", "ada@x.io", "2026-06-20T10:00:00Z", ["L1"]),
+        item("b", "bob@x.io", "2026-06-21T10:00:00Z"),
+        item("c", "bob@x.io", "2026-06-22T10:00:00Z"),
+      ],
+      labels,
+    );
+    const label = rows.find((r) => r.kind === "group" && r.groupType === "label");
+    expect(label).toMatchObject({ title: "Projet", count: 1 });
+    const sender = rows.find((r) => r.kind === "group" && r.groupType === "sender");
+    expect(sender).toMatchObject({ count: 2 });
+  });
+
+  it("le groupe-expéditeur prime sur le tag isolé (email tagué non isolé)", () => {
+    // a tagué L1 mais partage l'expéditeur de b → reste dans le groupe-expéditeur,
+    // PAS extrait en groupe-label d'un item.
+    const rows = buildMailOverlay(
+      [
+        item("a", "ada@x.io", "2026-06-20T10:00:00Z", ["L1"]),
+        item("b", "ada@x.io", "2026-06-21T10:00:00Z"),
+      ],
+      labels,
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ kind: "group", groupType: "sender", count: 2 });
+  });
+
   it("groupe par expéditeur sur le reste (≥2)", () => {
     const rows = buildMailOverlay(
       [
@@ -60,7 +98,13 @@ describe("buildMailOverlay", () => {
     );
     const l1 = rows.find((r) => r.kind === "group" && r.title === "Projet");
     expect(l1).toMatchObject({ count: 3 });
-    expect(rows.some((r) => r.kind === "single" && r.item.id === "d")).toBe(true);
+    // a rejoint le plus gros groupe (Projet) ; d, seul porteur de L2 (Perso),
+    // forme un groupe-label d'un item (tag isolé désormais surfacé).
+    expect(
+      rows.some(
+        (r) => r.kind === "group" && r.title === "Perso" && r.count === 1 && r.items[0]!.id === "d",
+      ),
+    ).toBe(true);
   });
 
   it("tri par date la plus récente, liste vide → []", () => {

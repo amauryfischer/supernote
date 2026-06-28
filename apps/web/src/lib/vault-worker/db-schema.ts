@@ -218,6 +218,89 @@ CREATE TABLE IF NOT EXISTS "variable" (
          OR (value_kind = 'formula' AND formula_expr IS NOT NULL AND literal_json IS NULL))
 );
 
+-- ── Mail mirror ────────────────────────────────────────────────────────────
+-- Local-first cache of a connected Gmail account. The vault op-log peer-sync is
+-- NOT involved here: Gmail itself is the cross-device source of truth, so each
+-- device mirrors independently against the Gmail API (history.list deltas).
+-- Everything is account-scoped (accountId = the connected email) so a future
+-- multi-account inbox needs no schema change. These rows are a disposable cache:
+-- a wipe just re-syncs from Gmail.
+
+-- One row per mirrored Gmail thread (the list view reads straight from here).
+CREATE TABLE IF NOT EXISTS "mail_thread" (
+    "accountId" TEXT NOT NULL,
+    "id" TEXT NOT NULL,
+    "historyId" TEXT,
+    "subject" TEXT NOT NULL DEFAULT '',
+    "fromName" TEXT NOT NULL DEFAULT '',
+    "fromEmail" TEXT NOT NULL DEFAULT '',
+    "snippet" TEXT NOT NULL DEFAULT '',
+    "lastDate" TEXT NOT NULL DEFAULT '',
+    "lastInternalDate" INTEGER NOT NULL DEFAULT 0,
+    "labelIds" TEXT NOT NULL DEFAULT '[]',
+    "messagesLoaded" INTEGER NOT NULL DEFAULT 0,
+    "updatedAt" INTEGER NOT NULL,
+    PRIMARY KEY ("accountId", "id")
+);
+
+-- One row per message of a mirrored thread (populated when a thread is opened /
+-- fully synced; the summary list only needs mail_thread).
+CREATE TABLE IF NOT EXISTS "mail_message" (
+    "accountId" TEXT NOT NULL,
+    "id" TEXT NOT NULL,
+    "threadId" TEXT NOT NULL,
+    "subject" TEXT NOT NULL DEFAULT '',
+    "fromName" TEXT NOT NULL DEFAULT '',
+    "fromEmail" TEXT NOT NULL DEFAULT '',
+    "toJson" TEXT NOT NULL DEFAULT '[]',
+    "date" TEXT NOT NULL DEFAULT '',
+    "internalDate" INTEGER NOT NULL DEFAULT 0,
+    "snippet" TEXT NOT NULL DEFAULT '',
+    "bodyText" TEXT NOT NULL DEFAULT '',
+    "bodyHtml" TEXT,
+    "attachmentsJson" TEXT NOT NULL DEFAULT '[]',
+    "messageId" TEXT,
+    "refs" TEXT,
+    "webLink" TEXT NOT NULL DEFAULT '',
+    "labelIds" TEXT NOT NULL DEFAULT '[]',
+    "updatedAt" INTEGER NOT NULL,
+    PRIMARY KEY ("accountId", "id")
+);
+
+-- Mirror of the account's Gmail labels (id, name, optional color).
+CREATE TABLE IF NOT EXISTS "mail_label" (
+    "accountId" TEXT NOT NULL,
+    "id" TEXT NOT NULL,
+    "name" TEXT NOT NULL DEFAULT '',
+    "colorJson" TEXT,
+    "type" TEXT,
+    "updatedAt" INTEGER NOT NULL,
+    PRIMARY KEY ("accountId", "id")
+);
+
+-- Per-account reconciliation cursor for incremental sync.
+CREATE TABLE IF NOT EXISTS "mail_sync_state" (
+    "accountId" TEXT NOT NULL PRIMARY KEY,
+    "historyId" TEXT,
+    "lastFullSyncAt" INTEGER NOT NULL DEFAULT 0,
+    "lastSyncAt" INTEGER NOT NULL DEFAULT 0,
+    "updatedAt" INTEGER NOT NULL
+);
+
+-- Outbox: optimistic local mutations awaiting push to Gmail. Durable so an
+-- offline / killed tab retries instead of losing the change.
+CREATE TABLE IF NOT EXISTS "mail_outbox" (
+    "opId" TEXT NOT NULL PRIMARY KEY,
+    "accountId" TEXT NOT NULL,
+    "threadId" TEXT NOT NULL,
+    "kind" TEXT NOT NULL,
+    "payloadJson" TEXT NOT NULL DEFAULT '{}',
+    "createdAt" INTEGER NOT NULL,
+    "attempts" INTEGER NOT NULL DEFAULT 0,
+    "status" TEXT NOT NULL DEFAULT 'pending',
+    "lastError" TEXT
+);
+
 -- Tombstones for deleted entities. A delete (local or from the sync op-log)
 -- removes the DB row, but the .md removal from OPFS/FSA can fail silently
 -- (file locked / race) and leave an orphan whose frontmatter still carries its
@@ -244,6 +327,12 @@ CREATE INDEX IF NOT EXISTS "idx_entity_source" ON "entity" ("sourceVaultId");
 CREATE INDEX IF NOT EXISTS "idx_variable_name" ON "variable" ("name");
 CREATE INDEX IF NOT EXISTS "idx_automation_run_automationId_createdAt"
     ON "automation_run" ("automationId", "createdAt" DESC);
+CREATE INDEX IF NOT EXISTS "mail_thread_account_date_idx"
+    ON "mail_thread" ("accountId", "lastInternalDate" DESC);
+CREATE INDEX IF NOT EXISTS "mail_message_thread_idx"
+    ON "mail_message" ("accountId", "threadId");
+CREATE INDEX IF NOT EXISTS "mail_outbox_account_status_idx"
+    ON "mail_outbox" ("accountId", "status");
 `;
 
 /**

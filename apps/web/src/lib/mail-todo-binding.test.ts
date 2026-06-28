@@ -316,6 +316,36 @@ describe("reconcileBindings", () => {
   it("renvoie 0 et n'écrit rien pour une liste vide", () => {
     expect(reconcileBindings([])).toBe(0);
   });
+
+  it("élague une liaison dont le todo est devenu `done` dans le coffre", () => {
+    addBinding(makeBinding({ threadId: "thr1", todoId: "todo1" }));
+    expect(getBinding("thr1")).toBeDefined();
+    reconcileBindings([entity("todo1", "thr1", { done: true })]);
+    expect(getBinding("thr1")).toBeUndefined();
+  });
+
+  it("élague le `done` même au format chaîne (\"true\")", () => {
+    addBinding(makeBinding({ threadId: "thr1", todoId: "todo1" }));
+    reconcileBindings([entity("todo1", "thr1", { done: "true" })]);
+    expect(getBinding("thr1")).toBeUndefined();
+  });
+
+  it("garde les liaisons non-done et n'élague que les done (mix)", () => {
+    addBinding(makeBinding({ threadId: "thr1", todoId: "todo1" }));
+    addBinding(makeBinding({ threadId: "thr2", todoId: "todo2" }));
+    reconcileBindings([
+      entity("todo1", "thr1", { done: true }),
+      entity("todo2", "thr2"),
+    ]);
+    expect(getBinding("thr1")).toBeUndefined();
+    expect(getBinding("thr2")).toBeDefined();
+  });
+
+  it("n'élague PAS un todo absent des sources (évite de purger sur requête partielle)", () => {
+    addBinding(makeBinding({ threadId: "thr1", todoId: "todo1" }));
+    reconcileBindings([entity("todo2", "thr2")]);
+    expect(getBinding("thr1")).toBeDefined();
+  });
 });
 
 describe("tolérance aux données invalides", () => {

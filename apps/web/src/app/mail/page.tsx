@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Button, Input, Spinner, Checkbox } from "@heroui/react";
-import { FilePlus, Database, ArrowLeft, MagnifyingGlass, PencilSimple, Archive, Trash, EnvelopeOpen, X, CaretDoubleRight, CaretDoubleLeft, MagicWand, ArrowsClockwise } from "@phosphor-icons/react";
+import { FilePlus, Database, ArrowLeft, MagnifyingGlass, PencilSimple, Archive, Trash, EnvelopeOpen, X, CaretDoubleRight, CaretDoubleLeft, MagicWand, ArrowsClockwise, Faders } from "@phosphor-icons/react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useSettings } from "@/components/settings/SettingsContext";
 import { AppShell, useMobileTitle, useMobileFab } from "@/components/shell";
@@ -14,10 +14,19 @@ import { useCaptureEmail } from "@/components/mail/useCaptureEmail";
 import { CaptureEmailModal } from "@/components/mail/CaptureEmailModal";
 import { ComposeModal } from "@/components/mail/ComposeModal";
 import { MailEisenhowerBoard } from "@/components/mail/MailEisenhowerBoard";
-import { listThreadSummariesPage, listLabels, getThread, modifyThreadLabels, addThreadLabel, markThreadRead, markThreadUnread, toggleStar, type EmailThread, type GmailLabelColor, type ThreadListItem } from "@/lib/gmail";
+import { listThreadSummariesPage, listLabels, getThread, modifyThreadLabels, addThreadLabel, markThreadRead, markThreadUnread, toggleStar, type EmailThread, type GmailLabel, type GmailLabelColor, type ThreadListItem } from "@/lib/gmail";
 import { listDue, removeSnooze, addSnooze, applyTriage, undoTriage, INBOX_LABEL, SNOOZE_PRESETS, type TriageAction } from "@/lib/mail-triage";
 import { useConvertToTodo } from "@/components/mail/useConvertToTodo";
 import { buildMailOverlay, type OverlayRow } from "@/lib/mail-overlay";
+import {
+  mirrorAvailable,
+  mirrorListThreads,
+  mirrorListLabels,
+  mirrorGetThread,
+  mirrorApplyMutation,
+  type MirrorMutation,
+} from "@/lib/mail-mirror";
+import { syncMailbox, syncThreadDetail } from "@/lib/mail-sync";
 import { draftReplyVariants, type ReplyVariant, type MailAiThread, isAiConfigured } from "@/lib/mail-ai";
 import { pickReplyTo } from "@/lib/mail-reply";
 import { toggleRowSelection, pruneSelection } from "@/lib/mail-selection";
@@ -31,6 +40,16 @@ import {
   type MailTodoBinding,
 } from "@/lib/mail-todo-binding";
 import { quadrantToTodoFields, type EisenhowerQuadrant } from "@/lib/mail-eisenhower";
+import {
+  loadGroups,
+  filterInboxItems,
+  filterGroupItems,
+  groupTabKey,
+  groupIdFromTab,
+  MAIL_GROUPS_EVENT,
+  type MailGroup,
+} from "@/lib/mail-groups";
+import { MailGroupsManager } from "@/components/mail/MailGroupsManager";
 import { trpcVanillaClient } from "@/lib/trpc/client";
 import { TODO_TYPE_ID } from "@/hooks/useTodoSync";
 import { prefersReducedMotion } from "@/lib/motion";
@@ -62,6 +81,8 @@ export default function MailPage() {
   useMobileTitle(isMobile ? "Mail" : null);
 
   const clientId = settings.googleDrive.clientId.trim();
+  // Compte Gmail connecté = clé de scoping du mirror local (mail_* tables).
+  const accountId = settings.gmail.connectedEmail;
   const connected = useGmailConnected();
   // Adresses « à moi » (compte connecté + alias/boîtes partagées) → exclues du
   // regroupement par expéditeur dans la surcouche mail (cf. buildMailOverlay).
@@ -109,9 +130,35 @@ export default function MailPage() {
   // Action groupée en cours (désactive la barre pendant l'appel réseau).
   const [bulkBusy, setBulkBusy] = useState(false);
 
-  // Onglet du pane gauche : « inbox » (liste Gmail, défaut) ou « todo » (grille
-  // Eisenhower des emails convertis en tâches, alimentée par le store local).
-  const [mailTab, setMailTab] = useState<"inbox" | "todo">("inbox");
+  // Onglet du pane gauche : « inbox » (liste, défaut), « todo » (grille
+  // Eisenhower des emails convertis), ou « g:<id> » (groupe = vue filtrée par
+  // labels, cf. mail-groups). L'inbox et les groupes lisent les MÊMES items
+  // (mirror INBOX) ; seul le filtre par labelId change → bascule instantanée.
+  const [mailTab, setMailTab] = useState<string>("inbox");
+  // Groupes mail (système zéro-inbox) : vues nommées alimentées par des labels.
+  // Source de vérité = localStorage ; rechargés sur MAIL_GROUPS_EVENT.
+  const [groups, setGroups] = useState<MailGroup[]>(() => loadGroups());
+  const [groupsManagerOpen, setGroupsManagerOpen] = useState(false);
+  useEffect(() => {
+    const refresh = () => setGroups(loadGroups());
+    window.addEventListener(MAIL_GROUPS_EVENT, refresh);
+    return () => window.removeEventListener(MAIL_GROUPS_EVENT, refresh);
+  }, []);
+  // Refs lues par les reconstructions d'overlay (callbacks stables) : évitent de
+  // recréer loadList/applyListData à chaque changement d'onglet ou de groupe.
+  const mailTabRef = useRef(mailTab);
+  const groupsRef = useRef(groups);
+  useEffect(() => {
+    mailTabRef.current = mailTab;
+  }, [mailTab]);
+  useEffect(() => {
+    groupsRef.current = groups;
+  }, [groups]);
+  // Groupe actif supprimé (depuis le manager) → repli sur l'inbox.
+  useEffect(() => {
+    const gid = groupIdFromTab(mailTab);
+    if (gid !== null && !groups.some((g) => g.id === gid)) setMailTab("inbox");
+  }, [mailTab, groups]);
   // Miroir local des liaisons thread ↔ todo (source de vérité = localStorage).
   // Rechargé à l'ouverture de l'onglet Todo et après chaque mutation optimiste.
   const [todoBindings, setTodoBindings] = useState<MailTodoBinding[]>([]);
@@ -122,11 +169,15 @@ export default function MailPage() {
     window.addEventListener(MAIL_BINDINGS_EVENT, refreshTodoBindings);
     return () => window.removeEventListener(MAIL_BINDINGS_EVENT, refreshTodoBindings);
   }, [refreshTodoBindings]);
-  // Auto-réparation : reconstruit les liaisons manquantes depuis la provenance
-  // durable du coffre (champs `mail*` de l'entité todo) au cas où le store
-  // localStorage a été vidé (cache, navigateur tiers, autre origine en dev). L'event
-  // émis par reconcileBindings rafraîchit le board via le listener ci-dessus.
-  // Best-effort : pas de coffre ouvert / requête échouée → silencieux.
+  // Réconciliation localStorage ↔ coffre (dans les deux sens) :
+  //   - reconstruit les liaisons manquantes (store vidé : cache, navigateur
+  //     tiers, autre origine en dev) ;
+  //   - élague les liaisons dont le todo est devenu `done` dans le coffre (tâche
+  //     faite hors UI mail → la carte fantôme disparaît du board).
+  // Rejouée au montage ET à chaque ouverture de l'onglet « Todo » (état du coffre
+  // a pu changer depuis /todos sans remonter la page — SPA). L'event émis par
+  // reconcileBindings rafraîchit le board via le listener ci-dessus. Best-effort :
+  // pas de coffre ouvert / requête échouée → silencieux.
   useEffect(() => {
     let cancelled = false;
     void trpcVanillaClient.entities.list
@@ -140,7 +191,7 @@ export default function MailPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [mailTab]);
 
   const [selectedGroup, setSelectedGroup] = useState<GroupRow | null>(null);
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
@@ -188,33 +239,105 @@ export default function MailPage() {
       : null,
   );
 
+  // Items visibles pour l'onglet ACTIF (lit des refs → callback stable) :
+  //   - toujours : on retire les fils déjà convertis en tâche (binding local) ;
+  //   - onglet groupe : on garde ceux portant un label du groupe ;
+  //   - onglet inbox : zéro-inbox → on retire ceux portant un label ROUTÉ (ils
+  //     vivent dans l'onglet de leur groupe).
+  const computeVisible = useCallback((items: ThreadListItem[]): ThreadListItem[] => {
+    const notTodo = items.filter((it) => !getBinding(it.id));
+    const groupId = groupIdFromTab(mailTabRef.current);
+    if (groupId !== null) {
+      return filterGroupItems(notTodo, groupsRef.current.find((g) => g.id === groupId));
+    }
+    return filterInboxItems(notTodo, groupsRef.current);
+  }, []);
+
+  // Applique un jeu d'items + labels à l'état liste (rows / cumItems / labels /
+  // curseur). Factorisé : utilisé par la lecture mirror ET le fetch live.
+  const applyListData = useCallback(
+    (items: ThreadListItem[], labels: GmailLabel[], nextToken: string | undefined) => {
+      const names = new Map(labels.map((l) => [l.id, l.name]));
+      setLabelNames(names);
+      setLabelColors(
+        new Map(labels.flatMap((l) => (l.color ? [[l.id, l.color] as const] : []))),
+      );
+      setCumItems(items);
+      setNextPageToken(nextToken);
+      setRows(buildMailOverlay(computeVisible(items), names, selfAddresses));
+    },
+    [selfAddresses, computeVisible],
+  );
+
+  // Chargement de la liste. Pour l'inbox (le flux « à gérer » du modèle inbox
+  // zero) avec un coffre ouvert : lecture INSTANTANÉE depuis le mirror local,
+  // puis reconciliation Gmail↔mirror en tâche de fond. Recherche libre / mode
+  // limité (pas de worker) : fetch live Gmail comme avant.
   const loadList = useCallback(
     async (q: string) => {
       const reqId = ++loadReqRef.current;
-      setListLoading(true);
       setListError(null);
       setSelectedGroup(null);
       setSelectedThreadId(null);
       setThread(null);
+
+      const canMirror = q === DEFAULT_MAIL_QUERY && mirrorAvailable() && !!accountId;
+
+      if (canMirror) {
+        // 1) Affichage immédiat depuis le mirror (le `limit` couvre toute l'inbox
+        //    — en inbox zero elle reste petite, pas de pagination nécessaire).
+        try {
+          const [items, labels] = await Promise.all([
+            mirrorListThreads(accountId, { labelId: "INBOX", limit: 500 }),
+            mirrorListLabels(accountId),
+          ]);
+          if (reqId !== loadReqRef.current) return;
+          if (items.length > 0) {
+            applyListData(items, labels, undefined);
+            setListLoading(false);
+          } else {
+            setListLoading(true); // mirror vide → on attend le 1er sync
+          }
+        } catch {
+          setListLoading(true); // mirror illisible → le sync ci-dessous reconstruit
+        }
+        // 2) Reconciliation en arrière-plan, puis relit le mirror (source locale).
+        void syncMailbox(clientId, accountId)
+          .then(async () => {
+            if (reqId !== loadReqRef.current) return;
+            const [items, labels] = await Promise.all([
+              mirrorListThreads(accountId, { labelId: "INBOX", limit: 500 }),
+              mirrorListLabels(accountId),
+            ]);
+            if (reqId !== loadReqRef.current) return;
+            applyListData(items, labels, undefined);
+          })
+          .catch((err) => {
+            if (reqId !== loadReqRef.current) return;
+            setRows((rs) => {
+              // Mirror vide ET sync échoué → on remonte l'erreur ; sinon on garde
+              // l'affichage mirror (offline-friendly).
+              if (rs.length === 0) {
+                setListError(err instanceof Error ? err.message : String(err));
+              }
+              return rs;
+            });
+          })
+          .finally(() => {
+            if (reqId === loadReqRef.current) setListLoading(false);
+          });
+        return;
+      }
+
+      // Fallback live (recherche libre, ou pas de worker / mode limité).
+      setListLoading(true);
       try {
         const [page, labels] = await Promise.all([
           listThreadSummariesPage(clientId, q, { maxResults: MAIL_PAGE_SIZE }),
           listLabels(clientId).catch(() => [] as Awaited<ReturnType<typeof listLabels>>),
         ]);
-        // Un rechargement plus récent a démarré entre-temps → on n'écrase pas son
-        // état (rows / curseur / labels / pagination) avec une réponse périmée.
         if (reqId !== loadReqRef.current) return;
-        const names = new Map(labels.map((l) => [l.id, l.name]));
-        setLabelNames(names);
-        setLabelColors(
-          new Map(labels.flatMap((l) => (l.color ? [[l.id, l.color] as const] : []))),
-        );
-        setCumItems(page.items);
-        setNextPageToken(page.nextPageToken);
-        // Sécurité : exclut de l'inbox les fils déjà convertis en tâche (binding
-        // local) — au cas où un fil todo'd traînerait encore dans la liste.
-        const visible = page.items.filter((it) => !getBinding(it.id));
-        setRows(buildMailOverlay(visible, names, selfAddresses));
+        applyListData(page.items, labels, page.nextPageToken);
       } catch (err) {
         if (reqId !== loadReqRef.current) return;
         setListError(err instanceof Error ? err.message : String(err));
@@ -222,7 +345,22 @@ export default function MailPage() {
         if (reqId === loadReqRef.current) setListLoading(false);
       }
     },
-    [clientId, selfAddresses],
+    [clientId, accountId, applyListData],
+  );
+
+  // Patch best-effort du mirror local après une mutation. L'UI émet déjà l'appel
+  // Gmail direct (optimiste) → `enqueue: false` : on patche seulement le mirror,
+  // sans ré-pousser via l'outbox. No-op en mode limité (pas de worker). Inbox
+  // zero : une action done/archive/delete passe `dropThread` → le fil sort du
+  // mirror (place récupérée). Toute dérive est rattrapée par la reconciliation.
+  const patchMirror = useCallback(
+    (m: MirrorMutation) => {
+      if (!mirrorAvailable() || !accountId) return;
+      void mirrorApplyMutation(accountId, { ...m, enqueue: false }).catch(() => {
+        /* best-effort */
+      });
+    },
+    [accountId],
   );
 
   // « Charger plus » : récupère la page suivante (via nextPageToken), APPEND aux
@@ -241,9 +379,8 @@ export default function MailPage() {
       setCumItems((prev) => {
         const seen = new Set(prev.map((it) => it.id));
         const merged = [...prev, ...page.items.filter((it) => !seen.has(it.id))];
-        // Même exclusion que loadList : on cache les fils déjà convertis en tâche.
-        const visible = merged.filter((it) => !getBinding(it.id));
-        setRows(buildMailOverlay(visible, labelNames, selfAddresses));
+        // Même filtre d'onglet que loadList (binding todo + routage zéro-inbox).
+        setRows(buildMailOverlay(computeVisible(merged), labelNames, selfAddresses));
         return merged;
       });
       setNextPageToken(page.nextPageToken);
@@ -252,12 +389,22 @@ export default function MailPage() {
     } finally {
       setMoreLoading(false);
     }
-  }, [clientId, query, nextPageToken, moreLoading, labelNames, selfAddresses]);
+  }, [clientId, query, nextPageToken, moreLoading, labelNames, selfAddresses, computeVisible]);
 
   useEffect(() => {
     if (connected) void loadList(DEFAULT_MAIL_QUERY);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connected]);
+
+  // Bascule d'onglet inbox ↔ groupe : re-dérive les rows depuis les items DÉJÀ
+  // chargés (mirror INBOX), sans refetch réseau → instantané. L'onglet todo a son
+  // propre rendu (board) et ne touche pas à la liste. Re-déclenché aussi quand
+  // les groupes changent (un label routé in/out modifie inbox et les groupes).
+  useEffect(() => {
+    if (mailTab === "todo") return;
+    setRows(buildMailOverlay(computeVisible(cumItems), labelNames, selfAddresses));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mailTab, groups, cumItems, labelNames, selfAddresses, computeVisible]);
 
   // Réveil auto des snoozes échus : au montage (compte connecté), on remet les
   // threads dont l'échéance est dépassée dans la boîte de réception, puis on
@@ -279,7 +426,6 @@ export default function MailPage() {
 
   const openThread = async (threadId: string) => {
     const reqId = ++reqRef.current;
-    setThreadLoading(true);
     setThreadError(null);
     setSelectedThreadId(threadId);
     setPeekList(false); // sélection faite → on referme l'overlay liste
@@ -302,15 +448,42 @@ export default function MailPage() {
         };
       }),
     );
+
+    const canMirror = mirrorAvailable() && !!accountId;
+    // Le fil est marqué lu à l'ouverture → patche le mirror (enqueue:false, le
+    // markRead Gmail est émis par EmailThreadView).
+    if (canMirror) patchMirror({ threadId, kind: "modifyLabels", removeLabelIds: ["UNREAD"] });
+
+    // 1) Affichage instantané depuis le mirror si les messages y sont cachés.
+    let shownFromMirror = false;
+    if (canMirror) {
+      try {
+        const cached = await mirrorGetThread(accountId, threadId);
+        if (reqId !== reqRef.current) return;
+        if (cached && cached.thread.messages.length > 0) {
+          setThread(cached.thread);
+          setThreadLoading(false);
+          shownFromMirror = true;
+        }
+      } catch {
+        /* miss mirror → fetch live ci-dessous */
+      }
+    }
+    if (!shownFromMirror) setThreadLoading(true);
+
+    // 2) Fetch live (et persistance mirror si dispo) pour rafraîchir / compléter.
     try {
-      const t = await getThread(clientId, threadId);
+      const t = canMirror
+        ? await syncThreadDetail(clientId, accountId, threadId)
+        : await getThread(clientId, threadId);
       // Un fil plus récent a été ouvert pendant le fetch → on ignore ce résultat
       // périmé pour ne pas écraser le fil courant.
       if (reqId !== reqRef.current) return;
       setThread(t);
     } catch (err) {
       if (reqId !== reqRef.current) return;
-      setThreadError(err instanceof Error ? err.message : String(err));
+      // Si on a déjà affiché la version cachée, on n'écrase pas par une erreur.
+      if (!shownFromMirror) setThreadError(err instanceof Error ? err.message : String(err));
     } finally {
       if (reqId === reqRef.current) setThreadLoading(false);
     }
@@ -432,6 +605,13 @@ export default function MailPage() {
       if (!row || row.kind !== "single" || !clientId) return;
       const id = row.item.id;
       dropThreadFromList(id);
+      // Inbox zero : done/archive/snooze/delete sortent le fil de l'inbox → drop
+      // du mirror (place récupérée). Le markRead n'est pas concerné ici.
+      patchMirror(
+        action === "delete"
+          ? { threadId: id, kind: "trash", dropThread: true }
+          : { threadId: id, kind: "modifyLabels", removeLabelIds: [INBOX_LABEL], dropThread: true },
+      );
       // Snooze clavier → échéance par défaut « Demain » (cf. TriageBar pour le
       // choix fin via popover). On note l'échéance AVANT la mutation, rollback
       // local en cas d'échec.
@@ -461,7 +641,7 @@ export default function MailPage() {
           void loadList(query);
         });
     },
-    [rows, clientId, dropThreadFromList, toast, loadList, query, offerUndo],
+    [rows, clientId, dropThreadFromList, toast, loadList, query, offerUndo, patchMirror],
   );
 
   // ─── Sélection multiple (desktop) ──────────────────────────────────────────
@@ -499,8 +679,16 @@ export default function MailPage() {
             return r.kind === "single" ? { ...r, item: strip(r.item) } : { ...r, items: r.items.map(strip) };
           }),
         );
+        for (const id of ids) patchMirror({ threadId: id, kind: "modifyLabels", removeLabelIds: ["UNREAD"] });
       } else {
-        for (const id of ids) dropThreadFromList(id);
+        for (const id of ids) {
+          dropThreadFromList(id);
+          patchMirror(
+            kind === "delete"
+              ? { threadId: id, kind: "trash", dropThread: true }
+              : { threadId: id, kind: "modifyLabels", removeLabelIds: [INBOX_LABEL], dropThread: true },
+          );
+        }
       }
       try {
         await Promise.all(
@@ -530,7 +718,7 @@ export default function MailPage() {
         void loadList(query);
       }
     },
-    [clientId, selectedThreadIds, bulkBusy, dropThreadFromList, toast, loadList, query],
+    [clientId, selectedThreadIds, bulkBusy, dropThreadFromList, toast, loadList, query, patchMirror],
   );
 
   // Supprime TOUS les fils d'un groupe d'overlay en une fois. Destructif →
@@ -550,7 +738,10 @@ export default function MailPage() {
       });
       if (!ok) return;
       setBulkBusy(true);
-      for (const id of ids) dropThreadFromList(id);
+      for (const id of ids) {
+        dropThreadFromList(id);
+        patchMirror({ threadId: id, kind: "trash", dropThread: true });
+      }
       setSelectedGroup(null);
       setSelectedThreadId(null);
       setThread(null);
@@ -570,7 +761,7 @@ export default function MailPage() {
         void loadList(query);
       }
     },
-    [clientId, bulkBusy, confirm, dropThreadFromList, toast, loadList, query],
+    [clientId, bulkBusy, confirm, dropThreadFromList, toast, loadList, query, patchMirror],
   );
 
   // Marque comme lus TOUS les fils non lus d'un groupe d'overlay. Optimiste :
@@ -590,6 +781,7 @@ export default function MailPage() {
         ),
       );
       setSelectedGroup((g) => (g ? { ...g, items: g.items.map(strip) } : g));
+      for (const id of ids) patchMirror({ threadId: id, kind: "modifyLabels", removeLabelIds: ["UNREAD"] });
       try {
         await Promise.all(ids.map((id) => markThreadRead(clientId, id)));
         toast({ title: `${ids.length} marqué${ids.length > 1 ? "s" : ""} comme lu${ids.length > 1 ? "s" : ""}` });
@@ -602,7 +794,7 @@ export default function MailPage() {
         void loadList(query);
       }
     },
-    [clientId, toast, loadList, query],
+    [clientId, toast, loadList, query, patchMirror],
   );
 
   // ─── Brouillons IA (colonne dédiée) ────────────────────────────────────────
@@ -851,9 +1043,16 @@ export default function MailPage() {
         const items = g.items.filter((it) => it.id !== id);
         return items.length ? { ...g, items } : null;
       });
+      // Inbox zero : le triage depuis le fil ouvert (EmailThreadView a déjà émis
+      // l'appel Gmail) sort le fil de l'inbox → drop du mirror.
+      patchMirror(
+        action === "delete"
+          ? { threadId: id, kind: "trash", dropThread: true }
+          : { threadId: id, kind: "modifyLabels", removeLabelIds: [INBOX_LABEL], dropThread: true },
+      );
       offerUndo(id, action);
     },
-    [selectedThreadId, offerUndo],
+    [selectedThreadId, offerUndo, patchMirror],
   );
 
   // Après conversion d'un email en tâche Eisenhower (EmailThreadView a déjà créé
@@ -877,9 +1076,12 @@ export default function MailPage() {
       const items = g.items.filter((it) => it.id !== id);
       return items.length ? { ...g, items } : null;
     });
+    // Inbox zero : converti en tâche = sorti de l'inbox (INBOX retiré par
+    // EmailThreadView) → drop du mirror local.
+    patchMirror({ threadId: id, kind: "modifyLabels", removeLabelIds: [INBOX_LABEL], dropThread: true });
     // Resynchronise le miroir local des liaisons : la nouvelle tâche y figure.
     refreshTodoBindings();
-  }, [selectedThreadId, refreshTodoBindings]);
+  }, [selectedThreadId, refreshTodoBindings, patchMirror]);
 
   // ─── Onglet Todo : grille Eisenhower des emails convertis en tâches ──────────
   // Ouvrir un email-todo : charge le fil dans le pane de droite. La grille reste
@@ -955,31 +1157,40 @@ export default function MailPage() {
     if (mailTab === "todo") refreshTodoBindings();
   }, [mailTab, refreshTodoBindings]);
 
-  // Resynchronise les labelIds optimistes d'un thread (étoile / non-lu) dans la
-  // liste de gauche, le groupe ouvert et le fil ouvert — sans rechargement.
-  const syncThreadLabels = useCallback((id: string, labelIds: string[]) => {
-    const apply = (it: ThreadListItem): ThreadListItem =>
-      it.id === id ? { ...it, labelIds } : it;
-    setRows((rs) =>
-      rs.map<OverlayRow>((r) =>
-        r.kind === "single"
-          ? r.item.id === id
-            ? { ...r, item: apply(r.item) }
-            : r
-          : r.items.some((it) => it.id === id)
-            ? { ...r, items: r.items.map(apply) }
-            : r,
-      ),
-    );
-    setSelectedGroup((g) =>
-      g && g.items.some((it) => it.id === id) ? { ...g, items: g.items.map(apply) } : g,
-    );
-    setThread((t) =>
-      t && t.id === id
-        ? { ...t, labelIds, messages: t.messages.map((m) => ({ ...m })) }
-        : t,
-    );
-  }, []);
+  // Resynchronise les labelIds optimistes d'un thread (étoile / non-lu / ajout
+  // ou retrait d'un tag) dans la liste de gauche, le groupe ouvert et le fil
+  // ouvert — sans rechargement.
+  //
+  // On RECONSTRUIT l'overlay (et non un simple patch in-place des rows), sinon un
+  // email qui gagne/perd un tag ne migre PAS dans/hors de son groupe-tag. Le
+  // rebuild part des items ACTUELLEMENT AFFICHÉS (aplatis depuis `rows`) — vérité
+  // déjà nettoyée des fils triés/supprimés/convertis — pour ne ressusciter aucun
+  // fantôme. Re-grouper sur étoile/non-lu est un no-op (le regroupement ne dépend
+  // que des tags user + expéditeur). On patche aussi `cumItems` (in-place, juste
+  // l'item changé) pour rester cohérent vis-à-vis des reconstructions futures
+  // (loadMore…), sans rebuild depuis lui (donc sans résurrection).
+  const syncThreadLabels = useCallback(
+    (id: string, labelIds: string[]) => {
+      const apply = (it: ThreadListItem): ThreadListItem =>
+        it.id === id ? { ...it, labelIds } : it;
+      setRows((rs) => {
+        const items = rs
+          .flatMap((r) => (r.kind === "single" ? [r.item] : r.items))
+          .map(apply);
+        return buildMailOverlay(computeVisible(items), labelNames, selfAddresses);
+      });
+      setCumItems((items) => items.map(apply));
+      setSelectedGroup((g) =>
+        g && g.items.some((it) => it.id === id) ? { ...g, items: g.items.map(apply) } : g,
+      );
+      setThread((t) =>
+        t && t.id === id
+          ? { ...t, labelIds, messages: t.messages.map((m) => ({ ...m })) }
+          : t,
+      );
+    },
+    [labelNames, selfAddresses, computeVisible],
+  );
 
   // Applique un tag (label Gmail) à un thread depuis la boîte : maj optimiste de
   // la liste cumulée + reconstruction de l'overlay (le fil migre dans le groupe-
@@ -990,7 +1201,7 @@ export default function MailPage() {
     (threadId: string, labelId: string) => {
       if (!clientId || !labelId) return;
       const rebuild = (items: ThreadListItem[]) =>
-        setRows(buildMailOverlay(items.filter((it) => !getBinding(it.id)), labelNames, selfAddresses));
+        setRows(buildMailOverlay(computeVisible(items), labelNames, selfAddresses));
       let prev: ThreadListItem[] | null = null;
       setCumItems((items) => {
         prev = items;
@@ -1007,6 +1218,7 @@ export default function MailPage() {
           ? { ...t, labelIds: [...t.labelIds, labelId] }
           : t,
       );
+      patchMirror({ threadId, kind: "modifyLabels", addLabelIds: [labelId] });
       void addThreadLabel(clientId, threadId, labelId)
         .then(() => toast({ title: "Tag appliqué" }))
         .catch((err) => {
@@ -1029,7 +1241,7 @@ export default function MailPage() {
           });
         });
     },
-    [clientId, labelNames, selfAddresses, toast],
+    [clientId, labelNames, selfAddresses, toast, patchMirror, computeVisible],
   );
 
   // Toggle étoile depuis une ligne de la liste (optimiste, sans ouvrir le fil).
@@ -1039,6 +1251,11 @@ export default function MailPage() {
       const next = !current.includes("STARRED");
       const nextIds = next ? [...current, "STARRED"] : current.filter((l) => l !== "STARRED");
       syncThreadLabels(id, nextIds);
+      patchMirror({
+        threadId: id,
+        kind: "modifyLabels",
+        ...(next ? { addLabelIds: ["STARRED"] } : { removeLabelIds: ["STARRED"] }),
+      });
       toggleStar(clientId, id, next).catch((err) => {
         syncThreadLabels(id, current);
         toast({
@@ -1048,7 +1265,7 @@ export default function MailPage() {
         });
       });
     },
-    [clientId, syncThreadLabels, toast],
+    [clientId, syncThreadLabels, toast, patchMirror],
   );
 
   // ─── Menu contextuel (clic droit) de la liste ─────────────────────────────
@@ -1067,10 +1284,15 @@ export default function MailPage() {
         fromName: it.from.name,
         fromEmail: it.from.email,
       }).then((ok) => {
-        if (ok) dropThreadFromList(it.id);
+        if (!ok) return;
+        dropThreadFromList(it.id);
+        // Inbox zero : converti = sorti de l'inbox (INBOX retiré par
+        // convertRowToTodo) → drop du mirror local AUSSI, sinon le fil
+        // réapparaîtrait au prochain `loadList` si sa liaison est perdue.
+        patchMirror({ threadId: it.id, kind: "modifyLabels", removeLabelIds: [INBOX_LABEL], dropThread: true });
       });
     },
-    [convertRowToTodo, dropThreadFromList],
+    [convertRowToTodo, dropThreadFromList, patchMirror],
   );
 
   // Triage rapide d'une ligne single (Fait/Archiver/Reporter/Supprimer), optimiste
@@ -1080,6 +1302,11 @@ export default function MailPage() {
       if (row.kind !== "single" || !clientId) return;
       const id = row.item.id;
       dropThreadFromList(id);
+      patchMirror(
+        action === "delete"
+          ? { threadId: id, kind: "trash", dropThread: true }
+          : { threadId: id, kind: "modifyLabels", removeLabelIds: [INBOX_LABEL], dropThread: true },
+      );
       if (action === "snooze" && until != null) addSnooze(id, until);
       applyTriage(clientId, id, action)
         .then(() => offerUndo(id, action))
@@ -1093,7 +1320,7 @@ export default function MailPage() {
           void loadList(query);
         });
     },
-    [clientId, dropThreadFromList, offerUndo, toast, loadList, query],
+    [clientId, dropThreadFromList, offerUndo, toast, loadList, query, patchMirror],
   );
 
   // Marquer lu / non-lu une ligne single (optimiste + rollback).
@@ -1104,6 +1331,11 @@ export default function MailPage() {
       const current = row.item.labelIds;
       const nextIds = read ? current.filter((l) => l !== "UNREAD") : [...current, "UNREAD"];
       syncThreadLabels(id, nextIds);
+      patchMirror({
+        threadId: id,
+        kind: "modifyLabels",
+        ...(read ? { removeLabelIds: ["UNREAD"] } : { addLabelIds: ["UNREAD"] }),
+      });
       (read ? markThreadRead(clientId, id) : markThreadUnread(clientId, id)).catch((err) => {
         syncThreadLabels(id, current);
         toast({
@@ -1113,7 +1345,7 @@ export default function MailPage() {
         });
       });
     },
-    [clientId, syncThreadLabels, toast],
+    [clientId, syncThreadLabels, toast, patchMirror],
   );
 
   // Après l'ENVOI d'une réponse : re-fetch le fil courant (la réponse y apparaît)
@@ -1227,11 +1459,25 @@ export default function MailPage() {
       </div>
     ) : null;
 
-  // Bandeau d'onglets « Inbox » / « Todo » au-dessus de la liste (pane1). Strip
-  // de boutons (cohérent avec ViewTabs / la nav de /bases), pas le composant
-  // Tabs : on garde la maîtrise du contenu rendu sous chaque onglet.
+  // Bandeau d'onglets « Inbox » / « Todo » / [groupes] au-dessus de la liste
+  // (pane1). Strip de boutons (cohérent avec ViewTabs / la nav de /bases), pas le
+  // composant Tabs : on garde la maîtrise du contenu rendu sous chaque onglet.
+  // Compte par groupe : items du mirror portant un label du groupe (hors todo).
+  const notTodoItems = cumItems.filter((it) => !getBinding(it.id));
+  const tabs: { id: string; label: string; count?: number }[] = [
+    { id: "inbox", label: "Inbox" },
+    { id: "todo", label: "Todo", count: todoBindings.length || undefined },
+    ...groups.map((g) => ({
+      id: groupTabKey(g.id),
+      label: g.name,
+      count: filterGroupItems(notTodoItems, g).length || undefined,
+    })),
+  ];
   const tabStrip = (
-    <div className="border-b px-3 py-2" style={{ borderColor: "var(--border-subtle)" }}>
+    <div
+      className="flex items-center gap-2 overflow-x-auto border-b px-3 py-2"
+      style={{ borderColor: "var(--border-subtle)" }}
+    >
       {/* Segmented control (pilule) — onglet actif = pastille surface-0 + accent. */}
       <div
         className="inline-flex rounded-full p-0.5"
@@ -1239,12 +1485,7 @@ export default function MailPage() {
         role="tablist"
         aria-label="Vue mail"
       >
-        {(
-          [
-            { id: "inbox" as const, label: "Inbox" },
-            { id: "todo" as const, label: "Todo" },
-          ] satisfies { id: "inbox" | "todo"; label: string }[]
-        ).map((t) => {
+        {tabs.map((t) => {
           const active = mailTab === t.id;
           return (
             <Button
@@ -1252,7 +1493,7 @@ export default function MailPage() {
               variant="ghost"
               size="sm"
               onPress={() => setMailTab(t.id)}
-              className="sn-motion-colors rounded-full px-3.5 py-1 text-sm font-medium"
+              className="sn-motion-colors whitespace-nowrap rounded-full px-3.5 py-1 text-sm font-medium"
               style={
                 active
                   ? {
@@ -1265,11 +1506,29 @@ export default function MailPage() {
               aria-pressed={active}
             >
               {t.label}
-              {t.id === "todo" && todoBindings.length > 0 ? ` · ${todoBindings.length}` : ""}
+              {t.count ? ` · ${t.count}` : ""}
             </Button>
           );
         })}
       </div>
+      {/* Gérer les groupes (zéro-inbox) : créer/éditer les vues par labels. */}
+      <Tooltip content="Gérer les groupes mail">
+        <Button
+          size="sm"
+          variant="ghost"
+          isIconOnly
+          onPress={() => setGroupsManagerOpen(true)}
+          aria-label="Gérer les groupes mail"
+          className="shrink-0"
+        >
+          <Faders size={16} />
+        </Button>
+      </Tooltip>
+      <MailGroupsManager
+        isOpen={groupsManagerOpen}
+        onClose={() => setGroupsManagerOpen(false)}
+        labelNames={labelNames}
+      />
     </div>
   );
 
@@ -1309,7 +1568,14 @@ export default function MailPage() {
             {listError}
           </p>
         )}
-        {!listLoading && !listError && (
+        {!listLoading && !listError && rows.length === 0 && (
+          <p className="px-3 py-8 text-center text-sm" style={{ color: "var(--text-muted)" }}>
+            {groupIdFromTab(mailTab) !== null
+              ? "Aucun email dans ce groupe."
+              : "Inbox vide — rien à traiter."}
+          </p>
+        )}
+        {!listLoading && !listError && rows.length > 0 && (
           <>
             <MailOverlayList
               rows={rows}

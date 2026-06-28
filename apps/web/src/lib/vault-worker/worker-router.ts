@@ -3853,6 +3853,471 @@ export function buildRouter(
     return { removed: victims.length };
   };
 
+  // ── Mail mirror (local-first Gmail cache) ──────────────────────────────────
+  // Account-scoped cache. Gmail stays the source of truth; these handlers only
+  // read/write the local mirror tables. Network I/O lives on the main thread.
+
+  const parseStrArr = (raw: unknown): string[] => {
+    if (typeof raw !== "string" || raw.length === 0) return [];
+    try {
+      const v: unknown = JSON.parse(raw);
+      return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+    } catch {
+      return [];
+    }
+  };
+
+  /** Recompute a label set: drop `remove`, add `add`, dedupe, order-stable. */
+  const patchLabels = (current: string[], add: string[], remove: string[]): string[] => {
+    const out = current.filter((l) => !remove.includes(l));
+    for (const l of add) if (!out.includes(l)) out.push(l);
+    return out;
+  };
+
+  const mailThreadRowToOut = (r: SqlRow) => ({
+    id: r["id"] as string,
+    subject: (r["subject"] as string) ?? "",
+    from: {
+      name: (r["fromName"] as string) ?? "",
+      email: (r["fromEmail"] as string) ?? "",
+    },
+    date: (r["lastDate"] as string) ?? "",
+    snippet: (r["snippet"] as string) ?? "",
+    labelIds: parseStrArr(r["labelIds"]),
+  });
+
+  const mailListThreads = async (input: unknown): Promise<unknown> => {
+    const { accountId, labelId, isUnread, isStarred, limit = 50, offset = 0 } =
+      (input as {
+        accountId: string;
+        labelId?: string;
+        isUnread?: boolean;
+        isStarred?: boolean;
+        limit?: number;
+        offset?: number;
+      }) ?? {};
+    if (!accountId) return { items: [], total: 0 };
+    const where: string[] = [`accountId = ?`];
+    const params: (string | number)[] = [accountId];
+    // labelIds is a JSON array string like ["INBOX","UNREAD"]; the quoted token
+    // match is exact enough (closing quote rules out prefix collisions).
+    if (labelId) {
+      where.push(`labelIds LIKE ?`);
+      params.push(`%${JSON.stringify(labelId)}%`);
+    }
+    if (isUnread) where.push(`labelIds LIKE '%"UNREAD"%'`);
+    if (isStarred) where.push(`labelIds LIKE '%"STARRED"%'`);
+    const whereSql = where.join(" AND ");
+    const totalRow = row(
+      db.exec(`SELECT COUNT(*) AS c FROM mail_thread WHERE ${whereSql}`, params),
+    );
+    const total = totalRow ? Number(totalRow["c"]) : 0;
+    const res = db.exec(
+      `SELECT id, subject, fromName, fromEmail, snippet, lastDate, labelIds
+         FROM mail_thread WHERE ${whereSql}
+        ORDER BY lastInternalDate DESC
+        LIMIT ? OFFSET ?`,
+      [...params, limit, offset],
+    );
+    return { items: rows(res).map(mailThreadRowToOut), total };
+  };
+
+  const mailGetThread = async (input: unknown): Promise<unknown> => {
+    const { accountId, threadId } = (input as { accountId: string; threadId: string }) ?? {};
+    if (!accountId || !threadId) return { thread: null };
+    const t = row(
+      db.exec(
+        `SELECT labelIds, messagesLoaded FROM mail_thread WHERE accountId = ? AND id = ?`,
+        [accountId, threadId],
+      ),
+    );
+    if (!t) return { thread: null };
+    const msgRes = db.exec(
+      `SELECT id, threadId, subject, fromName, fromEmail, toJson, date, snippet,
+              bodyText, bodyHtml, attachmentsJson, messageId, refs, webLink, labelIds
+         FROM mail_message WHERE accountId = ? AND threadId = ?
+        ORDER BY internalDate ASC`,
+      [accountId, threadId],
+    );
+    const messages = rows(msgRes).map((r) => ({
+      id: r["id"] as string,
+      threadId: r["threadId"] as string,
+      subject: (r["subject"] as string) ?? "",
+      from: { name: (r["fromName"] as string) ?? "", email: (r["fromEmail"] as string) ?? "" },
+      to: (() => {
+        try {
+          const v: unknown = JSON.parse((r["toJson"] as string) || "[]");
+          return Array.isArray(v) ? v : [];
+        } catch {
+          return [];
+        }
+      })(),
+      date: (r["date"] as string) ?? "",
+      snippet: (r["snippet"] as string) ?? "",
+      bodyText: (r["bodyText"] as string) ?? "",
+      bodyHtml: (r["bodyHtml"] as string) ?? undefined,
+      attachments: (() => {
+        try {
+          const v: unknown = JSON.parse((r["attachmentsJson"] as string) || "[]");
+          return Array.isArray(v) ? v : [];
+        } catch {
+          return [];
+        }
+      })(),
+      messageId: (r["messageId"] as string) ?? undefined,
+      references: (r["refs"] as string) ?? undefined,
+      webLink: (r["webLink"] as string) ?? "",
+      labelIds: parseStrArr(r["labelIds"]),
+    }));
+    return {
+      thread: {
+        id: threadId,
+        messages,
+        labelIds: parseStrArr(t["labelIds"]),
+        complete: Number(t["messagesLoaded"]) === 1,
+      },
+    };
+  };
+
+  const mailGetLabels = async (input: unknown): Promise<unknown> => {
+    const { accountId } = (input as { accountId: string }) ?? {};
+    if (!accountId) return { labels: [] };
+    const res = db.exec(
+      `SELECT id, name, colorJson, type FROM mail_label WHERE accountId = ? ORDER BY name ASC`,
+      [accountId],
+    );
+    const labels = rows(res).map((r) => {
+      const color = (() => {
+        const raw = r["colorJson"];
+        if (typeof raw !== "string" || !raw) return undefined;
+        try {
+          const v = JSON.parse(raw) as { textColor?: string; backgroundColor?: string };
+          if (v && typeof v.textColor === "string" && typeof v.backgroundColor === "string") {
+            return { textColor: v.textColor, backgroundColor: v.backgroundColor };
+          }
+        } catch {
+          /* ignore malformed color */
+        }
+        return undefined;
+      })();
+      return {
+        id: r["id"] as string,
+        name: (r["name"] as string) ?? "",
+        ...(color ? { color } : {}),
+        ...(r["type"] ? { type: r["type"] as string } : {}),
+      };
+    });
+    return { labels };
+  };
+
+  const mailGetState = async (input: unknown): Promise<unknown> => {
+    const { accountId } = (input as { accountId: string }) ?? {};
+    if (!accountId) {
+      return { historyId: null, lastFullSyncAt: 0, lastSyncAt: 0, threadCount: 0, pendingOutbox: 0 };
+    }
+    const s = row(
+      db.exec(
+        `SELECT historyId, lastFullSyncAt, lastSyncAt FROM mail_sync_state WHERE accountId = ?`,
+        [accountId],
+      ),
+    );
+    const tc = row(db.exec(`SELECT COUNT(*) AS c FROM mail_thread WHERE accountId = ?`, [accountId]));
+    const ob = row(
+      db.exec(
+        `SELECT COUNT(*) AS c FROM mail_outbox WHERE accountId = ? AND status != 'failed'`,
+        [accountId],
+      ),
+    );
+    return {
+      historyId: s ? ((s["historyId"] as string | null) ?? null) : null,
+      lastFullSyncAt: s ? Number(s["lastFullSyncAt"]) : 0,
+      lastSyncAt: s ? Number(s["lastSyncAt"]) : 0,
+      threadCount: tc ? Number(tc["c"]) : 0,
+      pendingOutbox: ob ? Number(ob["c"]) : 0,
+    };
+  };
+
+  const mailSyncUpsert = async (input: unknown): Promise<unknown> => {
+    const {
+      accountId,
+      threads,
+      messages,
+      labels,
+      removeThreadIds,
+      historyId,
+      markFullSync,
+    } = (input as {
+      accountId: string;
+      threads?: Array<{
+        id: string;
+        subject?: string;
+        from?: { name?: string; email?: string };
+        snippet?: string;
+        date?: string;
+        internalDate?: number;
+        labelIds?: string[];
+        historyId?: string;
+      }>;
+      messages?: Array<{
+        threadId: string;
+        labelIds: string[];
+        items: Array<Record<string, unknown>>;
+      }>;
+      labels?: Array<{ id: string; name?: string; color?: { textColor: string; backgroundColor: string }; type?: string }>;
+      removeThreadIds?: string[];
+      historyId?: string;
+      markFullSync?: boolean;
+    }) ?? {};
+    if (!accountId) return { threads: 0, messages: 0, removed: 0 };
+    const ts = Date.now();
+    let threadsUpserted = 0;
+    let messagesUpserted = 0;
+    let removed = 0;
+
+    for (const t of threads ?? []) {
+      // messagesLoaded deliberately omitted from DO UPDATE so an already
+      // fully-synced thread keeps its messages when only its summary refreshes.
+      db.run(
+        `INSERT INTO mail_thread
+           (accountId, id, historyId, subject, fromName, fromEmail, snippet, lastDate, lastInternalDate, labelIds, messagesLoaded, updatedAt)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
+         ON CONFLICT(accountId, id) DO UPDATE SET
+           historyId = excluded.historyId,
+           subject = excluded.subject,
+           fromName = excluded.fromName,
+           fromEmail = excluded.fromEmail,
+           snippet = excluded.snippet,
+           lastDate = excluded.lastDate,
+           lastInternalDate = excluded.lastInternalDate,
+           labelIds = excluded.labelIds,
+           updatedAt = excluded.updatedAt`,
+        [
+          accountId,
+          t.id,
+          t.historyId ?? null,
+          t.subject ?? "",
+          t.from?.name ?? "",
+          t.from?.email ?? "",
+          t.snippet ?? "",
+          t.date ?? "",
+          t.internalDate ?? 0,
+          JSON.stringify(t.labelIds ?? []),
+          ts,
+        ],
+      );
+      threadsUpserted++;
+    }
+
+    for (const group of messages ?? []) {
+      // Replace the thread's message set wholesale (Gmail returns the full thread).
+      db.run(`DELETE FROM mail_message WHERE accountId = ? AND threadId = ?`, [
+        accountId,
+        group.threadId,
+      ]);
+      for (const m of group.items) {
+        db.run(
+          `INSERT INTO mail_message
+             (accountId, id, threadId, subject, fromName, fromEmail, toJson, date, internalDate,
+              snippet, bodyText, bodyHtml, attachmentsJson, messageId, refs, webLink, labelIds, updatedAt)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            accountId,
+            m["id"] as string,
+            group.threadId,
+            (m["subject"] as string) ?? "",
+            ((m["from"] as { name?: string } | undefined)?.name) ?? "",
+            ((m["from"] as { email?: string } | undefined)?.email) ?? "",
+            JSON.stringify(m["to"] ?? []),
+            (m["date"] as string) ?? "",
+            (m["internalDate"] as number) ?? 0,
+            (m["snippet"] as string) ?? "",
+            (m["bodyText"] as string) ?? "",
+            (m["bodyHtml"] as string | undefined) ?? null,
+            JSON.stringify(m["attachments"] ?? []),
+            (m["messageId"] as string | undefined) ?? null,
+            (m["references"] as string | undefined) ?? null,
+            (m["webLink"] as string) ?? "",
+            JSON.stringify(m["labelIds"] ?? []),
+            ts,
+          ],
+        );
+        messagesUpserted++;
+      }
+      // Mark the thread fully mirrored + refresh its union labels.
+      db.run(
+        `UPDATE mail_thread SET messagesLoaded = 1, labelIds = ?, updatedAt = ?
+           WHERE accountId = ? AND id = ?`,
+        [JSON.stringify(group.labelIds), ts, accountId, group.threadId],
+      );
+    }
+
+    for (const l of labels ?? []) {
+      db.run(
+        `INSERT INTO mail_label (accountId, id, name, colorJson, type, updatedAt)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(accountId, id) DO UPDATE SET
+           name = excluded.name, colorJson = excluded.colorJson, type = excluded.type, updatedAt = excluded.updatedAt`,
+        [accountId, l.id, l.name ?? "", l.color ? JSON.stringify(l.color) : null, l.type ?? null, ts],
+      );
+    }
+
+    for (const id of removeThreadIds ?? []) {
+      db.run(`DELETE FROM mail_message WHERE accountId = ? AND threadId = ?`, [accountId, id]);
+      const res = db.exec(`SELECT changes() AS c`);
+      db.run(`DELETE FROM mail_thread WHERE accountId = ? AND id = ?`, [accountId, id]);
+      void res;
+      removed++;
+    }
+
+    if (historyId !== undefined || markFullSync) {
+      const full = markFullSync ? ts : 0;
+      db.run(
+        `INSERT INTO mail_sync_state (accountId, historyId, lastFullSyncAt, lastSyncAt, updatedAt)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(accountId) DO UPDATE SET
+           historyId = COALESCE(excluded.historyId, mail_sync_state.historyId),
+           lastFullSyncAt = CASE WHEN ? > 0 THEN ? ELSE mail_sync_state.lastFullSyncAt END,
+           lastSyncAt = excluded.lastSyncAt,
+           updatedAt = excluded.updatedAt`,
+        [accountId, historyId ?? null, full, ts, ts, full, full],
+      );
+    }
+
+    return { threads: threadsUpserted, messages: messagesUpserted, removed };
+  };
+
+  const mailApplyLocalMutation = async (input: unknown): Promise<unknown> => {
+    const {
+      accountId,
+      opId,
+      threadId,
+      kind,
+      addLabelIds = [],
+      removeLabelIds = [],
+      dropThread,
+      enqueue = true,
+    } = (input as {
+      accountId: string;
+      opId: string;
+      threadId: string;
+      kind: string;
+      addLabelIds?: string[];
+      removeLabelIds?: string[];
+      dropThread?: boolean;
+      enqueue?: boolean;
+    }) ?? {};
+    if (!accountId || !threadId || !opId) return { ok: false };
+    const ts = Date.now();
+
+    if (dropThread) {
+      db.run(`DELETE FROM mail_message WHERE accountId = ? AND threadId = ?`, [accountId, threadId]);
+      db.run(`DELETE FROM mail_thread WHERE accountId = ? AND id = ?`, [accountId, threadId]);
+    } else {
+      const t = row(
+        db.exec(`SELECT labelIds FROM mail_thread WHERE accountId = ? AND id = ?`, [accountId, threadId]),
+      );
+      if (t) {
+        const next = patchLabels(parseStrArr(t["labelIds"]), addLabelIds, removeLabelIds);
+        db.run(`UPDATE mail_thread SET labelIds = ?, updatedAt = ? WHERE accountId = ? AND id = ?`, [
+          JSON.stringify(next),
+          ts,
+          accountId,
+          threadId,
+        ]);
+      }
+      const msgs = rows(
+        db.exec(`SELECT id, labelIds FROM mail_message WHERE accountId = ? AND threadId = ?`, [
+          accountId,
+          threadId,
+        ]),
+      );
+      for (const m of msgs) {
+        const next = patchLabels(parseStrArr(m["labelIds"]), addLabelIds, removeLabelIds);
+        db.run(`UPDATE mail_message SET labelIds = ?, updatedAt = ? WHERE accountId = ? AND id = ?`, [
+          JSON.stringify(next),
+          ts,
+          accountId,
+          m["id"] as string,
+        ]);
+      }
+    }
+
+    if (enqueue) {
+      db.run(
+        `INSERT INTO mail_outbox (opId, accountId, threadId, kind, payloadJson, createdAt, attempts, status)
+         VALUES (?, ?, ?, ?, ?, ?, 0, 'pending')
+         ON CONFLICT(opId) DO UPDATE SET
+           payloadJson = excluded.payloadJson, status = 'pending'`,
+        [
+          opId,
+          accountId,
+          threadId,
+          kind,
+          JSON.stringify({ addLabelIds, removeLabelIds, dropThread: !!dropThread }),
+          ts,
+        ],
+      );
+    }
+    return { ok: true };
+  };
+
+  const mailListOutbox = async (input: unknown): Promise<unknown> => {
+    const { accountId } = (input as { accountId: string }) ?? {};
+    if (!accountId) return { items: [] };
+    const res = db.exec(
+      `SELECT opId, threadId, kind, payloadJson, attempts, createdAt
+         FROM mail_outbox WHERE accountId = ? AND status != 'failed'
+        ORDER BY createdAt ASC`,
+      [accountId],
+    );
+    const items = rows(res).map((r) => {
+      const payload = (() => {
+        try {
+          return JSON.parse((r["payloadJson"] as string) || "{}") as {
+            addLabelIds?: string[];
+            removeLabelIds?: string[];
+          };
+        } catch {
+          return {};
+        }
+      })();
+      return {
+        opId: r["opId"] as string,
+        threadId: r["threadId"] as string,
+        kind: r["kind"] as string,
+        addLabelIds: Array.isArray(payload.addLabelIds) ? payload.addLabelIds : [],
+        removeLabelIds: Array.isArray(payload.removeLabelIds) ? payload.removeLabelIds : [],
+        attempts: Number(r["attempts"]) || 0,
+        createdAt: Number(r["createdAt"]) || 0,
+      };
+    });
+    return { items };
+  };
+
+  const mailResolveOutbox = async (input: unknown): Promise<unknown> => {
+    const { opIds, outcome, error } = (input as {
+      opIds: string[];
+      outcome: "ack" | "fail";
+      error?: string;
+    }) ?? {};
+    if (!Array.isArray(opIds) || opIds.length === 0) return { resolved: 0 };
+    let resolved = 0;
+    for (const opId of opIds) {
+      if (outcome === "ack") {
+        db.run(`DELETE FROM mail_outbox WHERE opId = ?`, [opId]);
+      } else {
+        db.run(
+          `UPDATE mail_outbox SET attempts = attempts + 1,
+             status = CASE WHEN attempts + 1 >= 5 THEN 'failed' ELSE 'pending' END,
+             lastError = ? WHERE opId = ?`,
+          [error ?? null, opId],
+        );
+      }
+      resolved++;
+    }
+    return { resolved };
+  };
+
   // ── Dispatch table ─────────────────────────────────────────────────────────
 
   return {
@@ -3927,6 +4392,15 @@ export function buildRouter(
     "sync.applyOps": syncApplyOps,
     "sync.purgeMounted": syncPurgeMounted,
     "sync.listMounts": syncListMounts,
+
+    "mail.listThreads": mailListThreads,
+    "mail.getThread": mailGetThread,
+    "mail.getLabels": mailGetLabels,
+    "mail.getState": mailGetState,
+    "mail.syncUpsert": mailSyncUpsert,
+    "mail.applyLocalMutation": mailApplyLocalMutation,
+    "mail.listOutbox": mailListOutbox,
+    "mail.resolveOutbox": mailResolveOutbox,
   };
 }
 

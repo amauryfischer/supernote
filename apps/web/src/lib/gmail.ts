@@ -430,6 +430,107 @@ export async function getThread(clientId: string, threadId: string): Promise<Ema
   };
 }
 
+/** Profil complet : adresse + historyId courant (curseur de départ du sync). */
+export interface GmailProfile {
+  emailAddress: string;
+  historyId: string;
+}
+
+/** Profil Gmail avec historyId (point de départ d'un sync incrémental). */
+export async function getGmailProfileFull(clientId: string): Promise<GmailProfile> {
+  const json = await gmailFetch<{ emailAddress?: string; historyId?: string }>(clientId, "/profile");
+  return { emailAddress: json.emailAddress ?? "", historyId: json.historyId ?? "" };
+}
+
+/** Résultat d'un appel `history.list` (delta de la boîte depuis un historyId). */
+export interface GmailHistoryResult {
+  /** false → l'historyId de départ est trop ancien (404 Gmail) : refaire un full sync. */
+  ok: boolean;
+  /** Nouveau historyId courant (curseur à persister) si `ok`. */
+  historyId?: string;
+  /** Thread ids touchés (ajout / suppression de message / changement de label). */
+  changedThreadIds: string[];
+}
+
+/**
+ * Liste les changements de la boîte depuis `startHistoryId` (sync incrémental).
+ * Pagine l'intégralité de l'historique et renvoie l'union des threads touchés.
+ * Sur 404 (historyId expiré, > ~1 semaine), renvoie `ok: false` pour signaler
+ * au moteur de reconciliation de retomber sur un full sync.
+ */
+export async function listHistory(
+  clientId: string,
+  startHistoryId: string,
+): Promise<GmailHistoryResult> {
+  const token = await gmailToken(clientId);
+  const changed = new Set<string>();
+  let latest = startHistoryId;
+  let pageToken: string | undefined;
+  do {
+    const params = new URLSearchParams({ startHistoryId });
+    if (pageToken) params.set("pageToken", pageToken);
+    const res = await fetch(`${GMAIL_API_BASE}/history?${params.toString()}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (res.status === 404) return { ok: false, changedThreadIds: [] };
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`Gmail API ${res.status}: ${text.slice(0, 300)}`);
+    }
+    const json = (await res.json()) as {
+      history?: Array<{
+        messages?: Array<{ id?: string; threadId?: string }>;
+        messagesAdded?: Array<{ message?: { threadId?: string } }>;
+        messagesDeleted?: Array<{ message?: { threadId?: string } }>;
+        labelsAdded?: Array<{ message?: { threadId?: string } }>;
+        labelsRemoved?: Array<{ message?: { threadId?: string } }>;
+      }>;
+      historyId?: string;
+      nextPageToken?: string;
+    };
+    for (const h of json.history ?? []) {
+      const pools = [
+        h.messages ?? [],
+        (h.messagesAdded ?? []).map((x) => x.message ?? {}),
+        (h.messagesDeleted ?? []).map((x) => x.message ?? {}),
+        (h.labelsAdded ?? []).map((x) => x.message ?? {}),
+        (h.labelsRemoved ?? []).map((x) => x.message ?? {}),
+      ];
+      for (const pool of pools) for (const m of pool) if (m.threadId) changed.add(m.threadId);
+    }
+    if (json.historyId) latest = json.historyId;
+    pageToken = json.nextPageToken;
+  } while (pageToken);
+  return { ok: true, historyId: latest, changedThreadIds: [...changed] };
+}
+
+/**
+ * Re-récupère les résumés de threads donnés (concurrence bornée, pool de 6).
+ * Les threads qui renvoient 404 (disparus côté serveur) sont reportés dans
+ * `missing` pour que l'appelant les retire du mirror.
+ */
+export async function getThreadSummaries(
+  clientId: string,
+  threadIds: string[],
+): Promise<{ items: ThreadListItem[]; missing: string[] }> {
+  const missing: string[] = [];
+  const settled = await mapPool(threadIds, GMAIL_METADATA_CONCURRENCY, async (id) => {
+    try {
+      return await getThreadListItem(clientId, id);
+    } catch (err) {
+      if (err instanceof Error && /Gmail API 404/.test(err.message)) {
+        missing.push(id);
+        return null;
+      }
+      throw err;
+    }
+  });
+  return {
+    items: settled.filter((x): x is ThreadListItem => x !== null),
+    missing,
+  };
+}
+
 /** Ligne de liste enrichie d'un thread (pour l'affichage façon boîte mail). */
 export interface ThreadListItem {
   id: string;
@@ -627,6 +728,97 @@ export function addThreadLabel(clientId: string, threadId: string, labelId: stri
 /** Raccourci : retire un label d'un thread. */
 export function removeThreadLabel(clientId: string, threadId: string, labelId: string): Promise<void> {
   return modifyThreadLabels(clientId, threadId, { removeLabelIds: [labelId] });
+}
+
+/**
+ * Palette Gmail FIXE. L'API `labels.create`/`labels.patch` rejette (HTTP 400
+ * « Invalid label color ») toute couleur hors de la liste blanche Gmail : on ne
+ * peut PAS choisir une couleur arbitraire. On expose donc une sélection des
+ * paires (fond, texte) valides — chaque `backgroundColor` et `textColor` figure
+ * dans la liste autorisée Gmail. Sert au sélecteur de couleur de l'UI.
+ */
+export const GMAIL_LABEL_PALETTE: readonly GmailLabelColor[] = [
+  { backgroundColor: "#fb4c2f", textColor: "#ffffff" }, // rouge
+  { backgroundColor: "#ffad47", textColor: "#000000" }, // orange
+  { backgroundColor: "#fad165", textColor: "#000000" }, // jaune
+  { backgroundColor: "#16a766", textColor: "#ffffff" }, // vert
+  { backgroundColor: "#43d692", textColor: "#000000" }, // menthe
+  { backgroundColor: "#4a86e8", textColor: "#ffffff" }, // bleu
+  { backgroundColor: "#a479e2", textColor: "#ffffff" }, // violet
+  { backgroundColor: "#f691b3", textColor: "#000000" }, // rose
+  { backgroundColor: "#cc3a21", textColor: "#ffffff" }, // brique
+  { backgroundColor: "#eaa041", textColor: "#000000" }, // ambre
+  { backgroundColor: "#149e60", textColor: "#ffffff" }, // émeraude
+  { backgroundColor: "#3c78d8", textColor: "#ffffff" }, // indigo
+  { backgroundColor: "#8e63ce", textColor: "#ffffff" }, // pourpre
+  { backgroundColor: "#e07798", textColor: "#ffffff" }, // framboise
+  { backgroundColor: "#999999", textColor: "#ffffff" }, // gris
+  { backgroundColor: "#666666", textColor: "#ffffff" }, // ardoise
+];
+
+/**
+ * Crée un nouveau label utilisateur via `users.labels.create` (POST /labels).
+ * Scope `gmail.modify` (couvre la gestion des labels — pas de scope nouveau).
+ * `color` optionnelle, doit appartenir à `GMAIL_LABEL_PALETTE` sinon 400. Gmail
+ * renvoie 409 si un label du même `name` existe déjà. Retourne le label créé
+ * (id généré par Gmail).
+ */
+export async function createLabel(
+  clientId: string,
+  name: string,
+  color?: GmailLabelColor,
+): Promise<GmailLabel> {
+  const token = await requestAccessToken(clientId, { scope: GMAIL_MODIFY_SCOPE, prompt: "" });
+  const res = await fetch(`${GMAIL_API_BASE}/labels`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      name,
+      labelListVisibility: "labelShow",
+      messageListVisibility: "show",
+      ...(color ? { color } : {}),
+    }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Gmail label create ${res.status}: ${text.slice(0, 300)}`);
+  }
+  const json = (await res.json()) as {
+    id: string;
+    name: string;
+    color?: { textColor?: string; backgroundColor?: string };
+  };
+  const bg = json.color?.backgroundColor;
+  return bg
+    ? {
+        id: json.id,
+        name: json.name,
+        color: { backgroundColor: bg, textColor: json.color?.textColor ?? "#ffffff" },
+      }
+    : { id: json.id, name: json.name };
+}
+
+/**
+ * Change la couleur d'un label existant via `users.labels.patch`
+ * (PATCH /labels/{id}). Scope `gmail.modify`. `color` doit appartenir à
+ * `GMAIL_LABEL_PALETTE` (sinon 400). N'agit que sur les labels utilisateur (les
+ * labels système ne sont pas re-colorables).
+ */
+export async function updateLabelColor(
+  clientId: string,
+  labelId: string,
+  color: GmailLabelColor,
+): Promise<void> {
+  const token = await requestAccessToken(clientId, { scope: GMAIL_MODIFY_SCOPE, prompt: "" });
+  const res = await fetch(`${GMAIL_API_BASE}/labels/${encodeURIComponent(labelId)}`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ color }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Gmail label patch ${res.status}: ${text.slice(0, 300)}`);
+  }
 }
 
 /**
@@ -913,6 +1105,35 @@ export async function sendReply(
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     body: JSON.stringify({ raw, threadId: input.threadId }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Gmail send ${res.status}: ${text.slice(0, 300)}`);
+  }
+}
+
+/**
+ * Envoie un NOUVEAU message (hors fil) via `messages.send`. Scope
+ * `gmail.compose` (autorise l'envoi). ⚠️ IRRÉVERSIBLE : le mail part
+ * immédiatement (contrairement aux brouillons). Au moins un destinataire (To)
+ * requis côté appelant. Jumeau de `sendReply` sans `threadId`.
+ */
+export async function sendMessage(
+  clientId: string,
+  input: {
+    to?: string | string[];
+    cc?: string | string[];
+    subject: string;
+    body: string;
+    attachments?: OutgoingAttachment[];
+  },
+): Promise<void> {
+  const token = await requestAccessToken(clientId, { scope: GMAIL_COMPOSE_SCOPE, prompt: "" });
+  const raw = toBase64Url(buildRawMessage(input));
+  const res = await fetch(`${GMAIL_API_BASE}/messages/send`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ raw }),
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");

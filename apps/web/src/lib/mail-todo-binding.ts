@@ -270,18 +270,36 @@ export function reconstructBindingFromEntity(
   return isBinding(binding) ? binding : null;
 }
 
+/** Vrai si l'entité todo est marquée faite (bool ou chaîne "true"). */
+function isTodoDone(src: TodoProvenanceSource): boolean {
+  const v = (src.fields ?? {})["done"];
+  return v === true || v === "true";
+}
+
 /**
- * Réconcilie le store localStorage avec la provenance durable du coffre : pour
- * chaque entité todo portant un `mailThreadId` SANS liaison locale (ni par
- * thread, ni par todo), recrée la liaison. Ne touche JAMAIS une liaison existante
- * (localStorage gagne : il porte le quadrant optimiste + le résumé IA). Persiste
- * et notifie les vues abonnées (`MAIL_BINDINGS_EVENT`) si ≥1 ajout. Renvoie le
- * nombre d'ajouts.
+ * Réconcilie le store localStorage avec la provenance durable du coffre, dans les
+ * DEUX sens :
+ *   - AJOUT : pour chaque entité todo portant un `mailThreadId` SANS liaison
+ *     locale (ni par thread, ni par todo), recrée la liaison (cas store vidé).
+ *   - ÉLAGAGE : retire toute liaison locale dont le todo est `done` dans le
+ *     coffre — une tâche faite hors UI mail (vue /todos) laissait sinon une carte
+ *     fantôme sur le board email avec un bouton « Fait » jamais à jour (le coffre
+ *     est la source de vérité de l'état). On n'élague QUE sur la base d'un todo
+ *     présent ET done dans `sources` : un todo absent (requête partielle) n'est
+ *     jamais purgé, pour ne pas perdre une liaison sur une lecture incomplète.
+ * Ne modifie jamais le contenu d'une liaison existante conservée (localStorage
+ * garde quadrant optimiste + résumé IA). Persiste et notifie les vues abonnées
+ * (`MAIL_BINDINGS_EVENT`) si ≥1 ajout OU ≥1 élagage. Renvoie le nombre d'ajouts.
  */
 export function reconcileBindings(sources: readonly TodoProvenanceSource[]): number {
   const current = loadBindings();
-  const knownThreads = new Set(current.map((b) => b.threadId));
-  const knownTodos = new Set(current.map((b) => b.todoId));
+  const doneTodoIds = new Set(sources.filter(isTodoDone).map((s) => s.id));
+  // Élague d'abord les liaisons dont le todo est fait (coffre = vérité d'état).
+  const kept = current.filter((b) => !doneTodoIds.has(b.todoId));
+  const prunedCount = current.length - kept.length;
+
+  const knownThreads = new Set(kept.map((b) => b.threadId));
+  const knownTodos = new Set(kept.map((b) => b.todoId));
   const additions: MailTodoBinding[] = [];
   for (const s of sources) {
     const b = reconstructBindingFromEntity(s);
@@ -291,8 +309,8 @@ export function reconcileBindings(sources: readonly TodoProvenanceSource[]): num
     knownThreads.add(b.threadId);
     knownTodos.add(b.todoId);
   }
-  if (additions.length === 0) return 0;
-  saveBindings([...current, ...additions]);
+  if (additions.length === 0 && prunedCount === 0) return 0;
+  saveBindings([...kept, ...additions]);
   emitBindingsChanged();
   return additions.length;
 }

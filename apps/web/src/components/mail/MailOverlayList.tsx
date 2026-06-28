@@ -243,7 +243,9 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
       data-mail-row-index={idx}
       variant="ghost"
       onPress={() => onPick(row)}
-      className={`h-auto w-full min-w-0 flex-1 justify-start whitespace-normal rounded-lg px-2.5 py-2.5 text-left${
+      className={`h-auto w-full min-w-0 flex-1 justify-start whitespace-normal rounded-lg px-2.5 text-left ${
+        isLabel ? "py-1.5" : "py-2.5"
+      }${
         cursored && activeKey !== key
           ? " ring-2 ring-inset ring-[var(--accent)] ring-offset-0"
           : ""
@@ -258,24 +260,61 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
       }
       aria-selected={cursored || activeKey === key}
     >
+      {isLabel ? (
+        /* Groupe-label COMPACT : une seule ligne = le badge/tag coloré (nom
+           + couleur Gmail, comme dans le fil) + compteur + date. Pas d'avatar
+           icône (sans information), ni objet/aperçu du 1ᵉʳ mail (on ouvre le
+           groupe pour les voir). */
+        <span className="flex w-full min-w-0 items-center gap-2">
+          <span
+            className="inline-flex min-w-0 items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium"
+            style={
+              labelColor
+                ? { backgroundColor: labelColor.backgroundColor, color: labelColor.textColor }
+                : { backgroundColor: "var(--accent-subtle)", color: "var(--accent)" }
+            }
+          >
+            <Tag size={11} className="shrink-0" aria-hidden />
+            <span className="truncate">{title}</span>
+          </span>
+          {row.kind === "group" && row.count > 1 && (
+            <span
+              className={`shrink-0 rounded-full px-1.5 text-xs ${groupUnread > 0 ? "font-bold" : ""}`}
+              title={
+                groupUnread > 0
+                  ? `${groupUnread} non lu${groupUnread > 1 ? "s" : ""} sur ${row.count}`
+                  : `${row.count} fils`
+              }
+              style={{ background: "var(--accent-subtle)", color: "var(--accent)" }}
+            >
+              {groupUnread > 0 ? `${groupUnread}/${row.count}` : row.count}
+            </span>
+          )}
+          {starred && (
+            <Star
+              size={13}
+              weight="fill"
+              aria-label="Contient un message étoilé"
+              className="shrink-0"
+              style={{ color: "#f5b300" }}
+            />
+          )}
+          <span className="ml-auto shrink-0 text-xs" style={{ color: "var(--text-muted)" }}>
+            {formatMailDate(date)}
+          </span>
+        </span>
+      ) : (
       <span className="flex w-full min-w-0 items-start gap-2.5">
-        {/* Monogramme expéditeur (signature visuelle) : tuile de label
-            colorée, ou initiales sur fond déterministe sobre. Pastille
-            non-lu en surimpression coin haut-gauche. */}
+        {/* Monogramme expéditeur (signature visuelle) : initiales sur fond
+            déterministe sobre. Pastille non-lu en surimpression coin
+            haut-gauche. */}
         <span className="relative shrink-0">
           <span
             aria-hidden
             className="flex h-8 w-8 items-center justify-center rounded-lg text-xs font-semibold"
-            style={
-              isLabel
-                ? {
-                    backgroundColor: labelColor?.backgroundColor ?? "var(--accent-subtle)",
-                    color: labelColor?.textColor ?? "var(--accent)",
-                  }
-                : { backgroundColor: avatar.bg, color: avatar.fg }
-            }
+            style={{ backgroundColor: avatar.bg, color: avatar.fg }}
           >
-            {isLabel ? <Tag size={14} /> : mono}
+            {mono}
           </span>
           {unread && (
             <span
@@ -296,7 +335,7 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
             >
               {title}
             </span>
-            {row.kind === "group" && (
+            {row.kind === "group" && row.count > 1 && (
               <span
                 className={`shrink-0 rounded-full px-1.5 text-xs ${groupUnread > 0 ? "font-bold" : ""}`}
                 title={
@@ -365,6 +404,7 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
           )}
         </span>
       </span>
+      )}
     </Button>
   );
 

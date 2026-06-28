@@ -14,6 +14,7 @@ import { syncRouter } from "./sync.router.js";
 import { searchRouter } from "./search.router.js";
 import { systemRouter } from "./system.router.js";
 import { viewsRouter } from "./views.router.js";
+import { mailRouter } from "./mail.router.js";
 
 /**
  * Root tRPC router for the Supernote IPC bridge.
@@ -39,6 +40,7 @@ export const appRouter = router({
   sync: syncRouter,
   search: searchRouter,
   system: systemRouter,
+  mail: mailRouter,
 });
 
 export type AppRouter = typeof appRouter;
@@ -60,3 +62,4 @@ export { gitRouter, type GitRouter } from "./git.router.js";
 export { syncRouter, type SyncRouter } from "./sync.router.js";
 export { searchRouter, type SearchRouter } from "./search.router.js";
 export { systemRouter, type SystemRouter } from "./system.router.js";
+export { mailRouter, type MailRouter } from "./mail.router.js";

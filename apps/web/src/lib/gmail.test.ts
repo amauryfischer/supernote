@@ -810,7 +810,7 @@ describe("GMAIL_COMPOSE_SCOPE", () => {
   });
 });
 
-import { createDraft, buildGmailDraftUrl } from "./gmail";
+import { createDraft, buildGmailDraftUrl, sendMessage } from "./gmail";
 import { requestAccessToken } from "./google-drive";
 
 describe("createDraft", () => {
@@ -851,6 +851,34 @@ describe("buildGmailDraftUrl", () => {
   it("construit l'URL du brouillon", () => {
     expect(buildGmailDraftUrl("draft_1")).toContain("draft_1");
     expect(buildGmailDraftUrl("draft_1")).toMatch(/^https:\/\/mail\.google\.com\//);
+  });
+});
+
+describe("sendMessage", () => {
+  it("POST /messages/send avec raw, sans threadId; scope compose", async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true, json: async () => ({}) }));
+    vi.stubGlobal("fetch", fetchMock);
+    await sendMessage("cid", { to: "a@b.io", subject: "Hi", body: "yo" });
+    expect(vi.mocked(requestAccessToken)).toHaveBeenCalledWith(
+      "cid",
+      expect.objectContaining({ scope: GMAIL_COMPOSE_SCOPE }),
+    );
+    const call = fetchMock.mock.calls[0] as [unknown, RequestInit] | undefined;
+    expect(String(call?.[0])).toContain("/messages/send");
+    const init = call?.[1] as RequestInit;
+    expect(init.method).toBe("POST");
+    const payload = JSON.parse(String(init.body)) as { raw?: string; threadId?: string };
+    expect(payload.raw).toBeTruthy();
+    expect(payload.threadId).toBeUndefined();
+    vi.unstubAllGlobals();
+  });
+
+  it("lève une erreur explicite sur réponse non-ok", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 403, text: async () => "denied" })));
+    await expect(sendMessage("cid", { to: "a@b.io", subject: "s", body: "b" })).rejects.toThrow(
+      /Gmail send 403/,
+    );
+    vi.unstubAllGlobals();
   });
 });
 

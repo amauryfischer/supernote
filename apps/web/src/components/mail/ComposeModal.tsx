@@ -2,10 +2,11 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Modal, Button, Input, Textarea, useToast } from "@supernote/ui";
-import { Gear, ArrowSquareOut, X, Paperclip } from "@phosphor-icons/react";
+import { Gear, ArrowSquareOut, X, Paperclip, PaperPlaneTilt } from "@phosphor-icons/react";
 import { applyTemplate, type MailTemplate } from "@/lib/mail-templates";
 import { dedupeEmails, parseRecipientInput } from "@/lib/mail-recipients";
 import { useCreateDraft } from "@/components/notes/useCreateDraft";
+import { useSendMessage } from "@/components/notes/useSendMessage";
 import {
   filesToAttachments,
   toOutgoing,
@@ -22,9 +23,10 @@ import { TemplateManager } from "./TemplateManager";
 import { OrgRecipientPicker } from "./OrgRecipientPicker";
 
 /**
- * Mini compose : objet + corps + insertion rapide de modèles, crée un BROUILLON
- * Gmail (jamais d'envoi direct, cf. politique compose draft-first) puis l'ouvre
- * dans Gmail. Héberge le picker et le gestionnaire de modèles.
+ * Mini compose : objet + corps + insertion rapide de modèles. Deux issues :
+ * « Créer le brouillon » (ouvre le brouillon dans Gmail) ou « Envoyer »
+ * (⚠️ IRRÉVERSIBLE : part immédiatement, destinataire requis). Héberge le
+ * picker et le gestionnaire de modèles.
  */
 export function ComposeModal({
   isOpen,
@@ -41,13 +43,14 @@ export function ComposeModal({
 }) {
   const { toast } = useToast();
   const { createDraft } = useCreateDraft();
+  const { sendMessage } = useSendMessage();
   const { templates, upsert, remove } = useMailTemplates();
 
   const [recipients, setRecipients] = useState<string[]>(() => parseRecipientInput(initialTo));
   const [toInput, setToInput] = useState("");
   const [subject, setSubject] = useState(initialSubject);
   const [body, setBody] = useState(initialBody);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<"send" | "draft" | null>(null);
   const [managerOpen, setManagerOpen] = useState(false);
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -109,14 +112,14 @@ export function ComposeModal({
     setBody(next.body);
   };
 
-  const submit = async () => {
+  const submitDraft = async () => {
     if (!subject.trim() && !body.trim()) {
       toast({ title: "Objet ou corps requis", variant: "danger" });
       return;
     }
     // Inclut une adresse tapée mais non encore validée (pas de perte silencieuse).
     const allTo = dedupeEmails([...recipients, ...parseRecipientInput(toInput)]);
-    setBusy(true);
+    setBusy("draft");
     try {
       const { url } = await createDraft({
         to: allTo.length ? allTo : undefined,
@@ -134,7 +137,44 @@ export function ComposeModal({
         variant: "danger",
       });
     } finally {
-      setBusy(false);
+      setBusy(null);
+    }
+  };
+
+  // ⚠️ Envoi IRRÉVERSIBLE : le mail part immédiatement. Destinataire requis
+  // (contrairement au brouillon, optionnel). Confirmation avant départ.
+  const submitSend = async () => {
+    const allTo = dedupeEmails([...recipients, ...parseRecipientInput(toInput)]);
+    if (allTo.length === 0) {
+      toast({ title: "Destinataire requis pour envoyer", variant: "danger" });
+      return;
+    }
+    if (!subject.trim() && !body.trim()) {
+      toast({ title: "Objet ou corps requis", variant: "danger" });
+      return;
+    }
+    const who = allTo.length === 1 ? allTo[0] : `${allTo.length} destinataires`;
+    if (!window.confirm(`Envoyer ce message à ${who} ? Cette action est immédiate.`)) {
+      return;
+    }
+    setBusy("send");
+    try {
+      await sendMessage({
+        to: allTo,
+        subject,
+        body,
+        attachments: attachments.length ? toOutgoing(attachments) : undefined,
+      });
+      toast({ title: "Message envoyé", variant: "success" });
+      onClose();
+    } catch (err) {
+      toast({
+        title: "Échec de l'envoi",
+        description: err instanceof Error ? err.message : String(err),
+        variant: "danger",
+      });
+    } finally {
+      setBusy(null);
     }
   };
 
@@ -280,13 +320,24 @@ export function ComposeModal({
             )}
           </div>
 
-          <div className="flex items-center justify-end gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             <Button variant="ghost" onPress={onClose}>
               Annuler
             </Button>
-            <Button variant="primary" isDisabled={busy} onPress={() => void submit()}>
-              {busy ? "Création…" : "Créer le brouillon"}
-              {!busy && <ArrowSquareOut size={14} />}
+            <Button
+              variant="ghost"
+              isDisabled={busy !== null}
+              onPress={() => void submitDraft()}
+            >
+              {busy === "draft" ? "Création…" : "Créer le brouillon"}
+              {busy === null && <ArrowSquareOut size={14} />}
+            </Button>
+            <Button
+              variant="primary"
+              isDisabled={busy !== null}
+              onPress={() => void submitSend()}
+            >
+              <PaperPlaneTilt size={14} /> {busy === "send" ? "Envoi…" : "Envoyer"}
             </Button>
           </div>
         </div>

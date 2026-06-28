@@ -53,8 +53,14 @@ export function rowHasStar(row: OverlayRow): boolean {
 
 /**
  * Surcouche de regroupement. Label d'abord (≥2 items partageant un label user),
- * puis expéditeur (≥2 items restants même from.email), puis lignes seules. Tri
- * par date la plus récente. Pur & déterministe.
+ * puis expéditeur (≥2 items restants même from.email), puis — pour un email
+ * restant qui porte tout de même un vrai tag user — un groupe-label d'UN SEUL
+ * item (sinon son tag serait invisible sur une ligne nue), enfin les lignes
+ * seules non taguées. Tri par date la plus récente. Pur & déterministe.
+ *
+ * Note : les groupes-expéditeur (≥2) priment sur le tag isolé — un email tagué
+ * qui partage son expéditeur avec d'autres reste groupé par expéditeur ; seul un
+ * email tagué réellement isolé devient un groupe-label d'un item.
  *
  * `userLabels` : map labelId → nom (labels user uniquement). Un item multi-label
  * rejoint le plus gros groupe-label (tie-break : taille desc, puis nom asc).
@@ -94,17 +100,17 @@ export function buildMailOverlay(
       else byLabel.set(lid, [it]);
     }
   }
-  // Candidats label (≥2), triés par taille desc puis nom asc → un item multi-label
-  // tombe dans le plus gros groupe traité en premier.
-  const labelGroups = [...byLabel.entries()]
-    .filter(([, arr]) => arr.length >= 2)
-    .sort((a, b) => {
-      if (b[1].length !== a[1].length) return b[1].length - a[1].length;
-      return userLabels.get(a[0])! < userLabels.get(b[0])! ? -1 : 1;
-    });
+  // Tous les labels (≥1), triés par taille desc puis nom asc → un item
+  // multi-label tombe dans le plus gros groupe traité en premier ; sert aussi de
+  // classement pour choisir le tag d'un email isolé (étape 2bis).
+  const labelOrder = [...byLabel.entries()].sort((a, b) => {
+    if (b[1].length !== a[1].length) return b[1].length - a[1].length;
+    return userLabels.get(a[0])! < userLabels.get(b[0])! ? -1 : 1;
+  });
 
   const rows: OverlayRow[] = [];
-  for (const [lid, candidates] of labelGroups) {
+  // 1. Groupes-label « pleins » : ≥2 membres encore libres partageant un tag.
+  for (const [lid, candidates] of labelOrder) {
     const members = candidates.filter((it) => !consumed.has(it.id));
     if (members.length < 2) continue;
     members.forEach((it) => consumed.add(it.id));
@@ -150,7 +156,37 @@ export function buildMailOverlay(
     });
   }
 
-  // 3. Lignes seules.
+  // 2bis. Tag isolé : un email restant qui porte un vrai tag user forme un
+  // groupe-label d'un seul item (sinon son tag serait invisible). On retient le
+  // tag le « mieux classé » de l'email (plus gros groupe, tie-break nom asc) via
+  // `labelOrder`. Sûr côté clés : au plus un email isolé par tag atteint cette
+  // étape (deux porteurs libres d'un même tag auraient formé un groupe en 1).
+  const labelRank = new Map(labelOrder.map(([lid], i) => [lid, i]));
+  for (const it of items) {
+    if (consumed.has(it.id)) continue;
+    let best: string | null = null;
+    let bestRank = Infinity;
+    for (const lid of it.labelIds) {
+      const r = labelRank.get(lid);
+      if (r !== undefined && r < bestRank) {
+        bestRank = r;
+        best = lid;
+      }
+    }
+    if (best === null) continue;
+    consumed.add(it.id);
+    rows.push({
+      kind: "group",
+      groupType: "label",
+      key: `label:${best}`,
+      title: userLabels.get(best)!,
+      count: 1,
+      items: [it],
+      date: it.date,
+    });
+  }
+
+  // 3. Lignes seules (emails restants sans tag groupable).
   for (const it of items) {
     if (!consumed.has(it.id)) rows.push({ kind: "single", item: it });
   }

@@ -10,6 +10,9 @@ import {
   resolveUserLabels,
   addThreadLabel,
   removeThreadLabel,
+  createLabel,
+  updateLabelColor,
+  GMAIL_LABEL_PALETTE,
   markThreadRead,
   markThreadUnread,
   toggleStar,
@@ -23,6 +26,7 @@ import {
   type EmailMessage,
   type EmailAttachment,
   type GmailLabel,
+  type GmailLabelColor,
   type BubbleKind,
 } from "@/lib/gmail";
 import { parseEmailBody } from "@/lib/email-quote";
@@ -164,6 +168,8 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
   // Ouverture du menu overflow « Plus » (actions secondaires regroupées).
   const [moreOpen, setMoreOpen] = useState(false);
   const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
+  // Éditeur de couleur d'un label appliqué : id du label ciblé + ancre du badge.
+  const [colorEdit, setColorEdit] = useState<{ id: string; rect: DOMRect } | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   // Garde anti-double : 1 seul markThreadRead par thread ouvert.
   const readMarkedRef = useRef<string | null>(null);
@@ -205,6 +211,11 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
   const addable = useMemo(
     () => allLabels.filter((l) => !labelIds.includes(l.id)),
     [allLabels, labelIds],
+  );
+  // Noms déjà pris (insensible à la casse) → garde anti-doublon du picker.
+  const takenNames = useMemo(
+    () => new Set(allLabels.map((l) => l.name.toLowerCase())),
+    [allLabels],
   );
 
   // ─── Réponse rapide (barre fixe en bas) ───────────────────────────────────
@@ -480,6 +491,51 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
     }
   };
 
+  // Crée un label Gmail puis l'applique au thread. Si un label du même nom
+  // existe déjà (insensible à la casse), on l'applique au lieu d'en créer un
+  // doublon (Gmail renverrait 409). Le label créé est injecté dans `allLabels`
+  // pour que le badge s'affiche immédiatement.
+  const createAndApply = async (rawName: string) => {
+    if (!clientId) return;
+    const name = rawName.trim();
+    if (!name) return;
+    const existing = allLabels.find((l) => l.name.toLowerCase() === name.toLowerCase());
+    if (existing) {
+      await mutate(existing.id, "add");
+      return;
+    }
+    try {
+      const created = await createLabel(clientId, name);
+      setAllLabels((prev) => [...prev, created]);
+      await mutate(created.id, "add");
+    } catch (err) {
+      toast({
+        title: "Création du label échouée",
+        description: err instanceof Error ? err.message : String(err),
+        variant: "danger",
+      });
+    }
+  };
+
+  // Change la couleur d'un label appliqué : maj optimiste de `allLabels` (le
+  // badge se re-teinte aussitôt via `resolveUserLabels`) + PATCH Gmail, rollback
+  // sur échec.
+  const setLabelColor = async (labelId: string, color: GmailLabelColor) => {
+    if (!clientId) return;
+    const prev = allLabels;
+    setAllLabels((ls) => ls.map((l) => (l.id === labelId ? { ...l, color } : l)));
+    try {
+      await updateLabelColor(clientId, labelId, color);
+    } catch (err) {
+      setAllLabels(prev);
+      toast({
+        title: "Couleur du label échouée",
+        description: err instanceof Error ? err.message : String(err),
+        variant: "danger",
+      });
+    }
+  };
+
   // Étoile : toggle optimiste sur l'état local `labelIds` + appel Gmail (scope
   // modify), rollback sur échec. Notifie l'appelant pour resync de la ligne.
   const starred = labelIds.includes("STARRED");
@@ -742,7 +798,22 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
               }
             >
               <Tag size={10} />
-              <span className="max-w-[12rem] truncate">{l.name}</span>
+              {/* Clic sur le nom → menu de couleur (palette Gmail fixe). */}
+              <Button
+                variant="ghost"
+                size="sm"
+                onPress={(e) =>
+                  setColorEdit({
+                    id: l.id,
+                    rect: (e.target as HTMLElement).getBoundingClientRect(),
+                  })
+                }
+                aria-label={`Changer la couleur du label ${l.name}`}
+                className="-my-1.5 inline-flex h-8 min-h-8 max-w-[12rem] items-center bg-transparent p-0 font-medium hover:opacity-70"
+                style={{ color: "inherit" }}
+              >
+                <span className="truncate">{l.name}</span>
+              </Button>
               <Button
                 isIconOnly
                 variant="ghost"
@@ -1015,8 +1086,19 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
         open={pickerOpen}
         anchorRect={anchorRect}
         labels={addable}
+        takenNames={takenNames}
         onPick={(id) => void mutate(id, "add")}
+        onCreate={(name) => void createAndApply(name)}
         onClose={() => setPickerOpen(false)}
+      />
+
+      <ColorMenu
+        open={colorEdit !== null}
+        anchorRect={colorEdit?.rect ?? null}
+        onPick={(color) => {
+          if (colorEdit) void setLabelColor(colorEdit.id, color);
+        }}
+        onClose={() => setColorEdit(null)}
       />
     </div>
   );
@@ -1032,13 +1114,18 @@ function LabelPicker({
   open,
   anchorRect,
   labels,
+  takenNames,
   onPick,
+  onCreate,
   onClose,
 }: {
   open: boolean;
   anchorRect: DOMRect | null;
   labels: GmailLabel[];
+  /** Noms (minuscules) de TOUS les labels utilisateur → garde anti-doublon. */
+  takenNames: Set<string>;
   onPick: (id: string) => void;
+  onCreate: (name: string) => void;
   onClose: () => void;
 }) {
   const popRef = useRef<HTMLDivElement>(null);
@@ -1078,6 +1165,11 @@ function LabelPicker({
     return q ? sorted.filter((l) => l.name.toLowerCase().includes(q)) : sorted;
   }, [labels, query]);
 
+  // Le nom tapé n'existe nulle part (ni appliqué, ni applicable) → on propose la
+  // création. Insensible à la casse.
+  const trimmed = query.trim();
+  const canCreate = trimmed !== "" && !takenNames.has(trimmed.toLowerCase());
+
   useEffect(() => {
     setActive((a) => Math.min(a, Math.max(0, filtered.length - 1)));
   }, [filtered.length]);
@@ -1096,6 +1188,9 @@ function LabelPicker({
       const sel = filtered[active];
       if (sel) {
         onPick(sel.id);
+        onClose();
+      } else if (canCreate) {
+        onCreate(trimmed);
         onClose();
       }
     }
@@ -1142,7 +1237,7 @@ function LabelPicker({
       </div>
 
       <div className="flex-1 overflow-y-auto py-1">
-        {filtered.length === 0 && (
+        {filtered.length === 0 && !canCreate && (
           <p className="px-3 py-3 text-center text-xs" style={{ color: "var(--text-muted)" }}>
             {labels.length === 0 ? "Tous les labels sont appliqués." : "Aucun résultat."}
           </p>
@@ -1165,6 +1260,107 @@ function LabelPicker({
             <span className="flex-1 truncate">{l.name}</span>
             {i === active && <Check size={11} style={{ color: "var(--accent)" }} />}
           </Button>
+        ))}
+        {/* Création d'un nouveau label Gmail si le nom tapé n'existe pas. */}
+        {canCreate && (
+          <Button
+            variant="ghost"
+            onPress={() => {
+              onCreate(trimmed);
+              onClose();
+            }}
+            className="flex h-auto w-full items-center gap-1.5 px-2 py-1 text-left text-xs"
+            style={{ color: "var(--accent)" }}
+          >
+            <Plus size={11} weight="bold" />
+            <span className="flex-1 truncate">
+              Créer «&nbsp;{trimmed}&nbsp;»
+            </span>
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Sélecteur de couleur ancré pour un label : grille de pastilles issues de la
+ * palette Gmail FIXE (`GMAIL_LABEL_PALETTE` — l'API rejette toute autre couleur).
+ * Même mécanique d'ancrage/fermeture que `LabelPicker` (position fixe clampée,
+ * clic-extérieur + Échap ferment).
+ */
+function ColorMenu({
+  open,
+  anchorRect,
+  onPick,
+  onClose,
+}: {
+  open: boolean;
+  anchorRect: DOMRect | null;
+  onPick: (color: GmailLabelColor) => void;
+  onClose: () => void;
+}) {
+  const popRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDown = (e: MouseEvent) => {
+      if (popRef.current && !popRef.current.contains(e.target as Node)) onClose();
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onClose();
+      }
+    };
+    const id = window.setTimeout(() => document.addEventListener("mousedown", onDown), 0);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      window.clearTimeout(id);
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open, onClose]);
+
+  if (!open || !anchorRect) return null;
+
+  const POP_W = 184;
+  const POP_H = 120;
+  const margin = 6;
+  let left = anchorRect.left;
+  let top = anchorRect.bottom + margin;
+  if (left + POP_W > window.innerWidth - 8) left = Math.max(8, window.innerWidth - POP_W - 8);
+  if (top + POP_H > window.innerHeight - 8) top = Math.max(8, anchorRect.top - POP_H - margin);
+
+  return (
+    <div
+      ref={popRef}
+      role="dialog"
+      aria-label="Couleur du label"
+      className="fixed z-50 rounded-lg p-2 shadow-xl"
+      style={{
+        left,
+        top,
+        width: POP_W,
+        backgroundColor: "var(--surface-1)",
+        border: "1px solid var(--border-subtle)",
+      }}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div className="grid grid-cols-8 gap-1.5">
+        {GMAIL_LABEL_PALETTE.map((c) => (
+          <Button
+            key={c.backgroundColor}
+            isIconOnly
+            variant="ghost"
+            onPress={() => {
+              onPick(c);
+              onClose();
+            }}
+            aria-label={`Couleur ${c.backgroundColor}`}
+            className="h-6 min-h-6 w-6 min-w-6 rounded-full p-0 transition-transform hover:scale-110"
+            style={{ backgroundColor: c.backgroundColor, border: "1px solid var(--border-subtle)" }}
+          />
         ))}
       </div>
     </div>
