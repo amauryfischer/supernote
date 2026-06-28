@@ -28,6 +28,7 @@ import {
   type MirrorMutation,
 } from "@/lib/mail-mirror";
 import { syncMailbox, syncThreadDetail, flushOutbox } from "@/lib/mail-sync";
+import { isWorkerReady } from "@/lib/trpc/browser-link";
 import { draftReplyVariants, type ReplyVariant, type MailAiThread, isAiConfigured } from "@/lib/mail-ai";
 import { pickReplyTo } from "@/lib/mail-reply";
 import { toggleRowSelection, pruneSelection } from "@/lib/mail-selection";
@@ -98,6 +99,22 @@ export default function MailPage() {
   // Compte Gmail connecté = clé de scoping du mirror local (mail_* tables).
   const accountId = settings.gmail.connectedEmail;
   const connected = useGmailConnected();
+  // Prêt du worker vault : `connected` (settings) passe à true AVANT que le
+  // worker OPFS ait fini de booter. Sans ce signal, loadList se lancerait trop
+  // tôt (mirror indispo → chemin live → OAuth) et ne se relancerait jamais. On
+  // re-déclenche loadList quand le worker devient prêt (event vault-ready).
+  const [workerReady, setWorkerReady] = useState(
+    typeof window === "undefined" ? false : isWorkerReady(),
+  );
+  useEffect(() => {
+    if (isWorkerReady()) {
+      setWorkerReady(true);
+      return;
+    }
+    const onReady = () => setWorkerReady(true);
+    window.addEventListener("supernote:vault-ready", onReady);
+    return () => window.removeEventListener("supernote:vault-ready", onReady);
+  }, []);
   // Adresses « à moi » (compte connecté + alias/boîtes partagées) → exclues du
   // regroupement par expéditeur dans la surcouche mail (cf. buildMailOverlay).
   const selfAddresses = useMemo(
@@ -436,7 +453,7 @@ export default function MailPage() {
   useEffect(() => {
     if (connected) void loadList(DEFAULT_MAIL_QUERY);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connected]);
+  }, [connected, workerReady]);
 
   // Bascule d'onglet inbox ↔ groupe : re-dérive les rows depuis les items DÉJÀ
   // chargés (mirror INBOX), sans refetch réseau → instantané. L'onglet todo a son
