@@ -24,9 +24,10 @@ import {
   mirrorListLabels,
   mirrorGetThread,
   mirrorApplyMutation,
+  mirrorCancelOutbox,
   type MirrorMutation,
 } from "@/lib/mail-mirror";
-import { syncMailbox, syncThreadDetail } from "@/lib/mail-sync";
+import { syncMailbox, syncThreadDetail, flushOutbox } from "@/lib/mail-sync";
 import { draftReplyVariants, type ReplyVariant, type MailAiThread, isAiConfigured } from "@/lib/mail-ai";
 import { pickReplyTo } from "@/lib/mail-reply";
 import { toggleRowSelection, pruneSelection } from "@/lib/mail-selection";
@@ -72,6 +73,18 @@ const TRIAGE_DONE_LABEL: Record<TriageAction, string> = {
 
 /** Durée du toast « Annuler » : assez longue pour cliquer, sans gêner (6 s). */
 const UNDO_TOAST_DURATION_MS = 6000;
+
+/**
+ * Mutation mirror équivalente à une action de triage (modèle inbox zero). PAS de
+ * `dropThread` : on retire seulement INBOX (le fil sort de la liste filtrée
+ * INBOX) en GARDANT la ligne, pour que l'« Annuler » puisse la re-patcher. La
+ * reconciliation incrémentale récupère la place (drop) au prochain sync.
+ */
+function triageMutation(id: string, action: TriageAction): MirrorMutation {
+  return action === "delete"
+    ? { threadId: id, kind: "trash", removeLabelIds: [INBOX_LABEL] }
+    : { threadId: id, kind: "modifyLabels", removeLabelIds: [INBOX_LABEL] };
+}
 
 export default function MailPage() {
   const { settings } = useSettings();
@@ -363,6 +376,34 @@ export default function MailPage() {
     [accountId],
   );
 
+  // Pousse l'outbox vers Gmail en arrière-plan (coalescé par accountId côté
+  // flushOutbox → sûr d'appeler en rafale, ex. action groupée).
+  const pushOutboxNow = useCallback(() => {
+    if (!mirrorAvailable() || !accountId || !clientId) return;
+    void flushOutbox(clientId, accountId).catch(() => {
+      /* best-effort : retry au prochain flush / sync */
+    });
+  }, [accountId, clientId]);
+
+  // Write path OUTBOX-AUTHORITATIVE des mutations de la LISTE (gérées par la
+  // page). Mirror dispo → persiste + enqueue outbox + push background (1 seule
+  // voie, durable offline) et renvoie l'opId (pour l'Annuler). Mode limité (pas
+  // de worker) → appel Gmail direct, renvoie null. Les mutations émises DEPUIS
+  // EmailThreadView poussent Gmail elles-mêmes → restent en dual-write
+  // (patchMirror), pas concernées ici.
+  const commitMutation = useCallback(
+    async (m: MirrorMutation, direct: () => Promise<void>): Promise<string | null> => {
+      if (mirrorAvailable() && accountId) {
+        const opId = await mirrorApplyMutation(accountId, { ...m, enqueue: true });
+        pushOutboxNow();
+        return opId;
+      }
+      await direct();
+      return null;
+    },
+    [accountId, pushOutboxNow],
+  );
+
   // « Charger plus » : récupère la page suivante (via nextPageToken), APPEND aux
   // items cumulés, puis RECONSTRUIT l'overlay sur l'ENSEMBLE cumulé (sinon le
   // regroupement label/expéditeur serait calculé page par page, donc faux).
@@ -556,16 +597,15 @@ export default function MailPage() {
     });
   }, []);
 
-  // Mécanisme « Annuler » (toast-action) : après un triage réussi, on affiche un
-  // toast ~6 s avec un bouton « Annuler ». Au clic, on défait la mutation Gmail
-  // (undoTriage : ré-ajoute INBOX ; untrash pour delete ; purge snooze) puis on
-  // recharge la liste — le plus simple pour RE-AFFICHER le fil restauré (l'undo
-  // a pu changer l'ordre / le snippet / les labels). On choisit le toast-action
-  // plutôt qu'une bannière inline car `useToast` (@supernote/ui) supporte
-  // nativement `action: { label, onClick }` et `duration` — pas de surface UI à
-  // maintenir, cohérent avec les autres notifications de la page.
+  // Mécanisme « Annuler » (toast-action) : après un triage réussi, toast ~6 s avec
+  // un bouton « Annuler ». `opId` présent = le triage est parti par l'outbox
+  // (mirror) : on ANNULE l'op en attente (ack → supprimée si pas encore poussée)
+  // puis on enqueue l'op inverse (ré-ajoute INBOX / untrash) — convergence quel
+  // que soit l'état du push. `opId` absent (mode limité OU triage émis par
+  // EmailThreadView qui a poussé Gmail lui-même) = undo Gmail direct. Dans les
+  // deux cas, loadList re-affiche le fil restauré (mirror → reconciliation).
   const offerUndo = useCallback(
-    (id: string, action: TriageAction) => {
+    (id: string, action: TriageAction, opId?: string | null) => {
       if (!clientId) {
         toast({ title: TRIAGE_DONE_LABEL[action] });
         return;
@@ -576,9 +616,23 @@ export default function MailPage() {
         action: {
           label: "Annuler",
           onClick: () => {
-            undoTriage(clientId, id, action)
+            const undo = (async () => {
+              if (opId && mirrorAvailable() && accountId) {
+                await mirrorCancelOutbox([opId]);
+                const reverse: MirrorMutation =
+                  action === "delete"
+                    ? { threadId: id, kind: "untrash", addLabelIds: [INBOX_LABEL] }
+                    : { threadId: id, kind: "modifyLabels", addLabelIds: [INBOX_LABEL] };
+                await mirrorApplyMutation(accountId, { ...reverse, enqueue: true });
+                if (action === "snooze") removeSnooze(id);
+                pushOutboxNow();
+              } else {
+                await undoTriage(clientId, id, action);
+              }
+            })();
+            undo
               .then(() => {
-                // Re-affiche le fil restauré : la liste est la source de vérité.
+                // Re-affiche le fil restauré : la liste (mirror) est la vérité.
                 void loadList(query);
                 toast({ title: "Triage annulé", variant: "success" });
               })
@@ -593,7 +647,7 @@ export default function MailPage() {
         },
       });
     },
-    [clientId, toast, loadList, query],
+    [clientId, accountId, toast, loadList, query, pushOutboxNow],
   );
 
   // Triage clavier d'une ligne « single » sélectionnée (archive `e`, delete `#`).
@@ -605,13 +659,6 @@ export default function MailPage() {
       if (!row || row.kind !== "single" || !clientId) return;
       const id = row.item.id;
       dropThreadFromList(id);
-      // Inbox zero : done/archive/snooze/delete sortent le fil de l'inbox → drop
-      // du mirror (place récupérée). Le markRead n'est pas concerné ici.
-      patchMirror(
-        action === "delete"
-          ? { threadId: id, kind: "trash", dropThread: true }
-          : { threadId: id, kind: "modifyLabels", removeLabelIds: [INBOX_LABEL], dropThread: true },
-      );
       // Snooze clavier → échéance par défaut « Demain » (cf. TriageBar pour le
       // choix fin via popover). On note l'échéance AVANT la mutation, rollback
       // local en cas d'échec.
@@ -627,9 +674,11 @@ export default function MailPage() {
             : action === "done"
               ? "Action échouée"
               : "Archivage échoué";
-      applyTriage(clientId, id, action)
-        .then(() => {
-          offerUndo(id, action);
+      // Outbox-authoritative : enqueue (mirror) OU appel Gmail direct (mode
+      // limité). L'opId permet à l'Annuler de canceller l'op encore en attente.
+      commitMutation(triageMutation(id, action), () => applyTriage(clientId, id, action))
+        .then((opId) => {
+          offerUndo(id, action, opId);
         })
         .catch((err) => {
           if (action === "snooze") removeSnooze(id);
@@ -641,7 +690,7 @@ export default function MailPage() {
           void loadList(query);
         });
     },
-    [rows, clientId, dropThreadFromList, toast, loadList, query, offerUndo, patchMirror],
+    [rows, clientId, dropThreadFromList, toast, loadList, query, offerUndo, commitMutation],
   );
 
   // ─── Sélection multiple (desktop) ──────────────────────────────────────────
@@ -679,23 +728,21 @@ export default function MailPage() {
             return r.kind === "single" ? { ...r, item: strip(r.item) } : { ...r, items: r.items.map(strip) };
           }),
         );
-        for (const id of ids) patchMirror({ threadId: id, kind: "modifyLabels", removeLabelIds: ["UNREAD"] });
       } else {
-        for (const id of ids) {
-          dropThreadFromList(id);
-          patchMirror(
-            kind === "delete"
-              ? { threadId: id, kind: "trash", dropThread: true }
-              : { threadId: id, kind: "modifyLabels", removeLabelIds: [INBOX_LABEL], dropThread: true },
-          );
-        }
+        for (const id of ids) dropThreadFromList(id);
       }
       try {
+        // Outbox-authoritative : chaque action passe par l'outbox (push coalescé)
+        // ou Gmail direct (mode limité).
+        const triage: TriageAction = kind === "delete" ? "delete" : "archive";
         await Promise.all(
           ids.map((id) =>
             kind === "read"
-              ? markThreadRead(clientId, id)
-              : applyTriage(clientId, id, kind === "delete" ? "delete" : "archive"),
+              ? commitMutation(
+                  { threadId: id, kind: "modifyLabels", removeLabelIds: ["UNREAD"] },
+                  () => markThreadRead(clientId, id),
+                )
+              : commitMutation(triageMutation(id, triage), () => applyTriage(clientId, id, triage)),
           ),
         );
         toast({
@@ -718,7 +765,7 @@ export default function MailPage() {
         void loadList(query);
       }
     },
-    [clientId, selectedThreadIds, bulkBusy, dropThreadFromList, toast, loadList, query, patchMirror],
+    [clientId, selectedThreadIds, bulkBusy, dropThreadFromList, toast, loadList, query, commitMutation],
   );
 
   // Supprime TOUS les fils d'un groupe d'overlay en une fois. Destructif →
@@ -738,15 +785,20 @@ export default function MailPage() {
       });
       if (!ok) return;
       setBulkBusy(true);
-      for (const id of ids) {
-        dropThreadFromList(id);
-        patchMirror({ threadId: id, kind: "trash", dropThread: true });
-      }
+      for (const id of ids) dropThreadFromList(id);
       setSelectedGroup(null);
       setSelectedThreadId(null);
       setThread(null);
       try {
-        await Promise.all(ids.map((id) => applyTriage(clientId, id, "delete")));
+        // Pas d'« Annuler » ici → dropThread (place récupérée tout de suite).
+        await Promise.all(
+          ids.map((id) =>
+            commitMutation(
+              { threadId: id, kind: "trash", removeLabelIds: [INBOX_LABEL], dropThread: true },
+              () => applyTriage(clientId, id, "delete"),
+            ),
+          ),
+        );
         toast({
           title: `${ids.length} email${ids.length > 1 ? "s" : ""} supprimé${ids.length > 1 ? "s" : ""}`,
         });
@@ -761,7 +813,7 @@ export default function MailPage() {
         void loadList(query);
       }
     },
-    [clientId, bulkBusy, confirm, dropThreadFromList, toast, loadList, query, patchMirror],
+    [clientId, bulkBusy, confirm, dropThreadFromList, toast, loadList, query, commitMutation],
   );
 
   // Marque comme lus TOUS les fils non lus d'un groupe d'overlay. Optimiste :
@@ -781,9 +833,15 @@ export default function MailPage() {
         ),
       );
       setSelectedGroup((g) => (g ? { ...g, items: g.items.map(strip) } : g));
-      for (const id of ids) patchMirror({ threadId: id, kind: "modifyLabels", removeLabelIds: ["UNREAD"] });
       try {
-        await Promise.all(ids.map((id) => markThreadRead(clientId, id)));
+        await Promise.all(
+          ids.map((id) =>
+            commitMutation(
+              { threadId: id, kind: "modifyLabels", removeLabelIds: ["UNREAD"] },
+              () => markThreadRead(clientId, id),
+            ),
+          ),
+        );
         toast({ title: `${ids.length} marqué${ids.length > 1 ? "s" : ""} comme lu${ids.length > 1 ? "s" : ""}` });
       } catch (err) {
         toast({
@@ -794,7 +852,7 @@ export default function MailPage() {
         void loadList(query);
       }
     },
-    [clientId, toast, loadList, query, patchMirror],
+    [clientId, toast, loadList, query, commitMutation],
   );
 
   // ─── Brouillons IA (colonne dédiée) ────────────────────────────────────────
@@ -1218,8 +1276,10 @@ export default function MailPage() {
           ? { ...t, labelIds: [...t.labelIds, labelId] }
           : t,
       );
-      patchMirror({ threadId, kind: "modifyLabels", addLabelIds: [labelId] });
-      void addThreadLabel(clientId, threadId, labelId)
+      void commitMutation(
+        { threadId, kind: "modifyLabels", addLabelIds: [labelId] },
+        () => addThreadLabel(clientId, threadId, labelId),
+      )
         .then(() => toast({ title: "Tag appliqué" }))
         .catch((err) => {
           if (prev) {
@@ -1241,7 +1301,7 @@ export default function MailPage() {
           });
         });
     },
-    [clientId, labelNames, selfAddresses, toast, patchMirror, computeVisible],
+    [clientId, labelNames, selfAddresses, toast, commitMutation, computeVisible],
   );
 
   // Toggle étoile depuis une ligne de la liste (optimiste, sans ouvrir le fil).
@@ -1251,12 +1311,14 @@ export default function MailPage() {
       const next = !current.includes("STARRED");
       const nextIds = next ? [...current, "STARRED"] : current.filter((l) => l !== "STARRED");
       syncThreadLabels(id, nextIds);
-      patchMirror({
-        threadId: id,
-        kind: "modifyLabels",
-        ...(next ? { addLabelIds: ["STARRED"] } : { removeLabelIds: ["STARRED"] }),
-      });
-      toggleStar(clientId, id, next).catch((err) => {
+      void commitMutation(
+        {
+          threadId: id,
+          kind: "modifyLabels",
+          ...(next ? { addLabelIds: ["STARRED"] } : { removeLabelIds: ["STARRED"] }),
+        },
+        () => toggleStar(clientId, id, next),
+      ).catch((err) => {
         syncThreadLabels(id, current);
         toast({
           title: next ? "Ajout de l'étoile échoué" : "Retrait de l'étoile échoué",
@@ -1265,7 +1327,7 @@ export default function MailPage() {
         });
       });
     },
-    [clientId, syncThreadLabels, toast, patchMirror],
+    [clientId, syncThreadLabels, toast, commitMutation],
   );
 
   // ─── Menu contextuel (clic droit) de la liste ─────────────────────────────
@@ -1302,14 +1364,9 @@ export default function MailPage() {
       if (row.kind !== "single" || !clientId) return;
       const id = row.item.id;
       dropThreadFromList(id);
-      patchMirror(
-        action === "delete"
-          ? { threadId: id, kind: "trash", dropThread: true }
-          : { threadId: id, kind: "modifyLabels", removeLabelIds: [INBOX_LABEL], dropThread: true },
-      );
       if (action === "snooze" && until != null) addSnooze(id, until);
-      applyTriage(clientId, id, action)
-        .then(() => offerUndo(id, action))
+      commitMutation(triageMutation(id, action), () => applyTriage(clientId, id, action))
+        .then((opId) => offerUndo(id, action, opId))
         .catch((err) => {
           if (action === "snooze") removeSnooze(id);
           toast({
@@ -1320,7 +1377,7 @@ export default function MailPage() {
           void loadList(query);
         });
     },
-    [clientId, dropThreadFromList, offerUndo, toast, loadList, query, patchMirror],
+    [clientId, dropThreadFromList, offerUndo, toast, loadList, query, commitMutation],
   );
 
   // Marquer lu / non-lu une ligne single (optimiste + rollback).
@@ -1331,12 +1388,14 @@ export default function MailPage() {
       const current = row.item.labelIds;
       const nextIds = read ? current.filter((l) => l !== "UNREAD") : [...current, "UNREAD"];
       syncThreadLabels(id, nextIds);
-      patchMirror({
-        threadId: id,
-        kind: "modifyLabels",
-        ...(read ? { removeLabelIds: ["UNREAD"] } : { addLabelIds: ["UNREAD"] }),
-      });
-      (read ? markThreadRead(clientId, id) : markThreadUnread(clientId, id)).catch((err) => {
+      void commitMutation(
+        {
+          threadId: id,
+          kind: "modifyLabels",
+          ...(read ? { removeLabelIds: ["UNREAD"] } : { addLabelIds: ["UNREAD"] }),
+        },
+        () => (read ? markThreadRead(clientId, id) : markThreadUnread(clientId, id)),
+      ).catch((err) => {
         syncThreadLabels(id, current);
         toast({
           title: read ? "Marquage « lu » échoué" : "Marquage « non lu » échoué",
@@ -1345,7 +1404,7 @@ export default function MailPage() {
         });
       });
     },
-    [clientId, syncThreadLabels, toast, patchMirror],
+    [clientId, syncThreadLabels, toast, commitMutation],
   );
 
   // Après l'ENVOI d'une réponse : re-fetch le fil courant (la réponse y apparaît)

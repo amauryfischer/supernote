@@ -103,3 +103,15 @@ export async function mirrorApplyMutation(
   });
   return opId;
 }
+
+/**
+ * Cancel pending outbox ops (e.g. on Undo, before they reach Gmail). Acking
+ * deletes the rows; if an op was already pushed, the delete is a harmless no-op
+ * and the caller enqueues a reverse op to fix Gmail.
+ */
+export async function mirrorCancelOutbox(opIds: string[]): Promise<void> {
+  if (opIds.length === 0) return;
+  await trpcVanillaClient.mail.resolveOutbox.mutate({ opIds, outcome: "ack" }).catch(() => {
+    /* best-effort */
+  });
+}

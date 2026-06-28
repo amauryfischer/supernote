@@ -176,8 +176,23 @@ export async function syncThreadDetail(
   return t;
 }
 
+// Per-account in-flight guard so concurrent pushes (e.g. a bulk action firing
+// one per thread) coalesce instead of double-pushing the same outbox ops.
+const outboxInFlight = new Map<string, Promise<void>>();
+
 /** Push pending optimistic mutations to Gmail, then ack/fail each outbox op. */
-export async function flushOutbox(clientId: string, accountId: string): Promise<void> {
+export function flushOutbox(clientId: string, accountId: string): Promise<void> {
+  if (!clientId || !accountId) return Promise.resolve();
+  const running = outboxInFlight.get(accountId);
+  if (running) return running;
+  const task = flushOutboxInner(clientId, accountId).finally(() => {
+    outboxInFlight.delete(accountId);
+  });
+  outboxInFlight.set(accountId, task);
+  return task;
+}
+
+async function flushOutboxInner(clientId: string, accountId: string): Promise<void> {
   const { items } = await trpcVanillaClient.mail.listOutbox.query({ accountId });
   if (items.length === 0) return;
   const acked: string[] = [];
