@@ -144,6 +144,11 @@ export default function MailPage() {
   // (distinct du fil ouvert). -1 = aucune sélection. Conteneur scrollable de la
   // liste pour le scroll-into-view de la ligne sélectionnée.
   const [selectedRowIndex, setSelectedRowIndex] = useState(-1);
+  // Curseur clavier DANS un groupe ouvert (pane2). Index dans selectedGroup.items.
+  // 0 par défaut à l'entrée du groupe. Conteneur scrollable du groupe pour le
+  // scroll-into-view.
+  const [groupCursor, setGroupCursor] = useState(0);
+  const groupScrollRef = useRef<HTMLDivElement | null>(null);
   const listScrollRef = useRef<HTMLDivElement | null>(null);
   // Conteneur scrollable du fil ouvert : on s'y positionne EN BAS à l'ouverture
   // (dernier message = le plus récent) plutôt qu'en haut.
@@ -548,6 +553,15 @@ export default function MailPage() {
     }
   };
 
+  // Ferme le fil ouvert (revient à la liste / au groupe). Hoisté en useCallback
+  // pour être utilisable par le handler clavier (Échap/u) ET le rendu drawer.
+  const closeThread = useCallback(() => {
+    setSelectedThreadId(null);
+    setThread(null);
+    setThreadError(null);
+    setPeekList(false);
+  }, []);
+
   // Deep-link `/mail?thread=<id>` : ouvre directement le fil (ex. depuis une tâche
   // liée à un email dans /todos). On consomme le paramètre une fois.
   useEffect(() => {
@@ -943,13 +957,32 @@ export default function MailPage() {
 
   // Clamp/réinitialise le curseur clavier quand la liste change (recherche,
   // pagination, triage). Garde l'index dans [0, rows.length-1] ; -1 si vide.
+  // Auto-active la 1ʳᵉ ligne dès qu'il y a du contenu (desktop, hors fil/groupe
+  // ouvert) → curseur visible d'emblée + flèches opérantes SANS clic préalable.
   useEffect(() => {
     setSelectedRowIndex((cur) => {
       if (rows.length === 0) return -1;
-      if (cur < 0) return cur; // pas encore activé : on ne force pas une sélection
+      if (cur < 0) {
+        return !isMobile && !selectedThreadId && !selectedGroup ? 0 : cur;
+      }
       return Math.min(cur, rows.length - 1);
     });
-  }, [rows]);
+  }, [rows, isMobile, selectedThreadId, selectedGroup]);
+
+  // Entrée dans un groupe (ou bascule de groupe) → curseur clavier en tête.
+  const selectedGroupKey = selectedGroup?.key ?? null;
+  useEffect(() => {
+    setGroupCursor(0);
+  }, [selectedGroupKey]);
+
+  // Scroll-into-view de l'item « curseur » du groupe ouvert (pane2).
+  useEffect(() => {
+    if (!selectedGroup) return;
+    const el = groupScrollRef.current?.querySelector<HTMLElement>(
+      `[data-mail-group-index="${groupCursor}"]`,
+    );
+    el?.scrollIntoView({ block: "nearest" });
+  }, [groupCursor, selectedGroup]);
 
   // Nettoie la sélection des threadIds qui ne sont plus dans la liste (après un
   // rechargement / triage). Évite d'agir sur des threads disparus.
@@ -970,6 +1003,30 @@ export default function MailPage() {
     el?.scrollIntoView({ block: "nearest" });
   }, [selectedRowIndex]);
 
+  // Triage rapide d'une ligne single (Fait/Archiver/Reporter/Supprimer), optimiste
+  // + Annuler. Pour le snooze, on note l'échéance avant la mutation (rollback si KO).
+  // Défini AVANT le handler clavier qui s'en sert (triage d'un item de groupe).
+  const handleTriageRow = useCallback(
+    (row: OverlayRow, action: TriageAction, until?: number) => {
+      if (row.kind !== "single" || !clientId) return;
+      const id = row.item.id;
+      dropThreadFromList(id);
+      if (action === "snooze" && until != null) addSnooze(id, until);
+      commitMutation(triageMutation(id, action), () => applyTriage(clientId, id, action))
+        .then((opId) => offerUndo(id, action, opId))
+        .catch((err) => {
+          if (action === "snooze") removeSnooze(id);
+          toast({
+            title: "Triage échoué",
+            description: err instanceof Error ? err.message : String(err),
+            variant: "danger",
+          });
+          void loadList(query);
+        });
+    },
+    [clientId, dropThreadFromList, offerUndo, toast, loadList, query, commitMutation],
+  );
+
   // Navigation clavier desktop sur la liste (pas de listener sur mobile).
   // Désactivée quand le focus est dans un champ de saisie / contenteditable, ou
   // qu'une modale est ouverte (capture/compose), pour ne pas voler les frappes.
@@ -981,7 +1038,155 @@ export default function MailPage() {
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
 
-      switch (e.key) {
+      const key = e.key;
+      const threadOpen = selectedThreadId !== null;
+
+      // ── Contexte GROUPE (pane2) : un groupe est ouvert (avec ou sans fil). ──
+      // j/k parcourent les items du groupe (et ouvrent au vol si un fil est déjà
+      // ouvert → on feuillette) ; Enter ouvre ; Échap/←/h ferme le fil puis sort
+      // du groupe ; e/d/#/s trient l'item sous le curseur.
+      if (selectedGroup) {
+        const items = selectedGroup.items;
+        const openAt = (i: number) => {
+          const it = items[i];
+          if (it) void openThread(it.id);
+        };
+        const triageAt = (action: TriageAction) => {
+          const it = items[groupCursor];
+          if (it) {
+            e.preventDefault();
+            handleTriageRow({ kind: "single", item: it }, action);
+          }
+        };
+        switch (key) {
+          case "j":
+          case "ArrowDown": {
+            e.preventDefault();
+            const n = items.length === 0 ? 0 : Math.min(groupCursor + 1, items.length - 1);
+            setGroupCursor(n);
+            if (threadOpen) openAt(n);
+            break;
+          }
+          case "k":
+          case "ArrowUp": {
+            e.preventDefault();
+            const n = Math.max(groupCursor - 1, 0);
+            setGroupCursor(n);
+            if (threadOpen) openAt(n);
+            break;
+          }
+          case "Enter":
+          case "o":
+          case "O":
+            e.preventDefault();
+            openAt(groupCursor);
+            break;
+          case "u":
+          case "U":
+            if (threadOpen) {
+              e.preventDefault();
+              closeThread();
+            }
+            break;
+          case "Escape":
+          case "h":
+          case "ArrowLeft":
+            e.preventDefault();
+            if (threadOpen) closeThread();
+            else setSelectedGroup(null);
+            break;
+          case "e":
+          case "E":
+            triageAt("archive");
+            break;
+          case "d":
+          case "D":
+            triageAt("done");
+            break;
+          case "#":
+            triageAt("delete");
+            break;
+          case "s":
+          case "S":
+            triageAt("snooze");
+            break;
+          default:
+            break;
+        }
+        return;
+      }
+
+      // ── Contexte FIL OUVERT (single, hors groupe) : feuilleter les emails. ──
+      // j/k = email suivant/précédent (parmi les lignes « single » de la liste) +
+      // ouverture ; Échap/u ferme et revient à la liste ; e/d/#/s trient le fil.
+      if (threadOpen) {
+        const singles: number[] = [];
+        for (let i = 0; i < rows.length; i++) if (rows[i]?.kind === "single") singles.push(i);
+        const openRowIndex = rows.findIndex(
+          (r) => r.kind === "single" && r.item.id === selectedThreadId,
+        );
+        const curPos = singles.indexOf(openRowIndex);
+        const openSingleAt = (pos: number) => {
+          if (pos < 0 || pos >= singles.length) return;
+          const ri = singles[pos]!;
+          const r = rows[ri];
+          if (r && r.kind === "single") {
+            setSelectedRowIndex(ri);
+            void openThread(r.item.id);
+          }
+        };
+        switch (key) {
+          case "j":
+          case "ArrowDown":
+            e.preventDefault();
+            openSingleAt(curPos < 0 ? 0 : Math.min(curPos + 1, singles.length - 1));
+            break;
+          case "k":
+          case "ArrowUp":
+            e.preventDefault();
+            openSingleAt(curPos < 0 ? 0 : Math.max(curPos - 1, 0));
+            break;
+          case "Escape":
+          case "u":
+          case "U":
+            e.preventDefault();
+            closeThread();
+            break;
+          case "e":
+          case "E":
+            if (openRowIndex >= 0) {
+              e.preventDefault();
+              triageRowAt(openRowIndex, "archive");
+            }
+            break;
+          case "d":
+          case "D":
+            if (openRowIndex >= 0) {
+              e.preventDefault();
+              triageRowAt(openRowIndex, "done");
+            }
+            break;
+          case "#":
+            if (openRowIndex >= 0) {
+              e.preventDefault();
+              triageRowAt(openRowIndex, "delete");
+            }
+            break;
+          case "s":
+          case "S":
+            if (openRowIndex >= 0) {
+              e.preventDefault();
+              triageRowAt(openRowIndex, "snooze");
+            }
+            break;
+          default:
+            break;
+        }
+        return;
+      }
+
+      // ── Contexte OVERLAY (liste, rien d'ouvert) : navigation de base. ──
+      switch (key) {
         case "j":
         case "ArrowDown":
           e.preventDefault();
@@ -998,6 +1203,8 @@ export default function MailPage() {
           );
           break;
         case "Enter":
+        case "o":
+        case "O":
         case "r":
         case "R": {
           if (selectedRowIndex < 0) return;
@@ -1044,11 +1251,8 @@ export default function MailPage() {
           }
           break;
         case "Escape":
-          // Échap ferme d'abord l'overlay liste, sinon vide la sélection.
-          if (peekList) {
-            e.preventDefault();
-            setPeekList(false);
-          } else if (selectedThreadIds.size > 0) {
+          // Échap vide la sélection multiple si active.
+          if (selectedThreadIds.size > 0) {
             e.preventDefault();
             clearSelection();
           }
@@ -1069,12 +1273,16 @@ export default function MailPage() {
     composeOpen,
     rows,
     selectedRowIndex,
+    selectedGroup,
+    selectedThreadId,
+    groupCursor,
     triageRowAt,
+    handleTriageRow,
+    closeThread,
     toggleRowSelected,
     toggleSelectedRowAtCursor,
     clearSelection,
     selectedThreadIds,
-    peekList,
   ]);
 
   // Le rail liste n'existe que fil ouvert → pas de fil ⇒ pas de peek résiduel.
@@ -1373,29 +1581,6 @@ export default function MailPage() {
       });
     },
     [convertRowToTodo, dropThreadFromList, patchMirror],
-  );
-
-  // Triage rapide d'une ligne single (Fait/Archiver/Reporter/Supprimer), optimiste
-  // + Annuler. Pour le snooze, on note l'échéance avant la mutation (rollback si KO).
-  const handleTriageRow = useCallback(
-    (row: OverlayRow, action: TriageAction, until?: number) => {
-      if (row.kind !== "single" || !clientId) return;
-      const id = row.item.id;
-      dropThreadFromList(id);
-      if (action === "snooze" && until != null) addSnooze(id, until);
-      commitMutation(triageMutation(id, action), () => applyTriage(clientId, id, action))
-        .then((opId) => offerUndo(id, action, opId))
-        .catch((err) => {
-          if (action === "snooze") removeSnooze(id);
-          toast({
-            title: "Triage échoué",
-            description: err instanceof Error ? err.message : String(err),
-            variant: "danger",
-          });
-          void loadList(query);
-        });
-    },
-    [clientId, dropThreadFromList, offerUndo, toast, loadList, query, commitMutation],
   );
 
   // Marquer lu / non-lu une ligne single (optimiste + rollback).
@@ -1697,11 +1882,12 @@ export default function MailPage() {
 
   const pane2 = selectedGroup ? (
     <div className="flex h-full flex-col overflow-hidden" style={{ borderRight: "1px solid var(--border-subtle)" }}>
-      <div className="flex-1 overflow-y-auto px-2 pb-4 pt-3">
+      <div ref={groupScrollRef} className="flex-1 overflow-y-auto px-2 pb-4 pt-3">
         <MailGroupList
           title={selectedGroup.title}
           items={selectedGroup.items}
           activeThreadId={selectedThreadId ?? undefined}
+          cursorIndex={isMobile ? undefined : groupCursor}
           onPick={(id) => void openThread(id)}
           onDeleteAll={() => void deleteGroup(selectedGroup)}
           onMarkAllRead={() => void markGroupRead(selectedGroup)}
@@ -2028,11 +2214,6 @@ export default function MailPage() {
   //   cliquable pour piocher un autre email.
   const drawerLeft = peekList ? "62%" : "18rem";
   const slide = `left ${prefersReducedMotion() ? "0ms" : "var(--sn-dur-4)"} var(--sn-ease-out)`;
-  const closeThread = () => {
-    setSelectedThreadId(null);
-    setThread(null);
-    setPeekList(false);
-  };
 
   return (
     <AppShell>

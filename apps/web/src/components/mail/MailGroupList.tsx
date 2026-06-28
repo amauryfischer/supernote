@@ -11,6 +11,7 @@ export function MailGroupList({
   title,
   items,
   activeThreadId,
+  cursorIndex,
   onPick,
   onDeleteAll,
   onMarkAllRead,
@@ -19,6 +20,8 @@ export function MailGroupList({
   title: string;
   items: ThreadListItem[];
   activeThreadId?: string;
+  /** Index de la ligne « curseur » de la nav clavier (distinct de l'ouverte). */
+  cursorIndex?: number;
   onPick: (threadId: string) => void;
   /** Présent → affiche un bouton « tout supprimer » dans l'en-tête du groupe. */
   onDeleteAll?: () => void;
@@ -63,20 +66,24 @@ export function MailGroupList({
           )}
         </div>
       </div>
-      {items.map((it) => {
+      {items.map((it, idx) => {
         const active = activeThreadId === it.id;
+        const cursored = cursorIndex === idx;
         const unread = it.labelIds.includes("UNREAD");
         const avatar = avatarColor(it.from.email || it.from.name || title);
         const mono = initials(it.from.name ?? "", it.from.email ?? "");
         return (
           <Button
             key={it.id}
+            data-mail-group-index={idx}
             variant="ghost"
             onPress={() => onPick(it.id)}
-            aria-selected={active}
-            className="h-auto w-full justify-start whitespace-normal rounded-lg px-3 py-2 text-left"
-            // Ligne ouverte : surlignage SOBRE (accent-subtle + barre accent à
-            // gauche), cohérent avec MailOverlayList — pas un bloc violet plein.
+            aria-selected={active || cursored}
+            // Curseur clavier (non ouvert) = anneau accent ; ouvert = accent-subtle
+            // + barre à gauche (cohérent avec MailOverlayList).
+            className={`h-auto w-full justify-start whitespace-normal rounded-lg px-3 py-2 text-left${
+              cursored && !active ? " ring-2 ring-inset ring-[var(--accent)]" : ""
+            }`}
             style={
               active
                 ? { backgroundColor: "var(--accent-subtle)", boxShadow: "inset 3px 0 0 0 var(--accent)" }
