@@ -43,7 +43,7 @@
   },
   "dependencies": {
     "@supernote/core": "workspace:*",
-    "nanoid": "^5.0.0",
+    "nanoid": "^5.1.16",
     "zod": "^3.24.0"
   },
   "devDependencies": {
