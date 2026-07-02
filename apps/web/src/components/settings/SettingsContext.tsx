@@ -5,6 +5,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useState,
   type ReactNode,
 } from "react";
@@ -87,11 +88,15 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     setIsSaving(false);
   }, []);
 
-  return (
-    <SettingsContext.Provider value={{ settings, updateSettings, saveSettings, isSaving }}>
-      {children}
-    </SettingsContext.Provider>
+  // Provider monté à la racine : sans useMemo, la value change de référence à
+  // chaque render (déclenché par tout parent, ex. scopeStack du ShortcutProvider)
+  // et re-rend tous les useSettings. Les callbacks sont déjà stables.
+  const value = useMemo(
+    () => ({ settings, updateSettings, saveSettings, isSaving }),
+    [settings, updateSettings, saveSettings, isSaving],
   );
+
+  return <SettingsContext.Provider value={value}>{children}</SettingsContext.Provider>;
 }
 
 export function useSettings() {

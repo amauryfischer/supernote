@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import mammoth from "mammoth";
+import DOMPurify from "dompurify";
 import { Button, Spinner } from "@heroui/react";
 import { Download, Warning } from "@phosphor-icons/react";
 import type { AttachmentViewerProps } from "../AttachmentRouter";
@@ -46,7 +47,11 @@ function useDocxConversion(bytes: ArrayBuffer | null, isLegacyDoc: boolean) {
         const warnings = res.messages
           .filter((m) => m.type === "warning")
           .map((m) => m.message);
-        setResult({ html: res.value, warnings, wordCount: countWords(res.value) });
+        // mammoth restitue les hyperliens du .docx tels quels (dont d'éventuels
+        // javascript:) — un doc piégé est du contenu utilisateur non fiable.
+        // Sanitize avant injection (cohérent avec la règle « corps jamais HTML brut »).
+        const html = DOMPurify.sanitize(res.value);
+        setResult({ html, warnings, wordCount: countWords(html) });
       })
       .catch((err: unknown) => {
         if (cancelled) return;

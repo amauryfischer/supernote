@@ -96,6 +96,16 @@ const VAULT_BOOT_IDLE_TIMEOUT_MS = 30_000;
 
 async function getCloudBaseDir(): Promise<FileSystemDirectoryHandle> {
   const root = await navigator.storage.getDirectory();
+  // Un coffre cloud vit en OPFS best-effort : le navigateur peut l'évincer sous
+  // pression disque, et canvas/pièces jointes ne sont PAS transportés par l'op-log
+  // serveur (perte définitive). persist() rend le stockage non-évictable.
+  // Idempotent, best-effort, [Exposed=Window] donc appelé ici (main thread) et
+  // pas dans le worker ; un échec/refus ne doit rien bloquer.
+  try {
+    await navigator.storage.persist?.();
+  } catch {
+    /* persist() indisponible ou refusé — best-effort */
+  }
   return root.getDirectoryHandle(CLOUD_OPFS_DIR, { create: true });
 }
 

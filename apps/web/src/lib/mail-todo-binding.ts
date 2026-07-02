@@ -153,6 +153,22 @@ export function getBinding(threadId: string): MailTodoBinding | undefined {
 }
 
 /**
+ * Retire la liaison correspondant à une tâche (recherche par `todoId`), persiste
+ * et notifie les vues abonnées. Appelé quand l'utilisateur SUPPRIME la tâche :
+ * sans ça la liaison reste orpheline, le thread reste masqué de l'inbox et une
+ * carte fantôme (todoId mort) subsiste sur le board mail. No-op si aucune liaison.
+ */
+export function removeBindingByTodo(todoId: string): MailTodoBinding[] {
+  const all = loadBindings();
+  const next = all.filter((e) => e.todoId !== todoId);
+  if (next.length !== all.length) {
+    saveBindings(next);
+    emitBindingsChanged();
+  }
+  return next;
+}
+
+/**
  * Met à jour le résumé IA de la liaison d'un thread (généré en arrière-plan
  * après la conversion), puis persiste ET notifie les vues abonnées via
  * `MAIL_BINDINGS_EVENT`. No-op si résumé vide ou thread non lié. Renvoie la

@@ -333,6 +333,17 @@ CREATE INDEX IF NOT EXISTS "mail_message_thread_idx"
     ON "mail_message" ("accountId", "threadId");
 CREATE INDEX IF NOT EXISTS "mail_outbox_account_status_idx"
     ON "mail_outbox" ("accountId", "status");
+-- Relations / backlinks / tags-inverse : sans ces index, entitiesGetRelated,
+-- getBacklinks/backlinkCounts et tagsEntities scannaient les tables entières.
+-- (Présents dans la migration Prisma mais absents du schéma navigateur réel.)
+CREATE INDEX IF NOT EXISTS "relation_edge_source_idx" ON "relation_edge" ("sourceId");
+CREATE INDEX IF NOT EXISTS "relation_edge_target_idx" ON "relation_edge" ("targetId");
+CREATE INDEX IF NOT EXISTS "relation_edge_type_idx" ON "relation_edge" ("relationTypeId");
+CREATE INDEX IF NOT EXISTS "mention_source_idx" ON "mention" ("sourceId");
+CREATE INDEX IF NOT EXISTS "mention_target_idx" ON "mention" ("targetId");
+CREATE INDEX IF NOT EXISTS "entity_tag_tagId_idx" ON "entity_tag" ("tagId");
+-- entities.list ORDER BY updatedAt DESC (exécuté par toutes les listes).
+CREATE INDEX IF NOT EXISTS "entity_vaultId_updatedAt_idx" ON "entity" ("vaultId", "updatedAt" DESC);
 `;
 
 /**

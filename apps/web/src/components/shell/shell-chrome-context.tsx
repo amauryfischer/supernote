@@ -184,6 +184,21 @@ export function ShellChromeProvider({ children }: { children: React.ReactNode })
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  // La palette de commandes vit hors de ce provider ; elle demande le toggle du
+  // panneau droit via un event window plutôt que par le contexte.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onToggle = () => {
+      setRightPanelVisibleState((v) => {
+        const next = !v;
+        writeRightPanelPreference(next);
+        return next;
+      });
+    };
+    window.addEventListener("supernote:toggle-right-panel", onToggle);
+    return () => window.removeEventListener("supernote:toggle-right-panel", onToggle);
+  }, []);
+
   const setFocusMode = useCallback((next: boolean) => {
     setFocusModeState(next);
   }, []);

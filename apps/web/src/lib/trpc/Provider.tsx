@@ -12,6 +12,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { trpc, createTrpcReactClient } from "./client";
 import { isWorkerReady } from "./browser-link";
+import { breadcrumb } from "@/lib/diagnostics/freeze-watchdog";
 
 interface TrpcProviderProps {
   readonly children: ReactNode;
@@ -48,6 +49,27 @@ export function TrpcProvider({ children }: TrpcProviderProps) {
   useEffect(() => {
     if (typeof window === "undefined") return;
     let progressTimer: ReturnType<typeof setTimeout> | null = null;
+    // Racines tRPC dont les données dépendent de l'index d'entités du vault.
+    // Le reindex de fond (adoption de fichiers, balayage de fantômes) ne touche
+    // que celles-ci — mail (miroir + sync propre), settings, notifications et
+    // system n'ont aucune raison de refetch à chaque batch d'op-log.
+    const DATA_QUERY_ROOTS = new Set([
+      "entities",
+      "views",
+      "tags",
+      "vault",
+      "search",
+      "relations",
+      "schemas",
+    ]);
+    const invalidateDataQueries = () =>
+      queryClient.invalidateQueries({
+        predicate: (q) => {
+          const path = q.queryKey?.[0];
+          const root = Array.isArray(path) ? (path as unknown[])[0] : undefined;
+          return typeof root === "string" && DATA_QUERY_ROOTS.has(root);
+        },
+      });
     const refresh = (ev?: Event) => {
       const isSwitch = (ev as CustomEvent | undefined)?.detail?.isSwitch === true;
       if (isSwitch) {
@@ -95,7 +117,11 @@ export function TrpcProvider({ children }: TrpcProviderProps) {
       if (progressTimer) clearTimeout(progressTimer);
       progressTimer = setTimeout(() => {
         progressTimer = null;
-        void queryClient.invalidateQueries();
+        // Ciblé (pas global) : c'est la voie haute fréquence (un batch d'op-log
+        // = un event). Invalider TOUTES les queries à chaque burst empilait les
+        // refetch en stampede main-thread juste après le first paint.
+        breadcrumb("sync:invalidate");
+        void invalidateDataQueries();
       }, 300);
     };
     window.addEventListener("supernote:vault-ready", refresh);

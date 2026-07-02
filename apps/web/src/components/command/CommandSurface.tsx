@@ -1,11 +1,13 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { useAppTheme } from "@supernote/ui";
 
 import { useShortcut } from "@/lib/keyboard/hooks";
 import { useRegisterCommands } from "@/lib/commands/hooks";
-import { SEED_COMMANDS } from "@/lib/commands/seed";
+import { buildSeedCommands } from "@/lib/commands/seed";
 import { UnifiedSearchModal } from "@/components/mail/UnifiedSearchModal";
 
 // CommandPalette pulls in the entire command catalogue UI; defer it until the
@@ -28,17 +30,55 @@ export function CommandSurface() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [unifiedOpen, setUnifiedOpen] = useState(false);
 
-  // Register seed commands
-  useRegisterCommands(SEED_COMMANDS);
+  const navigate = useNavigate();
+  const { theme, setTheme, resolvedTheme } = useAppTheme();
+
+  // Les commandes sont enregistrées une fois (useRegisterCommands ne réagit qu'au
+  // changement d'id) → toggleTheme doit être stable ET lire le thème COURANT via
+  // un ref, sinon il figerait le thème initial et ne basculerait plus.
+  const themeRef = useRef(resolvedTheme ?? theme);
+  themeRef.current = resolvedTheme ?? theme;
+  const toggleTheme = useCallback(() => {
+    setTheme(themeRef.current === "dark" ? "light" : "dark");
+  }, [setTheme]);
+  // CommandSurface vit hors du ShellChromeProvider (celui-ci est dans AppShell,
+  // sous l'Outlet) → on passe par un event window que shell-chrome-context écoute.
+  const toggleRightPanel = useCallback(() => {
+    window.dispatchEvent(new CustomEvent("supernote:toggle-right-panel"));
+  }, []);
+  // « today » figé au montage (yyyy-mm-dd) — suffisant pour la note du jour.
+  const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
+
+  // Commandes liées aux vraies actions (navigation SPA, thème, chrome).
+  const commands = useMemo(
+    () => buildSeedCommands({ navigate, toggleTheme, toggleRightPanel, today }),
+    [navigate, toggleTheme, toggleRightPanel, today],
+  );
+  useRegisterCommands(commands);
 
   const openPalette = useCallback(() => setPaletteOpen(true), []);
   const closePalette = useCallback(() => setPaletteOpen(false), []);
+
+  // useShortcut n'enregistre le handler qu'une fois (deps id/keys/scope) : la
+  // closure capture `paletteOpen=false` pour toujours. On lit l'état courant via
+  // un ref pour que le handler Échap voie la vraie valeur.
+  const paletteOpenRef = useRef(paletteOpen);
+  paletteOpenRef.current = paletteOpen;
 
   // Listen for the TopBar button's custom event ("Recherche rapide" click)
   useEffect(() => {
     const handler = () => setPaletteOpen(true);
     window.addEventListener("supernote:open-command-palette", handler);
     return () => window.removeEventListener("supernote:open-command-palette", handler);
+  }, []);
+
+  // Recherche unifiée : Cmd+Shift+K n'a aucune affordance visible et est
+  // inaccessible au tactile. Un event window permet de l'ouvrir depuis le
+  // MoreDrawer mobile et une action de header (cf. shell mobile).
+  useEffect(() => {
+    const handler = () => setUnifiedOpen(true);
+    window.addEventListener("supernote:open-unified-search", handler);
+    return () => window.removeEventListener("supernote:open-unified-search", handler);
   }, []);
 
   // Cmd+K / Ctrl+K — open command palette.
@@ -68,7 +108,7 @@ export function CommandSurface() {
     scope: "global",
     description: "Fermer la palette de commandes",
     handler: () => {
-      if (paletteOpen) {
+      if (paletteOpenRef.current) {
         closePalette();
         return true;
       }
@@ -105,28 +145,18 @@ export function CommandSurface() {
   // can call the real `handleNewNote` with the active folder. Registering it
   // globally here would shadow the per-page handler (first-match-wins).
 
-  // Cmd+D — daily note shortcut
-  useShortcut({
-    id: "shortcut.note.create-daily",
-    keys: "mod+d",
-    scope: "global",
-    description: "Note du jour",
-    handler: () => {
-      const cmd = SEED_COMMANDS.find((c) => c.id === "note.create-daily");
-      if (cmd) void cmd.run();
-      return true;
-    },
-  });
+  // Cmd+D — PAS de binding global : il masquait « recopier vers le bas » du
+  // DataGrid (et c'est un raccourci navigateur). La « Note du jour » reste
+  // accessible via la palette.
 
-  // Cmd+Shift+F — global search
+  // Cmd+Shift+F — recherche globale (navigation SPA vers /recherche).
   useShortcut({
     id: "shortcut.search.open",
     keys: "mod+shift+f",
     scope: "global",
     description: "Recherche globale",
     handler: () => {
-      const cmd = SEED_COMMANDS.find((c) => c.id === "search.open");
-      if (cmd) void cmd.run();
+      navigate("/recherche");
       return true;
     },
   });

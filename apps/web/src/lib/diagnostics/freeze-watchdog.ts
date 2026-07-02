@@ -33,6 +33,8 @@ const K = {
   crumb: "sn:freeze:crumb",
   longtasks: "sn:freeze:longtasks",
   clean: "sn:freeze:clean",
+  errors: "sn:freeze:errors",
+  lastAlive: "sn:freeze:lastAlive",
 } as const;
 
 /** Une tâche < ce seuil n'est pas notée (bruit). */
@@ -41,6 +43,10 @@ const LONGTASK_MS = 1000;
 const FREEZE_GRADE_MS = 2500;
 /** Anneau borné de longtasks conservées. */
 const MAX_LONGTASKS = 25;
+/** Anneau borné d'erreurs (render React, promesses rejetées, window.onerror). */
+const MAX_ERRORS = 10;
+/** Cadence du battement de cœur : dater le dernier signe de vie du thread. */
+const HEARTBEAT_MS = 5000;
 
 export interface FreezeCrumb {
   label: string;
@@ -52,6 +58,17 @@ export interface LongTaskRec {
   t: number;
   /** Durée arrondie en ms. */
   dur: number;
+  /** Attribution du longtask (containerType:name / script), si disponible. */
+  src?: string;
+}
+
+export interface ErrorRec {
+  t: number;
+  /** Origine : "react" (ErrorBoundary), "unhandledrejection", "window". */
+  source: string;
+  message: string;
+  /** Début de la stack (tronquée), si disponible. */
+  stack?: string;
 }
 
 export interface FreezeReport {
@@ -61,6 +78,11 @@ export interface FreezeReport {
   longTasks: LongTaskRec[];
   /** True si la session précédente ne s'est pas terminée proprement. */
   unclean: boolean;
+  /** Erreurs capturées pendant la session précédente (contexte du gel). */
+  errors: ErrorRec[];
+  /** Dernier battement de cœur de la session précédente (epoch ms) — datent le
+   *  gel : crumb.t = dernier changement de label, pas dernier signe de vie. */
+  lastAlive: number | null;
 }
 
 let lastWrittenLabel: string | null = null;
@@ -99,6 +121,24 @@ export function breadcrumb(label: string): void {
   safeSet(K.crumb, JSON.stringify({ label, t: Date.now() } satisfies FreezeCrumb));
 }
 
+/**
+ * Enregistre une erreur dans l'anneau borné (écriture localStorage synchrone,
+ * survit au kill de l'onglet). Alimenté par l'ErrorBoundary React et les
+ * handlers globaux `error`/`unhandledrejection` : fournit le contexte des
+ * erreurs qui précèdent souvent un gel. Best-effort, jamais d'exception.
+ */
+export function recordError(source: string, message: string, stack?: string): void {
+  const arr = parseErrors(safeGet(K.errors));
+  arr.push({
+    t: Date.now(),
+    source,
+    message: String(message).slice(0, 500),
+    ...(stack ? { stack: String(stack).slice(0, 1000) } : {}),
+  });
+  const capped = arr.length > MAX_ERRORS ? arr.slice(-MAX_ERRORS) : arr;
+  safeSet(K.errors, JSON.stringify(capped));
+}
+
 /** Rapport sur le freeze présumé de la session précédente (null si rien). */
 export function getFreezeReport(): FreezeReport | null {
   return report;
@@ -109,6 +149,7 @@ export function clearFreezeReport(): void {
   report = null;
   safeRemove(K.crumb);
   safeRemove(K.longtasks);
+  safeRemove(K.errors);
 }
 
 function parseCrumb(raw: string | null): FreezeCrumb | null {
@@ -148,6 +189,32 @@ function parseLongTasks(raw: string | null): LongTaskRec[] {
   return [];
 }
 
+function parseErrors(raw: string | null): ErrorRec[] {
+  if (!raw) return [];
+  try {
+    const v = JSON.parse(raw) as unknown;
+    if (Array.isArray(v)) {
+      return v.filter(
+        (e): e is ErrorRec =>
+          typeof e === "object" &&
+          e !== null &&
+          typeof (e as ErrorRec).t === "number" &&
+          typeof (e as ErrorRec).source === "string" &&
+          typeof (e as ErrorRec).message === "string",
+      );
+    }
+  } catch {
+    /* corrompu — ignoré */
+  }
+  return [];
+}
+
+function parseLastAlive(raw: string | null): number | null {
+  if (!raw) return null;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
+
 /**
  * À appeler une fois au boot, AVANT le rendu React. Calcule le rapport de la
  * session précédente, démarre une session propre, et branche l'observer.
@@ -159,18 +226,57 @@ export function installFreezeWatchdog(): void {
   const prevClean = safeGet(K.clean) === "1";
   const prevCrumb = parseCrumb(safeGet(K.crumb));
   const prevLongTasks = parseLongTasks(safeGet(K.longtasks));
+  const prevErrors = parseErrors(safeGet(K.errors));
+  const prevLastAlive = parseLastAlive(safeGet(K.lastAlive));
   const bigStall = prevLongTasks.some((lt) => lt.dur >= FREEZE_GRADE_MS);
-  // On ne signale que si ça ressemble à un gel : fermeture non-propre avec une
-  // dernière activité connue, OU un stall de grade-freeze enregistré.
-  if ((!prevClean && prevCrumb) || bigStall) {
-    report = { crumb: prevCrumb, longTasks: prevLongTasks, unclean: !prevClean };
+  // Erreurs capturées + fermeture non-propre = crash probable (l'ErrorBoundary
+  // a rendu son fallback, l'utilisateur a rechargé). Un log d'erreur suivi d'une
+  // fermeture PROPRE = géré/non-fatal, on ne dérange pas.
+  const hadFatalish = prevErrors.length > 0 && !prevClean;
+  // On ne signale que si ça ressemble à un gel/crash : fermeture non-propre avec
+  // une dernière activité connue, OU un stall de grade-freeze, OU des erreurs
+  // suivies d'une fermeture non-propre.
+  if ((!prevClean && prevCrumb) || bigStall || hadFatalish) {
+    report = {
+      crumb: prevCrumb,
+      longTasks: prevLongTasks,
+      unclean: !prevClean,
+      errors: prevErrors,
+      lastAlive: prevLastAlive,
+    };
   }
 
-  // ── 2. Démarrer une session : pas-encore-propre, store des crumbs remis à zéro.
+  // ── 2. Démarrer une session : pas-encore-propre, stores remis à zéro.
   safeSet(K.clean, "0");
   safeRemove(K.crumb);
   safeRemove(K.longtasks);
+  safeRemove(K.errors);
   lastWrittenLabel = null;
+
+  // Battement de cœur : dater le dernier signe de vie du thread principal. Un
+  // gel infini stoppe l'interval → au boot suivant, `lastAlive` borne le début
+  // du gel (impossible à déduire du seul crumb, qui date le dernier label).
+  const beat = () => safeSet(K.lastAlive, String(Date.now()));
+  beat();
+  window.setInterval(beat, HEARTBEAT_MS);
+
+  // Capture globale des erreurs — contexte des crashs/gels. Best-effort.
+  window.addEventListener("error", (ev) => {
+    const err = (ev as ErrorEvent).error;
+    recordError(
+      "window",
+      (ev as ErrorEvent).message || String(err),
+      err instanceof Error ? err.stack : undefined,
+    );
+  });
+  window.addEventListener("unhandledrejection", (ev) => {
+    const reason = (ev as PromiseRejectionEvent).reason;
+    recordError(
+      "unhandledrejection",
+      reason instanceof Error ? reason.message : String(reason),
+      reason instanceof Error ? reason.stack : undefined,
+    );
+  });
 
   const markClean = () => safeSet(K.clean, "1");
   // pagehide est le signal fiable sur mobile ; beforeunload en complément desktop.
@@ -191,7 +297,27 @@ export function installFreezeWatchdog(): void {
         const arr = parseLongTasks(safeGet(K.longtasks));
         for (const e of list.getEntries()) {
           if (e.duration >= LONGTASK_MS) {
-            arr.push({ t: Date.now(), dur: Math.round(e.duration) });
+            // Attribution : quel conteneur/script est responsable du stall.
+            const attr = (
+              e as PerformanceEntry & {
+                attribution?: Array<{
+                  containerType?: string;
+                  containerName?: string;
+                  containerSrc?: string;
+                }>;
+              }
+            ).attribution;
+            const first = Array.isArray(attr) ? attr[0] : undefined;
+            const src = first
+              ? [first.containerType, first.containerName || first.containerSrc]
+                  .filter(Boolean)
+                  .join(":")
+              : e.name || undefined;
+            arr.push({
+              t: Date.now(),
+              dur: Math.round(e.duration),
+              ...(src ? { src } : {}),
+            });
           }
         }
         const capped = arr.length > MAX_LONGTASKS ? arr.slice(-MAX_LONGTASKS) : arr;

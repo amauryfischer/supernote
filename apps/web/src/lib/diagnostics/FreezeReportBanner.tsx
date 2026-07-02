@@ -27,10 +27,25 @@ function formatReport(r: FreezeReport): string {
   } else {
     lines.push("dernière activité: (aucune)");
   }
+  if (r.lastAlive) {
+    lines.push(`dernier battement: ${new Date(r.lastAlive).toLocaleString()}`);
+    // Écart crumb→dernier battement = borne basse de la durée du gel.
+    if (r.crumb && r.lastAlive >= r.crumb.t) {
+      lines.push(`gel ≳ ${Math.round((r.lastAlive - r.crumb.t) / 1000)}s après la dernière activité`);
+    }
+  }
   if (r.longTasks.length > 0) {
     lines.push(
-      `stalls: ${r.longTasks.map((lt) => `${lt.dur}ms`).join(", ")}`,
+      `stalls: ${r.longTasks
+        .map((lt) => (lt.src ? `${lt.dur}ms (${lt.src})` : `${lt.dur}ms`))
+        .join(", ")}`,
     );
+  }
+  if (r.errors.length > 0) {
+    lines.push("erreurs:");
+    for (const e of r.errors) {
+      lines.push(`  [${e.source}] ${e.message}`);
+    }
   }
   lines.push(`ua: ${navigator.userAgent}`);
   return lines.join("\n");

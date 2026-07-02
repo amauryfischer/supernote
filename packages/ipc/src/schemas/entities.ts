@@ -62,6 +62,20 @@ export const GetEntityInput = z.object({
 });
 export type GetEntityInput = z.infer<typeof GetEntityInput>;
 
+/** Comptage pur (COUNT SQL) — aucune entité transportée. Pour les compteurs
+ *  d'accueil qui n'avaient besoin que d'un nombre mais rapatriaient jusqu'à
+ *  10 000 entités (bodies compris). */
+export const CountEntitiesInput = z.object({
+  typeId: z.string().optional(),
+  typeName: z.string().optional(),
+});
+export type CountEntitiesInput = z.infer<typeof CountEntitiesInput>;
+
+export const CountEntitiesOutput = z.object({
+  count: z.number().int().nonnegative(),
+});
+export type CountEntitiesOutput = z.infer<typeof CountEntitiesOutput>;
+
 /** Entités dont le champ date tombe dans [from, to). */
 export const ListByDateRangeInput = z.object({
   /** Borne incluse, ISO datetime. */

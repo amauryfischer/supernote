@@ -13,6 +13,7 @@ import {
   GridNine,
   Keyboard,
   Lightning,
+  MagnifyingGlass,
   Moon,
   Plugs,
   Sun,
@@ -294,6 +295,38 @@ export const MoreDrawer = memo(function MoreDrawer({
                 className="absolute right-1 top-1"
               />
             </Button>
+          </div>
+
+          {/* Recherche unifiée (emails + notes + bases). Sur desktop elle est
+              sur Cmd+Shift+K ; au doigt elle n'avait aucune affordance. */}
+          <div className="mb-6">
+            <div
+              className="overflow-hidden rounded-2xl"
+              style={{ backgroundColor: "var(--surface-1)" }}
+            >
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  window.dispatchEvent(new CustomEvent("supernote:open-unified-search"));
+                }}
+                className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors active:bg-[var(--surface-2)]"
+                style={{ color: "var(--text-primary)" }}
+              >
+                <span
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
+                  style={{
+                    backgroundColor:
+                      "color-mix(in oklch, oklch(0.62 0.20 260) 18%, transparent)",
+                    color: "oklch(0.62 0.20 260)",
+                  }}
+                >
+                  <MagnifyingGlass size={18} weight="duotone" />
+                </span>
+                <span className="flex-1 text-[15px] font-medium">Rechercher partout</span>
+                <CaretRight size={14} style={{ color: "var(--text-muted)" }} />
+              </button>
+            </div>
           </div>
 
           {/* Sections — each rendered as a single rounded card containing

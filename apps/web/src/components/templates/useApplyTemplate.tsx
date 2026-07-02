@@ -12,6 +12,7 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useToast } from "@supernote/ui";
 import { PromptModal } from "@/components/shell";
 import { trpc } from "@/lib/trpc/client";
 import { noteFilePath } from "@/components/notes/adapters";
@@ -47,6 +48,7 @@ export interface UseApplyTemplateResult {
  */
 export function useApplyTemplate(): UseApplyTemplateResult {
   const router = useRouter();
+  const { toast } = useToast();
   const [active, setActive] = useState<ActiveApply | null>(null);
   const [isApplying, setIsApplying] = useState(false);
   const createMutation = trpc.entities.create.useMutation();
@@ -72,11 +74,19 @@ export function useApplyTemplate(): UseApplyTemplateResult {
         void utils.entities.list.invalidate();
         void utils.vault.folders.list.invalidate();
         router.push(`/notes/${entity.id}?folder=${encodeURIComponent("Inbox")}`);
+      } catch (err) {
+        // Échec silencieux avant : le rendu/creation échouait sans aucun retour.
+        console.error("[useApplyTemplate] finish failed", err);
+        toast({
+          title: "Impossible d'appliquer le modèle",
+          description: err instanceof Error ? err.message : undefined,
+          variant: "danger",
+        });
       } finally {
         setIsApplying(false);
       }
     },
-    [createMutation, router, utils],
+    [createMutation, router, utils, toast],
   );
 
   const apply = useCallback(

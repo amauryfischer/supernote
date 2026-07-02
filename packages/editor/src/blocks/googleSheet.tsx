@@ -253,6 +253,7 @@ function DesktopEmbed({
         src={embedUrl}
         title="Google Sheet"
         loading="lazy"
+        sandbox="allow-scripts allow-same-origin allow-popups"
         style={{ display: "block", width: "100%", height: IFRAME_HEIGHT, border: "none" }}
       />
       <div

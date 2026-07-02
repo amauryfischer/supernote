@@ -120,13 +120,10 @@ function NotesPageContent() {
       selectedFolderRef.current = folder;
       router.push(`/notes/${id}?folder=${encodeURIComponent(folder)}`);
     } catch (err) {
-      // The previous version awaited createNote without a try/catch, so
-      // any rejection from the worker (e.g. quota error, vault not
-      // mounted) bubbled up as an unhandled promise rejection and the
-      // user just saw the URL stay at /notes with no feedback.
       console.error("[handleNewNote] createNote failed", err);
+      toast({ title: "Impossible de créer la note", variant: "danger" });
     }
-  }, [createNote, router]);
+  }, [createNote, router, toast]);
 
   const handleNewDriveDoc = useCallback(
     async (kind: GoogleDocKind, parentPath?: string | null) => {
@@ -224,8 +221,9 @@ function NotesPageContent() {
       }
     } catch (err) {
       console.error("[handleRenameFolder] failed", err);
+      toast({ title: "Impossible de renommer le dossier", variant: "danger" });
     }
-  }, [prompt, renameFolder, router]);
+  }, [prompt, renameFolder, router, toast]);
 
   /**
    * Inline rename — called from `FolderNode` when the user double-clicks on
@@ -237,14 +235,19 @@ function NotesPageContent() {
     const parts = oldPath.split("/");
     parts[parts.length - 1] = newName;
     const newPath = parts.join("/");
-    await renameFolder(oldPath, newPath);
-    if (selectedFolderRef.current === oldPath || selectedFolderRef.current?.startsWith(`${oldPath}/`)) {
-      const nextSelected = newPath + (selectedFolderRef.current!.slice(oldPath.length));
-      setSelectedFolder(nextSelected);
-      selectedFolderRef.current = nextSelected;
-      router.push(`/notes?folder=${encodeURIComponent(nextSelected)}`);
+    try {
+      await renameFolder(oldPath, newPath);
+      if (selectedFolderRef.current === oldPath || selectedFolderRef.current?.startsWith(`${oldPath}/`)) {
+        const nextSelected = newPath + (selectedFolderRef.current!.slice(oldPath.length));
+        setSelectedFolder(nextSelected);
+        selectedFolderRef.current = nextSelected;
+        router.push(`/notes?folder=${encodeURIComponent(nextSelected)}`);
+      }
+    } catch (err) {
+      console.error("[handleRenameFolderInline] failed", err);
+      toast({ title: "Impossible de renommer le dossier", variant: "danger" });
     }
-  }, [renameFolder, router]);
+  }, [renameFolder, router, toast]);
 
   const handleDeleteFolder = useCallback(async (path: string) => {
     const ok = await confirm({
@@ -266,8 +269,9 @@ function NotesPageContent() {
       }
     } catch (err) {
       console.error("[handleDeleteFolder] failed", err);
+      toast({ title: "Impossible de supprimer le dossier", variant: "danger" });
     }
-  }, [confirm, deleteFolder, router]);
+  }, [confirm, deleteFolder, router, toast]);
 
   const handleRenameNote = useCallback(async (id: string, newTitle: string): Promise<void> => {
     await renameNote(id, newTitle);

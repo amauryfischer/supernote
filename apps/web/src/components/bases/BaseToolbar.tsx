@@ -61,7 +61,8 @@ export function BaseToolbar({ base, view, onCreateEntry, extra }: BaseToolbarPro
   // Kanban / List need a "Group by" pivot field; Calendar needs a "Date"
   // pivot field. Both reuse the view's `groupByField` slot — the active
   // renderer decides how to interpret it.
-  const showGroupPivot = view.kind === "board" || view.kind === "list";
+  const showGroupPivot =
+    view.kind === "board" || view.kind === "list" || view.kind === "table";
   const showDatePivot = view.kind === "calendar";
 
   return (

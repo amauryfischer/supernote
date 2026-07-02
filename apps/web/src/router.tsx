@@ -12,6 +12,7 @@
 
 import { createBrowserRouter } from "react-router-dom";
 import { RootLayout } from "./RootLayout";
+import { RouteErrorBoundary } from "./components/error/ErrorBoundary";
 
 // Lazy adapter: react-router v6 expects `lazy` to return `{ Component }` or
 // `{ element }`. Our pages export a default function component — wrap once.
@@ -80,6 +81,7 @@ export const router: any = createBrowserRouter([
   {
     path: "/",
     Component: RootLayout,
+    ErrorBoundary: RouteErrorBoundary,
     children: [
       // ── Home ──────────────────────────────────────────────────────────
       { index: true, lazy: lazyPage(() => import("./app/page")) },

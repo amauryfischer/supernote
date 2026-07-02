@@ -253,13 +253,11 @@ export const Cell = memo(CellInner, (a, b) => {
   if (a.onChange !== b.onChange) return false;
   if (a.forceEditKey !== b.forceEditKey) return false;
   if (a.field === b.field) return true;
-  // Comparaison shallow sur les attributs visibles d'un Field.
-  return (
-    a.field.id === b.field.id &&
-    a.field.name === b.field.name &&
-    a.field.label === b.field.label &&
-    a.field.kind === b.field.kind
-  );
+  // Le Field porte des props de config kind-spécifiques (format, options, min,
+  // max, precision, currencyCode, outputKind, outputFormat…) que CellDisplay lit
+  // pour le rendu. Une comparaison sur id/name/label/kind seulement laissait les
+  // cellules figées après une édition de colonne (config « sans effet » à l'écran).
+  return JSON.stringify(a.field) === JSON.stringify(b.field);
 });
 
 // ── Display ─────────────────────────────────────────────────────────────────

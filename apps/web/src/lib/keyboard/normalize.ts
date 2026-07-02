@@ -8,13 +8,24 @@ const isMac =
  * Normalizes a key combo string into a canonical form for matching.
  * "mod+k" -> "ctrl+k" on Windows/Linux, "meta+k" on macOS.
  */
+// Alias des noms de touches vers la forme canonique produite par comboFromEvent
+// (event.key.toLowerCase()). Sans ça, un raccourci déclaré "esc" ne matchait
+// jamais l'événement "escape" (palette qui ne se fermait pas à Échap).
+const KEY_ALIASES: Record<string, string> = {
+  esc: "escape",
+  del: "delete",
+  return: "enter",
+  space: " ",
+  spacebar: " ",
+};
+
 export function normalizeCombo(combo: string): string {
   return combo
     .toLowerCase()
     .split("+")
     .map((part) => {
       if (part === "mod") return isMac ? "meta" : "ctrl";
-      return part;
+      return KEY_ALIASES[part] ?? part;
     })
     .join("+");
 }

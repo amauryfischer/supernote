@@ -48,20 +48,24 @@ function StatTile({ count, label, href, loading }: StatTileProps) {
 export function VaultStatsWidget() {
   const t = useTranslations("home.widgets.stats");
 
-  const notesQuery = trpc.entities.list.useQuery(
-    { typeId: "note", limit: 10000, offset: 0 },
+  // Compteurs purs (COUNT SQL) — plus de rapatriement de 10 000 entités + bodies
+  // juste pour un `.length`.
+  const notesQuery = trpc.entities.count.useQuery(
+    { typeId: "note" },
     { staleTime: 60_000, retry: false },
   );
-  const todosQuery = trpc.entities.list.useQuery(
+  const contactsQuery = trpc.entities.count.useQuery(
+    { typeId: "contact" },
+    { staleTime: 60_000, retry: false },
+  );
+  const schemasQuery = trpc.entities.count.useQuery(
+    { typeId: "schema" },
+    { staleTime: 60_000, retry: false },
+  );
+  // Les todos ouverts exigent un filtre sur le champ `done` (JSON) → on tire les
+  // résumés (sans body) et on filtre côté client.
+  const todosQuery = trpc.entities.listSummaries.useQuery(
     { typeId: TODO_TYPE_ID, limit: 10000, offset: 0 },
-    { staleTime: 60_000, retry: false },
-  );
-  const contactsQuery = trpc.entities.list.useQuery(
-    { typeId: "contact", limit: 10000, offset: 0 },
-    { staleTime: 60_000, retry: false },
-  );
-  const schemasQuery = trpc.entities.list.useQuery(
-    { typeId: "schema", limit: 10000, offset: 0 },
     { staleTime: 60_000, retry: false },
   );
 
@@ -71,12 +75,12 @@ export function VaultStatsWidget() {
     contactsQuery.isLoading ||
     schemasQuery.isLoading;
 
-  const notesCount = notesQuery.data?.items.length;
+  const notesCount = notesQuery.data?.count;
   const openTodosCount = todosQuery.data?.items.filter(
     (t) => !(t.fields["done"] === true || t.fields["done"] === "true"),
   ).length;
-  const contactsCount = contactsQuery.data?.items.length;
-  const schemasCount = schemasQuery.data?.items.length;
+  const contactsCount = contactsQuery.data?.count;
+  const schemasCount = schemasQuery.data?.count;
 
   return (
     <Card className="border shadow-none p-4 flex flex-col gap-3">

@@ -37,11 +37,14 @@ function parsePriority(v: unknown): number {
 export function TodayWidget() {
   const t = useTranslations("home.widgets.today");
 
+  // Les notes gardent leur body : extractChecklists parse le markdown complet.
+  // (Scan client-side coûteux — candidat à un endpoint worker dédié plus tard.)
   const notesQuery = trpc.entities.list.useQuery(
     { typeId: "note", limit: 5000, offset: 0 },
     { staleTime: 60_000, retry: false },
   );
-  const todosQuery = trpc.entities.list.useQuery(
+  // Les todos sont pilotés par champs (pas de body) → résumés suffisent.
+  const todosQuery = trpc.entities.listSummaries.useQuery(
     { typeId: TODO_TYPE_ID, limit: 5000, offset: 0 },
     { staleTime: 60_000, retry: false },
   );

@@ -179,6 +179,38 @@ function buildFtsMatch(raw: string): string | null {
   return tokens.map((t) => `"${t}"*`).join(" ");
 }
 
+/**
+ * Exécute `fn` dans une transaction SQLite (BEGIN IMMEDIATE / COMMIT / ROLLBACK).
+ *
+ * `fn` DOIT être 100 % synchrone — aucun `await` entre BEGIN et COMMIT. Le worker
+ * dispatche les RPC en parallèle (`void handleRpcRequest`), donc un `await` réel
+ * (I/O FSA/OPFS) à l'intérieur laisserait une autre RPC s'intercaler dans la
+ * transaction ouverte → écritures mêlées ou commit d'un état partiel. Un `fn`
+ * synchrone s'exécute d'une traite dans une seule tâche : rien ne s'intercale.
+ * (C'est pourquoi syncApplyOps/entitiesCreate/Delete, qui entrelacent des `await`
+ * d'I/O fichier avec le SQL, ne sont PAS enveloppés ici.)
+ *
+ * Gains : durabilité (un kill de l'onglet entre deux statements ne peut plus
+ * laisser d'état partiel sur disque — ex. un thread mail vidé de ses messages)
+ * + perf (un seul commit/fsync OPFS au lieu d'un par statement ; les batchs mail
+ * en faisaient des centaines).
+ */
+function runInTransaction<T>(db: Database, fn: () => T): T {
+  db.run("BEGIN IMMEDIATE");
+  try {
+    const result = fn();
+    db.run("COMMIT");
+    return result;
+  } catch (e) {
+    try {
+      db.run("ROLLBACK");
+    } catch {
+      /* pas de transaction active (BEGIN a échoué) — rien à annuler */
+    }
+    throw e;
+  }
+}
+
 function ftsAdd(db: Database, doc: EntityDoc): void {
   // Defensive: a stale row from a previous indexing pass would lead to
   // duplicate hits in the same query. FTS5 has no UNIQUE constraint on the
@@ -714,8 +746,59 @@ export function buildRouter(
     params.push(limit, offset);
 
     const items = rows(db.exec(sql, params)).map(entityRowToApi);
-    const total = (row(db.exec(`SELECT COUNT(*) as c FROM entity WHERE vaultId = ?`, [vaultId]))?.[`c`] ?? 0) as number;
+    // total honore le même filtre typeId/typeName que la liste (avant : COUNT du
+    // vault entier, donc un total faux dès qu'on filtrait par type).
+    const total = countEntities(inp.typeId, inp.typeName);
     return { items, total };
+  };
+
+  // COUNT pur, filtre type optionnel. Aucune entité transportée.
+  const countEntities = (typeId?: string, typeName?: string): number => {
+    let sql = `SELECT COUNT(*) as c FROM entity e`;
+    if (typeName) sql += ` JOIN entity_type et ON et.id = e.typeId`;
+    sql += ` WHERE e.vaultId = ?`;
+    const params: SqlValue[] = [vaultId];
+    if (typeId) { sql += ` AND e.typeId = ?`; params.push(typeId); }
+    if (typeName) { sql += ` AND et.name = ?`; params.push(typeName); }
+    return (row(db.exec(sql, params))?.["c"] ?? 0) as number;
+  };
+
+  const entitiesCount = async (input: unknown): Promise<unknown> => {
+    const inp = (input ?? {}) as { typeId?: string; typeName?: string };
+    return { count: countEntities(inp.typeId, inp.typeName) };
+  };
+
+  // Comme entitiesList mais ne renvoie qu'un extrait de corps (240 car.) au lieu
+  // du markdown complet : les surfaces read-only (widgets accueil, nuage de tags)
+  // n'ont besoin que des champs/aperçu, pas du body entier cloné pour 10 000 lignes.
+  const entitiesListSummaries = async (input: unknown): Promise<unknown> => {
+    const inp = (input ?? {}) as {
+      typeId?: string;
+      typeName?: string;
+      limit?: number;
+      offset?: number;
+    };
+    const limit = inp.limit ?? 50;
+    const offset = inp.offset ?? 0;
+    let sql = `
+      SELECT e.id, e.typeId, et.name as typeName, e.filePath, e.fields,
+             substr(e.body, 1, 240) as body,
+             e.createdAt, e.updatedAt,
+             (SELECT GROUP_CONCAT(t.path, char(31))
+                FROM entity_tag etag
+                JOIN tag t ON t.id = etag.tagId
+               WHERE etag.entityId = e.id) AS tagPaths
+      FROM entity e
+      JOIN entity_type et ON et.id = e.typeId
+      WHERE e.vaultId = ?
+    `;
+    const params: SqlValue[] = [vaultId];
+    if (inp.typeId) { sql += ` AND e.typeId = ?`; params.push(inp.typeId); }
+    if (inp.typeName) { sql += ` AND et.name = ?`; params.push(inp.typeName); }
+    sql += ` ORDER BY e.updatedAt DESC LIMIT ? OFFSET ?`;
+    params.push(limit, offset);
+    const items = rows(db.exec(sql, params)).map(entityRowToApi);
+    return { items, total: countEntities(inp.typeId, inp.typeName) };
   };
 
   // Entités dont createdAt/updatedAt tombe dans [from, to). Utilisé par
@@ -1190,12 +1273,27 @@ export function buildRouter(
       await applyEntityTags(db, vaultId, id, tags, ts);
     }
 
+    // Relire les tags depuis entity_tag (paths, comme ftsRebuild) plutôt que de
+    // se fier au param `tags` : une update de corps/champs sans `tags` réécrivait
+    // la colonne FTS avec "" et cassait silencieusement la recherche par tag en
+    // session (réparée seulement au ftsRebuild du boot suivant). applyEntityTags
+    // a déjà mis entity_tag à jour au-dessus quand `tags` était fourni.
+    const ftsTags =
+      (row(
+        db.exec(
+          `SELECT GROUP_CONCAT(t.path, ' ') as tp
+             FROM entity_tag et JOIN tag t ON t.id = et.tagId
+            WHERE et.entityId = ?`,
+          [id],
+        ),
+      )?.["tp"] as string) ?? "";
+
     ftsAdd(db, {
       id,
       typeId: existing["typeId"] as string,
       title: deriveTitle(JSON.stringify(newFields), effectivePath),
       body: newBody,
-      tags: (tags ?? []).join(" "),
+      tags: ftsTags,
       path: derivePath(effectivePath),
     });
 
@@ -4084,6 +4182,10 @@ export function buildRouter(
     }) ?? {};
     if (!accountId) return { threads: 0, messages: 0, removed: 0 };
     const ts = Date.now();
+    // Batch entier en une transaction : le DELETE des messages d'un thread suivi
+    // de leur ré-INSERT ne peut plus laisser un thread vidé sur disque si l'onglet
+    // meurt au milieu, et on fait un seul commit au lieu d'un par statement.
+    return runInTransaction(db, () => {
     let threadsUpserted = 0;
     let messagesUpserted = 0;
     let removed = 0;
@@ -4198,6 +4300,7 @@ export function buildRouter(
     }
 
     return { threads: threadsUpserted, messages: messagesUpserted, removed };
+    });
   };
 
   const mailApplyLocalMutation = async (input: unknown): Promise<unknown> => {
@@ -4223,6 +4326,9 @@ export function buildRouter(
     if (!accountId || !threadId || !opId) return { ok: false };
     const ts = Date.now();
 
+    // Patch du miroir (thread + N messages) et enqueue outbox en une seule
+    // transaction : l'atomicité annoncée dans les commentaires devient réelle.
+    return runInTransaction(db, () => {
     if (dropThread) {
       db.run(`DELETE FROM mail_message WHERE accountId = ? AND threadId = ?`, [accountId, threadId]);
       db.run(`DELETE FROM mail_thread WHERE accountId = ? AND id = ?`, [accountId, threadId]);
@@ -4273,6 +4379,7 @@ export function buildRouter(
       );
     }
     return { ok: true };
+    });
   };
 
   const mailListOutbox = async (input: unknown): Promise<unknown> => {
@@ -4366,6 +4473,8 @@ export function buildRouter(
     "vault.folders.update": foldersUpdate,
 
     "entities.list": entitiesList,
+    "entities.listSummaries": entitiesListSummaries,
+    "entities.count": entitiesCount,
     "entities.get": entitiesGet,
     "entities.create": entitiesCreate,
     "entities.update": entitiesUpdate,

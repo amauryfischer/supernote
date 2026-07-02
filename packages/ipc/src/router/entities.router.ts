@@ -16,6 +16,8 @@ import {
   GetBacklinksOutput,
   ListByDateRangeInput,
   BacklinkCountsOutput,
+  CountEntitiesInput,
+  CountEntitiesOutput,
 } from "../schemas/entities.js";
 import { z } from "zod";
 
@@ -26,6 +28,27 @@ export const entitiesRouter = router({
     .output(ListEntitiesOutput)
     .query(() => {
       throw notImplemented("entities.list");
+    }),
+
+  /**
+   * Like `list` but the worker returns only a short body excerpt (not the full
+   * markdown). For read-only preview/aggregation surfaces (home widgets, tag
+   * clouds) that never feed the optimistic-update cache — avoids structure-
+   * cloning thousands of full bodies across the worker boundary.
+   */
+  listSummaries: publicProcedure
+    .input(ListEntitiesInput)
+    .output(ListEntitiesOutput)
+    .query(() => {
+      throw notImplemented("entities.listSummaries");
+    }),
+
+  /** Count entities matching an optional type filter (pure SQL COUNT). */
+  count: publicProcedure
+    .input(CountEntitiesInput)
+    .output(CountEntitiesOutput)
+    .query(() => {
+      throw notImplemented("entities.count");
     }),
 
   /** Get a single entity by id (includes full body). */

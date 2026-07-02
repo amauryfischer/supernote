@@ -53,7 +53,7 @@ import { EmptyState, ContextMenu, useContextMenu, type ContextMenuItemDef } from
 import { importanceColor, importanceLabel, importanceForAxis } from "@/components/todos/TodoRow";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { loadBindings, reconcileBindings, MAIL_BINDINGS_EVENT, type MailTodoBinding } from "@/lib/mail-todo-binding";
+import { loadBindings, reconcileBindings, removeBindingByTodo, MAIL_BINDINGS_EVENT, type MailTodoBinding } from "@/lib/mail-todo-binding";
 import {
   DndContext,
   closestCenter,
@@ -713,6 +713,9 @@ export default function TodosPage() {
       if (row.kind !== "standalone") return; // note-derived: must edit the note
       try {
         await trpcVanillaClient.entities.delete.mutate({ id: row.id });
+        // Élague la liaison email→todo éventuelle : sinon le thread source reste
+        // masqué de l'inbox et une carte fantôme (todoId mort) traîne sur le board.
+        removeBindingByTodo(row.id);
         await utils.entities.list.invalidate({ typeId: TODO_TYPE_ID });
         setEditing(null);
         showToast("Tâche supprimée");

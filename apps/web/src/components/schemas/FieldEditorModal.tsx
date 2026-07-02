@@ -76,19 +76,35 @@ export function FieldEditorModal({ field, onClose, onSave }: FieldEditorModalPro
       return;
     }
 
-    const base = { id: field?.id ?? newFieldId(), name, label, required, unique, helpText };
+    // Preserve every config prop the modal doesn't edit (outputKind, min/max,
+    // precision, currencyCode, format, defaultValue, relationFieldId,
+    // targetFieldId, aggregation…). Re-saving a configured field must not wipe it.
+    const prev = (field ?? {}) as Record<string, unknown>;
+    const base = {
+      ...prev,
+      id: field?.id ?? newFieldId(),
+      name,
+      label,
+      required,
+      unique,
+      helpText,
+      kind,
+    };
     let extra: Record<string, unknown> = {};
     if (kind === "select" || kind === "multiselect" || kind === "status") {
       extra = { options };
     } else if (kind === "formula") {
-      extra = { expression, outputKind: "text" };
+      extra = { expression, outputKind: prev.outputKind ?? "text" };
     } else if (kind === "relation") {
       extra = { targetTypeId, cardinality };
     } else if (kind === "rollup" || kind === "lookup") {
-      extra = { relationFieldId: "", targetFieldId: "" };
-      if (kind === "rollup") extra.aggregation = "count";
+      extra = {
+        relationFieldId: prev.relationFieldId ?? "",
+        targetFieldId: prev.targetFieldId ?? "",
+      };
+      if (kind === "rollup") extra.aggregation = prev.aggregation ?? "count";
     }
-    onSave({ ...base, kind, ...extra } as Field);
+    onSave({ ...base, ...extra } as Field);
   };
 
   const addOption = () => {

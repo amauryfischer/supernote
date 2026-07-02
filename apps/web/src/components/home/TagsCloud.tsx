@@ -28,7 +28,9 @@ export function TagsCloud() {
   const t = useTranslations("home.widgets.tags");
   const router = useRouter();
 
-  const { data } = trpc.entities.list.useQuery(
+  // Résumés sans body : on ne lit que `fields.tags`, inutile de cloner 10 000
+  // corps de notes complets.
+  const { data } = trpc.entities.listSummaries.useQuery(
     { typeId: "note", limit: 10000, offset: 0 },
     { staleTime: 60_000, retry: false },
   );

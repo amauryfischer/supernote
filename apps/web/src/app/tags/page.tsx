@@ -22,6 +22,8 @@
 import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { Button, Input, Checkbox } from "@heroui/react";
+import { useToast } from "@supernote/ui";
+import { withMutationFeedback } from "@/lib/trpc/with-mutation-feedback";
 import { Plus, Tag as TagIcon } from "@phosphor-icons/react";
 import {
   AppShell,
@@ -119,30 +121,50 @@ export default function TagsPage() {
     void utils.tags.entities.invalidate();
   };
 
-  const createMut = trpc.tags.create.useMutation({
-    onSuccess: (data) => {
-      console.info("[tags] create success", data);
-      void hardRefresh();
-    },
-    onError: (err) => {
-      console.error("[tags] create error", err);
-    },
-  });
-  const updateMut = trpc.tags.update.useMutation({ onSuccess: refresh });
-  const renameMut = trpc.tags.rename.useMutation({ onSuccess: refresh });
-  const moveMut = trpc.tags.move.useMutation({ onSuccess: refresh });
-  const mergeMut = trpc.tags.merge.useMutation({
-    onSuccess: () => {
-      refresh();
-      setSelectedPath(null);
-    },
-  });
-  const deleteMut = trpc.tags.delete.useMutation({
-    onSuccess: () => {
-      refresh();
-      setSelectedPath(null);
-    },
-  });
+  const { toast } = useToast();
+
+  // Feedback d'échec : les mutations de tags avalaient leurs erreurs (conflit de
+  // chemin, tag déjà existant…) — l'utilisateur voyait l'action ne rien faire.
+  const createMut = trpc.tags.create.useMutation(
+    withMutationFeedback(
+      toast,
+      { error: "Impossible de créer le tag" },
+      { onSuccess: () => void hardRefresh() },
+    ),
+  );
+  const updateMut = trpc.tags.update.useMutation(
+    withMutationFeedback(toast, { error: "Impossible de modifier le tag" }, { onSuccess: refresh }),
+  );
+  const renameMut = trpc.tags.rename.useMutation(
+    withMutationFeedback(toast, { error: "Impossible de renommer le tag" }, { onSuccess: refresh }),
+  );
+  const moveMut = trpc.tags.move.useMutation(
+    withMutationFeedback(toast, { error: "Impossible de déplacer le tag" }, { onSuccess: refresh }),
+  );
+  const mergeMut = trpc.tags.merge.useMutation(
+    withMutationFeedback(
+      toast,
+      { error: "Impossible de fusionner les tags" },
+      {
+        onSuccess: () => {
+          refresh();
+          setSelectedPath(null);
+        },
+      },
+    ),
+  );
+  const deleteMut = trpc.tags.delete.useMutation(
+    withMutationFeedback(
+      toast,
+      { error: "Impossible de supprimer le tag" },
+      {
+        onSuccess: () => {
+          refresh();
+          setSelectedPath(null);
+        },
+      },
+    ),
+  );
 
   const tags = (tagsQuery.data ?? []) as Tag[];
 

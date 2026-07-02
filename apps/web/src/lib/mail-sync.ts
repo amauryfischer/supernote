@@ -218,8 +218,23 @@ async function flushOutboxInner(clientId: string, accountId: string): Promise<vo
     try {
       if (op.kind === "trash") {
         await trashThread(clientId, op.threadId);
+        // trash/untrash only move to/from Trash; any label deltas (e.g. re-adding
+        // INBOX when undoing a delete) must be applied separately, else the
+        // incremental pull sees the thread out of inbox and drops it again.
+        if (op.addLabelIds.length > 0 || op.removeLabelIds.length > 0) {
+          await modifyThreadLabels(clientId, op.threadId, {
+            addLabelIds: op.addLabelIds,
+            removeLabelIds: op.removeLabelIds,
+          });
+        }
       } else if (op.kind === "untrash") {
         await untrashThread(clientId, op.threadId);
+        if (op.addLabelIds.length > 0 || op.removeLabelIds.length > 0) {
+          await modifyThreadLabels(clientId, op.threadId, {
+            addLabelIds: op.addLabelIds,
+            removeLabelIds: op.removeLabelIds,
+          });
+        }
       } else {
         await modifyThreadLabels(clientId, op.threadId, {
           addLabelIds: op.addLabelIds,
