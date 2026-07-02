@@ -78,8 +78,41 @@ async function tryFile(absPath) {
   return null;
 }
 
+// En-têtes de sécurité appliqués à TOUTES les réponses. Non-cassants : nosniff,
+// anti-framing, referrer restreint, HSTS (ignoré hors HTTPS, donc sans effet en
+// dev local, actif derrière le TLS Scalingo).
+const GLOBAL_SECURITY_HEADERS = {
+  "X-Content-Type-Options": "nosniff",
+  "X-Frame-Options": "SAMEORIGIN",
+  "Referrer-Policy": "strict-origin-when-cross-origin",
+  "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+};
+
+// CSP en mode Report-Only : deuxième couche anti-XSS (le corps des emails est
+// déjà sanitizé DOMPurify) SANS risque de casser la prod — le navigateur signale
+// les violations mais ne bloque rien. Passer en `Content-Security-Policy`
+// (enforce) seulement après avoir vérifié l'absence de violation légitime en
+// prod (sql.js-wasm, Google Identity Services, embeds Sheets, Unsplash…).
+const CSP_DIRECTIVES = [
+  "default-src 'self'",
+  // 'wasm-unsafe-eval' : sql.js/sqlite-wasm. GIS charge des scripts Google.
+  "script-src 'self' 'wasm-unsafe-eval' https://accounts.google.com https://apis.google.com",
+  // Tailwind/HeroUI + styles inline (ErrorBoundary, bannières) → 'unsafe-inline'.
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob: https:",
+  "font-src 'self' data:",
+  // Gmail/Drive/OAuth + Unsplash + backend de sync same-origin.
+  "connect-src 'self' blob: https://accounts.google.com https://oauth2.googleapis.com https://www.googleapis.com https://gmail.googleapis.com https://api.unsplash.com https://images.unsplash.com",
+  // Embed Google Sheets + iframe GIS.
+  "frame-src 'self' https://docs.google.com https://accounts.google.com",
+  "worker-src 'self' blob:",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "frame-ancestors 'self'",
+].join("; ");
+
 function send(res, status, body, headers = {}) {
-  res.writeHead(status, headers);
+  res.writeHead(status, { ...GLOBAL_SECURITY_HEADERS, ...headers });
   res.end(body);
 }
 
@@ -126,7 +159,12 @@ const server = createServer(async (req, res) => {
       ? "no-cache"
       : "public, max-age=31536000, immutable";
 
-    send(res, 200, data, { "Content-Type": type, "Cache-Control": cacheControl });
+    send(res, 200, data, {
+      "Content-Type": type,
+      "Cache-Control": cacheControl,
+      // CSP seulement sur le document HTML (inutile sur les assets).
+      ...(isHtml ? { "Content-Security-Policy-Report-Only": CSP_DIRECTIVES } : {}),
+    });
   } catch (err) {
     send(res, 500, "Internal server error");
     console.error("[server] request failed:", err);
