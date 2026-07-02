@@ -26,7 +26,7 @@
   "dependencies": {
     "@supernote/core": "workspace:*",
     "@supernote/formulas": "workspace:*",
-    "cron-parser": "^4.9.0",
+    "cron-parser": "^5.6.1",
     "nanoid": "^5.0.9",
     "pino": "^9.6.0",
     "zod": "^3.24.0"
