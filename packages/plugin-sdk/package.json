@@ -42,7 +42,7 @@
   "dependencies": {
     "@supernote/core": "workspace:*",
     "nanoid": "^5.0.0",
-    "zod": "^3.24.0"
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@supernote/tsconfig": "workspace:*",
