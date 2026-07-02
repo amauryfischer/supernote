@@ -40,8 +40,8 @@ de feature desktop-only qu'on « rattrapera plus tard ».
 
 ### Tests
 
-- Nouveaux packages → tests vitest.
-- `pnpm --filter <pkg> test` doit passer.
+- **Politique : zéro test unitaire.** Pas de vitest dans le repo — ne pas créer de `*.test.ts`, ne pas réintroduire vitest.
+- Vérification = `pnpm typecheck` + e2e Playwright (`pnpm test:e2e`) uniquement.
 
 ## Architecture
 

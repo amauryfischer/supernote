@@ -16,10 +16,6 @@
     "typecheck": {
       "dependsOn": ["^typecheck"]
     },
-    "test": {
-      "dependsOn": ["^build"],
-      "outputs": ["coverage/**"]
-    },
     "clean": {
       "cache": false
     }

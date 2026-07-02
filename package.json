@@ -17,7 +17,6 @@
     "build:packages": "pnpm -r --filter \"./packages/**\" build",
     "build:web": "pnpm --filter @supernote/web build",
     "lint": "turbo run lint",
-    "test": "turbo run test",
     "typecheck": "turbo run typecheck",
     "clean": "turbo run clean && rm -rf node_modules",
     "format": "prettier --write .",

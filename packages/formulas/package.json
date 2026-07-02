@@ -16,8 +16,6 @@
   },
   "scripts": {
     "build": "tsc --project tsconfig.build.json",
-    "test": "vitest run",
-    "test:watch": "vitest",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -26,7 +24,6 @@
   "devDependencies": {
     "@supernote/tsconfig": "workspace:*",
     "@types/node": "^22.10.0",
-    "typescript": "^5.7.2",
-    "vitest": "^3.0.0"
+    "typescript": "^5.7.2"
   }
 }

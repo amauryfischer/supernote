@@ -20,8 +20,6 @@
     "build": "tsc --project tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src --ext .ts,.tsx",
-    "test": "vitest run",
-    "test:watch": "vitest",
     "clean": "rm -rf dist"
   },
   "dependencies": {
@@ -44,7 +42,6 @@
     "@types/react-dom": "^19.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "typescript": "^5.7.2",
-    "vitest": "^3.0.0"
+    "typescript": "^5.7.2"
   }
 }
