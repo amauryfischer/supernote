@@ -22,7 +22,7 @@
   "dependencies": {
     "@supernote/core": "workspace:*",
     "gray-matter": "^4.0.3",
-    "pino": "^9.0.0",
+    "pino": "^10.3.1",
     "ulid": "^2.3.0",
     "unified": "^11.0.5",
     "remark": "^15.0.1",
