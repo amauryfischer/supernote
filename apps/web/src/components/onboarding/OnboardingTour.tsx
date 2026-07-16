@@ -144,7 +144,7 @@ export function OnboardingTour() {
     <>
       {/* Backdrop */}
       <div
-        className="fixed inset-0 z-[9000]"
+        className="fixed inset-0 z-[var(--z-tour)]"
         style={{ backgroundColor: "rgba(0,0,0,0.45)", pointerEvents: "all" }}
         onClick={dismiss}
       />
@@ -152,7 +152,7 @@ export function OnboardingTour() {
       {/* Highlight ring around target */}
       {highlightRect && (
         <div
-          className="pointer-events-none fixed z-[9001] rounded-md"
+          className="pointer-events-none fixed z-[calc(var(--z-tour)+1)] rounded-md"
           style={{
             top: highlightRect.top - 4,
             left: highlightRect.left - 4,
@@ -165,7 +165,7 @@ export function OnboardingTour() {
 
       {/* Tooltip card */}
       <div
-        className="fixed z-[9002] w-[280px] rounded-xl border p-4 shadow-2xl"
+        className="fixed z-[calc(var(--z-tour)+2)] w-[280px] rounded-xl border p-4 shadow-2xl"
         style={{
           top: tooltipPos.top,
           left: tooltipPos.left,

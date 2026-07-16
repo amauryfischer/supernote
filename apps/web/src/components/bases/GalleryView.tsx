@@ -11,6 +11,7 @@
 
 import { useMemo } from "react";
 import { Button } from "@heroui/react";
+import { EmptyState } from "@supernote/ui";
 import { Plus } from "@phosphor-icons/react";
 import type { EntityType } from "@supernote/core";
 import type { View } from "@supernote/ipc";
@@ -18,18 +19,24 @@ import {
   useEntitiesForView,
   useEntityMutations,
   resolveVisibleFieldIds,
+  useSearchFilter,
 } from "./hooks";
 import { EntityCard } from "./EntityCard";
+import { CardGridSkeleton } from "./BasesSkeleton";
 
 interface GalleryViewProps {
   base: EntityType;
   view: View;
+  /** Recherche instantanée (toolbar) — filtre client-side sur les champs visibles. */
+  searchQuery?: string;
 }
 
-export function GalleryView({ base, view }: GalleryViewProps) {
+export function GalleryView({ base, view, searchQuery }: GalleryViewProps) {
   const { data, isLoading } = useEntitiesForView(base.id, view.filters, view.sorts);
   const mut = useEntityMutations(base.id);
-  const items = data?.items ?? [];
+  const allItems = useMemo(() => data?.items ?? [], [data?.items]);
+  const items = useSearchFilter(allItems, base, view, searchQuery);
+  const searchActive = (searchQuery ?? "").trim().length > 0;
 
   const visibleFieldIds = useMemo(
     () => resolveVisibleFieldIds(view, base.fields.map((f) => f.id)),
@@ -42,13 +49,25 @@ export function GalleryView({ base, view }: GalleryViewProps) {
       style={{ backgroundColor: "var(--surface-0)" }}
     >
       {isLoading ? (
-        <p className="text-center text-xs" style={{ color: "var(--text-muted)" }}>
-          Chargement…
-        </p>
+        <CardGridSkeleton />
       ) : items.length === 0 ? (
-        <p className="text-center text-xs" style={{ color: "var(--text-muted)" }}>
-          Aucune entrée. Ajoute-en une depuis la barre d'outils.
-        </p>
+        // EmptyState partagé — même traitement dans les 4 vues bases
+        <EmptyState
+          title={searchActive ? "Aucun résultat" : "Aucune entrée"}
+          description={
+            searchActive
+              ? "Aucune entrée ne correspond à cette recherche."
+              : "Crée ta première entrée pour remplir la galerie."
+          }
+          action={
+            searchActive
+              ? undefined
+              : {
+                  label: "Nouvelle entrée",
+                  onClick: () => mut.create.mutate({ typeId: base.id, fields: {}, body: "" }),
+                }
+          }
+        />
       ) : (
         <div
           className="grid gap-3"

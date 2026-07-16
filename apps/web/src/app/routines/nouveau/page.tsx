@@ -88,8 +88,8 @@ function NouveauContent() {
           </span>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-3 py-6 md:px-6 md:py-8">
-          <div className="mx-auto max-w-xl">
+        <div className="flex-1 overflow-y-auto px-4 py-6 md:px-8 md:py-8">
+          <div className="mx-auto max-w-2xl">
             <TemplatePickerStep onSelect={handleSelectTemplate} />
           </div>
         </div>

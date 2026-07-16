@@ -34,6 +34,8 @@ interface ViewSettingsMenuProps {
   onDuplicated?: (newId: string) => void;
   /** Called after delete so the parent can fall back to another view. */
   onDeleted?: () => void;
+  /** Open with the rename input already active (tab double-click). */
+  initialRenaming?: boolean;
 }
 
 const KIND_ICONS: Record<ViewKind, React.ComponentType<{ size?: number }>> = {
@@ -53,11 +55,12 @@ export function ViewSettingsMenu({
   onClose,
   onDuplicated,
   onDeleted,
+  initialRenaming = false,
 }: ViewSettingsMenuProps) {
   const { create, update, delete: del } = useViewMutations();
   const confirm = useConfirm();
   const popoverRef = useRef<HTMLDivElement | null>(null);
-  const [renaming, setRenaming] = useState(false);
+  const [renaming, setRenaming] = useState(initialRenaming);
   const [nextName, setNextName] = useState(view.name);
 
   useEffect(() => {

@@ -119,7 +119,7 @@ export function PrioritiesWidget() {
 
   return (
     <div className="flex flex-col gap-1 p-3">
-      <div className="flex items-center gap-1.5 px-1 pb-2">
+      <div className="flex items-center gap-1.5 px-2 pb-2">
         <Warning size={12} style={{ color: "#EF4444" }} />
         <span className="text-xs font-medium" style={{ color: "var(--text-muted)" }}>
           Mes priorités
@@ -153,7 +153,7 @@ export function PrioritiesWidget() {
               style={{ backgroundColor: importanceColor(row.importance) }}
             />
             <span
-              className="inline-flex h-4 min-w-[1.5rem] shrink-0 items-center justify-center rounded px-1 text-[9px] font-bold tabular-nums"
+              className="inline-flex h-4 min-w-[1.5rem] shrink-0 items-center justify-center rounded px-1 text-[10px] font-bold tabular-nums"
               style={{
                 backgroundColor: "var(--surface-3)",
                 color: "var(--text-muted)",

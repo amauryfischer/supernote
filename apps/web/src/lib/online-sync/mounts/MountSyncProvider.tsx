@@ -111,7 +111,12 @@ export function MountSyncProvider({ children }: { children: React.ReactNode }) {
         trpcVanillaClient.sync.listMounts
           .query({ sourceVaultId: null })
           .then((r) => r.mounts)
-          .catch(() => [] as MountNode[]),
+          .catch((err) => {
+            // Avant : échec 100 % silencieux (un salon monté injoignable était
+            // indistinguable d'un coffre sans montage). Au moins tracer.
+            console.warn("[mount-sync] listMounts(direct) a échoué", err);
+            return [] as MountNode[];
+          }),
       // Résolution transitive : les montages déclarés DANS un salon monté
       // (provenance = son cloudId) arrivent par sync ; on les liste pour
       // que resolveMounts recurse (« vault-ception »).
@@ -119,7 +124,10 @@ export function MountSyncProvider({ children }: { children: React.ReactNode }) {
         trpcVanillaClient.sync.listMounts
           .query({ sourceVaultId: cloudId })
           .then((r) => r.mounts)
-          .catch(() => [] as MountNode[]),
+          .catch((err) => {
+            console.warn(`[mount-sync] listMounts(in ${cloudId}) a échoué`, err);
+            return [] as MountNode[];
+          }),
       applyOps: async (ops, src) =>
         void (await trpcVanillaClient.sync.applyOps.mutate({ ops, sourceVaultId: src })),
       purgeMounted: async (src) => {

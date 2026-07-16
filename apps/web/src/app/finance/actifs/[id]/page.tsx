@@ -15,6 +15,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
 import { AppShell } from "@/components/shell";
+import { Skeleton } from "@supernote/ui";
 import { trpc } from "@/lib/trpc/client";
 import { parseDecimal, formatCurrency } from "@/components/finance/utils";
 import { fetchAssetPrice } from "@/lib/finance/price-fetch";
@@ -34,6 +35,20 @@ const fieldStyle: React.CSSProperties = {
   color: "var(--text-primary)",
 };
 
+// Skeleton de formulaire au chargement — remplace le « Chargement… » texte.
+function FormSkeleton() {
+  return (
+    <div className="mt-4 flex flex-col gap-4">
+      {Array.from({ length: 4 }, (_, i) => (
+        <div key={i} className="flex flex-col gap-1.5">
+          <Skeleton className="h-3 w-24" />
+          <Skeleton className="h-9 w-full" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function ActifDetailPage() {
   const params = useParams<{ id: string }>();
   const id = params.id;
@@ -48,7 +63,7 @@ export default function ActifDetailPage() {
 
   return (
     <AppShell>
-      <div className="mx-auto max-w-3xl px-3 py-6 md:px-6 md:py-8">
+      <div className="mx-auto max-w-3xl px-4 py-6 md:px-8 md:py-8">
         <Link
           href="/finance/actifs"
           className="mb-6 flex items-center gap-1.5 text-sm hover:underline"
@@ -58,7 +73,7 @@ export default function ActifDetailPage() {
         </Link>
 
         {query.isLoading ? (
-          <p className="text-sm" style={{ color: "var(--text-muted)" }}>Chargement…</p>
+          <FormSkeleton />
         ) : query.isError || !query.data ? (
           <p className="text-sm" style={{ color: "var(--danger)" }}>Actif introuvable.</p>
         ) : (

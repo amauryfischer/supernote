@@ -1,15 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Button } from "@heroui/react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Button, Popover } from "@heroui/react";
 import dynamic from "next/dynamic";
-import { CaretDown, CaretRight, Calendar, Tag, FloppyDisk, Microphone, Image, Sparkle, X, CheckCircle, WarningCircle, Presentation, FilePdf } from "@phosphor-icons/react";
+import { CaretDown, CaretRight, Calendar, Tag, FloppyDisk, Microphone, Image, Sparkle, X, CheckCircle, WarningCircle, Presentation, FilePdf, LinkSimple, Stop } from "@phosphor-icons/react";
 import Link from "next/link";
 import { Fragment } from "react";
 import { TagSelector } from "@/components/tags/TagSelector";
 import { formatRelativeDate, type Note } from "./fixtures";
 import { useUpdateNote } from "./hooks";
-import type { SupernoteEditorProps, EntityRef, StreamingInsertHandle } from "@supernote/editor";
+import type { SupernoteEditorProps, EntityRef, StreamingInsertHandle, SupernoteEditorApi } from "@supernote/editor";
 import { createOllamaClient } from "@supernote/ai/ollama";
 import type { AIActionId } from "@supernote/ai/actions";
 import { trpc, trpcVanillaClient } from "@/lib/trpc/client";
@@ -42,9 +42,12 @@ import { AmbianceSelector, ambianceClass, asAmbiance, asTypo, type NoteAmbiance,
 import { CoverBackdrop, CoverButton, asCover } from "./NoteCover";
 import { NoteIcon, IconButton, asIcon } from "./NoteIcon";
 import { AiMarginsPanel } from "./AiMarginsPanel";
+import { BacklinksList, useBacklinkCount } from "./BacklinksPanel";
+import { MobileSheet } from "@/components/shell/mobile/MobileSheet";
 import { bestBlockMatchIndex } from "@/lib/ai/blockComments";
 import { PresentationMode } from "./PresentationMode";
-import { ContextMenu, useContextMenu, type ContextMenuItemDef } from "@supernote/ui";
+import { ContextMenu, useContextMenu, Tooltip, type ContextMenuItemDef } from "@supernote/ui";
+import { useVoiceDictation } from "@/hooks/useVoiceDictation";
 import { MoveNoteModal } from "./MoveNoteModal";
 import { useFolderTree, useRenameFolder } from "./hooks";
 import { useRouter } from "next/navigation";
@@ -88,6 +91,97 @@ type DropStatus =
 
 /** Préférence globale : rangée métadonnées dépliée ou repliée (repliée par défaut). */
 const META_BAR_STORAGE_KEY = "supernote.notes.metaBarOpen";
+
+// ── « Reprendre où j'en étais » ───────────────────────────────────────────────
+//
+// Position de lecture par note (bloc du caret + scrollTop du conteneur),
+// persistée en localStorage sous `supernote.notes.lastPos.<noteId>` avec un
+// debounce, et restaurée au retour sur la note (scroll avant peinture, caret
+// + flash d'atterrissage une fois l'éditeur prêt).
+
+const LAST_POS_PREFIX = "supernote.notes.lastPos.";
+const LAST_POS_DEBOUNCE_MS = 500;
+/** Cap LRU : au-delà, les entrées les plus anciennes sont purgées. */
+const LAST_POS_MAX_ENTRIES = 50;
+/** Débordement minimal (px) sous lequel la note tient dans un écran → rien à reprendre. */
+const LAST_POS_MIN_OVERFLOW_PX = 64;
+/** Frames de retry avant d'abandonner la restauration (contenu pas encore peint). */
+const LAST_POS_MAX_RETRY_FRAMES = 30;
+
+interface LastEditPos {
+  /** Bloc top-level qui contenait le caret (null si jamais entré dans le corps). */
+  blockId: string | null;
+  scrollTop: number;
+  /** Timestamp d'écriture — sert au tri LRU de pruneLastPosEntries. */
+  at: number;
+}
+
+function readLastPos(noteId: string): LastEditPos | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(LAST_POS_PREFIX + noteId);
+    if (!raw) return null;
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== "object" || parsed === null) return null;
+    const p = parsed as Record<string, unknown>;
+    const scrollTop =
+      typeof p["scrollTop"] === "number" && Number.isFinite(p["scrollTop"]) && p["scrollTop"] > 0
+        ? p["scrollTop"]
+        : 0;
+    const blockId =
+      typeof p["blockId"] === "string" && p["blockId"].length > 0 ? p["blockId"] : null;
+    if (blockId === null && scrollTop === 0) return null;
+    return { blockId, scrollTop, at: typeof p["at"] === "number" ? p["at"] : 0 };
+  } catch {
+    return null; // stockage indisponible ou entrée corrompue
+  }
+}
+
+function writeLastPos(noteId: string, pos: { blockId: string | null; scrollTop: number }): void {
+  try {
+    window.localStorage.setItem(
+      LAST_POS_PREFIX + noteId,
+      JSON.stringify({ ...pos, at: Date.now() } satisfies LastEditPos),
+    );
+  } catch {
+    // stockage indisponible (navigation privée / quota) — position non persistée
+  }
+}
+
+/** LRU simple : garde les LAST_POS_MAX_ENTRIES entrées les plus récentes. */
+function pruneLastPosEntries(): void {
+  try {
+    const entries: Array<{ key: string; at: number }> = [];
+    for (let i = 0; i < window.localStorage.length; i++) {
+      const key = window.localStorage.key(i);
+      if (!key || !key.startsWith(LAST_POS_PREFIX)) continue;
+      let at = 0;
+      try {
+        const raw = window.localStorage.getItem(key);
+        if (raw) {
+          const parsed: unknown = JSON.parse(raw);
+          const candidate = (parsed as Record<string, unknown> | null)?.["at"];
+          if (typeof candidate === "number") at = candidate;
+        }
+      } catch {
+        // entrée corrompue → at=0, évincée en premier
+      }
+      entries.push({ key, at });
+    }
+    if (entries.length <= LAST_POS_MAX_ENTRIES) return;
+    entries.sort((a, b) => a.at - b.at);
+    for (const e of entries.slice(0, entries.length - LAST_POS_MAX_ENTRIES)) {
+      window.localStorage.removeItem(e.key);
+    }
+  } catch {
+    // stockage indisponible — rien à purger
+  }
+}
+
+// useLayoutEffect côté client (restauration du scroll AVANT la peinture),
+// useEffect côté serveur — évite le warning React en rendu SSR.
+const useIsomorphicLayoutEffect =
+  typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 const DEBOUNCE_MS = 1000;
 const AUTO_TITLE_DEBOUNCE_MS = 2000;
@@ -165,21 +259,42 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
 
   const handleCoverChange = useCallback(
     (next: string | null): void => {
+      const prev = cover;
       setCover(next);
-      void trpcVanillaClient.entities.update.mutate({ id: note.id, fields: { cover: next ?? "" } });
+      // Avant : fire-and-forget → un échec de persistance laissait l'UI afficher
+      // la nouvelle couverture (illusion de save), annulée au prochain chargement.
+      void trpcVanillaClient.entities.update
+        .mutate({ id: note.id, fields: { cover: next ?? "" } })
+        .catch((err) => {
+          console.error("[NoteEditor] cover save failed", err);
+          setCover(prev);
+          setToastMsg("Échec de l'enregistrement de la couverture");
+        });
     },
-    [note.id],
+    [note.id, cover],
   );
   const handleIconChange = useCallback(
     (next: string | null): void => {
+      const prev = icon;
       setIcon(next);
-      void trpcVanillaClient.entities.update.mutate({ id: note.id, fields: { icon: next ?? "" } });
+      void trpcVanillaClient.entities.update
+        .mutate({ id: note.id, fields: { icon: next ?? "" } })
+        .catch((err) => {
+          console.error("[NoteEditor] icon save failed", err);
+          setIcon(prev);
+          setToastMsg("Échec de l'enregistrement de l'icône");
+        });
     },
-    [note.id],
+    [note.id, icon],
   );
   const [aiMargins, setAiMargins] = useState<boolean>(() => note.fields?.["aiMargins"] === true);
   const [bodyVersion, setBodyVersion] = useState(0);
   const [presenting, setPresenting] = useState(false);
+  // Panneau « Liens entrants » : popover ancré au bouton (desktop) ou
+  // MobileSheet (mobile). Le compteur s'appuie sur l'agrégat backlinkCounts
+  // (léger, mis en cache) ; la liste n'est chargée qu'à l'ouverture.
+  const [backlinksOpen, setBacklinksOpen] = useState(false);
+  const backlinkCount = useBacklinkCount(note.id);
   // Surlignage du bloc correspondant au commentaire IA survolé (overlay hors
   // subtree ProseMirror — jamais de mutation d'attribut dans l'éditeur).
   const editorColRef = useRef<HTMLDivElement>(null);
@@ -222,6 +337,11 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
   // Factory exposed by SupernoteEditor to insert AI answers token by token.
   const editorStreamRef = useRef<(() => StreamingInsertHandle) | null>(null);
   const editorContainerRef = useRef<HTMLDivElement | null>(null);
+  // Dictée vocale : on ouvre un handle d'insertion en flux au démarrage, on y
+  // appose chaque segment FINAL (l'interim n'est jamais inséré), puis on
+  // finalise (end) ou on annule (cancel si rien n'a été dicté) à l'arrêt.
+  const voiceHandleRef = useRef<StreamingInsertHandle | null>(null);
+  const voiceReceivedRef = useRef(false);
 
   // Bloc embed Gmail (Phase 2) : le bloc appelle `pickEmail()` qui ouvre une
   // modal EmailPicker ; on résout la promesse avec le threadId choisi (ou null
@@ -564,6 +684,223 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
     };
   }, [note.id, updateNote]);
 
+  // ── « Reprendre où j'en étais » ─────────────────────────────────────────────
+  // Suivi : bloc du caret (onActiveBlockChange) + scrollTop du conteneur,
+  // persistés débouncés. Restauration : scroll immédiat avant peinture, puis
+  // caret + flash une fois l'éditeur prêt (restoreLastPos, appelé depuis
+  // onEditorReady). Garde-fous : note < 1 écran → rien ; bloc disparu →
+  // scroll seul ; l'utilisateur a repris la main → on ne vole rien.
+  const editorApiRef = useRef<SupernoteEditorApi | null>(null);
+  const activeBlockIdRef = useRef<string | null>(null);
+  const pendingRestoreRef = useRef<LastEditPos | null>(null);
+  const lastPosRestoredRef = useRef(false);
+  const lastPosTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Métriques du conteneur capturées AU MOMENT de l'événement (scroll/caret).
+  // Indispensable au flush du switch de note : quand le cleanup tourne, le DOM
+  // affiche déjà la note suivante et une lecture live donnerait son scroll.
+  const lastPosSnapRef = useRef<{
+    scrollTop: number;
+    scrollHeight: number;
+    clientHeight: number;
+  } | null>(null);
+  // L'utilisateur a repris la main pendant le chargement → restauration annulée.
+  const userTookOverRef = useRef(false);
+  const userScrolledRef = useRef(false);
+  // isMobile lu via ref au moment de la restauration (le hook se réconcilie
+  // après le premier paint) — pas de focus programmatique sur mobile, le
+  // clavier virtuel surgirait.
+  const isMobileRef = useRef(isMobile);
+  isMobileRef.current = isMobile;
+
+  const snapshotEditorContainer = useCallback(() => {
+    const c = editorContainerRef.current;
+    if (!c) return;
+    lastPosSnapRef.current = {
+      scrollTop: c.scrollTop,
+      scrollHeight: c.scrollHeight,
+      clientHeight: c.clientHeight,
+    };
+  }, []);
+
+  const saveLastPosNow = useCallback(() => {
+    const snap = lastPosSnapRef.current;
+    if (!snap) return;
+    // Note plus courte qu'un écran : rien d'utile à reprendre — on n'écrit
+    // rien (le garde-fou de restauration couvre les entrées héritées d'une
+    // version plus longue de la note).
+    if (snap.scrollHeight <= snap.clientHeight + LAST_POS_MIN_OVERFLOW_PX) return;
+    writeLastPos(note.id, {
+      blockId: activeBlockIdRef.current,
+      scrollTop: snap.scrollTop,
+    });
+  }, [note.id]);
+
+  const scheduleLastPosSave = useCallback(() => {
+    // Pas de save tant que la restauration n'a pas abouti : le scroll
+    // programmatique de la restauration écraserait la position stockée.
+    if (!lastPosRestoredRef.current) return;
+    snapshotEditorContainer();
+    if (lastPosTimerRef.current) clearTimeout(lastPosTimerRef.current);
+    lastPosTimerRef.current = setTimeout(() => {
+      lastPosTimerRef.current = null;
+      saveLastPosNow();
+    }, LAST_POS_DEBOUNCE_MS);
+  }, [snapshotEditorContainer, saveLastPosNow]);
+
+  const flushLastPos = useCallback(() => {
+    if (lastPosTimerRef.current === null) return; // rien en attente
+    clearTimeout(lastPosTimerRef.current);
+    lastPosTimerRef.current = null;
+    saveLastPosNow();
+  }, [saveLastPosNow]);
+
+  const handleActiveBlockChange = useCallback(
+    (blockId: string | null) => {
+      // null = sélection sortie de l'éditeur (clic titre, panneau…) — on garde
+      // le dernier bloc connu : c'est lui qu'on veut retrouver au retour.
+      if (!blockId) return;
+      activeBlockIdRef.current = blockId;
+      scheduleLastPosSave();
+    },
+    [scheduleLastPosSave],
+  );
+
+  // Reset par note + lecture de la position stockée + restauration immédiate
+  // du scroll (avant peinture — sera clampée si le contenu n'est pas encore
+  // monté, la passe post-éditeur ci-dessous ré-applique). Le cleanup flushe la
+  // position de la note quittée (closure liée à l'ancien note.id, snapshot
+  // capturé avant le swap du DOM).
+  useIsomorphicLayoutEffect(() => {
+    activeBlockIdRef.current = null;
+    lastPosSnapRef.current = null;
+    lastPosRestoredRef.current = false;
+    userTookOverRef.current = false;
+    userScrolledRef.current = false;
+    const pos = readLastPos(note.id);
+    pendingRestoreRef.current = pos;
+    if (!pos) {
+      lastPosRestoredRef.current = true; // rien à restaurer → saves autorisés
+      return flushLastPos;
+    }
+    // Le blockId stocké doit survivre aux saves intermédiaires (scroll sans
+    // nouvelle sélection) — on le ré-ancre dès maintenant.
+    activeBlockIdRef.current = pos.blockId;
+    const container = editorContainerRef.current;
+    if (container && pos.scrollTop > 0) container.scrollTop = pos.scrollTop;
+    return flushLastPos;
+    // flushLastPos suit note.id (via saveLastPosNow) — même cycle de vie.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [note.id]);
+
+  // LRU : purge des entrées les plus anciennes au-delà du cap. Une passe par
+  // note ouverte suffit — inutile de scanner à chaque write débouncé.
+  useEffect(() => {
+    pruneLastPosEntries();
+  }, [note.id]);
+
+  // Détection « l'utilisateur a repris la main » pendant le chargement :
+  // clic/frappe n'importe où → on ne vole ni le focus ni le scroll ;
+  // geste de scroll dans le conteneur → idem.
+  useEffect(() => {
+    const onUserInput = () => {
+      userTookOverRef.current = true;
+    };
+    document.addEventListener("pointerdown", onUserInput, true);
+    document.addEventListener("keydown", onUserInput, true);
+    const container = editorContainerRef.current;
+    const onUserScroll = () => {
+      userScrolledRef.current = true;
+    };
+    container?.addEventListener("wheel", onUserScroll, { passive: true });
+    container?.addEventListener("touchmove", onUserScroll, { passive: true });
+    return () => {
+      document.removeEventListener("pointerdown", onUserInput, true);
+      document.removeEventListener("keydown", onUserInput, true);
+      container?.removeEventListener("wheel", onUserScroll);
+      container?.removeEventListener("touchmove", onUserScroll);
+    };
+  }, []);
+
+  // Sauvegarde débouncée au scroll du conteneur de l'éditeur (même conteneur
+  // sur mobile — le div overflow-y-auto est rendu par ce composant dans les
+  // deux shells).
+  useEffect(() => {
+    const container = editorContainerRef.current;
+    if (!container) return;
+    const onScroll = () => scheduleLastPosSave();
+    container.addEventListener("scroll", onScroll, { passive: true });
+    return () => container.removeEventListener("scroll", onScroll);
+  }, [scheduleLastPosSave]);
+
+  // Flush si l'onglet se cache / se ferme — sinon les ~500 ms de scroll
+  // précédant la fermeture partent avec l'onglet.
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") flushLastPos();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("pagehide", flushLastPos);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("pagehide", flushLastPos);
+    };
+  }, [flushLastPos]);
+
+  // Passe de restauration post-éditeur, appelée depuis onEditorReady. Retry en
+  // rAF le temps que BlockNote peigne le document : tant que le contenu n'est
+  // pas monté, scrollHeight est celui du skeleton et le scroll serait clampé.
+  // Une note qui ne déborde jamais (< ~1 écran) épuise les retries → no-op.
+  const restoreLastPos = useCallback(() => {
+    const pos = pendingRestoreRef.current;
+    if (!pos || lastPosRestoredRef.current) return;
+    let attempts = 0;
+    const finish = () => {
+      if (pendingRestoreRef.current === pos) pendingRestoreRef.current = null;
+      lastPosRestoredRef.current = true;
+    };
+    const tryRestore = () => {
+      // Note switchée entre-temps (le layout effect a remplacé la position).
+      if (pendingRestoreRef.current !== pos) return;
+      // L'utilisateur a repris la main — on ne se bat pas avec lui.
+      if (userScrolledRef.current || userTookOverRef.current) {
+        finish();
+        return;
+      }
+      const container = editorContainerRef.current;
+      if (!container) {
+        finish();
+        return;
+      }
+      const scrollable =
+        container.scrollHeight > container.clientHeight + LAST_POS_MIN_OVERFLOW_PX;
+      if (!scrollable) {
+        attempts += 1;
+        if (attempts < LAST_POS_MAX_RETRY_FRAMES) {
+          requestAnimationFrame(tryRestore);
+          return;
+        }
+        finish(); // note réellement courte → ne rien faire
+        return;
+      }
+      if (pos.scrollTop > 0) container.scrollTop = pos.scrollTop;
+      // Caret + flash : desktop seulement, et seulement si aucun champ n'a
+      // déjà le focus. blockId disparu → restoreCaret renvoie false et on
+      // reste sur le fallback scroll seul.
+      const activeEl = document.activeElement;
+      const focusBusy =
+        activeEl instanceof HTMLElement &&
+        (activeEl.tagName === "INPUT" ||
+          activeEl.tagName === "TEXTAREA" ||
+          activeEl.isContentEditable);
+      if (pos.blockId && !isMobileRef.current && !focusBusy) {
+        editorApiRef.current?.restoreCaret(pos.blockId);
+      }
+      finish();
+    };
+    requestAnimationFrame(tryRestore);
+  }, []);
+  // ────────────────────────────────────────────────────────────────────────────
+
   const transcribeAudio = trpc.system.transcribeAudio.useMutation();
   const ocrImage = trpc.system.ocrImage.useMutation();
 
@@ -901,6 +1238,68 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
     }
   }, [triggerAutoSave, title]);
 
+  // ── Dictée vocale (Web Speech API) ──────────────────────────────────────────
+  //
+  // Le hook émet chaque segment FINAL une seule fois via `onFinalSegment` ; on
+  // l'appose au handle d'insertion en flux ouvert au démarrage (même mécanique
+  // que « Demander à l'IA », qui écrit dans un unique bloc live au caret puis le
+  // re-parse en markdown à la clôture — d'où l'ordre préservé, sans le bug de
+  // blocs inversés qu'aurait un insertBlocks « after » répété). L'interim n'est
+  // jamais inséré : il n'est qu'affiché dans la chip flottante. `onEnd` (arrêt
+  // volontaire, erreur fatale, silence non relançable) finalise l'insertion.
+  const voice = useVoiceDictation({
+    lang: "fr-FR",
+    onFinalSegment: (text) => {
+      const handle = voiceHandleRef.current;
+      const trimmed = text.trim();
+      if (!handle || !trimmed) return;
+      // Espace de liaison entre segments — buffer accumulé dans un seul bloc.
+      handle.append((voiceReceivedRef.current ? " " : "") + trimmed);
+      voiceReceivedRef.current = true;
+    },
+    onEnd: () => {
+      const handle = voiceHandleRef.current;
+      voiceHandleRef.current = null;
+      if (!handle) return;
+      // Rien dicté → on retire le bloc vide ; sinon on re-parse le markdown.
+      if (voiceReceivedRef.current) handle.end();
+      else handle.cancel();
+    },
+    onError: (error) => {
+      if (error === "not-allowed" || error === "service-not-allowed") {
+        showToast("Micro refusé — autorisez l'accès au microphone dans le navigateur");
+      } else if (error === "audio-capture") {
+        showToast("Aucun microphone détecté");
+      }
+      // no-speech / aborted / network : transitoires → silencieux.
+    },
+  });
+
+  const handleToggleVoice = useCallback(() => {
+    if (voice.listening) {
+      voice.stop(); // `onEnd` finalisera le handle
+      return;
+    }
+    const begin = editorStreamRef.current;
+    if (!begin) {
+      showToast("Éditeur pas encore prêt");
+      return;
+    }
+    voiceReceivedRef.current = false;
+    try {
+      voiceHandleRef.current = begin();
+    } catch {
+      // Position de caret indisponible (éditeur jamais focalisé) — on renonce
+      // proprement plutôt que de laisser remonter l'exception.
+      showToast("Placez le curseur dans la note avant de dicter");
+      return;
+    }
+    voice.start();
+    // showToast est une fonction locale recréée à chaque render (cf. autres
+    // handlers du fichier) — volontairement hors deps.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [voice.listening, voice.start, voice.stop]);
+
   // Survol d'un commentaire IA → retrouve le bloc dans l'éditeur (matching
   // texte), le centre et positionne un overlay de surlignage. Lecture DOM
   // seule + overlay sibling : aucune mutation du subtree observé par PM.
@@ -1162,6 +1561,52 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
         </div>
       )}
 
+      {/* Chip de dictée — affiche la transcription provisoire (interim) SANS
+          l'insérer dans le doc, et porte un bouton d'arrêt (hit-target 32px) de
+          sorte que la dictée reste pilotable au doigt même barre d'outils
+          repliée sur mobile. Reste lisible en mobile : largeur bornée + une
+          seule ligne tronquée, jamais de débordement horizontal. */}
+      {voice.supported && voice.listening && (
+        <div
+          className="absolute left-1/2 z-30 flex max-w-[calc(100vw-2rem)] -translate-x-1/2 items-center gap-2 rounded-full py-2 pl-3 pr-1.5 shadow-lg"
+          style={{
+            bottom: "calc(5rem + env(safe-area-inset-bottom, 0px))",
+            backgroundColor: "var(--surface-3)",
+            border: "1px solid var(--border)",
+          }}
+          role="status"
+          aria-live="polite"
+        >
+          <span
+            aria-hidden="true"
+            className="h-2.5 w-2.5 shrink-0 rounded-full"
+            style={{
+              backgroundColor: "var(--accent)",
+              animation: "sn-soft-pulse 1.1s ease-in-out infinite",
+            }}
+          />
+          <span
+            className="min-w-0 flex-1 truncate text-sm"
+            style={{ color: "var(--text-secondary)" }}
+          >
+            {voice.interim ? voice.interim : "À l'écoute… parlez"}
+          </span>
+          <Tooltip content="Arrêter la dictée">
+            <Button
+              isIconOnly
+              variant="ghost"
+              size="sm"
+              onPress={() => voice.stop()}
+              aria-label="Arrêter la dictée"
+              className="h-8 w-8 min-w-8 shrink-0 rounded-full"
+              style={{ color: "var(--accent)" }}
+            >
+              <Stop size={16} weight="fill" />
+            </Button>
+          </Tooltip>
+        </div>
+      )}
+
       <PromptModal
         open={aiModalOpen}
         title="Demander à l'IA"
@@ -1323,6 +1768,99 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
             <FilePdf size={13} />
             PDF
           </Button>
+          {/* Liens entrants — popover ancré au bouton sur desktop, MobileSheet
+              sur mobile (parité tactile). Le badge affiche le nombre de notes
+              qui mentionnent celle-ci ; la liste n'est chargée qu'à l'ouverture. */}
+          {isMobile ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              onPress={() => setBacklinksOpen(true)}
+              className="h-7 min-w-0 gap-1 px-2 text-xs"
+              style={{ color: "var(--text-muted)" }}
+              aria-label="Liens entrants"
+            >
+              <LinkSimple size={13} />
+              Liens entrants
+              {backlinkCount > 0 && (
+                <span
+                  className="ml-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium"
+                  style={{ background: "var(--accent-subtle)", color: "var(--accent)" }}
+                >
+                  {backlinkCount}
+                </span>
+              )}
+            </Button>
+          ) : (
+            <Popover isOpen={backlinksOpen} onOpenChange={setBacklinksOpen}>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 min-w-0 gap-1 px-2 text-xs"
+                style={{ color: backlinksOpen ? "var(--accent)" : "var(--text-muted)" }}
+                aria-label="Liens entrants"
+              >
+                <LinkSimple size={13} />
+                Liens entrants
+                {backlinkCount > 0 && (
+                  <span
+                    className="ml-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium"
+                    style={{ background: "var(--accent-subtle)", color: "var(--accent)" }}
+                  >
+                    {backlinkCount}
+                  </span>
+                )}
+              </Button>
+              <Popover.Content className="w-72 max-w-[calc(100vw-2rem)] p-0">
+                <Popover.Dialog className="outline-none">
+                  <div className="flex flex-col gap-2 p-3" aria-label="Liens entrants">
+                    <div className="flex items-center gap-1.5">
+                      <LinkSimple size={12} weight="bold" style={{ color: "var(--text-muted)" }} />
+                      <span
+                        className="text-xs font-semibold uppercase tracking-wide"
+                        style={{ color: "var(--text-muted)" }}
+                      >
+                        Liens entrants
+                      </span>
+                    </div>
+                    <div className="max-h-[50vh] overflow-y-auto">
+                      <BacklinksList
+                        noteId={note.id}
+                        onNavigate={() => setBacklinksOpen(false)}
+                      />
+                    </div>
+                  </div>
+                </Popover.Dialog>
+              </Popover.Content>
+            </Popover>
+          )}
+          {/* Dictée vocale — Web Speech API du navigateur, zéro dépendance.
+              Masquée si non supportée (Firefox). Le bouton pulse pendant
+              l'écoute ; l'arrêt est aussi atteignable depuis la chip flottante
+              (parité tactile mobile). */}
+          {voice.supported && (
+            <Tooltip content={voice.listening ? "Arrêter la dictée" : "Dictée vocale"}>
+              <Button
+                variant="ghost"
+                size="sm"
+                onPress={handleToggleVoice}
+                className="h-7 min-w-0 gap-1 px-2 text-xs"
+                style={{
+                  color: voice.listening ? "var(--accent)" : "var(--text-muted)",
+                  animation: voice.listening
+                    ? "sn-soft-pulse 1.2s ease-in-out infinite"
+                    : undefined,
+                }}
+                aria-label={
+                  voice.listening ? "Arrêter la dictée vocale" : "Démarrer la dictée vocale"
+                }
+                aria-pressed={voice.listening}
+              >
+                <Microphone size={13} weight={voice.listening ? "fill" : "regular"} />
+                Dictée
+              </Button>
+            </Tooltip>
+          )}
           <DropHint status={dropStatus} />
           <SaveIndicator status={saveStatus} />
               </div>
@@ -1417,7 +1955,14 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
               className="min-h-[60vh] w-full"
               onAskAi={handleAskAi}
               dimInactiveBlocks={dimBlocks}
-              onEditorReady={(insert) => { editorInsertRef.current = insert; }}
+              onEditorReady={(insert, api) => {
+                editorInsertRef.current = insert;
+                editorApiRef.current = api;
+                // « Reprendre où j'en étais » — l'éditeur est monté, on peut
+                // restaurer caret + scroll (no-op si déjà fait ou rien à faire).
+                restoreLastPos();
+              }}
+              onActiveBlockChange={handleActiveBlockChange}
               onStreamingInsertReady={(begin) => { editorStreamRef.current = begin; }}
               renderDatabaseView={renderInlineDatabase}
               renderFormula={renderNoteFormula}
@@ -1469,6 +2014,24 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
           title={title || "Sans titre"}
           onClose={() => setPresenting(false)}
         />
+      )}
+
+      {/* Équivalent mobile du popover backlinks : bottom sheet atteignable au
+          doigt. La liste n'est montée (et donc chargée) qu'à l'ouverture. */}
+      {isMobile && (
+        <MobileSheet
+          isOpen={backlinksOpen}
+          onClose={() => setBacklinksOpen(false)}
+          title="Liens entrants"
+          size="sm"
+        >
+          {backlinksOpen && (
+            <BacklinksList
+              noteId={note.id}
+              onNavigate={() => setBacklinksOpen(false)}
+            />
+          )}
+        </MobileSheet>
       )}
 
       {/* Couverture visible seulement à l'impression (export PDF). */}

@@ -7,6 +7,7 @@ import { MobileTopBar } from "./MobileTopBar";
 import { MoreDrawer } from "./MoreDrawer";
 import { useShellChrome } from "../shell-chrome-context";
 import { ColumnEditorSidebar } from "@/components/bases/ColumnEditorSidebar";
+import { EntityPeekPanel } from "@/components/bases/EntityPeekPanel";
 import { ConnectVaultModal } from "@/components/notes/ConnectVaultModal";
 import { useKeyboardOpen } from "@/hooks/useKeyboardOpen";
 import dynamic from "next/dynamic";
@@ -46,7 +47,7 @@ export const MobileShell = memo(function MobileShell({
   const [moreOpen, setMoreOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [connectVaultOpen, setConnectVaultOpen] = useState(false);
-  const { columnEditor, closeColumnEditor } = useShellChrome();
+  const { columnEditor, closeColumnEditor, entityPeek, closeEntityPeek } = useShellChrome();
 
   // Focus mode: while the keyboard is up and the note editor is focused, drop
   // ALL chrome (header, FAB, bottom nav) so only the note content shows. The
@@ -142,7 +143,7 @@ export const MobileShell = memo(function MobileShell({
           surface it as a right-anchored sliding overlay so editing a Base's
           columns is reachable instead of silently no-op'ing. */}
       {columnEditor && (
-        <div className="fixed inset-0 z-[var(--z-modal,90)] flex">
+        <div className="fixed inset-0 z-[var(--z-modal,400)] flex">
           <button
             type="button"
             aria-label="Fermer l'éditeur de colonnes"
@@ -163,6 +164,29 @@ export const MobileShell = memo(function MobileShell({
               focusFieldId={columnEditor.focusFieldId}
               prefillFormula={columnEditor.prefillFormula}
             />
+          </div>
+        </div>
+      )}
+
+      {/* Fiche d'entité en side-peek — sur mobile, overlay plein écran ancré à
+          droite (même traitement que le column editor ci-dessus). */}
+      {entityPeek && (
+        <div className="fixed inset-0 z-[var(--z-modal,400)] flex">
+          <button
+            type="button"
+            aria-label="Fermer la fiche"
+            onClick={closeEntityPeek}
+            className="flex-1"
+            style={{ backgroundColor: "color-mix(in srgb, var(--surface-0) 60%, transparent)" }}
+          />
+          <div
+            className="h-full w-full max-w-[380px] sn-col-editor-enter"
+            style={{
+              paddingTop: "env(safe-area-inset-top, 0px)",
+              backgroundColor: "var(--surface-1)",
+            }}
+          >
+            <EntityPeekPanel baseId={entityPeek.baseId} entityId={entityPeek.entityId} />
           </div>
         </div>
       )}

@@ -10,10 +10,21 @@
  * client séparé de Drive) pour ne pas forcer les utilisateurs Drive-only.
  */
 
-import { requestAccessToken } from "./google-drive";
+import { requestAccessToken, hasValidToken } from "./google-drive";
 
 export const GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
 const GMAIL_API_BASE = "https://gmail.googleapis.com/gmail/v1/users/me";
+
+/**
+ * True si un token readonly frais est déjà en cache — sans jamais déclencher
+ * d'acquisition (donc jamais de popup GIS). À utiliser pour gater tout appel
+ * Gmail issu d'un contexte NON interactif (poll, visibilitychange) : GIS ouvre
+ * une popup dès que le cache mémoire est froid, il n'y a pas de refresh token
+ * côté client.
+ */
+export function hasGmailToken(clientId: string): boolean {
+  return hasValidToken(clientId, GMAIL_READONLY_SCOPE);
+}
 
 /** Récupère un token Gmail (consentement incrémental, scope readonly). */
 function gmailToken(clientId: string, prompt: "" | "consent" | "none" = ""): Promise<string> {

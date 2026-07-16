@@ -18,6 +18,7 @@ import {
   SlidersHorizontal,
   X,
   FunctionIcon,
+  ArrowsHorizontal,
 } from "@phosphor-icons/react";
 import type { EntityType, Field } from "@supernote/core";
 import type { SortClause } from "@supernote/ipc";
@@ -49,8 +50,14 @@ export interface ColumnHeaderMenuProps {
   onEditField: () => void;
   /** Convertit la colonne courante en formule (remplace son kind, garde id/name/label). */
   onConvertToFormula: (expression: string, outputKind: FormulaOutputKind, outputFormat?: string) => void;
+  /** Ajuste la largeur de la colonne à son contenu (aussi accessible au tactile,
+   * où le double-clic sur le handle de resize n'existe pas). */
+  onAutoFit?: () => void;
   /** Ferme le menu. */
   onClose: () => void;
+  /** Phase d'ouverture : "rename" ouvre directement l'input de renommage
+   * (double-clic sur le header). Défaut : "menu". */
+  initialPhase?: "menu" | "rename";
 }
 
 // ── Composant ─────────────────────────────────────────────────────────────────
@@ -66,12 +73,14 @@ export function ColumnHeaderMenu({
   onDelete,
   onEditField,
   onConvertToFormula,
+  onAutoFit,
   onClose,
+  initialPhase = "menu",
 }: ColumnHeaderMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
 
   // Phase locale : "menu" | "rename" | "confirm-delete" | "formula"
-  const [phase, setPhase] = useState<"menu" | "rename" | "confirm-delete" | "formula">("menu");
+  const [phase, setPhase] = useState<"menu" | "rename" | "confirm-delete" | "formula">(initialPhase);
   const [renameValue, setRenameValue] = useState(field.label || field.name);
   const renameInputRef = useRef<HTMLInputElement>(null);
 
@@ -244,6 +253,13 @@ export function ColumnHeaderMenu({
       <button type="button" className="sn-col-menu-item" onClick={() => setPhase("rename")}>
         <PencilSimple size={15} /> Renommer
       </button>
+
+      {/* Ajuster la largeur au contenu */}
+      {onAutoFit && (
+        <button type="button" className="sn-col-menu-item" onClick={() => { onAutoFit(); onClose(); }}>
+          <ArrowsHorizontal size={15} /> Ajuster la largeur
+        </button>
+      )}
 
       {/* Éditer le champ (ouvre la sidebar) */}
       <button type="button" className="sn-col-menu-item" onClick={() => { onEditField(); onClose(); }}>

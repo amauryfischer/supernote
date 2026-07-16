@@ -6,12 +6,13 @@ import {
   MagnifyingGlass,
   type Icon as PhosphorIcon,
 } from "@phosphor-icons/react";
-import { memo, useCallback, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useShellChrome, type MobileHeaderAction } from "../shell-chrome-context";
 import { OverflowMenu } from "./OverflowMenu";
 import { GitSyncIndicator } from "@/lib/git/GitSyncIndicator";
 import { OnlineSyncIndicator } from "@/lib/online-sync/OnlineSyncIndicator";
+import { recordVisit } from "@/lib/navigation/recents";
 import { Button } from "@supernote/ui";
 
 /**
@@ -120,6 +121,16 @@ export const MobileTopBar = memo(function MobileTopBar() {
   const showBack = !TOP_LEVEL.has(pathname);
   const title = mobileTitle ?? deriveTitle(pathname);
 
+  // Record a frecency visit for the current page. The mobile header already
+  // has a resolved title (page-published or route-derived), so this is free —
+  // no extra network request. Entity id/type aren't available here, so mobile
+  // recents are title-only (the palette preview column is hidden < sm anyway);
+  // recordVisit preserves any entityId a desktop visit resolved for the href.
+  useEffect(() => {
+    if (!title || title === "Supernote") return;
+    recordVisit({ href: pathname, title });
+  }, [pathname, title]);
+
   const onBack = useCallback(() => {
     // Prefer router back when we have history to pop, else fall back to the
     // parent route. `window.history.length` is unreliable but it's the best
@@ -172,7 +183,9 @@ export const MobileTopBar = memo(function MobileTopBar() {
             <ArrowLeft size={22} />
           </Button>
         ) : (
-          <div className="w-2" />
+          // w-3 : sans bouton retour, 4+8+4 (px-1 + spacer + px-1) = 16px de
+          // gouttière effective, le standard mobile — w-2 laissait 12px
+          <div className="w-3" />
         )}
 
         <div className="flex min-w-0 flex-1 flex-col justify-center px-1">

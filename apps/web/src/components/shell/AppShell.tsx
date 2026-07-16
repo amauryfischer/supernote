@@ -8,6 +8,7 @@ import { ShellChromeProvider, useShellChrome } from "./shell-chrome-context";
 import { Sidebar } from "./Sidebar";
 import { TopBar } from "./TopBar";
 import { ColumnEditorSidebar } from "@/components/bases/ColumnEditorSidebar";
+import { EntityPeekPanel } from "@/components/bases/EntityPeekPanel";
 
 interface AppShellProps {
   children: React.ReactNode;
@@ -96,7 +97,7 @@ const RightPanelWrapper = memo(function RightPanelWrapper({
  * The user can also collapse the right panel manually.
  */
 function ShellLayout({ children }: AppShellProps) {
-  const { focusMode, rightPanelVisible, accentOverride, columnEditor } = useShellChrome();
+  const { focusMode, rightPanelVisible, accentOverride, columnEditor, entityPeek } = useShellChrome();
 
   // Folder-scoped accent override propagates through CSS-variable inheritance.
   // Setting `--accent` / `--accent-subtle` / … on the outermost shell element
@@ -132,6 +133,15 @@ function ShellLayout({ children }: AppShellProps) {
         />
       ) : (
         <RightPanelWrapper focusMode={focusMode} rightPanelVisible={rightPanelVisible} />
+      )}
+
+      {/* Fiche d'entité en side-peek — colonne droite additionnelle qui pousse
+          le contenu. Le wrapper porte l'anim d'entrée slide-in (même classe
+          .sn-* que l'overlay mobile du column editor). */}
+      {entityPeek && (
+        <div className="sn-col-editor-enter shrink-0">
+          <EntityPeekPanel baseId={entityPeek.baseId} entityId={entityPeek.entityId} />
+        </div>
       )}
     </div>
   );

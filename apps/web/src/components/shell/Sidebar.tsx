@@ -1,26 +1,6 @@
 "use client";
 
-import {
-  Archive,
-  Bell,
-  CaretDown,
-  Calendar,
-  CheckSquare,
-  Cloud,
-  EnvelopeSimple,
-  FileText,
-  Function,
-  Gear,
-  GridNine,
-  House,
-  Lightning,
-  Robot,
-  Tag,
-  Timer,
-  Users,
-  Wallet,
-  type Icon as PhosphorIcon,
-} from "@phosphor-icons/react";
+import { Bell, CaretDown, Cloud } from "@phosphor-icons/react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
@@ -29,14 +9,19 @@ import { NotificationBadge, useNotifications } from "@supernote/notifications/re
 import { useTranslations } from "next-intl";
 import { useVault, type RecentVault } from "@/lib/pwa/PwaVaultSetup";
 import { VaultSwitcherList } from "./VaultSwitcherList";
-import {
-  BUILT_IN_PLUGINS,
-  PLUGIN_HREF_BY_SLUG,
-  usePluginEnabled,
-} from "@/hooks/usePluginEnabled";
+import { usePluginEnabled } from "@/hooks/usePluginEnabled";
 import { Button } from "@supernote/ui";
 import { useGmailConnected } from "@/hooks/useGmailConnected";
 import { useInboxUnreadCount } from "@/hooks/useInboxUnreadCount";
+import {
+  NAV_GROUP_ORDER,
+  NAV_GROUP_LABEL_KEY,
+  NAV_HEADERLESS_GROUPS,
+  NAV_SETTINGS,
+  navItemsInGroup,
+  type NavItem,
+  type NavGate,
+} from "@/lib/navigation/catalog";
 
 // NotificationCenter is heavy and only mounts when the panel is open. Loading
 // it lazily keeps the initial sidebar bundle small (Turbopack can tree-shake
@@ -48,49 +33,6 @@ const NotificationCenter = dynamic(
     })),
   { ssr: false },
 );
-
-interface NavItem {
-  labelKey: string;
-  icon: PhosphorIcon;
-  href: string;
-}
-
-interface NavGroup {
-  labelKey: string;
-  items: NavItem[];
-}
-
-const NAV_GROUPS: NavGroup[] = [
-  {
-    labelKey: "nav.groups.navigation",
-    items: [
-      { labelKey: "nav.home", icon: House, href: "/" },
-      { labelKey: "nav.ai", icon: Robot, href: "/ai" },
-    ],
-  },
-  {
-    labelKey: "nav.groups.knowledge",
-    items: [
-      { labelKey: "nav.notes", icon: FileText, href: "/notes" },
-      { labelKey: "nav.mail", icon: EnvelopeSimple, href: "/mail" },
-      { labelKey: "nav.archive", icon: Archive, href: "/archive" },
-      { labelKey: "nav.todos", icon: CheckSquare, href: "/todos" },
-      { labelKey: "nav.habits", icon: GridNine, href: "/habits" },
-      { labelKey: "nav.journal", icon: Calendar, href: "/journal" },
-      { labelKey: "nav.contacts", icon: Users, href: "/contacts" },
-      { labelKey: "nav.finance", icon: Wallet, href: "/finance" },
-    ],
-  },
-  {
-    labelKey: "nav.groups.tools",
-    items: [
-      { labelKey: "nav.tags", icon: Tag, href: "/tags" },
-      { labelKey: "nav.variables", icon: Function, href: "/variables" },
-      { labelKey: "nav.routines", icon: Lightning, href: "/routines" },
-      { labelKey: "nav.pomodoro", icon: Timer, href: "/pomodoro" },
-    ],
-  },
-];
 
 const NavLink = memo(function NavLink({
   item,
@@ -125,13 +67,14 @@ const NavLink = memo(function NavLink({
     <Link
       href={item.href}
       prefetch={true}
-      className="sn-pressable flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm font-normal focus-visible:outline-none"
+      className="sn-pressable flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] focus-visible:outline-none"
       style={
         active
           ? {
               backgroundColor: "var(--accent-subtle)",
               color: "var(--accent)",
-              fontWeight: 500,
+              fontWeight: 600,
+              boxShadow: "inset 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent)",
               transition: "var(--sn-transition-colors), var(--sn-transition-transform)",
             }
           : {
@@ -152,7 +95,7 @@ const NavLink = memo(function NavLink({
         el.style.color = "var(--text-secondary)";
       }}
     >
-      <item.icon size={15} />
+      <item.icon size={16} weight={active ? "fill" : "regular"} />
       <span className="min-w-0 flex-1 truncate">{label}</span>
       {badgeCount > 0 && (
         <span
@@ -178,23 +121,25 @@ export const Sidebar = memo(function Sidebar() {
   const vault = useVault();
 
   // Built-in features behave like plugins: each has a localStorage flag
-  // controlling whether its sidebar entry is visible. We must call hooks
-  // in a fixed order, so we read every known plugin upfront and build a
-  // href → enabled map that the render pass consults below.
+  // controlling whether its nav entry is visible. Hooks must run in a fixed
+  // order, so we read every gate upfront and expose an item→visible predicate.
+  // Le catalogue `catalog.ts` tague chaque item avec un `gate` (journal /
+  // routines / mail) ; on applique ici la MÊME logique que le drawer mobile.
   const journalEnabled = usePluginEnabled("journal", false);
   const routinesEnabled = usePluginEnabled("routines", true);
   const gmailConnected = useGmailConnected();
   // Fils non lus en boîte de réception → badge discret sur l'entrée « Mail ».
   // Le hook renvoie 0 (donc pas de badge) tant que Gmail n'est pas connecté.
   const mailUnread = useInboxUnreadCount();
-  const pluginEnabledByHref: Record<string, boolean> = {
-    [PLUGIN_HREF_BY_SLUG.journal]: journalEnabled,
-    [PLUGIN_HREF_BY_SLUG.routines]: routinesEnabled,
-    "/mail": gmailConnected,
+  const gateEnabled: Record<NavGate, boolean> = {
+    journal: journalEnabled,
+    routines: routinesEnabled,
+    mail: gmailConnected,
   };
-  // Reference BUILT_IN_PLUGINS so future additions surface a type error
-  // here when the catalogue and hook calls drift apart.
-  void BUILT_IN_PLUGINS;
+  const isItemVisible = useCallback(
+    (item: NavItem) => (item.gate ? gateEnabled[item.gate] : true),
+    [journalEnabled, routinesEnabled, gmailConnected],
+  );
   // Show the active vault name in the brand header. In Electron the PWA hook
   // is bypassed (vault === null) and we fall back to the static product name.
   // In PWA mode an empty `vaultName` means we haven't received VAULT_READY
@@ -221,10 +166,12 @@ export const Sidebar = memo(function Sidebar() {
     [pathname],
   );
 
-  // Keyboard shortcut: Cmd+Alt+N
+  // Raccourci notifications : Cmd/Ctrl+Alt+B (« bell »). Cmd+Alt+N est réservé
+  // à « nouvelle note » (pages /notes, via ShortcutProvider) — les deux se
+  // masquaient selon la route.
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
-      if ((e.metaKey || e.ctrlKey) && e.altKey && e.key === "n") {
+      if ((e.metaKey || e.ctrlKey) && e.altKey && e.key === "b") {
         e.preventDefault();
         setNotifOpen((v) => !v);
       }
@@ -251,7 +198,7 @@ export const Sidebar = memo(function Sidebar() {
             the top-left without hunting through settings. In Electron the
             label is non-interactive and renders as a plain Link to home. */}
         <div
-          className="flex items-center justify-between gap-1 px-4"
+          className="flex items-center justify-between gap-1 px-3"
           style={{ height: "var(--header-height)" }}
         >
           {canPickVault ? (
@@ -266,7 +213,7 @@ export const Sidebar = memo(function Sidebar() {
               className="flex min-w-0 flex-1 items-center gap-2.5 rounded-md px-1 py-1 -mx-1"
             >
               <div
-                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-xs font-bold"
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-sm font-bold"
                 style={{
                   backgroundColor: "var(--accent)",
                   color: "var(--accent-foreground)",
@@ -290,7 +237,7 @@ export const Sidebar = memo(function Sidebar() {
               className="flex min-w-0 flex-1 items-center gap-2.5 transition-opacity hover:opacity-80 focus-visible:outline-none"
             >
               <div
-                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-xs font-bold"
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-sm font-bold"
                 style={{
                   backgroundColor: "var(--accent)",
                   color: "var(--accent-foreground)",
@@ -371,62 +318,64 @@ export const Sidebar = memo(function Sidebar() {
           filtered out — the underlying route still works for direct
           navigation, only the sidebar entry is hidden. Empty groups are
           collapsed entirely so we don't render dangling section headers. */}
-      <nav data-tour="sidebar-nav" className="flex flex-1 flex-col overflow-y-auto p-2">
-        {NAV_GROUPS.map((group) => {
-          const visibleItems = group.items.filter((item) => {
-            const pluginEnabled = pluginEnabledByHref[item.href];
-            return pluginEnabled === undefined ? true : pluginEnabled;
-          });
-          return { group, visibleItems };
-        })
-          .filter(({ visibleItems }) => visibleItems.length > 0)
-          .map(({ group, visibleItems }, groupIndex) => (
-            <div key={group.labelKey}>
-              {groupIndex > 0 && (
-                <div
-                  className="mx-3 my-1.5 border-t"
-                  style={{ borderColor: "var(--border-subtle)" }}
-                />
-              )}
-              <p
-                className="mb-0.5 mt-1 px-3 text-[10px] font-semibold uppercase tracking-widest"
-                style={{ color: "var(--text-muted)" }}
-              >
-                {t(group.labelKey)}
-              </p>
-              <div className="flex flex-col gap-0.5">
-                {visibleItems.map((item) => (
-                  <NavLink
-                    key={item.href}
-                    item={item}
-                    active={isActive(item.href)}
-                    label={t(item.labelKey)}
-                    badgeCount={item.href === "/mail" ? mailUnread : 0}
-                  />
-                ))}
+      <nav data-tour="sidebar-nav" className="flex flex-1 flex-col overflow-y-auto px-2 py-1.5">
+        {NAV_GROUP_ORDER.map((groupId) => ({
+          groupId,
+          items: navItemsInGroup(groupId).filter(isItemVisible),
+        }))
+          .filter(({ items }) => items.length > 0)
+          .map(({ groupId, items }) => {
+            // Le groupe « navigation » (Accueil, Assistant IA) est épinglé en
+            // tête sans en-tête — un libellé « Navigation » au-dessus d'une nav
+            // est un eyebrow redondant. Cf. NAV_HEADERLESS_GROUPS. Densité
+            // Linear : plus de séparateur entre groupes, l'espacement du libellé
+            // (mt-3) suffit à séparer.
+            const headerless = NAV_HEADERLESS_GROUPS.has(groupId);
+            return (
+              <div key={groupId}>
+                {!headerless && (
+                  <p
+                    className="mb-1 mt-3 px-2.5 text-[10px] font-semibold uppercase tracking-wider"
+                    style={{ color: "var(--text-muted)" }}
+                  >
+                    {t(NAV_GROUP_LABEL_KEY[groupId])}
+                  </p>
+                )}
+                <div className="flex flex-col gap-0.5">
+                  {items.map((item) => (
+                    <NavLink
+                      key={item.href}
+                      item={item}
+                      active={isActive(item.href)}
+                      label={t(item.labelKey)}
+                      badgeCount={item.href === "/mail" ? mailUnread : 0}
+                    />
+                  ))}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
       </nav>
 
       {/* Bottom settings */}
       <div
-        className="border-t p-2"
+        className="border-t px-2 py-1.5"
         style={{ borderColor: "var(--border-subtle)" }}
       >
         <Link
-          href="/parametres"
+          href={NAV_SETTINGS.href}
           prefetch={true}
           data-tour="settings-link"
-          className="sn-pressable flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm font-normal hover:bg-[var(--surface-2)] focus-visible:outline-none"
+          className="sn-pressable flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] hover:bg-[var(--surface-2)] focus-visible:outline-none"
           style={{
-            color: isActive("/parametres") ? "var(--accent)" : "var(--text-muted)",
-            backgroundColor: isActive("/parametres") ? "var(--accent-subtle)" : undefined,
+            color: isActive(NAV_SETTINGS.href) ? "var(--accent)" : "var(--text-muted)",
+            backgroundColor: isActive(NAV_SETTINGS.href) ? "var(--accent-subtle)" : undefined,
+            fontWeight: isActive(NAV_SETTINGS.href) ? 600 : undefined,
             transition: "var(--sn-transition-colors), var(--sn-transition-transform)",
           }}
         >
-          <Gear size={15} />
-          {t("nav.settings")}
+          <NAV_SETTINGS.icon size={16} weight={isActive(NAV_SETTINGS.href) ? "fill" : "regular"} />
+          {t(NAV_SETTINGS.labelKey)}
         </Link>
       </div>
       </aside>

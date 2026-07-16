@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useSettings } from "@/components/settings";
 import { useGmailConnected } from "@/hooks/useGmailConnected";
-import { getInboxUnreadCount } from "@/lib/gmail";
+import { getInboxUnreadCount, hasGmailToken } from "@/lib/gmail";
 
 /** Intervalle de rafraîchissement du compteur (poll léger, 1 appel REST). */
 const POLL_MS = 120_000;
@@ -15,8 +15,15 @@ const POLL_MS = 120_000;
  *
  * Source : `getInboxUnreadCount` (labels.get sur INBOX → `threadsUnread`), scope
  * `gmail.readonly` déjà accordé. Rafraîchi au montage, à chaque retour d'onglet
- * (`visibilitychange`) et en poll doux (2 min). Le token étant caché par scope,
- * l'appel ne déclenche pas de pop-up de consentement une fois connecté.
+ * (`visibilitychange`) et en poll doux (2 min).
+ *
+ * IMPORTANT : ce hook tourne en arrière-plan (Sidebar toujours montée) — il ne
+ * doit JAMAIS acquérir de token, seulement consommer un token déjà frais
+ * (`hasGmailToken`). Le cache token est en mémoire et GIS ouvre une popup à
+ * chaque acquisition ; sans ce gate, le poll rouvrait la fenêtre d'autorisation
+ * Google toutes les 2 min dès que le cache était froid (reload, expiration,
+ * échec). Le token est (ré)acquis par les surfaces interactives — ouverture de
+ * la page Mail, bouton Connecter — et le compteur reprend au poll suivant.
  */
 export function useInboxUnreadCount(): number {
   const { settings } = useSettings();
@@ -37,6 +44,10 @@ export function useInboxUnreadCount(): number {
     }
     let cancelled = false;
     const refresh = () => {
+      // Pas de token frais en cache → on ne tente rien (une acquisition
+      // ouvrirait la popup GIS hors user gesture). On garde le dernier compte
+      // connu ; la prochaine itération après ré-acquisition rattrapera.
+      if (!hasGmailToken(clientId)) return;
       getInboxUnreadCount(clientId)
         .then((n) => {
           if (!cancelled && aliveRef.current) setCount(n);

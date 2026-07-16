@@ -73,6 +73,7 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
     resolvers,
     onAskAi,
     onEditorReady,
+    onActiveBlockChange,
     onStreamingInsertReady,
     dimInactiveBlocks = false,
     placeholder,
@@ -102,6 +103,9 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
 
   const onEditorReadyRef = useRef(onEditorReady);
   onEditorReadyRef.current = onEditorReady;
+
+  const onActiveBlockChangeRef = useRef(onActiveBlockChange);
+  onActiveBlockChangeRef.current = onActiveBlockChange;
 
   // Wrapper element — anchor for the SmoothCaret overlay (and any future
   // editor-relative chrome).
@@ -272,7 +276,33 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
       );
       flashBlocks(((inserted ?? []) as Array<{ id?: string }>).map((b) => b.id));
     };
-    onEditorReadyRef.current(insertAtCursor);
+    // « Reprendre où j'en étais » : replace le caret à la fin du bloc, scrolle
+    // le bloc dans le viewport s'il n'est pas déjà visible, et rejoue le flash
+    // d'atterrissage. Tout passe par l'API BlockNote + flashBlocks — aucune
+    // écriture d'attribut dans le subtree ProseMirror (piège MutationObserver).
+    const restoreCaret = (blockId: string): boolean => {
+      try {
+        if (!editor.getBlock(blockId)) return false;
+        editor.setTextCursorPosition(blockId, "end");
+        editor.focus();
+      } catch {
+        return false; // bloc invalide / état transitoire — fallback host
+      }
+      requestAnimationFrame(() => {
+        const el = wrapperRef.current?.querySelector(`[data-id="${blockId}"]`);
+        if (!(el instanceof HTMLElement)) return;
+        const rect = el.getBoundingClientRect();
+        const viewportH = window.innerHeight || document.documentElement.clientHeight;
+        // Déjà visible (le host a en général restauré le scrollTop) → on ne
+        // bouge pas ; sinon on centre le bloc d'atterrissage.
+        if (rect.top < 0 || rect.bottom > viewportH) {
+          el.scrollIntoView({ block: "center" });
+        }
+      });
+      flashBlocks([blockId]);
+      return true;
+    };
+    onEditorReadyRef.current(insertAtCursor, { insertAtCursor, restoreCaret });
   }, [editor]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Streaming insert — used by the host's "Demander à l'IA" flow to write
@@ -424,6 +454,10 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
       const activeId = active?.getAttribute("data-id") ?? null;
       if (activeId !== lastId) {
         lastId = activeId;
+        // « Reprendre où j'en étais » : le host mémorise le bloc du caret.
+        // Ref-based, appelé seulement au changement de bloc — coût nul si
+        // la prop n'est pas fournie.
+        onActiveBlockChangeRef.current?.(activeId);
         // data-id is a BlockNote-generated UUID — safe to inline. We emit the
         // full-opacity rule for the caret's block PLUS a gentle distance
         // falloff onto the immediate previous/next siblings (a soft halo

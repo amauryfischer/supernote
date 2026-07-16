@@ -13,8 +13,9 @@
  * so a fresh Base always has something to display.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import type { EntityType } from "@supernote/core";
+import { Skeleton } from "@supernote/ui";
 import {
   useEnsureDefaultView,
   useEntityMutations,
@@ -50,6 +51,11 @@ export function BaseView({ base, pinnedViewId, maxHeight, readOnly = false }: Ba
   const entityMut = useEntityMutations(base.id);
 
   const [selectedId, setSelectedId] = useState<string | undefined>(pinnedViewId);
+
+  // Recherche instantanée (loupe de la toolbar). La valeur différée lisse la
+  // frappe : l'input reste réactif, le filtrage des lignes suit juste après.
+  const [searchQuery, setSearchQuery] = useState("");
+  const deferredSearchQuery = useDeferredValue(searchQuery);
 
   // Auto-select: when no view is selected yet, pick the first system view
   // (default) or the first available view. Pinned id wins if present.
@@ -87,12 +93,18 @@ export function BaseView({ base, pinnedViewId, maxHeight, readOnly = false }: Ba
   };
 
   if (isLoading) {
+    // Squelette de la barre d'onglets pendant le chargement des vues, plutôt
+    // qu'un « Chargement des vues… » texte centré (local-first, ressenti).
     return (
-      <div
-        className="flex items-center justify-center py-8 text-xs"
-        style={{ color: "var(--text-muted)" }}
-      >
-        Chargement des vues…
+      <div className="flex h-full flex-col">
+        <div
+          className="flex items-center gap-2 border-b px-3 py-2"
+          style={{ borderColor: "var(--border-subtle)" }}
+        >
+          {Array.from({ length: 3 }, (_, i) => (
+            <Skeleton key={i} className="h-6 w-24" />
+          ))}
+        </div>
       </div>
     );
   }
@@ -111,6 +123,8 @@ export function BaseView({ base, pinnedViewId, maxHeight, readOnly = false }: Ba
         <BaseToolbar
           base={base}
           view={active}
+          searchQuery={searchQuery}
+          onSearchQueryChange={setSearchQuery}
           onCreateEntry={
             readOnly
               ? undefined
@@ -120,7 +134,13 @@ export function BaseView({ base, pinnedViewId, maxHeight, readOnly = false }: Ba
       )}
       <div className="flex-1 overflow-hidden">
         {active ? (
-          <ViewRenderer base={base} view={active} maxHeight={maxHeight} readOnly={readOnly} />
+          <ViewRenderer
+            base={base}
+            view={active}
+            maxHeight={maxHeight}
+            readOnly={readOnly}
+            searchQuery={deferredSearchQuery}
+          />
         ) : (
           <div
             className="flex items-center justify-center py-8 text-xs"
@@ -145,23 +165,34 @@ function ViewRenderer({
   view,
   maxHeight,
   readOnly = false,
+  searchQuery,
 }: {
   base: import("@supernote/core").EntityType;
   view: import("@supernote/ipc").View;
   maxHeight?: string;
   readOnly?: boolean;
+  /** Recherche instantanée (déjà différée par BaseView). */
+  searchQuery?: string;
 }) {
   switch (view.kind) {
     case "table":
-      return <DataGrid base={base} view={view} maxHeight={maxHeight} readOnly={readOnly} />;
+      return (
+        <DataGrid
+          base={base}
+          view={view}
+          maxHeight={maxHeight}
+          readOnly={readOnly}
+          searchQuery={searchQuery}
+        />
+      );
     case "board":
-      return <KanbanView base={base} view={view} />;
+      return <KanbanView base={base} view={view} searchQuery={searchQuery} />;
     case "gallery":
-      return <GalleryView base={base} view={view} />;
+      return <GalleryView base={base} view={view} searchQuery={searchQuery} />;
     case "calendar":
       return <CalendarView base={base} view={view} />;
     case "list":
-      return <ListView base={base} view={view} />;
+      return <ListView base={base} view={view} searchQuery={searchQuery} />;
     case "detail":
       return <DetailView base={base} view={view} />;
     case "chart":
@@ -171,6 +202,14 @@ function ViewRenderer({
     case "timeline":
       return <TimelineView base={base} view={view} />;
     default:
-      return <DataGrid base={base} view={view} maxHeight={maxHeight} readOnly={readOnly} />;
+      return (
+        <DataGrid
+          base={base}
+          view={view}
+          maxHeight={maxHeight}
+          readOnly={readOnly}
+          searchQuery={searchQuery}
+        />
+      );
   }
 }

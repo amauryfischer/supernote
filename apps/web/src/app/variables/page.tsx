@@ -120,7 +120,7 @@ export default function VariablesPage() {
 
   return (
     <AppShell>
-      <div className="mx-auto max-w-5xl p-6">
+      <div className="mx-auto max-w-5xl px-4 py-6 md:px-8 md:py-8">
       {/* Header */}
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-2xl font-semibold" style={{ color: "var(--text-primary)" }}>

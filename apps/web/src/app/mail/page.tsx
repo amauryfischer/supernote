@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Button, Input, Spinner, Checkbox } from "@heroui/react";
+import { EmptyState, Skeleton } from "@supernote/ui";
 import { FilePlus, Database, ArrowLeft, MagnifyingGlass, PencilSimple, Archive, Trash, EnvelopeOpen, X, CaretDoubleRight, CaretDoubleLeft, MagicWand, ArrowsClockwise, Faders } from "@phosphor-icons/react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useSettings } from "@/components/settings/SettingsContext";
@@ -1860,9 +1861,15 @@ export default function MailPage() {
           document (sidebar + panneaux remontent, bande blanche en bas). */}
       <div ref={listScrollRef} className="relative flex-1 overflow-y-auto px-2 pb-4">
         {listLoading && (
-          <p className="px-3 py-2 text-sm" style={{ color: "var(--text-muted)" }}>
-            Chargement…
-          </p>
+          // Skeleton de lignes d'email plutôt qu'un « Chargement… » texte.
+          <div aria-hidden="true" className="flex flex-col gap-1 px-2 py-2">
+            {Array.from({ length: 8 }, (_, i) => (
+              <div key={i} className="flex flex-col gap-1.5 rounded-md px-3 py-2.5">
+                <Skeleton className="h-3.5 w-2/3" />
+                <Skeleton className="h-3 w-1/3" />
+              </div>
+            ))}
+          </div>
         )}
         {listError && (
           <p className="px-3 py-2 text-sm" style={{ color: "var(--color-danger, #ef4444)" }}>
@@ -1870,11 +1877,19 @@ export default function MailPage() {
           </p>
         )}
         {!listLoading && !listError && rows.length === 0 && (
-          <p className="px-3 py-8 text-center text-sm" style={{ color: "var(--text-muted)" }}>
-            {groupIdFromTab(mailTab) !== null
-              ? "Aucun email dans ce groupe."
-              : "Inbox vide — rien à traiter."}
-          </p>
+          <EmptyState
+            icon={<EnvelopeOpen size={26} />}
+            title={
+              groupIdFromTab(mailTab) !== null
+                ? "Aucun email dans ce groupe"
+                : "Boîte de réception vide"
+            }
+            description={
+              groupIdFromTab(mailTab) !== null
+                ? "Ce groupe ne contient aucun fil pour l'instant."
+                : "Rien à traiter — tu es à jour."
+            }
+          />
         )}
         {!listLoading && !listError && rows.length > 0 && (
           <>
@@ -2113,7 +2128,7 @@ export default function MailPage() {
   if (!connected) {
     return (
       <AppShell>
-        <div className="px-4 py-10 md:px-10">
+        <div className="px-4 py-10 md:px-8">
           <div className="mx-auto max-w-md text-center">
             <h1 className="mb-2 text-xl font-semibold">Mail</h1>
             <p className="mb-4 text-sm" style={{ color: "var(--text-muted)" }}>

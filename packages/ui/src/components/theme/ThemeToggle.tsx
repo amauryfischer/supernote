@@ -1,5 +1,10 @@
 import * as React from "react";
-import { useAppTheme, type ThemeValue } from "./ThemeProvider.js";
+import {
+  useAppTheme,
+  setThemeWithTransition,
+  originFromElement,
+  type ThemeValue,
+} from "./ThemeProvider.js";
 import { cn } from "../../cn.js";
 
 export interface ThemeToggleProps {
@@ -35,7 +40,10 @@ export function ThemeToggle({ showSystem = true, className }: ThemeToggleProps) 
       {options.map((opt) => (
         <button
           key={opt.key}
-          onClick={() => setTheme(opt.key)}
+          onClick={(e) =>
+            // Révélation circulaire depuis le centre du bouton cliqué.
+            setThemeWithTransition(setTheme, opt.key, originFromElement(e.currentTarget))
+          }
           aria-pressed={theme === opt.key}
           className={cn(
             "rounded-[calc(var(--radius-md)-2px)] px-3 py-1.5 text-xs font-medium transition-colors",

@@ -6,6 +6,7 @@ export { SupernoteEditor } from "./SupernoteEditor.js";
 // Types
 export type {
   SupernoteEditorProps,
+  SupernoteEditorApi,
   EntityRef,
   EntityResolvers,
   CalloutVariant,

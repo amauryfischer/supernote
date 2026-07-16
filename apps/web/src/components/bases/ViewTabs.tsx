@@ -24,6 +24,8 @@ interface ViewTabsProps {
 
 export function ViewTabs({ views, activeViewId, onSelect, onCreate }: ViewTabsProps) {
   const [menuOpenFor, setMenuOpenFor] = useState<string | null>(null);
+  // Double-clic sur un onglet → menu ouvert directement en mode renommage.
+  const [menuRenaming, setMenuRenaming] = useState(false);
   const activeView = views.find((v) => v.id === menuOpenFor);
   return (
     <div
@@ -33,7 +35,16 @@ export function ViewTabs({ views, activeViewId, onSelect, onCreate }: ViewTabsPr
       {views.map((v) => {
         const active = v.id === activeViewId;
         return (
-          <div key={v.id} className="relative flex shrink-0 items-center">
+          <div
+            key={v.id}
+            className="relative flex shrink-0 items-center"
+            onDoubleClick={() => {
+              // Renommage rapide (cohérent avec le double-clic header colonne).
+              // Le 1ᵉʳ clic a déjà sélectionné la vue via onPress.
+              setMenuRenaming(true);
+              setMenuOpenFor(v.id);
+            }}
+          >
             <Button
               variant="ghost"
               size="sm"
@@ -52,7 +63,8 @@ export function ViewTabs({ views, activeViewId, onSelect, onCreate }: ViewTabsPr
               <Button
                 variant="ghost"
                 size="sm"
-                onPress={(e) => {
+                onPress={() => {
+                  setMenuRenaming(false);
                   setMenuOpenFor((cur) => (cur === v.id ? null : v.id));
                 }}
                 className="sn-motion-colors sn-pressable ml-0.5 rounded p-1 hover:bg-[var(--surface-2)]"
@@ -65,15 +77,21 @@ export function ViewTabs({ views, activeViewId, onSelect, onCreate }: ViewTabsPr
             {menuOpenFor === v.id && activeView && (
               <ViewSettingsMenu
                 view={activeView}
-                onClose={() => setMenuOpenFor(null)}
+                initialRenaming={menuRenaming}
+                onClose={() => {
+                  setMenuOpenFor(null);
+                  setMenuRenaming(false);
+                }}
                 onDeleted={() => {
                   // Caller's onSelect will switch to a fallback once the list
                   // refetches; we just close the menu.
                   setMenuOpenFor(null);
+                  setMenuRenaming(false);
                 }}
                 onDuplicated={(newId) => {
                   onSelect(newId);
                   setMenuOpenFor(null);
+                  setMenuRenaming(false);
                 }}
               />
             )}

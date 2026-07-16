@@ -1,13 +1,28 @@
 "use client";
 
-import { CaretRight, Command, Desktop, Moon, Plus, SidebarSimple, Sun } from "@phosphor-icons/react";
-import { memo, useCallback, useMemo } from "react";
+import { CaretRight, Desktop, MagnifyingGlass, Moon, Plus, SidebarSimple, Sun } from "@phosphor-icons/react";
+import { memo, useCallback, useEffect, useMemo, type MouseEvent as ReactMouseEvent } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { trpc } from "@/lib/trpc/client";
+import { recordVisit } from "@/lib/navigation/recents";
 import { useShellChrome } from "./shell-chrome-context";
-import { Button, useAppTheme, type ThemeValue } from "@supernote/ui";
+import {
+  Button,
+  useAppTheme,
+  setThemeWithTransition,
+  originFromElement,
+  type ThemeValue,
+} from "@supernote/ui";
 import { GitSyncIndicator } from "@/lib/git/GitSyncIndicator";
 import { OnlineSyncIndicator } from "@/lib/online-sync/OnlineSyncIndicator";
+
+// Modificateur clavier affiché dans le hint de recherche — ⌘ sur Apple, Ctrl
+// ailleurs. Un produit « clavier d'abord » doit montrer le vrai raccourci, pas
+// une touche nue « K » précédée d'un glyphe ⌘ décoratif.
+const MOD_KEY =
+  typeof navigator !== "undefined" && /Mac|iPhone|iPod|iPad/.test(navigator.platform)
+    ? "⌘"
+    : "Ctrl";
 
 // ── Route label map for static segments ──────────────────────────────────────
 
@@ -44,14 +59,20 @@ interface BreadcrumbSegment {
 
 // ── Entity name resolver (fetches when an ID segment is present) ──────────────
 
-function useEntityName(id: string | null): string | null {
+interface EntityInfo {
+  name: string;
+  typeId: string;
+}
+
+function useEntityInfo(id: string | null): EntityInfo | null {
   const { data } = trpc.entities.get.useQuery(
     { id: id ?? "" },
     { enabled: id !== null, retry: false, staleTime: 300_000 },
   );
   if (!id || !data) return null;
   const title = data.fields["title"] ?? data.fields["name"] ?? data.fields["subject"];
-  return typeof title === "string" && title.trim() ? title : data.typeName;
+  const name = typeof title === "string" && title.trim() ? title : data.typeName;
+  return { name, typeId: data.typeId };
 }
 
 // ── Build breadcrumb segments from pathname ───────────────────────────────────
@@ -85,8 +106,26 @@ const BreadcrumbSegmentItem = memo(function BreadcrumbSegmentItem({
   isLast: boolean;
 }) {
   const isId = !(segment.label in ROUTE_LABELS) && segment.label.length > 8 && !/\s/.test(segment.label);
-  const resolvedName = useEntityName(isId ? segment.label : null);
+  const info = useEntityInfo(isId ? segment.label : null);
+  const resolvedName = info?.name ?? null;
   const label = resolvedName ?? segment.label;
+  const typeId = info?.typeId ?? null;
+
+  // Record a frecency visit for the *current* page (the last segment) once its
+  // title is stable. For an ID segment we wait until the name resolves so we
+  // never store a raw ULID; static segments record immediately. Reads only the
+  // already-fetched breadcrumb data — no extra network request. Deps are all
+  // primitives so a query refetch (which returns a fresh `info` object) doesn't
+  // re-fire the visit.
+  useEffect(() => {
+    if (!isLast) return;
+    if (isId && !resolvedName) return;
+    recordVisit({
+      href: segment.href ?? "/",
+      title: label,
+      ...(isId ? { entityId: segment.label, typeId: typeId ?? undefined } : {}),
+    });
+  }, [isLast, isId, resolvedName, typeId, label, segment.href, segment.label]);
 
   return (
     <span
@@ -125,12 +164,21 @@ const THEME_CYCLE: ThemeValue[] = ["light", "dark", "system"];
 function ThemeToggleButton() {
   const { theme, setTheme } = useAppTheme();
 
-  const next = useCallback(() => {
-    const current: ThemeValue = theme ?? "light";
-    const idx = THEME_CYCLE.indexOf(current);
-    const nextTheme = THEME_CYCLE[(idx + 1) % THEME_CYCLE.length] ?? "light";
-    setTheme(nextTheme);
-  }, [theme, setTheme]);
+  const next = useCallback(
+    // HeroUI passe un MouseEvent<FocusableElement> (react-aria), pas
+    // <HTMLElement> — on élargit à Element (suffisant pour originFromElement).
+    (e?: ReactMouseEvent<Element>) => {
+      const current: ThemeValue = theme ?? "light";
+      const idx = THEME_CYCLE.indexOf(current);
+      const nextTheme = THEME_CYCLE[(idx + 1) % THEME_CYCLE.length] ?? "light";
+      // Révélation circulaire depuis le centre du bouton (View Transitions API).
+      // Sans event exploitable → cross-fade natif ; sans support / en
+      // reduced-motion → bascule directe (géré par le helper).
+      const origin = e?.currentTarget ? originFromElement(e.currentTarget) : undefined;
+      setThemeWithTransition(setTheme, nextTheme, origin);
+    },
+    [theme, setTheme],
+  );
 
   const Icon = theme === "dark" ? Moon : theme === "system" ? Desktop : Sun;
   const label = theme === "dark" ? "Thème sombre" : theme === "system" ? "Thème système" : "Thème clair";
@@ -170,7 +218,7 @@ export const TopBar = memo(function TopBar() {
 
   return (
     <header
-      className="shell-chrome flex items-center gap-3 border-b px-4"
+      className="shell-chrome flex items-center gap-2 border-b px-3"
       style={{
         height: "var(--header-height)",
         borderColor: "var(--border-subtle)",
@@ -185,24 +233,33 @@ export const TopBar = memo(function TopBar() {
           window.dispatchEvent(new CustomEvent("supernote:open-command-palette"));
         }}
         data-tour="command-palette-btn"
-        className="sn-pressable sn-motion-colors flex shrink-0 items-center gap-2 rounded-md px-3 py-1.5 text-xs"
-        style={{ color: "var(--text-muted)" }}
+        className="sn-pressable sn-motion-colors flex w-56 shrink-0 items-center gap-2 rounded-lg px-3 py-1.5 text-sm lg:w-64"
+        style={{
+          backgroundColor: "var(--surface-2)",
+          borderColor: "var(--border-subtle)",
+          color: "var(--text-muted)",
+        }}
       >
-        <Command size={11} />
-        <span>Recherche rapide…</span>
-        <kbd
-          className="ml-2 rounded px-1.5 py-0.5 font-mono text-[10px]"
-          style={{
-            backgroundColor: "var(--surface-3)",
-            color: "var(--text-muted)",
-          }}
-        >
-          K
-        </kbd>
+        <MagnifyingGlass size={14} />
+        <span className="flex-1 text-left">Rechercher…</span>
+        <span className="flex items-center gap-0.5">
+          <kbd
+            className="rounded px-1.5 py-0.5 font-mono text-[10px]"
+            style={{ backgroundColor: "var(--surface-3)", color: "var(--text-muted)" }}
+          >
+            {MOD_KEY}
+          </kbd>
+          <kbd
+            className="rounded px-1.5 py-0.5 font-mono text-[10px]"
+            style={{ backgroundColor: "var(--surface-3)", color: "var(--text-muted)" }}
+          >
+            K
+          </kbd>
+        </span>
       </Button>
 
-      {/* Breadcrumb — fills remaining space */}
-      <div className="flex flex-1 items-center justify-center overflow-hidden">
+      {/* Breadcrumb — left-anchored reading trail after the search trigger. */}
+      <div className="flex flex-1 items-center justify-start overflow-hidden">
         <Breadcrumb />
       </div>
 

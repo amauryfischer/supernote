@@ -10,8 +10,8 @@
  * are active.
  */
 
-import { useState } from "react";
-import { Button } from "@heroui/react";
+import { useEffect, useRef, useState } from "react";
+import { Button, Input } from "@heroui/react";
 import {
   Funnel,
   ArrowsDownUp,
@@ -20,7 +20,10 @@ import {
   Stack,
   CalendarBlank,
   PaintBrush,
+  MagnifyingGlass,
+  X,
 } from "@phosphor-icons/react";
+import { Tooltip } from "@supernote/ui";
 import type { EntityType } from "@supernote/core";
 import type { View } from "@supernote/ipc";
 import { FilterBuilder } from "./FilterBuilder";
@@ -38,10 +41,54 @@ interface BaseToolbarProps {
   onCreateEntry?: () => void;
   /** Optional extra controls (e.g. "Convertir en vue nommée" for inline blocks). */
   extra?: React.ReactNode;
+  /** Recherche instantanée — valeur contrôlée par le parent (BaseView). */
+  searchQuery?: string;
+  /** Callback de la recherche instantanée. L'input n'apparaît que si fourni. */
+  onSearchQueryChange?: (query: string) => void;
 }
 
-export function BaseToolbar({ base, view, onCreateEntry, extra }: BaseToolbarProps) {
+export function BaseToolbar({
+  base,
+  view,
+  onCreateEntry,
+  extra,
+  searchQuery,
+  onSearchQueryChange,
+}: BaseToolbarProps) {
   const [open, setOpen] = useState<OpenMenu>(null);
+  const query = searchQuery ?? "";
+  const showSearch = typeof onSearchQueryChange === "function";
+  // Ref sur le conteneur (pas sur <Input>) : on retrouve l'input natif via
+  // querySelector, indépendamment du forwarding de ref du composant HeroUI.
+  const searchWrapRef = useRef<HTMLDivElement | null>(null);
+  const focusSearch = () => {
+    searchWrapRef.current?.querySelector("input")?.focus();
+  };
+
+  // Raccourci « / » : focus la recherche (comportement Notion/Linear) — sauf
+  // si la frappe a déjà lieu dans un input/textarea/contenteditable.
+  useEffect(() => {
+    if (!showSearch) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "/" || e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented) {
+        return;
+      }
+      const t = e.target as HTMLElement | null;
+      if (
+        t &&
+        (t.tagName === "INPUT" ||
+          t.tagName === "TEXTAREA" ||
+          t.isContentEditable ||
+          t.closest("input, textarea, [contenteditable]"))
+      ) {
+        return;
+      }
+      e.preventDefault();
+      focusSearch();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [showSearch]);
   const { openColumnEditor, columnEditor, closeColumnEditor } = useShellChrome();
   const filterCount = view.filters.length;
   const sortCount = view.sorts.length;
@@ -67,7 +114,7 @@ export function BaseToolbar({ base, view, onCreateEntry, extra }: BaseToolbarPro
 
   return (
     <div
-      className="flex items-center gap-1.5 border-b px-4 py-2"
+      className="flex flex-wrap items-center gap-1.5 border-b px-4 py-2"
       style={{
         borderColor: "var(--border-subtle)",
         backgroundColor: "var(--surface-0)",
@@ -148,7 +195,65 @@ export function BaseToolbar({ base, view, onCreateEntry, extra }: BaseToolbarPro
         </div>
       )}
 
-      <div className="ml-auto flex items-center gap-1">
+      <div className="ml-auto flex min-w-0 flex-1 items-center justify-end gap-1.5">
+        {showSearch && (
+          <div
+            ref={searchWrapRef}
+            className="flex min-w-[120px] flex-1 items-center gap-1.5 rounded-md border border-[var(--border-subtle)] bg-[var(--surface-1)] px-2 py-1 focus-within:border-[var(--accent)] md:w-52 md:flex-none"
+            style={{ transition: "var(--sn-transition-colors)" }}
+          >
+            <MagnifyingGlass
+              size={13}
+              style={{ color: "var(--text-muted)" }}
+              aria-hidden
+            />
+            <Input
+              type="text"
+              value={query}
+              onChange={(e) => onSearchQueryChange?.(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onSearchQueryChange?.("");
+                  e.currentTarget.blur();
+                }
+              }}
+              placeholder="Rechercher…"
+              aria-label="Rechercher dans la base"
+              className="w-full min-w-0 bg-transparent text-sm outline-none"
+              style={{ color: "var(--text-primary)" }}
+            />
+            {query ? (
+              <Tooltip content="Effacer la recherche">
+                <Button
+                  isIconOnly
+                  variant="ghost"
+                  size="sm"
+                  onPress={() => {
+                    onSearchQueryChange?.("");
+                    focusSearch();
+                  }}
+                  aria-label="Effacer la recherche"
+                  className="h-5 w-5 min-w-0 shrink-0 p-0"
+                >
+                  <X size={12} style={{ color: "var(--text-muted)" }} />
+                </Button>
+              </Tooltip>
+            ) : (
+              <kbd
+                className="hidden rounded border px-1 text-[10px] md:inline"
+                style={{
+                  borderColor: "var(--border-subtle)",
+                  color: "var(--text-muted)",
+                }}
+                aria-hidden
+              >
+                /
+              </kbd>
+            )}
+          </div>
+        )}
         {extra}
         {onCreateEntry && (
           <Button

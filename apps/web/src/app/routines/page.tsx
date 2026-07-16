@@ -71,7 +71,7 @@ function NewRoutineDropdown() {
 
   return (
     <DropdownMenu
-      className="w-56 max-w-[calc(100vw-2rem)]"
+      className="w-56"
       items={items}
       onAction={(key) => router.push(`/routines/nouveau?template=${key}`)}
       trigger={
@@ -228,7 +228,7 @@ export default function RoutinesPage() {
         )}
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto px-3 py-4 md:px-6 md:py-6">
+        <div className="flex-1 overflow-y-auto px-4 py-6 md:px-8 md:py-8">
           {listQuery.isLoading ? (
             <div className="mx-auto max-w-3xl space-y-3">
               {Array.from({ length: 3 }).map((_, i) => <RoutineSkeleton key={i} />)}

@@ -48,7 +48,10 @@
   /* Text */
   --text-primary: oklch(0.18 0.005 260);
   --text-secondary: oklch(0.40 0.008 260);
-  --text-muted: oklch(0.60 0.008 260);
+  /* muted assez foncé pour ≥4.5:1 sur near-white (WCAG AA) : c'est le token de
+     TOUTE la copie secondaire (hints, metadata, empty states) — à 0.60 il
+     tombait à ~3.9:1. Miroir de packages/ui/tokens.css. */
+  --text-muted: oklch(0.53 0.008 260);
 
   /* Borders */
   --border: oklch(0.90 0.005 260);
@@ -60,7 +63,7 @@
   --danger: oklch(0.58 0.22 28);
 
   /* Layout dimensions */
-  --sidebar-width: 240px;
+  --sidebar-width: 224px;
   --panel-width: 300px;
   --header-height: 48px;
 
@@ -82,6 +85,7 @@
   --z-modal:    400;
   --z-toast:    500;
   --z-tooltip:  600;
+  --z-tour:     650; /* onboarding tour : surplombe tout (backdrop, +1 ring, +2 card) */
 
   /* ── Motion system ──────────────────────────────────────────────────────
    * The app's shared "liquid motion" vocabulary, distilled from the smooth
@@ -100,6 +104,7 @@
   --sn-dur-2: 150ms;  /* default micro-interaction (≈ block-in 140ms) */
   --sn-dur-3: 220ms;  /* overlays, panels, drawers */
   --sn-dur-4: 320ms;  /* large layout shifts, focus-mode dim */
+  --sn-dur-5: 380ms;  /* moments "héro" : révélation de thème plein écran */
 
   /* Ready-made composites — drop straight into `transition:` */
   --sn-transition-colors:
@@ -123,7 +128,7 @@
   --accent-hover: oklch(0.72 0.22 295);
   --text-primary: oklch(0.97 0.005 260);
   --text-secondary: oklch(0.72 0.010 260);
-  --text-muted: oklch(0.55 0.010 260);
+  --text-muted: oklch(0.63 0.010 260); /* ≥4.5:1 sur surfaces sombres (WCAG AA) — était 0.55 */
   --border: oklch(0.30 0.010 260);
   --border-subtle: oklch(0.24 0.008 260);
 }
@@ -337,14 +342,15 @@ html, body {
 
 /* Hauteurs de ligne (Coda-style : compact / normal / haut). Appliquées via
    --sn-row-height sur le tableau ; chaque <td>/<th> hérite la min-height. */
+/* La densité pilote UNIQUEMENT la hauteur : le contenu des cellules est centré
+   verticalement (Cell : flex items-center) et la gouttière horizontale est le
+   px-3 de Cell.tsx — pas de tokens de padding séparés. */
 .sn-datagrid {
   --sn-row-height: 36px;
-  --sn-cell-px: 12px;
-  --sn-cell-py: 8px;
 }
-.sn-datagrid--short { --sn-row-height: 28px; --sn-cell-py: 4px; }
-.sn-datagrid--normal { --sn-row-height: 36px; --sn-cell-py: 8px; }
-.sn-datagrid--tall { --sn-row-height: 60px; --sn-cell-py: 10px; }
+.sn-datagrid--short { --sn-row-height: 28px; }
+.sn-datagrid--normal { --sn-row-height: 36px; }
+.sn-datagrid--tall { --sn-row-height: 60px; }
 
 .sn-datagrid th,
 .sn-datagrid .sn-datagrid-cell {
@@ -454,7 +460,7 @@ html, body {
   border: 1px solid var(--border-subtle);
   border-radius: 8px;
   box-shadow: 0 8px 28px rgba(0,0,0,0.12), 0 2px 6px rgba(0,0,0,0.06);
-  z-index: 50;
+  z-index: var(--z-dropdown);
   padding: 6px;
   font-size: 13px;
   overflow: hidden;
@@ -470,8 +476,8 @@ html, body {
 .sn-col-menu-item {
   display: flex;
   align-items: center;
-  gap: 9px;
-  padding: 7px 10px;
+  gap: 8px;
+  padding: 6px 10px;
   cursor: pointer;
   color: var(--text-secondary);
   transition: background 80ms ease, color 80ms ease;
@@ -504,8 +510,8 @@ html, body {
 .sn-col-menu-title {
   display: flex;
   align-items: center;
-  gap: 7px;
-  padding: 7px 10px 6px;
+  gap: 8px;
+  padding: 6px 10px;
   color: var(--text-primary);
   font-weight: 600;
 }
@@ -776,6 +782,28 @@ html, body {
   ::view-transition-new(root) {
     animation: none;
   }
+}
+
+/* ── Révélation circulaire du thème ──────────────────────────────────────── */
+
+/* Pendant `setThemeWithTransition` (packages/ui, theme/ThemeProvider), l'app
+ * pose `data-theme-transition` sur <html>. Dans cet état seulement, on
+ * neutralise le cross-fade par défaut ci-dessus (utilisé par le routeur) pour
+ * laisser l'animation WAAPI `clip-path: circle(0 → R)` posée sur
+ * ::view-transition-new(root) dessiner seule la révélation du nouveau thème.
+ * L'attribut est retiré à `finished` → les règles du routeur reprennent. */
+:root[data-theme-transition]::view-transition-old(root),
+:root[data-theme-transition]::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+
+:root[data-theme-transition]::view-transition-old(root) {
+  z-index: 1;
+}
+
+:root[data-theme-transition]::view-transition-new(root) {
+  z-index: 2;
 }
 
 /* ── FileTree folder unfold ──────────────────────────────────────────────── */
@@ -1290,6 +1318,77 @@ html, body {
 @keyframes sn-pop-in {
   from { opacity: 0; transform: scale(0.9); }
   to   { opacity: 1; transform: scale(1); }
+}
+
+/* ── Check-off de todo vivant (TodoRow) ──────────────────────────────────
+ * Trois pièces, toutes déclenchées par l'état local `justChecked` posé au
+ * geste utilisateur (jamais rejoué par une invalidation tRPC) :
+ *   1. la coche SVG se dessine — stroke-dasharray sur un path normalisé
+ *      (pathLength=1), dashoffset 1 → 0 ;
+ *   2. la rature balaie le texte de gauche à droite — background-size
+ *      0% → 100% sur un dégradé d'1px (box-decoration-break: clone pour
+ *      qu'une ligne se dessine sur CHAQUE ligne de texte en multiline) ;
+ *   3. la sortie douce de la rangée (vue « En attente ») — calquée sur
+ *      .sn-meta-collapse : grid-template-rows 1fr → 0fr + opacité.
+ * Fallbacks reduced-motion : coche statique, line-through classique, et le
+ * kill-switch global neutralise la transition de repli. */
+
+.sn-todo-strike {
+  text-decoration: none;
+  background-image: linear-gradient(currentColor, currentColor);
+  background-repeat: no-repeat;
+  background-size: 100% 1px;
+  background-position: 0 52%;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .sn-check-draw {
+    stroke-dasharray: 1;
+    stroke-dashoffset: 1;
+    animation: sn-check-draw var(--sn-dur-2) var(--sn-ease-glide) forwards;
+  }
+  .sn-todo-strike--sweep {
+    animation: sn-strike-sweep var(--sn-dur-3) var(--sn-ease-glide) backwards;
+  }
+}
+
+@keyframes sn-check-draw {
+  from { stroke-dashoffset: 1; }
+  to   { stroke-dashoffset: 0; }
+}
+
+@keyframes sn-strike-sweep {
+  from { background-size: 0% 1px; }
+  to   { background-size: 100% 1px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sn-todo-strike {
+    background-image: none;
+    text-decoration: line-through;
+  }
+}
+
+/* Sortie douce d'une rangée cochée. data-open="false" replie vers hauteur
+ * zéro (pas de max-height magique) pendant que l'opacité s'éteint. */
+.sn-row-collapse {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition:
+    grid-template-rows var(--sn-dur-3) var(--sn-ease-glide),
+    opacity var(--sn-dur-3) var(--sn-ease-standard);
+}
+
+.sn-row-collapse[data-open="false"] {
+  grid-template-rows: 0fr;
+  opacity: 0;
+}
+
+.sn-row-collapse__inner {
+  overflow: hidden;
+  min-height: 0;
 }
 
 /* Global vestibular safety net: collapse every motion-system transition and

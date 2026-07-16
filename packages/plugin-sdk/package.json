@@ -37,7 +37,7 @@
   "scripts": {
     "build": "tsc --project tsconfig.build.json",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint src --ext .ts"
+    "lint": "echo 'lint: no-op (ESLint non installé — cf. backlog)'"
   },
   "dependencies": {
     "@supernote/core": "workspace:*",

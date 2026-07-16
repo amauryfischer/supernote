@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { trpc } from "@/lib/trpc/client";
 import { useShellChrome } from "./shell-chrome-context";
 import { PrioritiesWidget } from "@/components/todos/PrioritiesWidget";
-import { Button } from "@supernote/ui";
+import { Button, Skeleton } from "@supernote/ui";
 
 // ── Fixtures used when tRPC is unavailable (browser without IPC) ─────────────
 
@@ -81,10 +81,17 @@ function RecentList() {
   );
 
   if (isLoading) {
+    // Skeleton de lignes récentes plutôt qu'un « Chargement… » texte : sur des
+    // entités locales, le chargement doit se ressentir instantané (local-first).
     return (
-      <p className="px-3 py-2 text-xs" style={{ color: "var(--text-muted)" }}>
-        Chargement…
-      </p>
+      <div aria-hidden="true" className="flex flex-col">
+        {Array.from({ length: 4 }, (_, i) => (
+          <div key={i} className="flex flex-col gap-1 px-3 py-2.5">
+            <Skeleton className="h-3 w-3/4" />
+            <Skeleton className="h-2.5 w-1/3" />
+          </div>
+        ))}
+      </div>
     );
   }
 
@@ -162,17 +169,12 @@ export const RightPanel = memo(function RightPanel() {
         backgroundColor: "var(--surface-1)",
       }}
     >
-      {/* Panel header */}
+      {/* Panel header — pas de libellé « Contexte » : eyebrow redondant, le
+          contenu (priorités, récents) se présente lui-même */}
       <div
-        className="flex items-center justify-between px-4"
+        className="flex items-center justify-end px-4"
         style={{ height: "var(--header-height)" }}
       >
-        <span
-          className="text-xs font-medium uppercase tracking-widest"
-          style={{ color: "var(--text-muted)" }}
-        >
-          Contexte
-        </span>
         <Button
           variant="ghost"
           size="icon"
@@ -187,9 +189,17 @@ export const RightPanel = memo(function RightPanel() {
 
       <div className="border-b" style={{ borderColor: "var(--border-subtle)" }} />
 
+      {/* Top urgent todos EN PREMIER — le bloc actionnable du panneau prend le
+          rang visuel primaire. Sourced from the same `todo` entities the
+          /todos page reads. Hidden silently when the worker isn't available
+          (e.g. fresh PWA before a vault is loaded). */}
+      <PrioritiesWidget />
+
+      <div className="border-b" style={{ borderColor: "var(--border-subtle)" }} />
+
       {/* Recent */}
       <div className="flex flex-col gap-1 p-3">
-        <div className="flex items-center gap-1.5 px-1 pb-2">
+        <div className="flex items-center gap-1.5 px-3 pb-2">
           <Clock size={12} className="text-[var(--text-muted)]" />
           <span className="text-xs font-medium" style={{ color: "var(--text-muted)" }}>
             Récent
@@ -200,17 +210,9 @@ export const RightPanel = memo(function RightPanel() {
 
       <div className="border-b" style={{ borderColor: "var(--border-subtle)" }} />
 
-      {/* Top urgent todos — sourced from the same `todo` entities the /todos
-          page reads, so the widget reflects the user's current priorities
-          without any extra plumbing. Hidden silently when the worker isn't
-          available (e.g. fresh PWA before a vault is loaded). */}
-      <PrioritiesWidget />
-
-      <div className="border-b" style={{ borderColor: "var(--border-subtle)" }} />
-
       {/* AI / Suggestions */}
       <div className="flex flex-col gap-1 p-3">
-        <div className="flex items-center gap-1.5 px-1 pb-2">
+        <div className="flex items-center gap-1.5 px-3 pb-2">
           <Sparkle size={12} className="text-[var(--accent)]" />
           <span className="text-xs font-medium" style={{ color: "var(--text-muted)" }}>
             Suggestions IA

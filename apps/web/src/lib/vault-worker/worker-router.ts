@@ -295,6 +295,153 @@ function entityToDoc(r: SqlRow): EntityDoc {
   };
 }
 
+// ── Mention (backlinks) index helpers ────────────────────────────────────────
+//
+// La table `mention` alimente entities.getBacklinks / backlinkCounts. Elle est
+// (re)peuplée ici à chaque create/update d'entité, purgée au delete, et
+// backfillée au boot si elle est vide alors que des corps existent (vaults
+// antérieurs à l'activation du pipeline).
+//
+// Syntaxe inline — copie volontaire de packages/core/src/markdown/mentions.ts
+// (les regex y sont privées ; core n'exporte que extractMentions, qui exige un
+// AST remark — trop lourd pour le chemin par-sauvegarde du worker, et ses
+// offsets sont relatifs aux nœuds texte, pas au body brut).
+
+const MENTION_EMBED_RE = /!\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g;
+const MENTION_WIKILINK_RE = /(?<!!)\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g;
+const MENTION_AT_RE = /@([A-Za-z0-9_\-.]+)/g;
+
+interface RawMentionHit {
+  /** Nom/id brut de la cible ("Alice" dans [[Alice|elle]] ou @Alice). */
+  target: string;
+  mentionType: "EMBED" | "WIKILINK" | "MENTION_ENTITY";
+  /** Ligne du body contenant le lien — aperçu affiché dans BacklinksPanel. */
+  rawText: string;
+  /** Offset absolu (en caractères) du match dans le body. */
+  offset: number;
+}
+
+/** Scan brut du body, ligne par ligne (la ligne devient le rawText). */
+function scanMentions(body: string): RawMentionHit[] {
+  const out: RawMentionHit[] = [];
+  let offset = 0;
+  for (const line of body.split("\n")) {
+    // Pré-filtre : la grande majorité des lignes n'a ni [[ ni @.
+    if (line.includes("[[") || line.includes("@")) {
+      const rawText = line.trim().slice(0, 500);
+      const collect = (re: RegExp, mentionType: RawMentionHit["mentionType"]): void => {
+        for (const m of line.matchAll(re)) {
+          const target = m[1]?.trim();
+          if (target) out.push({ target, mentionType, rawText, offset: offset + (m.index ?? 0) });
+        }
+      };
+      collect(MENTION_EMBED_RE, "EMBED");
+      collect(MENTION_WIKILINK_RE, "WIKILINK");
+      collect(MENTION_AT_RE, "MENTION_ENTITY");
+    }
+    offset += line.length + 1; // +1 pour le \n consommé par le split
+  }
+  return out;
+}
+
+/**
+ * Résout une cible de mention (id direct, nom, titre ou filename) → entity id.
+ * Même logique que `loadEntityByRef` (le cache @Ref/[[Wiki]] des formules) :
+ * id exact, puis LIKE sur le JSON `fields` / le filePath — étendue au champ
+ * `title` (les notes stockent leur nom là, pas dans `name`) et aux fichiers à
+ * la racine du vault (sans `/` devant). Homonymes : la plus ancienne gagne
+ * (ORDER BY createdAt), pour un résultat stable d'une réindexation à l'autre.
+ * Le cache mémoïse par cible — un rebuild où 50 notes citent [[Alice]] ne fait
+ * qu'une seule requête.
+ */
+function createMentionResolver(db: Database, vaultId: string): (ref: string) => string | null {
+  const cache = new Map<string, string | null>();
+  return (ref: string): string | null => {
+    const hit = cache.get(ref);
+    if (hit !== undefined) return hit;
+    const r =
+      row(db.exec(
+        `SELECT id FROM entity WHERE vaultId = ? AND id = ?`,
+        [vaultId, ref],
+      )) ??
+      row(db.exec(
+        `SELECT id FROM entity
+          WHERE vaultId = ?
+            AND (fields LIKE ? OR fields LIKE ? OR filePath LIKE ? OR filePath = ?)
+          ORDER BY createdAt ASC LIMIT 1`,
+        [vaultId, `%"name":${JSON.stringify(ref)}%`, `%"title":${JSON.stringify(ref)}%`, `%/${ref}.md`, `${ref}.md`],
+      ));
+    const id = r ? (r["id"] as string) : null;
+    cache.set(ref, id);
+    return id;
+  };
+}
+
+/**
+ * (Ré)indexe les mentions sortantes d'une entité : DELETE puis INSERT batch.
+ * Seules les mentions RÉSOLUES sont stockées (targetId non-null) — un @email
+ * ou un [[lien cassé]] ne crée pas de ligne. Dédupliqué par cible : une note
+ * qui cite [[Alice]] trois fois ne produit qu'un backlink (et le panneau
+ * utilise sourceId comme clé React). Les auto-références sont ignorées.
+ */
+function indexMentions(
+  db: Database,
+  vaultId: string,
+  sourceId: string,
+  body: string,
+  resolve?: (ref: string) => string | null,
+): void {
+  db.run(`DELETE FROM mention WHERE sourceId = ?`, [sourceId]);
+  if (!body) return;
+  const hits = scanMentions(body);
+  if (hits.length === 0) return;
+  const resolver = resolve ?? createMentionResolver(db, vaultId);
+  const ts = now();
+  const seenTargets = new Set<string>();
+  for (const hit of hits) {
+    const targetId = resolver(hit.target);
+    if (!targetId || targetId === sourceId || seenTargets.has(targetId)) continue;
+    seenTargets.add(targetId);
+    db.run(
+      `INSERT INTO mention (id, sourceId, targetId, rawText, mentionType, offset, createdAt, updatedAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [generateId(), sourceId, targetId, hit.rawText, hit.mentionType, hit.offset, ts, ts],
+    );
+  }
+}
+
+/** Purge les mentions ÉMISES par une entité supprimée. Les mentions qui la
+ *  CIBLENT sont gérées par le schéma (FK targetId ON DELETE SET NULL,
+ *  `PRAGMA foreign_keys = ON` posé par SCHEMA_SQL à chaque boot) — ceci est
+ *  la ceinture-bretelles explicite, comme ftsRemove. */
+function mentionsRemove(db: Database, id: string): void {
+  db.run(`DELETE FROM mention WHERE sourceId = ?`, [id]);
+}
+
+/**
+ * Rebuild complet de la table mention pour le vault — même esprit que
+ * ftsRebuild (wipe inconditionnel : le worker ne voit qu'un vault). Appelé au
+ * backfill de boot et après vault.reindex. Le résolveur (et son cache) est
+ * partagé sur toute la passe. À envelopper dans runInTransaction par
+ * l'appelant : 100 % synchrone, un seul commit OPFS pour tout le batch.
+ */
+function mentionsRebuild(db: Database, vaultId: string): number {
+  db.run(`DELETE FROM mention`);
+  const sources = rows(db.exec(
+    `SELECT id, body FROM entity WHERE vaultId = ? AND body IS NOT NULL AND body != ''`,
+    [vaultId],
+  ));
+  const resolve = createMentionResolver(db, vaultId);
+  let scanned = 0;
+  for (const r of sources) {
+    const body = (r["body"] as string) ?? "";
+    if (!body.includes("[[") && !body.includes("@")) continue;
+    indexMentions(db, vaultId, r["id"] as string, body, resolve);
+    scanned++;
+  }
+  return scanned;
+}
+
 // ── Router implementation ─────────────────────────────────────────────────────
 
 export type RouteHandler = (input: unknown) => Promise<unknown>;
@@ -315,6 +462,30 @@ export function buildRouter(
   // O(n) on already-populated vaults — but the rebuild is just N inserts
   // into FTS5, well under 100ms for a few thousand entities.
   ftsRebuild(db, vaultId);
+
+  // Backfill de l'index de mentions (backlinks). La table `mention` n'était
+  // historiquement jamais écrite : les vaults existants ont des corps pleins
+  // de [[wikilinks]]/@refs mais zéro ligne — panneau « Liens entrants »
+  // éternellement vide. Au premier boot dans cet état, on réindexe tout.
+  // Conditionnel (contrairement au ftsRebuild ci-dessus) : dès qu'une ligne
+  // existe, l'index est entretenu incrémentalement par create/update/delete,
+  // inutile de re-scanner tous les corps à chaque boot. Une seule transaction
+  // pour tout le batch (un commit OPFS au lieu d'un par statement).
+  try {
+    const mentionCount = Number(row(db.exec(`SELECT COUNT(*) AS c FROM mention`))?.["c"] ?? 0);
+    if (mentionCount === 0) {
+      const hasBodies = !!row(db.exec(
+        `SELECT 1 FROM entity WHERE vaultId = ? AND body IS NOT NULL AND body != '' LIMIT 1`,
+        [vaultId],
+      ));
+      if (hasBodies) {
+        const scanned = runInTransaction(db, () => mentionsRebuild(db, vaultId));
+        console.info(`[backlinks] mention backfill: scanned ${scanned} entit(y/ies) with links`);
+      }
+    }
+  } catch (err) {
+    console.warn("[backlinks] mention backfill failed (non-fatal)", err);
+  }
 
   // Per-entity write serialization.
   //
@@ -690,6 +861,7 @@ export function buildRouter(
       }
       db.run(`DELETE FROM entity WHERE id = ?`, [id]);
       ftsRemove(db, id);
+      mentionsRemove(db, id);
       tombstoneAdd(db, id); // block reindex resurrection if the .md survived
     }
 
@@ -1026,6 +1198,7 @@ export function buildRouter(
       tags: (tags ?? []).join(" "),
       path: derivePath(relativePath),
     });
+    indexMentions(db, vaultId, id, body ?? "");
 
     const created = await entitiesGet({ id });
     try { hooks.onEntityCreated?.(created); } catch (e) { console.warn("[hook] onEntityCreated", e); }
@@ -1296,6 +1469,7 @@ export function buildRouter(
       tags: ftsTags,
       path: derivePath(effectivePath),
     });
+    indexMentions(db, vaultId, id, newBody);
 
     const updated = await entitiesGet({ id });
     try { hooks.onEntityUpdated?.(updated, previousForHook); } catch (e) { console.warn("[hook] onEntityUpdated", e); }
@@ -1319,6 +1493,7 @@ export function buildRouter(
       await deleteExcalidrawSibling(vaultHandle, filePath);
       db.run(`DELETE FROM entity WHERE id = ?`, [id]);
       ftsRemove(db, id);
+      mentionsRemove(db, id);
       tombstoneAdd(db, id); // block reindex resurrection if the .md survived
     }
     try { hooks.onEntityDeleted?.(id, previousForHook); } catch (e) { console.warn("[hook] onEntityDeleted", e); }
@@ -1409,13 +1584,21 @@ export function buildRouter(
 
   const entitiesGetBacklinks = async (input: unknown): Promise<unknown> => {
     const { id } = input as { id: string };
+    // JOIN entity pour remplir sourceFilePath (le panneau en dérive le titre
+    // de la note source) — un INNER JOIN suffit : une entité supprimée emporte
+    // ses mentions (mentionsRemove + FK ON DELETE CASCADE).
     const mentionRows = rows(db.exec(
-      `SELECT sourceId, rawText as context FROM mention WHERE targetId = ?`, [id],
+      `SELECT m.sourceId, m.rawText AS context, e.filePath AS sourceFilePath
+         FROM mention m
+         JOIN entity e ON e.id = m.sourceId
+        WHERE m.targetId = ?
+        ORDER BY m.updatedAt DESC`,
+      [id],
     ));
     return mentionRows.map((r) => ({
       sourceId: r["sourceId"],
-      sourceFilePath: "",
-      context: r["context"] ?? "",
+      sourceFilePath: (r["sourceFilePath"] as string) ?? "",
+      context: (r["context"] as string) ?? "",
     }));
   };
 
@@ -3415,6 +3598,13 @@ export function buildRouter(
     // changed since the last index pass.
     if (indexed > 0 || removed > 0 || removedLegacyCanvas > 0) {
       ftsRebuild(db, vaultId);
+      // Idem pour l'index de mentions : les corps adoptés/supprimés par la
+      // passe ont pu (dé)créer des backlinks. Synchrone → une transaction.
+      try {
+        runInTransaction(db, () => mentionsRebuild(db, vaultId));
+      } catch (err) {
+        console.warn("[reindex] mention rebuild failed (non-fatal)", err);
+      }
     }
 
     return { indexed, removed: removed + removedLegacyCanvas };
@@ -3768,6 +3958,7 @@ export function buildRouter(
             }
             db.run(`DELETE FROM entity WHERE id = ?`, [op.entityId]);
             ftsRemove(db, op.entityId);
+            mentionsRemove(db, op.entityId);
             tombstoneAdd(db, op.entityId); // block reindex resurrection
             applied++;
           } else {
@@ -3900,10 +4091,23 @@ export function buildRouter(
           tags: (payload.tags ?? []).join(" "),
           path: derivePath(storedPath),
         });
+        indexMentions(db, vaultId, op.entityId, payload.body ?? "");
         applied++;
       } catch (err) {
         console.warn(`[sync.applyOps] op ${op.opId} failed (non-fatal)`, err);
         skipped++;
+      }
+    }
+    // Gros batch (hydratation initiale d'un salon, remontage) : une op citant
+    // une entité arrivée PLUS TARD dans le même batch a raté sa résolution au
+    // fil de l'eau (la cible n'existait pas encore). Une passe complète
+    // synchrone, en une transaction, répare ces trous d'ordre d'arrivée. Les
+    // petits batchs (édition incrémentale) gardent le chemin par-op ci-dessus.
+    if (applied >= 50) {
+      try {
+        runInTransaction(db, () => mentionsRebuild(db, vaultId));
+      } catch (err) {
+        console.warn("[sync.applyOps] mention rebuild failed (non-fatal)", err);
       }
     }
     return { applied, skipped };
@@ -3947,6 +4151,7 @@ export function buildRouter(
       const id = v["id"] as string;
       db.run(`DELETE FROM entity WHERE id = ?`, [id]);
       ftsRemove(db, id);
+      mentionsRemove(db, id);
     }
     return { removed: victims.length };
   };

@@ -169,11 +169,17 @@ function Quadrant({ def, rows, onToggle, onEdit, onEmail, onContextMenu }: Quadr
       style={{
         borderColor: isOver ? def.accent : "var(--border-subtle)",
         backgroundColor: isOver ? "var(--surface-2)" : "var(--surface-1)",
-        borderLeft: `4px solid ${def.accent}`,
         transition: "var(--sn-transition-colors)",
       }}
     >
       <header className="mb-2 flex items-baseline gap-2">
+        {/* Pastille de quadrant : porte la couleur Eisenhower (remplace
+            l'ancienne bordure gauche 4px) */}
+        <span
+          aria-hidden="true"
+          className="h-2 w-2 shrink-0 self-center rounded-full"
+          style={{ backgroundColor: def.accent }}
+        />
         <h3 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
           {def.title}
         </h3>
@@ -183,7 +189,10 @@ function Quadrant({ def, rows, onToggle, onEdit, onEmail, onContextMenu }: Quadr
         >
           {rows.length}
         </span>
-        <span className="ml-auto text-[10px]" style={{ color: "var(--text-muted)" }}>
+        <span
+          className="ml-auto min-w-0 truncate text-[10px]"
+          style={{ color: "var(--text-muted)" }}
+        >
           {def.hint}
         </span>
       </header>
@@ -237,11 +246,12 @@ function MatrixCard({ row, onToggle, onEdit, onEmail, onContextMenu }: MatrixCar
       ? "var(--sn-transition-opacity)"
       : "transform var(--sn-dur-2) var(--sn-ease-glide), var(--sn-transition-opacity)",
   };
-  // The draggable node is the wrapper <li>; TodoRow renders its own inner <li>
-  // (mirrors the SortableTodoRow pattern already used by the list view).
+  // The draggable node is the wrapper <li>; TodoRow renders as a <div> inside
+  // it (the wrapper already provides the list-item slot).
   return (
     <li ref={setNodeRef} style={style} {...attributes} {...listeners}>
       <TodoRow
+        as="div"
         row={row}
         multiline
         onToggle={onToggle}

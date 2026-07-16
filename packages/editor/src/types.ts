@@ -48,6 +48,23 @@ export interface StreamingInsertHandle {
   cancel: () => void;
 }
 
+/**
+ * API impérative exposée au host une fois l'éditeur monté (2ᵉ argument de
+ * `onEditorReady`). Complète la fonction d'insertion historique sans casser
+ * les hosts existants qui n'utilisent que le 1ᵉʳ argument.
+ */
+export interface SupernoteEditorApi {
+  /** Insère du markdown au caret — même fonction que le 1ᵉʳ argument. */
+  insertAtCursor: (md: string) => void;
+  /**
+   * « Reprendre où j'en étais » : replace le caret à la fin du bloc donné,
+   * scrolle le bloc dans le viewport s'il n'est pas visible et rejoue le
+   * flash d'atterrissage (`.sn-block-flash`). Retourne `false` si le bloc
+   * n'existe plus dans le document (le host garde alors son fallback scroll).
+   */
+  restoreCaret: (blockId: string) => boolean;
+}
+
 /** Props for the main SupernoteEditor component */
 export interface SupernoteEditorProps {
   /** Client Ollama pour les actions IA inline. Si absent, actions désactivées. */
@@ -92,8 +109,16 @@ export interface SupernoteEditorProps {
    * Called once the editor is ready with an imperative insert function.
    * The function receives markdown text and inserts it at the current cursor
    * position as one paragraph block per double-newline-separated section.
+   * The second argument exposes the richer imperative API (restoreCaret…) —
+   * existing hosts that only read the first argument keep working.
    */
-  onEditorReady?: (insert: (md: string) => void) => void;
+  onEditorReady?: (insert: (md: string) => void, api: SupernoteEditorApi) => void;
+  /**
+   * Notifié quand le bloc top-level contenant le caret change (`null` quand
+   * la sélection sort de l'éditeur). Piggy-back sur le tracker
+   * `selectionchange` existant — coût nul si non fourni.
+   */
+  onActiveBlockChange?: (blockId: string | null) => void;
   /**
    * Called once the editor is ready with a factory that starts a streaming
    * insertion at the cursor (AI responses arriving token by token). Each

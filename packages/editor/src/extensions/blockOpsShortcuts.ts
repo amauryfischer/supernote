@@ -62,13 +62,12 @@ export function cloneBlockWithoutIds(block: BlockLike): Omit<BlockLike, "id"> {
   };
 }
 
-export function duplicateCurrentBlock(bn: BlockOpsEditorLike): boolean {
-  let block: BlockLike;
-  try {
-    block = bn.getTextCursorPosition().block;
-  } catch {
-    return false;
-  }
+/**
+ * Duplique un bloc précis (clone sans ids, inséré juste après) puis pose le
+ * caret sur la copie. Exposé pour le menu de bloc (poignée ⠿) qui agit sur le
+ * bloc survolé plutôt que sur celui du curseur.
+ */
+export function duplicateBlock(bn: BlockOpsEditorLike, block: BlockLike): boolean {
   const inserted = bn.insertBlocks([cloneBlockWithoutIds(block)], block, "after");
   const newId = inserted?.[0]?.id;
   if (newId) {
@@ -79,6 +78,16 @@ export function duplicateCurrentBlock(bn: BlockOpsEditorLike): boolean {
     }
   }
   return true;
+}
+
+export function duplicateCurrentBlock(bn: BlockOpsEditorLike): boolean {
+  let block: BlockLike;
+  try {
+    block = bn.getTextCursorPosition().block;
+  } catch {
+    return false;
+  }
+  return duplicateBlock(bn, block);
 }
 
 function extendSelection(editor: Editor, dir: "up" | "down"): boolean {

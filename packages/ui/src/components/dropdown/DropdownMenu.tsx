@@ -1,7 +1,6 @@
 import * as React from "react";
 import {
   DropdownRoot,
-  DropdownTrigger,
   DropdownMenu as HeroDropdownMenu,
   DropdownItem,
   DropdownPopover,
@@ -34,7 +33,13 @@ export interface DropdownMenuSection {
 }
 
 export interface DropdownMenuProps {
-  /** Element that opens the dropdown. */
+  /**
+   * Element that opens the dropdown. MUST be a pressable react-aria element
+   * (HeroUI `Button` works) : il est rendu directement sous le MenuTrigger et
+   * consomme son ButtonContext. Ne PAS l'envelopper dans `DropdownTrigger` —
+   * celui-ci rend son propre <button>, ce qui imbriquait <button> dans
+   * <button> (erreur d'hydration + gel du renderer au clic).
+   */
   trigger: React.ReactNode;
   /** Flat list of items. */
   items?: DropdownMenuItem[];
@@ -100,7 +105,7 @@ export function DropdownMenu({
 
   return (
     <DropdownRoot>
-      <DropdownTrigger>{trigger as React.ReactElement}</DropdownTrigger>
+      {trigger}
       <DropdownPopover
         className={cn(
           "z-[var(--z-dropdown)] min-w-[180px] rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--surface-1)] p-1 [box-shadow:var(--shadow-lg)]",

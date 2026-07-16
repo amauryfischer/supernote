@@ -13,6 +13,7 @@ import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/shell";
 import { trpc } from "@/lib/trpc/client";
 import { formatCurrency, formatDate } from "@/components/finance/utils";
+import { Button, EmptyState, Skeleton } from "@supernote/ui";
 
 const KIND_LABELS: Record<string, string> = {
   checking: "Courant",
@@ -78,7 +79,7 @@ export default function ComptesPage() {
 
   return (
     <AppShell>
-      <div className="mx-auto max-w-5xl px-3 py-6 md:px-6 md:py-8">
+      <div className="mx-auto max-w-5xl px-4 py-6 md:px-8 md:py-8">
         <div className="mb-6 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Link
@@ -91,36 +92,37 @@ export default function ComptesPage() {
             <span style={{ color: "var(--border)" }}>/</span>
             <h1 className="text-xl font-bold" style={{ color: "var(--text-primary)" }}>Comptes</h1>
           </div>
-          <button
-            type="button"
-            onClick={handleCreate}
-            disabled={createMutation.isPending}
-            className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium disabled:opacity-50"
-            style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
+          <Button
+            variant="primary"
+            size="sm"
+            onPress={handleCreate}
+            isDisabled={createMutation.isPending}
           >
             <Plus size={12} /> Nouveau compte
-          </button>
+          </Button>
         </div>
 
         {query.isLoading ? (
-          <p className="text-sm" style={{ color: "var(--text-muted)" }}>Chargement…</p>
+          <FinanceRowsSkeleton />
         ) : accounts.length === 0 ? (
-          <EmptyList onCreate={handleCreate} pending={createMutation.isPending} />
+          <EmptyList onCreate={handleCreate} />
         ) : (
           <>
             <ul className="flex flex-col gap-2">
               {accounts.map((a) => (
                 <li key={a.id}>
+                  {/* Mobile : nom + solde seulement (2 colonnes) ; les pistes
+                      fixes 140px ne tiennent pas sous 768px */}
                   <Link
                     href={`/finance/comptes/${a.id}`}
-                    className="grid grid-cols-[1fr_140px_140px_140px] items-center gap-4 rounded-lg border px-4 py-3 hover:bg-[var(--surface-2)]"
+                    className="grid grid-cols-[1fr_auto] items-center gap-4 rounded-lg border px-4 py-3 hover:bg-[var(--surface-2)] md:grid-cols-[1fr_140px_140px_140px]"
                     style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-1)" }}
                   >
                     <span className="text-sm font-medium truncate" style={{ color: "var(--text-primary)" }}>
                       {a.name}
                     </span>
                     <span
-                      className="rounded-full px-2 py-0.5 text-xs font-medium justify-self-start"
+                      className="hidden rounded-full px-2 py-0.5 text-xs font-medium justify-self-start md:inline-flex"
                       style={{ backgroundColor: "var(--accent-subtle)", color: "var(--accent)" }}
                     >
                       {KIND_LABELS[a.kind] ?? a.kind}
@@ -128,7 +130,7 @@ export default function ComptesPage() {
                     <span className="text-right text-sm font-semibold tabular-nums" style={{ color: "var(--text-primary)" }}>
                       {formatCurrency(a.balance)}
                     </span>
-                    <span className="text-right text-xs" style={{ color: "var(--text-muted)" }}>
+                    <span className="hidden text-right text-xs md:block" style={{ color: "var(--text-muted)" }}>
                       {formatDate(a.updatedAt)}
                     </span>
                   </Link>
@@ -145,24 +147,30 @@ export default function ComptesPage() {
   );
 }
 
-function EmptyList({ onCreate, pending }: { onCreate: () => void; pending: boolean }) {
+function EmptyList({ onCreate }: { onCreate: () => void }) {
   return (
-    <div
-      className="flex flex-col items-center gap-3 rounded-xl border border-dashed p-12 text-center"
-      style={{ borderColor: "var(--border-subtle)" }}
-    >
-      <p className="text-sm font-medium" style={{ color: "var(--text-secondary)" }}>
-        Aucun compte pour l'instant.
-      </p>
-      <button
-        type="button"
-        onClick={onCreate}
-        disabled={pending}
-        className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium disabled:opacity-50"
-        style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
-      >
-        <Plus size={12} /> Créer mon premier compte
-      </button>
+    <EmptyState
+      title="Aucun compte pour l'instant"
+      description="Ajoute un compte courant, une épargne ou un PEA pour suivre ton patrimoine — tout reste sur ta machine."
+      action={{ label: "Créer mon premier compte", onClick: onCreate, icon: <Plus size={14} /> }}
+    />
+  );
+}
+
+// Lignes squelette de la liste — remplace le « Chargement… » texte (local-first).
+function FinanceRowsSkeleton({ count = 5 }: { count?: number }) {
+  return (
+    <div className="flex flex-col gap-2">
+      {Array.from({ length: count }, (_, i) => (
+        <div
+          key={i}
+          className="flex items-center justify-between gap-4 rounded-lg border px-4 py-3"
+          style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-1)" }}
+        >
+          <Skeleton className="h-4 w-40" />
+          <Skeleton className="h-4 w-24" />
+        </div>
+      ))}
     </div>
   );
 }

@@ -49,7 +49,7 @@ export function PresentationMode({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[1000] flex flex-col"
+      className="fixed inset-0 z-[var(--z-modal)] flex flex-col"
       style={{ background: "var(--surface-0)" }}
       role="dialog"
       aria-modal="true"

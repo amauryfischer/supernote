@@ -128,8 +128,9 @@ export function FooterSummarize({
             </td>
           );
         })}
-        {/* trailing add-field col + spacer */}
+        {/* trailing add-field col + spacer + filler (cf. th filler DataGrid) */}
         <td style={{ borderRight: "1px solid var(--border-subtle)" }} />
+        <td />
         <td />
       </tr>
 
@@ -159,7 +160,7 @@ interface SummarizePickerProps {
   onClose: () => void;
 }
 
-function SummarizePicker({
+export function SummarizePicker({
   anchor,
   field,
   currentOp,

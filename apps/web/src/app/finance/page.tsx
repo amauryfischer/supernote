@@ -15,6 +15,7 @@ import { AppShell } from "@/components/shell";
 import { useMobileFab, useMobileTitle } from "@/components/shell/shell-chrome-context";
 import { trpc } from "@/lib/trpc/client";
 import { formatCurrency } from "@/components/finance/utils";
+import { EmptyState, Skeleton } from "@supernote/ui";
 
 interface Account {
   id: string;
@@ -83,99 +84,123 @@ function FinanceDashboard() {
   const total = accounts.reduce((s, a) => s + a.balance, 0);
 
   return (
-      <div className="mx-auto max-w-4xl px-3 py-6 md:px-6 md:py-8">
-        <div className="mb-6 flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight" style={{ color: "var(--text-primary)" }}>
-              Finance
-            </h1>
-            <p className="mt-0.5 text-sm" style={{ color: "var(--text-muted)" }}>
-              Vue d'ensemble de vos comptes.
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <Link
-              href="/finance/comptes"
-              className="rounded-lg border px-3 py-1.5 text-sm hover:bg-[var(--surface-2)]"
-              style={{ borderColor: "var(--border-subtle)", color: "var(--text-primary)" }}
-            >
-              Comptes
-            </Link>
-            <Link
-              href="/finance/actifs"
-              className="rounded-lg border px-3 py-1.5 text-sm hover:bg-[var(--surface-2)]"
-              style={{ borderColor: "var(--border-subtle)", color: "var(--text-primary)" }}
-            >
-              Actifs
-            </Link>
-          </div>
+    <div className="mx-auto max-w-5xl px-4 py-6 md:px-8 md:py-8">
+      <div className="mb-6 flex items-end justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight" style={{ color: "var(--text-primary)" }}>
+            Finance
+          </h1>
+          <p className="mt-0.5 text-sm" style={{ color: "var(--text-muted)" }}>
+            Vue d'ensemble de vos comptes.
+          </p>
         </div>
+        <nav className="flex shrink-0 items-center gap-1" aria-label="Sections finance">
+          <Link
+            href="/finance/comptes"
+            className="rounded-lg px-3 py-1.5 text-sm transition-colors hover:bg-[var(--surface-2)]"
+            style={{ color: "var(--text-secondary)" }}
+          >
+            Comptes
+          </Link>
+          <Link
+            href="/finance/actifs"
+            className="rounded-lg px-3 py-1.5 text-sm transition-colors hover:bg-[var(--surface-2)]"
+            style={{ color: "var(--text-secondary)" }}
+          >
+            Actifs
+          </Link>
+        </nav>
+      </div>
 
+      {query.isLoading ? (
+        <LedgerSkeleton />
+      ) : accounts.length === 0 ? (
+        <EmptyState
+          icon={<Wallet size={26} />}
+          title="Pas encore de comptes"
+          description="Ajoute un compte courant, une épargne ou un PEA pour suivre ton patrimoine — tout reste sur ta machine."
+          action={{
+            label: "Ajouter un compte",
+            onClick: () => router.push("/finance/comptes"),
+            icon: <Plus size={14} />,
+          }}
+        />
+      ) : (
+        // Registre : la liste des comptes est le héros, le total la coiffe en
+        // en-tête (chiffre tabulaire aligné à droite) — plus de carte
+        // hero-metric flottante (eyebrow uppercase + sous-stat).
         <div
-          className="mb-6 rounded-xl border p-5"
+          className="overflow-hidden rounded-xl border"
           style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-1)" }}
         >
-          <p className="text-xs uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
-            Patrimoine total
-          </p>
-          <p className="mt-1 text-3xl font-bold tabular-nums" style={{ color: "var(--text-primary)" }}>
-            {formatCurrency(total)}
-          </p>
-          <p className="mt-1 text-xs" style={{ color: "var(--text-muted)" }}>
-            {accounts.length} compte{accounts.length !== 1 ? "s" : ""}
-          </p>
-        </div>
-
-        {query.isLoading ? (
-          <p className="text-sm" style={{ color: "var(--text-muted)" }}>Chargement…</p>
-        ) : accounts.length === 0 ? (
-          <EmptyDashboard />
-        ) : (
-          <ul className="flex flex-col gap-2">
-            {accounts.map((a) => (
+          <div
+            className="flex items-baseline justify-between gap-4 border-b px-4 py-3"
+            style={{ borderColor: "var(--border-subtle)" }}
+          >
+            <span className="text-sm font-medium" style={{ color: "var(--text-secondary)" }}>
+              Patrimoine total
+            </span>
+            <span className="text-2xl font-bold tabular-nums" style={{ color: "var(--text-primary)" }}>
+              {formatCurrency(total)}
+            </span>
+          </div>
+          <ul>
+            {accounts.map((a, i) => (
               <li key={a.id}>
                 <Link
                   href={`/finance/comptes/${a.id}`}
-                  className="flex items-center justify-between rounded-lg border px-4 py-3 hover:bg-[var(--surface-2)]"
-                  style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-1)" }}
+                  className="flex items-center justify-between gap-4 px-4 py-3 transition-colors hover:bg-[var(--surface-2)]"
+                  style={{ borderTop: i === 0 ? undefined : "1px solid var(--border-subtle)" }}
                 >
-                  <div>
-                    <p className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium" style={{ color: "var(--text-primary)" }}>
                       {a.name}
                     </p>
                     <p className="text-xs" style={{ color: "var(--text-muted)" }}>
                       {KIND_LABELS[a.kind] ?? a.kind}
                     </p>
                   </div>
-                  <p className="text-base font-semibold tabular-nums" style={{ color: "var(--text-primary)" }}>
+                  <p className="shrink-0 text-base font-semibold tabular-nums" style={{ color: "var(--text-primary)" }}>
                     {formatCurrency(a.balance)}
                   </p>
                 </Link>
               </li>
             ))}
           </ul>
-        )}
-      </div>
+        </div>
+      )}
+    </div>
   );
 }
 
-function EmptyDashboard() {
+// Skeleton du registre (en-tête total + lignes) — remplace le « Chargement… »
+// texte : sur données locales, un skeleton se ressent instantané, pas un spinner.
+function LedgerSkeleton() {
   return (
     <div
-      className="flex flex-col items-center gap-3 rounded-xl border border-dashed p-12 text-center"
-      style={{ borderColor: "var(--border-subtle)" }}
+      className="overflow-hidden rounded-xl border"
+      style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-1)" }}
     >
-      <Wallet size={28} style={{ color: "var(--text-muted)" }} />
-      <p className="text-sm font-medium" style={{ color: "var(--text-secondary)" }}>
-        Pas encore de comptes
-      </p>
-      <Link
-        href="/finance/comptes"
-        className="mt-1 inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium"
-        style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
+      <div
+        className="flex items-center justify-between border-b px-4 py-3"
+        style={{ borderColor: "var(--border-subtle)" }}
       >
-        <Plus size={12} /> Ajouter un compte
-      </Link>
+        <Skeleton className="h-4 w-28" />
+        <Skeleton className="h-6 w-32" />
+      </div>
+      {Array.from({ length: 4 }, (_, i) => (
+        <div
+          key={i}
+          className="flex items-center justify-between px-4 py-3"
+          style={{ borderTop: i === 0 ? undefined : "1px solid var(--border-subtle)" }}
+        >
+          <div className="flex flex-col gap-1.5">
+            <Skeleton className="h-4 w-40" />
+            <Skeleton className="h-3 w-20" />
+          </div>
+          <Skeleton className="h-4 w-24" />
+        </div>
+      ))}
     </div>
   );
 }

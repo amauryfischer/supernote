@@ -13,28 +13,36 @@
 
 import { useMemo, useState } from "react";
 import { Button } from "@heroui/react";
+import { EmptyState } from "@supernote/ui";
 import type { EntityType, SelectOption } from "@supernote/core";
 import type { View } from "@supernote/ipc";
 import {
   useEntitiesForView,
   useEntityMutations,
   resolveVisibleFieldIds,
+  useSearchFilter,
 } from "./hooks";
 import { resolveGroupByField } from "./entity-summary";
 import { EntityCard } from "./EntityCard";
+import { EntityCardSkeleton } from "./BasesSkeleton";
 
 interface KanbanViewProps {
   base: EntityType;
   view: View;
+  /** Recherche instantanée (toolbar) — filtre client-side sur les champs visibles. */
+  searchQuery?: string;
 }
 
 const NULL_BUCKET = "__null__";
 
-export function KanbanView({ base, view }: KanbanViewProps) {
+export function KanbanView({ base, view, searchQuery }: KanbanViewProps) {
   const groupField = resolveGroupByField(base, view.groupByField);
   const { data, isLoading } = useEntitiesForView(base.id, view.filters, view.sorts);
   const mut = useEntityMutations(base.id);
   const [dragging, setDragging] = useState<string | null>(null);
+  // Recherche instantanée — avant l'early return pour un ordre de hooks stable.
+  const allItems = useMemo(() => data?.items ?? [], [data?.items]);
+  const items = useSearchFilter(allItems, base, view, searchQuery);
 
   if (!groupField) {
     return <KanbanEmptyState />;
@@ -43,8 +51,6 @@ export function KanbanView({ base, view }: KanbanViewProps) {
   // The field's options drive the columns. Status and select fields both
   // expose `options: SelectOption[]`.
   const options = ((groupField as { options?: SelectOption[] }).options ?? []) as SelectOption[];
-
-  const items = data?.items ?? [];
 
   // Bucket entries by the group field's value. Anything unset (null/empty
   // string) lands in the leading "Sans valeur" bucket so it stays
@@ -138,11 +144,10 @@ export function KanbanView({ base, view }: KanbanViewProps) {
       ))}
 
       {isLoading && (
-        <div
-          className="self-start px-3 py-2 text-xs"
-          style={{ color: "var(--text-muted)" }}
-        >
-          Chargement…
+        <div className="flex w-64 shrink-0 flex-col gap-2 self-start">
+          {Array.from({ length: 3 }, (_, i) => (
+            <EntityCardSkeleton key={i} />
+          ))}
         </div>
       )}
     </div>
@@ -237,15 +242,13 @@ function KanbanColumn({
 // ── Empty state ──────────────────────────────────────────────────────────
 
 function KanbanEmptyState() {
+  // EmptyState partagé — même traitement dans les 4 vues bases
   return (
-    <div
-      className="flex h-full items-center justify-center px-4 py-12 text-center text-xs"
-      style={{ color: "var(--text-muted)" }}
-    >
-      Le Kanban a besoin d'un champ <strong>select</strong> ou <strong>status</strong>{" "}
-      pour grouper les entrées.
-      <br />
-      Ajoute un tel champ au schéma de la Base, puis configure « Grouper par » dans la barre d'outils.
+    <div className="flex h-full items-center justify-center">
+      <EmptyState
+        title="Le Kanban a besoin d'un champ de regroupement"
+        description="Ajoute un champ select ou status au schéma de la Base, puis configure « Grouper par » dans la barre d'outils."
+      />
     </div>
   );
 }

@@ -23,7 +23,7 @@ function RoutineDetailSkeleton() {
         <div className="h-7 w-24 rounded-md" style={{ backgroundColor: "var(--surface-3)" }} />
       </div>
       <div className="flex-1 px-8 py-6">
-        <div className="mx-auto max-w-xl space-y-4">
+        <div className="mx-auto max-w-2xl space-y-4">
           <div className="h-24 rounded-xl" style={{ backgroundColor: "var(--surface-1)" }} />
           <div className="h-32 rounded-xl" style={{ backgroundColor: "var(--surface-1)" }} />
         </div>

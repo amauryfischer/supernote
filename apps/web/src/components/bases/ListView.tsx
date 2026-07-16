@@ -12,6 +12,7 @@
 
 import { useMemo, useState } from "react";
 import { Button } from "@heroui/react";
+import { EmptyState } from "@supernote/ui";
 import { CaretDown, CaretRight, Plus } from "@phosphor-icons/react";
 import type { EntityType, SelectOption } from "@supernote/core";
 import type { View } from "@supernote/ipc";
@@ -19,22 +20,28 @@ import {
   useEntitiesForView,
   useEntityMutations,
   resolveVisibleFieldIds,
+  useSearchFilter,
 } from "./hooks";
 import { resolveGroupByField } from "./entity-summary";
 import { EntityCard } from "./EntityCard";
+import { ListRowsSkeleton } from "./BasesSkeleton";
 
 interface ListViewProps {
   base: EntityType;
   view: View;
+  /** Recherche instantanée (toolbar) — filtre client-side sur les champs visibles. */
+  searchQuery?: string;
 }
 
 const NULL_BUCKET = "__null__";
 
-export function ListView({ base, view }: ListViewProps) {
+export function ListView({ base, view, searchQuery }: ListViewProps) {
   const groupField = resolveGroupByField(base, view.groupByField);
   const { data, isLoading } = useEntitiesForView(base.id, view.filters, view.sorts);
   const mut = useEntityMutations(base.id);
-  const items = data?.items ?? [];
+  const allItems = useMemo(() => data?.items ?? [], [data?.items]);
+  const items = useSearchFilter(allItems, base, view, searchQuery);
+  const searchActive = (searchQuery ?? "").trim().length > 0;
 
   const visibleFieldIds = useMemo(
     () => resolveVisibleFieldIds(view, base.fields.map((f) => f.id)),
@@ -72,8 +79,10 @@ export function ListView({ base, view }: ListViewProps) {
         items: byKey.get(opt.value) ?? [],
       })),
     ];
-    return sections;
-  }, [groupField, items]);
+    // En recherche, masque les sections vides — ne garder que les buckets
+    // qui contiennent des résultats.
+    return searchActive ? sections.filter((s) => s.items.length > 0) : sections;
+  }, [groupField, items, searchActive]);
 
   const addEntry = (bucketValue?: string) => {
     const fields = groupField && bucketValue && bucketValue !== NULL_BUCKET
@@ -87,15 +96,25 @@ export function ListView({ base, view }: ListViewProps) {
       className="h-full overflow-y-auto"
       style={{ backgroundColor: "var(--surface-0)" }}
     >
-      {isLoading && (
-        <p className="px-4 py-3 text-center text-xs" style={{ color: "var(--text-muted)" }}>
-          Chargement…
-        </p>
-      )}
+      {isLoading && <ListRowsSkeleton />}
       {!isLoading && items.length === 0 && (
-        <p className="px-4 py-6 text-center text-xs" style={{ color: "var(--text-muted)" }}>
-          Aucune entrée.
-        </p>
+        // EmptyState partagé — même traitement dans les 4 vues bases
+        <EmptyState
+          title={searchActive ? "Aucun résultat" : "Aucune entrée"}
+          description={
+            searchActive
+              ? "Aucune entrée ne correspond à cette recherche."
+              : "Crée ta première entrée pour remplir la liste."
+          }
+          action={
+            searchActive
+              ? undefined
+              : {
+                  label: "Nouvelle entrée",
+                  onClick: () => mut.create.mutate({ typeId: base.id, fields: {}, body: "" }),
+                }
+          }
+        />
       )}
       <div className="flex flex-col gap-2 p-3">
         {grouped.map((section) => (

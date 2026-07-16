@@ -13,6 +13,7 @@ import { useQueryClient, type QueryKey } from "@tanstack/react-query";
 import { getQueryKey } from "@trpc/react-query";
 import { useToast } from "@supernote/ui";
 import { trpc } from "@/lib/trpc/client";
+import type { EntityType, Field } from "@supernote/core";
 import type { View, FilterClause, SortClause } from "@supernote/ipc";
 import { isCodaBase } from "@/lib/coda/bindings";
 
@@ -233,4 +234,76 @@ export function resolveVisibleFieldIds(
  */
 export function useStableArray<T>(arr: T[]): T[] {
   return useMemo(() => arr, [JSON.stringify(arr)]);
+}
+
+// ── Recherche instantanée (loupe de la toolbar) ───────────────────────────
+
+/**
+ * Texte "cherchable" d'une valeur de champ, tel que l'utilisateur le voit.
+ * Pour select / multiselect / status on matche le LABEL des options (pas la
+ * value interne) — chercher « En cours » doit trouver la chip « En cours »
+ * même si la value stockée est `in_progress`.
+ */
+function fieldSearchText(field: Field, raw: unknown): string {
+  if (
+    field.kind === "select" ||
+    field.kind === "multiselect" ||
+    field.kind === "status"
+  ) {
+    const labelOf = (v: unknown): string => {
+      const s = String(v);
+      return field.options.find((o) => o.value === s)?.label ?? s;
+    };
+    return Array.isArray(raw) ? raw.map(labelOf).join(" ") : labelOf(raw);
+  }
+  if (Array.isArray(raw)) {
+    return raw
+      .map((v) => (v !== null && typeof v === "object" ? JSON.stringify(v) : String(v)))
+      .join(" ");
+  }
+  if (raw !== null && typeof raw === "object") return JSON.stringify(raw);
+  return String(raw);
+}
+
+/**
+ * `true` si `query` (insensible à la casse) apparaît dans au moins une des
+ * valeurs stringifiées des champs `fields` de l'entité. Une query vide
+ * matche tout. Purement client-side — aucun round-trip worker.
+ */
+export function matchesQuery(
+  entity: { fields: Record<string, unknown> },
+  fields: readonly Field[],
+  query: string,
+): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  for (const field of fields) {
+    const raw = entity.fields[field.id];
+    if (raw === null || raw === undefined || raw === "") continue;
+    if (fieldSearchText(field, raw).toLowerCase().includes(q)) return true;
+  }
+  return false;
+}
+
+/**
+ * Filtre les items d'une vue par la recherche instantanée, en ne matchant
+ * que les champs VISIBLES de la vue (même résolution que le rendu). Opère
+ * sur le cache `queryForView` existant, mémoïsé pour ne recalculer que
+ * quand items / vue / query changent.
+ */
+export function useSearchFilter<T extends { fields: Record<string, unknown> }>(
+  items: T[],
+  base: EntityType,
+  view: Pick<View, "visibleFields" | "hiddenFields">,
+  query: string | undefined,
+): T[] {
+  return useMemo(() => {
+    const q = (query ?? "").trim();
+    if (!q) return items;
+    const visibleIds = new Set(
+      resolveVisibleFieldIds(view, base.fields.map((f) => f.id)),
+    );
+    const visibleFields = base.fields.filter((f) => visibleIds.has(f.id));
+    return items.filter((e) => matchesQuery(e, visibleFields, q));
+  }, [items, base.fields, view, query]);
 }

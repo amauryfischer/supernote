@@ -5,8 +5,10 @@
  *
  * Renders the entity's title, cover image (when available), and a handful of
  * secondary fields formatted by `Cell` so the styling matches the table grid.
- * Clicking the card triggers `onOpen` (typically the view's row-open
- * callback). `draggable` enables HTML5 drag for Kanban.
+ * Clicking the card triggers `onOpen` when a view provides one, otherwise it
+ * opens the entity in the shell side-peek via the `supernote:open-peek` event
+ * (so Gallery / Kanban / List get the peek for free). `draggable` enables
+ * HTML5 drag for Kanban.
  */
 
 import type { EntityType } from "@supernote/core";
@@ -55,6 +57,22 @@ export function EntityCard({
   // dnd-kit-style transform — we're free to glide a subtle lift on the node
   // itself and let it settle back to rest when the drag ends.
   const [isDragging, setIsDragging] = useState(false);
+
+  // Ouverture : la vue peut fournir un `onOpen` explicite ; sinon on déclenche
+  // le side-peek du shell via un CustomEvent window (aucun prop-drilling requis
+  // depuis Gallery / Kanban / List).
+  const handleOpen = () => {
+    if (onOpen) {
+      onOpen(entity.id);
+      return;
+    }
+    window.dispatchEvent(
+      new CustomEvent("supernote:open-peek", {
+        detail: { baseId: base.id, entityId: entity.id },
+      }),
+    );
+  };
+
   const title = deriveCardTitle(entity, base);
   const cover = compact ? null : findCoverField(base);
   const coverUrl = cover ? readCoverUrl(entity, cover) : undefined;
@@ -80,7 +98,10 @@ export function EntityCard({
 
   return (
     <div
-      className="sn-base-card sn-motion-colors group relative cursor-pointer rounded-md border hover:border-[var(--accent)]"
+      role="button"
+      tabIndex={0}
+      aria-label={`Ouvrir ${title}`}
+      className="sn-base-card sn-motion-colors group relative cursor-pointer rounded-md border hover:border-[var(--accent)] focus-visible:outline-none focus-visible:border-[var(--accent)]"
       style={{
         backgroundColor: "var(--surface-1)",
         borderColor: "var(--border-subtle)",
@@ -109,7 +130,17 @@ export function EntityCard({
         setIsDragging(false);
         onDragEnd?.();
       }}
-      onClick={() => onOpen?.(entity.id)}
+      onClick={handleOpen}
+      // Clavier : la carte devient un vrai bouton (Kanban/Gallery/List étaient
+      // pilotables uniquement à la souris). Le garde `target === currentTarget`
+      // évite de capturer Entrée/Espace quand le focus est dans un Cell éditable.
+      onKeyDown={(e) => {
+        if (e.target !== e.currentTarget) return;
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          handleOpen();
+        }
+      }}
     >
       {coverUrl && (
         <div

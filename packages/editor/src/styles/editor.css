@@ -662,6 +662,202 @@
   cursor: grabbing;
 }
 
+/* ── Block menu (click the ⠿ handle) ────────────────────────── */
+/* Calqué sur .sn-slash-menu (mêmes tokens surface/bord/rayon) + l'ombre
+ * portée de .sn-fmt-toolbar__colors. Portalé sur <body>, positionné en
+ * fixed par le composant (left/top inline). */
+
+.sn-block-menu {
+  position: fixed;
+  z-index: 80;
+  min-width: 208px;
+  max-width: 268px;
+  padding: 4px;
+  border-radius: 10px;
+  background: var(--surface-1, #fff);
+  border: 1px solid var(--border-subtle, #e5e7eb);
+  box-shadow: var(--shadow-lg, 0 8px 32px rgba(0, 0, 0, 0.14), 0 4px 8px rgba(0, 0, 0, 0.06));
+  font-family: var(--font-sans, system-ui, sans-serif);
+  font-size: 0.875rem;
+  max-height: min(70vh, 460px);
+  overflow-y: auto;
+  user-select: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .sn-block-menu {
+    animation: sn-menu-in 130ms cubic-bezier(0.16, 1, 0.3, 1);
+    transform-origin: top left;
+  }
+}
+
+.sn-block-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-primary, #111827);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.sn-block-menu__item:hover,
+.sn-block-menu__item:focus-visible {
+  background: var(--surface-2, #f3f4f6);
+  outline: none;
+}
+
+.sn-block-menu__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 5px;
+  background: var(--surface-2, #f3f4f6);
+  flex-shrink: 0;
+  font-size: 0.8rem;
+  color: var(--accent, #7c3aed);
+}
+
+.sn-block-menu__label {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sn-block-menu__shortcut {
+  flex-shrink: 0;
+  font-size: 0.72rem;
+  color: var(--text-muted, #9ca3af);
+  font-variant-numeric: tabular-nums;
+}
+
+.sn-block-menu__chevron {
+  flex-shrink: 0;
+  color: var(--text-muted, #9ca3af);
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.sn-block-menu__sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--border-subtle, #e5e7eb);
+}
+
+.sn-block-menu__item--danger {
+  color: var(--danger, #ef4444);
+}
+.sn-block-menu__item--danger .sn-block-menu__icon {
+  color: var(--danger, #ef4444);
+  background: color-mix(in srgb, var(--danger, #ef4444) 12%, transparent);
+}
+.sn-block-menu__item--danger:hover,
+.sn-block-menu__item--danger:focus-visible {
+  background: color-mix(in srgb, var(--danger, #ef4444) 10%, transparent);
+}
+
+.sn-block-menu__item--current .sn-block-menu__icon {
+  background: var(--accent-subtle, rgba(124, 58, 237, 0.14));
+}
+.sn-block-menu__item--current .sn-block-menu__label {
+  color: var(--accent, #7c3aed);
+  font-weight: 600;
+}
+
+.sn-block-menu__back {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 5px 8px 7px;
+  margin-bottom: 2px;
+  border: none;
+  border-bottom: 1px solid var(--border-subtle, #e5e7eb);
+  background: transparent;
+  color: var(--text-muted, #6b7280);
+  font: inherit;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  text-align: left;
+  cursor: pointer;
+}
+.sn-block-menu__back:hover {
+  color: var(--text-primary, #111827);
+}
+
+/* La sous-vue Couleur héberge le ColorMenu partagé — on rogne son padding
+ * pour l'aligner sur les items du menu. */
+.sn-block-menu .sn-color-menu {
+  padding: 8px 6px 4px;
+}
+
+/* Mobile bottom-sheet (<768px) : le MÊME menu, ancré au bas de l'écran. */
+.sn-block-menu__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: flex-end;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .sn-block-menu__backdrop {
+    animation: sn-fade-in 140ms ease;
+  }
+}
+
+.sn-block-menu--sheet {
+  position: static;
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+  max-height: 72vh;
+  border-radius: 16px 16px 0 0;
+  padding: 8px 8px calc(8px + env(safe-area-inset-bottom, 0px));
+  font-size: 1rem;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .sn-block-menu--sheet {
+    animation: sn-sheet-up 200ms cubic-bezier(0.16, 1, 0.3, 1);
+    transform-origin: bottom center;
+  }
+}
+
+/* Cibles tactiles agrandies dans la bottom-sheet. */
+.sn-block-menu--sheet .sn-block-menu__item {
+  padding: 12px 10px;
+}
+.sn-block-menu--sheet .sn-block-menu__icon {
+  width: 28px;
+  height: 28px;
+  font-size: 0.9rem;
+}
+
+@keyframes sn-sheet-up {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
 /* ── Hero checklist item ────────────────────────────────────── */
 
 .sn-checkitem {

@@ -4,6 +4,7 @@ import { Command } from "cmdk";
 import {
   BookOpen,
   Calendar,
+  ClockCounterClockwise,
   FileText,
   Hash,
   SidebarSimple,
@@ -17,7 +18,7 @@ import {
   type Icon as PhosphorIcon,
 } from "@phosphor-icons/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 
 import { registry } from "@/lib/commands/registry";
 import type { Command as AppCommand } from "@/lib/commands/types";
@@ -25,10 +26,11 @@ import { useDebounce } from "@/hooks/useDebounce";
 import { trpc, hasWorkerBackend } from "@/lib/trpc/client";
 import { isWorkerReady } from "@/lib/trpc/browser-link";
 import type { SearchResult } from "@supernote/ipc";
+import { getFrecencyMap, getRecents, type RecentEntry } from "@/lib/navigation/recents";
 import { CommandPreview } from "./CommandPreview";
 
 // ---------------------------------------------------------------------------
-// Icon resolver — maps seed icon names to Lucide components
+// Icon resolver — maps seed icon names to Phosphor components
 // ---------------------------------------------------------------------------
 
 const ICON_MAP: Record<string, PhosphorIcon> = {
@@ -147,6 +149,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   // survol souris — une seule source de vérité pour l'aperçu.
   const [activeValue, setActiveValue] = useState("");
   const router = useRouter();
+  const pathname = usePathname();
 
   // Reset query + sélection à l'ouverture
   useEffect(() => {
@@ -157,6 +160,40 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   }, [open]);
 
   const allCommands = useMemo(() => registry.list(), [open]);
+
+  // Frecency store — lu une fois à l'ouverture (lecture localStorage pure, pas
+  // de requête). Alimente le groupe « Récents » quand la requête est vide et
+  // booste le tri des résultats de recherche pointant vers une entité fréquente.
+  const recents = useMemo(() => (open ? getRecents(8) : []), [open]);
+  const frecencyMap = useMemo(
+    () => (open ? getFrecencyMap() : new Map<string, number>()),
+    [open],
+  );
+  // On exclut la page courante : proposer « revenir ici » n'a pas de sens.
+  const visibleRecents = useMemo(
+    () => recents.filter((r) => r.href !== pathname),
+    [recents, pathname],
+  );
+  // Résultats synthétiques pour les récents-entité : donne à l'aperçu un titre
+  // instantané et au raccourci « ouvrir en aperçu » (⌘↵) un résultat cible, le
+  // temps que `entities.get` renvoie le corps complet.
+  const recentResults = useMemo<SearchResult[]>(
+    () =>
+      visibleRecents
+        .filter((r) => r.entityId)
+        .map((r) => ({
+          entityId: r.entityId as string,
+          typeId: r.typeId ?? "note",
+          typeName: r.typeId ?? "",
+          filePath: "",
+          title: r.title,
+          excerpts: [],
+          score: 0,
+          semantic: false,
+          tags: [],
+        })),
+    [visibleRecents],
+  );
 
   // Worker readiness — same gate as /recherche, /notes. Without this the
   // entity search query rejects with "Vault not initialized" and stays in
@@ -190,36 +227,6 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     return (entitySearch.data?.items ?? []) as SearchResult[];
   }, [canSearchEntities, entitySearch.data]);
 
-  // Diagnostic — surface why the palette is empty when it shouldn't be.
-  // Logs on every state transition so the developer console shows the
-  // chain (workerReady? canSearchEntities? data?.items.length?). Cheap;
-  // can be removed once the integration is confirmed in the wild.
-  useEffect(() => {
-    if (!open || !trimmedQuery) return;
-    console.info("[CommandPalette]", {
-      query: trimmedQuery,
-      hasWorkerBackend: hasWorkerBackend(),
-      workerReady,
-      canSearchEntities,
-      isLoading: entitySearch.isLoading,
-      isFetching: entitySearch.isFetching,
-      isError: entitySearch.isError,
-      error: entitySearch.error?.message ?? null,
-      itemsCount: entitySearch.data?.items?.length ?? null,
-      total: entitySearch.data?.total ?? null,
-    });
-  }, [
-    open,
-    trimmedQuery,
-    workerReady,
-    canSearchEntities,
-    entitySearch.isLoading,
-    entitySearch.isFetching,
-    entitySearch.isError,
-    entitySearch.error,
-    entitySearch.data,
-  ]);
-
   // Group entities by typeId. Most-frequent types first, with a stable
   // priority order so the layout doesn't jump around as results stream in.
   const entityGroups = useMemo(() => {
@@ -228,6 +235,13 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
       const bucket = map.get(r.typeId);
       if (bucket) bucket.items.push(r);
       else map.set(r.typeId, { typeName: r.typeName || r.typeId, items: [r] });
+    }
+    // Bonus frecency : au sein d'un type, remonter les entités déjà (souvent)
+    // visitées — tri stable, le score serveur départage à frecency égale.
+    for (const bucket of map.values()) {
+      bucket.items.sort(
+        (a, b) => (frecencyMap.get(b.entityId) ?? 0) - (frecencyMap.get(a.entityId) ?? 0),
+      );
     }
     const priority = ["note", "personne", "organisation"];
     return [...map.entries()].sort(([a], [b]) => {
@@ -238,7 +252,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
       if (bi !== -1) return 1;
       return a.localeCompare(b);
     });
-  }, [entityResults]);
+  }, [entityResults, frecencyMap]);
 
   // L'aperçu cible l'item actif uniquement si c'est une entité. Les valeurs
   // entité sont préfixées `entity:` (cf. EntityCommandItem) ; cmdk préserve la
@@ -249,14 +263,17 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const activeResult = useMemo(
     () =>
       activeEntityId
-        ? entityResults.find((r) => r.entityId === activeEntityId) ?? null
+        ? entityResults.find((r) => r.entityId === activeEntityId) ??
+          recentResults.find((r) => r.entityId === activeEntityId) ??
+          null
         : null,
-    [activeEntityId, entityResults],
+    [activeEntityId, entityResults, recentResults],
   );
-  // Colonne d'aperçu réservée dès qu'une recherche remonte des entités : évite
-  // que la modale ne saute en largeur quand on passe d'une note à une commande.
-  // Le contenu reste vide gracieusement si l'item actif n'est pas une entité.
-  const showPreviewColumn = entityResults.length > 0;
+  // Colonne d'aperçu réservée dès qu'une recherche (ou le groupe Récents)
+  // remonte des entités : évite que la modale ne saute en largeur quand on passe
+  // d'une note à une commande. Le contenu reste vide gracieusement si l'item
+  // actif n'est pas une entité.
+  const showPreviewColumn = entityResults.length > 0 || recentResults.length > 0;
 
   const handleSelect = useCallback(
     async (cmdId: string) => {
@@ -270,6 +287,16 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     (entityId: string, typeId: string) => {
       onClose();
       router.push(entityHref(entityId, typeId));
+    },
+    [onClose, router],
+  );
+
+  // Récents : on navigue vers le href stocké tel quel (plus fiable que de
+  // reconstruire la route) — vaut pour les entités comme pour les pages-section.
+  const handleRecentSelect = useCallback(
+    (href: string) => {
+      onClose();
+      router.push(href);
     },
     [onClose, router],
   );
@@ -320,6 +347,26 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
           backgroundColor: "var(--surface-1)",
           border: "1px solid var(--border-subtle)",
           borderRadius: "var(--radius-xl)",
+        }}
+        // Cmd/Alt+Entrée sur un résultat entité actif → ouvre la fiche en
+        // side-peek au lieu de naviguer. Capture-phase pour intercepter avant
+        // que cmdk ne traite Entrée (qui déclenche la navigation via onSelect).
+        onKeyDownCapture={(e) => {
+          if (
+            e.key === "Enter" &&
+            (e.metaKey || e.altKey) &&
+            activeEntityId &&
+            activeResult
+          ) {
+            e.preventDefault();
+            e.stopPropagation();
+            onClose();
+            window.dispatchEvent(
+              new CustomEvent("supernote:open-peek", {
+                detail: { baseId: activeResult.typeId, entityId: activeResult.entityId },
+              }),
+            );
+          }
         }}
       >
         <Command
@@ -378,6 +425,22 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
                 ? "Recherche…"
                 : `Aucun résultat pour "${query}"`}
             </Command.Empty>
+
+            {/* Récents & fréquents — état par défaut de la palette (requête
+                vide) : les pages qu'on revisite plutôt qu'une liste statique.
+                Rendus comme les entités pour hériter de l'aperçu + du highlight
+                cmdk. Les commandes restent affichées dessous. */}
+            {trimmedQuery.length === 0 && visibleRecents.length > 0 && (
+              <Command.Group heading="Récents" className="px-2">
+                {visibleRecents.map((entry) => (
+                  <RecentCommandItem
+                    key={entry.href}
+                    entry={entry}
+                    onSelect={handleRecentSelect}
+                  />
+                ))}
+              </Command.Group>
+            )}
 
             {/* Entity results — surfaced first when the user is searching, so
                 "leroy merlin" → notes/contacts appear above the (lower-signal)
@@ -448,6 +511,11 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
               <span>
                 <kbd className="font-mono">↵</kbd> sélectionner
               </span>
+              {showPreviewColumn && (
+                <span>
+                  <kbd className="font-mono">{isMac ? "⌘" : "Alt"}↵</kbd> aperçu
+                </span>
+              )}
               <span>
                 <kbd className="font-mono">Esc</kbd> fermer
               </span>
@@ -625,6 +693,57 @@ function EntityCommandItem({
             {subtitle.replace(/<\/?mark>/g, "")}
           </span>
         )}
+      </span>
+    </Command.Item>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// RecentCommandItem — un item du groupe « Récents » (frecency)
+// ---------------------------------------------------------------------------
+
+function RecentCommandItem({
+  entry,
+  onSelect,
+}: {
+  entry: RecentEntry;
+  onSelect: (href: string) => void;
+}) {
+  // Icône par type d'entité ; horloge pour les pages-section (pas d'entityId).
+  const Icon = entry.entityId
+    ? TYPE_ICON_MAP[(entry.typeId ?? "").toLowerCase()] ?? FileText
+    : ClockCounterClockwise;
+  // Valeur cmdk : préfixe `entity:` pour les récents-entité (aperçu + ⌘↵ gérés
+  // par la logique existante d'`activeEntityId`) ; `nav:` sinon (unique par href).
+  const value = entry.entityId ? `entity:${entry.entityId}` : `nav:${entry.href}`;
+  return (
+    <Command.Item
+      value={value}
+      onSelect={() => onSelect(entry.href)}
+      // Idem EntityCommandItem : onClick explicite pour que le tap mobile
+      // déclenche la sélection (cmdk ne fire onSelect qu'après focus clavier).
+      onClick={(e) => {
+        e.preventDefault();
+        onSelect(entry.href);
+      }}
+      className="flex cursor-pointer items-center gap-3 rounded-md px-3 py-2 text-sm"
+      style={{ color: "var(--text-primary)" }}
+      data-cmd-item
+    >
+      <span
+        data-cmd-icon
+        className="flex h-6 w-6 shrink-0 items-center justify-center rounded"
+        style={{
+          backgroundColor: "var(--surface-2)",
+          color: "var(--text-secondary)",
+        }}
+      >
+        <Icon size={13} />
+      </span>
+      <span className="flex flex-1 flex-col gap-0.5 overflow-hidden">
+        <span className="truncate font-medium leading-tight">
+          {entry.title || "Sans titre"}
+        </span>
       </span>
     </Command.Item>
   );

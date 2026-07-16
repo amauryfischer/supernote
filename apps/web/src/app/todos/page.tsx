@@ -45,11 +45,13 @@ import {
   Check,
   Trash,
   DotsSixVertical,
+  DotsThree,
   CalendarBlank,
   List,
   Checks,
+  Sparkle,
 } from "@phosphor-icons/react";
-import { EmptyState, ContextMenu, useContextMenu, type ContextMenuItemDef } from "@supernote/ui";
+import { EmptyState, ContextMenu, useContextMenu, DropdownMenu, Tooltip, type ContextMenuItemDef } from "@supernote/ui";
 import { importanceColor, importanceLabel, importanceForAxis } from "@/components/todos/TodoRow";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -104,6 +106,16 @@ import {
 type Filter = "all" | "pending" | "done" | "today" | "urgent" | "thisWeek";
 type SortKey = "priority" | "importance" | "dueDate" | "createdAt" | "manual";
 type ViewMode = "matrix" | "list" | "calendar";
+
+// Sortie douce d'une todo cochée (vue « En attente ») : la ligne reste
+// visible le temps que la coche se dessine et que l'œil enregistre, puis se
+// replie (.sn-row-collapse, --sn-dur-3 = 220 ms + marge) avant de quitter le
+// filtre.
+const COMPLETED_LINGER_MS = 900;
+const COMPLETED_COLLAPSE_MS = 260;
+
+/** Garde localStorage du son de célébration inbox-zéro — max 1×/jour. */
+const CELEBRATED_AT_KEY = "supernote.todos.celebratedAt";
 
 interface UiTodoRow extends TodoRowData {
   /** "note" → row materialized from a checklist line in a note's body.
@@ -285,6 +297,73 @@ export default function TodosPage() {
     });
   }, []);
 
+  // ── Sortie douce des todos cochées (vue « En attente ») ────────────────
+  // `justCompletedIds` repêche la ligne dans le filtre pending pendant la
+  // fenêtre de grâce — les invalidations tRPC qui arrivent entre-temps ne la
+  // font donc pas disparaître brutalement. `collapsingIds` déclenche le repli
+  // .sn-row-collapse sur la fin de fenêtre, puis les deux sets sont purgés et
+  // la ligne quitte réellement le filtre.
+  const [justCompletedIds, setJustCompletedIds] = useState<Set<string>>(() => new Set());
+  const [collapsingIds, setCollapsingIds] = useState<Set<string>>(() => new Set());
+  const completionTimersRef = useRef<Map<string, number[]>>(new Map());
+  // Un check a eu lieu dans la session — prérequis du son de célébration
+  // (autoplay policy WebAudio + pas de fanfare au simple chargement).
+  const hasCheckedThisSessionRef = useRef(false);
+  const celebrationFiredRef = useRef(false);
+
+  const cancelCompletionExit = useCallback((id: string) => {
+    const timers = completionTimersRef.current.get(id);
+    if (timers) for (const t of timers) window.clearTimeout(t);
+    completionTimersRef.current.delete(id);
+    setJustCompletedIds((prev) => {
+      if (!prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+    setCollapsingIds((prev) => {
+      if (!prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+  }, []);
+
+  const scheduleCompletionExit = useCallback(
+    (id: string) => {
+      cancelCompletionExit(id);
+      setJustCompletedIds((prev) => new Set(prev).add(id));
+      const collapseTimer = window.setTimeout(() => {
+        setCollapsingIds((prev) => new Set(prev).add(id));
+      }, COMPLETED_LINGER_MS);
+      const removeTimer = window.setTimeout(() => {
+        completionTimersRef.current.delete(id);
+        setJustCompletedIds((prev) => {
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
+        setCollapsingIds((prev) => {
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
+      }, COMPLETED_LINGER_MS + COMPLETED_COLLAPSE_MS);
+      completionTimersRef.current.set(id, [collapseTimer, removeTimer]);
+    },
+    [cancelCompletionExit],
+  );
+
+  // Purge des timers au démontage de la page.
+  useEffect(() => {
+    const timersById = completionTimersRef.current;
+    return () => {
+      for (const timers of timersById.values())
+        for (const t of timers) window.clearTimeout(t);
+      timersById.clear();
+    };
+  }, []);
+
   // Notes carry the bodies we project todos from. We bump the limit because
   // the whole point of /todos is a global view; 5000 is plenty for a personal
   // vault and avoids a follow-up `entities.get` round-trip per note.
@@ -450,7 +529,10 @@ export default function TodosPage() {
 
   const filteredTodos = useMemo(() => {
     return allTodos.filter((t) => {
-      if (filter === "pending" && t.done) return false;
+      // Fenêtre de grâce : une todo tout juste cochée reste dans « En
+      // attente » le temps de son animation de sortie, même si un refetch
+      // la renvoie déjà `done`.
+      if (filter === "pending" && t.done && !justCompletedIds.has(t.id)) return false;
       if (filter === "done" && !t.done) return false;
       if (filter === "today" && !isToday(t.dueDate)) return false;
       if (filter === "thisWeek" && !intersectsThisWeek(t)) return false;
@@ -466,7 +548,7 @@ export default function TodosPage() {
       }
       return true;
     });
-  }, [allTodos, filter, tagFilter]);
+  }, [allTodos, filter, tagFilter, justCompletedIds]);
 
   const sortedTodos = useMemo(() => {
     if (sortKey === "manual") {
@@ -495,8 +577,14 @@ export default function TodosPage() {
     }
 
     const arr = [...filteredTodos];
+    // Une todo en fenêtre de grâce garde sa place : la traiter comme encore
+    // « pending » dans le tri, sinon elle sauterait en bas de liste dès le
+    // refetch, au milieu de son animation de sortie.
+    const effectiveDone = (t: UiTodoRow) => t.done && !justCompletedIds.has(t.id);
     arr.sort((a, b) => {
-      if (a.done !== b.done) return a.done ? 1 : -1;
+      const da = effectiveDone(a);
+      const db = effectiveDone(b);
+      if (da !== db) return da ? 1 : -1;
       switch (sortKey) {
         case "priority": {
           const pa = a.priority ?? 5;
@@ -536,7 +624,7 @@ export default function TodosPage() {
       }
     });
     return arr;
-  }, [filteredTodos, sortKey, manualTodoOrder]);
+  }, [filteredTodos, sortKey, manualTodoOrder, justCompletedIds]);
 
   // Matrix view shows only actionable (pending) todos; the tag filter still
   // applies, but the list-only filter tabs / sort do not.
@@ -566,6 +654,15 @@ export default function TodosPage() {
 
   const handleToggle = useCallback(
     async (row: UiTodoRow) => {
+      if (!row.done) {
+        hasCheckedThisSessionRef.current = true;
+        // Sortie douce uniquement là où la ligne quitterait le filtre : la
+        // liste « En attente ». (La matrice a déjà son cycle optimiste.)
+        if (viewMode === "list" && filter === "pending") scheduleCompletionExit(row.id);
+      } else {
+        // Décochage pendant la fenêtre de grâce → on annule la sortie.
+        cancelCompletionExit(row.id);
+      }
       if (row.kind === "standalone") {
         try {
           await trpcVanillaClient.entities.update.mutate({
@@ -574,6 +671,7 @@ export default function TodosPage() {
           });
           await utils.entities.list.invalidate({ typeId: TODO_TYPE_ID });
         } catch {
+          cancelCompletionExit(row.id);
           showToast("Erreur lors de la mise à jour");
         }
         return;
@@ -590,10 +688,11 @@ export default function TodosPage() {
         await utils.entities.list.invalidate({ typeId: "note" });
         await utils.entities.get.invalidate({ id: row.sourceNoteId });
       } catch (err) {
+        cancelCompletionExit(row.id);
         showToast(err instanceof Error ? err.message : "Erreur de synchronisation");
       }
     },
-    [utils, showToast],
+    [utils, showToast, viewMode, filter, scheduleCompletionExit, cancelCompletionExit],
   );
 
   const handleTodoDragEnd = useCallback(
@@ -1074,6 +1173,34 @@ export default function TodosPage() {
     (t) => !t.done && (t.importance === "critical" || (t.priority !== null && t.priority <= 3)),
   ).length;
 
+  // Inbox-zéro : quand la dernière todo en attente vient d'être cochée (et que
+  // sa sortie animée est terminée), petit arpège « celebrate » — max 1×/jour
+  // (garde localStorage) et uniquement après un check dans la session (jamais
+  // au simple chargement d'une liste déjà vide).
+  const queriesLoaded = !notesQuery.isLoading && !todosQuery.isLoading;
+  useEffect(() => {
+    const inboxZero =
+      queriesLoaded && totalAll > 0 && totalPending === 0 && justCompletedIds.size === 0;
+    if (!inboxZero) {
+      celebrationFiredRef.current = false;
+      return;
+    }
+    if (celebrationFiredRef.current || !hasCheckedThisSessionRef.current) return;
+    celebrationFiredRef.current = true;
+    const today = new Date().toLocaleDateString("fr-CA"); // YYYY-MM-DD local
+    let alreadyToday = false;
+    try {
+      alreadyToday = window.localStorage.getItem(CELEBRATED_AT_KEY) === today;
+      if (!alreadyToday) window.localStorage.setItem(CELEBRATED_AT_KEY, today);
+    } catch {
+      /* stockage indisponible → la garde de session suffit */
+    }
+    if (alreadyToday) return;
+    document.dispatchEvent(
+      new CustomEvent("supernote:ui-sound", { detail: { kind: "celebrate" } }),
+    );
+  }, [queriesLoaded, totalAll, totalPending, justCompletedIds]);
+
   // Mobile chrome — title carries the count, FAB triggers the create modal,
   // header actions surface refresh / email / view-toggle / group toggle. The
   // dense desktop toolbar below is hidden in `md:flex` mode (see header
@@ -1149,7 +1276,7 @@ export default function TodosPage() {
             top bar instead). FilterTabs are rendered separately below for
             both layouts because they need horizontal scroll on phones. */}
         <div
-          className="hidden items-center justify-between border-b px-6 py-3 md:flex"
+          className="hidden items-center justify-between border-b px-8 py-3 md:flex"
           style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-0)" }}
         >
           <div className="flex items-center gap-3">
@@ -1158,13 +1285,16 @@ export default function TodosPage() {
               Todos
             </h1>
             <span
-              className="rounded-full px-2 py-0.5 text-xs font-medium"
+              className="whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium"
               style={{ backgroundColor: "var(--surface-3)", color: "var(--text-muted)" }}
             >
               {totalPending} / {totalAll}
             </span>
           </div>
-          <div className="flex items-center gap-2">
+          {/* Deux groupes : contrôles de vue (gauche) / actions (droite).
+              Le gap-4 sépare visuellement « configurer la vue » de « agir ». */}
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
             {/* View mode toggle */}
             <div
               className="flex items-center gap-0.5 rounded-md p-0.5"
@@ -1192,107 +1322,118 @@ export default function TodosPage() {
                 </Button>
               ))}
             </div>
+            {/* FilterTabs + tri : rangée dédiée sous le header (voir plus bas)
+                — dans le header ils faisaient déborder la rangée dès que le
+                panneau droit était ouvert */}
+            {/* Grouper / Sélectionner : boutons icône + Tooltip — les libellés
+                textuels faisaient déborder la rangée sous 1536px */}
             {viewMode === "list" && (
-              <FilterTabs
-                value={filter}
-                onChange={setFilter}
-                counts={{
-                  pending: totalPending,
-                  done: totalDone,
-                  all: totalAll,
-                  urgent: totalUrgent,
-                }}
+              <Tooltip content={groupByNote ? "Dégrouper (par note)" : "Grouper par note"}>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onPress={toggleGroupByNote}
+                  aria-label={groupByNote ? "Dégrouper (par note)" : "Grouper par note"}
+                  aria-pressed={groupByNote}
+                  className="flex items-center rounded-md border px-2 py-1.5 min-w-0 h-auto transition-colors"
+                  style={{
+                    borderColor: groupByNote
+                      ? "var(--accent)"
+                      : "var(--border-subtle)",
+                    backgroundColor: groupByNote
+                      ? "var(--accent-subtle, var(--surface-2))"
+                      : "var(--surface-1)",
+                    color: groupByNote ? "var(--accent)" : "var(--text-secondary)",
+                  }}
+                >
+                  <ListBullets size={14} />
+                </Button>
+              </Tooltip>
+            )}
+            {viewMode === "list" && (
+              <Tooltip content={selectionActive ? "Annuler la sélection" : "Sélectionner des tâches"}>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onPress={toggleSelectionMode}
+                  aria-label={selectionActive ? "Annuler la sélection" : "Sélectionner des tâches"}
+                  aria-pressed={selectionActive}
+                  className="flex items-center rounded-md border px-2 py-1.5 min-w-0 h-auto transition-colors"
+                  style={{
+                    borderColor: selectionActive ? "var(--accent)" : "var(--border-subtle)",
+                    backgroundColor: selectionActive
+                      ? "var(--accent-subtle, var(--surface-2))"
+                      : "var(--surface-1)",
+                    color: selectionActive ? "var(--accent)" : "var(--text-secondary)",
+                  }}
+                >
+                  <Checks size={14} />
+                </Button>
+              </Tooltip>
+            )}
+            </div>
+
+            <div className="flex items-center gap-2">
+              {/* « Nouvelle » : seul bouton plein de la rangée — l'action
+                  primaire domine au squint test. Les actions secondaires
+                  (Tout envoyer, Actualiser) vivent dans le menu ⋯. */}
+              <Button
+                size="sm"
+                variant="primary"
+                onPress={() => setShowCreate(true)}
+                className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-opacity hover:opacity-90 min-w-0 h-auto"
+                style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
+              >
+                <Plus size={13} />
+                Nouvelle
+              </Button>
+              <DropdownMenu
+                trigger={
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    aria-label="Autres actions"
+                    className="flex items-center rounded-md border px-2 py-1.5 min-w-0 h-auto"
+                    style={{
+                      borderColor: "var(--border-subtle)",
+                      color: "var(--text-secondary)",
+                      backgroundColor: "var(--surface-1)",
+                    }}
+                  >
+                    <DotsThree size={16} weight="bold" />
+                  </Button>
+                }
+                items={[
+                  {
+                    key: "email-all",
+                    label: "Tout envoyer par email",
+                    startContent: <Envelope size={14} />,
+                    isDisabled: sortedTodos.length === 0,
+                    onPress: handleEmailAll,
+                  },
+                  {
+                    key: "refresh",
+                    label: busy ? "Actualisation…" : "Actualiser",
+                    startContent: (
+                      <ArrowsClockwise size={14} className={busy ? "animate-spin" : ""} />
+                    ),
+                    isDisabled: busy,
+                    onPress: () => void handleRefresh(),
+                  },
+                ]}
               />
-            )}
-            {viewMode === "list" && <SortMenu value={sortKey} onChange={setSortKey} />}
-            {viewMode === "list" && (
-              <Button
-                size="sm"
-                variant="outline"
-                onPress={toggleGroupByNote}
-                className="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors min-w-0 h-auto"
-                style={{
-                  borderColor: groupByNote
-                    ? "var(--accent)"
-                    : "var(--border-subtle)",
-                  backgroundColor: groupByNote
-                    ? "var(--accent-subtle, var(--surface-2))"
-                    : "var(--surface-1)",
-                  color: groupByNote ? "var(--accent)" : "var(--text-secondary)",
-                }}
-              >
-                <ListBullets size={13} />
-                {groupByNote ? "Groupé" : "Grouper"}
-              </Button>
-            )}
-            {viewMode === "list" && (
-              <Button
-                size="sm"
-                variant="outline"
-                onPress={toggleSelectionMode}
-                aria-pressed={selectionActive}
-                className="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors min-w-0 h-auto"
-                style={{
-                  borderColor: selectionActive ? "var(--accent)" : "var(--border-subtle)",
-                  backgroundColor: selectionActive
-                    ? "var(--accent-subtle, var(--surface-2))"
-                    : "var(--surface-1)",
-                  color: selectionActive ? "var(--accent)" : "var(--text-secondary)",
-                }}
-              >
-                <Checks size={13} />
-                {selectionActive ? "Annuler" : "Sélectionner"}
-              </Button>
-            )}
-            <Button
-              size="sm"
-              variant="primary"
-              onPress={() => setShowCreate(true)}
-              className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-opacity hover:opacity-90 min-w-0 h-auto"
-              style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
-            >
-              <Plus size={13} />
-              Nouvelle
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onPress={handleEmailAll}
-              isDisabled={sortedTodos.length === 0}
-              className="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition-opacity hover:opacity-90 min-w-0 h-auto"
-              style={{
-                borderColor: "var(--border-subtle)",
-                color: "var(--text-secondary)",
-                backgroundColor: "var(--surface-1)",
-              }}
-            >
-              <Envelope size={13} />
-              Tout envoyer
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onPress={() => void handleRefresh()}
-              isDisabled={busy}
-              className="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition-opacity hover:opacity-90 min-w-0 h-auto"
-              style={{
-                borderColor: "var(--border-subtle)",
-                color: "var(--text-secondary)",
-                backgroundColor: "var(--surface-1)",
-              }}
-            >
-              <ArrowsClockwise size={13} className={busy ? "animate-spin" : ""} />
-              {busy ? "…" : "Actualiser"}
-            </Button>
+            </div>
           </div>
         </div>
 
         {/* Mobile sub-header — horizontal scroll of filter chips so the user
             can switch between "En attente / Urgentes / Aujourd'hui …" with a
-            swipe. Sort menu sits to the right. Only rendered in list mode. */}
+            swipe. Sort menu sits to the right. Only rendered in list mode.
+            Sert aussi le desktop : une rangée dédiée ne déborde jamais, quel
+            que soit l'état du panneau droit. */}
         {viewMode === "list" && (
           <div
-            className="flex shrink-0 items-center gap-2 border-b px-3 py-2 md:hidden"
+            className="flex shrink-0 items-center gap-2 border-b px-4 py-2 md:px-8"
             style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-0)" }}
           >
             <div className="flex flex-1 items-center gap-1.5 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
@@ -1314,7 +1455,7 @@ export default function TodosPage() {
         {/* Migration banner — surfaces only when legacy entities are present */}
         {legacyCount > 0 && !migrationDismissed && (
           <div
-            className="flex items-center justify-between gap-3 border-b px-6 py-2.5 text-sm"
+            className="flex items-center justify-between gap-3 border-b px-4 py-2.5 text-sm md:px-8"
             style={{
               backgroundColor: "oklch(0.95 0.05 60 / 0.55)",
               color: "oklch(0.35 0.15 60)",
@@ -1356,10 +1497,13 @@ export default function TodosPage() {
           </div>
         )}
 
-        {/* Tag filter row */}
+        {/* Tag filter row — en mode liste, les chips s'alignent sur l'île de
+            contenu max-w-3xl au lieu de flotter en pleine largeur */}
         {availableTags.length > 0 && (
-          <div className="border-b px-6 py-2" style={{ borderColor: "var(--border-subtle)" }}>
-            <div className="flex flex-wrap items-center gap-1.5">
+          <div className="border-b px-4 py-2 md:px-8" style={{ borderColor: "var(--border-subtle)" }}>
+            <div
+              className={`flex flex-wrap items-center gap-1.5 ${viewMode === "list" ? "mx-auto max-w-3xl" : ""}`}
+            >
               <span
                 className="flex items-center gap-1 text-[11px] font-medium uppercase tracking-wide"
                 style={{ color: "var(--text-muted)" }}
@@ -1412,7 +1556,7 @@ export default function TodosPage() {
         {/* Toast */}
         {toast && (
           <div
-            className="mx-6 mt-3 rounded-md px-4 py-2 text-sm font-medium"
+            className="mx-4 mt-3 rounded-md px-4 py-2 text-sm font-medium md:mx-8"
             style={{
               backgroundColor: "oklch(0.93 0.05 150 / 0.20)",
               color: "oklch(0.45 0.16 150)",
@@ -1424,7 +1568,7 @@ export default function TodosPage() {
 
         {/* Matrix view (Eisenhower) */}
         {viewMode === "matrix" && (
-          <div className="flex-1 overflow-y-auto px-6 py-6">
+          <div className="flex-1 overflow-y-auto px-4 py-6 md:px-8">
             {notesQuery.isLoading || todosQuery.isLoading ? (
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                 {Array.from({ length: 4 }).map((_, i) => (
@@ -1487,7 +1631,7 @@ export default function TodosPage() {
         )}
 
         {/* List view content */}
-        <div className={`flex-1 overflow-y-auto px-6 py-6 ${viewMode !== "list" ? "hidden" : ""}`}>
+        <div className={`flex-1 overflow-y-auto px-4 py-6 md:px-8 ${viewMode !== "list" ? "hidden" : ""}`}>
           {notesQuery.isLoading || todosQuery.isLoading ? (
             <div className="mx-auto max-w-3xl space-y-2">
               {Array.from({ length: 4 }).map((_, i) => (
@@ -1499,28 +1643,53 @@ export default function TodosPage() {
               ))}
             </div>
           ) : sortedTodos.length === 0 ? (
-            <EmptyState
-              icon={<CheckSquare size={28} />}
-              title={
-                filter === "pending"
-                  ? "Aucune todo en attente"
-                  : filter === "done"
-                    ? "Aucune todo terminée"
-                    : filter === "today"
-                      ? "Aucune échéance aujourd'hui"
-                      : filter === "thisWeek"
-                        ? "Aucune tâche cette semaine"
-                        : filter === "urgent"
-                          ? "Aucune priorité urgente"
-                          : "Aucune todo"
-              }
-              description="Cliquez sur « Nouvelle » pour créer une tâche, ou ajoutez des cases « - [ ] » dans vos notes pour les voir apparaître automatiquement."
-              action={{
-                label: "Nouvelle tâche",
-                onClick: () => setShowCreate(true),
-              }}
-              className="py-24"
-            />
+            filter === "pending" && totalAll > 0 && totalPending === 0 ? (
+              // Inbox-zéro : tout est coché (≠ « aucun todo n'existe »).
+              // Variante célébration — sobre, mais avec le sourire.
+              <EmptyState
+                icon={
+                  <span
+                    className="flex h-14 w-14 items-center justify-center rounded-[inherit]"
+                    style={{
+                      backgroundColor: "var(--accent-subtle)",
+                      color: "var(--accent)",
+                    }}
+                  >
+                    <Sparkle size={28} weight="fill" />
+                  </span>
+                }
+                title="Tout est fait"
+                description="Plus rien en attente. Savourez le vide — il ne durera pas."
+                action={{
+                  label: "Nouvelle tâche",
+                  onClick: () => setShowCreate(true),
+                }}
+                className="sn-pop-in py-24"
+              />
+            ) : (
+              <EmptyState
+                icon={<CheckSquare size={28} />}
+                title={
+                  filter === "pending"
+                    ? "Aucune todo en attente"
+                    : filter === "done"
+                      ? "Aucune todo terminée"
+                      : filter === "today"
+                        ? "Aucune échéance aujourd'hui"
+                        : filter === "thisWeek"
+                          ? "Aucune tâche cette semaine"
+                          : filter === "urgent"
+                            ? "Aucune priorité urgente"
+                            : "Aucune todo"
+                }
+                description="Cliquez sur « Nouvelle » pour créer une tâche, ou ajoutez des cases « - [ ] » dans vos notes pour les voir apparaître automatiquement."
+                action={{
+                  label: "Nouvelle tâche",
+                  onClick: () => setShowCreate(true),
+                }}
+                className="py-24"
+              />
+            )
           ) : (
             <div className="mx-auto max-w-3xl">
               {groupByNote ? (
@@ -1566,18 +1735,30 @@ export default function TodosPage() {
                             </header>
                             <ul className="flex flex-col gap-1">
                               {rows.map((row) => (
-                                <TodoRow
+                                <li
                                   key={row.id}
-                                  row={row}
-                                  onToggle={() => void handleToggle(row)}
-                                  onEdit={() => setEditing(row)}
-                                  onEmail={() => handleEmailOne(row)}
-                                  onContextMenu={(e) => openTodoContextMenu(e, row)}
-                                  selectionMode={selectionActive}
-                                  selected={selectedIds.has(row.id)}
-                                  onToggleSelect={() => toggleSelect(row.id)}
-                                  onLongPress={() => handleRowLongPress(row.id)}
-                                />
+                                  className="sn-row-collapse"
+                                  data-open={
+                                    filter === "pending" && collapsingIds.has(row.id)
+                                      ? "false"
+                                      : "true"
+                                  }
+                                >
+                                  <div className="sn-row-collapse__inner">
+                                    <TodoRow
+                                      as="div"
+                                      row={row}
+                                      onToggle={() => void handleToggle(row)}
+                                      onEdit={() => setEditing(row)}
+                                      onEmail={() => handleEmailOne(row)}
+                                      onContextMenu={(e) => openTodoContextMenu(e, row)}
+                                      selectionMode={selectionActive}
+                                      selected={selectedIds.has(row.id)}
+                                      onToggleSelect={() => toggleSelect(row.id)}
+                                      onLongPress={() => handleRowLongPress(row.id)}
+                                    />
+                                  </div>
+                                </li>
                               ))}
                             </ul>
                           </section>
@@ -1602,6 +1783,7 @@ export default function TodosPage() {
                           key={row.id}
                           row={row}
                           sortable={row.kind === "standalone" && !selectionActive}
+                          collapsing={filter === "pending" && collapsingIds.has(row.id)}
                           onToggle={() => void handleToggle(row)}
                           onEdit={() => setEditing(row)}
                           onEmail={() => handleEmailOne(row)}
@@ -1618,18 +1800,28 @@ export default function TodosPage() {
               ) : (
                 <ul className="flex flex-col gap-1">
                   {sortedTodos.map((row) => (
-                    <TodoRow
+                    <li
                       key={row.id}
-                      row={row}
-                      onToggle={() => void handleToggle(row)}
-                      onEdit={() => setEditing(row)}
-                      onEmail={() => handleEmailOne(row)}
-                      onContextMenu={(e) => openTodoContextMenu(e, row)}
-                      selectionMode={selectionActive}
-                      selected={selectedIds.has(row.id)}
-                      onToggleSelect={() => toggleSelect(row.id)}
-                      onLongPress={() => handleRowLongPress(row.id)}
-                    />
+                      className="sn-row-collapse"
+                      data-open={
+                        filter === "pending" && collapsingIds.has(row.id) ? "false" : "true"
+                      }
+                    >
+                      <div className="sn-row-collapse__inner">
+                        <TodoRow
+                          as="div"
+                          row={row}
+                          onToggle={() => void handleToggle(row)}
+                          onEdit={() => setEditing(row)}
+                          onEmail={() => handleEmailOne(row)}
+                          onContextMenu={(e) => openTodoContextMenu(e, row)}
+                          selectionMode={selectionActive}
+                          selected={selectedIds.has(row.id)}
+                          onToggleSelect={() => toggleSelect(row.id)}
+                          onLongPress={() => handleRowLongPress(row.id)}
+                        />
+                      </div>
+                    </li>
                   ))}
                 </ul>
               )}
@@ -1750,6 +1942,8 @@ interface SortMenuProps {
 interface SortableTodoRowProps {
   row: UiTodoRow;
   sortable: boolean;
+  /** Sortie douce en cours — replie la rangée (.sn-row-collapse). */
+  collapsing?: boolean;
   onToggle: () => void;
   onEdit: () => void;
   onEmail: () => void;
@@ -1763,6 +1957,7 @@ interface SortableTodoRowProps {
 function SortableTodoRow({
   row,
   sortable,
+  collapsing = false,
   onToggle,
   onEdit,
   onEmail,
@@ -1807,17 +2002,24 @@ function SortableTodoRow({
           <DotsSixVertical size={13} />
         </Button>
       )}
-      <TodoRow
-        row={row}
-        onToggle={onToggle}
-        onEdit={onEdit}
-        onEmail={onEmail}
-        onContextMenu={onContextMenu}
-        selectionMode={selectionMode}
-        selected={selected}
-        onToggleSelect={onToggleSelect}
-        onLongPress={onLongPress}
-      />
+      {/* Le wrapper de sortie douce vit DANS le <li> (le ref dnd-kit doit
+          rester sur le nœud draggable) ; TodoRow rend un <div>. */}
+      <div className="sn-row-collapse" data-open={collapsing ? "false" : "true"}>
+        <div className="sn-row-collapse__inner">
+          <TodoRow
+            as="div"
+            row={row}
+            onToggle={onToggle}
+            onEdit={onEdit}
+            onEmail={onEmail}
+            onContextMenu={onContextMenu}
+            selectionMode={selectionMode}
+            selected={selected}
+            onToggleSelect={onToggleSelect}
+            onLongPress={onLongPress}
+          />
+        </div>
+      </div>
     </li>
   );
 }

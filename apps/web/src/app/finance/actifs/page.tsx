@@ -12,6 +12,7 @@ import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/shell";
 import { trpc } from "@/lib/trpc/client";
 import { formatCurrency, formatDate } from "@/components/finance/utils";
+import { Button, EmptyState, Skeleton } from "@supernote/ui";
 
 const CATEGORY_LABELS: Record<string, string> = {
   immo: "Immobilier",
@@ -89,7 +90,7 @@ export default function ActifsPage() {
 
   return (
     <AppShell>
-      <div className="mx-auto max-w-5xl px-3 py-6 md:px-6 md:py-8">
+      <div className="mx-auto max-w-5xl px-4 py-6 md:px-8 md:py-8">
         <div className="mb-6 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Link
@@ -102,28 +103,29 @@ export default function ActifsPage() {
             <span style={{ color: "var(--border)" }}>/</span>
             <h1 className="text-xl font-bold" style={{ color: "var(--text-primary)" }}>Actifs</h1>
           </div>
-          <button
-            type="button"
-            onClick={handleCreate}
-            disabled={createMutation.isPending}
-            className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium disabled:opacity-50"
-            style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
+          <Button
+            variant="primary"
+            size="sm"
+            onPress={handleCreate}
+            isDisabled={createMutation.isPending}
           >
             <Plus size={12} /> Nouvel actif
-          </button>
+          </Button>
         </div>
 
         {query.isLoading ? (
-          <p className="text-sm" style={{ color: "var(--text-muted)" }}>Chargement…</p>
+          <FinanceRowsSkeleton />
         ) : assets.length === 0 ? (
-          <EmptyList onCreate={handleCreate} pending={createMutation.isPending} />
+          <EmptyList onCreate={handleCreate} />
         ) : (
           <>
+            {/* Même hiérarchie que le dashboard finance : la valeur clé domine,
+                les stats secondaires suivent */}
             <div
-              className="mb-4 grid grid-cols-3 gap-3 rounded-xl border p-4"
+              className="mb-4 grid grid-cols-1 gap-3 rounded-xl border p-4 sm:grid-cols-3"
               style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-1)" }}
             >
-              <Stat label="Valeur actuelle" value={formatCurrency(totalCurrent)} />
+              <Stat label="Valeur actuelle" value={formatCurrency(totalCurrent)} primary />
               <Stat label="Acquisition" value={formatCurrency(totalCost)} />
               <Stat
                 label="Plus / moins value"
@@ -137,16 +139,18 @@ export default function ActifsPage() {
                 const itemPnl = a.currentValue - a.acquisitionValue;
                 return (
                   <li key={a.id}>
+                    {/* Mobile : nom + valeur seulement (2 colonnes) ; les pistes
+                        fixes 140/120px ne tiennent pas sous 768px */}
                     <Link
                       href={`/finance/actifs/${a.id}`}
-                      className="grid grid-cols-[1fr_auto_140px_120px_120px] items-center gap-4 rounded-lg border px-4 py-3 hover:bg-[var(--surface-2)]"
+                      className="grid grid-cols-[1fr_auto] items-center gap-4 rounded-lg border px-4 py-3 hover:bg-[var(--surface-2)] md:grid-cols-[1fr_auto_140px_120px_120px]"
                       style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-1)" }}
                     >
                       <span className="text-sm font-medium truncate" style={{ color: "var(--text-primary)" }}>
                         {a.name}
                       </span>
                       <span
-                        className="rounded-full px-2 py-0.5 text-xs font-medium"
+                        className="hidden rounded-full px-2 py-0.5 text-xs font-medium md:inline-flex"
                         style={{
                           backgroundColor: (CATEGORY_COLORS[a.category] ?? "#94a3b8") + "20",
                           color: CATEGORY_COLORS[a.category] ?? "#94a3b8",
@@ -158,12 +162,12 @@ export default function ActifsPage() {
                         {formatCurrency(a.currentValue)}
                       </span>
                       <span
-                        className="text-right text-xs font-medium tabular-nums"
+                        className="hidden text-right text-xs font-medium tabular-nums md:block"
                         style={{ color: itemPnl >= 0 ? "var(--success)" : "var(--danger)" }}
                       >
                         {a.acquisitionValue > 0 ? `${itemPnl >= 0 ? "+" : ""}${formatCurrency(itemPnl)}` : "—"}
                       </span>
-                      <span className="text-right text-xs" style={{ color: "var(--text-muted)" }}>
+                      <span className="hidden text-right text-xs md:block" style={{ color: "var(--text-muted)" }}>
                         {a.symbol || formatDate(a.updatedAt)}
                       </span>
                     </Link>
@@ -182,14 +186,24 @@ export default function ActifsPage() {
   );
 }
 
-function Stat({ label, value, tone }: { label: string; value: string; tone?: "positive" | "negative" }) {
+function Stat({
+  label,
+  value,
+  tone,
+  primary = false,
+}: {
+  label: string;
+  value: string;
+  tone?: "positive" | "negative";
+  primary?: boolean;
+}) {
   return (
     <div>
       <p className="text-[10px] uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
         {label}
       </p>
       <p
-        className="mt-0.5 text-base font-semibold tabular-nums"
+        className={`mt-0.5 tabular-nums ${primary ? "text-2xl font-bold" : "text-base font-semibold"}`}
         style={{
           color:
             tone === "positive"
@@ -205,24 +219,30 @@ function Stat({ label, value, tone }: { label: string; value: string; tone?: "po
   );
 }
 
-function EmptyList({ onCreate, pending }: { onCreate: () => void; pending: boolean }) {
+function EmptyList({ onCreate }: { onCreate: () => void }) {
   return (
-    <div
-      className="flex flex-col items-center gap-3 rounded-xl border border-dashed p-12 text-center"
-      style={{ borderColor: "var(--border-subtle)" }}
-    >
-      <p className="text-sm font-medium" style={{ color: "var(--text-secondary)" }}>
-        Aucun actif enregistré.
-      </p>
-      <button
-        type="button"
-        onClick={onCreate}
-        disabled={pending}
-        className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium disabled:opacity-50"
-        style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
-      >
-        <Plus size={12} /> Créer mon premier actif
-      </button>
+    <EmptyState
+      title="Aucun actif enregistré"
+      description="Ajoute une action, une crypto ou un bien immobilier pour suivre sa valeur au fil du temps."
+      action={{ label: "Créer mon premier actif", onClick: onCreate, icon: <Plus size={14} /> }}
+    />
+  );
+}
+
+// Lignes squelette de la liste — remplace le « Chargement… » texte (local-first).
+function FinanceRowsSkeleton({ count = 5 }: { count?: number }) {
+  return (
+    <div className="flex flex-col gap-2">
+      {Array.from({ length: count }, (_, i) => (
+        <div
+          key={i}
+          className="flex items-center justify-between gap-4 rounded-lg border px-4 py-3"
+          style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-1)" }}
+        >
+          <Skeleton className="h-4 w-40" />
+          <Skeleton className="h-4 w-24" />
+        </div>
+      ))}
     </div>
   );
 }

@@ -11,6 +11,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { memo } from "react";
 import { Button } from "@supernote/ui";
+import { MOBILE_MORE_MATCH_PREFIXES } from "@/lib/navigation/catalog";
 
 interface NavTab {
   href: string;
@@ -72,11 +73,10 @@ export const MobileBottomNav = memo(function MobileBottomNav({
       onPress: onOpenMore,
       match: (p) =>
         // Highlight "Plus" whenever we're on a section that lives only in the
-        // drawer — keeps the nav coherent when the user is deep in finance,
-        // contacts, journal, etc.
-        ["/contacts", "/finance", "/tags",
-          "/variables", "/routines", "/templates", "/parametres",
-          "/schemas", "/capture", "/journal", "/habits"].some((prefix) => p.startsWith(prefix)),
+        // drawer (finance, contacts, journal, assistant IA, pomodoro…). Dérivé
+        // du catalogue : tout ajout de route dans catalog.ts surligne « Plus »
+        // sans édition ici — plus de liste recopiée à la main.
+        MOBILE_MORE_MATCH_PREFIXES.some((prefix) => p.startsWith(prefix)),
     },
   ];
 

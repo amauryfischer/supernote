@@ -31,4 +31,6 @@ export {
   useViewMutations,
   useEntityMutations,
   resolveVisibleFieldIds,
+  matchesQuery,
+  useSearchFilter,
 } from "./hooks";

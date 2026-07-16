@@ -70,6 +70,10 @@ interface TodoRowProps {
   onToggleSelect?: () => void;
   /** Fired on a touch long-press — used to enter selection mode on mobile. */
   onLongPress?: () => void;
+  /** Root element — `li` by default (rows are direct children of a list).
+   *  Pass "div" when an outer wrapper already provides the list-item slot
+   *  (animated exit wrapper on /todos, sortable/matrix wrappers). */
+  as?: "li" | "div";
 }
 
 const IMPORTANCE_COLOR: Record<TodoImportance, string> = {
@@ -124,12 +128,46 @@ export function TodoRow({
   selected = false,
   onToggleSelect,
   onLongPress,
+  as,
 }: TodoRowProps) {
   const isCritical = row.importance === "critical";
   const dotColor = importanceColor(row.importance);
   const priority = row.priority ?? 5;
   const { compact: formatCompactDate, full: formatFullDate } = useDateFormat();
   const longPress = useLongPress(onLongPress);
+  const Root = as ?? "li";
+
+  // Check-off vivant : posé au moment du geste utilisateur — PAS dérivé de
+  // row.done, sinon la coche/rature rejouerait à chaque invalidation tRPC
+  // (l'instance React survit au refetch grâce à la key row.id). Pendant la
+  // fenêtre, la coche s'affiche optimistiquement (la mutation + refetch
+  // mettent ~50-300 ms) puis l'état serveur prend le relais.
+  const [justChecked, setJustChecked] = React.useState(false);
+  const justCheckedTimer = React.useRef<number | null>(null);
+  React.useEffect(
+    () => () => {
+      if (justCheckedTimer.current !== null) window.clearTimeout(justCheckedTimer.current);
+    },
+    [],
+  );
+
+  const handleToggle = () => {
+    if (!row.done) {
+      setJustChecked(true);
+      if (justCheckedTimer.current !== null) window.clearTimeout(justCheckedTimer.current);
+      justCheckedTimer.current = window.setTimeout(() => setJustChecked(false), 700);
+      // Tick sonore via le bus UI — le <UiSoundBridge/> au root ne joue que si
+      // le réglage Paramètres → Notifications → sons est actif.
+      document.dispatchEvent(
+        new CustomEvent("supernote:ui-sound", { detail: { kind: "check" } }),
+      );
+    } else {
+      setJustChecked(false);
+    }
+    onToggle();
+  };
+
+  const showChecked = row.done || justChecked;
 
   // In selection mode, a tap on the row's non-interactive surface (the
   // importance pastille / priority badge / empty gaps) toggles its membership.
@@ -144,7 +182,7 @@ export function TodoRow({
   };
 
   return (
-    <li
+    <Root
       onContextMenu={onContextMenu}
       onClick={handleRowClick}
       {...longPress}
@@ -155,7 +193,8 @@ export function TodoRow({
           : selected
             ? "3px solid var(--accent)"
             : "3px solid transparent",
-        paddingLeft: isCritical ? "0.5rem" : "0.5rem",
+        // 0.5rem compense la bordure gauche de 3px (px-2 = 8px visuels ~constants)
+        paddingLeft: "0.5rem",
         backgroundColor: selected ? "var(--accent-subtle)" : undefined,
         cursor: selectionMode ? "pointer" : undefined,
       }}
@@ -181,17 +220,20 @@ export function TodoRow({
         title={`Importance : ${importanceLabel(row.importance)}`}
       />
 
-      {/* Priority badge */}
-      <span
-        className="mt-0.5 inline-flex h-4 min-w-[1.5rem] shrink-0 items-center justify-center rounded px-1 text-[10px] font-bold tabular-nums"
-        style={{
-          backgroundColor: "var(--surface-3)",
-          color: "var(--text-muted)",
-        }}
-        title={`Priorité ${priority}`}
-      >
-        P{priority}
-      </span>
+      {/* Priority badge — masqué à P5 (défaut) : seul un choix explicite mérite
+          un signal, sinon chaque ligne porte du bruit permanent */}
+      {priority !== 5 && (
+        <span
+          className="mt-0.5 inline-flex h-4 min-w-[1.5rem] shrink-0 items-center justify-center rounded px-1 text-[10px] font-bold tabular-nums"
+          style={{
+            backgroundColor: "var(--surface-3)",
+            color: "var(--text-muted)",
+          }}
+          title={`Priorité ${priority}`}
+        >
+          P{priority}
+        </span>
+      )}
 
       {/* Urgent flag (Eisenhower urgency axis) */}
       {row.urgent && (
@@ -207,20 +249,21 @@ export function TodoRow({
       {/* Checkbox */}
       <Button
         variant="ghost"
-        onPress={(e) => {
-          void e;
-          onToggle();
-        }}
+        onPress={handleToggle}
         aria-label={row.done ? "Marquer comme non faite" : "Marquer comme faite"}
-        className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border p-0 min-w-0"
+        className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border p-0 min-w-0${justChecked ? " sn-pop-in" : ""}`}
         style={{
-          borderColor: row.done ? "var(--accent)" : "var(--border)",
-          backgroundColor: row.done ? "var(--accent)" : "transparent",
+          borderColor: showChecked ? "var(--accent)" : "var(--border)",
+          backgroundColor: showChecked ? "var(--accent)" : "transparent",
         }}
       >
-        {row.done && (
+        {showChecked && (
           <svg width="10" height="10" viewBox="0 0 16 16" fill="none">
+            {/* pathLength=1 normalise la longueur → sn-check-draw anime le
+                dashoffset 1 → 0 (coche qui se dessine). Statique hors geste. */}
             <path
+              className={justChecked ? "sn-check-draw" : undefined}
+              pathLength={1}
               d="M3 8.5L6.5 12L13 4.5"
               stroke="white"
               strokeWidth="2"
@@ -241,8 +284,7 @@ export function TodoRow({
           onPress={selectionMode ? onToggleSelect : onEdit}
           className="w-full min-w-0 text-left leading-tight hover:underline p-0 h-auto justify-start"
           style={{
-            color: row.done ? "var(--text-muted)" : "var(--text-primary)",
-            textDecoration: row.done ? "line-through" : undefined,
+            color: showChecked ? "var(--text-muted)" : "var(--text-primary)",
             fontSize: isCritical ? "0.95rem" : "0.875rem",
             fontWeight: isCritical ? 600 : 400,
           }}
@@ -255,7 +297,22 @@ export function TodoRow({
                 : "block min-w-0 truncate"
             }
           >
-            <InlineMarkdown text={row.text} />
+            {/* Rature : dégradé 1px en background sur un span inline (une ligne
+                par ligne de texte via box-decoration-break) au lieu de
+                text-decoration — permet le balayage gauche → droite au geste
+                (sn-todo-strike--sweep). Fallback reduced-motion : line-through
+                statique (cf. globals.css). */}
+            <span
+              className={
+                showChecked
+                  ? justChecked
+                    ? "sn-todo-strike sn-todo-strike--sweep"
+                    : "sn-todo-strike"
+                  : undefined
+              }
+            >
+              <InlineMarkdown text={row.text} />
+            </span>
           </span>
         </Button>
         {/* Aperçu compact de l'email source (résumé IA / snippet) — seulement
@@ -360,6 +417,6 @@ export function TodoRow({
           depuis {formatCompactDate(row.startDate)}
         </span>
       ) : null}
-    </li>
+    </Root>
   );
 }

@@ -6,44 +6,16 @@ import { Button, Chip, Input } from "@heroui/react";
 import { ACTION_META } from "@supernote/editor";
 import { useSettings } from "../SettingsContext";
 import { SettingSection } from "../SettingSection";
-import { DEFAULT_SETTINGS } from "../defaults";
 import type { Shortcut } from "../types";
 import { useEditorBindings } from "@/lib/editor-shortcuts/useEditorBindings";
 import { prettyCombo, toCanonicalCombo } from "@/lib/editor-shortcuts/prettyCombo";
 
-function ShortcutRow({
-  shortcut,
-  onEdit,
-}: {
-  shortcut: Shortcut;
-  onEdit: (keys: string) => void;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(shortcut.keys);
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    e.preventDefault();
-    const parts: string[] = [];
-    if (e.metaKey) parts.push("Cmd");
-    if (e.ctrlKey) parts.push("Ctrl");
-    if (e.altKey) parts.push("Alt");
-    if (e.shiftKey) parts.push("Shift");
-    if (e.key && !["Meta", "Control", "Alt", "Shift"].includes(e.key)) {
-      parts.push(e.key.toUpperCase());
-    }
-    if (parts.length > 1) setDraft(parts.join("+"));
-  };
-
-  const save = () => {
-    onEdit(draft);
-    setEditing(false);
-  };
-
-  const cancel = () => {
-    setDraft(shortcut.keys);
-    setEditing(false);
-  };
-
+// Lecture seule : la personnalisation des raccourcis applicatifs n'est pas
+// encore branchée au binding réel. On AFFICHE donc les touches sans offrir un
+// contrôle d'édition qui ne s'appliquerait pas — un bouton qui « enregistre »
+// dans le vide trahit la confiance. Les raccourcis ÉDITEUR (section 2) sont,
+// eux, réellement éditables (EditorShortcutRow).
+function ShortcutRow({ shortcut }: { shortcut: Shortcut }) {
   return (
     <div
       className="flex items-center justify-between py-2.5"
@@ -52,49 +24,16 @@ function ShortcutRow({
       <span className="text-sm" style={{ color: "var(--text-primary)" }}>
         {shortcut.label}
       </span>
-      {editing ? (
-        <div className="flex items-center gap-2">
-          <Input
-            autoFocus
-            value={draft}
-            onKeyDown={handleKeyDown}
-            readOnly
-            className="w-[120px] font-mono text-xs"
-          />
-          <Button
-            variant="ghost"
-            size="sm"
-            onPress={save}
-            className="rounded-md px-2 py-1 text-xs font-medium"
-            style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
-          >
-            OK
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onPress={cancel}
-            className="rounded-md border px-2 py-1 text-xs"
-            style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
-          >
-            Annuler
-          </Button>
-        </div>
-      ) : (
-        <Button
-          variant="ghost"
-          size="sm"
-          onPress={() => setEditing(true)}
-          className="rounded-md border px-2 py-1 font-mono text-xs"
-          style={{
-            borderColor: "var(--border)",
-            backgroundColor: "var(--surface-1)",
-            color: "var(--text-secondary)",
-          }}
-        >
-          {shortcut.keys}
-        </Button>
-      )}
+      <kbd
+        className="rounded-md border px-2 py-1 font-mono text-xs"
+        style={{
+          borderColor: "var(--border)",
+          backgroundColor: "var(--surface-1)",
+          color: "var(--text-secondary)",
+        }}
+      >
+        {shortcut.keys}
+      </kbd>
     </div>
   );
 }
@@ -241,17 +180,6 @@ export function ShortcutsTab() {
   const { shortcuts } = settings;
   const { resolved } = useEditorBindings();
 
-  const editShortcut = (id: string, keys: string) => {
-    updateSettings(
-      "shortcuts",
-      shortcuts.map((s) => (s.id === id ? { ...s, keys } : s)),
-    );
-  };
-
-  const restoreDefaults = () => {
-    updateSettings("shortcuts", DEFAULT_SETTINGS.shortcuts);
-  };
-
   const restoreEditorDefaults = () => {
     updateSettings("editorShortcuts", {});
   };
@@ -289,28 +217,12 @@ export function ShortcutsTab() {
     <div className="space-y-6">
       <SettingSection
         title="Raccourcis clavier"
-        description="Cliquez sur un raccourci pour le modifier"
+        description="Aperçu (lecture seule) des raccourcis applicatifs."
         icon={<Keyboard size={16} />}
-        action={
-          <Button
-            variant="ghost"
-            size="sm"
-            onPress={restoreDefaults}
-            className="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm"
-            style={{ borderColor: "var(--border)", color: "var(--text-secondary)", backgroundColor: "var(--surface-1)" }}
-          >
-            <ArrowCounterClockwise size={14} />
-            Restaurer les défauts
-          </Button>
-        }
       >
         <div>
           {shortcuts.map((shortcut) => (
-            <ShortcutRow
-              key={shortcut.id}
-              shortcut={shortcut}
-              onEdit={(keys) => editShortcut(shortcut.id, keys)}
-            />
+            <ShortcutRow key={shortcut.id} shortcut={shortcut} />
           ))}
         </div>
       </SettingSection>

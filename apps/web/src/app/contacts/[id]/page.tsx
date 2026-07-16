@@ -21,6 +21,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState, useCallback } from "react";
 import { Button, TextArea } from "@heroui/react";
+import { Skeleton } from "@supernote/ui";
 import { trpc } from "@/lib/trpc/client";
 import type { RelationEdge, FieldValue } from "@supernote/ipc";
 import { localStore } from "@/lib/local-store";
@@ -155,13 +156,9 @@ function TimelineTab({ contactId, fixtureInteractions }: TimelineTabProps) {
         <p className="text-xs font-medium uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
           {sorted.length} interaction{sorted.length > 1 ? "s" : ""}
         </p>
-        <Button
-          size="sm"
-          className="px-3 text-xs font-medium"
-          style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
-        >
-          + Ajouter interaction
-        </Button>
+        {/* CTA « Ajouter interaction » retiré : il n'avait aucun onPress (bouton
+            mort maquillé en primaire). À réintroduire câblé quand le flux
+            d'ajout d'interaction existera. */}
       </div>
 
       {sorted.length === 0 && (
@@ -324,34 +321,51 @@ interface ActiviteTabProps {
 }
 
 function ActiviteTab({ filePath }: ActiviteTabProps) {
-  const { data: history, isError } = trpc.git.history.useQuery(
+  const { data: history, isError, isLoading } = trpc.git.history.useQuery(
     { filePath: filePath ?? "" },
     { enabled: Boolean(filePath), retry: false },
   );
 
-  const logs = !isError && history
-    ? history.map((h) => ({ text: h.message, date: h.isoDate }))
-    : [
-        { text: "Fiche créée", date: "2024-01-15" },
-        { text: "Note mise à jour", date: "2026-03-10" },
-        { text: "Tag ajouté : vip", date: "2026-04-01" },
-      ];
+  // JAMAIS de logs fabriqués en fallback : l'activité vient de l'historique git
+  // réel de la fiche. En erreur / absence, on le DIT — inventer des entrées
+  // datées présentées comme vraies trahit la confiance de l'utilisateur.
+  const logs = (!isError && history ? history : []).map((h) => ({
+    text: h.message,
+    date: h.isoDate,
+  }));
 
   return (
     <div className="flex flex-col gap-4">
       <p className="text-xs font-medium uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
         Logs d'activité
       </p>
-      <div className="flex flex-col gap-2">
-        {logs.map((log, i) => (
-          <div key={i} className="flex items-center justify-between text-sm">
-            <span style={{ color: "var(--text-secondary)" }}>{log.text}</span>
-            <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-              {log.date ? formatDate(log.date) : "—"}
-            </span>
-          </div>
-        ))}
-      </div>
+      {isLoading ? (
+        <div className="flex flex-col gap-2">
+          {Array.from({ length: 3 }, (_, i) => (
+            <div key={i} className="flex items-center justify-between">
+              <Skeleton className="h-4 w-40" />
+              <Skeleton className="h-3 w-16" />
+            </div>
+          ))}
+        </div>
+      ) : logs.length === 0 ? (
+        <p className="text-sm" style={{ color: "var(--text-muted)" }}>
+          {!filePath || isError
+            ? "Historique d'activité indisponible pour cette fiche."
+            : "Aucune activité enregistrée pour l'instant."}
+        </p>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {logs.map((log, i) => (
+            <div key={i} className="flex items-center justify-between text-sm">
+              <span style={{ color: "var(--text-secondary)" }}>{log.text}</span>
+              <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+                {log.date ? formatDate(log.date) : "—"}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -503,9 +517,9 @@ export default function ContactDetailPage() {
 
           {/* Right column */}
           <div className="flex flex-1 flex-col overflow-hidden">
-            {/* Tabs */}
+            {/* Tabs — scrollables : 6 onglets ne tiennent pas en 360px */}
             <div
-              className="flex border-b"
+              className="scroll-x-clean flex overflow-x-auto border-b"
               style={{ borderColor: "var(--border-subtle)" }}
             >
               {TABS.map((t) => (
@@ -514,7 +528,7 @@ export default function ContactDetailPage() {
                   variant="ghost"
                   size="sm"
                   onPress={() => setTab(t.id)}
-                  className="rounded-none px-4 py-3 text-sm font-medium"
+                  className="shrink-0 rounded-none px-4 py-3 text-sm font-medium"
                   style={{
                     color: tab === t.id ? "var(--accent)" : "var(--text-muted)",
                     borderBottom: tab === t.id ? "2px solid var(--accent)" : "2px solid transparent",

@@ -16,10 +16,10 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Button } from "@heroui/react";
-import { Plus, Trash, ArrowUp, ArrowDown, CaretDown } from "@phosphor-icons/react";
+import { Plus, Trash, ArrowUp, ArrowDown, CaretDown, ArrowsOutSimple } from "@phosphor-icons/react";
 import type { EntityType, Field, SelectOption } from "@supernote/core";
 import type { View, SortClause } from "@supernote/ipc";
-import { useToast } from "@supernote/ui";
+import { EmptyState, useToast } from "@supernote/ui";
 import { trpc } from "@/lib/trpc/client";
 import { coreFieldToIpc } from "@/components/schemas/adapters";
 import { Cell, type AdvanceDir } from "./Cell";
@@ -28,9 +28,11 @@ import {
   useEntityMutations,
   useViewMutations,
   resolveVisibleFieldIds,
+  useSearchFilter,
 } from "./hooks";
 import { ColumnHeaderMenu } from "./ColumnHeaderMenu";
-import { FooterSummarize } from "./FooterSummarize";
+import { FooterSummarize, SummarizePicker } from "./FooterSummarize";
+import { computeSummarize, summarizeOpLabel, isNumericField } from "./aggregations";
 import { resolveConditionalFormat, cfStyleToCss } from "./conditional-format";
 import { resolveGroupByField } from "./entity-summary";
 import { FieldKindIcon } from "./FieldKindIcon";
@@ -81,6 +83,8 @@ interface DataGridProps {
   maxHeight?: string;
   /** Read-only base (e.g. a Coda mirror): hide every edit affordance. */
   readOnly?: boolean;
+  /** Recherche instantanée (toolbar) — filtre client-side sur les champs visibles. */
+  searchQuery?: string;
 }
 
 // ── Largeurs colonnes — localStorage ─────────────────────────────────────────
@@ -108,7 +112,7 @@ function saveColWidths(baseId: string, viewId: string, widths: Record<string, nu
 
 // ── Composant principal ───────────────────────────────────────────────────────
 
-export function DataGrid({ base, view, maxHeight, readOnly = false }: DataGridProps) {
+export function DataGrid({ base, view, maxHeight, readOnly = false, searchQuery }: DataGridProps) {
   // Transitions motion résolues (vide si reduced-motion → état change, sans mvt).
   const reducedMotion = usePrefersReducedMotion();
   const colorTransition = reducedMotion ? undefined : GRID_COLOR_TRANSITION;
@@ -124,6 +128,11 @@ export function DataGrid({ base, view, maxHeight, readOnly = false }: DataGridPr
     for (const f of base.fields) m.set(f.id, f);
     return m;
   }, [base.fields]);
+  // Ops d'agrégation par colonne (partagées footer ↔ en-têtes de groupe).
+  const summarizeMap = useMemo(
+    () => (view.summarize ?? {}) as Record<string, SummarizeOp | undefined>,
+    [view.summarize],
+  );
 
   const { data, isLoading, isError } = useEntitiesForView(
     base.id,
@@ -133,7 +142,7 @@ export function DataGrid({ base, view, maxHeight, readOnly = false }: DataGridPr
   const mut = useEntityMutations(base.id);
   const { update: updateView } = useViewMutations();
   const { toast } = useToast();
-  const { openColumnEditor } = useShellChrome();
+  const { openColumnEditor, openEntityPeek } = useShellChrome();
 
   // Mutation schéma (renommer colonne, supprimer colonne)
   const utils = trpc.useUtils();
@@ -144,7 +153,12 @@ export function DataGrid({ base, view, maxHeight, readOnly = false }: DataGridPr
     },
   });
 
-  const items = useMemo(() => data?.items ?? [], [data?.items]);
+  const allItems = useMemo(() => data?.items ?? [], [data?.items]);
+  // Recherche instantanée : filtre client-side sur les champs visibles.
+  // Tout le reste de la grille (sélection, nav clavier, footer) opère sur
+  // le sous-ensemble filtré — comme si les autres lignes n'existaient pas.
+  const items = useSearchFilter(allItems, base, view, searchQuery);
+  const searchActive = (searchQuery ?? "").trim().length > 0;
 
   // ── Largeurs colonnes (resize) ─────────────────────────────────────────────
   // Hydratation depuis localStorage au montage (initializer = exécuté une fois).
@@ -160,13 +174,31 @@ export function DataGrid({ base, view, maxHeight, readOnly = false }: DataGridPr
   // ── Menu colonne ──────────────────────────────────────────────────────────
   const [openMenuFid, setOpenMenuFid] = useState<string | null>(null);
   const [openMenuAnchor, setOpenMenuAnchor] = useState<HTMLElement | null>(null);
+  // Phase d'ouverture du menu colonne : "rename" = double-clic header (input
+  // de renommage direct), "menu" = caret / clic droit.
+  const [openMenuPhase, setOpenMenuPhase] = useState<"menu" | "rename">("menu");
   const [rowMenu, setRowMenu] = useState<{ entityId: string; x: number; y: number } | null>(null);
 
   // dragJustEndedRef : après un dragend, supprime le click suivant (qui sinon
   // ouvrirait le menu alors qu'on vient de finir un drag-reorder).
   const dragJustEndedRef = useRef(false);
 
-  const closeMenu = useCallback(() => { setOpenMenuFid(null); setOpenMenuAnchor(null); }, []);
+  // Timer du tri au clic : différé de ~230 ms pour laisser sa chance au
+  // double-clic (renommage). Un dblclick annule le tri en attente.
+  const sortClickTimerRef = useRef<number | null>(null);
+  // Détection manuelle du double-clic sur le handle de resize : le mousedown
+  // du handle fait preventDefault (drag), ce qui rend l'événement dblclick
+  // natif peu fiable. On compare les timestamps de deux mousedown successifs.
+  const lastHandleDownRef = useRef<{ fid: string; t: number } | null>(null);
+  useEffect(() => () => {
+    if (sortClickTimerRef.current) window.clearTimeout(sortClickTimerRef.current);
+  }, []);
+
+  const closeMenu = useCallback(() => {
+    setOpenMenuFid(null);
+    setOpenMenuAnchor(null);
+    setOpenMenuPhase("menu");
+  }, []);
 
   // ── Multi-sélection lignes ─────────────────────────────────────────────────
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -180,6 +212,24 @@ export function DataGrid({ base, view, maxHeight, readOnly = false }: DataGridPr
       return next;
     });
   }, []);
+  // Sélecteur d'op ouvert depuis un agrégat d'en-tête de groupe (bonus).
+  const [groupOpPicker, setGroupOpPicker] = useState<{
+    fid: string;
+    anchor: HTMLElement;
+  } | null>(null);
+  const setSummarizeOp = useCallback(
+    (fid: string, op: SummarizeOp) => {
+      const next = { ...summarizeMap };
+      if (op === "none") delete next[fid];
+      else next[fid] = op;
+      updateView.mutate({
+        id: view.id,
+        summarize: next as Record<string, SummarizeOp>,
+      });
+      setGroupOpPicker(null);
+    },
+    [summarizeMap, updateView, view.id],
+  );
   const isMobile = useIsMobile();
   const lastSelectedIdRef = useRef<string | null>(null);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
@@ -360,6 +410,13 @@ export function DataGrid({ base, view, maxHeight, readOnly = false }: DataGridPr
     return true;
   }, []);
 
+  // Pendant une recherche, marque aussi les lignes masquées comme « vues » :
+  // quand la query s'efface elles réapparaissent sans rejouer l'anim enter.
+  useEffect(() => {
+    if (!searchActive) return;
+    for (const e of allItems) seenRowsRef.current.add(e.id);
+  }, [searchActive, allItems]);
+
   // ── Tri colonnes ──────────────────────────────────────────────────────────
   // sortByField(fieldId) : cycle asc → desc → none.
   // sortByField(fieldId, "asc"|"desc") : force la direction.
@@ -507,11 +564,26 @@ export function DataGrid({ base, view, maxHeight, readOnly = false }: DataGridPr
     [items, mut.delete, mut.create, base.id, toast],
   );
 
-  // ── Suppr / Backspace sur lignes sélectionnées ────────────────────────────
+  // ── Dupliquer une entité (menu contextuel + Cmd/Ctrl+D) ───────────────────
+  const duplicateEntity = useCallback(
+    (entityId: string) => {
+      const ent = items.find((e) => e.id === entityId);
+      if (!ent) return;
+      mut.create.mutate({ typeId: base.id, fields: ent.fields as Record<string, never>, body: "" });
+    },
+    [items, mut.create, base.id],
+  );
+
+  // ── Clavier sur lignes sélectionnées ──────────────────────────────────────
+  // Suppr/Backspace : supprime (avec undo). Échap : désélectionne.
+  // Cmd/Ctrl+D : duplique la sélection (parité avec le menu contextuel).
   useEffect(() => {
     if (selectedIds.size === 0) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Delete" && e.key !== "Backspace") return;
+      const isDelete = e.key === "Delete" || e.key === "Backspace";
+      const isEscape = e.key === "Escape";
+      const isDuplicate = (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "d";
+      if (!isDelete && !isEscape && !isDuplicate) return;
       const active = document.activeElement as HTMLElement | null;
       if (
         active &&
@@ -525,8 +597,16 @@ export function DataGrid({ base, view, maxHeight, readOnly = false }: DataGridPr
       if (!wrapperRef.current?.contains(active) && active !== document.body) {
         return;
       }
+      if (isEscape) {
+        setSelectedIds(new Set());
+        return;
+      }
       e.preventDefault();
       const ids = Array.from(selectedIds);
+      if (isDuplicate) {
+        for (const id of ids) duplicateEntity(id);
+        return;
+      }
       setSelectedIds(new Set());
       if (ids.length === 1 && ids[0]) {
         deleteWithUndo(ids[0]);
@@ -536,7 +616,7 @@ export function DataGrid({ base, view, maxHeight, readOnly = false }: DataGridPr
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [selectedIds, deleteWithUndo, bulkDeleteWithUndo]);
+  }, [selectedIds, deleteWithUndo, bulkDeleteWithUndo, duplicateEntity]);
 
   // ── Navigation + copier/coller clavier ───────────────────────────────────
   const itemsRef = useRef(items);
@@ -830,6 +910,39 @@ export function DataGrid({ base, view, maxHeight, readOnly = false }: DataGridPr
     [],
   );
 
+  // ── Auto-fit largeur colonne ──────────────────────────────────────────────
+  // Mesure le texte de toutes les valeurs (canvas measureText, pas de reflow
+  // DOM) + le libellé du header, et cale la largeur sur le max, borné aux
+  // mêmes limites que le resize manuel (min par kind … 600). Déclenché par
+  // double-clic sur le handle de resize ou « Ajuster la largeur » du menu.
+  const autoFitColumn = useCallback(
+    (fid: string) => {
+      const f = fieldById.get(fid);
+      if (!f) return;
+      const ctx = document.createElement("canvas").getContext("2d");
+      if (!ctx) return;
+      const family = wrapperRef.current
+        ? getComputedStyle(wrapperRef.current).fontFamily
+        : "sans-serif";
+      // Header : 12px semi-bold + icône kind + caret + tri (~64px de chrome).
+      ctx.font = `600 12px ${family}`;
+      let max = ctx.measureText(f.label || f.name).width + 64;
+      // Cellules : 13.5px + padding horizontal px-3 (24) + marge anti-troncature.
+      ctx.font = `13.5px ${family}`;
+      // Les kinds à chips (select/status) ont un rendu plus large que leur texte.
+      const chipExtra =
+        f.kind === "select" || f.kind === "multiselect" || f.kind === "status" ? 18 : 0;
+      for (const it of items) {
+        const text = serializeCellValue((it.fields as Record<string, unknown>)[fid]);
+        if (!text) continue;
+        max = Math.max(max, ctx.measureText(text).width + 32 + chipExtra);
+      }
+      const next = Math.round(Math.max(columnMinWidth(f), Math.min(600, max)));
+      setColWidths((prev) => ({ ...prev, [fid]: next }));
+    },
+    [fieldById, items],
+  );
+
   // ── Rendu ─────────────────────────────────────────────────────────────────
 
   // Mobile (<768px) : pas de tableau à scroll horizontal — chaque entrée
@@ -844,7 +957,9 @@ export function DataGrid({ base, view, maxHeight, readOnly = false }: DataGridPr
         {isLoading ? (
           <p className="py-8 text-center text-sm" style={{ color: "var(--text-muted)" }}>Chargement…</p>
         ) : items.length === 0 ? (
-          <p className="py-8 text-center text-sm" style={{ color: "var(--text-muted)" }}>Aucune entrée.</p>
+          <p className="py-8 text-center text-sm" style={{ color: "var(--text-muted)" }}>
+            {searchActive ? "Aucun résultat pour cette recherche." : "Aucune entrée."}
+          </p>
         ) : (
           items.map((entity) => (
             <div
@@ -978,19 +1093,37 @@ export function DataGrid({ base, view, maxHeight, readOnly = false }: DataGridPr
                     // Survol header : fondu couleur subtil & rapide (--sn-dur-1).
                     transition: colorTransition,
                   }}
-                  title="Clic gauche : trier (asc → desc → aucun) · Clic droit : options"
+                  title="Clic : trier (asc → desc → aucun) · Double-clic : renommer · Clic droit : options"
                   onClick={(e) => {
                     if (dragJustEndedRef.current) return;
                     // Clic sur la caret ▼ : la propagation est stoppée par
                     // le bouton lui-même (cf. plus bas). Donc ici on est
-                    // forcément sur le label → cycle de tri.
-                    void e;
-                    sortByField(fid);
+                    // forcément sur le label. Tri DIFFÉRÉ (~230 ms) pour
+                    // laisser sa chance au double-clic → renommage ; le
+                    // 2ᵉ clic (e.detail > 1) ne re-programme rien.
+                    if (e.detail > 1) return;
+                    if (sortClickTimerRef.current) window.clearTimeout(sortClickTimerRef.current);
+                    sortClickTimerRef.current = window.setTimeout(() => {
+                      sortClickTimerRef.current = null;
+                      sortByField(fid);
+                    }, 230);
+                  }}
+                  onDoubleClick={(e) => {
+                    if (dragJustEndedRef.current) return;
+                    // Annule le tri en attente du 1ᵉʳ clic, ouvre le renommage.
+                    if (sortClickTimerRef.current) {
+                      window.clearTimeout(sortClickTimerRef.current);
+                      sortClickTimerRef.current = null;
+                    }
+                    setOpenMenuAnchor(e.currentTarget as HTMLElement);
+                    setOpenMenuPhase("rename");
+                    setOpenMenuFid(fid);
                   }}
                   onContextMenu={(e) => {
                     e.preventDefault();
                     if (dragJustEndedRef.current) return;
                     setOpenMenuAnchor(e.currentTarget as HTMLElement);
+                    setOpenMenuPhase("menu");
                     setOpenMenuFid(fid);
                   }}
                   onDragStart={(e) => handleDragStart(e, fid)}
@@ -1028,6 +1161,7 @@ export function DataGrid({ base, view, maxHeight, readOnly = false }: DataGridPr
                         e.stopPropagation();
                         const th = (e.currentTarget as HTMLElement).closest("th");
                         setOpenMenuAnchor(th as HTMLElement | null);
+                        setOpenMenuPhase("menu");
                         setOpenMenuFid((prev) => (prev === fid ? null : fid));
                       }}
                     >
@@ -1044,6 +1178,8 @@ export function DataGrid({ base, view, maxHeight, readOnly = false }: DataGridPr
                       base={base}
                       onSort={(dir) => sortByField(fid, dir)}
                       onRename={(label) => renameColumn(fid, label)}
+                      onAutoFit={() => autoFitColumn(fid)}
+                      initialPhase={openMenuPhase}
                       onHide={() => hideColumn(fid)}
                       onDelete={() => deleteColumn(fid)}
                       onEditField={() => { openColumnEditor(base, view, { focusFieldId: fid }); closeMenu(); }}
@@ -1058,10 +1194,34 @@ export function DataGrid({ base, view, maxHeight, readOnly = false }: DataGridPr
                   {/* Handle resize (bord droit) */}
                   <span
                     className="sn-datagrid-resize-handle"
-                    onMouseDown={(e) => handleResizeMouseDown(e, fid, colW)}
+                    onMouseDown={(e) => {
+                      // Un clic à cheval label→handle ne doit pas laisser
+                      // partir le tri différé du 1ᵉʳ clic.
+                      if (sortClickTimerRef.current) {
+                        window.clearTimeout(sortClickTimerRef.current);
+                        sortClickTimerRef.current = null;
+                      }
+                      // Double-mousedown < 350 ms = double-clic → auto-fit
+                      // (détection manuelle, cf. lastHandleDownRef).
+                      const last = lastHandleDownRef.current;
+                      lastHandleDownRef.current = { fid, t: e.timeStamp };
+                      if (last && last.fid === fid && e.timeStamp - last.t < 350) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        lastHandleDownRef.current = null;
+                        autoFitColumn(fid);
+                        return;
+                      }
+                      handleResizeMouseDown(e, fid, colW);
+                    }}
                     onClick={(e) => e.stopPropagation()}
+                    onDoubleClick={(e) => {
+                      e.stopPropagation();
+                      autoFitColumn(fid);
+                    }}
                     role="separator"
-                    aria-label="Redimensionner la colonne"
+                    aria-label="Redimensionner la colonne (double-clic : ajuster au contenu)"
+                    title="Double-clic : ajuster au contenu"
                   />
                 </th>
               );
@@ -1094,6 +1254,18 @@ export function DataGrid({ base, view, maxHeight, readOnly = false }: DataGridPr
                 color: "var(--text-muted)",
               }}
             />
+
+            {/* Filler : SEULE colonne sans largeur fixe. En table-layout:fixed
+                + w-full, s'il n'y a que des largeurs fixes le navigateur les
+                rescale toutes proportionnellement (160px demandés → 440px
+                rendus sur une table peu remplie). Cette colonne auto absorbe
+                tout le surplus → les largeurs de colonnes (resize, auto-fit)
+                s'appliquent exactement. Se réduit à 0 quand la table déborde
+                (scroll horizontal) — sans effet. */}
+            <th
+              className="border-b"
+              style={{ borderColor: "var(--border-subtle)" }}
+            />
           </tr>
         </thead>
 
@@ -1122,6 +1294,7 @@ export function DataGrid({ base, view, maxHeight, readOnly = false }: DataGridPr
                   ))}
                   <td />
                   <td />
+                  <td />
                 </tr>
               ))}
             </>
@@ -1129,7 +1302,7 @@ export function DataGrid({ base, view, maxHeight, readOnly = false }: DataGridPr
           {isError && (
             <tr>
               <td
-                colSpan={visibleIds.length + 3}
+                colSpan={visibleIds.length + 4}
                 className="px-3 py-8 text-center text-xs"
                 style={{ color: "#EF4444" }}
               >
@@ -1139,12 +1312,22 @@ export function DataGrid({ base, view, maxHeight, readOnly = false }: DataGridPr
           )}
           {!isLoading && !isError && items.length === 0 && (
             <tr>
-              <td
-                colSpan={visibleIds.length + 3}
-                className="px-3 py-8 text-center text-xs"
-                style={{ color: "var(--text-muted)" }}
-              >
-                Aucune entrée. Cliquez sur « + Nouvelle entrée » en bas.
+              <td colSpan={visibleIds.length + 4}>
+                {/* EmptyState partagé — même traitement dans les 4 vues bases */}
+                <EmptyState
+                  title={searchActive ? "Aucun résultat" : "Aucune entrée"}
+                  description={
+                    searchActive
+                      ? "Aucune entrée ne correspond à cette recherche."
+                      : "Crée ta première entrée pour remplir la table."
+                  }
+                  action={
+                    searchActive || readOnly
+                      ? undefined
+                      : { label: "Nouvelle entrée", onClick: addRow }
+                  }
+                  className="py-10"
+                />
               </td>
             </tr>
           )}
@@ -1275,6 +1458,30 @@ export function DataGrid({ base, view, maxHeight, readOnly = false }: DataGridPr
                         baseFields={base.fields as unknown as Field[]}
                         readOnly={readOnly}
                       />
+                      {/* Ouvrir la fiche en side-peek — affordance discrète
+                          révélée au survol de la ligne (col. primaire). Gated
+                          en pointer-events pour ne jamais gêner l'édition de la
+                          cellule ; stopPropagation isole du clic ligne/cellule. */}
+                      {isPrimaryCol && (
+                        <button
+                          type="button"
+                          aria-label="Ouvrir la fiche"
+                          title="Ouvrir la fiche"
+                          onMouseDown={(e) => e.stopPropagation()}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openEntityPeek(base.id, entity.id);
+                          }}
+                          className="pointer-events-none absolute right-1 top-1 z-[var(--z-raised)] flex h-5 w-5 items-center justify-center rounded border opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 hover:bg-[var(--surface-2)]"
+                          style={{
+                            borderColor: "var(--border-subtle)",
+                            backgroundColor: "var(--surface-1)",
+                            color: "var(--text-muted)",
+                          }}
+                        >
+                          <ArrowsOutSimple size={11} />
+                        </button>
+                      )}
                     </td>
                   );
                 })}
@@ -1296,6 +1503,9 @@ export function DataGrid({ base, view, maxHeight, readOnly = false }: DataGridPr
                     </Button>
                   )}
                 </td>
+
+                {/* Cellule filler (cf. th filler du header) */}
+                <td />
               </tr>
             );
             };
@@ -1321,7 +1531,19 @@ export function DataGrid({ base, view, maxHeight, readOnly = false }: DataGridPr
             return sections.map((sec) => (
               <Fragment key={`grp-${sec.key}`}>
                 <tr className="sn-datagrid-group-row" style={{ borderBottom: "1px solid var(--border-subtle)", backgroundColor: "var(--surface-1)" }}>
-                  <td colSpan={visibleIds.length + 3} className="px-2 py-1.5">
+                  {/* Cellule libellé : fusionne l'index + la colonne primaire
+                      (sticky) → la même largeur combinée que les lignes de
+                      données. Caret + chip + count. Seule cette cellule replie
+                      le groupe ; les cellules d'agrégat ne le déclenchent pas. */}
+                  <td
+                    colSpan={visibleIds.length > 0 ? 2 : 1}
+                    className="sticky left-0 px-2 py-1.5"
+                    style={{
+                      backgroundColor: "var(--surface-1)",
+                      borderRight: "1px solid var(--border-subtle)",
+                      zIndex: 6,
+                    }}
+                  >
                     <button
                       type="button"
                       onClick={() => toggleGroup(sec.key)}
@@ -1346,6 +1568,68 @@ export function DataGrid({ base, view, maxHeight, readOnly = false }: DataGridPr
                       <span style={{ color: "var(--text-muted)" }}>{sec.items.length}</span>
                     </button>
                   </td>
+                  {/* Agrégats par section, alignés sur les colonnes (hors
+                      colonne primaire, absorbée par la cellule libellé). */}
+                  {visibleIds.slice(1).map((fid) => {
+                    const field = fieldById.get(fid);
+                    const op = field ? summarizeMap[fid] : undefined;
+                    const colW = colWidths[fid] ?? (field ? columnMinWidth(field) : 160);
+                    const numeric = field ? isNumericField(field) : false;
+                    const { label } =
+                      field && op
+                        ? computeSummarize(op, field, sec.items.map((it) => it.fields[fid]))
+                        : { label: null };
+                    // Ternaire (pas juste `showOp &&`) : narrow `op` en
+                    // SummarizeOp non-undefined pour summarizeOpLabel.
+                    const opNode =
+                      op && op !== "none" && label !== null ? (
+                        <span>
+                          <span style={{ opacity: 0.6, marginRight: 4 }}>
+                            {summarizeOpLabel(op)}
+                          </span>
+                          <span style={{ fontWeight: 600, color: "var(--text-secondary)" }}>
+                            {label}
+                          </span>
+                        </span>
+                      ) : null;
+                    const showOp = opNode !== null;
+                    return (
+                      <td
+                        key={fid}
+                        className={`px-2 py-1.5 text-[11px]${showOp ? " cursor-pointer hover:bg-[var(--surface-2)]" : ""}`}
+                        style={{
+                          width: colW,
+                          minWidth: colW,
+                          maxWidth: colW,
+                          borderRight: "1px solid var(--border-subtle)",
+                          color: "var(--text-muted)",
+                          fontVariantNumeric: "tabular-nums",
+                          textAlign: numeric ? "right" : "left",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                        onClick={
+                          showOp
+                            ? (e) => {
+                                e.stopPropagation();
+                                setGroupOpPicker({
+                                  fid,
+                                  anchor: e.currentTarget as HTMLElement,
+                                });
+                              }
+                            : undefined
+                        }
+                        title={showOp ? "Changer l'agrégation" : undefined}
+                      >
+                        {opNode}
+                      </td>
+                    );
+                  })}
+                  {/* Cellules de fin (+ colonne, actions, filler) — alignement. */}
+                  <td />
+                  <td />
+                  <td />
                 </tr>
                 {!collapsedGroups.has(sec.key) && sec.items.map((it) => renderRow(it, idxOf.get(it.id) ?? 0))}
               </Fragment>
@@ -1360,7 +1644,7 @@ export function DataGrid({ base, view, maxHeight, readOnly = false }: DataGridPr
               onClick={addRow}
             >
               <td
-                colSpan={visibleIds.length + 3}
+                colSpan={visibleIds.length + 4}
                 className="px-2 py-2"
                 style={{ borderTop: "1px solid var(--border-subtle)" }}
               >
@@ -1392,10 +1676,10 @@ export function DataGrid({ base, view, maxHeight, readOnly = false }: DataGridPr
           )}
 
           {/* Footer compteur */}
-          {!isLoading && items.length > 0 && (
+          {!isLoading && (items.length > 0 || searchActive) && (
             <tr>
               <td
-                colSpan={visibleIds.length + 3}
+                colSpan={visibleIds.length + 4}
                 className="px-2 py-1.5 text-[11px]"
                 style={{
                   borderTop: "1px solid var(--border-subtle)",
@@ -1403,7 +1687,9 @@ export function DataGrid({ base, view, maxHeight, readOnly = false }: DataGridPr
                   backgroundColor: "var(--surface-1)",
                 }}
               >
-                {items.length} entrée{items.length > 1 ? "s" : ""}
+                {searchActive
+                  ? `${items.length} résultat${items.length > 1 ? "s" : ""} sur ${allItems.length}`
+                  : `${items.length} entrée${items.length > 1 ? "s" : ""}`}
                 {selectedIds.size > 0 && (
                   <span style={{ marginLeft: 8, color: "var(--accent)" }}>
                     · {selectedIds.size} sélectionnée{selectedIds.size > 1 ? "s" : ""}
@@ -1430,9 +1716,12 @@ export function DataGrid({ base, view, maxHeight, readOnly = false }: DataGridPr
           y={rowMenu.y}
           isMultiSelected={selectedIds.size > 1 && selectedIds.has(rowMenu.entityId)}
           selectedCount={selectedIds.size}
+          onOpen={() => {
+            openEntityPeek(base.id, rowMenu.entityId);
+            setRowMenu(null);
+          }}
           onDuplicate={() => {
-            const ent = items.find((e) => e.id === rowMenu.entityId);
-            if (ent) mut.create.mutate({ typeId: base.id, fields: ent.fields as Record<string, never>, body: "" });
+            duplicateEntity(rowMenu.entityId);
             setRowMenu(null);
           }}
           onDelete={() => {
@@ -1448,6 +1737,15 @@ export function DataGrid({ base, view, maxHeight, readOnly = false }: DataGridPr
         />,
         document.body,
       )}
+      {groupOpPicker && fieldById.get(groupOpPicker.fid) && (
+        <SummarizePicker
+          anchor={groupOpPicker.anchor}
+          field={fieldById.get(groupOpPicker.fid)!}
+          currentOp={(summarizeMap[groupOpPicker.fid] ?? "none") as SummarizeOp}
+          onSelect={(op) => setSummarizeOp(groupOpPicker.fid, op)}
+          onClose={() => setGroupOpPicker(null)}
+        />
+      )}
     </div>
   );
 }
@@ -1455,10 +1753,10 @@ export function DataGrid({ base, view, maxHeight, readOnly = false }: DataGridPr
 // ── RowContextMenu ────────────────────────────────────────────────────────────
 
 function RowContextMenu({
-  x, y, isMultiSelected, selectedCount, onDuplicate, onDelete, onClose,
+  x, y, isMultiSelected, selectedCount, onOpen, onDuplicate, onDelete, onClose,
 }: {
   x: number; y: number; isMultiSelected: boolean; selectedCount: number;
-  onDuplicate: () => void; onDelete: () => void; onClose: () => void;
+  onOpen: () => void; onDuplicate: () => void; onDelete: () => void; onClose: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -1491,6 +1789,15 @@ function RowContextMenu({
         fontSize: 12,
       }}
     >
+      <Button
+        variant="ghost"
+        size="sm"
+        onPress={onOpen}
+        className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-[var(--surface-2)]"
+        style={{ color: "var(--text-secondary)" }}
+      >
+        Ouvrir la fiche
+      </Button>
       <Button
         variant="ghost"
         size="sm"

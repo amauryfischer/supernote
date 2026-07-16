@@ -1,36 +1,47 @@
 "use client";
 
 import {
-  Archive,
   Bell,
   CaretRight,
-  Calendar,
   Cloud,
   Desktop,
-  EnvelopeSimple,
-  Function,
-  Gear,
-  GridNine,
   Keyboard,
-  Lightning,
   MagnifyingGlass,
   Moon,
   Plugs,
   Sun,
-  Tag,
-  Users,
-  Wallet,
   X,
   type Icon as PhosphorIcon,
 } from "@phosphor-icons/react";
 import Link from "next/link";
-import { Button, Drawer, useAppTheme, type ThemeValue } from "@supernote/ui";
-import { memo, useCallback, useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
+import { useTranslations } from "next-intl";
+import {
+  Button,
+  Drawer,
+  useAppTheme,
+  setThemeWithTransition,
+  originFromElement,
+  type ThemeValue,
+} from "@supernote/ui";
+import { memo, useCallback, useEffect, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { NotificationBadge, useNotifications } from "@supernote/notifications/renderer";
 import { useVault } from "@/lib/pwa/PwaVaultSetup";
 import { useGmailConnected } from "@/hooks/useGmailConnected";
+import { usePluginEnabled } from "@/hooks/usePluginEnabled";
 import { MobileVaultSwitcher } from "./MobileVaultSwitcher";
 import { ShortcutsCheatSheet } from "@/components/notes/ShortcutsCheatSheet";
+import {
+  NAV_GROUP_ORDER,
+  NAV_GROUP_LABEL_KEY,
+  NAV_HEADERLESS_GROUPS,
+  NAV_SETTINGS,
+  MOBILE_PRIMARY_HREFS,
+  navItemsInGroup,
+  isNavActive,
+  type NavItem,
+  type NavGate,
+} from "@/lib/navigation/catalog";
 
 const THEME_CYCLE: ThemeValue[] = ["light", "dark", "system"];
 
@@ -42,11 +53,21 @@ const THEME_CYCLE: ThemeValue[] = ["light", "dark", "system"];
  */
 function ThemeCycleButton() {
   const { theme, setTheme } = useAppTheme();
-  const next = useCallback(() => {
-    const current: ThemeValue = theme ?? "light";
-    const idx = THEME_CYCLE.indexOf(current);
-    setTheme(THEME_CYCLE[(idx + 1) % THEME_CYCLE.length] ?? "light");
-  }, [theme, setTheme]);
+  const next = useCallback(
+    // HeroUI passe un MouseEvent<FocusableElement> (react-aria), pas
+    // <HTMLElement> — on élargit à Element (suffisant pour originFromElement).
+    (e?: ReactMouseEvent<Element>) => {
+      const current: ThemeValue = theme ?? "light";
+      const idx = THEME_CYCLE.indexOf(current);
+      const nextTheme = THEME_CYCLE[(idx + 1) % THEME_CYCLE.length] ?? "light";
+      // Révélation circulaire depuis le bouton — même geste que le TopBar
+      // desktop. Sans event exploitable → cross-fade natif ; sans support VT
+      // ou en reduced-motion → bascule directe (géré par le helper).
+      const origin = e?.currentTarget ? originFromElement(e.currentTarget) : undefined;
+      setThemeWithTransition(setTheme, nextTheme, origin);
+    },
+    [theme, setTheme],
+  );
 
   const Icon = theme === "dark" ? Moon : theme === "system" ? Desktop : Sun;
   const label =
@@ -82,49 +103,32 @@ function VaultBadge({ isCloud }: { isCloud: boolean }) {
   );
 }
 
-interface MoreItem {
-  href: string;
-  label: string;
+/**
+ * Tuile d'icône du drawer. Neutre au repos ; l'accent est réservé à l'item
+ * ACTIF (état « vous êtes ici », pas décoration) et aux actions primaires —
+ * même grammaire que le sidebar desktop. L'ancien traitement arc-en-ciel (une
+ * teinte par item) contredisait le registre « calme & concentré » et le ban
+ * product « accent plein sur états inactifs ».
+ */
+function RowIcon({
+  icon: Icon,
+  accent = false,
+}: {
   icon: PhosphorIcon;
-  /** Optional accent for the icon tile — defaults to the brand violet. */
-  tint?: string;
+  accent?: boolean;
+}) {
+  return (
+    <span
+      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
+      style={{
+        backgroundColor: accent ? "var(--accent-subtle)" : "var(--surface-2)",
+        color: accent ? "var(--accent)" : "var(--text-secondary)",
+      }}
+    >
+      <Icon size={18} weight="duotone" />
+    </span>
+  );
 }
-
-interface MoreSection {
-  title: string;
-  items: MoreItem[];
-}
-
-// Per-item accent colors picked from the design system's hue range. Each
-// section reads as a small palette so the eye can scan by color rather than
-// by label, the way iOS Settings and Notion's mobile drawer feel.
-const SECTIONS: MoreSection[] = [
-  {
-    title: "Connaissance",
-    items: [
-      { label: "Habitudes", href: "/habits", icon: GridNine, tint: "oklch(0.62 0.20 295)" },
-      { label: "Journal", href: "/journal", icon: Calendar, tint: "oklch(0.65 0.20 30)" },
-      { label: "Contacts", href: "/contacts", icon: Users, tint: "oklch(0.62 0.20 220)" },
-      { label: "Mail", href: "/mail", icon: EnvelopeSimple, tint: "oklch(0.62 0.20 20)" },
-      { label: "Finance", href: "/finance", icon: Wallet, tint: "oklch(0.62 0.20 150)" },
-      { label: "Archive", href: "/archive", icon: Archive, tint: "oklch(0.55 0.05 260)" },
-    ],
-  },
-  {
-    title: "Outils",
-    items: [
-      { label: "Tags", href: "/tags", icon: Tag, tint: "oklch(0.65 0.18 80)" },
-      { label: "Variables", href: "/variables", icon: Function, tint: "oklch(0.62 0.18 180)" },
-      { label: "Routines", href: "/routines", icon: Lightning, tint: "oklch(0.70 0.18 90)" },
-    ],
-  },
-  {
-    title: "Système",
-    items: [
-      { label: "Paramètres", href: "/parametres", icon: Gear, tint: "oklch(0.55 0.05 260)" },
-    ],
-  },
-];
 
 /**
  * Secondary navigation drawer — opens from the bottom on mobile and covers
@@ -146,6 +150,12 @@ export const MoreDrawer = memo(function MoreDrawer({
   const { unreadCount } = useNotifications();
   const vault = useVault();
   const gmailConnected = useGmailConnected();
+  const pathname = usePathname();
+  const t = useTranslations();
+  // Gates de visibilité — mêmes flags que le sidebar desktop, appliqués ici de
+  // façon identique pour garantir la parité (journal masqué par défaut, etc.).
+  const journalEnabled = usePluginEnabled("journal", false);
+  const routinesEnabled = usePluginEnabled("routines", true);
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [cheatOpen, setCheatOpen] = useState(false);
   // Reset to the menu whenever the drawer closes, so reopening "Plus" never
@@ -168,6 +178,24 @@ export const MoreDrawer = memo(function MoreDrawer({
       : vault!.vaultName ?? (vault!.state === "degraded" ? "Aucun vault" : "Supernote")
     : "Supernote";
   const vaultSubtitle = isCloudVault ? "Cloud · temps réel" : "Supernote · vault local";
+
+  const gateEnabled: Record<NavGate, boolean> = {
+    journal: journalEnabled,
+    routines: routinesEnabled,
+    mail: gmailConnected,
+  };
+  const isItemVisible = (item: NavItem) => (item.gate ? gateEnabled[item.gate] : true);
+  // Groupes du drawer dérivés du catalogue : on retire les routes déjà
+  // présentes dans la bottom-nav (Accueil, Notes, Todos) pour éviter les
+  // doublons ; le reste (dont Assistant IA et Pomodoro, jadis injoignables au
+  // doigt) peuple le drawer. Même ordre et mêmes libellés que le sidebar.
+  const drawerGroups = NAV_GROUP_ORDER.map((groupId) => ({
+    groupId,
+    headerless: NAV_HEADERLESS_GROUPS.has(groupId),
+    items: navItemsInGroup(groupId).filter(
+      (item) => !MOBILE_PRIMARY_HREFS.includes(item.href) && isItemVisible(item),
+    ),
+  })).filter((g) => g.items.length > 0);
 
   return (
     <Drawer
@@ -313,84 +341,97 @@ export const MoreDrawer = memo(function MoreDrawer({
                 className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors active:bg-[var(--surface-2)]"
                 style={{ color: "var(--text-primary)" }}
               >
-                <span
-                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
-                  style={{
-                    backgroundColor:
-                      "color-mix(in oklch, oklch(0.62 0.20 260) 18%, transparent)",
-                    color: "oklch(0.62 0.20 260)",
-                  }}
-                >
-                  <MagnifyingGlass size={18} weight="duotone" />
-                </span>
+                <RowIcon icon={MagnifyingGlass} accent />
                 <span className="flex-1 text-[15px] font-medium">Rechercher partout</span>
                 <CaretRight size={14} style={{ color: "var(--text-muted)" }} />
               </button>
             </div>
           </div>
 
-          {/* Sections — each rendered as a single rounded card containing
-              its rows, with a small uppercase label above. Rows separated
-              by a 1 px hairline so the card reads as a list, not a stack of
-              independent buttons. */}
-          {SECTIONS.map((section) => {
-            const visibleItems = section.items.filter(
-              (item) => item.href !== "/mail" || gmailConnected,
-            );
-            if (visibleItems.length === 0) return null;
-            return (
-            <div key={section.title} className="mb-6">
-              <p
-                className="mb-1.5 px-3 text-[11px] font-semibold uppercase tracking-wider"
-                style={{ color: "var(--text-muted)" }}
-              >
-                {section.title}
-              </p>
+          {/* Sections dérivées du catalogue — chaque groupe = une carte
+              arrondie. Libellé de section aligné sur le sidebar desktop (i18n),
+              sauf les groupes épinglés (navigation) rendus sans en-tête. Une
+              hairline sépare les lignes. L'item actif prend l'accent (« vous
+              êtes ici »), visible quand on ouvre « Plus » depuis une section
+              qui ne vit que dans le drawer (Finance, Contacts…). */}
+          {drawerGroups.map(({ groupId, headerless, items }) => (
+            <div key={groupId} className="mb-6">
+              {!headerless && (
+                <p
+                  className="mb-1.5 px-3 text-[11px] font-semibold uppercase tracking-wider"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  {t(NAV_GROUP_LABEL_KEY[groupId])}
+                </p>
+              )}
               <div
                 className="overflow-hidden rounded-2xl"
                 style={{ backgroundColor: "var(--surface-1)" }}
               >
-                {visibleItems.map((item, idx) => {
-                  const Icon = item.icon;
-                  const isLast = idx === visibleItems.length - 1;
+                {items.map((item, idx) => {
+                  const active = isNavActive(item.href, pathname);
+                  const isLast = idx === items.length - 1;
                   return (
                     <Link
                       key={item.href}
                       href={item.href}
                       onClick={onClose}
+                      aria-current={active ? "page" : undefined}
                       className="flex items-center gap-3 px-4 py-3 transition-colors active:bg-[var(--surface-2)]"
                       style={{
-                        color: "var(--text-primary)",
+                        color: active ? "var(--accent)" : "var(--text-primary)",
                         borderBottom: isLast
                           ? undefined
                           : "1px solid var(--border-subtle)",
                       }}
                     >
-                      <span
-                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
-                        style={{
-                          backgroundColor: item.tint
-                            ? `color-mix(in oklch, ${item.tint} 18%, transparent)`
-                            : "var(--accent-subtle)",
-                          color: item.tint ?? "var(--accent)",
-                        }}
-                      >
-                        <Icon size={18} weight="duotone" />
-                      </span>
+                      <RowIcon icon={item.icon} accent={active} />
                       <span className="flex-1 text-[15px] font-medium">
-                        {item.label}
+                        {t(item.labelKey)}
                       </span>
-                      <CaretRight
-                        size={14}
-                        style={{ color: "var(--text-muted)" }}
-                      />
+                      <CaretRight size={14} style={{ color: "var(--text-muted)" }} />
                     </Link>
                   );
                 })}
               </div>
             </div>
-            );
-          })}
+          ))}
+
+          {/* Système — Paramètres (placement spécial, hors groupes scrollables
+              du catalogue, comme le bas du sidebar desktop). */}
+          <div className="mb-6">
+            <p
+              className="mb-1.5 px-3 text-[11px] font-semibold uppercase tracking-wider"
+              style={{ color: "var(--text-muted)" }}
+            >
+              Système
+            </p>
+            <div
+              className="overflow-hidden rounded-2xl"
+              style={{ backgroundColor: "var(--surface-1)" }}
+            >
+              <Link
+                href={NAV_SETTINGS.href}
+                onClick={onClose}
+                aria-current={isNavActive(NAV_SETTINGS.href, pathname) ? "page" : undefined}
+                className="flex items-center gap-3 px-4 py-3 transition-colors active:bg-[var(--surface-2)]"
+                style={{
+                  color: isNavActive(NAV_SETTINGS.href, pathname)
+                    ? "var(--accent)"
+                    : "var(--text-primary)",
+                }}
+              >
+                <RowIcon
+                  icon={NAV_SETTINGS.icon}
+                  accent={isNavActive(NAV_SETTINGS.href, pathname)}
+                />
+                <span className="flex-1 text-[15px] font-medium">
+                  {t(NAV_SETTINGS.labelKey)}
+                </span>
+                <CaretRight size={14} style={{ color: "var(--text-muted)" }} />
+              </Link>
+            </div>
+          </div>
 
           {/* Coffres — entrée pour connecter un salon cloud (ouvre la même
               modale que le bouton « Connecter un vault » du FileTree desktop). */}
@@ -414,16 +455,7 @@ export const MoreDrawer = memo(function MoreDrawer({
                 className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors active:bg-[var(--surface-2)]"
                 style={{ color: "var(--text-primary)" }}
               >
-                <span
-                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
-                  style={{
-                    backgroundColor:
-                      "color-mix(in oklch, oklch(0.62 0.20 220) 18%, transparent)",
-                    color: "oklch(0.62 0.20 220)",
-                  }}
-                >
-                  <Plugs size={18} weight="duotone" />
-                </span>
+                <RowIcon icon={Plugs} />
                 <span className="flex-1 text-[15px] font-medium">
                   Connecter un vault
                 </span>
@@ -451,16 +483,7 @@ export const MoreDrawer = memo(function MoreDrawer({
                 className="flex w-full items-center gap-3 px-4 py-3 text-left rounded-none"
                 style={{ color: "var(--text-primary)" }}
               >
-                <span
-                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
-                  style={{
-                    backgroundColor:
-                      "color-mix(in oklch, oklch(0.62 0.18 270) 18%, transparent)",
-                    color: "oklch(0.62 0.18 270)",
-                  }}
-                >
-                  <Keyboard size={18} weight="duotone" />
-                </span>
+                <RowIcon icon={Keyboard} />
                 <span className="flex-1 text-[15px] font-medium">
                   Raccourcis clavier
                 </span>

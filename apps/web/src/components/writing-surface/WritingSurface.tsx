@@ -374,6 +374,10 @@ export function WritingSurface() {
             : "translate-y-0 opacity-100"
         }`}
       >
+        {/* Rythme en deux groupes : « maintenant » (capture + aujourd'hui/continuer)
+            serré à 16px, puis respiration de 40px avant le groupe « le vault »
+            (stats, éphéméride, tags) de nouveau serré. Un seul battement mt-4
+            partout aplatissait la hiérarchie. */}
         <div className="mb-6">
           <QuickActionsStrip />
         </div>
@@ -383,7 +387,7 @@ export function WritingSurface() {
           <ContinueWidget />
         </div>
 
-        <div className="mt-4">
+        <div className="mt-10">
           <VaultStatsWidget />
         </div>
 

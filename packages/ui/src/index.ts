@@ -123,12 +123,15 @@ export {
   ThemeProvider,
   ThemeToggle,
   useAppTheme,
+  setThemeWithTransition,
+  originFromElement,
 } from "./components/theme/index.js";
 export type {
   ThemeProviderProps,
   ThemeToggleProps,
   ThemeValue,
   UseThemeReturn,
+  ThemeTransitionOrigin,
 } from "./components/theme/index.js";
 
 // ── Icons ────────────────────────────────────────────────────────────────────

@@ -106,7 +106,9 @@ export function StackedColumns({
           : "flex h-full min-h-0 flex-1 flex-col"
       }
     >
-      {/* Colonne primaire */}
+      {/* Colonne primaire — bornes 640/760 : la note active garde 80px de plus
+          que les colonnes empilées (560/680, cf. StackColumn) pour marquer son
+          rang de lecture principal */}
       <div
         data-col-depth={0}
         className={

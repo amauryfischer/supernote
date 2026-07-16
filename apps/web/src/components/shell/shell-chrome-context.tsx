@@ -127,6 +127,21 @@ interface ShellChromeContextValue {
   columnEditor: ColumnEditorState | null;
   openColumnEditor: (base: EntityType, view: View, opts?: { focusFieldId?: string; prefillFormula?: ColumnEditorState["prefillFormula"] }) => void;
   closeColumnEditor: () => void;
+
+  /**
+   * Fiche d'entité en side-peek — quand non-null, `EntityPeekPanel` s'affiche
+   * à droite (overlay plein écran sur mobile). Déclenchable depuis n'importe
+   * quelle surface (grille, carte, palette) via `openEntityPeek` OU via un
+   * CustomEvent `supernote:open-peek` pour les surfaces hors du provider.
+   */
+  entityPeek: EntityPeekState | null;
+  openEntityPeek: (baseId: string, entityId: string) => void;
+  closeEntityPeek: () => void;
+}
+
+export interface EntityPeekState {
+  baseId: string;
+  entityId: string;
 }
 
 const ShellChromeContext = createContext<ShellChromeContextValue | null>(null);
@@ -151,6 +166,16 @@ export function ShellChromeProvider({ children }: { children: React.ReactNode })
 
   const closeColumnEditor = useCallback(() => {
     setColumnEditor(null);
+  }, []);
+
+  const [entityPeek, setEntityPeek] = useState<EntityPeekState | null>(null);
+
+  const openEntityPeek = useCallback((baseId: string, entityId: string) => {
+    setEntityPeek({ baseId, entityId });
+  }, []);
+
+  const closeEntityPeek = useCallback(() => {
+    setEntityPeek(null);
   }, []);
 
   // Mobile chrome state — ignored by the desktop shell but consumed by
@@ -197,6 +222,21 @@ export function ShellChromeProvider({ children }: { children: React.ReactNode })
     };
     window.addEventListener("supernote:toggle-right-panel", onToggle);
     return () => window.removeEventListener("supernote:toggle-right-panel", onToggle);
+  }, []);
+
+  // Ouverture du side-peek depuis des surfaces hors du provider (bloc inline
+  // `databaseView`, carte, etc.) sans prop-drilling : un CustomEvent window
+  // `supernote:open-peek` avec `detail {baseId, entityId}` déclenche le peek.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onPeek = (e: Event) => {
+      const detail = (e as CustomEvent<{ baseId?: string; entityId?: string }>).detail;
+      if (detail?.baseId && detail?.entityId) {
+        setEntityPeek({ baseId: detail.baseId, entityId: detail.entityId });
+      }
+    };
+    window.addEventListener("supernote:open-peek", onPeek);
+    return () => window.removeEventListener("supernote:open-peek", onPeek);
   }, []);
 
   const setFocusMode = useCallback((next: boolean) => {
@@ -323,6 +363,9 @@ export function ShellChromeProvider({ children }: { children: React.ReactNode })
       columnEditor,
       openColumnEditor,
       closeColumnEditor,
+      entityPeek,
+      openEntityPeek,
+      closeEntityPeek,
     }),
     [
       focusMode,
@@ -346,6 +389,9 @@ export function ShellChromeProvider({ children }: { children: React.ReactNode })
       columnEditor,
       openColumnEditor,
       closeColumnEditor,
+      entityPeek,
+      openEntityPeek,
+      closeEntityPeek,
     ],
   );
 
