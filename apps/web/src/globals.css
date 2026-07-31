@@ -831,6 +831,50 @@ html, body {
   to { grid-template-rows: 1fr; opacity: 1; }
 }
 
+/* ── FileTree indent guides ──────────────────────────────────────────────── */
+
+/* Rattachement visuel parent → enfants :
+ *   .sn-tree-branch  = bloc des enfants d'un dossier ; trace le trait vertical
+ *                      aligné sur l'axe du chevron du parent (--sn-tree-guide-x).
+ *   .sn-tree-elbow   = une ligne enfant (sous-dossier, note, « + N autres ») ;
+ *                      trace le petit coude horizontal qui rejoint ce trait.
+ * Les deux abscisses viennent des helpers `guideX`/`elbowX` (FileTree.tsx) :
+ * un seul barème d'indentation, jamais recalculé en CSS.
+ *
+ * Le survol d'un enfant illumine le trait de SON niveau — et, par propagation
+ * du :hover sur les blocs ancêtres, toute la chaîne jusqu'à la racine : d'un
+ * coup d'œil on voit à quel parent la ligne survolée est rattachée. */
+.sn-tree-branch {
+  position: relative;
+}
+
+.sn-tree-branch::before {
+  content: "";
+  position: absolute;
+  left: var(--sn-tree-guide-x, 28px);
+  top: 0;
+  bottom: 4px;
+  width: 1px;
+  background: var(--border-subtle);
+  pointer-events: none;
+  transition: var(--sn-transition-colors);
+}
+
+.sn-tree-branch:hover::before {
+  background: color-mix(in srgb, var(--accent) 45%, var(--border-subtle));
+}
+
+.sn-tree-elbow::before {
+  content: "";
+  position: absolute;
+  left: var(--sn-tree-elbow-x, 0);
+  top: 50%;
+  width: 8px;
+  height: 1px;
+  background: var(--border-subtle);
+  pointer-events: none;
+}
+
 /* ── Note metadata bar collapse ──────────────────────────────────────────── */
 
 /* Rangée métadonnées de note repliable dans les deux sens : grid-template-rows

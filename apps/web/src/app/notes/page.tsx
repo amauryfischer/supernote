@@ -422,6 +422,8 @@ function NotesPageContent() {
           // hidden from the per-folder view by default and the user reads
           // the (N) badge to plan where to write next, not to audit history.
           notes={allNotes.filter((n) => !n.archivedAt)}
+          selectedNoteId={null}
+          onSelectNote={handleSelectNote}
           onDropNote={handleMoveNote}
         />
       )}

@@ -31,6 +31,7 @@ import {
   Database,
   Envelope,
   FileCode,
+  FileText,
   Folder,
   FolderLock,
   FolderOpen,
@@ -62,6 +63,8 @@ import {
   Notebook,
   NotePencil,
   PaintBrush,
+  Paperclip,
+  PenNib,
   Pencil,
   PencilSimple,
   Phone,
@@ -221,6 +224,84 @@ const FOLDER_COLOR_PALETTE: ReadonlyArray<string> = [
   "#a855f7", // purple
   "#ec4899", // pink
 ];
+
+// ── Tree geometry (indentation + guides) ──────────────────────────────────────
+//
+// Une seule échelle pour tout l'arbre, dossiers ET notes :
+//   • `ROW_INDENT_BASE` (20px) réserve la gouttière du drag-handle, qui est
+//     positionné en absolu à gauche du conteneur de ligne quel que soit le
+//     niveau — d'où un décalage constant, pas seulement au niveau 0.
+//   • chaque niveau ajoute `ROW_INDENT_STEP` (16px), soit exactement la largeur
+//     du chevron : un enfant démarre là où finit le chevron de son parent.
+//
+// Les guides visuels en découlent :
+//   • `guideX(depth)` = axe du chevron du parent → trait vertical qui descend
+//     le long de tous ses enfants,
+//   • `elbowX(depth)` = même axe, vu depuis l'enfant → petit coude horizontal
+//     qui raccroche la ligne au trait vertical de son parent.
+const ROW_INDENT_BASE = 20;
+const ROW_INDENT_STEP = 16;
+/** Padding gauche du contenu d'une ligne à ce niveau. */
+function rowPaddingLeft(depth: number): number {
+  return ROW_INDENT_BASE + depth * ROW_INDENT_STEP;
+}
+/** Abscisse du trait vertical qui relie un dossier à ses enfants. */
+function guideX(depth: number): number {
+  return rowPaddingLeft(depth) + 8;
+}
+/** Abscisse du coude horizontal d'un enfant (= guide de son parent). */
+function elbowX(depth: number): number {
+  return guideX(depth - 1);
+}
+
+// ── Notes affichées dans l'arbre ──────────────────────────────────────────────
+//
+// L'arbre ne se contente plus des dossiers : chaque dossier déplié liste aussi
+// ses notes directes (les sous-dossiers d'abord, puis les fichiers — convention
+// explorateur de fichiers). Le contexte évite de faire descendre trois props de
+// plus à travers la récursion de `FolderNode`.
+
+/** Forme minimale consommée par l'arbre — `Note` de fixtures.ts la satisfait. */
+export interface TreeNote {
+  id: string;
+  title: string;
+  folderPath: string;
+  fields?: Record<string, unknown>;
+}
+
+/**
+ * Au-delà de ce nombre de notes directes, un dossier n'en affiche qu'un extrait
+ * suivi d'une ligne « + N autres » qui bascule sur la liste centrale. Sans cap,
+ * un dossier fourre-tout (Inbox à 400 notes) rendrait l'arbre inutilisable.
+ */
+const NOTES_PER_FOLDER_CAP = 50;
+
+interface NoteTreeContextValue {
+  /** Notes directes par chemin de dossier, déjà triées par titre. */
+  notesByFolder: Map<string, TreeNote[]>;
+  selectedNoteId: string | null;
+  onSelectNote: ((id: string) => void) | null;
+}
+
+const NoteTreeContext = createContext<NoteTreeContextValue>({
+  notesByFolder: new Map(),
+  selectedNoteId: null,
+  onSelectNote: null,
+});
+
+/** Indexe les notes par dossier direct, chaque bucket trié par titre. */
+function buildNotesByFolder(notes: ReadonlyArray<TreeNote>): Map<string, TreeNote[]> {
+  const map = new Map<string, TreeNote[]>();
+  for (const note of notes) {
+    const bucket = map.get(note.folderPath);
+    if (bucket) bucket.push(note);
+    else map.set(note.folderPath, [note]);
+  }
+  for (const bucket of map.values()) {
+    bucket.sort((a, b) => a.title.localeCompare(b.title, "fr", { sensitivity: "base" }));
+  }
+  return map;
+}
 
 // ── Tree DnD helpers ──────────────────────────────────────────────────────────
 
@@ -484,11 +565,18 @@ interface FileTreeProps {
   /** Right-click → "Archiver le dossier" (bulk-archive every note inside). */
   onArchiveFolder?: (path: string) => Promise<{ archivedCount: number }>;
   /**
-   * Full unfiltered list of notes — used to render the recursive note count
-   * "(N)" next to each folder name. Only the `folderPath` field is read; the
-   * caller can pass note objects with extra fields without issue.
+   * Full unfiltered list of notes — alimente à la fois le compteur récursif
+   * « (N) » de chaque dossier ET les lignes de notes affichées sous les
+   * dossiers dépliés. Le caller peut passer des objets `Note` complets.
    */
-  notes: { folderPath: string }[];
+  notes: TreeNote[];
+  /** Note actuellement ouverte (surlignée dans l'arbre). */
+  selectedNoteId?: string | null;
+  /**
+   * Clic sur une ligne de note. Absent → les notes restent affichées mais
+   * inertes (aucun call-site ne fait ça aujourd'hui).
+   */
+  onSelectNote?: (id: string) => void;
   /**
    * Optional collapse handler — when provided, a small chevron button is
    * rendered in the header that calls back to hide the entire FileTree
@@ -525,6 +613,8 @@ export function FileTree({
   onDeleteFolder,
   onArchiveFolder,
   notes: rawNotes,
+  selectedNoteId = null,
+  onSelectNote,
   onCollapse,
   onDropNote,
 }: FileTreeProps) {
@@ -628,6 +718,18 @@ export function FileTree({
     () => ({ mountRoots, onDisconnectMount: handleDisconnectMount }),
     [mountRoots, handleDisconnectMount],
   );
+
+  // Index notes → dossier direct, calculé UNE fois par changement de liste
+  // (chaque FolderNode y lit ses notes en O(1) au lieu de rescanner le tableau).
+  const notesByFolder = useMemo(() => buildNotesByFolder(notes), [notes]);
+  const noteCtx = useMemo<NoteTreeContextValue>(
+    () => ({ notesByFolder, selectedNoteId, onSelectNote: onSelectNote ?? null }),
+    [notesByFolder, selectedNoteId, onSelectNote],
+  );
+  // Notes posées à la racine du coffre (aucun dossier) : elles n'ont aucun
+  // FolderNode pour les héberger, on les rend donc directement dans le nav,
+  // sous les dossiers — sinon elles seraient invisibles depuis l'arbre.
+  const rootNotes = notesByFolder.get("") ?? [];
 
   const [picker, setPicker] = useState<PickerState | null>(null);
   const openPicker = (kind: PickerKind, path: string, e: React.MouseEvent) => {
@@ -889,6 +991,7 @@ export function FileTree({
 
       <ExpandedContext.Provider value={expandedCtx}>
         <MountContext.Provider value={mountCtx}>
+        <NoteTreeContext.Provider value={noteCtx}>
         <NewDriveDocContext.Provider value={onNewDriveDoc ?? null}>
         <FolderDndContext.Provider value={{ nestTarget, reparentTarget, childOrders }}>
           <DndContext
@@ -957,10 +1060,14 @@ export function FileTree({
                   />
                 ))}
               </SortableContext>
+              {rootNotes.length > 0 && (
+                <NoteRows notes={rootNotes} depth={0} folderPath="" onSelectFolder={onSelectFolder} />
+              )}
             </nav>
           </DndContext>
         </FolderDndContext.Provider>
         </NewDriveDocContext.Provider>
+        </NoteTreeContext.Provider>
         </MountContext.Provider>
       </ExpandedContext.Provider>
 
@@ -1027,6 +1134,13 @@ function FolderNode({
   isPinned = false,
 }: FolderNodeProps) {
   const hasChildren = !!folder.children?.length;
+  // Notes directes de ce dossier — rendues sous les sous-dossiers quand le
+  // nœud est déplié. Un dossier sans sous-dossier mais avec des notes doit
+  // rester dépliable : `hasKids` remplace `hasChildren` partout où il s'agit
+  // de « ce nœud a-t-il quelque chose à montrer ».
+  const { notesByFolder } = useContext(NoteTreeContext);
+  const childNotes = notesByFolder.get(folder.path) ?? [];
+  const hasKids = hasChildren || childNotes.length > 0;
   // Expanded state is hoisted to FileTree (persisted in localStorage) so it
   // survives tree refetches, sibling additions, and full reloads. See
   // ExpandedContext above.
@@ -1300,7 +1414,7 @@ function FolderNode({
     }
     if (!isDragOver) {
       setIsDragOver(true);
-      if (hasChildren && !expanded) {
+      if (hasKids && !expanded) {
         dragExpandTimerRef.current = setTimeout(() => {
           setExpanded(folder.path, true);
         }, 600);
@@ -1384,14 +1498,14 @@ function FolderNode({
     ? selectedAccent["--accent"]
     : isSelected ? "var(--accent)" : "var(--text-secondary)";
 
-  // At depth=0 the drag handle (left-0.5 + w-4 = x:2-18px) would overlap the
-  // chevron if paddingLeft were only 8px. Reserve 20px so the chevron starts
-  // at x=20px. At depth≥1, paddingLeft ≥ 24px already clears the handle.
+  // Indentation : échelle unique `rowPaddingLeft` (cf. « Tree geometry »). La
+  // base de 20px dégage la gouttière du drag-handle, qui est positionné en
+  // absolu à gauche du conteneur quel que soit le niveau.
   // Racine de montage non sélectionnée : teinte de fond subtile (~10% alpha)
   // pour la lire comme « un coffre monté » sans la confondre avec une sélection.
   const mountRowBg = isMountRoot && !isSelected ? `${MOUNT_TINT}14` : undefined;
   const sharedRowStyle: React.CSSProperties = {
-    paddingLeft: `${(depth === 0 ? 20 : 8) + depth * 16}px`,
+    paddingLeft: `${rowPaddingLeft(depth)}px`,
     backgroundColor: selectedBg ?? mountRowBg,
     color: selectedFg,
     fontWeight: isMountRoot ? 500 : isSelected ? 500 : 400,
@@ -1400,12 +1514,12 @@ function FolderNode({
   const chevronSpan = (
     <span
       className="flex w-4 flex-shrink-0 items-center justify-center"
-      role={hasChildren ? "button" : undefined}
-      aria-label={hasChildren ? (expanded ? "Réduire" : "Développer") : undefined}
-      onClick={hasChildren ? handleChevronClick : undefined}
-      style={hasChildren ? { cursor: "pointer" } : undefined}
+      role={hasKids ? "button" : undefined}
+      aria-label={hasKids ? (expanded ? "Réduire" : "Développer") : undefined}
+      onClick={hasKids ? handleChevronClick : undefined}
+      style={hasKids ? { cursor: "pointer" } : undefined}
     >
-      {hasChildren ? (
+      {hasKids ? (
         // Single caret that rotates 90° on expand instead of swapping icons —
         // a continuous decel glide reads as the disclosure "turning open".
         // reduced-motion is honoured by .sn-motion-glide's transition-only
@@ -1445,9 +1559,12 @@ function FolderNode({
         // and settles on the shared token instead of snapping, and self-
         // degrades to instant under reduced-motion. The outline stays crisp
         // (instant) so the drop boundary is never ambiguous mid-glide.
-        className="sn-motion-colors group relative flex items-center"
+        className={`sn-motion-colors group relative flex items-center${depth > 0 ? " sn-tree-elbow" : ""}`}
         onContextMenu={handleContextMenu}
         style={{
+          // Coude horizontal (::before) qui raccroche la ligne au trait
+          // vertical du parent — inerte au niveau racine (pas de parent).
+          ...(depth > 0 ? { ["--sn-tree-elbow-x" as string]: `${elbowX(depth)}px` } : null),
           borderRadius: "6px",
           outlineStyle: isReparentTarget ? "dashed" : "solid",
           outlineWidth: "2px",
@@ -1560,13 +1677,20 @@ function FolderNode({
         )}
       </div>
 
-      {hasChildren && expanded && (
+      {hasKids && expanded && (
         // `.sn-tree-expand` plays a one-shot grid-rows unfold on mount so
         // opening a folder slides its children in instead of snapping
         // (collapse stays instant — children unmount, keeping DnD contexts
         // clean). See globals.css.
+        //
+        // `.sn-tree-branch` trace le trait vertical du niveau, aligné sur l'axe
+        // du chevron de CE dossier (`guideX(depth)`) : tous ses enfants —
+        // sous-dossiers comme notes — s'y raccrochent par leur coude.
         <div className="sn-tree-expand">
-          <div className="sn-tree-expand__inner">
+          <div
+            className="sn-tree-expand__inner sn-tree-branch"
+            style={{ ["--sn-tree-guide-x" as string]: `${guideX(depth)}px` }}
+          >
           {/* SortableContext per level — shared DndContext is at FileTree root.
               This prevents cross-level sort animations: verticalListSortingStrategy
               only displaces items within its own context, never items in sibling
@@ -1596,9 +1720,142 @@ function FolderNode({
               />
             ))}
           </SortableContext>
+          {/* Fichiers après les dossiers (convention explorateur). */}
+          {childNotes.length > 0 && (
+            <NoteRows
+              notes={childNotes}
+              depth={depth + 1}
+              folderPath={folder.path}
+              onSelectFolder={onSelectFolder}
+            />
+          )}
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Lignes de notes ───────────────────────────────────────────────────────────
+
+/** Extensions Drive (.gdoc/.gsheet/.gslides) → icône dédiée. */
+const DRIVE_EXT_TO_KIND = new Map<string, GoogleDocKind>(
+  DRIVE_DOC_ORDER.map((kind) => [GOOGLE_DOC_KINDS[kind].ext.slice(1), kind]),
+);
+
+/**
+ * Glyphe d'une note : emoji perso (`fields.icon`, cf. NoteIcon) sinon un
+ * pictogramme dérivé du contenu — canevas, fichier Drive, pièce jointe, note
+ * markdown. Volontairement plus discret que les icônes de dossier (couleur
+ * `--text-muted`) pour que la hiérarchie reste lisible d'un coup d'œil.
+ */
+function NoteGlyph({ note, color }: { note: TreeNote; color: string }): React.JSX.Element {
+  const fields = note.fields ?? {};
+  const emoji = typeof fields["icon"] === "string" ? fields["icon"].trim() : "";
+  if (emoji) {
+    return (
+      <span aria-hidden className="w-[14px] shrink-0 text-center text-[12px] leading-none">
+        {emoji}
+      </span>
+    );
+  }
+  const attachment = typeof fields["attachmentFile"] === "string" ? fields["attachmentFile"] : "";
+  const dot = attachment.lastIndexOf(".");
+  const ext = dot >= 0 ? attachment.slice(dot + 1).toLowerCase() : "";
+  const driveKind = ext ? DRIVE_EXT_TO_KIND.get(ext) : undefined;
+  if (driveKind) {
+    const Icon = DRIVE_DOC_ICONS[driveKind];
+    return <Icon size={14} color={color} weight="regular" />;
+  }
+  if (fields["canvas"]) return <PenNib size={14} color={color} weight="regular" />;
+  if (attachment) return <Paperclip size={14} color={color} weight="regular" />;
+  return <FileText size={14} color={color} weight="regular" />;
+}
+
+interface NoteRowsProps {
+  notes: TreeNote[];
+  /** Niveau d'indentation des lignes (= profondeur du dossier parent + 1). */
+  depth: number;
+  /** Dossier hôte — cible du repli « + N autres ». "" = racine du coffre. */
+  folderPath: string;
+  onSelectFolder: (path: string) => void;
+}
+
+/** Liste des notes d'un dossier, tronquée à {@link NOTES_PER_FOLDER_CAP}. */
+function NoteRows({ notes, depth, folderPath, onSelectFolder }: NoteRowsProps) {
+  const visible = notes.length > NOTES_PER_FOLDER_CAP
+    ? notes.slice(0, NOTES_PER_FOLDER_CAP)
+    : notes;
+  const hidden = notes.length - visible.length;
+  return (
+    <>
+      {visible.map((note) => (
+        <NoteRow key={note.id} note={note} depth={depth} />
+      ))}
+      {hidden > 0 && (
+        <button
+          type="button"
+          disabled={folderPath === ""}
+          onClick={folderPath === "" ? undefined : () => onSelectFolder(folderPath)}
+          className="sn-tree-elbow relative flex w-full items-center gap-1.5 rounded-md py-1 text-left text-xs italic disabled:cursor-default"
+          style={{
+            ["--sn-tree-elbow-x" as string]: `${elbowX(depth)}px`,
+            paddingLeft: `${rowPaddingLeft(depth) + 20}px`,
+            color: "var(--text-muted)",
+          }}
+        >
+          + {hidden} autre{hidden > 1 ? "s" : ""}
+        </button>
+      )}
+    </>
+  );
+}
+
+/**
+ * Une note dans l'arbre. Alignée sur le titre des sous-dossiers de même
+ * niveau : un espaceur de 16px occupe la colonne du chevron (une note n'a rien
+ * à déplier), puis glyphe + titre. Draggable en natif (`text/plain` = id) pour
+ * réutiliser le drop des FolderNode et déplacer la note d'un dossier à l'autre
+ * sans passer par la liste centrale.
+ */
+function NoteRow({ note, depth }: { note: TreeNote; depth: number }) {
+  const { selectedNoteId, onSelectNote } = useContext(NoteTreeContext);
+  const isSelected = selectedNoteId === note.id;
+  const fg = isSelected ? "var(--accent)" : "var(--text-secondary)";
+  return (
+    <div
+      className="sn-tree-elbow relative flex items-center"
+      style={{ ["--sn-tree-elbow-x" as string]: `${elbowX(depth)}px` }}
+    >
+      <button
+        type="button"
+        draggable
+        onDragStart={(e) => {
+          e.dataTransfer.setData("text/plain", note.id);
+          e.dataTransfer.effectAllowed = "move";
+        }}
+        onClick={() => onSelectNote?.(note.id)}
+        title={note.title}
+        className="sn-motion-colors flex flex-1 items-center gap-1.5 rounded-md px-2 py-1.5 text-sm"
+        style={{
+          paddingLeft: `${rowPaddingLeft(depth)}px`,
+          backgroundColor: isSelected ? "var(--accent-subtle)" : undefined,
+          color: fg,
+          fontWeight: isSelected ? 500 : 400,
+        }}
+        onMouseEnter={(e) => {
+          if (!isSelected) (e.currentTarget as HTMLButtonElement).style.backgroundColor = "var(--surface-2)";
+        }}
+        onMouseLeave={(e) => {
+          if (!isSelected) (e.currentTarget as HTMLButtonElement).style.backgroundColor = "";
+        }}
+      >
+        {/* Colonne du chevron, laissée vide : aligne le glyphe des notes sur
+            celui des sous-dossiers de même niveau. */}
+        <span aria-hidden className="w-4 flex-shrink-0" />
+        <NoteGlyph note={note} color={isSelected ? "var(--accent)" : "var(--text-muted)"} />
+        <span className="flex-1 truncate text-left">{note.title || "Sans titre"}</span>
+      </button>
     </div>
   );
 }

@@ -596,6 +596,8 @@ function NoteDetailContent() {
             onDeleteFolder={handleDeleteFolder}
             onArchiveFolder={handleArchiveFolder}
             notes={allNotes.filter((n) => !n.archivedAt)}
+            selectedNoteId={params.id}
+            onSelectNote={handleSelectNote}
             onCollapse={handleToggleFileTreeCollapsed}
             onDropNote={handleMoveNote}
           />
