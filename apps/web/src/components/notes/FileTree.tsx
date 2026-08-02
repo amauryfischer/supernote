@@ -93,7 +93,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { Button } from "@heroui/react";
 import type { Folder as FolderType } from "./fixtures";
 import { useTranslations } from "next-intl";
-import { ContextMenu, useContextMenu, useToast } from "@supernote/ui";
+import { ContextMenu, useContextMenu, useToast, type ContextMenuItemDef } from "@supernote/ui";
 import { ConnectVaultModal } from "./ConnectVaultModal";
 import { useUpdateFolder, useReorderFolders, useMoveFolder } from "./hooks";
 import { trpc, trpcVanillaClient } from "@/lib/trpc/client";
@@ -112,7 +112,8 @@ import {
   DndContext,
   closestCenter,
   KeyboardSensor,
-  PointerSensor,
+  MouseSensor,
+  TouchSensor,
   useSensor,
   useSensors,
   useDroppable,
@@ -281,12 +282,23 @@ interface NoteTreeContextValue {
   notesByFolder: Map<string, TreeNote[]>;
   selectedNoteId: string | null;
   onSelectNote: ((id: string) => void) | null;
+  /** Renommage inline (double-clic / F2 / menu contextuel). */
+  onRenameNote: ((id: string, newTitle: string) => Promise<void>) | null;
+  /** Suppression — le call-site est responsable de la confirmation. */
+  onDeleteNote: ((id: string) => void) | null;
+  onArchiveNote: ((id: string, archived: boolean) => Promise<void>) | null;
+  /** Ouvre le menu contextuel partagé (état unique à la racine du FileTree). */
+  openContextMenu: ((e: React.MouseEvent, items: ContextMenuItemDef[]) => void) | null;
 }
 
 const NoteTreeContext = createContext<NoteTreeContextValue>({
   notesByFolder: new Map(),
   selectedNoteId: null,
   onSelectNote: null,
+  onRenameNote: null,
+  onDeleteNote: null,
+  onArchiveNote: null,
+  openContextMenu: null,
 });
 
 /** Indexe les notes par dossier direct, chaque bucket trié par titre. */
@@ -578,6 +590,19 @@ interface FileTreeProps {
    */
   onSelectNote?: (id: string) => void;
   /**
+   * Renommage d'une note depuis l'arbre (double-clic, F2, ou clic droit →
+   * « Renommer »). Doit résoudre une fois le titre commité ; un rejet affiche
+   * un toast et la ligne reprend son titre d'origine.
+   */
+  onRenameNote?: (id: string, newTitle: string) => Promise<void>;
+  /**
+   * Clic droit → « Supprimer la note ». Le call-site porte la confirmation
+   * (modal) — l'arbre se contente de déclencher l'intention.
+   */
+  onDeleteNote?: (id: string) => void;
+  /** Clic droit → « Archiver la note ». */
+  onArchiveNote?: (id: string, archived: boolean) => Promise<void>;
+  /**
    * Optional collapse handler — when provided, a small chevron button is
    * rendered in the header that calls back to hide the entire FileTree
    * column. The parent owns the collapsed state (so it can persist it).
@@ -615,6 +640,9 @@ export function FileTree({
   notes: rawNotes,
   selectedNoteId = null,
   onSelectNote,
+  onRenameNote,
+  onDeleteNote,
+  onArchiveNote,
   onCollapse,
   onDropNote,
 }: FileTreeProps) {
@@ -723,8 +751,24 @@ export function FileTree({
   // (chaque FolderNode y lit ses notes en O(1) au lieu de rescanner le tableau).
   const notesByFolder = useMemo(() => buildNotesByFolder(notes), [notes]);
   const noteCtx = useMemo<NoteTreeContextValue>(
-    () => ({ notesByFolder, selectedNoteId, onSelectNote: onSelectNote ?? null }),
-    [notesByFolder, selectedNoteId, onSelectNote],
+    () => ({
+      notesByFolder,
+      selectedNoteId,
+      onSelectNote: onSelectNote ?? null,
+      onRenameNote: onRenameNote ?? null,
+      onDeleteNote: onDeleteNote ?? null,
+      onArchiveNote: onArchiveNote ?? null,
+      openContextMenu: ctx.open,
+    }),
+    [
+      notesByFolder,
+      selectedNoteId,
+      onSelectNote,
+      onRenameNote,
+      onDeleteNote,
+      onArchiveNote,
+      ctx.open,
+    ],
   );
   // Notes posées à la racine du coffre (aucun dossier) : elles n'ont aucun
   // FolderNode pour les héberger, on les rend donc directement dans le nav,
@@ -843,8 +887,17 @@ export function FileTree({
   const [nestTarget, setNestTarget] = useState<string | null>(null);
   const [reparentTarget, setReparentTarget] = useState<string | null>(null);
 
+  // PointerSensor seul ne permet pas de glisser au doigt dans une liste qui
+  // défile : dès que le doigt bouge, le navigateur arbitre en faveur du scroll
+  // et envoie `pointercancel`, donc le drag ne démarre jamais. Le TouchSensor
+  // lève l'ambiguïté par un appui maintenu — on garde ainsi le scroll libre
+  // (pas de `touch-action: none`) tout en rendant le déplacement possible.
+  // Souris = MouseSensor et non PointerSensor : ce dernier voit AUSSI les
+  // événements tactiles et son seuil en distance gagnerait la course contre
+  // les 250ms du TouchSensor, ramenant exactement le conflit qu'on évite.
   const dndSensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
@@ -1513,7 +1566,14 @@ function FolderNode({
 
   const chevronSpan = (
     <span
-      className="flex w-4 flex-shrink-0 items-center justify-center"
+      // Le chevron ne mesurait que 16×12 : il s'ajuste au caret, pas à la
+      // rangée. `self-stretch` lui donne la hauteur de la ligne et l'anneau
+      // ::before récupère la gouttière à SA GAUCHE seulement — vers la
+      // droite se trouve le nom du dossier, dont le tap ouvre le dossier au
+      // lieu de le replier ; un anneau symétrique volerait ce geste. Pas de
+      // `sn-hit` ici : porter la largeur à 32px décalerait toute
+      // l'indentation de l'arbre.
+      className="relative flex w-4 flex-shrink-0 items-center justify-center self-stretch before:absolute before:-inset-y-1 before:-left-2 before:right-0 before:content-['']"
       role={hasKids ? "button" : undefined}
       aria-label={hasKids ? (expanded ? "Réduire" : "Développer") : undefined}
       onClick={hasKids ? handleChevronClick : undefined}
@@ -1601,7 +1661,7 @@ function FolderNode({
           >
             {chevronSpan}
             {folderGlyph}
-            <InlineFolderRenameInput
+            <InlineRenameInput
               initialValue={folder.name}
               onCommit={handleInlineRename}
               onCancel={() => setIsRenaming(false)}
@@ -1614,7 +1674,11 @@ function FolderNode({
             // untokenized Tailwind `transition-colors`). Drives BOTH the
             // selection highlight (when selectedBg/selectedFg change) and the
             // imperative hover bg below, on the caret's standard easing.
-            className="sn-motion-colors flex flex-1 items-center gap-1.5 rounded-md px-2 py-1.5 text-sm"
+            // pr-10 sous md: — le bouton « … » y est affiché en permanence
+            // (pas de survol au doigt) : on réserve sa place (32px de bouton +
+            // 6px de marge droite) pour qu'il ne masque pas le compteur. Sur
+            // desktop il n'apparaît qu'au survol, superposé au compteur.
+            className="sn-motion-colors flex flex-1 items-center gap-1.5 rounded-md py-1.5 pl-2 pr-10 text-sm md:pr-2"
             style={sharedRowStyle}
             onMouseEnter={(e) => {
               if (!isSelected) (e.currentTarget as HTMLButtonElement).style.backgroundColor = "var(--surface-2)";
@@ -1670,7 +1734,12 @@ function FolderNode({
             aria-label="Actions du dossier"
             title="Actions"
             // Justified native: context-menu positioning requires clientX/clientY.
-            className="absolute right-1.5 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md border border-[var(--border-subtle)] bg-[var(--surface-1)] text-[var(--text-muted)] opacity-0 shadow-sm transition-opacity hover:bg-[var(--surface-2)] hover:text-[var(--text-primary)] focus:opacity-100 focus-visible:opacity-100 group-hover:opacity-100"
+            // `sn-reveal` : révélé au survol à la souris, visible en permanence
+            // au doigt — sans survol, un bouton transparent serait introuvable.
+            // `sn-hit` porte le plancher de 32px : au-delà de sa boîte, c'est la
+            // rangée sœur qui capte le tap, donc on ouvrirait l'élément au lieu
+            // du menu (cf. globals.css, tout se décide au pointeur).
+            className="sn-reveal sn-reveal--chip sn-hit absolute right-1.5 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md border text-[var(--text-muted)] hover:bg-[var(--surface-2)] hover:text-[var(--text-primary)]"
           >
             <DotsThree size={14} weight="bold" />
           </button>
@@ -1817,58 +1886,195 @@ function NoteRows({ notes, depth, folderPath, onSelectFolder }: NoteRowsProps) {
  * à déplier), puis glyphe + titre. Draggable en natif (`text/plain` = id) pour
  * réutiliser le drop des FolderNode et déplacer la note d'un dossier à l'autre
  * sans passer par la liste centrale.
+ *
+ * Actions (renommer / archiver / supprimer) : clic droit sur la ligne, ou
+ * bouton « … » — visible en permanence sur mobile (pas de survol au doigt),
+ * révélé au survol sur desktop, comme les lignes de dossier.
  */
 function NoteRow({ note, depth }: { note: TreeNote; depth: number }) {
-  const { selectedNoteId, onSelectNote } = useContext(NoteTreeContext);
+  const {
+    selectedNoteId,
+    onSelectNote,
+    onRenameNote,
+    onDeleteNote,
+    onArchiveNote,
+    openContextMenu,
+  } = useContext(NoteTreeContext);
+  const { toast } = useToast();
+  const [isRenaming, setIsRenaming] = useState(false);
   const isSelected = selectedNoteId === note.id;
   const fg = isSelected ? "var(--accent)" : "var(--text-secondary)";
+  // Note appartenant à un coffre monté : sous-arbre en lecture seule (le
+  // worker rejette les écritures). Aucune action de mutation proposée — même
+  // règle que les FolderNode `isMountScoped`.
+  const isMountScoped =
+    note.folderPath === MOUNT_PATH_PREFIX ||
+    note.folderPath.startsWith(`${MOUNT_PATH_PREFIX}/`);
+
+  const handleRenameCommit = async (newTitle: string) => {
+    setIsRenaming(false);
+    if (!onRenameNote || newTitle === note.title) return;
+    try {
+      await onRenameNote(note.id, newTitle);
+    } catch {
+      toast({ title: "Impossible de renommer la note", variant: "danger" });
+    }
+  };
+
+  // Source unique des actions — partagée par le clic droit et le bouton « … ».
+  const buildItems = (): ContextMenuItemDef[] => {
+    if (isMountScoped) return [];
+    return [
+      {
+        key: "rename",
+        label: "Renommer",
+        icon: <PencilSimple size={14} />,
+        isDisabled: !onRenameNote,
+        onPress: () => setIsRenaming(true),
+      },
+      {
+        key: "archive",
+        label: "Archiver la note",
+        icon: <Archive size={14} />,
+        isDisabled: !onArchiveNote,
+        onPress: () => {
+          if (!onArchiveNote) return;
+          void onArchiveNote(note.id, true).catch(() =>
+            toast({ title: "Impossible d'archiver la note", variant: "danger" }),
+          );
+        },
+      },
+      { key: "sep-delete", label: "", separator: true },
+      {
+        key: "delete",
+        label: "Supprimer la note",
+        icon: <Trash size={14} />,
+        isDanger: true,
+        isDisabled: !onDeleteNote,
+        onPress: () => onDeleteNote?.(note.id),
+      },
+    ];
+  };
+
+  // Sous-arbre monté : aucune action → on laisse le menu natif du navigateur
+  // plutôt que d'ouvrir un menu vide.
+  const openMenu = (e: React.MouseEvent) => {
+    if (!openContextMenu) return;
+    const items = buildItems();
+    if (items.length === 0) return;
+    e.stopPropagation();
+    e.preventDefault();
+    openContextMenu(e, items);
+  };
+
+  const rowStyle: React.CSSProperties = {
+    paddingLeft: `${rowPaddingLeft(depth)}px`,
+    backgroundColor: isSelected ? "var(--accent-subtle)" : undefined,
+    color: fg,
+    fontWeight: isSelected ? 500 : 400,
+  };
+
   return (
     <div
-      className="sn-tree-elbow relative flex items-center"
+      className="sn-tree-elbow group relative flex items-center"
       style={{ ["--sn-tree-elbow-x" as string]: `${elbowX(depth)}px` }}
+      onContextMenu={openMenu}
     >
-      <button
-        type="button"
-        draggable
-        onDragStart={(e) => {
-          e.dataTransfer.setData("text/plain", note.id);
-          e.dataTransfer.effectAllowed = "move";
-        }}
-        onClick={() => onSelectNote?.(note.id)}
-        title={note.title}
-        className="sn-motion-colors flex flex-1 items-center gap-1.5 rounded-md px-2 py-1.5 text-sm"
-        style={{
-          paddingLeft: `${rowPaddingLeft(depth)}px`,
-          backgroundColor: isSelected ? "var(--accent-subtle)" : undefined,
-          color: fg,
-          fontWeight: isSelected ? 500 : 400,
-        }}
-        onMouseEnter={(e) => {
-          if (!isSelected) (e.currentTarget as HTMLButtonElement).style.backgroundColor = "var(--surface-2)";
-        }}
-        onMouseLeave={(e) => {
-          if (!isSelected) (e.currentTarget as HTMLButtonElement).style.backgroundColor = "";
-        }}
-      >
-        {/* Colonne du chevron, laissée vide : aligne le glyphe des notes sur
-            celui des sous-dossiers de même niveau. */}
-        <span aria-hidden className="w-4 flex-shrink-0" />
-        <NoteGlyph note={note} color={isSelected ? "var(--accent)" : "var(--text-muted)"} />
-        <span className="flex-1 truncate text-left">{note.title || "Sans titre"}</span>
-      </button>
+      {isRenaming ? (
+        // Un <input> ne peut pas vivre dans un <button> (HTML invalide) : on
+        // bascule la ligne en <div> le temps de l'édition, même motif que
+        // FolderNode.
+        <div
+          className="flex flex-1 items-center gap-1.5 rounded-md px-2 py-1.5 text-sm"
+          style={rowStyle}
+        >
+          <span aria-hidden className="w-4 flex-shrink-0" />
+          <NoteGlyph note={note} color={isSelected ? "var(--accent)" : "var(--text-muted)"} />
+          <InlineRenameInput
+            initialValue={note.title}
+            onCommit={(value) => void handleRenameCommit(value)}
+            onCancel={() => setIsRenaming(false)}
+            ariaLabel="Renommer la note"
+            pathSegment={false}
+          />
+        </div>
+      ) : (
+        <button
+          type="button"
+          draggable
+          onDragStart={(e) => {
+            e.dataTransfer.setData("text/plain", note.id);
+            e.dataTransfer.effectAllowed = "move";
+          }}
+          onClick={() => onSelectNote?.(note.id)}
+          title={note.title}
+          // pr-10 sous md: réserve la place du « … » (32px + 6px de marge),
+          // affiché en permanence au doigt ; à la souris il n'apparaît qu'au
+          // survol et peut rester superposé au titre.
+          className="sn-motion-colors flex flex-1 items-center gap-1.5 rounded-md py-1.5 pl-2 pr-10 text-sm md:pr-8"
+          style={rowStyle}
+          onMouseEnter={(e) => {
+            if (!isSelected) (e.currentTarget as HTMLButtonElement).style.backgroundColor = "var(--surface-2)";
+          }}
+          onMouseLeave={(e) => {
+            if (!isSelected) (e.currentTarget as HTMLButtonElement).style.backgroundColor = "";
+          }}
+        >
+          {/* Colonne du chevron, laissée vide : aligne le glyphe des notes sur
+              celui des sous-dossiers de même niveau. */}
+          <span aria-hidden className="w-4 flex-shrink-0" />
+          <NoteGlyph note={note} color={isSelected ? "var(--accent)" : "var(--text-muted)"} />
+          {/* Pas de double-clic « renommer » ici (contrairement aux dossiers
+              et à la NoteList) : le premier clic navigue déjà vers la note, ce
+              qui remonte l'arbre depuis /notes et ferait disparaître l'input.
+              Le renommage passe par le menu contextuel, atteignable au clavier
+              via le bouton « … ». */}
+          <span className="flex-1 truncate text-left">{note.title || "Sans titre"}</span>
+        </button>
+      )}
+
+      {!isRenaming && !isMountScoped && (
+        <button
+          type="button"
+          onClick={openMenu}
+          onContextMenu={openMenu}
+          aria-label="Actions de la note"
+          title="Actions"
+          // Justified native: le positionnement du menu exige clientX/clientY.
+          // `sn-reveal` + `sn-hit` : voir la même paire sur la rangée dossier.
+          className="sn-reveal sn-reveal--chip sn-hit absolute right-1.5 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md border text-[var(--text-muted)] hover:bg-[var(--surface-2)] hover:text-[var(--text-primary)]"
+        >
+          <DotsThree size={14} weight="bold" />
+        </button>
+      )}
     </div>
   );
 }
 
-// ── InlineFolderRenameInput ───────────────────────────────────────────────────
+// ── InlineRenameInput ─────────────────────────────────────────────────────────
 
-interface InlineFolderRenameInputProps {
+interface InlineRenameInputProps {
   initialValue: string;
   onCommit: (value: string) => void;
   onCancel: () => void;
+  /** Étiquette a11y — le même input sert aux dossiers et aux notes. */
+  ariaLabel?: string;
+  /**
+   * `true` (défaut) : la valeur devient un vrai segment de chemin (dossier) →
+   * on retire aussi les `..`. `false` : simple titre de note (seul
+   * `fields.title` est écrit) → on garde les points, un titre peut
+   * légitimement contenir « … ».
+   */
+  pathSegment?: boolean;
 }
 
-function InlineFolderRenameInput({ initialValue, onCommit, onCancel }: InlineFolderRenameInputProps) {
+function InlineRenameInput({
+  initialValue,
+  onCommit,
+  onCancel,
+  ariaLabel = "Renommer le dossier",
+  pathSegment = true,
+}: InlineRenameInputProps) {
   const [draft, setDraft] = useState(initialValue);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -1878,7 +2084,8 @@ function InlineFolderRenameInput({ initialValue, onCommit, onCancel }: InlineFol
   }, []);
 
   const commit = () => {
-    const trimmed = draft.trim().replace(/[/\\]/g, "").replace(/\.\./g, "");
+    const stripped = draft.trim().replace(/[/\\]/g, "");
+    const trimmed = pathSegment ? stripped.replace(/\.\./g, "") : stripped;
     if (!trimmed) { onCancel(); return; }
     onCommit(trimmed);
   };
@@ -1896,7 +2103,7 @@ function InlineFolderRenameInput({ initialValue, onCommit, onCancel }: InlineFol
       onClick={(e) => e.stopPropagation()}
       className="flex-1 min-w-0 rounded px-1 text-sm outline-none ring-1 ring-[var(--accent)]"
       style={{ color: "var(--text-primary)", backgroundColor: "var(--surface-1)" }}
-      aria-label="Renommer le dossier"
+      aria-label={ariaLabel}
     />
   );
 }
@@ -1915,7 +2122,10 @@ function ActionButton({ onClick, label, icon }: ActionButtonProps) {
       isIconOnly
       onPress={onClick}
       aria-label={label}
-      className="h-6 w-6 min-w-0 rounded-md hover:bg-[var(--surface-2)]"
+      // Ces boutons sont côte à côte : leurs zones tactiles se bornent
+      // mutuellement, donc 24px de visuel = 24px de cible utile. `sn-hit`
+      // porte le plancher dès qu'un doigt peut servir, rendu compact sinon.
+      className="sn-hit h-6 w-6 min-w-0 rounded-md hover:bg-[var(--surface-2)]"
       style={{ color: "var(--text-muted)" }}
     >
       {icon}

@@ -11,6 +11,7 @@
 import { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { Button } from "@heroui/react";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import {
   breadcrumb,
   clearFreezeReport,
@@ -53,6 +54,7 @@ function formatReport(r: FreezeReport): string {
 
 export function FreezeReportBanner() {
   const location = useLocation();
+  const isMobile = useIsMobile();
   const [report, setReport] = useState<FreezeReport | null>(() => getFreezeReport());
   const [copied, setCopied] = useState(false);
 
@@ -90,7 +92,13 @@ export function FreezeReportBanner() {
         position: "fixed",
         left: 12,
         right: 12,
-        bottom: 12,
+        // Sous md: la bottom nav (56px + safe-area) occupe déjà le bas de
+        // l'écran — sans ce décalage la bannière la recouvre entièrement, et
+        // la navigation devient inatteignable tant qu'on n'a pas fermé le
+        // rapport.
+        bottom: isMobile
+          ? "calc(12px + 56px + env(safe-area-inset-bottom, 0px))"
+          : 12,
         zIndex: 9999,
         maxWidth: 520,
         margin: "0 auto",
@@ -120,6 +128,11 @@ export function FreezeReportBanner() {
           borderRadius: 8,
           background: "var(--surface-1, rgba(0,0,0,0.04))",
           userSelect: "text",
+          // Le rapport grossit avec les erreurs et l'UA : non borné, il pousse
+          // la bannière sur la moitié de l'écran. Il défile ici, et « Copier »
+          // en récupère la totalité de toute façon.
+          maxHeight: 160,
+          overflowY: "auto",
         }}
       >
         {text}

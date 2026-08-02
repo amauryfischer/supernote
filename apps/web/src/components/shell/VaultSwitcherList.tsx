@@ -107,8 +107,8 @@ export function VaultSwitcherList({
                 aria-label={`Retirer ${v.name} de l'historique`}
                 className={
                   alwaysShowForget
-                    ? "mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded"
-                    : "mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+                    ? "sn-hit mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded"
+                    : "sn-reveal sn-hit mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded"
                 }
                 style={{ color: "var(--text-muted)" }}
               >

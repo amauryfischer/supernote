@@ -392,7 +392,9 @@ function NotesPageContent() {
       setNewSheetOpen(true);
       return;
     }
-    void handleNewNote(selectedFolderRef.current);
+    // Promesse renvoyée (et non jetée) : le FAB s'en sert pour afficher son
+    // état d'attente pendant la création.
+    return handleNewNote(selectedFolderRef.current);
   }, [driveConnected, handleNewNote]);
   useMobileFab(
     isMobile
@@ -424,6 +426,9 @@ function NotesPageContent() {
           notes={allNotes.filter((n) => !n.archivedAt)}
           selectedNoteId={null}
           onSelectNote={handleSelectNote}
+          onRenameNote={handleRenameNote}
+          onDeleteNote={handleDeleteNote}
+          onArchiveNote={handleArchiveNote}
           onDropNote={handleMoveNote}
         />
       )}

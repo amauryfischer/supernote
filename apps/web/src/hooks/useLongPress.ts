@@ -21,7 +21,10 @@ interface LongPressHandlers {
 }
 
 export function useLongPress(
-  callback: (() => void) | undefined,
+  /** Receives the viewport coordinates of the finger, so callers that open a
+   *  positioned surface (context menu, sheet) can anchor it on the press.
+   *  Callbacks that don't care may ignore both arguments. */
+  callback: ((x: number, y: number) => void) | undefined,
   { delay = 500, moveTolerance = 10 }: { delay?: number; moveTolerance?: number } = {},
 ): LongPressHandlers {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -40,9 +43,10 @@ export function useLongPress(
       if (!callback) return;
       const t = e.touches[0];
       if (!t) return;
-      start.current = { x: t.clientX, y: t.clientY };
+      const { clientX, clientY } = t;
+      start.current = { x: clientX, y: clientY };
       timer.current = setTimeout(() => {
-        callback();
+        callback(clientX, clientY);
         timer.current = null;
       }, delay);
     },

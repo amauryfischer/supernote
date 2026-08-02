@@ -20,7 +20,8 @@ import { useCallback, useMemo, useState } from "react";
 import {
   DndContext,
   DragOverlay,
-  PointerSensor,
+  MouseSensor,
+  TouchSensor,
   useSensor,
   useSensors,
   useDroppable,
@@ -29,6 +30,7 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { Button } from "@heroui/react";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { CaretLeft, CaretRight } from "@phosphor-icons/react";
 import { importanceColor } from "./TodoRow";
 import type { TodoRowData } from "./TodoRow";
@@ -294,7 +296,9 @@ function DrawerTodoItem({
         e.stopPropagation();
         onEdit(todo);
       }}
-      className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs cursor-grab active:cursor-grabbing select-none hover:bg-[var(--surface-2)] transition-colors"
+      // À py-1.5 la ligne fait 28px, sous le plancher tactile, et c'est la
+      // seule façon d'ouvrir une tâche sans date.
+      className="sn-hit flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs cursor-grab active:cursor-grabbing select-none hover:bg-[var(--surface-2)] transition-colors"
       style={{ opacity: isDragging ? 0.4 : 1 }}
     >
       <span
@@ -311,13 +315,18 @@ function DrawerTodoItem({
 // ── Main component ────────────────────────────────────────────────────────────
 
 export function TodoCalendarView({ todos, onEdit, onUpdateDates }: TodoCalendarViewProps) {
+  const isMobile = useIsMobile();
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth());
   const [activeTodo, setActiveTodo] = useState<CalendarTodo | null>(null);
 
+  // Doigt = appui long, souris = seuil en distance (cf. TodoMatrix) : le
+  // calendrier défile verticalement sur téléphone, un seuil en distance au
+  // doigt confisquerait ce défilement dès qu'on part d'une pastille de tâche.
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } }),
   );
 
   const days = useMemo(() => buildCalendarDays(year, month), [year, month]);
@@ -423,9 +432,13 @@ export function TodoCalendarView({ todos, onEdit, onUpdateDates }: TodoCalendarV
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
     >
-      <div className="flex flex-1 overflow-hidden" style={{ minHeight: 0 }}>
+      {/* Empilé sous 768px : le tiroir « sans date » est large de 260px fixes,
+          ce qui ne laissait que ~130px au calendrier sur un écran de 390 —
+          trois colonnes de semaine sur sept visibles, en-têtes de jours
+          collées les unes aux autres, et le reste au défilement horizontal. */}
+      <div className="flex flex-1 flex-col overflow-hidden md:flex-row" style={{ minHeight: 0 }}>
         {/* Calendar grid */}
-        <div className="flex flex-col flex-1 overflow-hidden">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           {/* Month nav */}
           <div
             className="flex items-center justify-between px-4 py-2 border-b shrink-0"
@@ -478,7 +491,11 @@ export function TodoCalendarView({ todos, onEdit, onUpdateDates }: TodoCalendarV
             className="grid flex-1 overflow-y-auto"
             style={{
               gridTemplateColumns: "repeat(7, 1fr)",
-              gridAutoRows: "minmax(100px, auto)",
+              // Six rangées de 100px = 600px : sur téléphone le mois entier
+              // passait sous la ligne de flottaison alors que la colonne ne
+              // fait que 55px de large. 64px suffisent à porter le numéro du
+              // jour et deux pastilles.
+              gridAutoRows: `minmax(${isMobile ? 64 : 100}px, auto)`,
               borderTop: "1px solid var(--border-subtle)",
               borderLeft: "1px solid var(--border-subtle)",
             }}
@@ -502,9 +519,12 @@ export function TodoCalendarView({ todos, onEdit, onUpdateDates }: TodoCalendarV
         {/* "Sans date" drawer */}
         <div
           ref={drawerDropRef}
-          className="flex flex-col border-l overflow-hidden shrink-0"
+          className="flex shrink-0 flex-col overflow-hidden border-t md:border-l md:border-t-0"
           style={{
-            width: 260,
+            width: isMobile ? "100%" : 260,
+            // Plafonné pour que le calendrier garde la majorité de l'écran :
+            // le tiroir est une destination de dépôt, pas la vue principale.
+            maxHeight: isMobile ? "34%" : undefined,
             borderColor: "var(--border-subtle)",
             backgroundColor: "var(--surface-1)",
           }}

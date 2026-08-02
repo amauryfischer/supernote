@@ -1231,6 +1231,11 @@ export function PwaVaultSetup({ children }: { children: React.ReactNode }) {
       // FSA picker (isPwa); the Cloud card only needs OPFS (canCloud), so on
       // phones / Safari it's the sole — and primary — option.
       const cardCount = (isPwa ? 2 : 0) + (canCloud ? 1 : 0);
+      // Une colonne au téléphone (trois colonnes forcées donnaient ~70px par
+      // carte, soit un mot par ligne) ; la disposition d'origine revient dès
+      // md:, plafonnée au nombre de cartes réellement affichées.
+      const choiceGridCols =
+        cardCount >= 3 ? "md:grid-cols-3" : cardCount === 2 ? "md:grid-cols-2" : "";
       overlay = (
         <PwaOverlay wide>
           <div style={styles.logo}>S</div>
@@ -1241,17 +1246,7 @@ export function PwaVaultSetup({ children }: { children: React.ReactNode }) {
               : "Connectez-vous à la synchronisation cloud pour retrouver vos notes en temps réel depuis cet appareil et tous les autres."}
           </p>
 
-          <div
-            style={{
-              ...styles.choiceGrid,
-              gridTemplateColumns:
-                cardCount >= 3
-                  ? "1fr 1fr 1fr"
-                  : cardCount === 2
-                    ? "1fr 1fr"
-                    : "1fr",
-            }}
-          >
+          <div className={`grid grid-cols-1 ${choiceGridCols}`} style={styles.choiceGrid}>
             {isPwa && (
               <Button
                 type="button"
@@ -1432,19 +1427,19 @@ function GitSetupForm({
         </div>
       </div>
 
-      <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+      <div style={styles.formActions}>
         <Button
           type="button"
           variant="outline"
           onPress={onCancel}
-          style={{ flex: 1, fontSize: 14, fontWeight: 500, padding: "10px 24px" }}
+          style={{ ...styles.formActionSecondary, fontSize: 14, fontWeight: 500 }}
         >
           Retour
         </Button>
         <Button
           type="submit"
           variant="primary"
-          style={{ flex: 2, fontSize: 15, fontWeight: 600, padding: "12px 24px" }}
+          style={{ ...styles.formActionPrimary, fontSize: 15, fontWeight: 600 }}
         >
           Choisir le dossier et continuer
         </Button>
@@ -1540,12 +1535,12 @@ function CloudSetupForm({
         />
       </label>
 
-      <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+      <div style={styles.formActions}>
         <Button
           type="button"
           variant="outline"
           onPress={onCancel}
-          style={{ flex: 1, fontSize: 14, fontWeight: 500, padding: "10px 24px" }}
+          style={{ ...styles.formActionSecondary, fontSize: 14, fontWeight: 500 }}
         >
           Retour
         </Button>
@@ -1553,7 +1548,7 @@ function CloudSetupForm({
           type="submit"
           variant="primary"
           isDisabled={!vaultKey.trim()}
-          style={{ flex: 2, fontSize: 15, fontWeight: 600, padding: "12px 24px" }}
+          style={{ ...styles.formActionPrimary, fontSize: 15, fontWeight: 600 }}
         >
           Connecter et ouvrir le coffre
         </Button>
@@ -1591,14 +1586,20 @@ function LoadingSpinner() {
 // ── Styles ────────────────────────────────────────────────────────────────────
 
 const styles: Record<string, React.CSSProperties> = {
+  // Le fond défile lui-même : plus haute que l'écran, la carte débordait dans
+  // les deux sens sans rien de scrollable — sur un petit téléphone le bouton
+  // du bas devenait inatteignable. `flex-start` + padding évite en plus que
+  // le centrage rogne le haut quand le contenu dépasse la hauteur.
   backdrop: {
     position: "fixed",
     inset: 0,
     background: "rgba(0,0,0,0.6)",
     backdropFilter: "blur(4px)",
     display: "flex",
-    alignItems: "center",
+    alignItems: "flex-start",
     justifyContent: "center",
+    overflowY: "auto",
+    padding: "24px 0",
     zIndex: 10000,
   },
   card: {
@@ -1612,6 +1613,11 @@ const styles: Record<string, React.CSSProperties> = {
     display: "flex",
     flexDirection: "column",
     gap: 16,
+    // Centre verticalement tant que la place suffit ; au-delà, `auto` ne part
+    // pas en négatif, donc le haut de la carte reste accessible au scroll
+    // (contrairement à un `align-items: center` qui le rognerait).
+    margin: "auto",
+    flexShrink: 0,
   },
   logo: {
     width: 64,
@@ -1687,9 +1693,9 @@ const styles: Record<string, React.CSSProperties> = {
     padding: "8px 12px",
     margin: 0,
   },
+  // `gridTemplateColumns` est volontairement absent : il est piloté par les
+  // classes responsives du composant (un style inline les écraserait).
   choiceGrid: {
-    display: "grid",
-    gridTemplateColumns: "1fr 1fr",
     gap: 12,
     marginTop: 8,
   },
@@ -1757,5 +1763,29 @@ const styles: Record<string, React.CSSProperties> = {
     color: "#374151",
     cursor: "pointer",
     lineHeight: 1.5,
+  },
+  // Rangée d'actions d'un formulaire de setup (Retour + action principale).
+  // Sur un écran de téléphone la place manque : sans `minWidth: 0` un item
+  // flex refuse de descendre sous la largeur de son propre libellé et sort
+  // du modal. On autorise donc la compression, et le retour à la ligne du
+  // texte plutôt qu'un débordement.
+  formActions: {
+    display: "flex",
+    gap: 8,
+    marginTop: 4,
+    alignItems: "stretch",
+  },
+  formActionSecondary: {
+    flex: "1 1 0",
+    minWidth: 0,
+    padding: "10px 16px",
+    whiteSpace: "normal",
+  },
+  formActionPrimary: {
+    flex: "2 1 0",
+    minWidth: 0,
+    padding: "12px 16px",
+    whiteSpace: "normal",
+    lineHeight: 1.3,
   },
 };

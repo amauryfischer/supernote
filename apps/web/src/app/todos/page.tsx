@@ -60,7 +60,8 @@ import {
   DndContext,
   closestCenter,
   KeyboardSensor,
-  PointerSensor,
+  MouseSensor,
+  TouchSensor,
   useSensor,
   useSensors,
   type DragEndEvent,
@@ -244,10 +245,22 @@ export default function TodosPage() {
     if (typeof window === "undefined") return "matrix";
     try {
       const v = window.localStorage.getItem("supernote.todos.viewMode");
-      return v === "calendar" || v === "list" || v === "matrix" ? v : "matrix";
+      if (v === "calendar" || v === "list" || v === "matrix") return v;
     } catch {
-      return "matrix";
+      /* stockage indisponible → on retombe sur le défaut par largeur */
     }
+    // Défaut par défaut d'écran : la matrice d'Eisenhower ne vaut que par sa
+    // grille 2×2 (le sens vient de la POSITION du quadrant). Sous 768px elle
+    // s'empile en quatre blocs verticaux : la métaphore disparaît et il faut
+    // trois écrans de défilement avant d'atteindre la première tâche. La
+    // liste est le bon premier écran au doigt ; le sélecteur de vue reste là
+    // pour ceux qui veulent la matrice, et le choix est mémorisé.
+    try {
+      if (window.matchMedia("(max-width: 767px)").matches) return "list";
+    } catch {
+      /* matchMedia indisponible → matrice */
+    }
+    return "matrix";
   });
   const selectViewMode = useCallback((next: ViewMode) => {
     setViewMode(next);
@@ -389,8 +402,12 @@ export default function TodosPage() {
     }).length;
   }, [todosQuery.data]);
 
+  // Doigt = appui long, souris = seuil en distance (cf. TodoMatrix) : sans ça
+  // le réordonnancement de la liste happe le défilement vertical au premier
+  // pixel de geste, ce qui rend la liste inutilisable sur téléphone.
   const todoDndSensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
@@ -1310,7 +1327,7 @@ export default function TodosPage() {
                   size="sm"
                   variant="ghost"
                   onPress={() => viewMode !== mode && selectViewMode(mode)}
-                  className="flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-colors min-w-0 h-auto"
+                  className="sn-hit flex h-auto min-w-0 items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-colors"
                   style={
                     viewMode === mode
                       ? { backgroundColor: "var(--surface-0)", color: "var(--text-primary)" }
@@ -1904,7 +1921,7 @@ function FilterTabs({ value, onChange, counts }: FilterTabsProps) {
             size="sm"
             variant="ghost"
             onPress={() => onChange(tab.key)}
-            className="flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-colors min-w-0 h-auto"
+            className="sn-hit flex h-auto min-w-0 items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-colors"
             style={
               active
                 ? { backgroundColor: "var(--surface-0)", color: "var(--text-primary)" }
@@ -2034,7 +2051,12 @@ function SortMenu({ value, onChange }: SortMenuProps) {
   ];
   return (
     <div
-      className="flex items-center gap-1.5 rounded-md border px-2 py-1.5 text-xs"
+      // Le select prend la largeur de son option la plus longue (« Manuel
+      // (glisser) ») : 186px sur un écran de 390, soit la moitié de la rangée
+      // pour un contrôle secondaire — il ne restait que 164px aux filtres, qui
+      // se coupaient au milieu du deuxième onglet. Plafonné au doigt, libre au
+      // desktop.
+      className="flex max-w-[132px] shrink-0 items-center gap-1.5 rounded-md border px-2 py-1.5 text-xs md:max-w-none [&>select]:w-full [&>select]:min-w-0"
       style={{
         borderColor: "var(--border-subtle)",
         backgroundColor: "var(--surface-1)",

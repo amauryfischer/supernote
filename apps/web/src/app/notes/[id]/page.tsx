@@ -569,7 +569,9 @@ function NoteDetailContent() {
   // desktop topbar "Nouveau" so the create verb is one tap away from a note.
   useMobileFab(
     isMobile
-      ? { icon: Plus, label: "Nouvelle note", onPress: () => void handleNewNote(null) }
+      // Promesse renvoyée : le FAB affiche son état d'attente le temps de la
+      // création plutôt que de rester inerte sous le doigt.
+      ? { icon: Plus, label: "Nouvelle note", onPress: () => handleNewNote(null) }
       : null,
   );
 
@@ -598,6 +600,9 @@ function NoteDetailContent() {
             notes={allNotes.filter((n) => !n.archivedAt)}
             selectedNoteId={params.id}
             onSelectNote={handleSelectNote}
+            onRenameNote={handleRenameNote}
+            onDeleteNote={handleDeleteRequest}
+            onArchiveNote={handleArchiveNote}
             onCollapse={handleToggleFileTreeCollapsed}
             onDropNote={handleMoveNote}
           />

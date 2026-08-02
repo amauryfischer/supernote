@@ -271,7 +271,10 @@ export function AmbianceSelector({
         size="sm"
         onPress={() => setOpen((o) => !o)}
         aria-label="Ambiance de la note"
-        className="h-7 min-w-0 gap-1 px-2 text-xs"
+        // Puce sans libellé tant qu'aucune ambiance n'est choisie : 30px de
+        // large (icône 14 + 2×8 de gouttière). `sn-hit` porte le plancher
+        // tactile sur les deux axes.
+        className="sn-hit h-7 min-w-0 gap-1 px-2 text-xs"
         style={{ color: "var(--text-muted)" }}
       >
         <Palette size={14} />

@@ -9,6 +9,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { usePathname } from "next/navigation";
 import type { Icon as PhosphorIcon } from "@phosphor-icons/react";
 import type { EntityType } from "@supernote/core";
 import type { View } from "@supernote/ipc";
@@ -49,8 +50,13 @@ export interface MobileFabConfig {
   icon: PhosphorIcon;
   /** ARIA label / tooltip. */
   label: string;
-  /** Click handler. */
-  onPress: () => void;
+  /**
+   * Click handler. Renvoyer la promesse d'une action asynchrone fait afficher
+   * au FAB un état d'attente (icône de progression + bouton verrouillé) le
+   * temps de sa résolution ; sans cela, une création lente laisse le bouton
+   * parfaitement inerte et l'utilisateur tape à nouveau.
+   */
+  onPress: () => void | Promise<void>;
 }
 
 /**
@@ -184,6 +190,18 @@ export function ShellChromeProvider({ children }: { children: React.ReactNode })
   const [mobileSubtitle, setMobileSubtitleState] = useState<string | null>(null);
   const [mobileFab, setMobileFabState] = useState<MobileFabConfig | null>(null);
   const [mobileHeaderActions, setMobileHeaderActionsState] = useState<MobileHeaderAction[]>([]);
+
+  // Le provider vit désormais à la racine (RootLayout) et survit donc aux
+  // changements de route — avant, il était remonté par chaque page et cet
+  // état repartait de zéro. Les panneaux liés à une surface précise (éditeur
+  // de colonnes, side-peek d'entité) doivent se refermer en changeant de
+  // page, sinon ils restent ouverts au-dessus d'un contenu qui n'est plus le
+  // leur. Le chrome mobile, lui, est nettoyé par les cleanups des hooks.
+  const pathname = usePathname();
+  useEffect(() => {
+    setColumnEditor(null);
+    setEntityPeek(null);
+  }, [pathname]);
 
   // Hydrate from localStorage once on mount so a refresh does not reopen
   // a panel the user previously closed.
@@ -402,6 +420,35 @@ export function ShellChromeProvider({ children }: { children: React.ReactNode })
   );
 }
 
+/**
+ * Vrai quand un `ShellChromeProvider` est déjà monté au-dessus. Sert à
+ * `AppShell` pour réutiliser le provider racine au lieu d'en imbriquer un
+ * second — un provider imbriqué couperait les pages de leur propre chrome
+ * (voir `warnMissingProvider`).
+ */
+export function useHasShellChrome(): boolean {
+  return useContext(ShellChromeContext) !== null;
+}
+
+/**
+ * Les hooks de publication (`useMobileTitle`, `useMobileFab`,
+ * `useMobileHeaderActions`) sont volontairement tolérants au contexte absent :
+ * une page rendue hors shell ne doit pas planter. Mais l'échec était
+ * TOTALEMENT silencieux — 18 pages sur 26 publiaient dans le vide parce
+ * qu'elles appelaient les hooks depuis le composant qui rend lui-même
+ * `<AppShell>`, donc au-dessus du provider. En mobile ça se traduisait par un
+ * titre générique, aucune action d'en-tête et le FAB de repli. On aboie
+ * désormais en dev.
+ */
+function warnMissingProvider(hook: string): void {
+  if (import.meta.env.DEV) {
+    console.warn(
+      `[shell-chrome] ${hook}() appelé hors ShellChromeProvider — la config est ignorée. ` +
+        `Appelle-le depuis un composant rendu SOUS <AppShell>, pas depuis celui qui le rend.`,
+    );
+  }
+}
+
 export function useShellChrome(): ShellChromeContextValue {
   const ctx = useContext(ShellChromeContext);
   if (!ctx) {
@@ -422,7 +469,7 @@ export function useShellChrome(): ShellChromeContextValue {
 export function useMobileTitle(title: string | null, subtitle: string | null = null): void {
   const ctx = useContext(ShellChromeContext);
   useEffect(() => {
-    if (!ctx) return;
+    if (!ctx) return warnMissingProvider("useMobileTitle");
     ctx.setMobileTitle(title);
     ctx.setMobileSubtitle(subtitle);
     return () => {
@@ -452,7 +499,7 @@ export function useMobileFab(config: MobileFabConfig | null): void {
   ref.current = config;
   const key = config ? config.label : "__null__";
   useEffect(() => {
-    if (!ctx) return;
+    if (!ctx) return warnMissingProvider("useMobileFab");
     ctx.setMobileFab(ref.current);
     return () => ctx.setMobileFab(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -474,7 +521,7 @@ export function useMobileHeaderActions(actions: MobileHeaderAction[]): void {
   ref.current = actions;
   const key = actions.map((a) => `${a.id}:${a.label}:${a.active ? "1" : "0"}`).join("|");
   useEffect(() => {
-    if (!ctx) return;
+    if (!ctx) return warnMissingProvider("useMobileHeaderActions");
     ctx.setMobileHeaderActions(ref.current);
     return () => ctx.setMobileHeaderActions([]);
     // eslint-disable-next-line react-hooks/exhaustive-deps

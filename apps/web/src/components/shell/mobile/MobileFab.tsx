@@ -1,7 +1,7 @@
 "use client";
 
-import { Plus } from "@phosphor-icons/react";
-import { memo } from "react";
+import { CircleNotch, Plus } from "@phosphor-icons/react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { useShellChrome } from "../shell-chrome-context";
 import { Button } from "@supernote/ui";
 
@@ -32,6 +32,31 @@ export const MobileFab = memo(function MobileFab() {
     }
   });
 
+  // Une création passe par le worker : selon l'état du coffre elle prend de
+  // quelques ms à plusieurs secondes (et jusqu'au timeout RPC). Sans état
+  // d'attente le bouton reste strictement identique pendant tout ce temps, ce
+  // qui se lit comme « mon tap n'a pas été pris » et pousse à retaper.
+  const [pending, setPending] = useState(false);
+  const aliveRef = useRef(true);
+  useEffect(() => () => { aliveRef.current = false; }, []);
+
+  const handlePress = useCallback(() => {
+    if (pending) return;
+    let result: void | Promise<void>;
+    try {
+      result = onPress();
+    } catch {
+      return; // handler synchrone en échec : rien à attendre
+    }
+    if (!result || typeof (result as Promise<void>).finally !== "function") return;
+    setPending(true);
+    void (result as Promise<void>).finally(() => {
+      // Le FAB est démonté dès que la page navigue (cas nominal d'une création
+      // réussie) — ne pas toucher au state après coup.
+      if (aliveRef.current) setPending(false);
+    });
+  }, [onPress, pending]);
+
   return (
     <Button
       // Re-mount the entrance pop whenever the published config swaps the icon
@@ -40,8 +65,11 @@ export const MobileFab = memo(function MobileFab() {
       key={label}
       type="button"
       variant="primary"
-      onClick={onPress}
-      aria-label={label}
+      onClick={handlePress}
+      // L'état d'attente passe par le libellé accessible et `isDisabled` :
+      // `aria-busy` n'est pas propagé au DOM par ce Button.
+      aria-label={pending ? `${label} — en cours…` : label}
+      isDisabled={pending}
       // Motion: `.sn-pop-in` gives a spring entrance on mount/appear (the
       // `key` above re-fires it on every config hand-off, so a show/hide reads
       // as a deliberate appear), and `.sn-pressable` upgrades the old
@@ -73,7 +101,11 @@ export const MobileFab = memo(function MobileFab() {
           "0 14px 28px -8px rgba(0,0,0,0.35), 0 6px 10px -4px rgba(0,0,0,0.18), 0 0 24px -6px var(--accent-subtle)",
       }}
     >
-      <Icon size={24} weight="bold" />
+      {pending ? (
+        <CircleNotch size={24} weight="bold" className="animate-spin" />
+      ) : (
+        <Icon size={24} weight="bold" />
+      )}
     </Button>
   );
 });

@@ -4,7 +4,7 @@ import { memo } from "react";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { MobileShell } from "./mobile/MobileShell";
 import { RightPanel } from "./RightPanel";
-import { ShellChromeProvider, useShellChrome } from "./shell-chrome-context";
+import { ShellChromeProvider, useHasShellChrome, useShellChrome } from "./shell-chrome-context";
 import { Sidebar } from "./Sidebar";
 import { TopBar } from "./TopBar";
 import { ColumnEditorSidebar } from "@/components/bases/ColumnEditorSidebar";
@@ -20,8 +20,18 @@ interface AppShellProps {
  * three-column shell. Both share the same `ShellChromeProvider` so pages
  * can publish chrome config (focus mode, accent overrides, mobile title /
  * FAB / actions) without caring about which shell is active.
+ *
+ * Le provider est monté par `RootLayout`, donc AU-DESSUS des pages. C'est ce
+ * qui rend `useMobileTitle` / `useMobileFab` / `useMobileHeaderActions`
+ * utilisables depuis le composant de page lui-même — y compris celui qui rend
+ * ce `<AppShell>`. Tant que le provider vivait ici, ces pages publiaient dans
+ * le vide (18 sur 26) : titre générique, aucune action d'en-tête, FAB de
+ * repli. On ne réinstalle un provider local que s'il n'y en a aucun au-dessus
+ * (rendu hors RootLayout : tests, storybook…).
  */
 export function AppShell({ children }: AppShellProps) {
+  const hasProvider = useHasShellChrome();
+  if (hasProvider) return <ShellSwitcher>{children}</ShellSwitcher>;
   return (
     <ShellChromeProvider>
       <ShellSwitcher>{children}</ShellSwitcher>

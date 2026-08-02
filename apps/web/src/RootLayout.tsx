@@ -15,7 +15,7 @@ import { TrpcProvider } from "@/lib/trpc/Provider";
 import { LocaleProvider } from "@/i18n/LocaleProvider";
 import { ShortcutProvider } from "@/lib/keyboard/ShortcutProvider";
 import { CommandSurface } from "@/components/command";
-import { NavProgress } from "@/components/shell";
+import { NavProgress, ShellChromeProvider } from "@/components/shell";
 import { OnboardingTour } from "@/components/onboarding/OnboardingTour";
 import { VaultInitBanner } from "@/lib/vault/VaultInitBanner";
 import { PwaBootstrap } from "@/lib/pwa/PwaBootstrap";
@@ -67,7 +67,14 @@ export function RootLayout() {
                   <GitSyncProvider>
                     <OnlineSyncProvider>
                       <MountSyncProvider>
-                        <Outlet />
+                        {/* Chrome du shell (mode focus, panneaux, titre/FAB/
+                            actions mobiles) monté AU-DESSUS des routes : les
+                            pages rendent elles-mêmes `<AppShell>`, elles
+                            seraient donc au-dessus d'un provider local et
+                            leurs publications tomberaient dans le vide. */}
+                        <ShellChromeProvider>
+                          <Outlet />
+                        </ShellChromeProvider>
                       </MountSyncProvider>
                     </OnlineSyncProvider>
                   </GitSyncProvider>

@@ -83,7 +83,17 @@ export const MobileShell = memo(function MobileShell({
 
       <main
         className="relative flex-1 overflow-y-auto"
-        style={{ backgroundColor: "var(--surface-0)" }}
+        style={{
+          backgroundColor: "var(--surface-0)",
+          // Le FAB dépasse de 20px AU-DESSUS de la barre de navigation (il est
+          // ancré à `20px + safe-area` du bas, pour 56px de haut, et la nav en
+          // fait 56). Ces 20px se superposaient donc au bas de `main` : sur une
+          // rangée pleine largeur — le « Nouveau dossier » en pied d'arbre — le
+          // centre de la ligne appartenait au FAB, et deux actions « créer »
+          // différentes se disputaient le même pixel. On réserve exactement sa
+          // saillie : rien dans `main` ne passe plus sous le FAB.
+          paddingBottom: 20,
+        }}
       >
         {children}
       </main>

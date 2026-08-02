@@ -93,7 +93,11 @@ export const HabitCard = memo(function HabitCard({
               size="sm"
               onPress={() => onEdit(habit)}
               aria-label={`Modifier ${habit.name}`}
-              className="h-auto min-w-0 rounded p-1 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+              // Seule porte vers l'édition et la suppression d'une habitude,
+              // et elle était en survol-seul : au doigt, un bouton invisible
+              // de 20×28 collé au titre — inatteignable en pratique, et
+              // pourtant capteur de taps.
+              className="sn-reveal sn-hit h-auto shrink-0 rounded p-1"
               style={{ color: "var(--text-muted)" }}
             >
               <PencilSimple size={12} />

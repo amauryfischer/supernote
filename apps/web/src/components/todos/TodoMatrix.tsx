@@ -23,7 +23,8 @@ import {
   DndContext,
   useDraggable,
   useDroppable,
-  PointerSensor,
+  MouseSensor,
+  TouchSensor,
   KeyboardSensor,
   useSensor,
   useSensors,
@@ -103,8 +104,14 @@ export function TodoMatrix({
   onEmail,
   onContextMenu,
 }: TodoMatrixProps) {
+  // Souris et doigt sont volontairement séparés (au lieu d'un PointerSensor
+  // unique) : au doigt, un seuil en distance déclenche le drag dès qu'on
+  // commence à faire défiler la page, et comme les quadrants s'empilent sous
+  // 768px la matrice occupe plusieurs écrans de haut. Le doigt passe donc par
+  // un appui long (250ms), ce qui laisse le geste vertical au navigateur.
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } }),
     useSensor(KeyboardSensor),
   );
 
@@ -165,7 +172,10 @@ function Quadrant({ def, rows, onToggle, onEdit, onEmail, onContextMenu }: Quadr
   return (
     <div
       ref={setNodeRef}
-      className="flex min-h-[180px] flex-col rounded-xl border p-3"
+      // Hauteur plancher réservée au desktop : sur téléphone les quadrants
+      // s'empilent, et quatre blocs de 180px imposaient trois écrans de
+      // défilement même quand la moitié est vide.
+      className="flex min-h-0 flex-col rounded-xl border p-3 md:min-h-[180px]"
       style={{
         borderColor: isOver ? def.accent : "var(--border-subtle)",
         backgroundColor: isOver ? "var(--surface-2)" : "var(--surface-1)",
@@ -199,7 +209,7 @@ function Quadrant({ def, rows, onToggle, onEdit, onEmail, onContextMenu }: Quadr
       <ul className="flex flex-1 flex-col gap-1">
         {rows.length === 0 ? (
           <li
-            className="flex flex-1 items-center justify-center rounded-md border border-dashed py-6 text-[11px]"
+            className="flex flex-1 items-center justify-center rounded-md border border-dashed py-2 text-[11px] md:py-6"
             style={{ borderColor: "var(--border-subtle)", color: "var(--text-muted)" }}
           >
             Déposer une tâche ici
@@ -237,7 +247,12 @@ function MatrixCard({ row, onToggle, onEdit, onEmail, onContextMenu }: MatrixCar
     transform: CSS.Translate.toString(transform),
     opacity: isDragging ? 0.4 : 1,
     cursor: "grab",
-    touchAction: "none",
+    // PAS `none` : ça coupait le défilement vertical partout où une carte se
+    // trouve sous le doigt — sur téléphone les quadrants sont empilés, donc
+    // avec un vrai backlog la quasi-totalité de la surface devenait non
+    // scrollable. `manipulation` laisse passer le pan, et c'est le seuil de
+    // 250ms du TouchSensor qui distingue « je défile » de « je déplace ».
+    touchAction: "manipulation",
     // While dragging: no transform transition so the card tracks the pointer
     // 1:1. On release (isDragging false, transform cleared) the residual
     // offset eases back to rest with the signature glide. Opacity always

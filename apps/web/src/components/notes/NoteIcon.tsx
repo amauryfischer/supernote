@@ -90,7 +90,7 @@ function EmojiPicker({
           variant="ghost"
           size="sm"
           onPress={pickRandom}
-          className="h-7 min-w-0 gap-1 px-2 text-xs"
+          className="sn-hit h-7 min-w-0 gap-1 px-2 text-xs"
           style={{ color: "var(--text-secondary)" }}
         >
           <Shuffle size={13} />
@@ -101,7 +101,7 @@ function EmojiPicker({
             variant="ghost"
             size="sm"
             onPress={onRemove}
-            className="h-7 min-w-0 gap-1 px-2 text-xs"
+            className="sn-hit h-7 min-w-0 gap-1 px-2 text-xs"
             style={{ color: "var(--text-muted)" }}
           >
             <Trash size={13} />
@@ -181,7 +181,7 @@ export function IconButton({
         size="sm"
         onPress={() => setOpen((o) => !o)}
         aria-label="Ajouter une icône"
-        className="h-7 min-w-0 gap-1 px-2 text-xs"
+        className="sn-hit h-7 min-w-0 gap-1 px-2 text-xs"
         style={{ color: "var(--text-muted)" }}
       >
         <Smiley size={14} />

@@ -24,6 +24,7 @@ import { PromptModal } from "@/components/shell/PromptModal";
 import { isAutoTagEnabled, useAutoTag } from "@/hooks/useAutoTag";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useKeyboardOpen } from "@/hooks/useKeyboardOpen";
+import { useLongPress } from "@/hooks/useLongPress";
 import { breadcrumb } from "@/lib/diagnostics/freeze-watchdog";
 import { AssociatedTodos } from "@/components/todos/AssociatedTodos";
 import { renderInlineDatabase } from "./InlineDatabaseRenderer";
@@ -548,19 +549,30 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
     },
     [note.id, note.filePath, note.folderPath, moveMutation, router],
   );
+  // Une seule liste d'actions pour les deux chemins d'ouverture (clic droit et
+  // appui long) : deux listes divergeraient dès la première action ajoutée.
+  const breadcrumbMenuItems = useCallback(
+    (): ContextMenuItemDef[] => [
+      {
+        key: "move",
+        label: "Déplacer dans un autre dossier…",
+        onPress: () => setMoveModalOpen(true),
+      },
+    ],
+    [],
+  );
   const openBreadcrumbContextMenu = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault();
-      const items: ContextMenuItemDef[] = [
-        {
-          key: "move",
-          label: "Déplacer dans un autre dossier…",
-          onPress: () => setMoveModalOpen(true),
-        },
-      ];
-      ctxMenu.open(e, items);
+      ctxMenu.open(e, breadcrumbMenuItems());
     },
-    [ctxMenu],
+    [ctxMenu, breadcrumbMenuItems],
+  );
+  const openBreadcrumbTouchMenu = useCallback(
+    (x: number, y: number) => {
+      ctxMenu.openAt(x, y, breadcrumbMenuItems());
+    },
+    [ctxMenu, breadcrumbMenuItems],
   );
 
   // Reset state when switching to a different note. We key on `note.id` only
@@ -1634,6 +1646,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
             <FolderBreadcrumb
               path={note.folderPath}
               onContextMenu={openBreadcrumbContextMenu}
+              onLongPress={openBreadcrumbTouchMenu}
               onRenameFolder={handleRenameBreadcrumbFolder}
             />
             <div className="flex items-center gap-2">
@@ -1642,7 +1655,9 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
             type="text"
             value={title}
             onChange={handleTitleChange}
-            className="sn-note-title w-full bg-transparent text-xl font-bold leading-tight outline-none"
+            // `leading-tight` sur 20px donne une boîte de 25px, alors que poser
+            // le curseur dans le titre est le premier geste d'une note.
+            className="sn-note-title sn-hit w-full bg-transparent text-xl font-bold leading-tight outline-none"
             style={{ color: "var(--text-primary)" }}
             placeholder="Sans titre"
             aria-label="Titre de la note"
@@ -1662,7 +1677,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
               size="sm"
               onPress={runSuggestTitle}
               isDisabled={isSuggesting}
-              className="h-7 min-w-0 shrink-0 gap-1 rounded border px-2 text-xs hover:opacity-80 disabled:opacity-50"
+              className="sn-hit h-7 min-w-0 shrink-0 gap-1 rounded border px-2 text-xs hover:opacity-80 disabled:opacity-50"
               style={{
                 borderColor: "var(--border)",
                 color: "var(--text-secondary)",
@@ -1723,7 +1738,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
                 if (next) setBodyVersion((v) => v + 1);
                 void trpcVanillaClient.entities.update.mutate({ id: note.id, fields: { aiMargins: next } });
               }}
-              className="h-7 min-w-0 gap-1 px-2 text-xs"
+              className="sn-hit h-7 min-w-0 gap-1 px-2 text-xs"
               style={{ color: aiMargins ? "var(--accent)" : "var(--text-muted)" }}
               aria-label="Marges IA"
               aria-pressed={aiMargins}
@@ -1738,7 +1753,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
               size="sm"
               onPress={() => void handleEmailNote()}
               isDisabled={emailing}
-              className="h-7 min-w-0 gap-1 px-2 text-xs"
+              className="sn-hit h-7 min-w-0 gap-1 px-2 text-xs"
               style={{ color: "var(--text-muted)" }}
               aria-label="Emailer cette note"
             >
@@ -1750,7 +1765,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
             variant="ghost"
             size="sm"
             onPress={() => setPresenting(true)}
-            className="h-7 min-w-0 gap-1 px-2 text-xs"
+            className="sn-hit h-7 min-w-0 gap-1 px-2 text-xs"
             style={{ color: "var(--text-muted)" }}
             aria-label="Présenter la note"
           >
@@ -1761,7 +1776,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
             variant="ghost"
             size="sm"
             onPress={() => window.print()}
-            className="h-7 min-w-0 gap-1 px-2 text-xs"
+            className="sn-hit h-7 min-w-0 gap-1 px-2 text-xs"
             style={{ color: "var(--text-muted)" }}
             aria-label="Exporter en PDF"
           >
@@ -1776,7 +1791,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
               variant="ghost"
               size="sm"
               onPress={() => setBacklinksOpen(true)}
-              className="h-7 min-w-0 gap-1 px-2 text-xs"
+              className="sn-hit h-7 min-w-0 gap-1 px-2 text-xs"
               style={{ color: "var(--text-muted)" }}
               aria-label="Liens entrants"
             >
@@ -1796,7 +1811,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-7 min-w-0 gap-1 px-2 text-xs"
+                className="sn-hit h-7 min-w-0 gap-1 px-2 text-xs"
                 style={{ color: backlinksOpen ? "var(--accent)" : "var(--text-muted)" }}
                 aria-label="Liens entrants"
               >
@@ -1844,7 +1859,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
                 variant="ghost"
                 size="sm"
                 onPress={handleToggleVoice}
-                className="h-7 min-w-0 gap-1 px-2 text-xs"
+                className="sn-hit h-7 min-w-0 gap-1 px-2 text-xs"
                 style={{
                   color: voice.listening ? "var(--accent)" : "var(--text-muted)",
                   animation: voice.listening
@@ -2048,9 +2063,14 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
         <span className="text-xs" style={{ color: "var(--text-muted)" }}>
           Modifié {formatRelativeDate(note.updatedAt, dateFormatPref).toLowerCase()}
         </span>
-        <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-          Glissez un fichier audio ou image pour transcrire / OCR
-        </span>
+        {/* Le glisser-déposer de fichier n'existe pas au doigt : sur mobile ce
+         * hint annonce un geste impraticable, et il passe sous le FAB. On le
+         * réserve donc aux pointeurs fins. */}
+        {!isMobile && (
+          <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+            Glissez un fichier audio ou image pour transcrire / OCR
+          </span>
+        )}
       </div>
 
       <MoveNoteModal
@@ -2198,6 +2218,11 @@ interface FolderBreadcrumbProps {
    *  "Move note to another folder…" entry. Bound on the whole nav so the
    *  user can right-click any segment OR the empty area. */
   onContextMenu?: (e: React.MouseEvent) => void;
+  /** Touch equivalent of {@link onContextMenu}: opens the same menu at the
+   *  finger's position after a long press. Separate prop because iOS never
+   *  fires `contextmenu`, so the mouse path alone leaves the move action
+   *  unreachable on a phone. */
+  onLongPress?: (x: number, y: number) => void;
   /** Inline-rename callback. Receives the FULL old path (cumulative up to the
    *  edited segment) and the NEW leaf name. The parent computes the new full
    *  path and calls `vault.folders.rename`. */
@@ -2207,12 +2232,14 @@ interface FolderBreadcrumbProps {
 function FolderBreadcrumb({
   path,
   onContextMenu,
+  onLongPress,
   onRenameFolder,
 }: FolderBreadcrumbProps) {
   const segments = path.split("/").filter((s) => s.length > 0);
   // editingIndex must always be declared (hook order); guard the early-return
   // on segments below it.
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const longPressHandlers = useLongPress(onLongPress);
   if (segments.length === 0) return null;
   const crumbs = segments.map((label, i) => ({
     label,
@@ -2243,9 +2270,10 @@ function FolderBreadcrumb({
       className="mb-1 flex flex-wrap items-center gap-0.5 text-xs"
       style={{ color: "var(--text-muted)" }}
       onContextMenu={onContextMenu}
+      {...longPressHandlers}
       title={
         onContextMenu
-          ? "Clic droit pour déplacer la note · double-clic sur un dossier pour le renommer"
+          ? "Clic droit (ou appui long) pour déplacer la note · double-clic sur un dossier pour le renommer"
           : undefined
       }
     >
@@ -2273,7 +2301,7 @@ function FolderBreadcrumb({
               size="sm"
               onPress={() => beginEdit(i)}
               onDoubleClick={() => beginEdit(i)}
-              className="h-auto min-w-0 cursor-text rounded bg-transparent px-1 py-0.5 capitalize hover:bg-[var(--surface-2)] hover:text-[var(--text-primary)]"
+              className="sn-hit h-auto min-w-0 cursor-text rounded bg-transparent px-1 py-0.5 capitalize hover:bg-[var(--surface-2)] hover:text-[var(--text-primary)]"
               style={{ color: "var(--text-secondary)", fontWeight: 500 }}
               aria-label={onRenameFolder ? "Cliquer pour renommer" : c.label}
             >
@@ -2495,7 +2523,7 @@ function EditableNoteDate({
     <button
       type="button"
       onClick={() => setEditing(true)}
-      className="flex items-center gap-1.5 rounded px-1 py-0.5 transition-colors hover:bg-[var(--surface-2)]"
+      className="sn-hit flex items-center gap-1.5 rounded px-1 py-0.5 transition-colors hover:bg-[var(--surface-2)]"
       aria-label={
         isOverridden
           ? "Date personnalisée — clic pour modifier"

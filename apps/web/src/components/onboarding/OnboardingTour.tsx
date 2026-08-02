@@ -58,28 +58,43 @@ function getTooltipPosition(
   tooltipHeight = 140,
 ): TooltipPosition {
   const gap = 12;
+  let raw: TooltipPosition;
   switch (position) {
     case "bottom":
-      return {
+      raw = {
         top: targetRect.bottom + gap,
-        left: Math.max(8, targetRect.left + targetRect.width / 2 - tooltipWidth / 2),
+        left: targetRect.left + targetRect.width / 2 - tooltipWidth / 2,
       };
+      break;
     case "right":
-      return {
-        top: Math.max(8, targetRect.top + targetRect.height / 2 - tooltipHeight / 2),
+      raw = {
+        top: targetRect.top + targetRect.height / 2 - tooltipHeight / 2,
         left: targetRect.right + gap,
       };
+      break;
     case "top":
-      return {
+      raw = {
         top: targetRect.top - tooltipHeight - gap,
-        left: Math.max(8, targetRect.left + targetRect.width / 2 - tooltipWidth / 2),
+        left: targetRect.left + targetRect.width / 2 - tooltipWidth / 2,
       };
+      break;
     case "left":
-      return {
-        top: Math.max(8, targetRect.top + targetRect.height / 2 - tooltipHeight / 2),
+      raw = {
+        top: targetRect.top + targetRect.height / 2 - tooltipHeight / 2,
         left: targetRect.left - tooltipWidth - gap,
       };
+      break;
   }
+  // Ramené dans l'écran des DEUX côtés : seul le bord gauche était borné, si
+  // bien qu'une cible à droite ou en bas poussait la bulle hors du viewport —
+  // systématique sur une largeur de téléphone (la bulle fait 280px).
+  const margin = 8;
+  const maxLeft = Math.max(margin, window.innerWidth - tooltipWidth - margin);
+  const maxTop = Math.max(margin, window.innerHeight - tooltipHeight - margin);
+  return {
+    top: Math.min(Math.max(margin, raw.top), maxTop),
+    left: Math.min(Math.max(margin, raw.left), maxLeft),
+  };
 }
 
 export function OnboardingTour() {
@@ -88,19 +103,30 @@ export function OnboardingTour() {
   const [tooltipPos, setTooltipPos] = useState<TooltipPosition>({ top: 0, left: 0 });
   const [highlightRect, setHighlightRect] = useState<DOMRect | null>(null);
   const positionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Étapes réellement présentes à l'écran. Les ancres `data-tour` vivent sur
+  // le shell : celles qui n'ont pas d'équivalent sur la surface courante sont
+  // écartées, sinon leur bulle resterait figée en {0,0} à désigner du vide.
+  const [steps, setSteps] = useState<TourStep[]>([]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     const done = localStorage.getItem(STORAGE_KEY);
-    if (!done) {
-      // Short delay so the page renders first
-      const t = setTimeout(() => setActive(true), 600);
-      return () => clearTimeout(t);
-    }
+    if (done) return;
+    // Short delay so the page renders first
+    const t = setTimeout(() => {
+      const available = STEPS.filter((s) => document.querySelector(s.selector));
+      // Aucune ancre présente (shell mobile, route sans barre latérale…) : on
+      // n'ouvre pas un tour qui ne pourrait montrer rien.
+      if (available.length === 0) return;
+      setSteps(available);
+      setStep(0);
+      setActive(true);
+    }, 600);
+    return () => clearTimeout(t);
   }, []);
 
   const updatePosition = (stepIndex: number) => {
-    const currentStep = STEPS[stepIndex];
+    const currentStep = steps[stepIndex];
     if (!currentStep) return;
     const target = document.querySelector(currentStep.selector);
     if (!target) return;
@@ -124,7 +150,7 @@ export function OnboardingTour() {
   };
 
   const goNext = () => {
-    if (step < STEPS.length - 1) {
+    if (step < steps.length - 1) {
       setStep((s) => s + 1);
     } else {
       dismiss();
@@ -137,8 +163,9 @@ export function OnboardingTour() {
 
   if (!active) return null;
 
-  const currentStep = STEPS[step]!;
-  const isLast = step === STEPS.length - 1;
+  const currentStep = steps[step];
+  if (!currentStep) return null;
+  const isLast = step === steps.length - 1;
 
   return (
     <>
@@ -177,7 +204,7 @@ export function OnboardingTour() {
         {/* Header */}
         <div className="mb-2 flex items-start justify-between gap-2">
           <span className="text-xs font-medium" style={{ color: "var(--text-muted)" }}>
-            {step + 1}/{STEPS.length}
+            {step + 1}/{steps.length}
           </span>
           <Button
             isIconOnly
@@ -201,7 +228,7 @@ export function OnboardingTour() {
 
         {/* Progress dots */}
         <div className="mt-3 flex items-center gap-1">
-          {STEPS.map((_, i) => (
+          {steps.map((_, i) => (
             <div
               key={i}
               className="h-1.5 rounded-full transition-all"

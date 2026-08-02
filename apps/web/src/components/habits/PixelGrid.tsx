@@ -20,8 +20,17 @@
 
 import { memo, useEffect, useMemo, useRef } from "react";
 import { buildGrid, dayLevel, gridWeeks, toDateKey } from "@/lib/habits/habitData";
+import { useIsMobile } from "@/hooks/useIsMobile";
 
-const CELL = 11; // px — côté d'un pixel
+const CELL = 11; // px — côté d'un pixel (pointeur fin)
+/**
+ * Au doigt le pixel grossit : 11px, c'est le tiers du plancher tactile, et
+ * corriger un jour passé (le seul rôle de la grille — le jour courant a son
+ * bouton de 44px) relevait de la loterie. Sept rangées interdisent d'aller
+ * jusqu'à 32px sans doubler la hauteur de chaque carte ; 14px + l'anneau
+ * ci-dessous portent la cible à 18px, soit +170 % de surface.
+ */
+const CELL_TOUCH = 14;
 const GAP = 3; // px — gouttière
 
 interface PixelGridProps {
@@ -58,6 +67,8 @@ export const PixelGrid = memo(function PixelGrid({
   onCycleDay,
 }: PixelGridProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const isMobile = useIsMobile();
+  const cellSize = isMobile ? CELL_TOUCH : CELL;
   const todayKey = toDateKey(new Date());
   const weeks = gridWeeks(createdAt, new Date());
   const createdKey = toDateKey(new Date(createdAt));
@@ -72,20 +83,24 @@ export const PixelGrid = memo(function PixelGrid({
     if (el) el.scrollLeft = el.scrollWidth;
   }, [weeks]);
 
-  const colWidth = CELL + GAP;
+  const colWidth = cellSize + GAP;
 
   return (
     // `justify-end` : la grille et ses étiquettes se rangent côté présent
     // (droite) tant que l'habitude est jeune ; à 53 semaines le bloc occupe
     // toute la carte et le conteneur scrolle.
-    <div className="flex items-stretch justify-end gap-2">
+    // Aligné à gauche au doigt : une habitude jeune ne fait qu'une ou deux
+    // colonnes, et collée au bord droit d'une carte pleine largeur elle
+    // laissait un grand vide à gauche qui se lit comme un rendu cassé. À
+    // gauche, le vide devient l'espace où la grille va pousser.
+    <div className="flex items-stretch justify-start gap-2 md:justify-end">
       {/* Étiquettes de jours — hors du conteneur scrollable pour rester
           visibles pendant le défilement. Lun/Mer/Ven suffisent. */}
       <div
         className="grid shrink-0 text-[9px] leading-none"
         aria-hidden="true"
         style={{
-          gridTemplateRows: `repeat(7, ${CELL}px)`,
+          gridTemplateRows: `repeat(7, ${cellSize}px)`,
           rowGap: GAP,
           marginTop: 14, // aligné sous la rangée des mois
           color: "var(--text-muted)",
@@ -110,7 +125,10 @@ export const PixelGrid = memo(function PixelGrid({
             aria-hidden="true"
             style={{ color: "var(--text-muted)" }}
           >
-            {monthLabels.map((m) => {
+            {/* Sous trois colonnes, le nom du mois est plus large que la
+                grille : il se faisait rogner par le conteneur scrollable
+                (« août » rendu « oût ») sans rien apprendre à personne. */}
+            {weeks >= 3 && monthLabels.map((m) => {
               // Un label posé sur les dernières colonnes déborderait à
               // droite — ce qui élargit le scrollWidth et fait apparaître
               // une scrollbar fantôme. On l'ancre alors à droite : le
@@ -143,7 +161,7 @@ export const PixelGrid = memo(function PixelGrid({
                       <span
                         key={cell.key}
                         aria-hidden="true"
-                        style={{ width: CELL, height: CELL }}
+                        style={{ width: cellSize, height: cellSize }}
                       />
                     );
                   }
@@ -164,10 +182,15 @@ export const PixelGrid = memo(function PixelGrid({
                       title={`${dateLabel} · ${count}/${target}`}
                       aria-label={`${dateLabel} : ${count} sur ${target}`}
                       onClick={() => onCycleDay(cell.key)}
-                      className={poppingKey === cell.key ? "sn-pixel-pop" : undefined}
+                      // L'anneau ::before mange la moitié de la gouttière de
+                      // chaque côté : +4px de cible sans décaler un seul
+                      // pixel ni empiéter sur le voisin.
+                      className={`relative before:absolute before:-inset-[2px] before:content-['']${
+                        poppingKey === cell.key ? " sn-pixel-pop" : ""
+                      }`}
                       style={{
-                        width: CELL,
-                        height: CELL,
+                        width: cellSize,
+                        height: cellSize,
                         borderRadius: 2.5,
                         border: "none",
                         padding: 0,

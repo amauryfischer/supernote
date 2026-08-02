@@ -57,7 +57,9 @@ export function TagSelector({ value, onChange, placeholder }: TagSelectorProps) 
         variant="ghost"
         size="sm"
         onPress={handleOpen}
-        className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium transition-opacity hover:opacity-80"
+        // `sn-hit` : la puce fait 20px de haut, et c'est le seul point
+        // d'entrée pour taguer une note au doigt.
+        className="sn-hit flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium transition-opacity hover:opacity-80"
         style={{ color: "var(--text-muted)", border: "1px dashed var(--border)" }}
         aria-label={placeholder ?? "Ajouter un tag"}
       >

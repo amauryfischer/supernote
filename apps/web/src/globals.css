@@ -1334,13 +1334,110 @@ html, body {
   transform: scale(0.96);
 }
 
-/* Subtle hover lift for cards / interactive tiles. */
+/* Subtle hover lift for cards / interactive tiles. Réservé aux pointeurs qui
+ * survolent réellement : sur tactile, `:hover` reste collé après un tap et la
+ * tuile garde une élévation qui ne veut plus rien dire. */
 .sn-hover-lift {
   transition: transform var(--sn-dur-2) var(--sn-ease-glide),
               box-shadow var(--sn-dur-2) var(--sn-ease-standard);
 }
-.sn-hover-lift:hover {
-  transform: translateY(-2px);
+@media (hover: hover) and (not (any-pointer: coarse)) {
+  .sn-hover-lift:hover {
+    transform: translateY(-2px);
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * Mode de saisie — le survol et la taille des cibles se décident au POINTEUR,
+ * jamais à la largeur.
+ *
+ * Le raccourci habituel (`md:` = souris, sous 768px = doigt) confond deux
+ * axes indépendants. Un portable à écran tactile en 1400px reçoit la version
+ * « souris » : affordances invisibles jusqu'au survol qui n'arrive jamais, et
+ * cibles de 28px. Une tablette Android en 900px aussi. Ces deux règles
+ * expriment l'intention directement, et valent pour toutes les surfaces.
+ * ════════════════════════════════════════════════════════════════════════ */
+
+/* Affordance secondaire révélée au survol (bouton « … » d'une ligne, action
+ * d'édition d'une carte, lien vers la source…).
+ *
+ * Par défaut : visible. C'est le comportement correct partout où le survol
+ * n'existe pas — et l'ancien `opacity-0` sans `pointer-events` y laissait des
+ * boutons invisibles mais cliquables, le pire des deux mondes.
+ *
+ * Le parent porte `group` (convention Tailwind du projet). `focus-within` et
+ * `:focus-visible` gardent le chemin clavier ouvert, exigence explicite du
+ * PRODUCT.md. */
+.sn-reveal {
+  opacity: 1;
+}
+
+/* Condition : « l'appareil survole ET aucun doigt ne peut atteindre l'écran ».
+ * `(hover: hover) and (pointer: fine)` seul ne suffisait pas : un portable
+ * tactile AVEC souris répond oui aux deux (le pointeur PRINCIPAL est la
+ * souris) et on lui rendait l'affordance invisible dès qu'il repose la main
+ * sur l'écran. `any-pointer: coarse` est le seul test qui voie le doigt
+ * disponible en second. En cas de doute — `pointer: none` d'un rendu
+ * headless, d'un lecteur d'écran, d'une navigation au clavier seul — on
+ * échoue VISIBLE : une puce inutile coûte un peu d'encre, une puce invisible
+ * coûte l'action. */
+@media (hover: hover) and (not (any-pointer: coarse)) {
+  .sn-reveal {
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--sn-dur-2) var(--sn-ease-out);
+  }
+  .group:hover .sn-reveal,
+  .group:focus-within .sn-reveal,
+  .sn-reveal:focus-visible,
+  .sn-reveal[data-force-visible="true"] {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+/* Variante « pastille » : le fond, la bordure et l'ombre d'une affordance
+ * révélée servent à la faire lire PAR-DESSUS la rangée qu'elle recouvre au
+ * moment où elle surgit. Là où elle est permanente — au doigt — ce décollement
+ * n'a plus d'objet : chaque rangée porte alors une pastille encadrée et
+ * ombrée, et une liste de notes finit constellée de boutons flottants. On ne
+ * garde le relief que dans la branche où l'élément apparaît. */
+.sn-reveal--chip.sn-reveal--chip {
+  background-color: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+@media (hover: hover) and (not (any-pointer: coarse)) {
+  .sn-reveal--chip.sn-reveal--chip {
+    background-color: var(--surface-1);
+    border-color: var(--border-subtle);
+    box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  }
+}
+
+/* Plancher tactile de 32px sur une cible qui peut grandir sans casser sa
+ * rangée (puce, bouton d'icône). Les cibles dont la taille visuelle est
+ * imposée par le design — case à cocher de 16px, pixel d'habitude de 14px —
+ * gardent l'anneau `::before` : elles ne doivent pas grandir, seulement
+ * capter plus large.
+ *
+ * `any-pointer` et non `pointer` : le plancher vaut dès qu'un doigt PEUT
+ * servir, même si la souris reste le pointeur principal.
+ *
+ * Sélecteur doublé : `min-w-0` / `h-7` de Tailwind ont la même spécificité
+ * qu'une classe simple, et l'ordre d'injection n'est pas garanti. */
+@media (any-pointer: coarse) {
+  .sn-hit.sn-hit {
+    min-height: 32px;
+    min-width: 32px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sn-reveal {
+    transition-duration: 0.01ms !important;
+  }
 }
 
 /* Overlay / popover / modal entrance — fade + gentle rise-and-settle.

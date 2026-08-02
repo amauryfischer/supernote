@@ -303,7 +303,7 @@ export function CoverBackdrop({
             variant="ghost"
             size="sm"
             onPress={() => setOpen((o) => !o)}
-            className="h-7 min-w-0 gap-1 px-2 text-xs"
+            className="sn-hit h-7 min-w-0 gap-1 px-2 text-xs"
             style={{ backgroundColor: "rgba(255,255,255,0.88)", color: "#1f2326" }}
           >
             <ImageIcon size={13} />
@@ -326,7 +326,7 @@ export function CoverBackdrop({
           size="sm"
           onPress={() => onChange(null)}
           aria-label="Supprimer la couverture"
-          className="h-7 min-w-0 gap-1 px-2 text-xs"
+          className="sn-hit h-7 min-w-0 gap-1 px-2 text-xs"
           style={{ backgroundColor: "rgba(255,255,255,0.88)", color: "#1f2326" }}
         >
           <Trash size={13} />
@@ -350,7 +350,7 @@ export function CoverButton({
         size="sm"
         onPress={() => setOpen((o) => !o)}
         aria-label="Ajouter une couverture"
-        className="h-7 min-w-0 gap-1 px-2 text-xs"
+        className="sn-hit h-7 min-w-0 gap-1 px-2 text-xs"
         style={{ color: "var(--text-muted)" }}
       >
         <ImageIcon size={14} />

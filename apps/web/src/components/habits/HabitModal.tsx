@@ -186,7 +186,12 @@ export function HabitModal({
                 size="sm"
                 onPress={() => setColor(c.hex)}
                 aria-label={`Couleur ${c.name}`}
-                className="h-6 w-6 min-w-0 rounded-full p-0"
+                // 24px sur une rangée de 18 pastilles côte à côte : au doigt
+                // on en attrape une voisine sans le voir, et l'erreur est
+                // silencieuse (la couleur change, rien ne le signale).
+                // `sn-hit` les porte à 32px au tactile, densité d'origine
+                // au pointeur fin.
+                className="sn-hit h-6 w-6 min-w-0 rounded-full p-0"
                 style={{
                   backgroundColor: c.hex,
                   outline: color === c.hex ? `2px solid var(--text-primary)` : undefined,

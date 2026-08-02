@@ -251,7 +251,12 @@ export function TodoRow({
         variant="ghost"
         onPress={handleToggle}
         aria-label={row.done ? "Marquer comme non faite" : "Marquer comme faite"}
-        className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border p-0 min-w-0${justChecked ? " sn-pop-in" : ""}`}
+        // La case reste visuellement à 16px (densité de la liste), mais au
+        // doigt c'est l'action principale d'une tâche : un ::before de
+        // -8px porte la zone tactile à 32px sans rien déplacer. Retiré au
+        // pointeur fin (md:), où la précision rend l'anneau inutile — et où
+        // il empiéterait sur les contrôles voisins.
+        className={`relative mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border p-0 min-w-0 before:absolute before:-inset-y-2.5 before:-left-3 before:-right-2 before:content-[''] md:before:hidden${justChecked ? " sn-pop-in" : ""}`}
         style={{
           borderColor: showChecked ? "var(--accent)" : "var(--border)",
           backgroundColor: showChecked ? "var(--accent)" : "transparent",
@@ -282,7 +287,12 @@ export function TodoRow({
         <Button
           variant="ghost"
           onPress={selectionMode ? onToggleSelect : onEdit}
-          className="w-full min-w-0 text-left leading-tight hover:underline p-0 h-auto justify-start"
+          // Ouvrir la tâche = ce bouton, et lui seul : le `role="button"` que
+          // dnd-kit pose sur la carte ne sert qu'au glisser. Sa boîte fait la
+          // largeur de la ligne mais 18px de haut, soit une lame au milieu
+          // d'une carte de 40px — au doigt on rate une fois sur deux. Le
+          // ::before l'étire à la hauteur de la ligne sans toucher au rendu.
+          className="relative w-full min-w-0 text-left leading-tight hover:underline p-0 h-auto justify-start before:absolute before:inset-x-0 before:-inset-y-2 before:content-[''] md:before:hidden"
           style={{
             color: showChecked ? "var(--text-muted)" : "var(--text-primary)",
             fontSize: isCritical ? "0.95rem" : "0.875rem",
@@ -353,12 +363,17 @@ export function TodoRow({
           }
           prefetch={false}
           onClick={(e) => e.stopPropagation()}
-          className="flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[10px] opacity-0 transition-opacity group-hover:opacity-100"
+          // `sn-reveal` : visible au doigt, révélé au survol à la souris, et
+          // jamais cliquable tant qu'il est transparent. `sn-hit` porte le
+          // plancher tactile. Les deux se décident au pointeur, pas à la
+          // largeur (cf. globals.css).
+          className="sn-reveal sn-hit flex shrink-0 items-center justify-center gap-1 rounded px-1.5 py-0.5 text-[10px]"
           style={{ color: "var(--text-muted)" }}
           title={row.sourceNoteTitle ? `Voir « ${row.sourceNoteTitle} »` : "Voir la note"}
+          aria-label={row.sourceNoteTitle ? `Voir « ${row.sourceNoteTitle} »` : "Voir la note"}
         >
           <FileText size={11} />
-          Note
+          <span className="hidden md:inline">Note</span>
         </Link>
       )}
 
@@ -384,7 +399,8 @@ export function TodoRow({
           variant="ghost"
           onPress={onEmail}
           aria-label="Envoyer par email"
-          className="flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[10px] opacity-0 transition-opacity group-hover:opacity-100 min-w-0 h-auto"
+          // Même traitement que le lien vers la note.
+          className="sn-reveal sn-hit flex shrink-0 items-center justify-center gap-1 rounded px-1.5 py-0.5 text-[10px]"
           style={{ color: "var(--text-muted)" }}
         >
           <Envelope size={11} />

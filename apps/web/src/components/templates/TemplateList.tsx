@@ -89,7 +89,7 @@ export function TemplateList({ templates, selectedId, onSelect, onNew, onDelete 
                 <Button
                   variant="ghost"
                   onPress={() => onDelete(t.id)}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 flex h-5 w-5 items-center justify-center rounded opacity-0 transition-opacity group-hover:opacity-100 hover:bg-[oklch(0.93_0.10_28_/_0.15)] min-w-0 p-0"
+                  className="sn-reveal sn-hit absolute right-2 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded p-0 hover:bg-[oklch(0.93_0.10_28_/_0.15)]"
                   style={{ color: "var(--danger)" }}
                   aria-label="Supprimer le template"
                 >
