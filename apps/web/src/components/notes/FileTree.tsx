@@ -89,7 +89,7 @@ import {
 import { CustomFolderGlyph } from "./CustomFolderGlyph";
 import { IconPickerGrid } from "./FolderIconPickerGrid";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { Button } from "@heroui/react";
+import { Button, Input } from "@heroui/react";
 import type { Folder as FolderType } from "./fixtures";
 import { useTranslations } from "next-intl";
 import { ContextMenu, useContextMenu, useToast, type ContextMenuItemDef } from "@supernote/ui";
@@ -323,6 +323,87 @@ function buildNotesByFolder(notes: ReadonlyArray<TreeNote>): Map<string, TreeNot
   return map;
 }
 
+// ── Filtre de l'arbre ─────────────────────────────────────────────────────────
+//
+// Un coffre un peu vivant dépasse vite la hauteur du panneau, et l'arbre était
+// la seule surface des notes sans champ de filtre — on n'y arrivait qu'à la
+// molette. Le filtre porte sur les dossiers ET les fichiers, puisque l'arbre
+// affiche les deux.
+//
+// Règle de conservation : une correspondance entraîne l'affichage de TOUS ses
+// ancêtres. Sans ça, un résultat profond apparaîtrait déraciné, et on perdrait
+// l'information qui fait la valeur d'un arbre — où la chose se trouve.
+
+/** Repli insensible à la casse ET aux accents (le coffre est francophone). */
+function foldText(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase();
+}
+
+interface TreeFilterValue {
+  /** Requête repliée, vide quand le filtre est inactif. */
+  query: string;
+  /** Chemins de dossier à rendre (correspondances + leurs ancêtres). */
+  folderPaths: Set<string>;
+  /** Identifiants de note à rendre. */
+  noteIds: Set<string>;
+}
+
+const INACTIVE_FILTER: TreeFilterValue = {
+  query: "",
+  folderPaths: new Set(),
+  noteIds: new Set(),
+};
+
+const TreeFilterContext = createContext<TreeFilterValue>(INACTIVE_FILTER);
+
+/**
+ * Calcule l'ensemble des nœuds visibles pour une requête.
+ *
+ * Deux passes, pas de récursion sur l'arbre : on collecte d'abord les
+ * correspondances directes (dossiers par leur nom de feuille, notes par leur
+ * titre), puis on remonte chaque chemin segment par segment pour ajouter les
+ * ancêtres. Un dossier qui correspond n'entraîne PAS ses descendants : filtrer
+ * sert à réduire, et rouvrir tout un sous-arbre sur un mot annulerait le gain.
+ */
+function computeTreeFilter(
+  query: string,
+  folders: FolderType[],
+  notes: ReadonlyArray<TreeNote>,
+): TreeFilterValue {
+  const needle = foldText(query.trim());
+  if (!needle) return INACTIVE_FILTER;
+
+  const folderPaths = new Set<string>();
+  const noteIds = new Set<string>();
+
+  /** Ajoute un chemin et toute sa chaîne de parents. */
+  const keepWithAncestors = (path: string) => {
+    const segments = path.split("/");
+    for (let i = 1; i <= segments.length; i++) {
+      folderPaths.add(segments.slice(0, i).join("/"));
+    }
+  };
+
+  const walk = (list: FolderType[]) => {
+    for (const folder of list) {
+      if (foldText(folder.name).includes(needle)) keepWithAncestors(folder.path);
+      if (folder.children) walk(folder.children);
+    }
+  };
+  walk(folders);
+
+  for (const note of notes) {
+    if (!foldText(note.title).includes(needle)) continue;
+    noteIds.add(note.id);
+    if (note.folderPath) keepWithAncestors(note.folderPath);
+  }
+
+  return { query: needle, folderPaths, noteIds };
+}
+
 // ── Tree DnD helpers ──────────────────────────────────────────────────────────
 
 /** Parent path of a folder path ("a/b/c" → "a/b", "a" → ""). */
@@ -386,11 +467,33 @@ function getSiblingPaths(
 }
 
 /**
+ * Bande de bordure d'une rangée, en pixels, où le geste vaut « insérer AVANT /
+ * APRÈS » plutôt que « déposer DEDANS ».
+ *
+ * En ratio (l'ancien 30%/70%), « dedans » ne valait que 13px sur une rangée de
+ * 32 : deux tiers de la rangée réordonnaient, et déposer un dossier dans son
+ * voisin de même niveau relevait de la loterie. En pixels fixes, « dedans »
+ * occupe le gros de la rangée et reste constant quelle que soit sa hauteur.
+ *
+ * 6px paraît étroit pour insérer, mais la zone RÉELLE est le cumul de deux
+ * bordures adjacentes — bas d'une rangée + haut de la suivante — soit 12px
+ * continus centrés sur la frontière, exactement là où l'utilisateur vise quand
+ * il veut « entre les deux ».
+ */
+const ROW_EDGE_PX = 6;
+
+/** Bordure effective : jamais plus du quart d'une rangée courte. */
+function rowEdge(height: number): number {
+  return Math.min(ROW_EDGE_PX, height * 0.25);
+}
+
+/**
  * Custom collision detection for the folder tree.
  *
  * Two outcomes only:
- *   "nest:path"  — pointer is in the middle 40% of a folder → drop INTO it.
- *   "path"       — pointer is at the top/bottom of a SIBLING folder → reorder.
+ *   "nest:path"  — pointer is away from the row's edges → drop INTO it.
+ *   "path"       — pointer is within {@link ROW_EDGE_PX} of a SIBLING folder's
+ *                  top/bottom border → reorder.
  *
  * Cross-level, non-center hovers return [] so the active item stays in place
  * visually instead of jumping to an unrelated position in the flat DOM order.
@@ -417,20 +520,30 @@ const folderTreeCollision: CollisionDetection = ({ active, droppableContainers, 
         targetPath.startsWith(activePath + "/") ||
         targetPath === activeParent
       ) continue;
-      const relY = (py - rect.top) / rect.height;
-      if (relY >= 0.3 && relY <= 0.7) nestHits.push({ id, data: { droppableContainer: container } });
+      const edge = rowEdge(rect.height);
+      if (py >= rect.top + edge && py <= rect.bottom - edge) {
+        nestHits.push({ id, data: { droppableContainer: container } });
+      }
     } else if (id.startsWith("reparent:")) {
-      // Edge zone (top/bottom 30%) on a folder with a different parent → reparent.
+      // Bordure d'une rangée dont le parent diffère → changement de niveau.
       const targetPath = id.slice(9);
       const targetParent = getParentPath(targetPath);
       if (targetParent === activeParent) continue; // same level → sort handles it
       if (targetPath === activePath || targetPath.startsWith(activePath + "/")) continue;
-      const relY = (py - rect.top) / rect.height;
-      if (relY < 0.3 || relY > 0.7) reparentHits.push({ id, data: { droppableContainer: container } });
+      const edge = rowEdge(rect.height);
+      if (py < rect.top + edge || py > rect.bottom - edge) {
+        reparentHits.push({ id, data: { droppableContainer: container } });
+      }
     } else {
       // Sort: same-parent siblings only (no cross-level visual jumps).
+      // Restreint aux bordures, comme les deux branches ci-dessus : sans ça un
+      // frère captait la rangée ENTIÈRE (et, déplié, tout son sous-arbre), donc
+      // le tri gagnait partout et « dedans » devenait inatteignable.
       if (getParentPath(id) === activeParent && id !== activePath) {
-        sortHits.push({ id, data: { droppableContainer: container } });
+        const edge = rowEdge(rect.height);
+        if (py < rect.top + edge || py > rect.bottom - edge) {
+          sortHits.push({ id, data: { droppableContainer: container } });
+        }
       }
     }
   }
@@ -865,13 +978,28 @@ export function FileTree({
     });
   }, []);
 
+  // ── Filtre ────────────────────────────────────────────────────────────────
+  const [filterQuery, setFilterQuery] = useState("");
+  const treeFilter = useMemo(
+    () => computeTreeFilter(filterQuery, folders, notes),
+    [filterQuery, folders, notes],
+  );
+  const filterActive = treeFilter.query.length > 0;
+  const filterEmpty =
+    filterActive && treeFilter.folderPaths.size === 0 && treeFilter.noteIds.size === 0;
+
   const isExpanded = useCallback((path: string) => {
+    // Sous filtre, tout est déplié : le résultat d'une recherche doit être
+    // visible sans avoir à rouvrir la branche qui le contient. L'état plié
+    // choisi par l'utilisateur n'est pas écrasé pour autant — il reprend tel
+    // quel dès que le champ est vidé.
+    if (filterActive) return true;
     const explicit = expandedMap.get(path);
     // Explicit value set by the user always wins.
     if (explicit !== undefined) return explicit;
     // Default: root-level folders open, deeper folders closed.
     return !path.includes("/");
-  }, [expandedMap]);
+  }, [expandedMap, filterActive]);
 
   // Auto-expand the parent chain whenever the externally-selected folder
   // changes. Covers: navigating via the URL (?folder=…), creating a folder
@@ -886,6 +1014,38 @@ export function FileTree({
     () => ({ isExpanded, setExpanded, expandPath }),
     [isExpanded, setExpanded, expandPath],
   );
+
+  // ── Navigation verticale au clavier ───────────────────────────────────────
+  //
+  // Les rangées portent `data-tree-row` et sont déjà focalisables : ↑/↓ n'ont
+  // donc qu'à déplacer le focus d'une à l'autre, dans l'ordre du DOM — qui est
+  // l'ordre visuel, notes comprises. Sans ça, atteindre le douzième dossier au
+  // clavier coûtait vingt-quatre Tab (chaque rangée en consomme deux avec sa
+  // poignée), ce qui contredit le « clavier d'abord » du PRODUCT.md.
+  //
+  // Posé sur le conteneur plutôt que sur chaque rangée : une seule fermeture,
+  // et la liste est relue à chaque frappe, donc replier ou filtrer pendant la
+  // navigation ne laisse jamais d'index périmé.
+  const handleTreeKeyDown = useCallback((e: React.KeyboardEvent<HTMLElement>) => {
+    if (e.key !== "ArrowDown" && e.key !== "ArrowUp" && e.key !== "Home" && e.key !== "End") return;
+    // Renommage en cours : les flèches appartiennent au champ de saisie.
+    if ((e.target as HTMLElement).tagName === "INPUT") return;
+    const rows = [...e.currentTarget.querySelectorAll<HTMLElement>("[data-tree-row]")];
+    if (rows.length === 0) return;
+    const current = (e.target as HTMLElement).closest<HTMLElement>("[data-tree-row]");
+    const index = current ? rows.indexOf(current) : -1;
+    let next: HTMLElement | undefined;
+    if (e.key === "Home") next = rows[0];
+    else if (e.key === "End") next = rows[rows.length - 1];
+    else if (e.key === "ArrowDown") next = rows[index + 1] ?? rows[0];
+    else next = index <= 0 ? rows[rows.length - 1] : rows[index - 1];
+    if (!next) return;
+    // preventDefault APRÈS avoir trouvé une cible : sinon on confisquerait le
+    // défilement du panneau quand le focus n'est sur aucune rangée.
+    e.preventDefault();
+    next.focus();
+    next.scrollIntoView({ block: "nearest" });
+  }, []);
 
   // ── Unified folder DnD (reorder + reparent) ───────────────────────────────
   // A single DndContext wraps the entire tree so folders can be dragged
@@ -1052,7 +1212,40 @@ export function FileTree({
         </div>
       </div>
 
+      {/* Filtre — même gabarit que la recherche de NoteList (panneau voisin) :
+          l'arbre était la seule surface des notes à ne pas en avoir. Échap
+          vide le champ sans quitter le clavier. */}
+      <div className="px-3 py-2" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
+        <div className="relative">
+          <MagnifyingGlass
+            size={13}
+            className="absolute left-2.5 top-1/2 -translate-y-1/2"
+            style={{ color: "var(--text-muted)" }}
+          />
+          <Input
+            type="text"
+            placeholder="Filtrer le coffre…"
+            value={filterQuery}
+            onChange={(e) => setFilterQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape" && filterQuery) {
+                e.preventDefault();
+                setFilterQuery("");
+              }
+            }}
+            aria-label="Filtrer les dossiers et les notes"
+            className="w-full rounded-md py-1.5 pl-8 pr-3 text-xs outline-none"
+            style={{
+              backgroundColor: "var(--surface-2)",
+              color: "var(--text-primary)",
+              border: "1px solid var(--border-subtle)",
+            }}
+          />
+        </div>
+      </div>
+
       <ExpandedContext.Provider value={expandedCtx}>
+        <TreeFilterContext.Provider value={treeFilter}>
         <MountContext.Provider value={mountCtx}>
         <NoteTreeContext.Provider value={noteCtx}>
         <NewDriveDocContext.Provider value={onNewDriveDoc ?? null}>
@@ -1064,7 +1257,18 @@ export function FileTree({
             onDragOver={handleDragOver}
             onDragEnd={handleDragEnd}
           >
-            <nav className="flex-1 overflow-y-auto p-2">
+            <nav className="flex-1 overflow-y-auto p-2" onKeyDown={handleTreeKeyDown}>
+              {filterEmpty && (
+                // `role="status"` : le résultat d'une frappe doit être annoncé,
+                // sinon un lecteur d'écran voit l'arbre se vider sans un mot.
+                <p
+                  role="status"
+                  className="px-2 py-6 text-center text-xs"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  Aucun dossier ni fichier ne correspond à «&nbsp;{filterQuery.trim()}&nbsp;».
+                </p>
+              )}
               {inboxFolder && (
                 <>
                   <SortableContext
@@ -1134,27 +1338,40 @@ export function FileTree({
         </NewDriveDocContext.Provider>
         </NoteTreeContext.Provider>
         </MountContext.Provider>
+        </TreeFilterContext.Provider>
       </ExpandedContext.Provider>
 
       <ContextMenu state={ctx.state} onClose={ctx.close} />
       <FolderCustomizationPicker state={picker} onClose={closePicker} />
       <ConnectVaultModal isOpen={connectVaultOpen} onOpenChange={setConnectVaultOpen} />
 
-      <div
-        className="border-t p-2"
-        style={{ borderColor: "var(--border-subtle)" }}
-      >
-        <Button
-          variant="ghost"
-          size="sm"
-          onPress={() => onNewFolder(null)}
-          className="w-full justify-start gap-2 rounded-md px-3 text-xs hover:bg-[var(--surface-2)]"
-          style={{ color: "var(--text-muted)" }}
+      {/* « Nouveau dossier » existait DEUX fois dans ce panneau de 280px : une
+          icône en en-tête et ce bouton en pied. Il ne subsiste ici que quand
+          l'arbre n'a aucun dossier utilisateur — il n'est alors plus un
+          doublon mais l'état vide qui manquait, seule invitation visible dans
+          un panneau autrement blanc. L'icône d'en-tête couvre le reste du
+          temps. Masqué aussi sous filtre : proposer une création pendant une
+          recherche infructueuse détourne du geste en cours (vider le champ). */}
+      {otherFolders.length === 0 && !filterActive && (
+        <div
+          className="border-t p-3"
+          style={{ borderColor: "var(--border-subtle)" }}
         >
-          <Plus size={12} />
-          {t("newFolder")}
-        </Button>
-      </div>
+          <p className="mb-2 text-xs leading-relaxed" style={{ color: "var(--text-muted)" }}>
+            Aucun dossier pour l'instant. Range tes notes par sujet, projet ou client.
+          </p>
+          <Button
+            variant="ghost"
+            size="sm"
+            onPress={() => onNewFolder(null)}
+            className="w-full justify-start gap-2 rounded-md px-3 text-xs hover:bg-[var(--surface-2)]"
+            style={{ color: "var(--text-muted)" }}
+          >
+            <Plus size={12} />
+            {t("newFolder")}
+          </Button>
+        </div>
+      )}
     </aside>
   );
 }
@@ -1236,9 +1453,20 @@ function FolderNode({
   const isMountScoped =
     folder.path === MOUNT_PATH_PREFIX ||
     folder.path.startsWith(`${MOUNT_PATH_PREFIX}/`);
+  // Filtre actif : ce nœud n'est rendu que s'il correspond ou s'il est
+  // l'ancêtre d'une correspondance (cf. computeTreeFilter). Le hook est
+  // consommé AVANT tout retour anticipé — l'ordre des hooks doit rester
+  // stable entre deux rendus.
+  const treeFilter = useContext(TreeFilterContext);
+  const isFiltering = treeFilter.query.length > 0;
+  const filteredOut = isFiltering && !treeFilter.folderPaths.has(folder.path);
   // Track inline rename pending state to block single-click navigation during edit.
   const [isRenaming, setIsRenaming] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
+  // Amène la rangée dans le viewport quand elle devient la sélection. Sans ça,
+  // ouvrir une note par URL ou depuis la recherche dépliait bien son dossier —
+  // hors écran, donc invisible.
+  const rowRef = useRef<HTMLDivElement>(null);
   // Un appui long vient d'ouvrir le menu : le `click` de synthèse émis au
   // relâchement doit être avalé, sinon on navigue vers le dossier DERRIÈRE le
   // menu qu'on vient d'ouvrir. Remis à zéro à chaque nouveau `touchstart`.
@@ -1601,6 +1829,15 @@ function FolderNode({
   /** Renommage inline autorisé : handler fourni ET nœud non monté (lecture seule). */
   const canRenameInline = !!onRenameFolderInline && !isMountScoped;
 
+  // `block: "nearest"` : ne défile QUE si la rangée est hors champ, et sans
+  // recentrer le panneau — un arbre qui saute à chaque sélection serait pire
+  // que le problème qu'on corrige. Défilement instantané, pas d'animation à
+  // désactiver sous `prefers-reduced-motion`.
+  useEffect(() => {
+    if (!isSelected) return;
+    rowRef.current?.scrollIntoView({ block: "nearest" });
+  }, [isSelected]);
+
   const chevronSpan = (
     <span
       // Le chevron ne mesurait que 16×12 : il s'ajuste au caret, pas à la
@@ -1644,6 +1881,16 @@ function FolderNode({
     zIndex: isSortDragging ? 10 : undefined,
   };
 
+  if (filteredOut) return null;
+
+  // Sous filtre, un dossier qui correspond par son NOM garde des enfants qui,
+  // eux, ne correspondent pas : sans ce garde, son bloc enfants se déplierait
+  // vide et `.sn-tree-branch` tracerait un trait vertical ne reliant rien.
+  const hasVisibleKids = !isFiltering
+    ? true
+    : orderedChildren.some((c) => treeFilter.folderPaths.has(c.path)) ||
+      childNotes.some((n) => treeFilter.noteIds.has(n.id));
+
   return (
     // `sortableAttributes` NE VA PAS ici : dnd-kit les destine à l'activateur
     // du drag (la poignée), pas au nœud trié. Posées sur ce conteneur, elles
@@ -1660,7 +1907,7 @@ function FolderNode({
       onDrop={handleDrop}
     >
       <div
-        ref={(el) => { nestNodeRef(el); reparentRef(el); }}
+        ref={(el) => { nestNodeRef(el); reparentRef(el); rowRef.current = el; }}
         // .sn-motion-colors → the drop-target tint (background-color) eases in
         // and settles on the shared token instead of snapping, and self-
         // degrades to instant under reduced-motion. The outline stays crisp
@@ -1703,7 +1950,12 @@ function FolderNode({
             anneau `::before` l'étire à 32px de haut. Pas d'élargissement
             latéral : à gauche c'est le bord du panneau, à droite le chevron
             capte déjà le tap et le lui voler coûterait le repli. */}
-        {!isPinned && !isMountScoped && (
+        {/* Pas de poignée sous filtre : une vue filtrée cache une partie des
+            frères, or le tri et l'imbrication raisonnent sur la fratrie
+            complète — on déplacerait « avant le premier visible » sans savoir
+            ce qui se trouve au-dessus. Le geste revient dès que le champ est
+            vidé. */}
+        {!isPinned && !isMountScoped && !isFiltering && (
           <button
             type="button"
             {...sortableAttributes}
@@ -1720,7 +1972,7 @@ function FolderNode({
             is a small self-contained component that handles focus, commit, cancel. */}
         {isRenaming ? (
           <div
-            className="flex flex-1 items-center gap-1.5 rounded-md bg-[var(--sn-row-tint,transparent)] px-2 py-1.5 text-sm"
+            className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md bg-[var(--sn-row-tint,transparent)] px-2 py-1.5 text-sm"
             style={sharedRowStyle}
           >
             {chevronSpan}
@@ -1733,6 +1985,8 @@ function FolderNode({
           </div>
         ) : (
           <button
+            // Repère de la navigation ↑/↓ (cf. handleTreeKeyDown).
+            data-tree-row
             onClick={handleClick}
             {...longPress}
             // `{...longPress}` publie onTouchStart ; on le ré-enveloppe pour
@@ -1775,7 +2029,12 @@ function FolderNode({
             // `--sn-row-tint` pour que la classe `hover:` puisse la couvrir ;
             // la sélection reste en style inline, qui l'emporte sur les deux —
             // une rangée sélectionnée ne doit pas changer au survol.
-            className="sn-motion-colors flex flex-1 items-center gap-1.5 rounded-md bg-[var(--sn-row-tint,transparent)] px-2 py-1.5 text-sm hover:bg-[var(--surface-2)]"
+            // `min-w-0` : sans lui, un élément flex garde `min-width: auto` et
+            // refuse de rétrécir sous la largeur de son contenu — le `truncate`
+            // du label ne s'enclenchait jamais et un nom de dossier un peu long
+            // débordait le panneau de plusieurs dizaines de pixels, barre de
+            // défilement horizontale à la clé.
+            className="sn-motion-colors flex min-w-0 flex-1 items-center gap-1.5 rounded-md bg-[var(--sn-row-tint,transparent)] px-2 py-1.5 text-sm hover:bg-[var(--surface-2)]"
             style={sharedRowStyle}
           >
             {chevronSpan}
@@ -1822,7 +2081,7 @@ function FolderNode({
             remonte jusqu'au handler de cette rangée). */}
       </div>
 
-      {hasKids && expanded && (
+      {hasKids && expanded && hasVisibleKids && (
         // `.sn-tree-expand` plays a one-shot grid-rows unfold on mount so
         // opening a folder slides its children in instead of snapping
         // (collapse stays instant — children unmount, keeping DnD contexts
@@ -1929,10 +2188,17 @@ interface NoteRowsProps {
 
 /** Liste des notes d'un dossier, tronquée à {@link NOTES_PER_FOLDER_CAP}. */
 function NoteRows({ notes, depth, folderPath, onSelectFolder }: NoteRowsProps) {
-  const visible = notes.length > NOTES_PER_FOLDER_CAP
-    ? notes.slice(0, NOTES_PER_FOLDER_CAP)
+  const treeFilter = useContext(TreeFilterContext);
+  // Sous filtre, un dossier conservé pour ses sous-dossiers ne doit pas
+  // ramener toutes ses notes au passage : seules les notes concordantes
+  // restent.
+  const matching = treeFilter.query.length > 0
+    ? notes.filter((n) => treeFilter.noteIds.has(n.id))
     : notes;
-  const hidden = notes.length - visible.length;
+  const visible = matching.length > NOTES_PER_FOLDER_CAP
+    ? matching.slice(0, NOTES_PER_FOLDER_CAP)
+    : matching;
+  const hidden = matching.length - visible.length;
   return (
     <>
       {visible.map((note) => (
@@ -1982,6 +2248,8 @@ function NoteRow({ note, depth }: { note: TreeNote; depth: number }) {
   const [isRenaming, setIsRenaming] = useState(false);
   // Voir FolderNode : avale le `click` de synthèse qui suit un appui long.
   const longPressFired = useRef(false);
+  // Voir FolderNode : amène la ligne dans le viewport quand elle est ouverte.
+  const rowRef = useRef<HTMLDivElement>(null);
   const isSelected = selectedNoteId === note.id;
   const fg = isSelected ? "var(--accent)" : "var(--text-secondary)";
   // Note appartenant à un coffre monté : sous-arbre en lecture seule (le
@@ -2063,8 +2331,14 @@ function NoteRow({ note, depth }: { note: TreeNote; depth: number }) {
     fontWeight: isSelected ? 500 : 400,
   };
 
+  useEffect(() => {
+    if (!isSelected) return;
+    rowRef.current?.scrollIntoView({ block: "nearest" });
+  }, [isSelected]);
+
   return (
     <div
+      ref={rowRef}
       className="sn-tree-elbow group relative flex items-center"
       style={{ ["--sn-tree-elbow-x" as string]: `${elbowX(depth)}px` }}
       onContextMenu={openMenu}
@@ -2074,7 +2348,7 @@ function NoteRow({ note, depth }: { note: TreeNote; depth: number }) {
         // bascule la ligne en <div> le temps de l'édition, même motif que
         // FolderNode.
         <div
-          className="flex flex-1 items-center gap-1.5 rounded-md px-2 py-1.5 text-sm"
+          className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-2 py-1.5 text-sm"
           style={rowStyle}
         >
           <span aria-hidden className="w-4 flex-shrink-0" />
@@ -2090,6 +2364,9 @@ function NoteRow({ note, depth }: { note: TreeNote; depth: number }) {
       ) : (
         <button
           type="button"
+          // Repère de la navigation ↑/↓ (cf. handleTreeKeyDown) : les notes
+          // font partie du parcours, comme dans un explorateur.
+          data-tree-row
           draggable
           onDragStart={(e) => {
             e.dataTransfer.setData("text/plain", note.id);
@@ -2112,7 +2389,9 @@ function NoteRow({ note, depth }: { note: TreeNote; depth: number }) {
           title={note.title}
           // Survol en CSS (voir FolderNode) : `backgroundColor` inline ne vaut
           // que pour la sélection, qui doit l'emporter sur la classe `hover:`.
-          className="sn-motion-colors flex flex-1 items-center gap-1.5 rounded-md px-2 py-1.5 text-sm hover:bg-[var(--surface-2)]"
+          // `min-w-0` : voir FolderNode — sans lui le titre ne se tronque pas
+          // et la ligne déborde le panneau.
+          className="sn-motion-colors flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-2 py-1.5 text-sm hover:bg-[var(--surface-2)]"
           style={rowStyle}
         >
           {/* Colonne du chevron, laissée vide : aligne le glyphe des notes sur
