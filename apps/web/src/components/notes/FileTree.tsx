@@ -84,7 +84,6 @@ import {
   User,
   Users,
   Wrench,
-  DotsThree,
   DotsSixVertical,
 } from "@phosphor-icons/react";
 import { CustomFolderGlyph } from "./CustomFolderGlyph";
@@ -99,6 +98,7 @@ import { useUpdateFolder, useReorderFolders, useMoveFolder } from "./hooks";
 import { trpc, trpcVanillaClient } from "@/lib/trpc/client";
 import { folderAccentVars } from "@/lib/folderAccent";
 import { useConfirm } from "@/hooks/usePrompt";
+import { useLongPress } from "@/hooks/useLongPress";
 import { GOOGLE_DOC_KINDS, type GoogleDocKind } from "@/lib/google-drive";
 import { DRIVE_DOC_ICONS, DRIVE_DOC_ORDER } from "./driveDocMeta";
 import {
@@ -289,6 +289,13 @@ interface NoteTreeContextValue {
   onArchiveNote: ((id: string, archived: boolean) => Promise<void>) | null;
   /** Ouvre le menu contextuel partagé (état unique à la racine du FileTree). */
   openContextMenu: ((e: React.MouseEvent, items: ContextMenuItemDef[]) => void) | null;
+  /**
+   * Même menu, adressé en coordonnées viewport : c'est le chemin de l'appui
+   * long tactile, qui n'a pas d'événement souris à passer. iOS n'émet jamais
+   * `contextmenu`, donc sans ce point d'entrée le doigt n'aurait aucun accès
+   * aux actions depuis que le bouton « … » a disparu des rangées.
+   */
+  openContextMenuAt: ((x: number, y: number, items: ContextMenuItemDef[]) => void) | null;
 }
 
 const NoteTreeContext = createContext<NoteTreeContextValue>({
@@ -299,6 +306,7 @@ const NoteTreeContext = createContext<NoteTreeContextValue>({
   onDeleteNote: null,
   onArchiveNote: null,
   openContextMenu: null,
+  openContextMenuAt: null,
 });
 
 /** Indexe les notes par dossier direct, chaque bucket trié par titre. */
@@ -759,6 +767,7 @@ export function FileTree({
       onDeleteNote: onDeleteNote ?? null,
       onArchiveNote: onArchiveNote ?? null,
       openContextMenu: ctx.open,
+      openContextMenuAt: ctx.openAt,
     }),
     [
       notesByFolder,
@@ -768,6 +777,7 @@ export function FileTree({
       onDeleteNote,
       onArchiveNote,
       ctx.open,
+      ctx.openAt,
     ],
   );
   // Notes posées à la racine du coffre (aucun dossier) : elles n'ont aucun
@@ -1073,6 +1083,7 @@ export function FileTree({
                       onDeleteFolder={onDeleteFolder}
                       onArchiveFolder={onArchiveFolder}
                       openContextMenu={ctx.open}
+                      openContextMenuAt={ctx.openAt}
                       openPicker={openPicker}
                       depth={0}
                       notes={notes}
@@ -1106,6 +1117,7 @@ export function FileTree({
                     onDeleteFolder={onDeleteFolder}
                     onArchiveFolder={onArchiveFolder}
                     openContextMenu={ctx.open}
+                    openContextMenuAt={ctx.openAt}
                     openPicker={openPicker}
                     depth={0}
                     notes={notes}
@@ -1161,6 +1173,12 @@ interface FolderNodeProps {
     e: React.MouseEvent,
     items: import("@supernote/ui").ContextMenuItemDef[],
   ) => void;
+  /** Même menu en coordonnées viewport — chemin de l'appui long tactile. */
+  openContextMenuAt: (
+    x: number,
+    y: number,
+    items: import("@supernote/ui").ContextMenuItemDef[],
+  ) => void;
   openPicker: (kind: PickerKind, path: string, e: React.MouseEvent) => void;
   depth: number;
   notes: { folderPath: string }[];
@@ -1180,6 +1198,7 @@ function FolderNode({
   onDeleteFolder,
   onArchiveFolder,
   openContextMenu,
+  openContextMenuAt,
   openPicker,
   depth,
   notes,
@@ -1219,8 +1238,11 @@ function FolderNode({
     folder.path.startsWith(`${MOUNT_PATH_PREFIX}/`);
   // Track inline rename pending state to block single-click navigation during edit.
   const [isRenaming, setIsRenaming] = useState(false);
-  const [hovered, setHovered] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
+  // Un appui long vient d'ouvrir le menu : le `click` de synthèse émis au
+  // relâchement doit être avalé, sinon on navigue vers le dossier DERRIÈRE le
+  // menu qu'on vient d'ouvrir. Remis à zéro à chaque nouveau `touchstart`.
+  const longPressFired = useRef(false);
   const dragExpandTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── DnD wiring (single context at FileTree level) ────────────────────────
@@ -1272,6 +1294,10 @@ function FolderNode({
   // elsewhere (which causes blur → commit) doesn't also navigate.
   const handleClick = () => {
     if (isRenaming) return;
+    if (longPressFired.current) {
+      longPressFired.current = false;
+      return;
+    }
     onSelectFolder(folder.path);
   };
 
@@ -1406,6 +1432,17 @@ function FolderNode({
     openContextMenu(e, items);
   };
 
+  // Appui long = clic droit du doigt. Seule voie vers les actions au tactile
+  // depuis le retrait du bouton « … », et posée sur la rangée elle-même : la
+  // poignée de réordonnancement garde son propre geste (TouchSensor, 250 ms),
+  // les deux ne se marchent donc jamais dessus.
+  const longPress = useLongPress((x, y) => {
+    const items = buildMenuItems({ clientX: x, clientY: y });
+    if (items.length === 0) return;
+    longPressFired.current = true;
+    openContextMenuAt(x, y, items);
+  });
+
   // ── Desktop file drag-drop ─────────────────────────────────────────────────
   //
   // Sanitize a filename: strip characters forbidden on major OSes / URLs, then
@@ -1504,13 +1541,6 @@ function FolderNode({
     if (noteId && onDropNote) onDropNote(noteId, folder.path);
   };
 
-  const handleActionsClick = (e: React.MouseEvent) => {
-    // Stop here so the row's onClick (folder selection) doesn't also fire.
-    e.stopPropagation();
-    e.preventDefault();
-    openContextMenu(e, buildMenuItems({ clientX: e.clientX, clientY: e.clientY }));
-  };
-
   // Teinte des coffres montés — couleur du type `vault_mount` (#8b5cf6).
   const MOUNT_TINT = "#8b5cf6";
   // Prefer the explicit folder color; falls through to the selection-aware
@@ -1556,13 +1586,20 @@ function FolderNode({
   // absolu à gauche du conteneur quel que soit le niveau.
   // Racine de montage non sélectionnée : teinte de fond subtile (~10% alpha)
   // pour la lire comme « un coffre monté » sans la confondre avec une sélection.
+  // La teinte de montage passe par une variable et non par `backgroundColor` :
+  // en style inline elle battrait la classe `hover:` de la rangée, et une
+  // racine de coffre serait la seule ligne de l'arbre sans retour au survol.
+  // La sélection, elle, RESTE en inline — elle doit gagner sur le survol.
   const mountRowBg = isMountRoot && !isSelected ? `${MOUNT_TINT}14` : undefined;
   const sharedRowStyle: React.CSSProperties = {
     paddingLeft: `${rowPaddingLeft(depth)}px`,
-    backgroundColor: selectedBg ?? mountRowBg,
+    ["--sn-row-tint" as string]: mountRowBg,
+    backgroundColor: selectedBg,
     color: selectedFg,
     fontWeight: isMountRoot ? 500 : isSelected ? 500 : 400,
   };
+  /** Renommage inline autorisé : handler fourni ET nœud non monté (lecture seule). */
+  const canRenameInline = !!onRenameFolderInline && !isMountScoped;
 
   const chevronSpan = (
     <span
@@ -1573,9 +1610,15 @@ function FolderNode({
       // lieu de le replier ; un anneau symétrique volerait ce geste. Pas de
       // `sn-hit` ici : porter la largeur à 32px décalerait toute
       // l'indentation de l'arbre.
+      //
+      // Ni `role="button"` ni `aria-label` : ce span vit DANS le bouton de
+      // rangée, donc le rôle y créait un bouton dans un bouton et injectait
+      // « Réduire » dans le nom accessible de la ligne (« Réduire Beta (2) »).
+      // Le rôle mentait de toute façon — sans `tabIndex`, aucun clavier ne
+      // l'atteignait. L'état de dépliage est désormais porté par
+      // `aria-expanded` sur la rangée, et le geste par Flèche droite/gauche.
       className="relative flex w-4 flex-shrink-0 items-center justify-center self-stretch before:absolute before:-inset-y-1 before:-left-2 before:right-0 before:content-['']"
-      role={hasKids ? "button" : undefined}
-      aria-label={hasKids ? (expanded ? "Réduire" : "Développer") : undefined}
+      aria-hidden
       onClick={hasKids ? handleChevronClick : undefined}
       style={hasKids ? { cursor: "pointer" } : undefined}
     >
@@ -1602,13 +1645,16 @@ function FolderNode({
   };
 
   return (
+    // `sortableAttributes` NE VA PAS ici : dnd-kit les destine à l'activateur
+    // du drag (la poignée), pas au nœud trié. Posées sur ce conteneur, elles
+    // en faisaient un `role="button" tabindex="0"` qui ENVELOPPE le bouton de
+    // rangée — bouton dans bouton — et dont le nom accessible agrégeait tout
+    // le sous-arbre (« Beta(2)Nouvelle noteNouvelle note »). Elles vivent
+    // désormais sur la poignée, avec les `listeners` qu'elles décrivent.
     <div
       ref={sortableNodeRef}
       data-folder-drop={folder.path}
       style={sortableDndStyle}
-      {...sortableAttributes}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
@@ -1637,16 +1683,34 @@ function FolderNode({
             isNestTarget || isDragOver ? "var(--accent-subtle)" : "transparent",
         }}
       >
-        {/* Drag handle — visible on hover for all folders except pinned ones.
-            Masqué aussi pour tout nœud monté (`@mounts/...`) : leur chemin est
-            virtuel et en lecture seule, un déplacement le casserait. */}
-        {hovered && !isPinned && !isMountScoped && (
+        {/* Poignée de réordonnancement — masquée pour l'Inbox épinglée et pour
+            tout nœud monté (`@mounts/...`) : leur chemin est virtuel et en
+            lecture seule, un déplacement le casserait.
+
+            Deux pièges corrigés ici, tous deux fatals au drag :
+            1. `{...sortableListeners}` publie `onMouseDown` (activateur du
+               MouseSensor). Un `onMouseDown` déclaré APRÈS le spread l'écrase
+               — React garde la dernière prop — et plus aucun drag à la souris
+               ne démarrait. Rien à stopper de toute façon : aucun ancêtre
+               n'écoute mousedown.
+            2. Le montage conditionnel sur un état `hovered` : au doigt il n'y
+               a pas de survol, donc la poignée n'existait jamais et le
+               TouchSensor n'avait aucune cible. `sn-reveal` fait le travail en
+               CSS — révélée au survol à la souris, permanente au doigt.
+
+            La poignée occupe TOUTE la gouttière de 20px (`left-0 w-5`) — même
+            centre optique qu'avant, 4px de prise en plus au doigt — et son
+            anneau `::before` l'étire à 32px de haut. Pas d'élargissement
+            latéral : à gauche c'est le bord du panneau, à droite le chevron
+            capte déjà le tap et le lui voler coûterait le repli. */}
+        {!isPinned && !isMountScoped && (
           <button
+            type="button"
+            {...sortableAttributes}
             {...sortableListeners}
             aria-label="Réordonner le dossier"
-            className="absolute left-0.5 top-1/2 -translate-y-1/2 flex h-5 w-4 items-center justify-center rounded cursor-grab active:cursor-grabbing"
+            className="sn-reveal absolute left-0 top-1/2 flex h-5 w-5 -translate-y-1/2 cursor-grab items-center justify-center rounded before:absolute before:-inset-y-1.5 before:inset-x-0 before:content-[''] active:cursor-grabbing"
             style={{ color: "var(--text-muted)", zIndex: 1 }}
-            onMouseDown={(e) => e.stopPropagation()}
           >
             <DotsSixVertical size={12} />
           </button>
@@ -1656,7 +1720,7 @@ function FolderNode({
             is a small self-contained component that handles focus, commit, cancel. */}
         {isRenaming ? (
           <div
-            className="flex flex-1 items-center gap-1.5 rounded-md px-2 py-1.5 text-sm"
+            className="flex flex-1 items-center gap-1.5 rounded-md bg-[var(--sn-row-tint,transparent)] px-2 py-1.5 text-sm"
             style={sharedRowStyle}
           >
             {chevronSpan}
@@ -1670,24 +1734,49 @@ function FolderNode({
         ) : (
           <button
             onClick={handleClick}
+            {...longPress}
+            // `{...longPress}` publie onTouchStart ; on le ré-enveloppe pour
+            // remettre le drapeau à zéro AVANT chaque nouvel appui — sinon un
+            // appui long suivi d'un tap sur le menu (donc sans click sur la
+            // rangée) laisserait le drapeau armé et mangerait le clic suivant.
+            onTouchStart={(e) => {
+              longPressFired.current = false;
+              longPress.onTouchStart(e);
+            }}
+            // Disclosure standard : la rangée annonce son état de dépliage.
+            aria-expanded={hasKids ? expanded : undefined}
+            // La rangée concentre les raccourcis du nœud :
+            //   • Flèche droite / gauche = déplier / replier. Le chevron était
+            //     jusqu'ici la SEULE affordance et n'était pas focalisable :
+            //     au clavier, un dossier ne s'ouvrait pas du tout.
+            //   • F2 = renommer. Écouté ici et non sur le label, qui portait
+            //     un `tabIndex={0}` juste pour recevoir la touche — un arrêt
+            //     de tabulation de plus par dossier.
+            onKeyDown={(e) => {
+              if (hasKids && e.key === "ArrowRight" && !expanded) {
+                e.preventDefault();
+                setExpanded(folder.path, true);
+              } else if (hasKids && e.key === "ArrowLeft" && expanded) {
+                e.preventDefault();
+                setExpanded(folder.path, false);
+              } else if (canRenameInline && e.key === "F2") {
+                e.preventDefault();
+                setIsRenaming(true);
+              }
+            }}
             // .sn-motion-colors → tokenized bg/color/border glide (replaces the
             // untokenized Tailwind `transition-colors`). Drives BOTH the
             // selection highlight (when selectedBg/selectedFg change) and the
-            // imperative hover bg below, on the caret's standard easing.
-            // pr-10 sous md: — le bouton « … » y est affiché en permanence
-            // (pas de survol au doigt) : on réserve sa place (32px de bouton +
-            // 6px de marge droite) pour qu'il ne masque pas le compteur. Sur
-            // desktop il n'apparaît qu'au survol, superposé au compteur.
-            className="sn-motion-colors flex flex-1 items-center gap-1.5 rounded-md py-1.5 pl-2 pr-10 text-sm md:pr-2"
+            // hover tint below, on the caret's standard easing.
+            //
+            // Survol en CSS et non plus en écriture impérative de
+            // `style.backgroundColor` : c'est la convention du reste du
+            // fichier (et de TagTree). La teinte des coffres montés passe par
+            // `--sn-row-tint` pour que la classe `hover:` puisse la couvrir ;
+            // la sélection reste en style inline, qui l'emporte sur les deux —
+            // une rangée sélectionnée ne doit pas changer au survol.
+            className="sn-motion-colors flex flex-1 items-center gap-1.5 rounded-md bg-[var(--sn-row-tint,transparent)] px-2 py-1.5 text-sm hover:bg-[var(--surface-2)]"
             style={sharedRowStyle}
-            onMouseEnter={(e) => {
-              if (!isSelected) (e.currentTarget as HTMLButtonElement).style.backgroundColor = "var(--surface-2)";
-            }}
-            onMouseLeave={(e) => {
-              // Restaure la teinte de montage (le cas échéant) au lieu de tout
-              // effacer, sinon le fond violet subtil disparaîtrait au survol.
-              if (!isSelected) (e.currentTarget as HTMLButtonElement).style.backgroundColor = mountRowBg ?? "";
-            }}
           >
             {chevronSpan}
             {folderGlyph}
@@ -1700,50 +1789,37 @@ function FolderNode({
               style={{ color: iconColor }}
               // Renommage inline (double-clic / F2) supprimé sur les nœuds
               // montés : leur chemin est virtuel et en lecture seule.
-              onDoubleClick={onRenameFolderInline && !isMountScoped ? (e) => {
+              onDoubleClick={canRenameInline ? (e) => {
                 e.stopPropagation();
                 e.preventDefault();
                 setIsRenaming(true);
               } : undefined}
-              onKeyDown={onRenameFolderInline && !isMountScoped ? (e) => {
-                if (e.key === "F2") { e.preventDefault(); setIsRenaming(true); }
-              } : undefined}
-              tabIndex={onRenameFolderInline && !isMountScoped ? 0 : undefined}
             >
               {folder.name}
             </span>
-            <span
-              className="ml-1 flex-shrink-0 text-xs tabular-nums"
-              style={{ color: "var(--text-muted)" }}
-            >
-              ({recursiveCount})
-            </span>
+            {/* Compteur muet à zéro : « (0) » sur chaque dossier vide alignait
+                une colonne de zéros qui ne porte aucun état, alors que le
+                dossier vide se lit déjà à son absence de chevron. Même
+                grammaire que TagTree — `(N)` en `text-muted`, jamais de
+                pastille — et même infobulle explicite. */}
+            {recursiveCount > 0 && (
+              <span
+                className="ml-1 flex-shrink-0 text-xs tabular-nums"
+                style={{ color: "var(--text-muted)" }}
+                title={`${recursiveCount} note${recursiveCount > 1 ? "s" : ""}`}
+              >
+                ({recursiveCount})
+              </span>
+            )}
           </button>
         )}
 
-        {/* Visible on hover — surfaces the same actions as the right-click
-            menu (the parent row already has `group` so this works without
-            extra hover state in React). Lives outside the <button> because
-            nested buttons are invalid HTML; absolute-positioned over the
-            count so it never widens the row. */}
-        {!isRenaming && !(isMountScoped && !isMountRoot) && (
-          <button
-            type="button"
-            onClick={handleActionsClick}
-            onContextMenu={handleActionsClick}
-            aria-label="Actions du dossier"
-            title="Actions"
-            // Justified native: context-menu positioning requires clientX/clientY.
-            // `sn-reveal` : révélé au survol à la souris, visible en permanence
-            // au doigt — sans survol, un bouton transparent serait introuvable.
-            // `sn-hit` porte le plancher de 32px : au-delà de sa boîte, c'est la
-            // rangée sœur qui capte le tap, donc on ouvrirait l'élément au lieu
-            // du menu (cf. globals.css, tout se décide au pointeur).
-            className="sn-reveal sn-reveal--chip sn-hit absolute right-1.5 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md border text-[var(--text-muted)] hover:bg-[var(--surface-2)] hover:text-[var(--text-primary)]"
-          >
-            <DotsThree size={14} weight="bold" />
-          </button>
-        )}
+        {/* Pas de bouton « … » ici : il se posait en absolu PAR-DESSUS le
+            compteur « (N) » de la rangée, et les deux se lisaient superposés
+            dès qu'il apparaissait. Les mêmes actions restent joignables par
+            les trois gestes standards — clic droit (souris), appui long
+            (doigt), touche Menu / Shift+F10 (clavier, dont le `contextmenu`
+            remonte jusqu'au handler de cette rangée). */}
       </div>
 
       {hasKids && expanded && (
@@ -1782,6 +1858,7 @@ function FolderNode({
                 onDeleteFolder={onDeleteFolder}
                 onArchiveFolder={onArchiveFolder}
                 openContextMenu={openContextMenu}
+                openContextMenuAt={openContextMenuAt}
                 openPicker={openPicker}
                 depth={depth + 1}
                 notes={notes}
@@ -1887,9 +1964,9 @@ function NoteRows({ notes, depth, folderPath, onSelectFolder }: NoteRowsProps) {
  * réutiliser le drop des FolderNode et déplacer la note d'un dossier à l'autre
  * sans passer par la liste centrale.
  *
- * Actions (renommer / archiver / supprimer) : clic droit sur la ligne, ou
- * bouton « … » — visible en permanence sur mobile (pas de survol au doigt),
- * révélé au survol sur desktop, comme les lignes de dossier.
+ * Actions (renommer / archiver / supprimer) : clic droit sur la ligne à la
+ * souris, appui long au doigt, touche Menu au clavier — comme les lignes de
+ * dossier, et sans bouton « … » qui viendrait se poser sur le titre.
  */
 function NoteRow({ note, depth }: { note: TreeNote; depth: number }) {
   const {
@@ -1899,9 +1976,12 @@ function NoteRow({ note, depth }: { note: TreeNote; depth: number }) {
     onDeleteNote,
     onArchiveNote,
     openContextMenu,
+    openContextMenuAt,
   } = useContext(NoteTreeContext);
   const { toast } = useToast();
   const [isRenaming, setIsRenaming] = useState(false);
+  // Voir FolderNode : avale le `click` de synthèse qui suit un appui long.
+  const longPressFired = useRef(false);
   const isSelected = selectedNoteId === note.id;
   const fg = isSelected ? "var(--accent)" : "var(--text-secondary)";
   // Note appartenant à un coffre monté : sous-arbre en lecture seule (le
@@ -1921,7 +2001,7 @@ function NoteRow({ note, depth }: { note: TreeNote; depth: number }) {
     }
   };
 
-  // Source unique des actions — partagée par le clic droit et le bouton « … ».
+  // Source unique des actions — partagée par le clic droit et l'appui long.
   const buildItems = (): ContextMenuItemDef[] => {
     if (isMountScoped) return [];
     return [
@@ -1967,6 +2047,15 @@ function NoteRow({ note, depth }: { note: TreeNote; depth: number }) {
     openContextMenu(e, items);
   };
 
+  // Appui long = clic droit du doigt (iOS n'émet jamais `contextmenu`).
+  const longPress = useLongPress((x, y) => {
+    if (!openContextMenuAt) return;
+    const items = buildItems();
+    if (items.length === 0) return;
+    longPressFired.current = true;
+    openContextMenuAt(x, y, items);
+  });
+
   const rowStyle: React.CSSProperties = {
     paddingLeft: `${rowPaddingLeft(depth)}px`,
     backgroundColor: isSelected ? "var(--accent-subtle)" : undefined,
@@ -2006,19 +2095,25 @@ function NoteRow({ note, depth }: { note: TreeNote; depth: number }) {
             e.dataTransfer.setData("text/plain", note.id);
             e.dataTransfer.effectAllowed = "move";
           }}
-          onClick={() => onSelectNote?.(note.id)}
+          onClick={() => {
+            if (longPressFired.current) {
+              longPressFired.current = false;
+              return;
+            }
+            onSelectNote?.(note.id);
+          }}
+          {...longPress}
+          // Voir FolderNode : on ré-enveloppe onTouchStart pour désarmer le
+          // drapeau à chaque nouvel appui.
+          onTouchStart={(e) => {
+            longPressFired.current = false;
+            longPress.onTouchStart(e);
+          }}
           title={note.title}
-          // pr-10 sous md: réserve la place du « … » (32px + 6px de marge),
-          // affiché en permanence au doigt ; à la souris il n'apparaît qu'au
-          // survol et peut rester superposé au titre.
-          className="sn-motion-colors flex flex-1 items-center gap-1.5 rounded-md py-1.5 pl-2 pr-10 text-sm md:pr-8"
+          // Survol en CSS (voir FolderNode) : `backgroundColor` inline ne vaut
+          // que pour la sélection, qui doit l'emporter sur la classe `hover:`.
+          className="sn-motion-colors flex flex-1 items-center gap-1.5 rounded-md px-2 py-1.5 text-sm hover:bg-[var(--surface-2)]"
           style={rowStyle}
-          onMouseEnter={(e) => {
-            if (!isSelected) (e.currentTarget as HTMLButtonElement).style.backgroundColor = "var(--surface-2)";
-          }}
-          onMouseLeave={(e) => {
-            if (!isSelected) (e.currentTarget as HTMLButtonElement).style.backgroundColor = "";
-          }}
         >
           {/* Colonne du chevron, laissée vide : aligne le glyphe des notes sur
               celui des sous-dossiers de même niveau. */}
@@ -2027,24 +2122,10 @@ function NoteRow({ note, depth }: { note: TreeNote; depth: number }) {
           {/* Pas de double-clic « renommer » ici (contrairement aux dossiers
               et à la NoteList) : le premier clic navigue déjà vers la note, ce
               qui remonte l'arbre depuis /notes et ferait disparaître l'input.
-              Le renommage passe par le menu contextuel, atteignable au clavier
-              via le bouton « … ». */}
+              Le renommage passe par le menu contextuel — clic droit, appui
+              long, ou touche Menu / Shift+F10 depuis cette rangée focalisée,
+              dont le `contextmenu` remonte au handler du conteneur. */}
           <span className="flex-1 truncate text-left">{note.title || "Sans titre"}</span>
-        </button>
-      )}
-
-      {!isRenaming && !isMountScoped && (
-        <button
-          type="button"
-          onClick={openMenu}
-          onContextMenu={openMenu}
-          aria-label="Actions de la note"
-          title="Actions"
-          // Justified native: le positionnement du menu exige clientX/clientY.
-          // `sn-reveal` + `sn-hit` : voir la même paire sur la rangée dossier.
-          className="sn-reveal sn-reveal--chip sn-hit absolute right-1.5 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md border text-[var(--text-muted)] hover:bg-[var(--surface-2)] hover:text-[var(--text-primary)]"
-        >
-          <DotsThree size={14} weight="bold" />
         </button>
       )}
     </div>
