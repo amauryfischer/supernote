@@ -45,6 +45,7 @@ import {
   GitBranch,
   Globe,
   GraduationCap,
+  Graph,
   Handshake,
   Heart,
   House,
@@ -64,7 +65,6 @@ import {
   NotePencil,
   PaintBrush,
   Paperclip,
-  PenNib,
   Pencil,
   PencilSimple,
   Phone,
@@ -116,6 +116,7 @@ import {
   TouchSensor,
   useSensor,
   useSensors,
+  useDraggable,
   useDroppable,
   type DragEndEvent,
   type DragOverEvent,
@@ -488,6 +489,21 @@ function rowEdge(height: number): number {
 }
 
 /**
+ * Préfixe des identifiants dnd-kit d'une note, pour les distinguer des chemins
+ * de dossier dans le même DndContext.
+ *
+ * Les notes se déplaçaient par le drag HTML5 natif, pas par dnd-kit. Deux
+ * conséquences : au doigt, le geste n'existait tout simplement pas — l'API
+ * HTML5 n'est pas implémentée sur mobile — et à la souris, rien ne signalait
+ * qu'une ligne de fichier était saisissable (ni poignée, ni curseur `grab`).
+ * Les notes passent donc sur le même moteur que les dossiers.
+ *
+ * Le drop natif reste branché côté dossier : il sert encore à l'import de
+ * fichiers depuis le bureau et aux cartes de la NoteList.
+ */
+const NOTE_DRAG_PREFIX = "note:";
+
+/**
  * Custom collision detection for the folder tree.
  *
  * Two outcomes only:
@@ -502,6 +518,23 @@ const folderTreeCollision: CollisionDetection = ({ active, droppableContainers, 
   if (!pointerCoordinates) return [];
   const { y: py } = pointerCoordinates;
   const activePath = String(active.id);
+
+  // Une NOTE n'a qu'une destination possible : l'intérieur d'un dossier. Ni
+  // tri ni changement de niveau — son rang dans un dossier ne se règle pas
+  // ici, et « à côté d'un dossier » ne veut rien dire pour un fichier. Toute
+  // la hauteur de la rangée est donc acquise à l'imbrication, sans bordures.
+  if (activePath.startsWith(NOTE_DRAG_PREFIX)) {
+    const hits: Collision[] = [];
+    for (const container of droppableContainers) {
+      const rect = container.rect.current;
+      if (!rect || py < rect.top || py > rect.bottom) continue;
+      const id = String(container.id);
+      if (!id.startsWith("nest:")) continue;
+      hits.push({ id, data: { droppableContainer: container } });
+    }
+    return hits;
+  }
+
   const activeParent = getParentPath(activePath);
 
   const nestHits: Collision[] = [];
@@ -1123,6 +1156,16 @@ export function FileTree({
       const activePath = String(active.id);
       const overId = String(over.id);
 
+      // Note déposée dans un dossier — seule issue possible pour un fichier.
+      if (activePath.startsWith(NOTE_DRAG_PREFIX)) {
+        if (!overId.startsWith("nest:")) return;
+        const targetPath = overId.slice(5);
+        if (targetPath === MOUNT_PATH_PREFIX || targetPath.startsWith(`${MOUNT_PATH_PREFIX}/`)) return;
+        onDropNote?.(activePath.slice(NOTE_DRAG_PREFIX.length), targetPath);
+        setExpanded(targetPath, true);
+        return;
+      }
+
       // Un sous-arbre monté (`@mounts/...`) est en lecture seule : on refuse
       // tout déplacement dont la source OU la destination y atterrirait. Le
       // worker rejetterait l'écriture ; on évite l'aller-retour + le toast.
@@ -1165,7 +1208,7 @@ export function FileTree({
         setChildOrders((m) => new Map(m).set(activeParent, prev)),
       );
     },
-    [orderedFolders, childOrders, reorderFolders, moveFolder, setExpanded],
+    [orderedFolders, childOrders, reorderFolders, moveFolder, setExpanded, onDropNote],
   );
 
   return (
@@ -2164,6 +2207,21 @@ function NoteGlyph({ note, color }: { note: TreeNote; color: string }): React.JS
       </span>
     );
   }
+  // Excalidraw rattaché → icône de graphe, juste après l'emoji choisi par
+  // l'utilisateur : c'est le trait le plus distinctif d'une note, il passe
+  // donc avant le type de pièce jointe.
+  //
+  // On teste `canvasFile` AVANT `canvas`, et c'est tout l'objet du correctif :
+  // `canvas` est le blob Excalidraw hydraté par le worker, et il n'est injecté
+  // que sur `entities.get`. L'arbre, lui, se nourrit de `entities.list`, qui
+  // ne transporte que les champs bruts du frontmatter — donc `canvasFile`, le
+  // pointeur vers le `.excalidraw` voisin, jamais `canvas`. La condition
+  // précédente ne pouvait structurellement jamais être vraie ici : aucune note
+  // à dessin n'a jamais eu d'icône dans l'arbre. On garde `canvas` en second
+  // pour les entités déjà hydratées par une visite.
+  if (fields["canvasFile"] || fields["canvas"]) {
+    return <Graph size={14} color={color} weight="regular" />;
+  }
   const attachment = typeof fields["attachmentFile"] === "string" ? fields["attachmentFile"] : "";
   const dot = attachment.lastIndexOf(".");
   const ext = dot >= 0 ? attachment.slice(dot + 1).toLowerCase() : "";
@@ -2172,7 +2230,6 @@ function NoteGlyph({ note, color }: { note: TreeNote; color: string }): React.JS
     const Icon = DRIVE_DOC_ICONS[driveKind];
     return <Icon size={14} color={color} weight="regular" />;
   }
-  if (fields["canvas"]) return <PenNib size={14} color={color} weight="regular" />;
   if (attachment) return <Paperclip size={14} color={color} weight="regular" />;
   return <FileText size={14} color={color} weight="regular" />;
 }
@@ -2258,6 +2315,15 @@ function NoteRow({ note, depth }: { note: TreeNote; depth: number }) {
   const isMountScoped =
     note.folderPath === MOUNT_PATH_PREFIX ||
     note.folderPath.startsWith(`${MOUNT_PATH_PREFIX}/`);
+  // Même moteur de glisser que les dossiers : marche à la souris ET au doigt,
+  // et se signale par une poignée. Pas de `useSortable` — une note ne
+  // s'ordonne pas dans l'arbre, elle change seulement de dossier.
+  const {
+    attributes: dragAttributes,
+    listeners: dragListeners,
+    setNodeRef: dragNodeRef,
+    isDragging,
+  } = useDraggable({ id: `${NOTE_DRAG_PREFIX}${note.id}`, disabled: isMountScoped });
 
   const handleRenameCommit = async (newTitle: string) => {
     setIsRenaming(false);
@@ -2338,11 +2404,27 @@ function NoteRow({ note, depth }: { note: TreeNote; depth: number }) {
 
   return (
     <div
-      ref={rowRef}
+      ref={(el) => { rowRef.current = el; dragNodeRef(el); }}
       className="sn-tree-elbow group relative flex items-center"
-      style={{ ["--sn-tree-elbow-x" as string]: `${elbowX(depth)}px` }}
+      style={{ ["--sn-tree-elbow-x" as string]: `${elbowX(depth)}px`, opacity: isDragging ? 0.4 : 1 }}
       onContextMenu={openMenu}
     >
+      {/* Poignée de déplacement — même gabarit et même gouttière que celle des
+          dossiers, pour que l'arbre n'ait qu'une grammaire. Elle manquait
+          entièrement aux fichiers : à la souris rien n'indiquait qu'une ligne
+          était saisissable, et au doigt le glisser n'existait pas du tout. */}
+      {!isRenaming && !isMountScoped && (
+        <button
+          type="button"
+          {...dragAttributes}
+          {...dragListeners}
+          aria-label="Déplacer la note"
+          className="sn-reveal absolute left-0 top-1/2 flex h-5 w-5 -translate-y-1/2 cursor-grab items-center justify-center rounded before:absolute before:-inset-y-1.5 before:inset-x-0 before:content-[''] active:cursor-grabbing"
+          style={{ color: "var(--text-muted)", zIndex: 1 }}
+        >
+          <DotsSixVertical size={12} />
+        </button>
+      )}
       {isRenaming ? (
         // Un <input> ne peut pas vivre dans un <button> (HTML invalide) : on
         // bascule la ligne en <div> le temps de l'édition, même motif que
