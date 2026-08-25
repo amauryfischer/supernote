@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Button, Popover } from "@heroui/react";
 import dynamic from "next/dynamic";
-import { CaretDown, CaretRight, Calendar, Tag, FloppyDisk, Microphone, Image, Sparkle, X, CheckCircle, WarningCircle, Presentation, FilePdf, LinkSimple, Stop } from "@phosphor-icons/react";
+import { CaretDown, CaretRight, Calendar, Tag, FloppyDisk, Microphone, Image, Sparkle, X, CheckCircle, WarningCircle, Presentation, FilePdf, LinkSimple, Stop, CodeSimple } from "@phosphor-icons/react";
 import Link from "next/link";
 import { Fragment } from "react";
 import { TagSelector } from "@/components/tags/TagSelector";
@@ -41,6 +41,8 @@ import { EnvelopeSimple } from "@phosphor-icons/react";
 import { ShortcutsCheatSheet } from "./ShortcutsCheatSheet";
 import { AmbianceSelector, ambianceClass, asAmbiance, asTypo, type NoteAmbiance, type NoteTypo } from "./AmbianceSelector";
 import { CoverBackdrop, CoverButton, asCover } from "./NoteCover";
+import { HtmlNoteView } from "./HtmlNoteView";
+import { createVaultFileAdapter } from "@/lib/vault-file-adapter";
 import { NoteIcon, IconButton, asIcon } from "./NoteIcon";
 import { AiMarginsPanel } from "./AiMarginsPanel";
 import { BacklinksList, useBacklinkCount } from "./BacklinksPanel";
@@ -205,21 +207,6 @@ function isImage(name: string): boolean {
   return IMAGE_EXTENSIONS.has(fileExt(name));
 }
 
-/** Map a MIME image type to a file extension for clipboard pastes. */
-function imageTypeToExt(mimeType: string): string {
-  const map: Record<string, string> = {
-    "image/png": "png",
-    "image/jpeg": "jpg",
-    "image/jpg": "jpg",
-    "image/gif": "gif",
-    "image/webp": "webp",
-    "image/bmp": "bmp",
-    "image/tiff": "tiff",
-    "image/svg+xml": "svg",
-  };
-  return map[mimeType] ?? mimeType.split("/")[1] ?? "png";
-}
-
 export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
   // Mobile focus mode: drop the editor's formatting toolbar while the keyboard
   // is up so only the note content remains (the shell chrome is hidden by
@@ -236,6 +223,9 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
   const [cover, setCover] = useState<string | null>(() => asCover(note.fields?.["cover"]));
   const coverActive = Boolean(cover) && !hideToolbarForKeyboard;
   const [icon, setIcon] = useState<string | null>(() => asIcon(note.fields?.["icon"]));
+  // Mode HTML : le corps reste du markdown, seul l'affichage change (l'artefact
+  // occupe tout le cadre au lieu de vivre dans un bloc au fil du texte).
+  const [htmlMode, setHtmlMode] = useState(() => note.fields?.["mode"] === "html");
   // Rangée métadonnées (date, tags, ambiance, actions) repliée par défaut —
   // dépliable via le handle discret sous le hero. Préférence globale, pas par note.
   const [metaOpen, setMetaOpen] = useState<boolean>(() => {
@@ -599,6 +589,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
     setCover(asCover(note.fields?.["cover"]));
     setIcon(asIcon(note.fields?.["icon"]));
     setAiMargins(note.fields?.["aiMargins"] === true);
+    setHtmlMode(note.fields?.["mode"] === "html");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [note.id]);
 
@@ -1118,61 +1109,22 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
     [ollamaAvailable, suggestTags, tagsUpdateMutation, note.id, note.folderPath],
   );
 
-  // ── Clipboard image paste ─────────────────────────────────────────────────
+  // ── Pièces jointes (collage, dépôt, menu /) ───────────────────────────────
   //
-  // Listens for `paste` events on the editor container. When the clipboard
-  // contains an image item, saves it to <noteDir>/_attachments/img-<ts>.<ext>
-  // via vault.writeFile, then inserts a markdown image reference at the caret.
-  // We only handle image items — text/html pastes fall through to BlockNote.
-  const noteFilePathRef = useRef<string | undefined>(note.filePath);
-  useEffect(() => {
-    noteFilePathRef.current = note.filePath;
-  }, [note.filePath]);
-
-  useEffect(() => {
-    const container = editorContainerRef.current;
-    if (!container) return;
-
-    const handlePaste = (event: ClipboardEvent) => {
-      const items = Array.from(event.clipboardData?.items ?? []);
-      const imageItems = items.filter((item) => item.type.startsWith("image/"));
-      if (imageItems.length === 0) return;
-
-      event.preventDefault();
-
-      for (const item of imageItems) {
-        const file = item.getAsFile();
-        if (!file) continue;
-        const ext = imageTypeToExt(item.type);
-        const filePath = noteFilePathRef.current;
-        // Derive folder from filePath, fallback to folderPath from closure.
-        const noteDir = filePath
-          ? filePath.split("/").slice(0, -1).join("/") || "."
-          : note.folderPath || ".";
-        const attachmentPath = `${noteDir === "." ? "" : `${noteDir}/`}_attachments/img-${Date.now()}.${ext}`;
-        const markdownRef = `![](${attachmentPath})`;
-
-        void (async () => {
-          try {
-            const bytes = await file.arrayBuffer();
-            await trpcVanillaClient.vault.writeFile.mutate({ path: attachmentPath, bytes });
-            insertMarkdown(markdownRef);
-            showToast("Image collée");
-          } catch (err) {
-            console.error("[NoteEditor.paste] image write failed", err);
-            showToast(`Erreur: ${err instanceof Error ? err.message : String(err)}`);
-          }
-        })();
-      }
-    };
-
-    container.addEventListener("paste", handlePaste);
-    return () => container.removeEventListener("paste", handlePaste);
-  // note.folderPath is used inside closure — include it. insertMarkdown and
-  // showToast are stable callbacks (useCallback / plain function). We
-  // intentionally omit them from deps to avoid re-registering on every save.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [note.folderPath]);
+  // BlockNote gère lui-même le collage et le dépôt de fichiers dès qu'un
+  // `uploadFile` est fourni : il insère le bloc image et met à jour son url
+  // avec ce que l'adaptateur retourne. On écrit dans
+  // `<dossier de la note>/_attachments/` et on ne garde que le chemin dans le
+  // markdown ; `resolveUrl` le retraduit en blob: au rendu (aucun fichier du
+  // coffre n'est servi sur une URL).
+  const noteDirRef = useRef<string>("");
+  noteDirRef.current = note.filePath
+    ? note.filePath.split("/").slice(0, -1).join("/")
+    : note.folderPath || "";
+  const fileAdapter = useMemo(
+    () => createVaultFileAdapter(() => noteDirRef.current),
+    [],
+  );
 
   const handleEditorChange = useCallback(
     (markdown: string) => {
@@ -1185,6 +1137,17 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
       if (aiMargins) setBodyVersion((v) => v + 1);
     },
     [triggerAutoSave, title, scheduleAutoTitle, scheduleAutoTag, aiMargins],
+  );
+
+  // Mode HTML : autosave seule — laisser l'auto-titre ou l'auto-tag lire du
+  // markup produirait « <!DOCTYPE html> » comme titre de note.
+  const handleHtmlBodyChange = useCallback(
+    (markdown: string) => {
+      breadcrumb("edit:note");
+      bodyRef.current = markdown;
+      triggerAutoSave(markdown, title);
+    },
+    [triggerAutoSave, title],
   );
 
   const handleTitleChange = useCallback(
@@ -1514,11 +1477,10 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
             showToast(`Erreur transcription: ${err instanceof Error ? err.message : String(err)}`);
           }
         } else if (isImage(name)) {
+          // Hors Electron, pas de chemin natif à OCR-iser : BlockNote a déjà
+          // inséré l'image via l'adaptateur fichiers, on ne double pas.
           const filePath = (file as File & { path?: string }).path;
-          if (!filePath) {
-            showToast("Chemin introuvable — lancez depuis Electron");
-            continue;
-          }
+          if (!filePath) continue;
           setDropStatus("ocr");
           showToast("OCR en cours...", 60000);
           try {
@@ -1747,6 +1709,25 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
               Marges IA
             </Button>
           )}
+          <Button
+            variant="ghost"
+            size="sm"
+            onPress={() => {
+              const next = !htmlMode;
+              setHtmlMode(next);
+              void trpcVanillaClient.entities.update.mutate({
+                id: note.id,
+                fields: { mode: next ? "html" : "" },
+              });
+            }}
+            className="sn-hit h-7 min-w-0 gap-1 px-2 text-xs"
+            style={{ color: htmlMode ? "var(--accent)" : "var(--text-muted)" }}
+            aria-label="Mode HTML"
+            aria-pressed={htmlMode}
+          >
+            <CodeSimple size={13} weight={htmlMode ? "fill" : "regular"} />
+            Mode HTML
+          </Button>
           {gmailConnected && (
             <Button
               variant="ghost"
@@ -1961,6 +1942,13 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
                 }}
               />
             )}
+            {htmlMode ? (
+            <HtmlNoteView
+              key={`${note.id}:${externalBodyVersion}:html`}
+              body={pendingBody ?? note.body}
+              onChange={handleHtmlBodyChange}
+            />
+            ) : (
             <SupernoteEditor
               key={`${note.id}:${externalBodyVersion}:${bindingsKey}`}
               initialMarkdown={pendingBody ?? note.body}
@@ -1991,7 +1979,9 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
               onAIError={onAIError}
               onAIWarning={onAIWarning}
               getKeymapBindings={getBindings}
+              files={fileAdapter}
             />
+            )}
           </div>
           {aiMargins && (
             <div

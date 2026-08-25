@@ -392,6 +392,28 @@ export function getSupernoteSlashMenuItems(
 
   // Google Sheet — embed lecture-seule (iframe desktop / lien mobile).
   // contentEditable=false → paragraphe trailing pour ne pas piéger le curseur.
+  const htmlItem: DefaultReactSuggestionItem = {
+    title: "Artefact HTML",
+    subtext: "Colle une page HTML (artefact Claude) et rends-la dans la note",
+    group: "Media",
+    aliases: ["html", "artefact", "artifact", "iframe", "page", "web", "claude"],
+    icon: <span aria-hidden="true">{"<>"}</span>,
+    onItemClick() {
+      const inserted = editor.insertBlocks(
+        [
+          { type: "htmlArtifact" as any, props: { html: "" } } as any,
+          { type: "paragraph" } as any,
+        ],
+        editor.getTextCursorPosition().block,
+        "after",
+      );
+      const trailing = inserted?.[1];
+      if (trailing) {
+        editor.setTextCursorPosition(trailing as any, "start");
+      }
+    },
+  };
+
   const googleSheetItem: DefaultReactSuggestionItem = {
     title: "Google Sheet",
     subtext: "Intègre une feuille Google (vue lecture seule)",
@@ -444,7 +466,7 @@ export function getSupernoteSlashMenuItems(
 
   const aiItems: DefaultReactSuggestionItem[] = onAskAi ? [makeAskAiItem(onAskAi)] : [];
 
-  return [...defaults, ...calloutItems, codeItem, embedItem, databaseViewItem, googleSheetItem, gmailItem, formulaItem, ...liveFormulaItems, doodleItem, ...entityLinkItems, ...aiItems];
+  return [...defaults, ...calloutItems, codeItem, embedItem, databaseViewItem, googleSheetItem, htmlItem, gmailItem, formulaItem, ...liveFormulaItems, doodleItem, ...entityLinkItems, ...aiItems];
 }
 
 // ── Suggestion menu renderer ──────────────────────────────────────────────────

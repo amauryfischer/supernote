@@ -26,6 +26,7 @@ import {
 import { isSystemFolder } from "@/lib/system-folders";
 import type { FieldValue } from "@supernote/ipc";
 import { useSettings } from "@/components/settings/SettingsContext";
+import { isAttachmentPath } from "@/lib/attachments-path";
 import {
   createDriveFile,
   resolveDriveSubfolder,
@@ -109,7 +110,12 @@ export function useNoteList(folderPath: string | null): UseNoteListResult {
   // Prefer cached data — surface the list immediately even if a background
   // refetch is in-flight. Without this, the list briefly blanks on remount.
   if (query.data) {
-    const allNotes = query.data.items.map(entitySummaryToNote);
+    // Les fichiers de `_attachments` (images collées dans les notes) sont
+    // indexés comme entités : ils ne doivent apparaître ni dans la liste ni
+    // dans les compteurs de dossier — la note qui les affiche suffit.
+    const allNotes = query.data.items
+      .map(entitySummaryToNote)
+      .filter((n) => !isAttachmentPath(n.folderPath));
     // Recursive scope: when a folder is selected, include notes whose
     // folderPath matches exactly OR is nested under it (descendants). The
     // middle pane then shows everything inside the folder subtree, grouped

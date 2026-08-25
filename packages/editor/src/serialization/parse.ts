@@ -4,6 +4,7 @@
 import type { PartialBlock } from "@blocknote/core";
 import type { CalloutVariant } from "../types.js";
 import { textColorFromHex, highlightColorFromHex } from "./colors.js";
+import { clampHtmlHeight } from "../blocks/htmlArtifactUtils.js";
 
 // We use `any` for the inline content array type because BlockNote's
 // PartialInlineContent generic is too strict for our intermediate representation.
@@ -224,6 +225,17 @@ function parseLine(line: string): AnyBlock | null {
     };
   }
 
+  // Image: ![alt](chemin) — le chemin est relatif au coffre (pièce jointe
+  // collée/déposée) ou une URL absolue ; la résolution en URL affichable est
+  // déléguée à l'host via `files.resolveUrl` (BlockNote `resolveFileUrl`).
+  const imageMatch = /^!\[([^\]]*)\]\(([^)]+)\)\s*$/.exec(line);
+  if (imageMatch) {
+    return {
+      type: "image",
+      props: { url: imageMatch[2] ?? "", caption: imageMatch[1] ?? "" },
+    };
+  }
+
   // Horizontal rule
   if (/^---+$/.test(line)) {
     return { type: "divider" };
@@ -286,20 +298,38 @@ export function markdownToBlocks(markdown: string): AnyBlock[] {
   while (i < lines.length) {
     const line = lines[i] ?? "";
 
-    // Fenced code block
-    const fenceMatch = /^```(\w*)$/.exec(line);
+    // Fenced code block. La clôture doit avoir AU MOINS autant de backticks que
+    // l'ouverture : un artefact HTML qui contient lui-même ``` reste intact.
+    const fenceMatch = /^(`{3,})([\w-]*)(?:[ \t]+([^\n]*))?$/.exec(line);
     if (fenceMatch) {
-      const lang = fenceMatch[1] ?? "text";
+      const fence = fenceMatch[1] ?? "```";
+      const lang = fenceMatch[2] ?? "text";
+      const info = fenceMatch[3] ?? "";
+      const closing = new RegExp(`^\`{${fence.length},}\\s*$`);
       const codeLines: string[] = [];
       i++;
-      while (i < lines.length && !/^```/.test(lines[i] ?? "")) {
+      while (i < lines.length && !closing.test(lines[i] ?? "")) {
         codeLines.push(lines[i] ?? "");
         i++;
       }
-      i++; // consume closing ```
+      i++; // consume closing fence
+      const code = codeLines.join("\n");
+      // `\`\`\`html preview` → artefact rendu (bloc htmlArtifact) ; un simple
+      // `\`\`\`html` reste un bloc de code coloré.
+      if (lang.toLowerCase() === "html" && /\bpreview\b/.test(info)) {
+        const heightMatch = /\bh=(\d+)\b/.exec(info);
+        blocks.push({
+          type: "htmlArtifact",
+          props: {
+            html: code,
+            height: clampHtmlHeight(heightMatch?.[1]),
+          },
+        });
+        continue;
+      }
       blocks.push({
         type: "codeHighlight",
-        props: { language: lang || "text", code: codeLines.join("\n") },
+        props: { language: lang || "text", code },
       });
       continue;
     }

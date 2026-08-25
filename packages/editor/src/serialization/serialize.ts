@@ -4,6 +4,7 @@
 import type { Block } from "@blocknote/core";
 import type { CalloutVariant } from "../types.js";
 import { TEXT_COLOR_HEX, HIGHLIGHT_COLOR_HEX } from "./colors.js";
+import { clampHtmlHeight, fenceFor } from "../blocks/htmlArtifactUtils.js";
 
 // We use a loose block type for our serializer since we need to handle
 // both default BlockNote blocks and our custom block types.
@@ -142,6 +143,32 @@ function blockToMarkdownLine(block: AnyBlock): string {
       const url = (props.url as string) ?? "";
       const caption = (props.caption as string) ?? "";
       return caption ? `![${caption}](${url})` : `![](${url})`;
+    }
+
+    case "file":
+    case "video":
+    case "audio": {
+      // Pas de syntaxe markdown pour ces blocs : on dégrade en lien pour ne
+      // jamais perdre la référence au fichier à l'autosave (le bloc redevient
+      // un lien au reload).
+      const url = (props.url as string) ?? "";
+      if (!url) return "";
+      const name =
+        (props.name as string) ||
+        (props.caption as string) ||
+        url.split("/").pop() ||
+        "fichier";
+      return `[${name}](${url})`;
+    }
+
+    case "htmlArtifact": {
+      // Artefact HTML : fence ```html preview h=… — reste un bloc de code
+      // parfaitement lisible dans Obsidian/VSCode, et le suffixe `preview`
+      // distingue « rends-le » d'un simple extrait de code HTML.
+      const html = (props.html as string) ?? "";
+      const height = clampHtmlHeight(props.height);
+      const fence = fenceFor(html);
+      return `${fence}html preview h=${height}\n${html}\n${fence}`;
     }
 
     case "divider":

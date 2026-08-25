@@ -65,6 +65,19 @@ export interface SupernoteEditorApi {
   restoreCaret: (blockId: string) => boolean;
 }
 
+/**
+ * Adaptateur fichiers du coffre. Branche le collage/dépôt de fichiers
+ * (BlockNote `uploadFile`) et la résolution du chemin stocké dans le markdown
+ * en URL affichable (BlockNote `resolveFileUrl`) — indispensable côté web où
+ * les fichiers vivent derrière le worker (FSA/OPFS) et pas sur une URL http.
+ */
+export interface EditorFileAdapter {
+  /** Persiste le fichier et retourne le chemin à écrire dans le markdown. */
+  upload: (file: File) => Promise<string>;
+  /** Traduit un chemin de coffre en URL chargeable (blob:). */
+  resolveUrl: (url: string) => Promise<string>;
+}
+
 /** Props for the main SupernoteEditor component */
 export interface SupernoteEditorProps {
   /** Client Ollama pour les actions IA inline. Si absent, actions désactivées. */
@@ -164,6 +177,12 @@ export interface SupernoteEditorProps {
   renderGoogleSheet?: (props: { spreadsheetId: string; gid: string; url: string; onClear: () => void }) => React.ReactNode;
   /** API d'embed Gmail (Phase 2) : rendu d'un thread + picker d'email. */
   gmailEmbed?: GmailEmbedApi;
+  /**
+   * Adaptateur fichiers (upload + résolution d'URL). Sans lui, BlockNote
+   * refuse le collage/dépôt de fichiers et les blocs image restent cassés.
+   * Lu au montage uniquement — passer un objet stable.
+   */
+  files?: EditorFileAdapter;
   /** Map résolue combo->actionId pour les raccourcis éditeur. Défaut : registre. */
   getKeymapBindings?: () => Record<string, string>;
 }

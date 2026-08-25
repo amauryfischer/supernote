@@ -10,6 +10,7 @@ import { useCreateInboxNote } from "@/hooks/useCreateInboxNote";
 import { breadcrumb } from "@/lib/diagnostics/freeze-watchdog";
 import type { SupernoteEditorProps, EntityRef } from "@supernote/editor";
 import { trpc, trpcVanillaClient } from "@/lib/trpc/client";
+import { createVaultFileAdapter } from "@/lib/vault-file-adapter";
 import { useTranslations } from "next-intl";
 import {
   HomeHero,
@@ -196,6 +197,10 @@ export function WritingSurface() {
     return () => clearTimeout(timer);
   }, [lastSaved, t]);
 
+  // La note d'accueil n'existe pas encore quand on colle : les pièces jointes
+  // vont à la racine du coffre (`_attachments/`).
+  const fileAdapter = useMemo(() => createVaultFileAdapter(() => ""), []);
+
   const handleEditorChange = useCallback(
     (markdown: string) => {
       breadcrumb("edit:home");
@@ -290,6 +295,7 @@ export function WritingSurface() {
             onChange={handleEditorChange}
             onSave={handleEditorSave}
             resolvers={resolvers}
+            files={fileAdapter}
             placeholder="Commencez à écrire ou tapez « / » pour les commandes…"
             className={`w-full ${isWriting ? "min-h-[8rem]" : "min-h-[4rem]"}`}
           />

@@ -132,6 +132,7 @@ import {
   useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { isAttachmentPath } from "@/lib/attachments-path";
 
 // ── Persisted expanded-folder state ───────────────────────────────────────────
 //
@@ -824,7 +825,9 @@ export function FileTree({
   // en racine labellisée. `folders`/`notes` ci-dessous référencent désormais la
   // version regroupée (filtrée) — toutes les utilisations en aval en héritent.
   const { folders, mountRoots } = useMemo(
-    () => regroupMounts(rawFolders, mountMap),
+    // `_attachments` est technique (images collées dans les notes) : il ne se
+    // montre pas dans l'arbre et ne se choisit pas comme destination.
+    () => regroupMounts(rawFolders.filter((f) => !isAttachmentPath(f.path)), mountMap),
     [rawFolders, mountMap],
   );
 
@@ -840,7 +843,8 @@ export function FileTree({
       rawNotes.filter(
         (n) =>
           n.folderPath !== MOUNT_CONFIG_FOLDER &&
-          !n.folderPath.startsWith(`${MOUNT_CONFIG_FOLDER}/`),
+          !n.folderPath.startsWith(`${MOUNT_CONFIG_FOLDER}/`) &&
+          !isAttachmentPath(n.folderPath),
       ),
     [rawNotes],
   );

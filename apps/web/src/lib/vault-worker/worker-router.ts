@@ -634,6 +634,11 @@ export function buildRouter(
     }
   }
 
+  // `_attachments` : dossier technique des pièces jointes collées dans les
+  // notes. Jamais remonté comme dossier du coffre (arbre, destinations de
+  // déplacement) — le fichier reste lisible par son chemin.
+  const ATTACHMENTS_SEGMENT = "_attachments";
+
   function derivedFolders(): string[] {
     const r = rows(db.exec(
       `SELECT filePath FROM entity WHERE vaultId = ?`, [vaultId],
@@ -642,6 +647,7 @@ export function buildRouter(
     for (const e of r) {
       const fp = (e["filePath"] as string) ?? "";
       const parts = fp.split("/");
+      if (parts.includes(ATTACHMENTS_SEGMENT)) continue;
       if (parts.length > 1) {
         // Add every ancestor folder (so "a/b/c.md" yields "a" and "a/b").
         for (let i = 1; i < parts.length; i++) {

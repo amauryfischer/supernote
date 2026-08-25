@@ -26,6 +26,7 @@ import { Button, Spinner } from "@heroui/react";
 import { ArrowSquareOut } from "@phosphor-icons/react";
 import { useRouter } from "next/navigation";
 import { SupernoteEditor } from "@supernote/editor";
+import { createVaultFileAdapter } from "@/lib/vault-file-adapter";
 import type { EntityRef } from "@supernote/editor";
 import { trpc } from "@/lib/trpc/client";
 import { renderInlineDatabase } from "./InlineDatabaseRenderer";
@@ -170,6 +171,19 @@ function NotePortal({ target, alias }: { target: string; alias?: string }): Reac
     [utils],
   );
 
+  // Pièces jointes du portail : le fichier collé atterrit à côté de la note
+  // ciblée, pas de celle qui héberge le portail.
+  const portalDirRef = useRef<string>("");
+  const portalFilePath = (note as { filePath?: unknown } | null)?.filePath;
+  portalDirRef.current =
+    typeof portalFilePath === "string"
+      ? portalFilePath.split("/").slice(0, -1).join("/")
+      : "";
+  const fileAdapter = useMemo(
+    () => createVaultFileAdapter(() => portalDirRef.current),
+    [],
+  );
+
   const [hovered, setHovered] = useState(false);
 
   // ── États dégradés ─────────────────────────────────────────────────────────
@@ -268,6 +282,7 @@ function NotePortal({ target, alias }: { target: string; alias?: string }): Reac
             renderFormula={renderNoteFormula}
             renderEmbed={renderNotePortal}
             renderDoodle={renderDoodle}
+            files={fileAdapter}
           />
         </PortalDepthContext.Provider>
       </div>

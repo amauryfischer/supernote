@@ -39,6 +39,7 @@ import {
 import { ACTION_META } from "./keymap/actions.js";
 import { attachCheckShortcut } from "./extensions/checkShortcut.js";
 import { smartTypographyExtension } from "./extensions/smartTypography.js";
+import { attachHtmlPaste } from "./extensions/htmlPaste.js";
 import {
   attachContinueChecklistOnEnter,
   enterTagExtension,
@@ -90,7 +91,13 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
     onAIWarning,
     smartTypography = true,
     getKeymapBindings,
+    files,
   } = props;
+
+  // Adaptateur fichiers lu par référence : les options BlockNote sont figées
+  // au montage (deps []), la note courante change, elle.
+  const filesRef = useRef(files);
+  filesRef.current = files;
 
   const onSaveRef = useRef(onSave);
   onSaveRef.current = onSave;
@@ -164,6 +171,15 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
       schema: supernoteSchema,
       initialContent: initialBlocks,
       dictionary,
+      // Sans `uploadFile`, BlockNote ignore purement et simplement le collage
+      // et le dépôt de fichiers ; sans `resolveFileUrl`, le bloc image affiche
+      // le chemin de coffre tel quel (jamais chargeable par le navigateur).
+      ...(files
+        ? {
+            uploadFile: (file: File) => filesRef.current!.upload(file),
+            resolveFileUrl: (url: string) => filesRef.current!.resolveUrl(url),
+          }
+        : {}),
       _tiptapOptions: {
         extensions: [
           createSaveExtension(handleSave),
@@ -179,6 +195,13 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
     []
   );
   blockNoteRef.current = editor as unknown as BlockOpsEditorLike;
+
+  // Collage d'un artefact HTML complet → bloc dédié (cf. htmlPaste.ts).
+  useEffect(() => {
+    const el = wrapperRef.current;
+    if (!el) return undefined;
+    return attachHtmlPaste(el, () => blockNoteRef.current);
+  }, []);
 
   // `x ` → checkListItem shortcut. Implemented as a post-commit watcher on
   // BlockNote's onChange (rather than a Tiptap input rule) because the

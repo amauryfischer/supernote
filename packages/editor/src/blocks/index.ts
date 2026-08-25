@@ -16,6 +16,13 @@ export {
 } from "./doodle.js";
 export type { DoodleRenderProps, DoodleRenderer } from "./doodle.js";
 export { heroCheckListItemSpec } from "./heroCheckListItem.js";
+export { htmlArtifactBlockSpec } from "./htmlArtifact.js";
+export {
+  clampHtmlHeight,
+  looksLikeHtmlDocument,
+  fenceFor,
+  HTML_ARTIFACT_DEFAULT_HEIGHT,
+} from "./htmlArtifactUtils.js";
 export {
   googleSheetBlockSpec,
   GoogleSheetProvider,
