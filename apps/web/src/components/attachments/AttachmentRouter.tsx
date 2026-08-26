@@ -42,6 +42,10 @@ const XlsxViewer = dynamic(
   () => import("./viewers/XlsxViewer").then((m) => m.XlsxViewer),
   { ssr: false, loading: () => <ViewerSpinner /> },
 );
+const HtmlViewer = dynamic(
+  () => import("./viewers/HtmlViewer").then((m) => m.HtmlViewer),
+  { ssr: false, loading: () => <ViewerSpinner /> },
+);
 
 export interface AttachmentViewerProps {
   /** The virtual-note entity that points at the attachment file. */
@@ -61,6 +65,7 @@ const OFFICE_DOCX = new Set([".docx", ".doc"]);
 const OFFICE_XLSX = new Set([".xlsx", ".xls"]);
 const CSV_EXTS = new Set([".csv", ".tsv"]);
 const GDOC_EXTS = new Set([".gdoc", ".gsheet", ".gslides"]);
+const HTML_EXTS = new Set([".html", ".htm"]);
 
 function getExt(name: string): string {
   const dot = name.lastIndexOf(".");
@@ -102,6 +107,8 @@ export function AttachmentRouter({ note }: AttachmentRouterProps) {
     viewer = <DocxViewer note={note} path={path} />;
   } else if (OFFICE_XLSX.has(ext)) {
     viewer = <XlsxViewer note={note} path={path} />;
+  } else if (HTML_EXTS.has(ext)) {
+    viewer = <HtmlViewer note={note} path={path} />;
   } else {
     viewer = (
       <div className="flex h-full w-full items-center justify-center text-xs"

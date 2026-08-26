@@ -17,7 +17,7 @@ const ATTACHMENT_EXTS = new Set([
   // Images
   ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".avif", ".bmp",
   // Documents
-  ".pdf",
+  ".pdf", ".html", ".htm",
   // Office
   ".docx", ".doc", ".xlsx", ".xls", ".pptx", ".ppt",
   // Data

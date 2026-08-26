@@ -42,6 +42,8 @@ const MIME_BY_EXT: Record<string, string> = {
   ".avif": "image/avif",
   ".bmp": "image/bmp",
   ".pdf": "application/pdf",
+  ".html": "text/html",
+  ".htm": "text/html",
   ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   ".doc": "application/msword",
   ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
