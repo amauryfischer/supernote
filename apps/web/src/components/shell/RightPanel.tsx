@@ -5,6 +5,7 @@ import { memo } from "react";
 import { useRouter } from "next/navigation";
 import { trpc } from "@/lib/trpc/client";
 import { useShellChrome } from "./shell-chrome-context";
+import { useUiMode } from "@/hooks/useUiMode";
 import { PrioritiesWidget } from "@/components/todos/PrioritiesWidget";
 import { Button, Skeleton } from "@supernote/ui";
 
@@ -111,7 +112,7 @@ function RecentList() {
             variant="ghost"
             size="sm"
             onClick={() => router.push(item.href)}
-            className="flex h-auto w-full flex-col items-start rounded-md px-3 py-2.5 text-left"
+            className="flex h-auto w-full flex-col items-start rounded-[var(--radius-md)] px-3 py-2.5 text-left"
           >
             <span className="text-xs font-medium leading-snug" style={{ color: "var(--text-primary)" }}>
               {item.label}
@@ -141,7 +142,7 @@ function RecentList() {
           variant="ghost"
           size="sm"
           onClick={() => router.push(entityHref(entity))}
-          className="flex h-auto w-full flex-col items-start rounded-md px-3 py-2.5 text-left"
+          className="flex h-auto w-full flex-col items-start rounded-[var(--radius-md)] px-3 py-2.5 text-left"
         >
           <span className="text-xs font-medium leading-snug" style={{ color: "var(--text-primary)" }}>
             {entityLabel(entity)}
@@ -159,6 +160,7 @@ function RecentList() {
 
 export const RightPanel = memo(function RightPanel() {
   const { setRightPanelVisible } = useShellChrome();
+  const isNext = useUiMode().mode === "next";
 
   return (
     <aside
@@ -166,7 +168,9 @@ export const RightPanel = memo(function RightPanel() {
       style={{
         width: "var(--panel-width)",
         borderColor: "var(--border-subtle)",
-        backgroundColor: "var(--surface-1)",
+        // Registre next : le panneau vit DANS la feuille inset, même surface
+        // que le contenu, seul un filet le sépare.
+        backgroundColor: isNext ? "var(--surface-content)" : "var(--surface-chrome)",
       }}
     >
       {/* Panel header — pas de libellé « Contexte » : eyebrow redondant, le
@@ -180,7 +184,7 @@ export const RightPanel = memo(function RightPanel() {
           size="icon"
           onClick={() => setRightPanelVisible(false)}
           aria-label="Fermer le panneau"
-          className="flex h-6 w-6 items-center justify-center rounded-md"
+          className="flex h-6 w-6 items-center justify-center rounded-[var(--radius-md)]"
           style={{ color: "var(--text-muted)" }}
         >
           <X size={13} />
@@ -201,9 +205,7 @@ export const RightPanel = memo(function RightPanel() {
       <div className="flex flex-col gap-1 p-3">
         <div className="flex items-center gap-1.5 px-3 pb-2">
           <Clock size={12} className="text-[var(--text-muted)]" />
-          <span className="text-xs font-medium" style={{ color: "var(--text-muted)" }}>
-            Récent
-          </span>
+          <span className="sn-eyebrow sn-eyebrow--compact">Récent</span>
         </div>
         <RecentList />
       </div>
@@ -213,14 +215,12 @@ export const RightPanel = memo(function RightPanel() {
       {/* AI / Suggestions */}
       <div className="flex flex-col gap-1 p-3">
         <div className="flex items-center gap-1.5 px-3 pb-2">
-          <Sparkle size={12} className="text-[var(--accent)]" />
-          <span className="text-xs font-medium" style={{ color: "var(--text-muted)" }}>
-            Suggestions IA
-          </span>
+          <Sparkle size={12} style={{ color: "var(--icon-decorative)" }} />
+          <span className="sn-eyebrow sn-eyebrow--compact">Suggestions IA</span>
         </div>
         <p
-          className="rounded-md px-3 py-2.5 text-xs leading-relaxed"
-          style={{ color: "var(--text-muted)", backgroundColor: "var(--surface-2)" }}
+          className="px-3 py-1 text-xs leading-relaxed"
+          style={{ color: "var(--text-muted)" }}
         >
           Ouvre un fichier ou lance une recherche pour voir des suggestions
           contextuelles.

@@ -1,52 +1,20 @@
 "use client";
 
-import { Card, Skeleton } from "@heroui/react";
+import Link from "next/link";
+import { Skeleton } from "@supernote/ui";
 import { useTranslations } from "next-intl";
-import { useRouter } from "next/navigation";
 import { trpc } from "@/lib/trpc/client";
 import { TODO_TYPE_ID } from "@/hooks/useTodoSync";
+import { SectionNotice } from "./HomeSection";
 
-interface StatTileProps {
-  count: number | undefined;
-  label: string;
-  href: string;
-  loading: boolean;
-}
-
-function StatTile({ count, label, href, loading }: StatTileProps) {
-  const router = useRouter();
-  return (
-    <Card
-      className="border shadow-none p-3 cursor-pointer hover:bg-[var(--surface-2)] transition-colors"
-      onClick={() => router.push(href)}
-    >
-      {loading ? (
-        <div className="flex flex-col gap-1">
-          <Skeleton className="h-7 w-10 rounded" />
-          <Skeleton className="h-3 w-16 rounded" />
-        </div>
-      ) : (
-        <div className="flex flex-col gap-0.5">
-          <span
-            className="text-[28px] font-semibold leading-tight tabular-nums"
-            style={{ color: "var(--text-primary)" }}
-          >
-            {count ?? 0}
-          </span>
-          <span
-            className="text-[11px] uppercase tracking-wider"
-            style={{ color: "var(--text-muted)" }}
-          >
-            {label}
-          </span>
-        </div>
-      )}
-    </Card>
-  );
-}
-
+/**
+ * Bande de compteurs du coffre. Aplatie en une ligne de liens : quatre tuiles
+ * bordées à chiffre de 28px dans une carte bordée faisaient deux niveaux de
+ * boîte pour quatre entiers.
+ */
 export function VaultStatsWidget() {
   const t = useTranslations("home.widgets.stats");
+  const tCommon = useTranslations("home");
 
   // Compteurs purs (COUNT SQL) — plus de rapatriement de 10 000 entités + bodies
   // juste pour un `.length`.
@@ -75,27 +43,72 @@ export function VaultStatsWidget() {
     contactsQuery.isLoading ||
     schemasQuery.isLoading;
 
-  const notesCount = notesQuery.data?.count;
+  const hasError =
+    notesQuery.isError &&
+    todosQuery.isError &&
+    contactsQuery.isError &&
+    schemasQuery.isError;
+
+  if (isLoading) {
+    return (
+      <div className="flex flex-wrap gap-x-6 gap-y-2" aria-hidden="true">
+        {[0, 1, 2, 3].map((i) => (
+          <Skeleton key={i} className="h-4 w-24" />
+        ))}
+      </div>
+    );
+  }
+
+  if (hasError) {
+    return (
+      <SectionNotice
+        tone="danger"
+        action={{
+          label: tCommon("retry"),
+          onClick: () => {
+            void notesQuery.refetch();
+            void todosQuery.refetch();
+            void contactsQuery.refetch();
+            void schemasQuery.refetch();
+          },
+        }}
+      >
+        {t("error")}
+      </SectionNotice>
+    );
+  }
+
   const openTodosCount = todosQuery.data?.items.filter(
-    (t) => !(t.fields["done"] === true || t.fields["done"] === "true"),
+    (e) => !(e.fields["done"] === true || e.fields["done"] === "true"),
   ).length;
-  const contactsCount = contactsQuery.data?.count;
-  const schemasCount = schemasQuery.data?.count;
+
+  const stats: { key: string; count: number | undefined; label: string; href: string }[] = [
+    { key: "notes", count: notesQuery.data?.count, label: t("notes"), href: "/notes" },
+    { key: "todos", count: openTodosCount, label: t("todos"), href: "/todos" },
+    { key: "contacts", count: contactsQuery.data?.count, label: t("contacts"), href: "/contacts" },
+    { key: "schemas", count: schemasQuery.data?.count, label: t("schemas"), href: "/schemas" },
+  ];
 
   return (
-    <Card className="border shadow-none p-4 flex flex-col gap-3">
-      <span
-        className="text-[12px] font-bold uppercase tracking-wider"
-        style={{ color: "var(--text-muted)" }}
-      >
-        {t("title")}
-      </span>
-      <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-        <StatTile count={notesCount} label={t("notes")} href="/notes" loading={isLoading} />
-        <StatTile count={openTodosCount} label={t("todos")} href="/todos" loading={isLoading} />
-        <StatTile count={contactsCount} label={t("contacts")} href="/contacts" loading={isLoading} />
-        <StatTile count={schemasCount} label={t("schemas")} href="/schemas" loading={isLoading} />
-      </div>
-    </Card>
+    <div className="grid grid-cols-2 gap-x-4 md:flex md:flex-wrap md:gap-x-7">
+      {stats.map(({ key, count, label, href }) => (
+        <Link
+          key={key}
+          href={href}
+          prefetch={false}
+          className="-mx-1.5 flex min-h-[40px] items-center gap-1.5 rounded-[var(--radius-md)] px-1.5 transition-colors hover:bg-[var(--surface-2)] md:min-h-[28px]"
+        >
+          <span
+            className="text-[15px] font-semibold tabular-nums"
+            style={{ color: "var(--text-primary)" }}
+          >
+            {count ?? 0}
+          </span>
+          <span className="text-[13px]" style={{ color: "var(--text-secondary)" }}>
+            {label}
+          </span>
+        </Link>
+      ))}
+    </div>
   );
 }

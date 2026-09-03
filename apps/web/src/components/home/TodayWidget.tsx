@@ -2,14 +2,16 @@
 
 import Link from "next/link";
 import { useMemo } from "react";
-import { Card, Chip } from "@heroui/react";
+import { Chip } from "@heroui/react";
 import { useTranslations } from "next-intl";
+import { useRouter } from "next/navigation";
 import { trpc } from "@/lib/trpc/client";
 import { TODO_TYPE_ID } from "@/hooks/useTodoSync";
 import { extractChecklists } from "@/lib/todos/extractChecklists";
 import { filterChecklistsHeuristic } from "@/lib/todos/heuristicFilter";
 import { importanceColor } from "@/components/todos/TodoRow";
 import type { TodoImportance } from "@/components/todos/TodoRow";
+import { HomeSection, HOME_ROW_CLASS, SectionSkeleton, SectionNotice } from "./HomeSection";
 
 const MAX_ROWS = 4;
 
@@ -36,6 +38,8 @@ function parsePriority(v: unknown): number {
 
 export function TodayWidget() {
   const t = useTranslations("home.widgets.today");
+  const tCommon = useTranslations("home");
+  const router = useRouter();
 
   // Les notes gardent leur body : extractChecklists parse le markdown complet.
   // (Scan client-side coûteux — candidat à un endpoint worker dédié plus tard.)
@@ -96,64 +100,69 @@ export function TodayWidget() {
       .slice(0, MAX_ROWS);
   }, [notesQuery.data, todosQuery.data]);
 
+  const isLoading = notesQuery.isLoading || todosQuery.isLoading;
+  // Une seule source en échec laisse encore une liste partielle exploitable :
+  // on ne bascule en erreur que si l'écran n'a plus rien d'honnête à montrer.
+  const hasError = notesQuery.isError || todosQuery.isError;
+
   return (
-    <Card className="border p-4 flex flex-col gap-2.5 shadow-none">
-      <div className="flex items-center gap-2">
-        <span
-          className="text-[12px] font-bold uppercase tracking-wider"
-          style={{ color: "var(--text-muted)" }}
-        >
-          {t("title")}
-        </span>
-        {rows.length > 0 && (
+    <HomeSection
+      title={t("title")}
+      meta={
+        !isLoading && rows.length > 0 ? (
           <Chip size="sm" color="warning" variant="soft">
             {t("urgentCount", { n: rows.length })}
           </Chip>
-        )}
-        <Link
-          href="/todos"
-          prefetch={false}
-          className="ml-auto text-[12px] hover:underline"
-          style={{ color: "var(--text-muted)" }}
+        ) : undefined
+      }
+      action={{ label: t("viewAll"), href: "/todos" }}
+    >
+      {isLoading ? (
+        <SectionSkeleton rows={3} />
+      ) : hasError && rows.length === 0 ? (
+        <SectionNotice
+          tone="danger"
+          action={{
+            label: tCommon("retry"),
+            onClick: () => {
+              void notesQuery.refetch();
+              void todosQuery.refetch();
+            },
+          }}
         >
-          {t("viewAll")}
-        </Link>
-      </div>
-
-      {rows.length === 0 ? (
-        <p
-          className="text-[13px] italic"
-          style={{ color: "var(--text-muted)" }}
+          {t("error")}
+        </SectionNotice>
+      ) : rows.length === 0 ? (
+        <SectionNotice
+          action={{ label: t("emptyAction"), onClick: () => router.push("/todos?new=1") }}
         >
           {t("empty")}
-        </p>
+        </SectionNotice>
       ) : (
-        rows.map((row) => (
-          <Link
-            key={row.id}
-            href="/todos"
-            prefetch={false}
-            className="flex items-center gap-2 rounded-md px-1 py-1 transition-colors hover:bg-[var(--surface-2)]"
-          >
-            <span
-              className="h-2 w-2 shrink-0 rounded-full"
-              style={{ backgroundColor: importanceColor(row.importance) }}
-            />
-            <span className="flex-1 truncate text-[13px]" style={{ color: "var(--text-primary)" }}>
-              {row.text}
-            </span>
-            <span
-              className="shrink-0 text-[11px] font-bold tabular-nums rounded px-1"
-              style={{
-                backgroundColor: "var(--surface-3)",
-                color: "var(--text-muted)",
-              }}
-            >
-              P{row.priority}
-            </span>
-          </Link>
-        ))
+        <div className="flex flex-col">
+          {rows.map((row) => (
+            <Link key={row.id} href="/todos" prefetch={false} className={HOME_ROW_CLASS}>
+              <span
+                aria-hidden="true"
+                className="h-2 w-2 shrink-0 rounded-full"
+                style={{ backgroundColor: importanceColor(row.importance) }}
+              />
+              <span
+                className="flex-1 truncate text-[13px]"
+                style={{ color: "var(--text-primary)" }}
+              >
+                {row.text}
+              </span>
+              <span
+                className="shrink-0 rounded-[var(--radius-sm)] px-1 text-[11px] font-medium tabular-nums"
+                style={{ backgroundColor: "var(--surface-2)", color: "var(--text-secondary)" }}
+              >
+                P{row.priority}
+              </span>
+            </Link>
+          ))}
+        </div>
       )}
-    </Card>
+    </HomeSection>
   );
 }

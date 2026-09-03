@@ -131,7 +131,7 @@ export function EntityPeekPanel({ baseId, entityId }: EntityPeekPanelProps) {
         width: isMobile ? "100%" : 380,
         minWidth: isMobile ? 0 : 380,
         borderColor: "var(--border-subtle)",
-        backgroundColor: "var(--surface-1)",
+        backgroundColor: "var(--surface-chrome)",
       }}
     >
       {/* Header */}

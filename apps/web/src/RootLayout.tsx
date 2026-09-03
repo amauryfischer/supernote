@@ -29,6 +29,7 @@ import { SettingsProvider } from "@/components/settings/SettingsContext";
 import { UiSoundBridge } from "@/lib/uiSounds";
 import { ConfirmProvider } from "@/lib/confirm";
 import { FreezeReportBanner } from "@/lib/diagnostics/FreezeReportBanner";
+import { UiModeSwitcher } from "@/components/dev/UiModeSwitcher";
 
 export function RootLayout() {
   return (
@@ -44,6 +45,8 @@ export function RootLayout() {
                 {/* Watchdog anti-freeze : breadcrumb de route + bannière de
                     rapport si la session précédente a gelé (cf. diagnostics). */}
                 <FreezeReportBanner />
+                {/* Comparateur ancien/nouveau registre visuel — dev uniquement. */}
+                {import.meta.env.DEV && <UiModeSwitcher />}
                 {/* Global top-of-viewport navigation progress bar */}
                 <NavProgress />
                 {/* Register the Service Worker (no-op when not available) */}

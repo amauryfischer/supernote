@@ -2,12 +2,12 @@
 
 import { useMemo } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { Card } from "@heroui/react";
 import { FileText } from "@phosphor-icons/react";
 import { useTranslations } from "next-intl";
 import { trpc } from "@/lib/trpc/client";
+import { useShellChrome } from "@/components/shell";
 import type { EntitySummary } from "@supernote/ipc";
+import { HomeSection, HOME_ROW_CLASS, SectionSkeleton, SectionNotice } from "./HomeSection";
 
 function noteTitle(e: EntitySummary): string {
   const f = e.fields;
@@ -32,68 +32,65 @@ function snippetFromBody(body: string | undefined, fallback: string): string {
 
 export function ContinueWidget() {
   const t = useTranslations("home.widgets.continue");
-  const router = useRouter();
+  const tCommon = useTranslations("home");
+  const shell = useShellChrome();
 
-  const { data } = trpc.entities.list.useQuery(
+  const query = trpc.entities.list.useQuery(
     { typeId: "note", limit: 5, offset: 0 },
     { staleTime: 60_000, retry: false },
   );
 
   const notes = useMemo(() => {
-    return [...(data?.items ?? [])]
+    return [...(query.data?.items ?? [])]
       .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
       .slice(0, 5);
-  }, [data]);
+  }, [query.data]);
 
   return (
-    <Card className="border p-4 flex flex-col gap-2.5 shadow-none">
-      <div className="flex items-center gap-2">
-        <span
-          className="text-[12px] font-bold uppercase tracking-wider"
-          style={{ color: "var(--text-muted)" }}
+    <HomeSection title={t("title")} action={{ label: t("viewAll"), href: "/notes" }}>
+      {query.isLoading ? (
+        <SectionSkeleton rows={3} />
+      ) : query.isError ? (
+        <SectionNotice
+          tone="danger"
+          action={{ label: tCommon("retry"), onClick: () => void query.refetch() }}
         >
-          {t("title")}
-        </span>
-        <Link
-          href="/notes"
-          prefetch={false}
-          className="ml-auto text-[12px] hover:underline"
-          style={{ color: "var(--text-muted)" }}
-        >
-          {t("viewAll")}
-        </Link>
-      </div>
-
-      {notes.length === 0 ? (
-        <p className="text-[13px] italic" style={{ color: "var(--text-muted)" }}>
+          {t("error")}
+        </SectionNotice>
+      ) : notes.length === 0 ? (
+        <SectionNotice action={{ label: t("emptyAction"), onClick: shell.requestNewNote }}>
           {t("empty")}
-        </p>
+        </SectionNotice>
       ) : (
-        notes.map((note) => (
-          <button
-            key={note.id}
-            type="button"
-            onClick={() => router.push(`/notes/${note.id}`)}
-            className="flex items-start gap-2 rounded-md px-1 py-1 transition-colors hover:bg-[var(--surface-2)] w-full text-left"
-          >
-            <FileText size={16} className="shrink-0 mt-0.5" style={{ color: "var(--text-muted)" }} />
-            <div className="flex flex-col min-w-0">
+        <div className="flex flex-col">
+          {notes.map((note) => (
+            <Link
+              key={note.id}
+              href={`/notes/${note.id}`}
+              prefetch={false}
+              className={HOME_ROW_CLASS}
+            >
+              <FileText
+                size={15}
+                className="shrink-0"
+                style={{ color: "var(--icon-decorative)" }}
+              />
               <span
-                className="truncate text-[13px] font-medium"
+                className="shrink-0 max-w-[55%] truncate text-[13px] font-medium"
                 style={{ color: "var(--text-primary)" }}
               >
                 {noteTitle(note)}
               </span>
               <span
-                className="truncate text-[11px]"
-                style={{ color: "var(--text-muted)" }}
+                className="hidden min-w-0 flex-1 truncate text-[12px] sm:block"
+                style={{ color: "var(--text-secondary)" }}
               >
                 {snippetFromBody(note.body, t("noBody"))}
               </span>
-            </div>
-          </button>
-        ))
+            </Link>
+          ))}
+        </div>
       )}
-    </Card>
+    </HomeSection>
   );
 }

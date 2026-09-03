@@ -91,14 +91,13 @@ export const MobileFab = memo(function MobileFab() {
         // transform) so `.sn-pop-in` / `.sn-pressable` can animate `transform`
         // freely without resetting the centering.
         marginLeft: "-28px",
-        backgroundColor: "var(--accent)",
-        color: "var(--accent-foreground)",
-        // Layered shadow that sells the "floating" effect: a soft, wide
-        // ambient shadow far below + a tight contact shadow + a subtle
-        // accent-colored glow that ties the FAB's lift to its hue without
-        // looking neony. Tuned to read on both light and dark surfaces.
-        boxShadow:
-          "0 14px 28px -8px rgba(0,0,0,0.35), 0 6px 10px -4px rgba(0,0,0,0.18), 0 0 24px -6px var(--accent-subtle)",
+        // La couleur vient de `variant="primary"` (`--btn-primary-*`) : accent
+        // en héritage, neutre quasi-noir/quasi-blanc en next. Pas de peinture
+        // inline, sinon le rôle ne bascule plus avec le registre.
+        // L'élévation passe par le token d'ombre du registre — le halo accent
+        // sans décalage qui traînait ici était de la décoration, pas de la
+        // profondeur.
+        boxShadow: "var(--shadow-xl)",
       }}
     >
       {pending ? (

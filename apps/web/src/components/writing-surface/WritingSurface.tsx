@@ -14,6 +14,7 @@ import { createVaultFileAdapter } from "@/lib/vault-file-adapter";
 import { useTranslations } from "next-intl";
 import {
   HomeHero,
+  HomeSection,
   TodayWidget,
   ContinueWidget,
   VaultStatsWidget,
@@ -52,9 +53,9 @@ export function WritingSurface() {
   const [saveToast, setSaveToast] = useState<string | null>(null);
   // editorKey lets us reset the BlockNote instance when exitWriting is called
   const [editorKey, setEditorKey] = useState(0);
-  // Drives a brief border flash on the surface when the editor is reset,
-  // so the user has a visual confirmation that "Nouveau" did something
-  // even before BlockNote's contenteditable has mounted.
+  // Drives a brief wash over the sheet when the editor is reset, so the user
+  // has a visual confirmation that "Nouveau" did something even before
+  // BlockNote's contenteditable has mounted.
   const [justReset, setJustReset] = useState(false);
   const { setFocusMode, onRequestNewNote } = useShellChrome();
   const router = useRouter();
@@ -273,12 +274,13 @@ export function WritingSurface() {
           }`}
         >
           <span
-            className="inline-flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider"
+            className="sn-eyebrow sn-eyebrow--compact inline-flex items-center gap-1.5"
             style={{ color: "var(--text-muted)" }}
           >
             <span
+              aria-hidden="true"
               className="inline-block h-1.5 w-1.5 rounded-full"
-              style={{ backgroundColor: "var(--accent)" }}
+              style={{ backgroundColor: "var(--icon-decorative)" }}
             />
             {t("home.inbox", { title: truncatedTitle || t("home.newNote") })}
           </span>
@@ -307,11 +309,18 @@ export function WritingSurface() {
         <div
           role="status"
           aria-live="polite"
-          className="pointer-events-none fixed bottom-16 left-1/2 z-30 -translate-x-1/2 rounded-full px-4 py-1.5 text-[11px] text-white shadow-md"
+          className="pointer-events-none fixed bottom-16 left-1/2 z-30 flex -translate-x-1/2 items-center gap-2 rounded-[var(--radius-md)] border px-3 py-1.5 text-[12px] shadow-md"
           style={{
-            backgroundColor: saveError ? "#ef4444" : "var(--accent, #6366f1)",
+            backgroundColor: "var(--surface-1)",
+            borderColor: "var(--border)",
+            color: "var(--text-primary)",
           }}
         >
+          <span
+            aria-hidden="true"
+            className="h-1.5 w-1.5 shrink-0 rounded-full"
+            style={{ backgroundColor: saveError ? "var(--danger)" : "var(--success)" }}
+          />
           {saveError ?? saveToast}
         </div>
       )}
@@ -374,35 +383,30 @@ export function WritingSurface() {
 
       {/* Dashboard — fades out while writing */}
       <div
-        className={`mt-8 transition-all duration-300 ease-out md:mt-12 ${
+        className={`mt-6 transition-all duration-300 ease-out ${
           isWriting
             ? "pointer-events-none -translate-y-2 opacity-0"
             : "translate-y-0 opacity-100"
         }`}
       >
-        {/* Rythme en deux groupes : « maintenant » (capture + aujourd'hui/continuer)
-            serré à 16px, puis respiration de 40px avant le groupe « le vault »
-            (stats, éphéméride, tags) de nouveau serré. Un seul battement mt-4
-            partout aplatissait la hiérarchie. */}
-        <div className="mb-6">
-          <QuickActionsStrip />
-        </div>
+        {/* Deux temps, pas six blocs égaux. « Maintenant » : la barre d'actions
+            collée à l'éditeur (24px), les deux listes actionnables à 48px, puis
+            64px avant « le coffre » — une seule section, consultative. */}
+        <QuickActionsStrip />
 
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div className="mt-12 grid grid-cols-1 gap-8 md:grid-cols-2 md:gap-x-10">
           <TodayWidget />
           <ContinueWidget />
         </div>
 
-        <div className="mt-10">
-          <VaultStatsWidget />
-        </div>
-
-        <div className="mt-4">
-          <OnThisDay />
-        </div>
-
-        <div className="mt-4 pb-24 md:pb-12">
-          <TagsCloud />
+        <div className="mt-16 pb-24 md:pb-12">
+          <HomeSection title={t("home.widgets.vault.title")}>
+            <div className="flex flex-col gap-4 pt-1">
+              <VaultStatsWidget />
+              <TagsCloud />
+              <OnThisDay />
+            </div>
+          </HomeSection>
         </div>
       </div>
 
@@ -412,26 +416,24 @@ export function WritingSurface() {
           when there's no `scoped` attribute, which matches the previous
           intent (these selectors target BlockNote DOM owned elsewhere). */}
       <style>{`
-        /* Brief border flash when the editor is reset (e.g. "Nouveau" from
-           another page) — gives the user instant feedback even before BlockNote's
-           dynamic chunk has mounted. */
-        .writing-surface-root {
-          border-radius: 0.75rem;
-          box-shadow: 0 0 0 0 transparent;
-          transition: box-shadow 200ms ease-out;
+        /* Lavage bref de la feuille quand l'éditeur est réinitialisé (« Nouveau »
+           depuis une autre page) : le retour visuel arrive avant même que le
+           chunk BlockNote soit monté. Anciennement un anneau violet de 2px
+           autour de la page entière. */
+        .writing-surface-editor {
+          border-radius: var(--radius-lg);
         }
-        .writing-surface-root[data-just-reset="true"] {
-          animation: writing-surface-flash 220ms ease-out;
+        @media (prefers-reduced-motion: no-preference) {
+          .writing-surface-root[data-just-reset="true"] .writing-surface-editor {
+            animation: writing-surface-flash 220ms ease-out;
+          }
         }
         @keyframes writing-surface-flash {
-          0% {
-            box-shadow: 0 0 0 0 transparent;
+          from {
+            background-color: var(--surface-2);
           }
-          40% {
-            box-shadow: 0 0 0 2px var(--accent, #6366f1);
-          }
-          100% {
-            box-shadow: 0 0 0 0 transparent;
+          to {
+            background-color: transparent;
           }
         }
         .writing-surface-editor .sn-editor-wrapper {
@@ -461,40 +463,6 @@ export function WritingSurface() {
           position: absolute;
         }
 
-        /* Quick-access cards — clearer affordance + tactile feedback so the
-           grid feels like a real menu, not a faint set of placeholders. */
-        .quick-access-card {
-          background-color: var(--surface-1);
-          border-color: var(--border-subtle);
-          color: var(--text-primary);
-          transition: transform 120ms ease-out, box-shadow 160ms ease-out,
-            border-color 160ms ease-out, background-color 160ms ease-out;
-          cursor: pointer;
-          will-change: transform;
-        }
-        .quick-access-card:hover {
-          background-color: var(--surface-2);
-          border-color: color-mix(in oklch, var(--accent) 35%, var(--border-subtle));
-          box-shadow:
-            0 1px 2px rgba(0, 0, 0, 0.04),
-            0 0 0 1px color-mix(in oklch, var(--accent) 18%, transparent);
-        }
-        .quick-access-card:active {
-          transform: translateY(1px) scale(0.99);
-          background-color: color-mix(in oklch, var(--accent) 8%, var(--surface-2));
-        }
-        .quick-access-card:focus-visible {
-          outline: 2px solid var(--accent);
-          outline-offset: 2px;
-        }
-        .quick-access-icon {
-          background-color: color-mix(in oklch, var(--accent) 12%, var(--surface-2));
-          color: var(--accent);
-          transition: background-color 160ms ease-out;
-        }
-        .quick-access-card:hover .quick-access-icon {
-          background-color: color-mix(in oklch, var(--accent) 22%, var(--surface-2));
-        }
       `}</style>
     </div>
   );

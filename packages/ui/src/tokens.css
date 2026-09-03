@@ -131,7 +131,38 @@
   --radius-lg: 10px;
   --radius-xl: 14px;
   --radius-2xl: 20px;
+  --radius-3xl: 24px;
   --radius-full: 9999px;
+  --radius-control: 9999px;
+
+  /* ── Rôles d'interface ──────────────────────────────────────────────────
+   * Indirection entre le token de marque et ses usages, pour que l'accent
+   * puisse être restreint (sélection, focus, lien) sans réécrire les
+   * composants. Miroir de apps/web/src/globals.css. */
+  --surface-chrome:  var(--surface-1);
+  --surface-content: var(--surface-0);
+
+  --btn-primary-bg:       var(--accent);
+  --btn-primary-bg-hover: var(--accent-hover);
+  --btn-primary-fg:       var(--accent-foreground);
+
+  --nav-active-bg:   var(--accent-subtle);
+  --nav-active-fg:   var(--accent);
+  --nav-active-ring: inset 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent);
+
+  --brand-mark-bg: var(--accent);
+  --brand-mark-fg: var(--accent-foreground);
+
+  --icon-decorative: var(--accent);
+
+  --tracking-title: 0em;
+  --ui-font-features: "cv02", "cv03", "cv04", "cv11";
+
+  --eyebrow-size: 11px;
+  --eyebrow-weight: 700;
+  --eyebrow-transform: uppercase;
+  --eyebrow-tracking: 0.06em;
+  --eyebrow-color: var(--text-muted);
 
   /* ── Shadows ── */
   --shadow-sm:  0 1px 2px oklch(0 0 0 / 0.04), 0 1px 1px oklch(0 0 0 / 0.03);
@@ -215,6 +246,120 @@
   --shadow-lg:  0 4px 16px oklch(0 0 0 / 0.36);
   --shadow-xl:  0 8px 32px oklch(0 0 0 / 0.44);
   --shadow-2xl: 0 16px 48px oklch(0 0 0 / 0.52);
+}
+
+/* ──────────────────────────────────────────────────────────────────────────── */
+/* Registre « next » — Linear / Raycast (miroir de apps/web/src/globals.css)     */
+/*                                                                              */
+/* Piloté par `data-ui="next"` sur <html>. Les blocs 2 et 3 pèsent (0,2,0) et    */
+/* battent donc `[data-theme="dark"]` (0,1,0) quel que soit l'ordre. Ne pas      */
+/* fusionner le bloc 1 (indépendant du thème) avec le bloc clair.                */
+/* ──────────────────────────────────────────────────────────────────────────── */
+
+[data-ui="next"] {
+  --font-sans: "Inter Variable", "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, "SFMono-Regular", monospace;
+  --ui-font-features: "cv05", "ss03";
+  --tracking-title: -0.014em;
+
+  --radius-xs: 2px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 10px;
+  --radius-2xl: 12px;
+  --radius-3xl: 14px;
+  --radius-control: 6px;
+
+  --header-height: 44px;
+  --sidebar-width: 232px;
+  --panel-width: 288px;
+
+  --eyebrow-size: 13px;
+  --eyebrow-weight: 600;
+  --eyebrow-transform: none;
+  --eyebrow-tracking: -0.003em;
+  --eyebrow-color: var(--text-secondary);
+}
+
+[data-ui="next"]:not([data-theme="dark"]) {
+  --surface-0: oklch(1 0 0);
+  --surface-1: oklch(0.993 0.001 265);
+  --surface-2: oklch(0.962 0.003 265);
+  --surface-3: oklch(0.930 0.005 265);
+  --surface-chrome: oklch(0.976 0.002 265);
+
+  --border:        oklch(0.885 0.005 265);
+  --border-subtle: oklch(0.925 0.004 265);
+  --border-strong: oklch(0.795 0.008 265);
+
+  --text-primary:   oklch(0.20 0.008 265);
+  --text-secondary: oklch(0.42 0.010 265);
+  --text-muted:     oklch(0.545 0.010 265);
+
+  --btn-primary-bg:       oklch(0.245 0.012 265);
+  --btn-primary-bg-hover: oklch(0.325 0.014 265);
+  --btn-primary-fg:       oklch(0.99 0 0);
+
+  --nav-active-bg:   oklch(0.922 0.004 265);
+  --nav-active-fg:   var(--text-primary);
+  --nav-active-ring: none;
+
+  --brand-mark-bg: oklch(0.245 0.012 265);
+  --brand-mark-fg: oklch(0.99 0 0);
+
+  --icon-decorative: var(--text-muted);
+
+  --shadow-sm:  0 1px 2px oklch(0 0 0 / 0.05);
+  --shadow-md:  0 2px 6px oklch(0 0 0 / 0.06), 0 1px 2px oklch(0 0 0 / 0.04);
+  --shadow-lg:  0 6px 20px oklch(0 0 0 / 0.09), 0 2px 6px oklch(0 0 0 / 0.05);
+  --shadow-xl:  0 12px 34px oklch(0 0 0 / 0.12), 0 4px 10px oklch(0 0 0 / 0.06);
+  --shadow-2xl: 0 20px 50px oklch(0 0 0 / 0.16);
+}
+
+[data-ui="next"][data-theme="dark"] {
+  --surface-0: oklch(0.185 0.008 265);
+  --surface-1: oklch(0.212 0.009 265);
+  --surface-2: oklch(0.248 0.010 265);
+  --surface-3: oklch(0.295 0.012 265);
+  --surface-chrome: oklch(0.155 0.007 265);
+
+  --border:        oklch(1 0 0 / 0.11);
+  --border-subtle: oklch(1 0 0 / 0.06);
+  --border-strong: oklch(1 0 0 / 0.18);
+
+  --text-primary:   oklch(0.97 0.004 265);
+  --text-secondary: oklch(0.735 0.010 265);
+  --text-muted:     oklch(0.635 0.010 265);
+
+  --btn-primary-bg:       oklch(0.935 0.004 265);
+  --btn-primary-bg-hover: oklch(0.86 0.006 265);
+  --btn-primary-fg:       oklch(0.17 0.010 265);
+
+  --nav-active-bg:   oklch(1 0 0 / 0.085);
+  --nav-active-fg:   var(--text-primary);
+  --nav-active-ring: none;
+
+  --brand-mark-bg: oklch(0.935 0.004 265);
+  --brand-mark-fg: oklch(0.17 0.010 265);
+
+  --icon-decorative: var(--text-muted);
+
+  --shadow-sm:  0 1px 2px oklch(0 0 0 / 0.40);
+  --shadow-md:  0 2px 6px oklch(0 0 0 / 0.45), 0 1px 2px oklch(0 0 0 / 0.30);
+  --shadow-lg:  0 6px 20px oklch(0 0 0 / 0.50), 0 2px 6px oklch(0 0 0 / 0.32);
+  --shadow-xl:  0 12px 34px oklch(0 0 0 / 0.56), 0 4px 10px oklch(0 0 0 / 0.34);
+  --shadow-2xl: 0 20px 50px oklch(0 0 0 / 0.62);
+}
+
+/* Libellé de section — voir apps/web/src/globals.css. */
+.sn-eyebrow {
+  font-size: var(--eyebrow-size);
+  font-weight: var(--eyebrow-weight);
+  text-transform: var(--eyebrow-transform);
+  letter-spacing: var(--eyebrow-tracking);
+  color: var(--eyebrow-color);
+  line-height: 1.35;
 }
 
 /* ── Toast entrance / exit / progress ────────────────────────────────────── */

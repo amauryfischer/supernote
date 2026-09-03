@@ -2,17 +2,21 @@
 
 /**
  * OnThisDay — encart madeleine de l'accueil : ce que tu écrivais à la même
- * date il y a un an (et six mois). Invisible quand il n'y a rien — zéro bruit.
+ * date il y a un an (et six mois). Invisible quand il n'y a rien — zéro bruit,
+ * donc pas de squelette ni de message d'erreur : son absence est le cas normal.
  * S'appuie sur entities.listByDateRange (worker, SQL sur createdAt).
  */
 
 import { useMemo } from "react";
+import Link from "next/link";
 import { useTranslations } from "next-intl";
-import { useRouter } from "next/navigation";
-import { Card, Chip } from "@heroui/react";
 import { ClockCounterClockwise } from "@phosphor-icons/react";
 import { trpc } from "@/lib/trpc/client";
 import { entityDisplayName } from "@/components/notes/adapters";
+import { HOME_ROW_CLASS } from "./HomeSection";
+
+const MAX_ITEMS = 4;
+const PER_WINDOW = 3;
 
 /** Bornes [from, to) du jour courant décalé de `monthsBack` mois en arrière. */
 function dayWindow(monthsBack: number): { from: string; to: string } {
@@ -31,84 +35,86 @@ function excerptOf(body: string | undefined): string {
     .replace(/[>*`~_[\]|-]/g, " ")
     .replace(/\s+/g, " ")
     .trim()
-    .slice(0, 140);
+    .slice(0, 90);
 }
 
-function OnThisDaySection({ label, monthsBack }: { label: string; monthsBack: number }) {
-  const t = useTranslations("home.onThisDay");
-  const router = useRouter();
-  const window = useMemo(() => dayWindow(monthsBack), [monthsBack]);
-  const { data } = trpc.entities.listByDateRange.useQuery(
-    { from: window.from, to: window.to, field: "createdAt", typeName: "note", limit: 3 },
-    { staleTime: 1000 * 60 * 60 },
-  );
-  const items = data?.items ?? [];
-  if (items.length === 0) return null;
-
-  return (
-    <div className="mb-4">
-      <div
-        className="mb-2 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider"
-        style={{ color: "var(--text-muted)" }}
-      >
-        <ClockCounterClockwise size={13} aria-hidden="true" />
-        {label}
-      </div>
-      <div className="flex flex-col gap-2">
-        {items.map((e) => {
-          const excerpt = excerptOf(e.body);
-          return (
-            <Card key={e.id}>
-              <div
-                role="link"
-                tabIndex={0}
-                aria-label={t("openNote")}
-                onClick={() => router.push(`/notes/${e.id}`)}
-                onKeyDown={(ev) => {
-                  if (ev.key === "Enter" || ev.key === " ") router.push(`/notes/${e.id}`);
-                }}
-                className="cursor-pointer rounded-xl px-4 py-3 transition-colors"
-                style={{
-                  backgroundColor: "var(--surface-0)",
-                  border: "1px solid var(--border-subtle)",
-                }}
-              >
-                <div
-                  className="text-[14px] font-semibold leading-snug"
-                  style={{ color: "var(--text-primary)" }}
-                >
-                  {entityDisplayName(e)}
-                </div>
-                {excerpt && (
-                  <p className="mt-1 text-[12px] leading-relaxed" style={{ color: "var(--text-muted)" }}>
-                    {excerpt}
-                    {excerpt.length >= 140 ? "…" : ""}
-                  </p>
-                )}
-                {e.tags.length > 0 && (
-                  <div className="mt-2 flex flex-wrap gap-1">
-                    {e.tags.slice(0, 4).map((tag) => (
-                      <Chip key={tag} size="sm">
-                        #{tag}
-                      </Chip>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </Card>
-          );
-        })}
-      </div>
-    </div>
-  );
+interface Memory {
+  id: string;
+  title: string;
+  excerpt: string;
+  period: string;
 }
 
 export function OnThisDay() {
   const t = useTranslations("home.onThisDay");
+
+  const yearWindow = useMemo(() => dayWindow(12), []);
+  const halfWindow = useMemo(() => dayWindow(6), []);
+
+  const yearQuery = trpc.entities.listByDateRange.useQuery(
+    { ...yearWindow, field: "createdAt", typeName: "note", limit: PER_WINDOW },
+    { staleTime: 1000 * 60 * 60, retry: false },
+  );
+  const halfQuery = trpc.entities.listByDateRange.useQuery(
+    { ...halfWindow, field: "createdAt", typeName: "note", limit: PER_WINDOW },
+    { staleTime: 1000 * 60 * 60, retry: false },
+  );
+
+  const yearLabel = t("yearAgo");
+  const halfLabel = t("sixMonthsAgo");
+
+  const memories = useMemo<Memory[]>(() => {
+    const collected: Memory[] = [];
+    for (const [items, period] of [
+      [yearQuery.data?.items, yearLabel],
+      [halfQuery.data?.items, halfLabel],
+    ] as const) {
+      for (const e of items ?? []) {
+        collected.push({
+          id: e.id,
+          title: entityDisplayName(e),
+          excerpt: excerptOf(e.body),
+          period,
+        });
+      }
+    }
+    return collected.slice(0, MAX_ITEMS);
+  }, [yearQuery.data, halfQuery.data, yearLabel, halfLabel]);
+
+  if (memories.length === 0) return null;
+
   return (
-    <div>
-      <OnThisDaySection label={t("yearAgo")} monthsBack={12} />
-      <OnThisDaySection label={t("sixMonthsAgo")} monthsBack={6} />
+    <div className="flex flex-col">
+      {memories.map((m) => (
+        <Link key={m.id} href={`/notes/${m.id}`} prefetch={false} className={HOME_ROW_CLASS}>
+          <ClockCounterClockwise
+            size={14}
+            className="shrink-0"
+            style={{ color: "var(--icon-decorative)" }}
+            aria-hidden="true"
+          />
+          <span
+            className="shrink-0 max-w-[45%] truncate text-[13px]"
+            style={{ color: "var(--text-primary)" }}
+          >
+            {m.title}
+          </span>
+          {m.excerpt && (
+            <span
+              className="hidden min-w-0 flex-1 truncate text-[12px] sm:block"
+              style={{ color: "var(--text-secondary)" }}
+            >
+              {m.excerpt}
+            </span>
+          )}
+          <span
+            className="ml-auto shrink-0 text-[12px]"
+            style={{ color: "var(--text-muted)" }}
+          >
+            {m.period}
+          </span>
+        </Link>
+      ))}
     </div>
   );
 }

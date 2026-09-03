@@ -1,5 +1,20 @@
+/* Polices auto-hébergées : `--font-sans`/`--font-mono` déclaraient Inter et
+   JetBrains Mono depuis le départ sans que le moindre @font-face soit livré —
+   l'app rendait en fonte système. Local-first oblige, aucun CDN. */
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/jetbrains-mono";
+
 /* Tailwind v4: single import activates everything */
 @import "tailwindcss";
+
+/* Tailwind exclut `node_modules` de sa détection, et les packages de l'atelier
+   y sont atteints par lien symbolique : AUCUNE classe utilitaire écrite dans
+   @supernote/ui n'était générée. Les variantes de Button, les ombres de Modal,
+   EmptyState, Skeleton, Badge… existaient dans le DOM sans exister dans le CSS,
+   et les composants retombaient sur les styles bruts de HeroUI. Le design
+   system était décoratif. */
+@source "../../../packages/ui/src";
+@source "../../../packages/notifications/src";
 
 /* HeroUI v3 — design tokens & component styles */
 @import "@heroui/styles/css";
@@ -57,10 +72,48 @@
   --border: oklch(0.90 0.005 260);
   --border-subtle: oklch(0.94 0.003 260);
 
+  --border-strong: oklch(0.80 0.008 260);
+  /* Consommé par les anneaux de focus de @supernote/ui
+     (`ring-[var(--border-focus)]`). Il n'était défini que dans
+     packages/ui/tokens.css, que l'app n'importe pas : les anneaux de focus des
+     Button et Input du design system étaient donc sans couleur. */
+  --border-focus: var(--accent);
+
+  --accent-active: oklch(0.46 0.22 295);
+  --text-disabled: oklch(0.70 0.005 260);
+  --text-inverse: oklch(0.995 0 0);
+
   /* Semantic */
   --success: oklch(0.65 0.16 150);
   --warning: oklch(0.75 0.15 80);
   --danger: oklch(0.58 0.22 28);
+
+  /* Échelles sémantiques attendues par les variantes de Badge / Toast /
+     Button du design system — même situation que --border-focus. */
+  --color-success-50:  oklch(0.97 0.04 150);
+  --color-success-200: oklch(0.87 0.12 150);
+  --color-success-500: oklch(0.65 0.16 150);
+  --color-success-600: oklch(0.58 0.15 150);
+  --color-success-700: oklch(0.49 0.13 150);
+  --color-success: var(--color-success-500);
+  --color-success-foreground: oklch(0.995 0 0);
+
+  --color-warning-50:  oklch(0.98 0.04 80);
+  --color-warning-200: oklch(0.90 0.12 80);
+  --color-warning-500: oklch(0.75 0.15 80);
+  --color-warning-600: oklch(0.68 0.14 80);
+  --color-warning-700: oklch(0.57 0.12 80);
+  --color-warning: var(--color-warning-500);
+  --color-warning-foreground: oklch(0.15 0 0);
+
+  --color-danger-50:  oklch(0.97 0.04 28);
+  --color-danger-100: oklch(0.93 0.08 28);
+  --color-danger-200: oklch(0.87 0.13 28);
+  --color-danger-500: oklch(0.63 0.22 28);
+  --color-danger-600: oklch(0.58 0.22 28);
+  --color-danger-700: oklch(0.48 0.20 28);
+  --color-danger: var(--color-danger-600);
+  --color-danger-foreground: oklch(0.995 0 0);
 
   /* Layout dimensions */
   --sidebar-width: 224px;
@@ -68,10 +121,76 @@
   --header-height: 48px;
 
   /* Radii */
+  --radius-xs: 2px;
   --radius-sm: 4px;
   --radius-md: 6px;
   --radius-lg: 10px;
   --radius-xl: 14px;
+  --radius-2xl: 16px;
+  --radius-3xl: 24px;
+  --radius-full: 9999px;
+
+  /* ── Rôles d'interface ────────────────────────────────────────────────────
+   * Indirection entre le token de marque (`--accent`) et ses usages. Un
+   * composant ne peint plus « du violet » : il peint « le primaire », « la nav
+   * active », « la pastille de marque ». C'est ce qui permet de restreindre
+   * l'accent à la sélection/focus/lien sans réécrire 70 composants.
+   * Les valeurs ci-dessous reproduisent l'ancienne apparence à l'identique ;
+   * `[data-ui="next"]` plus bas les rebascule sur le registre Linear/Raycast. */
+  --surface-chrome:  var(--surface-1);   /* sidebar, topbar, panneau droit */
+  --surface-content: var(--surface-0);   /* colonne de lecture / écriture */
+
+  --btn-primary-bg:       var(--accent);
+  --btn-primary-bg-hover: var(--accent-hover);
+  --btn-primary-fg:       var(--accent-foreground);
+
+  --nav-active-bg:   var(--accent-subtle);
+  --nav-active-fg:   var(--accent);
+  --nav-active-ring: inset 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent);
+  --nav-hover-bg:    var(--surface-2);
+
+  --brand-mark-bg: var(--accent);
+  --brand-mark-fg: var(--accent-foreground);
+
+  /* Icône purement décorative (illustration d'action, glyphe d'état vide) :
+     teintée en héritage, neutre dans le registre next. */
+  --icon-decorative: var(--accent);
+
+  /* Rayon des contrôles pilulés (déclencheur de recherche, boutons icône du
+     chrome). Les avatars, points d'état et chips gardent `rounded-full`. */
+  --radius-control: 9999px;
+
+  /* Typographie */
+  --tracking-title: 0em;
+  --ui-font-features: "cv02", "cv03", "cv04", "cv11";
+
+  /* Eyebrow — consommé par `.sn-eyebrow`. En héritage : capitales trackées
+     (l'anti-référence explicite de PRODUCT.md). En next : casse de phrase. */
+  --eyebrow-size: 11px;
+  --eyebrow-weight: 700;
+  --eyebrow-transform: uppercase;
+  --eyebrow-tracking: 0.06em;
+  --eyebrow-color: var(--text-muted);
+
+  /* Élévation — routée dans `@theme` pour que `shadow-*` de Tailwind suive le
+     registre actif au lieu d'être figé au build. */
+  /* Alias consommés en propriété arbitraire par @supernote/ui
+     (`[box-shadow:var(--shadow-lg)]`). Tailwind v4 n'émet ses variables de
+     `@theme` que si un utilitaire les utilise : une référence `var()` écrite à
+     la main n'en est pas une, et les ombres de Modal / Drawer / Dropdown /
+     Tooltip tombaient donc dans le vide. */
+  --shadow-sm:  var(--sn-shadow-sm);
+  --shadow-md:  var(--sn-shadow-md);
+  --shadow-lg:  var(--sn-shadow-lg);
+  --shadow-xl:  var(--sn-shadow-xl);
+  --shadow-2xl: var(--sn-shadow-2xl);
+
+  --sn-shadow-xs:  0 1px 1px oklch(0 0 0 / 0.04);
+  --sn-shadow-sm:  0 1px 3px oklch(0 0 0 / 0.10), 0 1px 2px oklch(0 0 0 / 0.06);
+  --sn-shadow-md:  0 4px 6px oklch(0 0 0 / 0.10), 0 2px 4px oklch(0 0 0 / 0.06);
+  --sn-shadow-lg:  0 10px 15px oklch(0 0 0 / 0.10), 0 4px 6px oklch(0 0 0 / 0.05);
+  --sn-shadow-xl:  0 20px 25px oklch(0 0 0 / 0.10), 0 8px 10px oklch(0 0 0 / 0.04);
+  --sn-shadow-2xl: 0 25px 50px oklch(0 0 0 / 0.25);
 
   /* Z-index scale — consumed by @supernote/ui overlays (Modal, Drawer, Tooltip,
      Toast, Dropdown…) via `z-[var(--z-*)]`. Mirrors packages/ui/src/tokens.css.
@@ -131,6 +250,130 @@
   --text-muted: oklch(0.63 0.010 260); /* ≥4.5:1 sur surfaces sombres (WCAG AA) — était 0.55 */
   --border: oklch(0.30 0.010 260);
   --border-subtle: oklch(0.24 0.008 260);
+  --border-strong: oklch(0.38 0.012 260);
+  --text-disabled: oklch(0.42 0.008 260);
+}
+
+/* ────────────────────────────────────────────────────────────────────────── */
+/* Registre « next » — Linear / Raycast, clair d'abord, sombre en miroir      */
+/*                                                                            */
+/* Piloté par `data-ui` sur <html> (pré-peint dans index.html, basculé par le */
+/* switcher de dev). Trois blocs, jamais mélangés :                           */
+/*   1. `[data-ui="next"]`                        → indépendant du thème      */
+/*   2. `[data-ui="next"]:not([data-theme=dark])` → palette claire            */
+/*   3. `[data-ui="next"][data-theme="dark"]`     → palette sombre            */
+/* Les deux derniers pèsent (0,2,0) et battent donc `[data-theme="dark"]`     */
+/* (0,1,0) quel que soit l'ordre d'écriture. Ne PAS fusionner 1 et 2.         */
+/* ────────────────────────────────────────────────────────────────────────── */
+
+[data-ui="next"] {
+  --font-sans: "Inter Variable", "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, "SFMono-Regular", monospace;
+  --ui-font-features: "cv05", "ss03";
+  --tracking-title: -0.014em;
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 10px;
+  --radius-2xl: 12px;
+  --radius-3xl: 14px;
+  --radius-control: 6px;
+
+  --header-height: 44px;
+  --sidebar-width: 232px;
+  --panel-width: 288px;
+  --rail-width: 56px;
+  --frame-gap: 8px;
+  --frame-radius: 12px;
+
+  --eyebrow-size: 13px;
+  --eyebrow-weight: 600;
+  --eyebrow-transform: none;
+  --eyebrow-tracking: -0.003em;
+  --eyebrow-color: var(--text-secondary);
+}
+
+[data-ui="next"]:not([data-theme="dark"]) {
+  /* Papier sur bureau : le contenu est la surface la plus claire, le chrome
+     (sidebar, topbar, panneau droit) est en retrait tonal. L'ancien jeu
+     0.995 / 0.985 / 0.965 séparait les colonnes par des traits gris parce
+     qu'aucune n'était distinguable de sa voisine. */
+  --surface-0: oklch(1 0 0);
+  --surface-1: oklch(0.993 0.001 265);
+  --surface-2: oklch(0.962 0.003 265);
+  --surface-3: oklch(0.930 0.005 265);
+  --surface-chrome: oklch(0.962 0.004 265);
+
+  --border:        oklch(0.885 0.005 265);
+  --border-subtle: oklch(0.925 0.004 265);
+  --border-strong: oklch(0.795 0.008 265);
+
+  --text-primary:   oklch(0.20 0.008 265);
+  --text-secondary: oklch(0.42 0.010 265);
+  --text-muted:     oklch(0.545 0.010 265);
+
+  /* Primaire neutre quasi-noir : le violet redevient un signal, pas un fond. */
+  --btn-primary-bg:       oklch(0.245 0.012 265);
+  --btn-primary-bg-hover: oklch(0.325 0.014 265);
+  --btn-primary-fg:       oklch(0.99 0 0);
+
+  --nav-active-bg:   oklch(0.905 0.005 265);
+  --nav-active-fg:   var(--text-primary);
+  --nav-active-ring: none;
+  --nav-hover-bg:    oklch(0.932 0.004 265);
+
+  --brand-mark-bg: oklch(0.245 0.012 265);
+  --brand-mark-fg: oklch(0.99 0 0);
+
+  --icon-decorative: var(--text-muted);
+
+  --sn-shadow-xs:  0 1px 1px oklch(0 0 0 / 0.03);
+  --sn-shadow-sm:  0 1px 2px oklch(0 0 0 / 0.05);
+  --sn-shadow-md:  0 2px 6px oklch(0 0 0 / 0.06), 0 1px 2px oklch(0 0 0 / 0.04);
+  --sn-shadow-lg:  0 6px 20px oklch(0 0 0 / 0.09), 0 2px 6px oklch(0 0 0 / 0.05);
+  --sn-shadow-xl:  0 12px 34px oklch(0 0 0 / 0.12), 0 4px 10px oklch(0 0 0 / 0.06);
+  --sn-shadow-2xl: 0 20px 50px oklch(0 0 0 / 0.16);
+}
+
+[data-ui="next"][data-theme="dark"] {
+  /* Miroir : le contenu reste la surface la plus claire, le chrome s'enfonce.
+     Bordures lumineuses en alpha blanc plutôt qu'en gris opaque — elles
+     tiennent sur n'importe quelle surface sans être recalculées. */
+  --surface-0: oklch(0.185 0.008 265);
+  --surface-1: oklch(0.212 0.009 265);
+  --surface-2: oklch(0.248 0.010 265);
+  --surface-3: oklch(0.295 0.012 265);
+  --surface-chrome: oklch(0.145 0.007 265);
+
+  --border:        oklch(1 0 0 / 0.11);
+  --border-subtle: oklch(1 0 0 / 0.06);
+  --border-strong: oklch(1 0 0 / 0.18);
+
+  --text-primary:   oklch(0.97 0.004 265);
+  --text-secondary: oklch(0.735 0.010 265);
+  --text-muted:     oklch(0.635 0.010 265);
+
+  --btn-primary-bg:       oklch(0.935 0.004 265);
+  --btn-primary-bg-hover: oklch(0.86 0.006 265);
+  --btn-primary-fg:       oklch(0.17 0.010 265);
+
+  --nav-active-bg:   oklch(1 0 0 / 0.10);
+  --nav-active-fg:   var(--text-primary);
+  --nav-active-ring: none;
+  --nav-hover-bg:    oklch(1 0 0 / 0.055);
+
+  --brand-mark-bg: oklch(0.935 0.004 265);
+  --brand-mark-fg: oklch(0.17 0.010 265);
+
+  --icon-decorative: var(--text-muted);
+
+  --sn-shadow-xs:  0 1px 1px oklch(0 0 0 / 0.30);
+  --sn-shadow-sm:  0 1px 2px oklch(0 0 0 / 0.40);
+  --sn-shadow-md:  0 2px 6px oklch(0 0 0 / 0.45), 0 1px 2px oklch(0 0 0 / 0.30);
+  --sn-shadow-lg:  0 6px 20px oklch(0 0 0 / 0.50), 0 2px 6px oklch(0 0 0 / 0.32);
+  --sn-shadow-xl:  0 12px 34px oklch(0 0 0 / 0.56), 0 4px 10px oklch(0 0 0 / 0.34);
+  --sn-shadow-2xl: 0 20px 50px oklch(0 0 0 / 0.62);
 }
 
 /* ────────────────────────────────────────────────────────────────────────── */
@@ -142,6 +385,8 @@
   --color-surface-1: var(--surface-1);
   --color-surface-2: var(--surface-2);
   --color-surface-3: var(--surface-3);
+  --color-surface-chrome: var(--surface-chrome);
+  --color-surface-content: var(--surface-content);
 
   --color-accent: var(--accent);
   --color-accent-hover: var(--accent-hover);
@@ -166,6 +411,18 @@
   --radius-md: var(--radius-md);
   --radius-lg: var(--radius-lg);
   --radius-xl: var(--radius-xl);
+  --radius-2xl: var(--radius-2xl);
+  --radius-3xl: var(--radius-3xl);
+
+  /* Les `shadow-*` de Tailwind repointent sur les tokens d'élévation : le
+     registre actif décide de la profondeur, sans toucher aux 47 appels. */
+  --shadow-2xs: var(--sn-shadow-xs);
+  --shadow-xs:  var(--sn-shadow-xs);
+  --shadow-sm:  var(--sn-shadow-sm);
+  --shadow-md:  var(--sn-shadow-md);
+  --shadow-lg:  var(--sn-shadow-lg);
+  --shadow-xl:  var(--sn-shadow-xl);
+  --shadow-2xl: var(--sn-shadow-2xl);
 }
 
 /* ────────────────────────────────────────────────────────────────────────── */
@@ -180,11 +437,113 @@ body {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  font-feature-settings: var(--ui-font-features);
 }
 
 * {
   box-sizing: border-box;
+}
+
+/* Densité de chrome façon Linear : 13px de base. N'affecte que le texte qui
+   n'a pas de taille explicite — les utilitaires Tailwind sont en rem. */
+[data-ui="next"] body {
+  font-size: 13px;
+}
+
+[data-ui="next"] h1,
+[data-ui="next"] h2,
+[data-ui="next"] h3 {
+  letter-spacing: var(--tracking-title);
+}
+
+/* Rail d'icônes (registre next). Les états vivent en CSS plutôt qu'en style
+   inline : HeroUI livre `.button--ghost` hors @layer, donc seule une règle
+   déclarée APRÈS lui à spécificité égale peut le battre. */
+.sn-rail-item {
+  color: var(--text-secondary);
+  transition: var(--sn-transition-colors), var(--sn-transition-transform);
+}
+.sn-rail-item:hover {
+  background-color: var(--nav-hover-bg);
+  color: var(--text-primary);
+}
+.sn-rail-item[data-active="true"] {
+  background-color: var(--nav-active-bg);
+  color: var(--nav-active-fg);
+}
+
+[data-ui="next"] .sn-search-trigger {
+  height: 30px;
+  background-color: var(--surface-chrome);
+  border-color: var(--border-subtle);
+  color: var(--text-muted);
+  box-shadow: none;
+}
+[data-ui="next"] .sn-search-trigger:hover {
+  background-color: var(--surface-2);
+  border-color: var(--border);
+  color: var(--text-secondary);
+}
+
+/* Libellé de section. Remplace `text-[12px] font-bold uppercase tracking-wider`
+   partout où un eyebrow était recopié à la main : la casse, la graisse et le
+   tracking deviennent une décision de registre, pas une décision de fichier. */
+.sn-eyebrow {
+  font-size: var(--eyebrow-size);
+  font-weight: var(--eyebrow-weight);
+  text-transform: var(--eyebrow-transform);
+  letter-spacing: var(--eyebrow-tracking);
+  color: var(--eyebrow-color);
+  line-height: 1.35;
+}
+
+/* Variante chrome (groupes de nav, en-têtes du panneau droit) : même casse que
+   le registre actif, taille tenue à 11px pour ne pas concurrencer les entrées. */
+.sn-eyebrow--compact {
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* Bouton primaire. Le sélecteur porte le nom d'élément pour battre les classes
+   utilitaires de HeroUI (0,1,1 > 0,1,0) sans `!important`. En héritage il rend
+   le violet de marque, en next un neutre quasi-noir : l'accent redevient
+   disponible pour la sélection, le focus et les liens. */
+button.sn-btn-primary,
+a.sn-btn-primary {
+  background-color: var(--btn-primary-bg);
+  color: var(--btn-primary-fg);
+  border-color: transparent;
+  transition: var(--sn-transition-colors);
+}
+button.sn-btn-primary:hover,
+a.sn-btn-primary:hover {
+  background-color: var(--btn-primary-bg-hover);
+  color: var(--btn-primary-fg);
+}
+
+/* Boutons pleins rendus directement par HeroUI (`<Button variant="primary">`
+   importé de @heroui/react, hors wrapper @supernote/ui) : ils lisent le token
+   HeroUI `--color-primary`, qu'on laisse violet pour les états de sélection
+   (checkbox, switch, progress). Seul le bouton bascule sur le rôle primaire. */
+[data-ui="next"] .button--primary {
+  background-color: var(--btn-primary-bg);
+  color: var(--btn-primary-fg);
+}
+[data-ui="next"] .button--primary:hover {
+  background-color: var(--btn-primary-bg-hover);
+}
+
+/* Déclencheur de recherche en champ discret (sidebar next / topbar héritage). */
+button.sn-search-trigger {
+  background-color: transparent;
+  border: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  transition: var(--sn-transition-colors);
+}
+button.sn-search-trigger:hover {
+  background-color: var(--surface-2);
+  border-color: var(--border);
+  color: var(--text-secondary);
 }
 
 /* Electron-friendly: disable text selection on chrome/shell elements */

@@ -399,7 +399,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
               autoFocus
             />
             <kbd
-              className="rounded px-1.5 py-0.5 text-[10px] font-mono"
+              className="rounded-[var(--radius-sm)] px-1.5 py-0.5 text-[10px] font-mono"
               style={{
                 backgroundColor: "var(--surface-3)",
                 color: "var(--text-muted)",
@@ -539,9 +539,9 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
           padding: 4px 8px 2px;
           font-size: 11px;
           font-weight: 600;
-          text-transform: uppercase;
-          letter-spacing: 0.06em;
-          color: var(--text-muted);
+          text-transform: var(--eyebrow-transform);
+          letter-spacing: var(--eyebrow-tracking);
+          color: var(--eyebrow-color);
         }
         [cmdk-group]:not([hidden]) ~ [cmdk-group] {
           margin-top: 4px;
@@ -557,7 +557,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
           color: var(--accent);
         }
         [cmdk-item][data-selected="true"] [data-cmd-icon] {
-          background-color: oklch(0.55 0.24 295 / 0.2);
+          background-color: color-mix(in srgb, var(--accent) 20%, transparent);
           color: var(--accent);
         }
         [cmdk-item] [data-cmd-icon] {

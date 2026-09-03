@@ -11,6 +11,8 @@ import { useVault, type RecentVault } from "@/lib/pwa/PwaVaultSetup";
 import { VaultSwitcherList } from "./VaultSwitcherList";
 import { usePluginEnabled } from "@/hooks/usePluginEnabled";
 import { Button } from "@supernote/ui";
+import { useUiMode } from "@/hooks/useUiMode";
+import { SidebarRail, type RailGroup } from "./SidebarRail";
 import { useGmailConnected } from "@/hooks/useGmailConnected";
 import { useInboxUnreadCount } from "@/hooks/useInboxUnreadCount";
 import {
@@ -67,14 +69,14 @@ const NavLink = memo(function NavLink({
     <Link
       href={item.href}
       prefetch={true}
-      className="sn-pressable flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] focus-visible:outline-none"
+      className="sn-pressable flex w-full items-center gap-2.5 rounded-[var(--radius-md)] px-2.5 py-1.5 text-[13px] focus-visible:outline-none"
       style={
         active
           ? {
-              backgroundColor: "var(--accent-subtle)",
-              color: "var(--accent)",
+              backgroundColor: "var(--nav-active-bg)",
+              color: "var(--nav-active-fg)",
               fontWeight: 600,
-              boxShadow: "inset 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent)",
+              boxShadow: "var(--nav-active-ring)",
               transition: "var(--sn-transition-colors), var(--sn-transition-transform)",
             }
           : {
@@ -102,8 +104,8 @@ const NavLink = memo(function NavLink({
           aria-label={`${badgeCount} non lu${badgeCount > 1 ? "s" : ""}`}
           className="ml-auto shrink-0 rounded-full px-1.5 text-[10px] font-semibold leading-[1.4]"
           style={{
-            backgroundColor: active ? "var(--accent)" : "var(--accent-subtle)",
-            color: active ? "var(--accent-foreground)" : "var(--accent)",
+            backgroundColor: active ? "var(--btn-primary-bg)" : "var(--accent-subtle)",
+            color: active ? "var(--btn-primary-fg)" : "var(--accent)",
           }}
         >
           {badgeCount > 99 ? "99+" : badgeCount}
@@ -119,6 +121,7 @@ export const Sidebar = memo(function Sidebar() {
   const [notifOpen, setNotifOpen] = useState(false);
   const { unreadCount } = useNotifications();
   const vault = useVault();
+  const isNext = useUiMode().mode === "next";
 
   // Built-in features behave like plugins: each has a localStorage flag
   // controlling whether its nav entry is visible. Hooks must run in a fixed
@@ -180,6 +183,79 @@ export const Sidebar = memo(function Sidebar() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
+  const switcher =
+    canPickVault && vault ? (
+      <VaultSwitcherPopover
+        open={switcherOpen}
+        anchorRef={brandRef}
+        recents={vault.recentVaults}
+        activeId={vault.activeVaultId}
+        onSwitch={(id) => {
+          setSwitcherOpen(false);
+          void vault.switchToVault(id);
+        }}
+        onForget={(id) => {
+          void vault.forgetVault(id);
+        }}
+        onPickFolder={
+          vault.isPwa
+            ? () => {
+                setSwitcherOpen(false);
+                void vault.pickFolder();
+              }
+            : undefined
+        }
+        onStartGit={
+          vault.isPwa
+            ? () => {
+                setSwitcherOpen(false);
+                vault.startGitFlow();
+              }
+            : undefined
+        }
+        onStartCloud={
+          vault.canCloud
+            ? () => {
+                setSwitcherOpen(false);
+                vault.startCloudFlow();
+              }
+            : undefined
+        }
+        onClose={() => setSwitcherOpen(false)}
+      />
+    ) : null;
+
+  const groups: RailGroup[] = NAV_GROUP_ORDER.map((groupId) => ({
+    groupId,
+    items: navItemsInGroup(groupId).filter(isItemVisible),
+  })).filter(({ items }) => items.length > 0);
+
+  if (isNext) {
+    return (
+      <>
+        {notifOpen && (
+          <NotificationCenter open={notifOpen} onClose={() => setNotifOpen(false)} />
+        )}
+        <SidebarRail
+          brandLabel={brandLabel}
+          isCloudVault={isCloudVault}
+          canPickVault={canPickVault}
+          brandRef={brandRef}
+          switcherOpen={switcherOpen}
+          onToggleSwitcher={() => setSwitcherOpen((v) => !v)}
+          groups={groups}
+          isActive={isActive}
+          labelOf={(item) => t(item.labelKey)}
+          settingsLabel={t(NAV_SETTINGS.labelKey)}
+          mailUnread={mailUnread}
+          unreadNotifications={unreadCount}
+          onOpenNotifications={() => setNotifOpen(true)}
+        />
+        {switcher}
+      </>
+    );
+  }
+
   return (
     <>
       {notifOpen && (
@@ -190,7 +266,7 @@ export const Sidebar = memo(function Sidebar() {
         style={{
           width: "var(--sidebar-width)",
           borderColor: "var(--border-subtle)",
-          backgroundColor: "var(--surface-1)",
+          backgroundColor: "var(--surface-chrome)",
         }}
       >
         {/* App brand — in PWA mode this opens the vault switcher popover so
@@ -213,10 +289,10 @@ export const Sidebar = memo(function Sidebar() {
               className="flex min-w-0 flex-1 items-center gap-2.5 rounded-md px-1 py-1 -mx-1"
             >
               <div
-                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-sm font-bold"
+                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-[var(--radius-md)] text-[11px] font-bold"
                 style={{
-                  backgroundColor: "var(--accent)",
-                  color: "var(--accent-foreground)",
+                  backgroundColor: "var(--brand-mark-bg)",
+                  color: "var(--brand-mark-fg)",
                 }}
               >
                 {isCloudVault ? <Cloud size={14} weight="fill" /> : "S"}
@@ -237,10 +313,10 @@ export const Sidebar = memo(function Sidebar() {
               className="flex min-w-0 flex-1 items-center gap-2.5 transition-opacity hover:opacity-80 focus-visible:outline-none"
             >
               <div
-                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-sm font-bold"
+                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-[var(--radius-md)] text-[11px] font-bold"
                 style={{
-                  backgroundColor: "var(--accent)",
-                  color: "var(--accent-foreground)",
+                  backgroundColor: "var(--brand-mark-bg)",
+                  color: "var(--brand-mark-fg)",
                 }}
               >
                 {isCloudVault ? <Cloud size={14} weight="fill" /> : "S"}
@@ -258,7 +334,7 @@ export const Sidebar = memo(function Sidebar() {
             size="icon"
             onClick={() => setNotifOpen(true)}
             aria-label="Ouvrir le centre de notifications"
-            className="relative flex h-7 w-7 shrink-0 items-center justify-center rounded-md"
+            className="relative flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--radius-md)]"
             style={{ color: "var(--text-muted)" }}
           >
             <Bell size={15} />
@@ -268,63 +344,16 @@ export const Sidebar = memo(function Sidebar() {
             />
           </Button>
         </div>
-        {canPickVault && vault && (
-          <VaultSwitcherPopover
-            open={switcherOpen}
-            anchorRef={brandRef}
-            recents={vault.recentVaults}
-            activeId={vault.activeVaultId}
-            onSwitch={(id) => {
-              setSwitcherOpen(false);
-              void vault.switchToVault(id);
-            }}
-            onForget={(id) => {
-              void vault.forgetVault(id);
-            }}
-            onPickFolder={
-              vault.isPwa
-                ? () => {
-                    setSwitcherOpen(false);
-                    void vault.pickFolder();
-                  }
-                : undefined
-            }
-            onStartGit={
-              vault.isPwa
-                ? () => {
-                    setSwitcherOpen(false);
-                    vault.startGitFlow();
-                  }
-                : undefined
-            }
-            onStartCloud={
-              vault.canCloud
-                ? () => {
-                    setSwitcherOpen(false);
-                    vault.startCloudFlow();
-                  }
-                : undefined
-            }
-            onClose={() => setSwitcherOpen(false)}
-          />
-        )}
+        {switcher}
 
-      <div
-        className="border-b"
-        style={{ borderColor: "var(--border-subtle)" }}
-      />
+      <div className="border-b" style={{ borderColor: "var(--border-subtle)" }} />
 
       {/* Navigation groups. Items belonging to a disabled plugin are
           filtered out — the underlying route still works for direct
           navigation, only the sidebar entry is hidden. Empty groups are
           collapsed entirely so we don't render dangling section headers. */}
       <nav data-tour="sidebar-nav" className="flex flex-1 flex-col overflow-y-auto px-2 py-1.5">
-        {NAV_GROUP_ORDER.map((groupId) => ({
-          groupId,
-          items: navItemsInGroup(groupId).filter(isItemVisible),
-        }))
-          .filter(({ items }) => items.length > 0)
-          .map(({ groupId, items }) => {
+        {groups.map(({ groupId, items }) => {
             // Le groupe « navigation » (Accueil, Assistant IA) est épinglé en
             // tête sans en-tête — un libellé « Navigation » au-dessus d'une nav
             // est un eyebrow redondant. Cf. NAV_HEADERLESS_GROUPS. Densité
@@ -334,10 +363,7 @@ export const Sidebar = memo(function Sidebar() {
             return (
               <div key={groupId}>
                 {!headerless && (
-                  <p
-                    className="mb-1 mt-3 px-2.5 text-[10px] font-semibold uppercase tracking-wider"
-                    style={{ color: "var(--text-muted)" }}
-                  >
+                  <p className="sn-eyebrow sn-eyebrow--compact mb-1 mt-3 px-2.5">
                     {t(NAV_GROUP_LABEL_KEY[groupId])}
                   </p>
                 )}
@@ -366,10 +392,10 @@ export const Sidebar = memo(function Sidebar() {
           href={NAV_SETTINGS.href}
           prefetch={true}
           data-tour="settings-link"
-          className="sn-pressable flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] hover:bg-[var(--surface-2)] focus-visible:outline-none"
+          className="sn-pressable flex w-full items-center gap-2.5 rounded-[var(--radius-md)] px-2.5 py-1.5 text-[13px] hover:bg-[var(--surface-2)] focus-visible:outline-none"
           style={{
-            color: isActive(NAV_SETTINGS.href) ? "var(--accent)" : "var(--text-muted)",
-            backgroundColor: isActive(NAV_SETTINGS.href) ? "var(--accent-subtle)" : undefined,
+            color: isActive(NAV_SETTINGS.href) ? "var(--nav-active-fg)" : "var(--text-muted)",
+            backgroundColor: isActive(NAV_SETTINGS.href) ? "var(--nav-active-bg)" : undefined,
             fontWeight: isActive(NAV_SETTINGS.href) ? 600 : undefined,
             transition: "var(--sn-transition-colors), var(--sn-transition-transform)",
           }}
@@ -465,13 +491,13 @@ function VaultSwitcherPopover({
       ref={popRef}
       role="menu"
       aria-label="Vaults récents"
-      className="fixed z-50 flex flex-col rounded-lg p-1 shadow-xl"
+      className="fixed z-50 flex flex-col rounded-[var(--radius-lg)] p-1 shadow-lg"
       style={{
         left,
         top,
         width: POP_W,
         backgroundColor: "var(--surface-1)",
-        border: "1px solid var(--border-subtle)",
+        border: "1px solid var(--border)",
       }}
     >
       <VaultSwitcherList

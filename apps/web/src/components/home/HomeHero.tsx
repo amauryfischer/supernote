@@ -40,23 +40,18 @@ export function HomeHero({ firstName }: HomeHeroProps) {
     );
   }, []);
 
-  const vaultLabel =
-    vault?.vaultName ?? t("vaultDefault");
+  const vaultLabel = vault?.vaultName ?? t("vaultDefault");
 
   const greetingText =
-    clientHour !== null
-      ? greeting(clientHour, t)
-      : t("greetings.morning");
+    clientHour !== null ? greeting(clientHour, t) : t("greetings.morning");
 
-  const fullGreeting = firstName
-    ? `${greetingText}, ${firstName}`
-    : greetingText;
+  const fullGreeting = firstName ? `${greetingText}, ${firstName}` : greetingText;
 
   return (
-    <div className="flex w-full items-start justify-between mb-6">
-      <div className="flex flex-col gap-0.5">
+    <div className="mb-5 flex w-full items-baseline justify-between gap-4">
+      <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-0.5">
         <h1
-          className="text-[28px] font-semibold leading-tight"
+          className="text-[24px] font-semibold leading-tight md:text-[28px]"
           style={{ color: "var(--text-primary)" }}
         >
           {fullGreeting}
@@ -69,11 +64,11 @@ export function HomeHero({ firstName }: HomeHeroProps) {
       </div>
 
       <div
-        className="flex items-center gap-1 shrink-0 mt-1"
+        className="flex shrink-0 items-center gap-1.5"
         style={{ color: "var(--text-muted)" }}
       >
-        <FolderOpen size={14} />
-        <span className="text-[11px]">{vaultLabel}</span>
+        <FolderOpen size={14} style={{ color: "var(--icon-decorative)" }} />
+        <span className="max-w-[10rem] truncate text-[12px]">{vaultLabel}</span>
       </div>
     </div>
   );

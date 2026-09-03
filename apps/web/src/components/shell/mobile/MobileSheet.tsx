@@ -1,5 +1,6 @@
 "use client";
 
+import { X } from "@phosphor-icons/react";
 import { Button, Drawer } from "@supernote/ui";
 import type { ReactNode } from "react";
 
@@ -59,11 +60,11 @@ export function MobileSheet({
             variant="ghost"
             size="icon"
             onClick={onClose}
-            className="flex h-8 w-8 items-center justify-center rounded-full"
-            style={{ color: "var(--text-muted)" }}
+            className="sn-pressable flex h-9 w-9 items-center justify-center rounded-[var(--radius-control)]"
+            style={{ color: "var(--text-secondary)" }}
             aria-label="Fermer"
           >
-            ✕
+            <X size={16} weight="bold" />
           </Button>
         </div>
         <div className="flex-1 overflow-y-auto p-4">{children}</div>

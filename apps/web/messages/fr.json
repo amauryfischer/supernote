@@ -105,21 +105,26 @@
       "today": {
         "title": "Aujourd'hui",
         "urgentCount": "{n} urgents",
-        "empty": "Rien d'urgent. Belle journée 🌤️",
-        "viewAll": "Tout voir →"
+        "empty": "Rien d'urgent aujourd'hui.",
+        "viewAll": "Tout voir",
+        "emptyAction": "Nouveau todo",
+        "error": "Todos indisponibles."
       },
       "continue": {
-        "title": "Continuer",
-        "viewAll": "Toutes les notes →",
-        "empty": "Aucune note encore. Capturez votre première idée ↑",
-        "noBody": "Sans contenu"
+        "title": "Reprendre",
+        "viewAll": "Toutes les notes",
+        "empty": "Aucune note pour l’instant.",
+        "noBody": "Sans contenu",
+        "emptyAction": "Écrire une note",
+        "error": "Notes indisponibles."
       },
       "stats": {
         "title": "Vault",
         "notes": "Notes",
         "todos": "Todos ouverts",
         "contacts": "Contacts",
-        "schemas": "Schémas"
+        "schemas": "Schémas",
+        "error": "Compteurs indisponibles."
       },
       "actions": {
         "title": "Capture rapide",
@@ -130,9 +135,14 @@
       },
       "tags": {
         "title": "Tags",
-        "empty": "Pas encore de tags. Ajoutez #tag à vos notes ✨"
+        "empty": "Ajoutez #tag à vos notes pour les regrouper ici.",
+        "error": "Tags indisponibles."
+      },
+      "vault": {
+        "title": "Le coffre"
       }
-    }
+    },
+    "retry": "Réessayer"
   },
   "notes": {
     "selectNote": "Sélectionnez une note ou créez-en une",

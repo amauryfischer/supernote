@@ -3,6 +3,7 @@ export { NavProgress } from "./NavProgress";
 export { RightPanel } from "./RightPanel";
 export { Sidebar } from "./Sidebar";
 export { TopBar } from "./TopBar";
+export { SearchTrigger, MOD_KEY } from "./SearchTrigger";
 export {
   ShellChromeProvider,
   useShellChrome,

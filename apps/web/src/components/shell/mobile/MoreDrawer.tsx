@@ -80,7 +80,7 @@ function ThemeCycleButton() {
       size="icon"
       onClick={next}
       aria-label={label}
-      className="flex h-10 w-10 items-center justify-center rounded-lg"
+      className="sn-pressable flex h-10 w-10 items-center justify-center rounded-[var(--radius-control)]"
       style={{ color: "var(--text-secondary)" }}
     >
       <Icon size={20} />
@@ -92,10 +92,10 @@ function ThemeCycleButton() {
 function VaultBadge({ isCloud }: { isCloud: boolean }) {
   return (
     <div
-      className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl text-base font-bold"
+      className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[var(--radius-lg)] text-base font-bold"
       style={{
-        backgroundColor: "var(--accent)",
-        color: "var(--accent-foreground)",
+        backgroundColor: "var(--brand-mark-bg)",
+        color: "var(--brand-mark-fg)",
       }}
     >
       {isCloud ? <Cloud size={22} weight="fill" /> : "S"}
@@ -104,26 +104,31 @@ function VaultBadge({ isCloud }: { isCloud: boolean }) {
 }
 
 /**
- * Tuile d'icône du drawer. Neutre au repos ; l'accent est réservé à l'item
- * ACTIF (état « vous êtes ici », pas décoration) et aux actions primaires —
- * même grammaire que le sidebar desktop. L'ancien traitement arc-en-ciel (une
- * teinte par item) contredisait le registre « calme & concentré » et le ban
- * product « accent plein sur états inactifs ».
+ * Tuile d'icône du drawer. Neutre au repos ; le ton « actif » porte l'état
+ * « vous êtes ici » via `--nav-active-*` — même grammaire que le sidebar
+ * desktop. L'ancien traitement arc-en-ciel (une teinte par item) contredisait
+ * le registre « calme & concentré » et le ban product « accent plein sur états
+ * inactifs ».
  */
+type RowIconTone = "rest" | "active" | "decorative";
+
+const ROW_ICON_TONES: Record<RowIconTone, { backgroundColor: string; color: string }> = {
+  rest: { backgroundColor: "var(--surface-2)", color: "var(--text-secondary)" },
+  active: { backgroundColor: "var(--nav-active-bg)", color: "var(--nav-active-fg)" },
+  decorative: { backgroundColor: "var(--surface-2)", color: "var(--icon-decorative)" },
+};
+
 function RowIcon({
   icon: Icon,
-  accent = false,
+  tone = "rest",
 }: {
   icon: PhosphorIcon;
-  accent?: boolean;
+  tone?: RowIconTone;
 }) {
   return (
     <span
-      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
-      style={{
-        backgroundColor: accent ? "var(--accent-subtle)" : "var(--surface-2)",
-        color: accent ? "var(--accent)" : "var(--text-secondary)",
-      }}
+      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--radius-md)]"
+      style={ROW_ICON_TONES[tone]}
     >
       <Icon size={18} weight="duotone" />
     </span>
@@ -189,6 +194,7 @@ export const MoreDrawer = memo(function MoreDrawer({
   // présentes dans la bottom-nav (Accueil, Notes, Todos) pour éviter les
   // doublons ; le reste (dont Assistant IA et Pomodoro, jadis injoignables au
   // doigt) peuple le drawer. Même ordre et mêmes libellés que le sidebar.
+  const settingsActive = isNavActive(NAV_SETTINGS.href, pathname);
   const drawerGroups = NAV_GROUP_ORDER.map((groupId) => ({
     groupId,
     headerless: NAV_HEADERLESS_GROUPS.has(groupId),
@@ -208,7 +214,7 @@ export const MoreDrawer = memo(function MoreDrawer({
         className="flex h-full flex-col"
         style={{
           paddingTop: "env(safe-area-inset-top, 0px)",
-          backgroundColor: "var(--surface-0)",
+          backgroundColor: "var(--surface-chrome)",
         }}
       >
         {/* Header — large title left, close button right (Apple sheet
@@ -218,7 +224,7 @@ export const MoreDrawer = memo(function MoreDrawer({
           className="flex shrink-0 items-center justify-between px-5 pt-3 pb-2"
         >
           <h1
-            className="text-3xl font-bold tracking-tight"
+            className="text-3xl font-bold"
             style={{ color: "var(--text-primary)" }}
           >
             Plus
@@ -229,7 +235,7 @@ export const MoreDrawer = memo(function MoreDrawer({
             size="icon"
             onClick={onClose}
             aria-label="Fermer"
-            className="flex h-9 w-9 items-center justify-center rounded-full"
+            className="sn-pressable flex h-9 w-9 items-center justify-center rounded-[var(--radius-control)]"
             style={{
               backgroundColor: "var(--surface-2)",
               color: "var(--text-secondary)",
@@ -257,8 +263,11 @@ export const MoreDrawer = memo(function MoreDrawer({
               and notifications. Mirrors the iOS "Apple ID card" pattern at
               the top of Settings. */}
           <div
-            className="mb-6 flex items-center gap-2 rounded-2xl p-3"
-            style={{ backgroundColor: "var(--surface-2)" }}
+            className="mb-6 flex items-center gap-2 rounded-2xl border p-3"
+            style={{
+              backgroundColor: "var(--surface-content)",
+              borderColor: "var(--border-subtle)",
+            }}
           >
             {canUseVault ? (
               <Button
@@ -271,7 +280,7 @@ export const MoreDrawer = memo(function MoreDrawer({
                 <VaultBadge isCloud={isCloudVault} />
                 <span className="min-w-0 flex-1">
                   <span
-                    className="block truncate text-[15px] font-semibold tracking-tight"
+                    className="block truncate text-[15px] font-semibold"
                     style={{ color: "var(--text-primary)" }}
                   >
                     {brandLabel}
@@ -290,7 +299,7 @@ export const MoreDrawer = memo(function MoreDrawer({
                 <VaultBadge isCloud={isCloudVault} />
                 <div className="min-w-0 flex-1">
                   <div
-                    className="truncate text-[15px] font-semibold tracking-tight"
+                    className="truncate text-[15px] font-semibold"
                     style={{ color: "var(--text-primary)" }}
                   >
                     {brandLabel}
@@ -314,7 +323,7 @@ export const MoreDrawer = memo(function MoreDrawer({
                 onOpenNotifications();
               }}
               aria-label="Ouvrir le centre de notifications"
-              className="relative flex h-10 w-10 items-center justify-center rounded-lg"
+              className="sn-pressable relative flex h-10 w-10 items-center justify-center rounded-[var(--radius-control)]"
               style={{ color: "var(--text-secondary)" }}
             >
               <Bell size={20} />
@@ -329,8 +338,11 @@ export const MoreDrawer = memo(function MoreDrawer({
               sur Cmd+Shift+K ; au doigt elle n'avait aucune affordance. */}
           <div className="mb-6">
             <div
-              className="overflow-hidden rounded-2xl"
-              style={{ backgroundColor: "var(--surface-1)" }}
+              className="overflow-hidden rounded-2xl border"
+              style={{
+                backgroundColor: "var(--surface-content)",
+                borderColor: "var(--border-subtle)",
+              }}
             >
               <button
                 type="button"
@@ -341,7 +353,7 @@ export const MoreDrawer = memo(function MoreDrawer({
                 className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors active:bg-[var(--surface-2)]"
                 style={{ color: "var(--text-primary)" }}
               >
-                <RowIcon icon={MagnifyingGlass} accent />
+                <RowIcon icon={MagnifyingGlass} tone="decorative" />
                 <span className="flex-1 text-[15px] font-medium">Rechercher partout</span>
                 <CaretRight size={14} style={{ color: "var(--text-muted)" }} />
               </button>
@@ -351,22 +363,24 @@ export const MoreDrawer = memo(function MoreDrawer({
           {/* Sections dérivées du catalogue — chaque groupe = une carte
               arrondie. Libellé de section aligné sur le sidebar desktop (i18n),
               sauf les groupes épinglés (navigation) rendus sans en-tête. Une
-              hairline sépare les lignes. L'item actif prend l'accent (« vous
-              êtes ici »), visible quand on ouvre « Plus » depuis une section
-              qui ne vit que dans le drawer (Finance, Contacts…). */}
+              hairline sépare les lignes. L'item actif prend `--nav-active-*`
+              (« vous êtes ici »), visible quand on ouvre « Plus » depuis une
+              section qui ne vit que dans le drawer (Finance, Contacts…). */}
           {drawerGroups.map(({ groupId, headerless, items }) => (
             <div key={groupId} className="mb-6">
               {!headerless && (
                 <p
-                  className="mb-1.5 px-3 text-[11px] font-semibold uppercase tracking-wider"
-                  style={{ color: "var(--text-muted)" }}
+                  className="sn-eyebrow sn-eyebrow--compact mb-1.5 px-3"
                 >
                   {t(NAV_GROUP_LABEL_KEY[groupId])}
                 </p>
               )}
               <div
-                className="overflow-hidden rounded-2xl"
-                style={{ backgroundColor: "var(--surface-1)" }}
+                className="overflow-hidden rounded-2xl border"
+                style={{
+                  backgroundColor: "var(--surface-content)",
+                  borderColor: "var(--border-subtle)",
+                }}
               >
                 {items.map((item, idx) => {
                   const active = isNavActive(item.href, pathname);
@@ -379,13 +393,15 @@ export const MoreDrawer = memo(function MoreDrawer({
                       aria-current={active ? "page" : undefined}
                       className="flex items-center gap-3 px-4 py-3 transition-colors active:bg-[var(--surface-2)]"
                       style={{
-                        color: active ? "var(--accent)" : "var(--text-primary)",
+                        color: active ? "var(--nav-active-fg)" : "var(--text-primary)",
+                        backgroundColor: active ? "var(--nav-active-bg)" : undefined,
+                        fontWeight: active ? 600 : undefined,
                         borderBottom: isLast
                           ? undefined
                           : "1px solid var(--border-subtle)",
                       }}
                     >
-                      <RowIcon icon={item.icon} accent={active} />
+                      <RowIcon icon={item.icon} tone={active ? "active" : "rest"} />
                       <span className="flex-1 text-[15px] font-medium">
                         {t(item.labelKey)}
                       </span>
@@ -401,29 +417,31 @@ export const MoreDrawer = memo(function MoreDrawer({
               du catalogue, comme le bas du sidebar desktop). */}
           <div className="mb-6">
             <p
-              className="mb-1.5 px-3 text-[11px] font-semibold uppercase tracking-wider"
-              style={{ color: "var(--text-muted)" }}
+              className="sn-eyebrow sn-eyebrow--compact mb-1.5 px-3"
             >
               Système
             </p>
             <div
-              className="overflow-hidden rounded-2xl"
-              style={{ backgroundColor: "var(--surface-1)" }}
+              className="overflow-hidden rounded-2xl border"
+              style={{
+                backgroundColor: "var(--surface-content)",
+                borderColor: "var(--border-subtle)",
+              }}
             >
               <Link
                 href={NAV_SETTINGS.href}
                 onClick={onClose}
-                aria-current={isNavActive(NAV_SETTINGS.href, pathname) ? "page" : undefined}
+                aria-current={settingsActive ? "page" : undefined}
                 className="flex items-center gap-3 px-4 py-3 transition-colors active:bg-[var(--surface-2)]"
                 style={{
-                  color: isNavActive(NAV_SETTINGS.href, pathname)
-                    ? "var(--accent)"
-                    : "var(--text-primary)",
+                  color: settingsActive ? "var(--nav-active-fg)" : "var(--text-primary)",
+                  backgroundColor: settingsActive ? "var(--nav-active-bg)" : undefined,
+                  fontWeight: settingsActive ? 600 : undefined,
                 }}
               >
                 <RowIcon
                   icon={NAV_SETTINGS.icon}
-                  accent={isNavActive(NAV_SETTINGS.href, pathname)}
+                  tone={settingsActive ? "active" : "rest"}
                 />
                 <span className="flex-1 text-[15px] font-medium">
                   {t(NAV_SETTINGS.labelKey)}
@@ -437,14 +455,16 @@ export const MoreDrawer = memo(function MoreDrawer({
               modale que le bouton « Connecter un vault » du FileTree desktop). */}
           <div className="mb-6">
             <p
-              className="mb-1.5 px-3 text-[11px] font-semibold uppercase tracking-wider"
-              style={{ color: "var(--text-muted)" }}
+              className="sn-eyebrow sn-eyebrow--compact mb-1.5 px-3"
             >
               Coffres
             </p>
             <div
-              className="overflow-hidden rounded-2xl"
-              style={{ backgroundColor: "var(--surface-1)" }}
+              className="overflow-hidden rounded-2xl border"
+              style={{
+                backgroundColor: "var(--surface-content)",
+                borderColor: "var(--border-subtle)",
+              }}
             >
               <button
                 type="button"
@@ -468,19 +488,21 @@ export const MoreDrawer = memo(function MoreDrawer({
               tiroir mobile, sans quitter l'app. */}
           <div className="mb-6">
             <p
-              className="mb-1.5 px-3 text-[11px] font-semibold uppercase tracking-wider"
-              style={{ color: "var(--text-muted)" }}
+              className="sn-eyebrow sn-eyebrow--compact mb-1.5 px-3"
             >
               Éditeur
             </p>
             <div
-              className="overflow-hidden rounded-2xl"
-              style={{ backgroundColor: "var(--surface-1)" }}
+              className="overflow-hidden rounded-2xl border"
+              style={{
+                backgroundColor: "var(--surface-content)",
+                borderColor: "var(--border-subtle)",
+              }}
             >
               <Button
                 variant="ghost"
                 onPress={() => setCheatOpen(true)}
-                className="flex w-full items-center gap-3 px-4 py-3 text-left rounded-none"
+                className="flex w-full items-center justify-start gap-3 rounded-none px-4 py-3 text-left active:bg-[var(--surface-2)]"
                 style={{ color: "var(--text-primary)" }}
               >
                 <RowIcon icon={Keyboard} />

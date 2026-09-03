@@ -98,10 +98,15 @@ const IconButton = memo(function IconButton({
       size="icon"
       onClick={onPress}
       aria-label={label}
-      // `.sn-motion-colors` → signature token colors transition on the
-      // active/inactive accent swap (reduced-motion-safe).
-      className="sn-motion-colors relative flex h-10 w-10 items-center justify-center rounded-full"
-      style={{ color: active ? "var(--accent)" : "var(--text-secondary)" }}
+      // ⚠️ `.sn-pressable` déclare `transition` en raccourci et écraserait
+      // `.sn-motion-colors` (déclaré plus haut dans globals.css) : les deux
+      // listes de tokens se posent donc ensemble en inline. Les deux dégradent
+      // seules sous `prefers-reduced-motion`.
+      className="sn-pressable relative flex h-10 w-10 items-center justify-center rounded-[var(--radius-control)]"
+      style={{
+        color: active ? "var(--text-primary)" : "var(--text-secondary)",
+        transition: "var(--sn-transition-colors), var(--sn-transition-transform)",
+      }}
     >
       <Icon size={20} />
     </Button>
@@ -167,7 +172,7 @@ export const MobileTopBar = memo(function MobileTopBar() {
           paddingTop: "env(safe-area-inset-top, 0px)",
           height: "calc(48px + env(safe-area-inset-top, 0px))",
           borderColor: "var(--border-subtle)",
-          backgroundColor: "var(--surface-1)",
+          backgroundColor: "var(--surface-chrome)",
         }}
       >
         {showBack ? (
@@ -177,7 +182,7 @@ export const MobileTopBar = memo(function MobileTopBar() {
             size="icon"
             onClick={onBack}
             aria-label="Retour"
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full"
+            className="sn-pressable flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-control)]"
             style={{ color: "var(--text-primary)" }}
           >
             <ArrowLeft size={22} />

@@ -37,6 +37,34 @@
         } catch (_e) {
           /* localStorage unavailable — first-paint stays light */
         }
+
+        // Registre visuel (refonte Linear/Raycast vs héritage). Pré-peint au
+        // même titre que le thème : les tokens de surface changent, un flash
+        // serait une bascule de palette complète. `?ui=` prime pour scripter
+        // les captures. Retirer ce bloc = retirer la refonte.
+        try {
+          var params = new URLSearchParams(window.location.search);
+          var fromQuery = params.get("ui");
+          if (fromQuery === "next" || fromQuery === "legacy") {
+            localStorage.setItem("supernote-ui", fromQuery);
+            // Le paramètre est consommé une fois : sinon il survit à chaque
+            // rechargement et écrase la bascule faite dans l'app.
+            params.delete("ui");
+            var qs = params.toString();
+            history.replaceState(
+              {},
+              "",
+              window.location.pathname + (qs ? "?" + qs : "") + window.location.hash,
+            );
+          }
+          var ui = localStorage.getItem("supernote-ui");
+          document.documentElement.setAttribute(
+            "data-ui",
+            ui === "legacy" ? "legacy" : "next",
+          );
+        } catch (_e) {
+          document.documentElement.setAttribute("data-ui", "next");
+        }
       })();
     </script>
   </head>

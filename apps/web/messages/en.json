@@ -104,21 +104,26 @@
       "today": {
         "title": "Today",
         "urgentCount": "{n} urgent",
-        "empty": "Nothing urgent. Have a great day 🌤️",
-        "viewAll": "View all →"
+        "empty": "Nothing urgent today.",
+        "viewAll": "View all",
+        "emptyAction": "New todo",
+        "error": "Todos unavailable."
       },
       "continue": {
         "title": "Resume",
-        "viewAll": "All notes →",
-        "empty": "No notes yet. Capture your first idea ↑",
-        "noBody": "Empty"
+        "viewAll": "All notes",
+        "empty": "No notes yet.",
+        "noBody": "Empty",
+        "emptyAction": "Write a note",
+        "error": "Notes unavailable."
       },
       "stats": {
         "title": "Vault",
         "notes": "Notes",
         "todos": "Open todos",
         "contacts": "Contacts",
-        "schemas": "Schemas"
+        "schemas": "Schemas",
+        "error": "Counters unavailable."
       },
       "actions": {
         "title": "Quick capture",
@@ -129,9 +134,14 @@
       },
       "tags": {
         "title": "Tags",
-        "empty": "No tags yet. Add #tag to your notes ✨"
+        "empty": "Add #tag to your notes to group them here.",
+        "error": "Tags unavailable."
+      },
+      "vault": {
+        "title": "Vault"
       }
-    }
+    },
+    "retry": "Retry"
   },
   "notes": {
     "selectNote": "Select a note or create one",

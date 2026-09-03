@@ -1,69 +1,67 @@
 "use client";
 
-import { Button } from "@heroui/react";
+import { Button } from "@supernote/ui";
 import { useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
 import { Plus, CalendarBlank, CheckSquare, Hash } from "@phosphor-icons/react";
+import type { IconComponent } from "@supernote/ui";
 import { useShellChrome } from "@/components/shell";
 
-const ICON_SIZE = 18;
+const ICON_SIZE = 16;
 
+/**
+ * Barre d'actions attachée à la surface d'écriture : c'est l'outillage de
+ * l'éditeur, pas une section de tableau de bord — d'où l'absence de titre.
+ */
 export function QuickActionsStrip() {
   const t = useTranslations("home.widgets.actions");
   const router = useRouter();
   const shell = useShellChrome();
 
-  function handleNewNote() {
-    shell.requestNewNote();
-    router.push("/");
-  }
+  const actions: { key: string; icon: IconComponent; label: string; run: () => void }[] = [
+    {
+      key: "newNote",
+      icon: Plus,
+      label: t("newNote"),
+      run: () => {
+        shell.requestNewNote();
+        router.push("/");
+      },
+    },
+    {
+      key: "journal",
+      icon: CalendarBlank,
+      label: t("journal"),
+      run: () => router.push("/journal"),
+    },
+    {
+      key: "todo",
+      icon: CheckSquare,
+      label: t("todo"),
+      run: () => router.push("/todos?new=1"),
+    },
+    {
+      key: "schema",
+      icon: Hash,
+      label: t("schema"),
+      run: () => router.push("/schemas"),
+    },
+  ];
 
   return (
-    <div className="flex flex-col gap-2">
-      <span
-        className="text-[12px] font-bold uppercase tracking-wider"
-        style={{ color: "var(--text-muted)" }}
-      >
-        {t("title")}
-      </span>
-      <div className="flex flex-col md:flex-row gap-2 md:gap-3">
+    <div className="grid grid-cols-2 gap-2 md:flex md:flex-row">
+      {actions.map(({ key, icon: Icon, label, run }) => (
         <Button
+          key={key}
           variant="outline"
           size="md"
-          className="h-12 flex-1 justify-start gap-2"
-          onClick={handleNewNote}
+          className="h-10 flex-1 justify-start gap-2 px-3 text-[13px] font-normal"
+          onClick={run}
         >
-          <Plus size={ICON_SIZE} weight="duotone" style={{ color: "var(--accent)" }} />
-          {t("newNote")}
+          <Icon size={ICON_SIZE} className="shrink-0" style={{ color: "var(--icon-decorative)" }} />
+          <span className="min-w-0 truncate">{label}</span>
         </Button>
-        <Button
-          variant="outline"
-          size="md"
-          className="h-12 flex-1 justify-start gap-2"
-          onClick={() => router.push("/journal")}
-        >
-          <CalendarBlank size={ICON_SIZE} weight="duotone" style={{ color: "var(--accent)" }} />
-          {t("journal")}
-        </Button>
-        <Button
-          variant="outline"
-          size="md"
-          className="h-12 flex-1 justify-start gap-2"
-          onClick={() => router.push("/todos?new=1")}
-        >
-          <CheckSquare size={ICON_SIZE} weight="duotone" style={{ color: "var(--accent)" }} />
-          {t("todo")}
-        </Button>
-        <Button
-          variant="outline"
-          size="md"
-          className="h-12 flex-1 justify-start gap-2"
-          onClick={() => router.push("/schemas")}
-        >
-          <Hash size={ICON_SIZE} weight="duotone" style={{ color: "var(--accent)" }} />
-          {t("schema")}
-        </Button>
-      </div>
+      ))}
     </div>
   );
 }

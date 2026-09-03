@@ -153,7 +153,7 @@ export function ColumnEditorSidebar({ base: baseSnapshot, view: viewSnapshot, fo
         width: isMobile ? "100%" : 320,
         minWidth: isMobile ? 0 : 320,
         borderColor: "var(--border-subtle)",
-        backgroundColor: "var(--surface-1)",
+        backgroundColor: "var(--surface-chrome)",
       }}
     >
       {/* Header */}

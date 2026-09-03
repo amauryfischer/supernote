@@ -58,7 +58,7 @@ export const MobileShell = memo(function MobileShell({
   return (
     <div
       className="relative flex h-screen w-screen flex-col overflow-hidden"
-      style={{ backgroundColor: "var(--surface-0)" }}
+      style={{ backgroundColor: "var(--surface-content)" }}
     >
       {/* Keyboard focus mode retracts the chrome. Rather than snapping the
           bars out (unmount), glide them: the top bar slides up + fades, the
@@ -84,7 +84,7 @@ export const MobileShell = memo(function MobileShell({
       <main
         className="relative flex-1 overflow-y-auto"
         style={{
-          backgroundColor: "var(--surface-0)",
+          backgroundColor: "var(--surface-content)",
           // Le FAB dépasse de 20px AU-DESSUS de la barre de navigation (il est
           // ancré à `20px + safe-area` du bas, pour 56px de haut, et la nav en
           // fait 56). Ces 20px se superposaient donc au bas de `main` : sur une
@@ -162,10 +162,11 @@ export const MobileShell = memo(function MobileShell({
             style={{ backgroundColor: "color-mix(in srgb, var(--surface-0) 60%, transparent)" }}
           />
           <div
-            className="h-full w-full max-w-[380px] sn-col-editor-enter"
+            className="h-full w-full max-w-[380px] sn-col-editor-enter border-l"
             style={{
               paddingTop: "env(safe-area-inset-top, 0px)",
               backgroundColor: "var(--surface-1)",
+              borderColor: "var(--border)",
             }}
           >
             <ColumnEditorSidebar
@@ -190,10 +191,11 @@ export const MobileShell = memo(function MobileShell({
             style={{ backgroundColor: "color-mix(in srgb, var(--surface-0) 60%, transparent)" }}
           />
           <div
-            className="h-full w-full max-w-[380px] sn-col-editor-enter"
+            className="h-full w-full max-w-[380px] sn-col-editor-enter border-l"
             style={{
               paddingTop: "env(safe-area-inset-top, 0px)",
               backgroundColor: "var(--surface-1)",
+              borderColor: "var(--border)",
             }}
           >
             <EntityPeekPanel baseId={entityPeek.baseId} entityId={entityPeek.entityId} />

@@ -46,8 +46,15 @@ export function OverflowMenu({
                   a.onPress();
                   onClose();
                 }}
-                className="flex h-12 w-full items-center gap-3 px-4 text-[15px]"
-                style={{ color: a.active ? "var(--accent)" : "var(--text-primary)" }}
+                className="flex h-12 w-full items-center justify-start gap-3 rounded-none px-4 text-[15px]"
+                // Une action de header enclenchée est un état de bascule, pas
+                // une sélection de navigation : bande neutre `--nav-active-bg`,
+                // jamais l'accent.
+                style={{
+                  color: "var(--text-primary)",
+                  backgroundColor: a.active ? "var(--nav-active-bg)" : undefined,
+                  fontWeight: a.active ? 600 : 500,
+                }}
               >
                 <Icon size={20} />
                 <span>{a.label}</span>

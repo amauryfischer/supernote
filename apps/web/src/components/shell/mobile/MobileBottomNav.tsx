@@ -33,7 +33,9 @@ interface NavTab {
  * top of the circle peeks above the bar like a Material Design FAB.
  *
  * Layout: 56 px tall + safe-area-inset-bottom. Icons centered in each tab
- * column, label in 10 px below. Active tab uses the accent color.
+ * column, label in 10 px below. L'onglet actif prend le rôle `--nav-active-*`
+ * (neutre fort dans le registre next, accent en héritage) — jamais `--accent`
+ * en dur : la navigation est un état « vous êtes ici », pas une sélection.
  */
 export const MobileBottomNav = memo(function MobileBottomNav({
   onOpenMore,
@@ -86,7 +88,7 @@ export const MobileBottomNav = memo(function MobileBottomNav({
       style={{
         height: "calc(56px + env(safe-area-inset-bottom, 0px))",
         paddingBottom: "env(safe-area-inset-bottom, 0px)",
-        backgroundColor: "var(--surface-1)",
+        backgroundColor: "var(--surface-chrome)",
         borderColor: "var(--border-subtle)",
       }}
       aria-label="Navigation principale"
@@ -117,23 +119,30 @@ const NavTabButton = memo(function NavTabButton({
   const Icon = tab.icon;
   // Discrete active/inactive state → token CSS transition via the shared
   // `.sn-motion-colors` utility (carries `--sn-transition-colors` AND the
-  // reduced-motion degrade). Carries the accent-color swap on the tab.
+  // reduced-motion degrade).
   const baseClass =
-    "sn-motion-colors relative flex flex-1 flex-col items-center justify-center gap-0.5 text-[10px] font-medium focus-visible:outline-none";
+    "sn-motion-colors relative flex flex-1 flex-col items-center justify-center gap-0.5 text-[10px] font-medium";
   const style: React.CSSProperties = {
-    color: active ? "var(--accent)" : "var(--text-muted)",
+    color: active ? "var(--nav-active-fg)" : "var(--text-muted)",
+    fontWeight: active ? 600 : 500,
+    // L'anneau global `:focus-visible` porte un `outline-offset: 2px` qui
+    // déborderait hors de la barre sur une cellule pleine hauteur : on le
+    // rentre plutôt que de supprimer l'anneau (chemin clavier exigé par
+    // PRODUCT.md — l'ancien `focus-visible:outline-none` n'avait aucun
+    // remplaçant). Sans anneau, `outline-offset` seul est inerte.
+    outlineOffset: "-3px",
   };
 
-  // Active indicator — a short accent pill that glides up + fades in when the
-  // tab becomes active. `.sn-motion-glide` drives transform+opacity only (idle
-  // = 0 frames, compositor-friendly) and degrades under reduced-motion. The
-  // -50% X keeps it horizontally centred; the Y/opacity carry the entrance.
+  // Active indicator — pastille courte qui glisse vers le haut + apparaît
+  // quand l'onglet devient actif. `.sn-motion-glide` ne pilote que
+  // transform+opacity (idle = 0 frame, compositor-friendly) et dégrade sous
+  // reduced-motion. Le -50% X tient le centrage ; le Y/opacity portent l'entrée.
   const indicator = (
     <span
       aria-hidden="true"
       className="sn-motion-glide pointer-events-none absolute left-1/2 top-1 h-0.5 w-5 rounded-full"
       style={{
-        backgroundColor: "var(--accent)",
+        backgroundColor: "var(--nav-active-fg)",
         opacity: active ? 1 : 0,
         transform: active
           ? "translate(-50%, 0)"

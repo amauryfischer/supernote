@@ -13,7 +13,7 @@
 
 import Link from "next/link";
 import { useMemo } from "react";
-import { Warning } from "@phosphor-icons/react";
+import { Skeleton } from "@supernote/ui";
 import { trpc } from "@/lib/trpc/client";
 import { TODO_TYPE_ID } from "@/hooks/useTodoSync";
 import { extractChecklists } from "@/lib/todos/extractChecklists";
@@ -115,29 +115,42 @@ export function PrioritiesWidget() {
       .slice(0, MAX_ROWS);
   }, [notesQuery.data, todosQuery.data]);
 
-  if (notesQuery.isError && todosQuery.isError) return null;
+  const isLoading = notesQuery.isLoading || todosQuery.isLoading;
+  const hasError = notesQuery.isError && todosQuery.isError;
 
   return (
     <div className="flex flex-col gap-1 p-3">
-      <div className="flex items-center gap-1.5 px-2 pb-2">
-        <Warning size={12} style={{ color: "#EF4444" }} />
-        <span className="text-xs font-medium" style={{ color: "var(--text-muted)" }}>
-          Mes priorités
-        </span>
+      <div className="flex items-center gap-2 px-2 pb-2">
+        <span className="sn-eyebrow sn-eyebrow--compact">Mes priorités</span>
         <Link
           href="/todos"
           prefetch={false}
-          className="ml-auto text-[10px] hover:underline"
-          style={{ color: "var(--text-muted)" }}
+          className="ml-auto shrink-0 rounded-[var(--radius-sm)] text-[11px] text-[var(--text-muted)] transition-colors hover:text-[var(--text-primary)]"
         >
-          Voir tout →
+          Tout voir
         </Link>
       </div>
-      {rows.length === 0 ? (
+
+      {isLoading ? (
+        <div className="flex flex-col gap-2 px-2 py-1" aria-hidden="true">
+          <Skeleton className="h-3 w-[80%]" />
+          <Skeleton className="h-3 w-[62%]" />
+          <Skeleton className="h-3 w-[70%]" />
+        </div>
+      ) : hasError ? (
         <p
-          className="rounded-md px-3 py-2 text-[11px] leading-relaxed"
-          style={{ color: "var(--text-muted)", backgroundColor: "var(--surface-2)" }}
+          className="flex items-center gap-2 px-2 py-1.5 text-[11px]"
+          style={{ color: "var(--text-secondary)" }}
         >
+          <span
+            aria-hidden="true"
+            className="h-1.5 w-1.5 shrink-0 rounded-full"
+            style={{ backgroundColor: "var(--danger)" }}
+          />
+          Priorités indisponibles.
+        </p>
+      ) : rows.length === 0 ? (
+        <p className="px-2 py-1.5 text-[11px]" style={{ color: "var(--text-muted)" }}>
           Aucune priorité urgente.
         </p>
       ) : (
@@ -146,17 +159,18 @@ export function PrioritiesWidget() {
             key={row.id}
             href="/todos"
             prefetch={false}
-            className="flex items-center gap-2 rounded-md px-2 py-1.5 transition-colors hover:bg-[var(--surface-2)]"
+            className="flex items-center gap-2 rounded-[var(--radius-md)] px-2 py-1.5 transition-colors hover:bg-[var(--surface-2)]"
           >
             <span
+              aria-hidden="true"
               className="h-2 w-2 shrink-0 rounded-full"
               style={{ backgroundColor: importanceColor(row.importance) }}
             />
             <span
-              className="inline-flex h-4 min-w-[1.5rem] shrink-0 items-center justify-center rounded px-1 text-[10px] font-bold tabular-nums"
+              className="inline-flex h-4 min-w-[1.5rem] shrink-0 items-center justify-center rounded-[var(--radius-sm)] px-1 text-[10px] font-medium tabular-nums"
               style={{
-                backgroundColor: "var(--surface-3)",
-                color: "var(--text-muted)",
+                backgroundColor: "var(--surface-2)",
+                color: "var(--text-secondary)",
               }}
             >
               P{row.priority}
