@@ -14,7 +14,6 @@ import { JournalEditor, JournalSidebar } from "@/components/journal";
 import { useRouter, useParams } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
 import { CalendarBlank, PencilSimple } from "@phosphor-icons/react";
-import { DAILY_JOURNAL } from "@supernote/templates";
 
 function todayYMD(): string {
   const d = new Date();
@@ -28,26 +27,12 @@ function isValidDate(s: string): boolean {
   return /^\d{4}-\d{2}-\d{2}$/.test(s) && !isNaN(Date.parse(s + "T12:00:00"));
 }
 
-function buildInitialMarkdown(date: string): string {
-  const d = new Date(date + "T12:00:00");
-  const formatted = d.toLocaleDateString("fr-FR", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  });
-  return DAILY_JOURNAL.body
-    .replace(/\{\{date:[^}]+\}\}/g, formatted)
-    .replace(/\{\{cursor\}\}/g, "");
-}
-
 function DateJournalContent({ date }: { date: string }) {
   const router = useRouter();
   const isMobile = useIsMobile();
   const today = todayYMD();
   const [selectedDate, setSelectedDate] = useState<string>(date);
   const [isCalendarOpen, setCalendarOpen] = useState(false);
-  const initialMarkdown = useMemo(() => buildInitialMarkdown(selectedDate), [selectedDate]);
   // Vraies dates avec entrée de journal (entités `daily`), pour pastiller le
   // calendrier. Dégrade en ensemble vide si le backend ne répond pas.
   const { datesWithNote } = useDatesWithNote();
@@ -115,7 +100,7 @@ function DateJournalContent({ date }: { date: string }) {
         />
       </aside>
       <main className="flex-1 overflow-hidden" style={{ backgroundColor: "var(--surface-0)" }}>
-        <JournalEditor date={selectedDate} initialMarkdown={initialMarkdown} />
+        <JournalEditor date={selectedDate} />
       </main>
 
       {/* Mobile: calendar exposed as a bottom sheet (opened from header action) */}

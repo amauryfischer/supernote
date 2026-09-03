@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { FloppyDisk } from "@phosphor-icons/react";
 import type { SupernoteEditorProps } from "@supernote/editor";
+import { useDailyEntity } from "@/hooks/useDailyEntity";
 
 const SupernoteEditor = dynamic<SupernoteEditorProps>(
   () => import("@supernote/editor").then((m) => ({ default: m.SupernoteEditor })),
@@ -12,31 +13,43 @@ const SupernoteEditor = dynamic<SupernoteEditorProps>(
 
 interface JournalEditorProps {
   date: string; // "YYYY-MM-DD"
-  initialMarkdown: string;
 }
 
 type SaveStatus = "idle" | "saving" | "saved";
 
-export function JournalEditor({ date, initialMarkdown }: JournalEditorProps) {
+export function JournalEditor({ date }: JournalEditorProps) {
+  const { initialMarkdown, isLoading, persist } = useDailyEntity(date);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const handleChange = useCallback((markdown: string) => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    setSaveStatus("saving");
-    debounceRef.current = setTimeout(() => {
-      // Placeholder: tRPC mutation will replace this
-      console.log("[journal-autosave]", { date, bodyLength: markdown.length });
+  const handleChange = useCallback(
+    (markdown: string) => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      setSaveStatus("saving");
+      debounceRef.current = setTimeout(() => {
+        persist(markdown);
+        setSaveStatus("saved");
+        setTimeout(() => setSaveStatus("idle"), 2000);
+      }, 1000);
+    },
+    [persist],
+  );
+
+  const handleSave = useCallback(
+    (markdown: string) => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      persist(markdown);
       setSaveStatus("saved");
       setTimeout(() => setSaveStatus("idle"), 2000);
-    }, 1000);
-  }, [date]);
+    },
+    [persist],
+  );
 
-  const handleSave = useCallback((md: string) => {
-    console.log("[journal-manual-save]", { date, bodyLength: md.length });
-    setSaveStatus("saved");
-    setTimeout(() => setSaveStatus("idle"), 2000);
-  }, [date]);
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, []);
 
   const displayDate = new Date(date + "T12:00:00").toLocaleDateString("fr-FR", {
     weekday: "long",
@@ -44,6 +57,14 @@ export function JournalEditor({ date, initialMarkdown }: JournalEditorProps) {
     month: "long",
     year: "numeric",
   });
+
+  if (isLoading) {
+    return (
+      <div className="flex h-full flex-col overflow-hidden px-10 py-6">
+        <EditorSkeleton />
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-full flex-col overflow-hidden">

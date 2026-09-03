@@ -14,7 +14,6 @@ import { JournalEditor, JournalSidebar } from "@/components/journal";
 import { useRouter } from "next/navigation";
 import { useCallback, useMemo, useState, useEffect } from "react";
 import { CalendarBlank, PencilSimple } from "@phosphor-icons/react";
-import { DAILY_JOURNAL } from "@supernote/templates";
 import { Skeleton, SkeletonText } from "@supernote/ui";
 
 function todayYMD(): string {
@@ -23,21 +22,6 @@ function todayYMD(): string {
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
-}
-
-/** Derive the initial markdown for the daily note using the daily journal template body. */
-function buildInitialMarkdown(date: string): string {
-  const d = new Date(date + "T12:00:00");
-  const formatted = d.toLocaleDateString("fr-FR", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  });
-  // Apply the date variable from the template body manually (simple substitution)
-  return DAILY_JOURNAL.body
-    .replace(/\{\{date:[^}]+\}\}/g, formatted)
-    .replace(/\{\{cursor\}\}/g, "");
 }
 
 function JournalPageContent() {
@@ -67,8 +51,6 @@ function JournalPageContent() {
     const t = setTimeout(() => setIsLoading(false), 250);
     return () => clearTimeout(t);
   }, []);
-
-  const initialMarkdown = useMemo(() => buildInitialMarkdown(selectedDate), [selectedDate]);
 
   // Format selected date for mobile title
   const mobileTitle = useMemo(() => {
@@ -144,7 +126,7 @@ function JournalPageContent() {
         className="flex-1 overflow-hidden"
         style={{ backgroundColor: "var(--surface-0)" }}
       >
-        <JournalEditor date={selectedDate} initialMarkdown={initialMarkdown} />
+        <JournalEditor date={selectedDate} />
       </main>
 
       {/* Mobile: calendar exposed as a bottom sheet (opened from header action) */}
