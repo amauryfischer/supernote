@@ -1765,7 +1765,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
             <FilePdf size={13} />
             PDF
           </Button>
-          <ShareNotePanel note={note} />
+          <ShareNotePanel note={note} resolveUrl={fileAdapter.resolveUrl} />
           {/* Liens entrants — popover ancré au bouton sur desktop, MobileSheet
               sur mobile (parité tactile). Le badge affiche le nombre de notes
               qui mentionnent celle-ci ; la liste n'est chargée qu'à l'ouverture. */}

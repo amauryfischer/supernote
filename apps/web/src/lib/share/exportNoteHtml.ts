@@ -11,6 +11,14 @@
  * actually looks — see `docs` note in `ShareNotePanel.tsx` for the one block
  * that stays a placeholder (canvas: no static-image export exists yet).
  *
+ * Images need the same treatment for a different reason: the headless editor
+ * has no `resolveFileUrl`, so pasted images keep their vault-relative `src`
+ * (`Projets/_attachments/img-….png`) — meaningless outside the owner's vault.
+ * `enrichImages` resolves each one through the live editor's own file
+ * adapter (the same `blob:` resolution used on-screen) and inlines it as a
+ * `data:` URI so the public page is fully self-contained. The share CSP
+ * (`img-src data: https: http:`, see `share-backend.mjs`) already expects this.
+ *
  * The server re-sanitizes with DOMPurify before ever storing or serving this
  * — see `share-backend.mjs` — so this pass optimizes for fidelity, not for
  * being the last line of defense.
@@ -132,11 +140,48 @@ async function enrichBases(container: HTMLElement): Promise<void> {
   );
 }
 
-export async function exportNoteHtml(bodyMarkdown: string): Promise<string> {
+function isEmbeddableImageSrc(src: string): boolean {
+  return /^(https?:|data:)/i.test(src);
+}
+
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function enrichImages(
+  container: HTMLElement,
+  resolveUrl: (path: string) => Promise<string>,
+): Promise<void> {
+  const images = Array.from(container.querySelectorAll<HTMLImageElement>("img"));
+  await Promise.all(
+    images.map(async (img) => {
+      const src = img.getAttribute("src") ?? "";
+      if (!src || isEmbeddableImageSrc(src)) return;
+      try {
+        const blobUrl = await resolveUrl(src);
+        if (!blobUrl.startsWith("blob:")) return; // introuvable dans le coffre — laissé tel quel
+        const blob = await fetch(blobUrl).then((r) => r.blob());
+        img.setAttribute("src", await blobToDataUrl(blob));
+      } catch {
+        // Laisse le chemin de coffre d'origine plutôt qu'un bloc cassé visible.
+      }
+    }),
+  );
+}
+
+export async function exportNoteHtml(
+  bodyMarkdown: string,
+  resolveUrl: (path: string) => Promise<string>,
+): Promise<string> {
   const container = document.createElement("div");
   container.innerHTML = markdownToHtmlLossy(bodyMarkdown);
 
-  await Promise.all([enrichFormulas(container), enrichBases(container)]);
+  await Promise.all([enrichFormulas(container), enrichBases(container), enrichImages(container, resolveUrl)]);
 
   // Pas d'export image pour une scène Excalidraw aujourd'hui (packages/canvas
   // n'expose aucun exportToSvg/Blob) — limite assumée plutôt qu'un rendu bancal.

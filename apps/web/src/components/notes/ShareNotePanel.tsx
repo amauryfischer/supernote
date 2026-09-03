@@ -32,7 +32,14 @@ function formatRelativeShort(ts: number): string {
  * republished automatically (debounced) so the link stays current without
  * a manual step.
  */
-export function ShareNotePanel({ note }: { note: Note }) {
+export function ShareNotePanel({
+  note,
+  resolveUrl,
+}: {
+  note: Note;
+  /** Résolveur de chemin de coffre → `blob:` (même adaptateur que l'éditeur live), pour inliner les images dans l'export. */
+  resolveUrl: (path: string) => Promise<string>;
+}) {
   const [isOpen, setIsOpen] = useState(false);
   const [backendEnabled, setBackendEnabled] = useState<boolean | null>(null);
   const [status, setStatus] = useState<ShareStatus | null>(null);
@@ -55,7 +62,7 @@ export function ShareNotePanel({ note }: { note: Note }) {
     setBusy(true);
     setError(null);
     try {
-      const html = await exportNoteHtml(bodyRef.current);
+      const html = await exportNoteHtml(bodyRef.current, resolveUrl);
       const result = await publishShare(note.id, note.title || "Note sans titre", html);
       setStatus({ published: true, slug: result.slug, updatedAt: result.updatedAt });
     } catch (err) {
@@ -63,7 +70,7 @@ export function ShareNotePanel({ note }: { note: Note }) {
     } finally {
       setBusy(false);
     }
-  }, [note.id, note.title]);
+  }, [note.id, note.title, resolveUrl]);
 
   const handleToggle = useCallback(
     (next: boolean) => {
