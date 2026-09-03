@@ -8,8 +8,8 @@
  * section "Ambiances de note"). Persistée dans fields.ambiance de la note.
  */
 
-import { useEffect, useRef, useState } from "react";
-import { Button } from "@heroui/react";
+import { useState } from "react";
+import { Button, Popover } from "@heroui/react";
 import { Check, Palette } from "@phosphor-icons/react";
 import { trpc } from "@/lib/trpc/client";
 
@@ -231,25 +231,7 @@ export function AmbianceSelector({
   onTypoChange: (t: NoteTypo) => void;
 }): React.JSX.Element {
   const [open, setOpen] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
   const update = trpc.entities.update.useMutation();
-
-  // Click-outside + Escape ferment le popover.
-  useEffect(() => {
-    if (!open) return undefined;
-    const onDown = (e: MouseEvent) => {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
 
   const pick = (id: NoteAmbiance): void => {
     onChange(id); // optimiste — la classe s'applique immédiatement
@@ -264,12 +246,14 @@ export function AmbianceSelector({
 
   const active = PRESETS.find((p) => p.id === value) ?? PRESETS[0]!;
 
+  // Popover portalé (pas un <div> positionné en absolu) : ce bouton vit dans
+  // la rangée métadonnées repliable, dont `overflow: hidden` anime le
+  // collapse et rognerait sinon le menu (cf. .sn-meta-collapse__inner).
   return (
-    <div ref={rootRef} style={{ position: "relative" }}>
+    <Popover isOpen={open} onOpenChange={setOpen}>
       <Button
         variant="ghost"
         size="sm"
-        onPress={() => setOpen((o) => !o)}
         aria-label="Ambiance de la note"
         // Puce sans libellé tant qu'aucune ambiance n'est choisie : 30px de
         // large (icône 14 + 2×8 de gouttière). `sn-hit` porte le plancher
@@ -281,25 +265,8 @@ export function AmbianceSelector({
         {value !== "none" && <span>{active.label}</span>}
       </Button>
 
-      {open && (
-        <div
-          role="menu"
-          aria-label="Choisir une ambiance"
-          style={{
-            position: "absolute",
-            top: "calc(100% + 4px)",
-            right: 0,
-            zIndex: 50,
-            width: 240,
-            maxHeight: "min(70vh, 460px)",
-            overflowY: "auto",
-            padding: 6,
-            borderRadius: 10,
-            backgroundColor: "var(--surface-1)",
-            border: "1px solid var(--border-subtle)",
-            boxShadow: "0 8px 24px rgba(0,0,0,0.14)",
-          }}
-        >
+      <Popover.Content className="w-60 max-h-[min(70vh,460px)] overflow-y-auto p-1.5">
+        <Popover.Dialog className="outline-none" aria-label="Choisir une ambiance">
           {PRESETS.map((p) => (
             <Button
               key={p.id}
@@ -362,8 +329,8 @@ export function AmbianceSelector({
               })}
             </div>
           </div>
-        </div>
-      )}
-    </div>
+        </Popover.Dialog>
+      </Popover.Content>
+    </Popover>
   );
 }

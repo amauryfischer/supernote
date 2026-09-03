@@ -11,8 +11,8 @@
  * AmbianceSelector (ambiance) qui partagent le même bag `fields`.
  */
 
-import { useEffect, useRef, useState } from "react";
-import { Button, Input, Spinner } from "@heroui/react";
+import { useEffect, useState } from "react";
+import { Button, Input, Popover, Spinner } from "@heroui/react";
 import {
   Check,
   Image as ImageIcon,
@@ -70,39 +70,24 @@ export function coverBackground(id: string | null): string | undefined {
   return COVER_PRESETS.find((p) => p.id === id)?.bg;
 }
 
-/** Galerie en popover — partagée par la couverture et le bouton « Couverture ». */
+/**
+ * Contenu de la galerie de couvertures — à placer dans un `Popover.Dialog`
+ * (portalé : le bouton « Couverture » vit dans la rangée métadonnées
+ * repliable, dont `overflow: hidden` anime le collapse et rognerait un
+ * dropdown positionné en absolu, cf. `.sn-meta-collapse__inner`).
+ */
 function CoverGallery({
   value,
   onPick,
-  onClose,
-  anchor,
 }: {
   value: string | null;
   onPick: (id: string) => void;
-  onClose: () => void;
-  anchor: "left" | "right";
 }): React.JSX.Element {
-  const rootRef = useRef<HTMLDivElement>(null);
   const [query, setQuery] = useState("");
   const [photos, setPhotos] = useState<UnsplashPhoto[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
   const hasKey = hasUnsplashKey();
-
-  useEffect(() => {
-    const onDown = (e: MouseEvent): void => {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) onClose();
-    };
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [onClose]);
 
   // Recherche Unsplash — debouncée et abortable. Requête vide → curated random.
   useEffect(() => {
@@ -137,25 +122,7 @@ function CoverGallery({
   };
 
   return (
-    <div
-      ref={rootRef}
-      role="menu"
-      aria-label="Choisir une couverture"
-      style={{
-        position: "absolute",
-        top: "calc(100% + 6px)",
-        [anchor]: 0,
-        zIndex: 50,
-        width: "min(360px, calc(100vw - 32px))",
-        maxHeight: "min(70vh, 460px)",
-        overflowY: "auto",
-        padding: 10,
-        borderRadius: 10,
-        backgroundColor: "var(--surface-1)",
-        border: "1px solid var(--border-subtle)",
-        boxShadow: "0 8px 24px rgba(0,0,0,0.14)",
-      }}
-    >
+    <>
       <p
         className="sn-eyebrow sn-eyebrow--compact mb-1.5"
       >
@@ -257,7 +224,7 @@ function CoverGallery({
           de photos.
         </p>
       )}
-    </div>
+    </>
   );
 }
 
@@ -296,29 +263,28 @@ export function CoverBackdrop({
         }}
       />
       <div className="absolute right-2 top-2 z-20 flex gap-1.5 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100">
-        <div style={{ position: "relative" }}>
+        <Popover isOpen={open} onOpenChange={setOpen}>
           <Button
             variant="ghost"
             size="sm"
-            onPress={() => setOpen((o) => !o)}
             className="sn-hit h-7 min-w-0 gap-1 px-2 text-xs"
             style={{ backgroundColor: "rgba(255,255,255,0.88)", color: "#1f2326" }}
           >
             <ImageIcon size={13} />
             Changer
           </Button>
-          {open && (
-            <CoverGallery
-              value={coverId}
-              anchor="right"
-              onPick={(id) => {
-                onChange(id);
-                setOpen(false);
-              }}
-              onClose={() => setOpen(false)}
-            />
-          )}
-        </div>
+          <Popover.Content className="w-[min(360px,calc(100vw-2rem))] max-h-[min(70vh,460px)] overflow-y-auto p-2.5">
+            <Popover.Dialog className="outline-none" aria-label="Choisir une couverture">
+              <CoverGallery
+                value={coverId}
+                onPick={(id) => {
+                  onChange(id);
+                  setOpen(false);
+                }}
+              />
+            </Popover.Dialog>
+          </Popover.Content>
+        </Popover>
         <Button
           variant="ghost"
           size="sm"
@@ -342,11 +308,10 @@ export function CoverButton({
 }): React.JSX.Element {
   const [open, setOpen] = useState(false);
   return (
-    <div style={{ position: "relative" }}>
+    <Popover isOpen={open} onOpenChange={setOpen}>
       <Button
         variant="ghost"
         size="sm"
-        onPress={() => setOpen((o) => !o)}
         aria-label="Ajouter une couverture"
         className="sn-hit h-7 min-w-0 gap-1 px-2 text-xs"
         style={{ color: "var(--text-muted)" }}
@@ -354,17 +319,17 @@ export function CoverButton({
         <ImageIcon size={14} />
         Couverture
       </Button>
-      {open && (
-        <CoverGallery
-          value={null}
-          anchor="left"
-          onPick={(id) => {
-            onChange(id);
-            setOpen(false);
-          }}
-          onClose={() => setOpen(false)}
-        />
-      )}
-    </div>
+      <Popover.Content className="w-[min(360px,calc(100vw-2rem))] max-h-[min(70vh,460px)] overflow-y-auto p-2.5">
+        <Popover.Dialog className="outline-none" aria-label="Choisir une couverture">
+          <CoverGallery
+            value={null}
+            onPick={(id) => {
+              onChange(id);
+              setOpen(false);
+            }}
+          />
+        </Popover.Dialog>
+      </Popover.Content>
+    </Popover>
   );
 }

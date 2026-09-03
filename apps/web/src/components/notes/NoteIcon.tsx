@@ -9,7 +9,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { Button } from "@heroui/react";
+import { Button, Popover } from "@heroui/react";
 import { Smiley, Shuffle, Trash } from "@phosphor-icons/react";
 
 /** Palette curée d'emojis pour icônes de note. */
@@ -35,56 +35,26 @@ export function asIcon(v: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
-/** Picker en popover — partagé par l'icône affichée et le bouton « Icône ». */
+/**
+ * Contenu du picker d'emoji — à placer dans un `Popover.Dialog` (portalé :
+ * la variante barre d'outils vit dans la rangée métadonnées repliable, dont
+ * `overflow: hidden` anime le collapse et rognerait un dropdown positionné
+ * en absolu, cf. `.sn-meta-collapse__inner`).
+ */
 function EmojiPicker({
   onPick,
   onRemove,
-  onClose,
 }: {
   onPick: (emoji: string) => void;
   onRemove: (() => void) | null;
-  onClose: () => void;
 }): React.JSX.Element {
-  const rootRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const onDown = (e: MouseEvent): void => {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) onClose();
-    };
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [onClose]);
-
   const pickRandom = (): void => {
     const idx = Math.floor(Math.random() * EMOJIS.length);
     onPick(EMOJIS[idx]!);
   };
 
   return (
-    <div
-      ref={rootRef}
-      role="menu"
-      aria-label="Choisir une icône"
-      style={{
-        position: "absolute",
-        top: "calc(100% + 6px)",
-        left: 0,
-        zIndex: 50,
-        width: "min(320px, calc(100vw - 32px))",
-        padding: 8,
-        borderRadius: 10,
-        backgroundColor: "var(--surface-1)",
-        border: "1px solid var(--border-subtle)",
-        boxShadow: "0 8px 24px rgba(0,0,0,0.14)",
-      }}
-    >
+    <>
       <div className="mb-1.5 flex items-center justify-between gap-2">
         <Button
           variant="ghost"
@@ -124,13 +94,19 @@ function EmojiPicker({
           </button>
         ))}
       </div>
-    </div>
+    </>
   );
 }
 
 /**
  * Icône affichée inline à gauche du titre. Cliquer rouvre le picker (changer
  * ou retirer). Ne rend rien si aucune icône.
+ *
+ * Déclencheur = bouton natif (glyphe emoji en taille libre, cf. exceptions
+ * HeroUI natives) : pas compatible avec le déclencheur `Popover` (attend un
+ * `Button` HeroUI/react-aria pour le press). Cette instance vit hors de la
+ * rangée métadonnées repliable, donc pas concernée par le rognage
+ * `.sn-meta-collapse__inner` — position/click-outside restent maison ici.
  */
 export function NoteIcon({
   icon,
@@ -140,8 +116,26 @@ export function NoteIcon({
   onChange: (emoji: string | null) => void;
 }): React.JSX.Element {
   const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDown = (e: MouseEvent): void => {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
   return (
-    <div style={{ position: "relative" }} className="shrink-0">
+    <div ref={rootRef} style={{ position: "relative" }} className="shrink-0">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
@@ -151,17 +145,33 @@ export function NoteIcon({
         {icon}
       </button>
       {open && (
-        <EmojiPicker
-          onPick={(e) => {
-            onChange(e);
-            setOpen(false);
+        <div
+          role="menu"
+          aria-label="Choisir une icône"
+          style={{
+            position: "absolute",
+            top: "calc(100% + 6px)",
+            left: 0,
+            zIndex: 50,
+            width: "min(320px, calc(100vw - 32px))",
+            padding: 8,
+            borderRadius: 10,
+            backgroundColor: "var(--surface-1)",
+            border: "1px solid var(--border-subtle)",
+            boxShadow: "0 8px 24px rgba(0,0,0,0.14)",
           }}
-          onRemove={() => {
-            onChange(null);
-            setOpen(false);
-          }}
-          onClose={() => setOpen(false)}
-        />
+        >
+          <EmojiPicker
+            onPick={(e) => {
+              onChange(e);
+              setOpen(false);
+            }}
+            onRemove={() => {
+              onChange(null);
+              setOpen(false);
+            }}
+          />
+        </div>
       )}
     </div>
   );
@@ -175,11 +185,10 @@ export function IconButton({
 }): React.JSX.Element {
   const [open, setOpen] = useState(false);
   return (
-    <div style={{ position: "relative" }}>
+    <Popover isOpen={open} onOpenChange={setOpen}>
       <Button
         variant="ghost"
         size="sm"
-        onPress={() => setOpen((o) => !o)}
         aria-label="Ajouter une icône"
         className="sn-hit h-7 min-w-0 gap-1 px-2 text-xs"
         style={{ color: "var(--text-muted)" }}
@@ -187,16 +196,17 @@ export function IconButton({
         <Smiley size={14} />
         Icône
       </Button>
-      {open && (
-        <EmojiPicker
-          onPick={(e) => {
-            onChange(e);
-            setOpen(false);
-          }}
-          onRemove={null}
-          onClose={() => setOpen(false)}
-        />
-      )}
-    </div>
+      <Popover.Content className="w-[min(320px,calc(100vw-2rem))] p-2">
+        <Popover.Dialog className="outline-none" aria-label="Choisir une icône">
+          <EmojiPicker
+            onPick={(e) => {
+              onChange(e);
+              setOpen(false);
+            }}
+            onRemove={null}
+          />
+        </Popover.Dialog>
+      </Popover.Content>
+    </Popover>
   );
 }
