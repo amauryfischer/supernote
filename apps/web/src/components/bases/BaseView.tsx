@@ -13,7 +13,7 @@
  * so a fresh Base always has something to display.
  */
 
-import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useDeferredValue, useEffect, useMemo, useState } from "react";
 import type { EntityType } from "@supernote/core";
 import { Skeleton } from "@supernote/ui";
 import {
@@ -30,9 +30,13 @@ import { GalleryView } from "./GalleryView";
 import { CalendarView } from "./CalendarView";
 import { ListView } from "./ListView";
 import { DetailView } from "./DetailView";
-import { ChartView } from "./ChartView";
 import { FormView } from "./FormView";
 import { TimelineView } from "./TimelineView";
+
+// recharts (~120 Ko gzip) ne doit charger que sur une vue graphique.
+const ChartView = lazy(() =>
+  import("./ChartView").then((m) => ({ default: m.ChartView }))
+);
 
 interface BaseViewProps {
   base: EntityType;
@@ -196,7 +200,11 @@ function ViewRenderer({
     case "detail":
       return <DetailView base={base} view={view} />;
     case "chart":
-      return <ChartView base={base} view={view} />;
+      return (
+        <Suspense fallback={<Skeleton className="h-64 w-full" />}>
+          <ChartView base={base} view={view} />
+        </Suspense>
+      );
     case "form":
       return <FormView base={base} view={view} />;
     case "timeline":

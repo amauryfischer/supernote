@@ -16,7 +16,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { ProgressBar } from "@heroui/react";
-import { Area, AreaChart } from "recharts";
 import { FormulaInputEditor } from "@/components/bases/FormulaInputEditor";
 import { trpc } from "@/lib/trpc/client";
 import type { EntityType } from "@supernote/core";
@@ -30,7 +29,7 @@ function asDisplay(v: string | undefined): FormulaDisplay {
 
 // ── Format helpers ───────────────────────────────────────────────────────────
 
-function formatJsonValue(raw: string | null, outputKind?: string): string {
+export function formatJsonValue(raw: string | null, outputKind?: string): string {
   if (raw === null) return "—";
   let v: unknown;
   try { v = JSON.parse(raw); } catch { return raw; }
@@ -165,25 +164,46 @@ function ProgressWidget({ value }: { value: number }): React.JSX.Element {
   );
 }
 
+/**
+ * Tracé en SVG nu plutôt qu'avec recharts : la lib entrait dans le graphe
+ * statique de l'entrée par ce seul import (~120 Ko gzip préchargés au boot)
+ * pour dessiner une polyline de 120×28.
+ */
+function sparklinePath(values: number[], w: number, h: number, pad: number): { line: string; area: string } {
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const span = max - min || 1;
+  const stepX = values.length > 1 ? (w - pad * 2) / (values.length - 1) : 0;
+  const points = values.map((v, i) => {
+    const x = pad + i * stepX;
+    const y = pad + (h - pad * 2) * (1 - (v - min) / span);
+    return `${x.toFixed(2)},${y.toFixed(2)}`;
+  });
+  const line = `M${points.join("L")}`;
+  const first = points[0]?.split(",")[0] ?? "0";
+  const lastX = points[points.length - 1]?.split(",")[0] ?? "0";
+  return { line, area: `${line}L${lastX},${h - pad}L${first},${h - pad}Z` };
+}
+
 function SparklineWidget({ values, inline }: { values: number[]; inline?: boolean }): React.JSX.Element {
-  const data = useMemo(() => values.map((v, i) => ({ i, value: v })), [values]);
   const w = inline ? 120 : 240;
   const h = inline ? 28 : 56;
+  const { line, area } = useMemo(() => sparklinePath(values, w, h, 2), [values, w, h]);
   const last = values[values.length - 1];
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 8, verticalAlign: "middle" }}>
       <span style={{ display: "inline-block", lineHeight: 0 }}>
-        <AreaChart width={w} height={h} data={data} margin={{ top: 2, right: 2, bottom: 2, left: 2 }}>
-          <Area
-            type="monotone"
-            dataKey="value"
+        <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} role="presentation" aria-hidden="true">
+          <path d={area} fill={WIDGET_ACCENT} fillOpacity={0.15} />
+          <path
+            d={line}
+            fill="none"
             stroke={WIDGET_ACCENT}
-            fill={WIDGET_ACCENT}
-            fillOpacity={0.15}
             strokeWidth={1.5}
-            dot={false}
+            strokeLinecap="round"
+            strokeLinejoin="round"
           />
-        </AreaChart>
+        </svg>
       </span>
       {last !== undefined && (
         <span

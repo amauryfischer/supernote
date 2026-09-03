@@ -231,6 +231,17 @@ export default defineConfig({
           ) {
             return "react";
           }
+          // clsx/use-sync-external-store sont des deps de recharts ET du
+          // shell eager (cn() partout, hooks de store). Sans ce routage,
+          // Rollup les colocalise dans le chunk recharts (416 Ko) puisque
+          // c'est l'un des chunks qui les importe — et l'entrée le précharge
+          // alors en entier pour quelques symboles utilitaires.
+          if (
+            id.includes("/node_modules/use-sync-external-store/") ||
+            id.includes("/node_modules/clsx/")
+          ) {
+            return "react";
+          }
           if (id.includes("@tanstack/react-query")) return "react-query";
           if (id.includes("/node_modules/recharts/")) return "recharts";
           if (id.includes("@xyflow/react")) return "xyflow";
