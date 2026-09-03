@@ -593,7 +593,7 @@ function RagIndexSection({ host, model }: RagIndexSectionProps) {
           onPress={() => void handleIndex()}
           isDisabled={running}
           className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium"
-          style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
+          style={{ backgroundColor: "var(--btn-primary-bg)", color: "var(--btn-primary-fg)" }}
         >
           {running && <CircleNotch size={13} className="animate-spin" />}
           {running ? "Indexation…" : "Indexer le vault"}

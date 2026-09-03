@@ -63,11 +63,8 @@ export function PivotFieldMenu({ base, view, mode, onClose }: PivotFieldMenuProp
       }}
     >
       <div
-        className="border-b px-3 py-2 text-xs font-semibold uppercase tracking-wide"
-        style={{
-          borderColor: "var(--border-subtle)",
-          color: "var(--text-muted)",
-        }}
+        className="sn-eyebrow sn-eyebrow--compact border-b px-3 py-2"
+        style={{ borderColor: "var(--border-subtle)" }}
       >
         {mode === "group" ? "Grouper par" : "Date d'affichage"}
       </div>

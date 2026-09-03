@@ -258,8 +258,8 @@ function CalendarCell({ day, dim, isToday, entries, renderEntry, onDrop }: Calen
             }}
             className="cursor-grab truncate rounded px-1.5 py-0.5 text-[11px]"
             style={{
-              backgroundColor: "var(--accent)",
-              color: "var(--accent-foreground)",
+              backgroundColor: "var(--btn-primary-bg)",
+              color: "var(--btn-primary-fg)",
             }}
             title={renderEntry(entity)}
           >

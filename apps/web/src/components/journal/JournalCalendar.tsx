@@ -110,9 +110,9 @@ export function JournalCalendar({ selectedDate, datesWithNote, onSelectDate }: J
               className="relative flex flex-col items-center justify-center rounded py-0.5 text-[11px] min-h-0 min-w-0 h-auto w-full"
               style={{
                 color: isSelected
-                  ? "var(--accent-foreground)"
+                  ? "var(--btn-primary-fg)"
                   : isToday
-                  ? "var(--accent)"
+                  ? "var(--btn-primary-bg)"
                   : "var(--text-secondary)",
                 backgroundColor: isSelected ? "var(--accent)" : isToday ? "var(--accent-subtle)" : undefined,
                 fontWeight: isToday || isSelected ? 600 : 400,
@@ -123,7 +123,7 @@ export function JournalCalendar({ selectedDate, datesWithNote, onSelectDate }: J
               {hasNote && (
                 <span
                   className="absolute bottom-0.5 h-1 w-1 rounded-full"
-                  style={{ backgroundColor: isSelected ? "var(--accent-foreground)" : "var(--accent)" }}
+                  style={{ backgroundColor: isSelected ? "var(--btn-primary-fg)" : "var(--btn-primary-bg)" }}
                 />
               )}
             </Button>

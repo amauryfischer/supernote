@@ -324,7 +324,7 @@ export function ActionCard({ action, index, onChange, onRemove }: ActionCardProp
         <DotsSixVertical size={14} style={{ color: "var(--text-muted)", cursor: "grab" }} />
         <span
           className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full text-[10px] font-bold"
-          style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
+          style={{ backgroundColor: "var(--btn-primary-bg)", color: "var(--btn-primary-fg)" }}
         >
           {index + 1}
         </span>

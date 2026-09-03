@@ -44,8 +44,8 @@ export function EmptyEditor({ onNewNote, onNewDriveDoc }: EmptyEditorProps) {
         onPress={onNewNote}
         className="flex items-center gap-2 rounded-lg px-5 py-2.5 text-sm font-medium transition-opacity hover:opacity-90"
         style={{
-          backgroundColor: "var(--accent)",
-          color: "var(--accent-foreground)",
+          backgroundColor: "var(--btn-primary-bg)",
+          color: "var(--btn-primary-fg)",
         }}
       >
         <Plus size={15} />

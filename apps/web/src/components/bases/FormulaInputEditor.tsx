@@ -1715,7 +1715,7 @@ export function FormulaInputEditor({
   return (
     <div className="flex flex-col gap-2" style={inline ? undefined : { width: 380 }}>
       {!inline && (
-        <p className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+        <p className="sn-eyebrow sn-eyebrow--compact">
           Formule de la colonne
         </p>
       )}
@@ -2002,8 +2002,8 @@ export function FormulaInputEditor({
           onClick={() => onSubmit?.(expression, outputKind, display, outputFormat || undefined)}
           className="flex items-center gap-1 rounded-md px-2.5 py-1 text-[11px] font-medium"
           style={{
-            backgroundColor: "var(--accent)",
-            color: "var(--accent-foreground)",
+            backgroundColor: "var(--btn-primary-bg)",
+            color: "var(--btn-primary-fg)",
             opacity: parseError || !expression.trim() ? 0.5 : 1,
           }}
         >
@@ -2032,12 +2032,9 @@ function ContextBanner({ ctx }: { ctx: ContextInfo }) {
   else label = "Fonctions, bases, champs";
   return (
     <div
-      className="px-2 py-1 text-[10px] uppercase tracking-wide"
-      style={{
-        color: "var(--text-muted)",
-        backgroundColor: "var(--surface-1)",
-        borderBottom: "1px solid var(--border-subtle)",
-      }}
+      className="sn-eyebrow sn-eyebrow--compact px-2 py-1"
+      style={{ backgroundColor: "var(--surface-1)",
+        borderBottom: "1px solid var(--border-subtle)" }}
     >
       {label}
     </div>

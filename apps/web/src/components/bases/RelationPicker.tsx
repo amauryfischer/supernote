@@ -202,7 +202,7 @@ export function RelationPicker({ field, value, onCommit, onCancel }: RelationPic
             size="sm"
             onPress={commit}
             className="w-full rounded py-1 text-xs font-medium"
-            style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
+            style={{ backgroundColor: "var(--btn-primary-bg)", color: "var(--btn-primary-fg)" }}
           >
             Confirmer ({selected.length} sélectionné{selected.length > 1 ? "s" : ""})
           </Button>

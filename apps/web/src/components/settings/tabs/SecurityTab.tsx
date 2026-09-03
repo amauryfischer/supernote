@@ -69,7 +69,7 @@ function PassphraseModal({ title, onConfirm, onCancel, loading, error }: Passphr
             onPress={() => value && onConfirm(value)}
             isDisabled={!value || loading}
             className="rounded-md px-3 py-1.5 text-sm font-medium"
-            style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
+            style={{ backgroundColor: "var(--btn-primary-bg)", color: "var(--btn-primary-fg)" }}
           >
             {loading ? "En cours..." : "Confirmer"}
           </Button>

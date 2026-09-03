@@ -157,8 +157,7 @@ function CoverGallery({
       }}
     >
       <p
-        className="mb-1.5 text-[11px] font-medium uppercase tracking-wide"
-        style={{ color: "var(--text-muted)" }}
+        className="sn-eyebrow sn-eyebrow--compact mb-1.5"
       >
         Couleurs
       </p>
@@ -185,8 +184,7 @@ function CoverGallery({
       </div>
 
       <p
-        className="mb-1.5 mt-3 text-[11px] font-medium uppercase tracking-wide"
-        style={{ color: "var(--text-muted)" }}
+        className="sn-eyebrow sn-eyebrow--compact mb-1.5 mt-3"
       >
         Unsplash
       </p>

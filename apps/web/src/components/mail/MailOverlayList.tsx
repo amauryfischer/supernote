@@ -649,8 +649,7 @@ function CtxSep() {
 function CtxLabel({ text }: { text: string }) {
   return (
     <div
-      className="px-2 pt-1 text-[11px] font-medium uppercase tracking-wide"
-      style={{ color: "var(--text-muted)" }}
+      className="sn-eyebrow sn-eyebrow--compact px-2 pt-1"
     >
       {text}
     </div>

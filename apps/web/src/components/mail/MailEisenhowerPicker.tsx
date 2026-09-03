@@ -115,7 +115,7 @@ export function MailEisenhowerPicker({
                   {isSuggested && (
                     <span
                       className="absolute right-1.5 top-1.5 inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[9px] font-semibold"
-                      style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground, #fff)" }}
+                      style={{ backgroundColor: "var(--btn-primary-bg)", color: "var(--btn-primary-fg, #fff)" }}
                     >
                       <Sparkle size={9} weight="fill" aria-hidden /> Suggéré
                     </span>

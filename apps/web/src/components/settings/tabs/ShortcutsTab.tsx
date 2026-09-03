@@ -136,7 +136,7 @@ function EditorShortcutRow({
               onPress={save}
               isDisabled={!draft}
               className="rounded-md px-2 py-1 text-xs font-medium"
-              style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
+              style={{ backgroundColor: "var(--btn-primary-bg)", color: "var(--btn-primary-fg)" }}
             >
               OK
             </Button>
@@ -248,8 +248,7 @@ export function ShortcutsTab() {
           {Array.from(grouped.entries()).map(([category, actions]) => (
             <div key={category}>
               <p
-                className="px-0 pt-3 pb-1 text-[11px] font-semibold uppercase tracking-wider"
-                style={{ color: "var(--text-muted)" }}
+                className="sn-eyebrow sn-eyebrow--compact px-0 pt-3 pb-1"
               >
                 {CATEGORY_LABELS[category] ?? category}
               </p>

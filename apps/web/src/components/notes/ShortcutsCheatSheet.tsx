@@ -80,8 +80,7 @@ export function ShortcutsCheatSheet({ isOpen, onClose }: ShortcutsCheatSheetProp
             {Array.from(grouped.entries()).map(([category, actions]) => (
               <div key={category}>
                 <p
-                  className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider"
-                  style={{ color: "var(--text-muted)" }}
+                  className="sn-eyebrow mb-1.5"
                 >
                   {CATEGORY_LABELS[category] ?? category}
                 </p>
@@ -134,8 +133,7 @@ export function ShortcutsCheatSheet({ isOpen, onClose }: ShortcutsCheatSheetProp
             {filteredBuiltins.length > 0 && (
               <div>
                 <p
-                  className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider"
-                  style={{ color: "var(--text-muted)" }}
+                  className="sn-eyebrow mb-1.5"
                 >
                   Format (intégrés)
                 </p>

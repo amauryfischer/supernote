@@ -219,8 +219,7 @@ export function AiMarginsPanel({
     >
       <div className="flex items-center justify-between">
         <span
-          className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider"
-          style={{ color: "var(--text-muted)" }}
+          className="sn-eyebrow sn-eyebrow--compact flex items-center gap-1.5"
         >
           <Sparkle size={13} weight="fill" /> Marges IA
         </span>

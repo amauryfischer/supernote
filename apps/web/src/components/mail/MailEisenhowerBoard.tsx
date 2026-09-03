@@ -89,7 +89,7 @@ function TodoCard({
       {binding.summary ? (
         <div className="flex flex-col gap-1">
           <span
-            className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide"
+            className="sn-eyebrow sn-eyebrow--compact flex items-center gap-1"
             style={{ color: "var(--accent)" }}
           >
             <Sparkle size={11} weight="fill" aria-hidden /> Résumé

@@ -152,7 +152,7 @@ export default function BasePage() {
                   size="sm"
                   onPress={() => mut.create.mutate({ typeId: base.id, fields: {}, body: "" })}
                   className="flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-medium"
-                  style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
+                  style={{ backgroundColor: "var(--btn-primary-bg)", color: "var(--btn-primary-fg)" }}
                 >
                   <Plus size={12} /> Nouvelle entrée
                 </Button>

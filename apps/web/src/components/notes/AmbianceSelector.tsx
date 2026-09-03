@@ -335,8 +335,7 @@ export function AmbianceSelector({
             style={{ borderTop: "1px solid var(--border-subtle)" }}
           >
             <div
-              className="mb-1.5 text-[10px] font-medium uppercase tracking-wider"
-              style={{ color: "var(--text-muted)" }}
+              className="sn-eyebrow sn-eyebrow--compact mb-1.5"
             >
               Typographie
             </div>

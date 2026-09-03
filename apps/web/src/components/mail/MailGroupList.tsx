@@ -33,7 +33,7 @@ export function MailGroupList({
   return (
     <div className="flex flex-col gap-1">
       <div className="flex items-center justify-between gap-2 px-3 py-1">
-        <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+        <p className="sn-eyebrow sn-eyebrow--compact">
           {title} · {items.length}
         </p>
         <div className="flex shrink-0 items-center gap-0.5">

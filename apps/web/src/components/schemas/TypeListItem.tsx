@@ -29,8 +29,8 @@ export function TypeListItem({ type, selected, onSelect }: TypeListItemProps) {
       <span
         className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md"
         style={{
-          backgroundColor: selected ? "var(--accent)" : (type.color ?? "#64748B") + "22",
-          color: selected ? "var(--accent-foreground)" : (type.color ?? "#64748B"),
+          backgroundColor: selected ? "var(--btn-primary-bg)" : (type.color ?? "#64748B") + "22",
+          color: selected ? "var(--btn-primary-fg)" : (type.color ?? "#64748B"),
         }}
       >
         <Icon size={14} />

@@ -84,8 +84,8 @@ export function NotificationsTab() {
             onPress={sendTestNotification}
             className="rounded-md px-3 py-1.5 text-xs font-medium"
             style={{
-              backgroundColor: "var(--accent)",
-              color: "var(--accent-foreground)",
+              backgroundColor: "var(--btn-primary-bg)",
+              color: "var(--btn-primary-fg)",
             }}
           >
             Ajouter une notif test

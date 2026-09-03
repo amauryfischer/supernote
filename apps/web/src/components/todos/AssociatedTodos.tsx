@@ -96,8 +96,7 @@ export function AssociatedTodos({ noteId, body }: AssociatedTodosProps) {
         )}
         <CheckSquare size={14} style={{ color: "var(--accent)" }} />
         <span
-          className="text-xs font-medium uppercase tracking-wide"
-          style={{ color: "var(--text-muted)" }}
+          className="sn-eyebrow"
         >
           Tâches associées ({rows.length})
         </span>

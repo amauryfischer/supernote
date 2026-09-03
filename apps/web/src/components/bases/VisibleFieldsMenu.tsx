@@ -97,8 +97,7 @@ export function VisibleFieldsMenu({ base, view, onClose }: VisibleFieldsMenuProp
       >
         <Eye size={13} style={{ color: "var(--text-muted)" }} />
         <span
-          className="text-xs font-semibold uppercase tracking-wide"
-          style={{ color: "var(--text-muted)" }}
+          className="sn-eyebrow sn-eyebrow--compact"
         >
           Colonnes visibles
         </span>
@@ -167,11 +166,8 @@ export function VisibleFieldsMenu({ base, view, onClose }: VisibleFieldsMenuProp
       {hidden.length > 0 && (
         <>
           <div
-            className="border-t px-3 py-1.5 text-xs font-semibold uppercase tracking-wide"
-            style={{
-              borderColor: "var(--border-subtle)",
-              color: "var(--text-muted)",
-            }}
+            className="sn-eyebrow sn-eyebrow--compact border-t px-3 py-1.5"
+            style={{ borderColor: "var(--border-subtle)" }}
           >
             Masquées ({hidden.length})
           </div>

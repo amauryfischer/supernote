@@ -1399,7 +1399,7 @@ export default function TodosPage() {
                 variant="primary"
                 onPress={() => setShowCreate(true)}
                 className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-opacity hover:opacity-90 min-w-0 h-auto"
-                style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
+                style={{ backgroundColor: "var(--btn-primary-bg)", color: "var(--btn-primary-fg)" }}
               >
                 <Plus size={13} />
                 Nouvelle
@@ -1522,9 +1522,7 @@ export default function TodosPage() {
               className={`flex flex-wrap items-center gap-1.5 ${viewMode === "list" ? "mx-auto max-w-3xl" : ""}`}
             >
               <span
-                className="flex items-center gap-1 text-[11px] font-medium uppercase tracking-wide"
-                style={{ color: "var(--text-muted)" }}
-              >
+                className="sn-eyebrow flex items-center gap-1">
                 <Tag size={11} />
                 Tags
               </span>
@@ -1540,8 +1538,8 @@ export default function TodosPage() {
                     style={
                       active
                         ? {
-                            backgroundColor: "var(--accent)",
-                            color: "var(--accent-foreground)",
+                            backgroundColor: "var(--btn-primary-bg)",
+                            color: "var(--btn-primary-fg)",
                             border: "1px solid var(--accent)",
                           }
                         : {
@@ -1733,7 +1731,7 @@ export default function TodosPage() {
                             : (rows[0]?.sourceNoteTitle ?? "Note inconnue");
                         return (
                           <section key={k}>
-                            <header className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+                            <header className="sn-eyebrow mb-1.5 flex items-center gap-1.5">
                               <FileText size={11} />
                               {k === STANDALONE ? (
                                 <span>{title}</span>

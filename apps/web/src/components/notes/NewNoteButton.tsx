@@ -14,8 +14,8 @@ export function NewNoteButton({ onClick, label = "Nouvelle note" }: NewNoteButto
       onPress={onClick}
       className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-opacity hover:opacity-90"
       style={{
-        backgroundColor: "var(--accent)",
-        color: "var(--accent-foreground)",
+        backgroundColor: "var(--btn-primary-bg)",
+        color: "var(--btn-primary-fg)",
       }}
     >
       <Plus size={13} />

@@ -235,8 +235,7 @@ function CronBuilder({ trigger, onChange }: { trigger: TriggerConfig; onChange: 
           {byGroup.map(({ group, items }) => (
             <div key={group}>
               <div
-                className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider"
-                style={{ color: "var(--text-muted)" }}
+                className="sn-eyebrow sn-eyebrow--compact mb-1.5"
               >
                 {GROUP_LABELS[group]}
               </div>

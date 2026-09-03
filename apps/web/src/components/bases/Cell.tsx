@@ -468,7 +468,7 @@ function CellDisplay({ field, value }: { field: Field; value: unknown }) {
         return (
           <span
             className="inline-flex h-4 w-4 items-center justify-center rounded text-[10px]"
-            style={{ backgroundColor: truthy ? "var(--accent)" : "var(--surface-2)", color: truthy ? "var(--accent-foreground)" : "var(--text-muted)" }}
+            style={{ backgroundColor: truthy ? "var(--btn-primary-bg)" : "var(--surface-2)", color: truthy ? "var(--btn-primary-fg)" : "var(--text-muted)" }}
           >
             {truthy ? "✓" : ""}
           </span>

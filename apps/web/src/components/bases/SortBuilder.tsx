@@ -87,8 +87,7 @@ export function SortBuilder({ base, view, onClose }: SortBuilderProps) {
       >
         <ArrowsDownUp size={13} style={{ color: "var(--text-muted)" }} />
         <span
-          className="text-xs font-semibold uppercase tracking-wide"
-          style={{ color: "var(--text-muted)" }}
+          className="sn-eyebrow sn-eyebrow--compact"
         >
           Tris
         </span>

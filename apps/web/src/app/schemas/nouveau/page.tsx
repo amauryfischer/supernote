@@ -257,7 +257,7 @@ export default function NouveauSchemaPage() {
             isPending={createMutation.isPending}
             size="md"
             className="text-sm font-medium"
-            style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
+            style={{ backgroundColor: "var(--btn-primary-bg)", color: "var(--btn-primary-fg)" }}
           >
             Créer le type
           </Button>

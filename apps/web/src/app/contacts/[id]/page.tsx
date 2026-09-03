@@ -76,7 +76,7 @@ function NotesTab({ entityId, initialNotes }: NotesTabProps) {
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center justify-between">
-        <p className="text-xs font-medium uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+        <p className="sn-eyebrow">
           Note de fiche
         </p>
         <Button
@@ -84,7 +84,7 @@ function NotesTab({ entityId, initialNotes }: NotesTabProps) {
           isDisabled={updateMutation.isPending}
           size="sm"
           className="px-3 text-xs font-medium"
-          style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
+          style={{ backgroundColor: "var(--btn-primary-bg)", color: "var(--btn-primary-fg)" }}
         >
           {updateMutation.isPending ? "Enregistrement…" : saved ? "Enregistré" : "Enregistrer"}
         </Button>
@@ -153,7 +153,7 @@ function TimelineTab({ contactId, fixtureInteractions }: TimelineTabProps) {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
-        <p className="text-xs font-medium uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+        <p className="sn-eyebrow">
           {sorted.length} interaction{sorted.length > 1 ? "s" : ""}
         </p>
         {/* CTA « Ajouter interaction » retiré : il n'avait aucun onPress (bouton
@@ -224,7 +224,7 @@ function LiensTab({ contactId, orgName, orgWebsite }: LiensTabProps) {
 
   return (
     <div className="flex flex-col gap-4">
-      <p className="text-xs font-medium uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+      <p className="sn-eyebrow">
         Relations
       </p>
       <div
@@ -286,7 +286,7 @@ function FinanceTab({ contactId }: { contactId: string }) {
 
   return (
     <div className="flex flex-col gap-4">
-      <p className="text-xs font-medium uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+      <p className="sn-eyebrow">
         Finance
       </p>
       <div
@@ -336,7 +336,7 @@ function ActiviteTab({ filePath }: ActiviteTabProps) {
 
   return (
     <div className="flex flex-col gap-4">
-      <p className="text-xs font-medium uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+      <p className="sn-eyebrow">
         Logs d'activité
       </p>
       {isLoading ? (

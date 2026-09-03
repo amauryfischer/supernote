@@ -176,8 +176,7 @@ export function FieldEditorModal({ field, onClose, onSave }: FieldEditorModalPro
               {KIND_GROUPS.map((group) => (
                 <div key={group}>
                   <p
-                    className="mb-1 text-xs font-medium uppercase tracking-wide"
-                    style={{ color: "var(--text-muted)" }}
+                    className="sn-eyebrow sn-eyebrow--compact mb-1"
                   >
                     {group}
                   </p>
@@ -192,8 +191,8 @@ export function FieldEditorModal({ field, onClose, onSave }: FieldEditorModalPro
                         style={
                           kind === k.kind
                             ? {
-                                backgroundColor: "var(--accent)",
-                                color: "var(--accent-foreground)",
+                                backgroundColor: "var(--btn-primary-bg)",
+                                color: "var(--btn-primary-fg)",
                                 borderColor: "var(--accent)",
                               }
                             : { borderColor: "var(--border)", color: "var(--text-secondary)" }
@@ -387,7 +386,7 @@ export function FieldEditorModal({ field, onClose, onSave }: FieldEditorModalPro
             size="sm"
             onPress={handleSave}
             className="rounded-lg px-4 py-2 text-sm font-medium transition-colors"
-            style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
+            style={{ backgroundColor: "var(--btn-primary-bg)", color: "var(--btn-primary-fg)" }}
           >
             Enregistrer
           </Button>

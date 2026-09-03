@@ -199,7 +199,7 @@ function Stat({
 }) {
   return (
     <div>
-      <p className="text-[10px] uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+      <p className="sn-eyebrow sn-eyebrow--compact">
         {label}
       </p>
       <p

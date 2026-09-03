@@ -83,7 +83,7 @@ export function PresentationMode({
           className="max-h-[22vh] overflow-y-auto px-[8vw] py-3 text-sm"
           style={{ borderTop: "1px solid var(--border-subtle)", background: "var(--surface-1)", color: "var(--text-secondary)" }}
         >
-          <span className="mb-1 block text-[10px] font-medium uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>
+          <span className="sn-eyebrow sn-eyebrow--compact mb-1 block">
             Notes
           </span>
           {slide.notes}

@@ -59,7 +59,7 @@ export function EmptyState({ query, onExampleClick }: EmptyStateProps) {
       )}
 
       <div className="mt-8 w-full max-w-xl">
-        <h3 className="mb-3 flex items-center justify-center gap-1.5 text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>
+        <h3 className="sn-eyebrow mb-3 flex items-center justify-center gap-1.5">
           <Lightbulb size={12} />
           Exemples
         </h3>
@@ -87,7 +87,7 @@ export function EmptyState({ query, onExampleClick }: EmptyStateProps) {
       </div>
 
       <div className="mt-8 w-full max-w-xl rounded-xl border p-4" style={{ backgroundColor: "var(--surface-1)", borderColor: "var(--border-subtle)" }}>
-        <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>
+        <h3 className="sn-eyebrow mb-3">
           Conseils
         </h3>
         <ul className="flex flex-col gap-2">

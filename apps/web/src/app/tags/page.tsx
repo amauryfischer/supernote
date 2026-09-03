@@ -322,7 +322,7 @@ export default function TagsPage() {
               onPress={() => setCreateModal({ open: true, parent: "" })}
               size="sm"
               className="hidden md:flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium"
-              style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
+              style={{ backgroundColor: "var(--btn-primary-bg)", color: "var(--btn-primary-fg)" }}
             >
               <Plus size={12} /> Nouveau tag
             </Button>
@@ -668,8 +668,8 @@ function TagPickerModal({
             onPress={() => onConfirm(value)}
             className="rounded-md px-3 py-1.5 text-sm font-medium"
             style={{
-              backgroundColor: "var(--accent)",
-              color: "var(--accent-foreground)",
+              backgroundColor: "var(--btn-primary-bg)",
+              color: "var(--btn-primary-fg)",
             }}
           >
             Valider

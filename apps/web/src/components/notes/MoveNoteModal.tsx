@@ -156,8 +156,7 @@ export function MoveNoteModal({
                     <span className="flex-1 truncate">{path}</span>
                     {isCurrent && (
                       <span
-                        className="text-[10px] uppercase tracking-wide"
-                        style={{ color: "var(--text-muted)" }}
+                        className="sn-eyebrow sn-eyebrow--compact"
                       >
                         actuel
                       </span>

@@ -121,7 +121,7 @@ export function CodaImportModal({ isOpen, onClose, onImported }: Props) {
               size="sm"
               onPress={() => void runImport()}
               isDisabled={selected.size === 0 || importing}
-              style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
+              style={{ backgroundColor: "var(--btn-primary-bg)", color: "var(--btn-primary-fg)" }}
             >
               {importing ? "Import…" : `Importer (${selected.size})`}
             </Button>

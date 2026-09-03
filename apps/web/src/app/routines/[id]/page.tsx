@@ -110,7 +110,7 @@ export default function RoutineDetailPage() {
           <Link
             href="/routines"
             className="rounded-md px-4 py-2 text-sm font-medium"
-            style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
+            style={{ backgroundColor: "var(--btn-primary-bg)", color: "var(--btn-primary-fg)" }}
           >
             Retour aux routines
           </Link>

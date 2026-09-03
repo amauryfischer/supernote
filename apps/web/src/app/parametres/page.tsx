@@ -110,8 +110,7 @@ function SettingsContent() {
         style={{ borderColor: "var(--border)", backgroundColor: "var(--surface-1)" }}
       >
         <p
-          className="mb-2 hidden px-2 text-[10px] font-semibold uppercase tracking-widest md:block"
-          style={{ color: "var(--text-muted)" }}
+          className="sn-eyebrow sn-eyebrow--compact mb-2 hidden px-2 md:block"
         >
           {t("settings.title")}
         </p>
@@ -160,8 +159,8 @@ function SettingsContent() {
               size="sm"
               className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-all hover:opacity-90 disabled:opacity-50 md:ml-auto"
               style={{
-                backgroundColor: "var(--accent)",
-                color: "var(--accent-foreground)",
+                backgroundColor: "var(--btn-primary-bg)",
+                color: "var(--btn-primary-fg)",
               }}
             >
               <FloppyDisk size={14} />

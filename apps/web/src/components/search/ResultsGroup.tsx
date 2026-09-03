@@ -17,7 +17,7 @@ export function ResultsGroup({ typeId, results, query, debugMode }: ResultsGroup
   return (
     <section>
       <div className="mb-2 flex items-center gap-2">
-        <h2 className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>
+        <h2 className="sn-eyebrow">
           {label}
         </h2>
         <span

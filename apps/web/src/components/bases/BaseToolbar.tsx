@@ -261,7 +261,7 @@ export function BaseToolbar({
             variant="primary"
             onPress={onCreateEntry}
             className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium"
-            style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
+            style={{ backgroundColor: "var(--btn-primary-bg)", color: "var(--btn-primary-fg)" }}
           >
             <Plus size={11} /> Nouvelle entrée
           </Button>
@@ -310,9 +310,9 @@ function ToolbarButton({
           className="rounded-full px-1.5 text-[11px]"
           style={{
             backgroundColor:
-              countTone === "accent" ? "var(--accent)" : "var(--surface-3)",
+              countTone === "accent" ? "var(--btn-primary-bg)" : "var(--surface-3)",
             color:
-              countTone === "accent" ? "var(--accent-foreground)" : "var(--text-muted)",
+              countTone === "accent" ? "var(--btn-primary-fg)" : "var(--text-muted)",
           }}
         >
           {count}

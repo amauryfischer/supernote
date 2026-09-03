@@ -224,7 +224,7 @@ export default function ArchivePage() {
                     <div className="flex min-w-0 items-center gap-2">
                       <FolderIcon size={13} style={{ color: "var(--text-muted)" }} />
                       <h2
-                        className="truncate text-xs font-semibold uppercase tracking-wide"
+                        className="sn-eyebrow sn-eyebrow--compact truncate"
                         style={{ color: "var(--text-secondary)" }}
                       >
                         {group.key}

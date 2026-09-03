@@ -1228,8 +1228,7 @@ export function FileTree({
         style={{ borderBottom: "1px solid var(--border-subtle)" }}
       >
         <span
-          className="text-xs font-semibold uppercase tracking-widest"
-          style={{ color: "var(--text-muted)" }}
+          className="sn-eyebrow sn-eyebrow--compact"
         >
           {t("vault")}
         </span>

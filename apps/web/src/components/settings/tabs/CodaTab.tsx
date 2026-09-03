@@ -69,7 +69,7 @@ export function CodaTab() {
               size="sm"
               onPress={() => setModalOpen(true)}
               className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm"
-              style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
+              style={{ backgroundColor: "var(--btn-primary-bg)", color: "var(--btn-primary-fg)" }}
             >
               <Plus size={14} /> Importer depuis Coda
             </Button>

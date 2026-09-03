@@ -42,7 +42,7 @@ function EmptyCustomTypes() {
         <Button
           size="sm"
           className="mt-3 text-xs font-medium"
-          style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
+          style={{ backgroundColor: "var(--btn-primary-bg)", color: "var(--btn-primary-fg)" }}
         >
           Créer un type
         </Button>
@@ -107,7 +107,7 @@ export default function SchemasPage() {
               <Button
                 size="sm"
                 className="text-xs font-medium"
-                style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
+                style={{ backgroundColor: "var(--btn-primary-bg)", color: "var(--btn-primary-fg)" }}
               >
                 <Plus size={12} />
                 Nouveau

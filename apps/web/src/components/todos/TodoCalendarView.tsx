@@ -183,7 +183,7 @@ function DayCell({ day, isCurrentMonth, todos, onEdit }: DayCellProps) {
         className="self-end mb-1 flex h-6 w-6 items-center justify-center rounded-full text-xs font-medium"
         style={
           today
-            ? { backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }
+            ? { backgroundColor: "var(--btn-primary-bg)", color: "var(--btn-primary-fg)" }
             : {
                 color: isCurrentMonth ? "var(--text-primary)" : "var(--text-muted)",
               }
@@ -534,8 +534,7 @@ export function TodoCalendarView({ todos, onEdit, onUpdateDates }: TodoCalendarV
             style={{ borderColor: "var(--border-subtle)" }}
           >
             <span
-              className="text-xs font-semibold uppercase tracking-wide"
-              style={{ color: "var(--text-muted)" }}
+              className="sn-eyebrow"
             >
               Sans date ({drawerTodos.length})
             </span>

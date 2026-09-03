@@ -175,8 +175,7 @@ export function EntityPeekPanel({ baseId, entityId }: EntityPeekPanelProps) {
             {base.fields.map((field) => (
               <div key={field.id} className="flex flex-col gap-1">
                 <span
-                  className="text-[10px] font-semibold uppercase tracking-wide"
-                  style={{ color: "var(--text-muted)" }}
+                  className="sn-eyebrow sn-eyebrow--compact"
                 >
                   {field.label || field.name}
                 </span>

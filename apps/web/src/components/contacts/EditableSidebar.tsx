@@ -50,8 +50,7 @@ import type {
 function FieldLabel({ children }: { children: React.ReactNode }) {
   return (
     <label
-      className="block text-[10px] font-medium uppercase tracking-wide"
-      style={{ color: "var(--text-muted)" }}
+      className="sn-eyebrow sn-eyebrow--compact block"
     >
       {children}
     </label>
@@ -331,7 +330,7 @@ export function EditableSidebar({ contact, hasLiveBackend }: EditableSidebarProp
           <a
             href={`mailto:${primaryEmail.value}`}
             className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors hover:opacity-90"
-            style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
+            style={{ backgroundColor: "var(--btn-primary-bg)", color: "var(--btn-primary-fg)" }}
           >
             <Envelope size={12} />
             Email

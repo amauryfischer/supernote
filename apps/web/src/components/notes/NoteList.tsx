@@ -485,12 +485,9 @@ export function NoteList({
             <section key={group.key || "__root__"}>
               {group.label && (
                 <div
-                  className="sn-overlay-in px-4 py-1.5 text-[10px] font-semibold uppercase tracking-wide"
-                  style={{
-                    backgroundColor: "var(--surface-1)",
-                    color: "var(--text-muted)",
-                    borderBottom: "1px solid var(--border-subtle)",
-                  }}
+                  className="sn-eyebrow sn-overlay-in px-4 py-1.5"
+                  style={{ backgroundColor: "var(--surface-1)",
+                    borderBottom: "1px solid var(--border-subtle)" }}
                 >
                   {group.label}
                 </div>
@@ -618,7 +615,7 @@ function EmptyNoteList({
           size="sm"
           onPress={onNewNote}
           className="gap-1.5 rounded-lg px-4 text-xs font-medium"
-          style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
+          style={{ backgroundColor: "var(--btn-primary-bg)", color: "var(--btn-primary-fg)" }}
         >
           <Plus size={13} />
           {t("createFirstNote")}

@@ -57,8 +57,8 @@ export default function CommandDemoPage() {
           }}
           className="flex items-center gap-3 rounded-lg px-6 py-3 text-sm font-medium transition-all hover:scale-[1.02] active:scale-[0.99]"
           style={{
-            backgroundColor: "var(--accent)",
-            color: "var(--accent-foreground)",
+            backgroundColor: "var(--btn-primary-bg)",
+            color: "var(--btn-primary-fg)",
             boxShadow: "0 2px 8px oklch(0.55 0.24 295 / 0.3)",
           }}
         >
@@ -75,7 +75,7 @@ export default function CommandDemoPage() {
             minWidth: "360px",
           }}
         >
-          <h2 className="mb-3 text-xs font-semibold uppercase tracking-widest" style={{ color: "var(--text-muted)" }}>
+          <h2 className="sn-eyebrow mb-3">
             Raccourcis disponibles
           </h2>
           <ShortcutRow keys={["⌘", "K"]} label="Ouvrir / Fermer la palette" />
@@ -106,7 +106,7 @@ export default function CommandDemoPage() {
             minWidth: "360px",
           }}
         >
-          <h2 className="mb-3 text-xs font-semibold uppercase tracking-widest" style={{ color: "var(--text-muted)" }}>
+          <h2 className="sn-eyebrow mb-3">
             Commandes enregistrées (seed)
           </h2>
           <CommandList />

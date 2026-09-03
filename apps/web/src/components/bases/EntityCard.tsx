@@ -160,8 +160,8 @@ export function EntityCard({
             {visibleSecondary.map((field) => (
               <div key={field.id} className="flex items-center gap-1.5">
                 <span
-                  className="shrink-0 text-[10px] uppercase tracking-wide"
-                  style={{ color: "var(--text-muted)", minWidth: 50 }}
+                  className="sn-eyebrow sn-eyebrow--compact shrink-0"
+                  style={{ minWidth: 50 }}
                 >
                   {field.label || field.name}
                 </span>

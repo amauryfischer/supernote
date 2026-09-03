@@ -460,7 +460,7 @@ export default function NouveauContactPage() {
               isDisabled={createMutation.isPending}
               size="sm"
               className="px-5 text-sm font-medium"
-              style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
+              style={{ backgroundColor: "var(--btn-primary-bg)", color: "var(--btn-primary-fg)" }}
             >
               {createMutation.isPending ? "Création…" : "Créer"}
             </Button>

@@ -269,7 +269,7 @@ export function OnboardingTour() {
               size="sm"
               onPress={goNext}
               className="flex items-center gap-1 rounded-md px-3 py-1.5 text-xs font-medium"
-              style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
+              style={{ backgroundColor: "var(--btn-primary-bg)", color: "var(--btn-primary-fg)" }}
             >
               {isLast ? "Terminer" : "Suivant"}
               {!isLast && <ArrowRight size={11} />}

@@ -198,7 +198,7 @@ export default function SchemaEditPage() {
               isPending={updateMutation.isPending}
               size="sm"
               className="text-sm font-medium"
-              style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
+              style={{ backgroundColor: "var(--btn-primary-bg)", color: "var(--btn-primary-fg)" }}
             >
               Sauvegarder
             </Button>
@@ -220,14 +220,14 @@ export default function SchemaEditPage() {
               className="flex items-center justify-between border-b px-4 py-3"
               style={{ borderColor: "var(--border-subtle)" }}
             >
-              <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+              <span className="sn-eyebrow">
                 Champs ({fields.length})
               </span>
               <Button
                 onPress={() => setEditingField("new")}
                 size="sm"
                 className="text-xs font-medium"
-                style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
+                style={{ backgroundColor: "var(--btn-primary-bg)", color: "var(--btn-primary-fg)" }}
               >
                 <Plus size={11} /> Champ
               </Button>
@@ -255,7 +255,7 @@ export default function SchemaEditPage() {
           {/* Right — live preview — hidden on mobile */}
           {!isMobile && <main className="flex flex-1 flex-col overflow-hidden" style={{ backgroundColor: "var(--surface-0)" }}>
             <div className="border-b px-6 py-4" style={{ borderColor: "var(--border-subtle)" }}>
-              <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+              <p className="sn-eyebrow">
                 Aperçu live
               </p>
             </div>
@@ -309,7 +309,7 @@ export default function SchemaEditPage() {
                   className="mt-4 rounded-xl border p-4"
                   style={{ borderColor: "var(--border)", backgroundColor: "var(--surface-1)" }}
                 >
-                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+                  <p className="sn-eyebrow mb-2">
                     Champ sélectionné
                   </p>
                   <div className="flex items-center gap-3">

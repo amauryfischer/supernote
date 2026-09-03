@@ -276,9 +276,7 @@ function SectionLabel({ label }: { label: string }) {
   return (
     <div className="px-4 pb-1">
       <span
-        className="text-[10px] font-semibold uppercase tracking-wide"
-        style={{ color: "var(--text-muted)" }}
-      >
+        className="sn-eyebrow sn-eyebrow--compact">
         {label}
       </span>
     </div>
@@ -579,7 +577,7 @@ function FieldEditForm({ field, isSaving, prefill, currentBaseId, currentBasePlu
 
   return (
     <div className="flex flex-col gap-2.5">
-      <p className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+      <p className="sn-eyebrow sn-eyebrow--compact">
         {field ? "Modifier le champ" : "Nouveau champ"}
       </p>
 
@@ -673,7 +671,7 @@ function FieldEditForm({ field, isSaving, prefill, currentBaseId, currentBasePlu
       {/* Relation: picker base cible + cardinalité */}
       {kind === "relation" && (
         <div className="flex flex-col gap-2 rounded border px-2 py-2" style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-0)" }}>
-          <label className="block text-[10px] font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+          <label className="sn-eyebrow sn-eyebrow--compact block">
             Base cible
           </label>
           <SelectRoot
@@ -695,7 +693,7 @@ function FieldEditForm({ field, isSaving, prefill, currentBaseId, currentBasePlu
               </ListBox>
             </SelectPopover>
           </SelectRoot>
-          <label className="mt-1 block text-[10px] font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+          <label className="sn-eyebrow sn-eyebrow--compact mt-1 block">
             Sélection
           </label>
           <div className="flex gap-1.5">
@@ -706,8 +704,8 @@ function FieldEditForm({ field, isSaving, prefill, currentBaseId, currentBasePlu
               className="flex-1 rounded border px-2 py-1 text-[11px]"
               style={{
                 borderColor: relCardinality === "one_to_one" ? "var(--accent)" : "var(--border)",
-                backgroundColor: relCardinality === "one_to_one" ? "var(--accent)" : "transparent",
-                color: relCardinality === "one_to_one" ? "var(--accent-foreground)" : "var(--text-secondary)",
+                backgroundColor: relCardinality === "one_to_one" ? "var(--btn-primary-bg)" : "transparent",
+                color: relCardinality === "one_to_one" ? "var(--btn-primary-fg)" : "var(--text-secondary)",
               }}
             >
               Simple
@@ -719,8 +717,8 @@ function FieldEditForm({ field, isSaving, prefill, currentBaseId, currentBasePlu
               className="flex-1 rounded border px-2 py-1 text-[11px]"
               style={{
                 borderColor: relCardinality === "many_to_many" ? "var(--accent)" : "var(--border)",
-                backgroundColor: relCardinality === "many_to_many" ? "var(--accent)" : "transparent",
-                color: relCardinality === "many_to_many" ? "var(--accent-foreground)" : "var(--text-secondary)",
+                backgroundColor: relCardinality === "many_to_many" ? "var(--btn-primary-bg)" : "transparent",
+                color: relCardinality === "many_to_many" ? "var(--btn-primary-fg)" : "var(--text-secondary)",
               }}
             >
               Multiple
@@ -795,7 +793,7 @@ function FieldEditForm({ field, isSaving, prefill, currentBaseId, currentBasePlu
             </p>
           ) : (
             <>
-              <label className="block text-[10px] font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+              <label className="sn-eyebrow sn-eyebrow--compact block">
                 Via le champ relation
               </label>
               <SelectRoot
@@ -813,7 +811,7 @@ function FieldEditForm({ field, isSaving, prefill, currentBaseId, currentBasePlu
                 </SelectPopover>
               </SelectRoot>
 
-              <label className="block text-[10px] font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+              <label className="sn-eyebrow sn-eyebrow--compact block">
                 {kind === "rollup" ? "Agréger le champ" : "Récupérer le champ"}
                 {targetBase ? ` de « ${targetBase.plural || targetBase.name} »` : ""}
               </label>
@@ -835,7 +833,7 @@ function FieldEditForm({ field, isSaving, prefill, currentBaseId, currentBasePlu
 
               {kind === "rollup" && (
                 <>
-                  <label className="block text-[10px] font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+                  <label className="sn-eyebrow sn-eyebrow--compact block">
                     Agrégation
                   </label>
                   <SelectRoot
@@ -934,7 +932,7 @@ function FieldEditForm({ field, isSaving, prefill, currentBaseId, currentBasePlu
           onPress={handleSave}
           isPending={isSaving}
           className="flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium"
-          style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
+          style={{ backgroundColor: "var(--btn-primary-bg)", color: "var(--btn-primary-fg)" }}
         >
           <Check size={10} /> {isSaving ? "…" : field ? "Mettre à jour" : "Créer"}
         </Button>
@@ -968,7 +966,7 @@ function FormulaEditor({ expression, onChangeExpression, outputKind, onChangeOut
   })();
   return (
     <div className="flex flex-col gap-2 rounded border px-2 py-2" style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-0)" }}>
-      <label className="block text-[10px] font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+      <label className="sn-eyebrow sn-eyebrow--compact block">
         Expression
       </label>
       <textarea

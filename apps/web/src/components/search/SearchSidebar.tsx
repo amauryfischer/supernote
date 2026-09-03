@@ -61,8 +61,7 @@ export function SearchSidebar({
       {recentSearches.length > 0 && (
         <section>
           <h3
-            className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider"
-            style={{ color: "var(--text-muted)" }}
+            className="sn-eyebrow mb-2 flex items-center gap-1.5"
           >
             <Clock size={11} />
             Recentes
@@ -99,8 +98,7 @@ export function SearchSidebar({
       {savedSearches.length > 0 && (
         <section>
           <h3
-            className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider"
-            style={{ color: "var(--text-muted)" }}
+            className="sn-eyebrow mb-2 flex items-center gap-1.5"
           >
             <BookmarkSimple size={11} />
             Sauvegardees

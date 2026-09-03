@@ -44,7 +44,7 @@ export function TypePreview({ type }: TypePreviewProps) {
             <Button
               size="sm"
               className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors"
-              style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
+              style={{ backgroundColor: "var(--btn-primary-bg)", color: "var(--btn-primary-fg)" }}
             >
               <Table size={13} />
               Ouvrir la Base
@@ -86,7 +86,7 @@ export function TypePreview({ type }: TypePreviewProps) {
       {/* Fields section */}
       <section>
         <div className="mb-3 flex items-center justify-between">
-          <h3 className="text-sm font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+          <h3 className="sn-eyebrow">
             Champs ({type.fields.length})
           </h3>
           <Link href={`/schemas/${type.id}`}>
@@ -114,7 +114,7 @@ export function TypePreview({ type }: TypePreviewProps) {
       {/* Relations section */}
       <section>
         <div className="mb-3 flex items-center justify-between">
-          <h3 className="text-sm font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+          <h3 className="sn-eyebrow">
             Relations ({relations.length})
           </h3>
           <Link href="/schemas/relations">

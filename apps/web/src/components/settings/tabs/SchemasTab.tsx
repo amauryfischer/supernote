@@ -40,7 +40,7 @@ function EmptyCustomTypes() {
           variant="ghost"
           size="sm"
           className="mt-3 rounded-lg px-3 py-1.5 text-xs font-medium"
-          style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
+          style={{ backgroundColor: "var(--btn-primary-bg)", color: "var(--btn-primary-fg)" }}
         >
           Créer un type
         </Button>
@@ -103,7 +103,7 @@ export function SchemasTab() {
               variant="ghost"
               size="sm"
               className="flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium"
-              style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
+              style={{ backgroundColor: "var(--btn-primary-bg)", color: "var(--btn-primary-fg)" }}
             >
               <Plus size={12} />
               Nouveau

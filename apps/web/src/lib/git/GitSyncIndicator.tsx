@@ -168,8 +168,8 @@ export function GitSyncIndicator({ size = "sm" }: { size?: "sm" | "md" }) {
               isDisabled={sync.status === "syncing" || sync.status === "offline"}
               className="w-full text-[13px] font-medium"
               style={{
-                backgroundColor: "var(--accent)",
-                color: "var(--accent-foreground)",
+                backgroundColor: "var(--btn-primary-bg)",
+                color: "var(--btn-primary-fg)",
               }}
             >
               {sync.status === "syncing" ? "Synchronisation…" : "Synchroniser maintenant"}

@@ -210,8 +210,7 @@ export function TemplateEditor({ template, onSave, onTest, onApply, isApplying }
               style={{ maxHeight: "40%", backgroundColor: "var(--surface-1)" }}
             >
               <p
-                className="mb-2 text-[10px] font-medium uppercase tracking-wider"
-                style={{ color: "var(--text-muted)" }}
+                className="sn-eyebrow sn-eyebrow--compact mb-2"
               >
                 Aperçu rendu
               </p>

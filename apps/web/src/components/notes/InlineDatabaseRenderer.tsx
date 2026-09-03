@@ -293,7 +293,7 @@ function BasePicker({ currentId }: { currentId: string }) {
               onPress={handleCreate}
               isDisabled={!canCreate}
               className="flex items-center gap-1.5"
-              style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
+              style={{ backgroundColor: "var(--btn-primary-bg)", color: "var(--btn-primary-fg)" }}
             >
               {!createSchema.isPending && <Plus size={14} weight="bold" />}
               {createSchema.isPending ? "Création…" : "Créer la base"}
@@ -380,8 +380,7 @@ function BasePicker({ currentId }: { currentId: string }) {
                   </span>
                   {t.isSystem && (
                     <span
-                      className="text-[10px] uppercase tracking-wide"
-                      style={{ color: "var(--text-muted)" }}
+                      className="sn-eyebrow sn-eyebrow--compact"
                     >
                       système
                     </span>
@@ -424,7 +423,7 @@ function BasePicker({ currentId }: { currentId: string }) {
             setNewPlural("");
           }}
           className="flex items-center gap-1.5"
-          style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
+          style={{ backgroundColor: "var(--btn-primary-bg)", color: "var(--btn-primary-fg)" }}
         >
           <Plus size={14} weight="bold" /> Nouvelle base
         </Button>
@@ -519,8 +518,7 @@ function ViewLinkPicker({
                 </span>
                 {v.isSystem && (
                   <span
-                    className="text-[10px] uppercase tracking-wide"
-                    style={{ color: "var(--text-muted)" }}
+                    className="sn-eyebrow sn-eyebrow--compact"
                   >
                     défaut
                   </span>
@@ -557,7 +555,7 @@ function ViewLinkPicker({
           isDisabled={createView.isPending}
           onPress={createAndLink}
           className="flex items-center gap-1.5"
-          style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
+          style={{ backgroundColor: "var(--btn-primary-bg)", color: "var(--btn-primary-fg)" }}
         >
           {!createView.isPending && <Plus size={14} weight="bold" />}
           {createView.isPending ? "Création…" : "Créer"}

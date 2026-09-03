@@ -239,7 +239,7 @@ export default function HabitsPage() {
             variant="primary"
             onPress={() => setShowCreate(true)}
             className="flex h-auto min-w-0 items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-opacity hover:opacity-90"
-            style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
+            style={{ backgroundColor: "var(--btn-primary-bg)", color: "var(--btn-primary-fg)" }}
           >
             <Plus size={13} />
             Nouvelle habitude
@@ -266,7 +266,7 @@ export default function HabitsPage() {
                   variant="primary"
                   onPress={() => setShowCreate(true)}
                   className="mt-2 flex h-auto min-w-0 items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium"
-                  style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
+                  style={{ backgroundColor: "var(--btn-primary-bg)", color: "var(--btn-primary-fg)" }}
                 >
                   <Plus size={13} />
                   Créer une habitude

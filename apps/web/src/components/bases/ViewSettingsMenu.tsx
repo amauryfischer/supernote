@@ -168,11 +168,8 @@ export function ViewSettingsMenu({
 
       {/* Change kind submenu (inline list) */}
       <div
-        className="border-t px-2 py-1.5 text-xs font-semibold uppercase tracking-wide"
-        style={{
-          borderColor: "var(--border-subtle)",
-          color: "var(--text-muted)",
-        }}
+        className="sn-eyebrow sn-eyebrow--compact border-t px-2 py-1.5"
+        style={{ borderColor: "var(--border-subtle)" }}
       >
         Type de vue
       </div>

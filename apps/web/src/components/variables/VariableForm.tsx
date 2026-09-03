@@ -51,7 +51,7 @@ function initFromVariable(v: Variable) {
   return { vk, expr, bool, lit } as const;
 }
 
-const ACTIVE_STYLE = { backgroundColor: "var(--accent)", color: "var(--accent-foreground)" };
+const ACTIVE_STYLE = { backgroundColor: "var(--btn-primary-bg)", color: "var(--btn-primary-fg)" };
 const INACTIVE_STYLE = { borderColor: "var(--border)", color: "var(--text-secondary)" };
 
 export function VariableForm({
@@ -311,7 +311,7 @@ export function VariableForm({
           variant="ghost"
           size="sm"
           className="rounded-lg px-4 py-2 text-sm font-medium transition-colors hover:opacity-90"
-          style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
+          style={{ backgroundColor: "var(--btn-primary-bg)", color: "var(--btn-primary-fg)" }}
         >
           {submitting ? <Spinner size="sm" /> : submitLabel}
         </Button>
