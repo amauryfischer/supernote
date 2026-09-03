@@ -46,6 +46,19 @@ if (process.env.CODA_API_TOKEN) {
   }
 }
 
+// Optional public note sharing. Mounted only when DATABASE_URL is set (same
+// gate as the sync backend — it needs somewhere durable to keep published
+// snapshots). A load failure must never take down static serving.
+let shareBackend = { enabled: false, handle: () => false };
+if (process.env.DATABASE_URL) {
+  try {
+    const { createShareBackend } = await import("./share-backend.mjs");
+    shareBackend = await createShareBackend();
+  } catch (err) {
+    console.error("[server] share backend failed to load (static serving continues):", err);
+  }
+}
+
 const MIME = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
@@ -128,6 +141,15 @@ const server = createServer(async (req, res) => {
     if (codaBackend.enabled && (req.url ?? "").startsWith("/api/coda/")) {
       const handled = await codaBackend.handle(req, res);
       if (handled) return;
+    }
+
+    // Public note sharing: /api/share/* (auth'd read/write) + /s/* (public page).
+    if (shareBackend.enabled) {
+      const u = req.url ?? "";
+      if (u.startsWith("/api/share/") || u.startsWith("/s/")) {
+        const handled = await shareBackend.handle(req, res);
+        if (handled) return;
+      }
     }
 
     const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);

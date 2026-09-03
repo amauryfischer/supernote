@@ -49,6 +49,7 @@ import { BacklinksList, useBacklinkCount } from "./BacklinksPanel";
 import { MobileSheet } from "@/components/shell/mobile/MobileSheet";
 import { bestBlockMatchIndex } from "@/lib/ai/blockComments";
 import { PresentationMode } from "./PresentationMode";
+import { ShareNotePanel } from "./ShareNotePanel";
 import { ContextMenu, useContextMenu, Tooltip, type ContextMenuItemDef } from "@supernote/ui";
 import { useVoiceDictation } from "@/hooks/useVoiceDictation";
 import { MoveNoteModal } from "./MoveNoteModal";
@@ -1529,7 +1530,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
       {(toastMsg || aiLoading) && (
         <div
           className="absolute bottom-6 left-1/2 z-20 -translate-x-1/2 rounded-lg px-4 py-2 text-sm shadow-lg"
-          style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
+          style={{ backgroundColor: "var(--btn-primary-bg)", color: "var(--btn-primary-fg)" }}
         >
           {aiLoading ? "L'IA réfléchit…" : toastMsg}
         </div>
@@ -1764,6 +1765,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
             <FilePdf size={13} />
             PDF
           </Button>
+          <ShareNotePanel note={note} />
           {/* Liens entrants — popover ancré au bouton sur desktop, MobileSheet
               sur mobile (parité tactile). Le badge affiche le nombre de notes
               qui mentionnent celle-ci ; la liste n'est chargée qu'à l'ouverture. */}
@@ -1813,8 +1815,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
                     <div className="flex items-center gap-1.5">
                       <LinkSimple size={12} weight="bold" style={{ color: "var(--text-muted)" }} />
                       <span
-                        className="text-xs font-semibold uppercase tracking-wide"
-                        style={{ color: "var(--text-muted)" }}
+                        className="sn-eyebrow"
                       >
                         Liens entrants
                       </span>
@@ -2488,7 +2489,7 @@ function EditableNoteDate({
         <button
           type="button"
           onClick={() => void commit(draft || null)}
-          className="text-[10px] font-medium uppercase tracking-wide"
+          className="sn-eyebrow"
           style={{ color: "var(--accent)" }}
           aria-label="Enregistrer (Entrée)"
         >

@@ -69,12 +69,46 @@ function onlineSyncDevServer() {
   };
 }
 
+/**
+ * Dev-only middleware mounting the public note-sharing backend
+ * (`/api/share/*` + `/s/*`) when `DATABASE_URL` is set — mirrors
+ * `onlineSyncDevServer` above and what `server.mjs` does in production.
+ */
+function shareDevServer() {
+  return {
+    name: "supernote-share-dev",
+    async configureServer(server: { middlewares: { use: (fn: (req: unknown, res: unknown, next: () => void) => void) => void } }) {
+      if (!process.env.DATABASE_URL) return;
+      try {
+        const { createShareBackend } = await import("./share-backend.mjs");
+        const backend = await createShareBackend();
+        if (!backend.enabled) return;
+        server.middlewares.use((req, res, next) => {
+          const url = (req as { url?: string }).url ?? "";
+          if (!url.startsWith("/api/share/") && !url.startsWith("/s/")) return next();
+          void Promise.resolve(backend.handle(req as never, res as never))
+            .then((handled: boolean) => {
+              if (!handled) next();
+            })
+            .catch(() => next());
+        });
+        // eslint-disable-next-line no-console
+        console.log("[vite] note sharing dev backend mounted at /api/share/* + /s/*");
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.error("[vite] note sharing dev backend failed to load", err);
+      }
+    },
+  };
+}
+
 export default defineConfig({
   plugins: [
     react(),
     tsconfigPaths(),
     tailwindcss(),
     onlineSyncDevServer(),
+    shareDevServer(),
     VitePWA({
       registerType: "prompt",
       injectRegister: false,

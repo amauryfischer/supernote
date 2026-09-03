@@ -71,6 +71,7 @@ export type {
 
 // Serialization utilities
 export { markdownToBlocks, blocksToMarkdown } from "./serialization/index.js";
+export { markdownToHtmlLossy } from "./export/exportHtml.js";
 
 // AI actions
 export { useAIAction, type UseAIActionDeps, type UseAIActionApi } from "./ai/useAIAction.js";
