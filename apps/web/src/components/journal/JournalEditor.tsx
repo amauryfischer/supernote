@@ -53,42 +53,58 @@ export function JournalEditor({ date }: JournalEditorProps) {
   const dateRef = useRef(date);
   const persistRef = useRef(persist);
   const pendingFlushRef = useRef<PendingFlush | null>(null);
+  // Compteur monotone : incrémenté à CHAQUE dispatch réel d'un persist
+  // (debounce qui tire, Ctrl+S, flush). Un résultat dont le seq capturé ne
+  // correspond plus à seqRef.current a été dépassé par un envoi plus
+  // récent — même à date constante, y compris pendant que l'ancien est
+  // encore en vol réseau (contrairement à debounceRef, qui ne dit rien
+  // pendant ce vol).
+  const seqRef = useRef(0);
+  // Passe à false dans le cleanup de démontage, AVANT le flush — sinon un
+  // flush au démontage qui échoue prend la branche "même date" (le
+  // composant démonté n'a pas changé dateRef) et échoue en silence.
+  const isMountedRef = useRef(true);
 
   const runPersist = useCallback(
-    async (forDate: string, markdown: string, doPersist: (markdown: string) => Promise<void>) => {
+    async (
+      forDate: string,
+      seq: number,
+      markdown: string,
+      doPersist: (markdown: string) => Promise<void>,
+    ) => {
       try {
         await doPersist(markdown);
         // Un résultat pour une date qu'on ne regarde plus ne doit pas se
         // faire passer pour le statut de sauvegarde de la date affichée — et
-        // même à date constante, un debounce plus récent déjà armé (frappe
+        // même à date constante, un envoi plus récent déjà dispatché (frappe
         // pendant que CE persist attendait le réseau) signifie qu'un contenu
         // plus frais n'est pas encore sauvegardé : ne pas afficher "Sauvegardé"
         // pour lui à sa place.
-        if (forDate === dateRef.current && !debounceRef.current) {
+        if (forDate === dateRef.current && seq === seqRef.current) {
           setSaveStatus("saved");
           setTimeout(() => setSaveStatus("idle"), 2000);
         }
       } catch (err) {
         console.error("[journal] échec de la sauvegarde", err);
-        if (forDate === dateRef.current) {
-          // Contrairement à "saved", pas d'auto-retour à "idle" : un échec ne
-          // doit pas disparaître silencieusement pendant que l'utilisateur
-          // regarde ailleurs. Reste affiché jusqu'à la prochaine tentative.
-          // Un debounce plus récent déjà armé rejouera le contenu complet —
-          // rien d'irrécupérable dans ce cas, pas la peine d'alerter.
-          if (!debounceRef.current) setSaveStatus("error");
-        } else {
-          // La date affichée a changé depuis ce persist (flush au changement
-          // de date / au démontage, ou navigation pendant un envoi encore en
-          // vol) : aucun badge ne peut plus représenter cet échec, et le
-          // markdown n'existe plus nulle part ailleurs — irrécupérable sans
-          // ce signal.
+        if (!isMountedRef.current || forDate !== dateRef.current) {
+          // Composant démonté, ou date affichée changée depuis ce persist
+          // (flush au changement de date / au démontage, ou navigation
+          // pendant un envoi encore en vol) : aucun badge ne peut plus
+          // représenter cet échec, et le markdown n'existe plus nulle part
+          // ailleurs — irrécupérable sans ce signal.
           toast({
             title: "Sauvegarde échouée",
             description: `L'entrée du ${formatDisplayDate(forDate)} n'a pas été enregistrée.`,
             variant: "danger",
             duration: 0,
           });
+        } else if (seq === seqRef.current) {
+          // Contrairement à "saved", pas d'auto-retour à "idle" : un échec ne
+          // doit pas disparaître silencieusement pendant que l'utilisateur
+          // regarde ailleurs. Reste affiché jusqu'à la prochaine tentative.
+          // Un envoi plus récent déjà dispatché rejouera le contenu complet —
+          // rien d'irrécupérable dans ce cas, pas la peine d'alerter.
+          setSaveStatus("error");
         }
       }
     },
@@ -102,6 +118,16 @@ export function JournalEditor({ date }: JournalEditorProps) {
   // réel (appel réseau) n'est pas un effet de bord de rendu admissible —
   // on le stocke, l'effect ci-dessous le joue juste après le commit.
   if (dateRef.current !== date) {
+    // Réinitialisé ICI (pendant le rendu) et non dans l'effect plus bas :
+    // les effets passifs de l'enfant (qui, lui, remonte via key={date})
+    // tournent avant ceux du parent — si on attendait l'effect, un
+    // ensureTrailingParagraph déclenchant handleChange au montage de
+    // l'enfant se ferait immédiatement effacer par ce reset. Fait pendant
+    // le rendu, le reset précède TOUT effet (enfant compris), donc un
+    // éventuel "saving" posé par l'enfant juste après survit normalement.
+    // Ferme aussi bien le "Sauvegarde…" résiduel que l'"error" qui, lui,
+    // ne s'efface jamais tout seul (cf. runPersist).
+    setSaveStatus("idle");
     const pending = debounceRef.current;
     if (pending) {
       clearTimeout(pending.timer);
@@ -113,15 +139,11 @@ export function JournalEditor({ date }: JournalEditorProps) {
   persistRef.current = persist;
 
   useEffect(() => {
-    // Le statut affiché appartenait à l'ancienne date — jamais pertinent
-    // pour celle qu'on vient d'afficher. Ferme aussi bien le "Sauvegarde…"
-    // résiduel que l'"error" qui, lui, ne s'efface jamais tout seul (cf.
-    // runPersist) et resterait sinon collé indéfiniment sur la nouvelle date.
-    setSaveStatus("idle");
     const toFlush = pendingFlushRef.current;
     if (!toFlush) return;
     pendingFlushRef.current = null;
-    void runPersist(toFlush.date, toFlush.markdown, toFlush.persist);
+    const seq = ++seqRef.current;
+    void runPersist(toFlush.date, seq, toFlush.markdown, toFlush.persist);
   }, [date, runPersist]);
 
   const handleChange = useCallback(
@@ -135,7 +157,8 @@ export function JournalEditor({ date }: JournalEditorProps) {
       setSaveStatus("saving");
       const timer = setTimeout(() => {
         debounceRef.current = null;
-        void runPersist(date, markdown, persist);
+        const seq = ++seqRef.current;
+        void runPersist(date, seq, markdown, persist);
       }, 1000);
       debounceRef.current = { date, markdown, timer };
     },
@@ -152,7 +175,8 @@ export function JournalEditor({ date }: JournalEditorProps) {
         debounceRef.current = null;
       }
       setSaveStatus("saving");
-      void runPersist(date, markdown, persist);
+      const seq = ++seqRef.current;
+      void runPersist(date, seq, markdown, persist);
     },
     [date, persist, runPersist],
   );
@@ -162,11 +186,13 @@ export function JournalEditor({ date }: JournalEditorProps) {
   // attente au lieu de le laisser mourir avec son timer.
   useEffect(() => {
     return () => {
+      isMountedRef.current = false;
       const pending = debounceRef.current;
       if (!pending) return;
       clearTimeout(pending.timer);
       debounceRef.current = null;
-      void runPersist(pending.date, pending.markdown, persistRef.current);
+      const seq = ++seqRef.current;
+      void runPersist(pending.date, seq, pending.markdown, persistRef.current);
     };
   }, [runPersist]);
 

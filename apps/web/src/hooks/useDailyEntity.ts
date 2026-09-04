@@ -7,6 +7,11 @@ import { DAILY_JOURNAL } from "@supernote/templates";
 
 const DAILY_TYPE_ID = "daily";
 const DAILY_LIMIT = 5000;
+// Utilisé à la fois par le useQuery et par le setData qui patche son cache
+// en place (voir onSuccess de updateMutation) — une dérive entre les deux
+// rendrait le setData muet sans erreur de type, puisqu'il viserait une
+// entrée de cache différente de celle que useQuery lit réellement.
+const DAILY_LIST_QUERY_INPUT = { typeId: DAILY_TYPE_ID, limit: DAILY_LIMIT, offset: 0 };
 
 function buildTemplateMarkdown(date: string): string {
   const d = new Date(date + "T12:00:00");
@@ -58,10 +63,7 @@ function getOrCreateState(states: Map<string, DateOpState>, date: string): DateO
  */
 export function useDailyEntity(date: string): UseDailyEntityResult {
   const utils = trpc.useUtils();
-  const listQuery = trpc.entities.list.useQuery(
-    { typeId: DAILY_TYPE_ID, limit: DAILY_LIMIT, offset: 0 },
-    { staleTime: 30_000 },
-  );
+  const listQuery = trpc.entities.list.useQuery(DAILY_LIST_QUERY_INPUT, { staleTime: 30_000 });
 
   const existing = useMemo(() => {
     for (const item of listQuery.data?.items ?? []) {
@@ -83,13 +85,23 @@ export function useDailyEntity(date: string): UseDailyEntityResult {
   // referait un aller-retour sur la liste typeId=daily entière (limit 5000).
   const updateMutation = trpc.entities.update.useMutation({
     onSuccess: (updated) => {
-      utils.entities.list.setData(
-        { typeId: DAILY_TYPE_ID, limit: DAILY_LIMIT, offset: 0 },
-        (old) =>
-          old
-            ? { ...old, items: old.items.map((item) => (item.id === updated.id ? updated : item)) }
-            : old,
-      );
+      // Si l'entité n'est pas encore dans ce cache (le refetch déclenché par
+      // le create n'a jamais abouti — worker qui redémarre, etc.), le map
+      // ci-dessous ne trouve rien et ne changerait rien en silence : on
+      // retombe alors sur un invalidate, seul recours pour faire entrer
+      // l'entité dans le cache et éviter de rejouer la Critical du round 4
+      // (initialMarkdown périmé écrasant le vrai corps à la frappe suivante).
+      let matched = false;
+      utils.entities.list.setData(DAILY_LIST_QUERY_INPUT, (old) => {
+        if (!old) return old;
+        const items = old.items.map((item) => {
+          if (item.id !== updated.id) return item;
+          matched = true;
+          return updated;
+        });
+        return matched ? { ...old, items } : old;
+      });
+      if (!matched) void utils.entities.list.invalidate({ typeId: DAILY_TYPE_ID });
     },
   });
 
