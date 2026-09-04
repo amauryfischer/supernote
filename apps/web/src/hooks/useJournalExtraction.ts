@@ -2,15 +2,15 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useToast } from "@supernote/ui";
+import { OLLAMA_EXTRACT_TEXT_LIMIT } from "@supernote/ai";
+import type { ExtractedAction, MentionMatch } from "@supernote/ai";
 import { trpc } from "@/lib/trpc/client";
 import { runJournalExtraction } from "@/lib/ai/journal-extract";
 import { TODO_TYPE_ID } from "./useTodoSync";
 import { useMentionCandidates } from "./useMentionCandidates";
-import type { ExtractedAction, MentionMatch } from "@supernote/ai";
 
-// Doit suivre le `noteContent.slice(0, 4000)` de
-// `packages/ai/src/extract/ollama-extract.ts` (prompts actions ET mentions).
-const OLLAMA_TEXT_LIMIT = 4000;
+const MAX_MENTIONS = 5;
+const MAX_ACTIONS = 5;
 
 export interface MentionSuggestion {
   kind: "mention";
@@ -29,6 +29,13 @@ export type JournalSuggestion = MentionSuggestion | ActionSuggestion;
 interface UseJournalExtractionResult {
   suggestions: JournalSuggestion[];
   /**
+   * Texte sur lequel `suggestions` a été calculé. Les offsets des mentions ne
+   * valent QUE contre lui : avant de réécrire le markdown, le consommateur doit
+   * le comparer au texte courant et refuser (ou relocaliser) si la frappe a
+   * continué depuis la passe.
+   */
+  analyzedText: string;
+  /**
    * L'IA a répondu, mais elle n'a lu qu'un préfixe du texte : la fin de
    * l'entrée n'a été analysée par personne. À afficher à l'utilisateur.
    */
@@ -40,9 +47,60 @@ interface UseJournalExtractionResult {
   acceptAction: (suggestion: ActionSuggestion) => void;
 }
 
-export function useJournalExtraction(dailyEntityId: string | null): UseJournalExtractionResult {
+/**
+ * Les offsets d'une mention `ollama` sont des entiers rendus par le modèle,
+ * jamais confrontés au texte (`MentionSchema` ne valide qu'un entier positif).
+ * On les vérifie, on les relocalise sur la première occurrence de `matchedText`
+ * quand c'est possible, et on jette le reste — le consommateur réécrit le
+ * markdown à ces positions.
+ */
+function verifiedOffsets(text: string, match: MentionMatch): MentionMatch | null {
+  if (!match.matchedText) return null;
+  if (text.slice(match.startOffset, match.endOffset) === match.matchedText) return match;
+  const at = text.indexOf(match.matchedText);
+  if (at < 0) return null;
+  return { ...match, startOffset: at, endOffset: at + match.matchedText.length };
+}
+
+/**
+ * Une occurrence par entité : l'heuristique émet un match par occurrence, et le
+ * libellé d'une chip ne montre que le nom — cinq « Julie » identiques seraient
+ * indiscernables. Meilleure confiance d'abord, puis la plus précoce.
+ */
+function oneMentionPerEntity(matches: MentionMatch[]): MentionMatch[] {
+  const best = new Map<string, MentionMatch>();
+  for (const match of matches) {
+    const current = best.get(match.entityId);
+    if (
+      !current ||
+      match.confidence > current.confidence ||
+      (match.confidence === current.confidence && match.startOffset < current.startOffset)
+    ) {
+      best.set(match.entityId, match);
+    }
+  }
+  return [...best.values()]
+    .sort((a, b) => a.startOffset - b.startOffset)
+    .slice(0, MAX_MENTIONS);
+}
+
+function dedupedActions(actions: ExtractedAction[]): ExtractedAction[] {
+  const seen = new Set<string>();
+  const out: ExtractedAction[] = [];
+  for (const action of actions) {
+    const key = action.text.trim().toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(action);
+    if (out.length === MAX_ACTIONS) break;
+  }
+  return out;
+}
+
+export function useJournalExtraction(date: string): UseJournalExtractionResult {
   const candidates = useMentionCandidates();
   const [suggestions, setSuggestions] = useState<JournalSuggestion[]>([]);
+  const [analyzedText, setAnalyzedText] = useState("");
   const [truncated, setTruncated] = useState(false);
   const runIdRef = useRef(0);
   // Lus dans `trigger` par référence pour lui garder une identité stable :
@@ -50,7 +108,7 @@ export function useJournalExtraction(dailyEntityId: string | null): UseJournalEx
   const candidatesRef = useRef(candidates);
   const lastTextRef = useRef("");
   const lastRunCandidateCountRef = useRef(-1);
-  const lastEntityIdRef = useRef<string | null>(null);
+  const lastDateRef = useRef(date);
   const utils = trpc.useUtils();
   const { toast } = useToast();
   const createTodo = trpc.entities.create.useMutation();
@@ -59,33 +117,51 @@ export function useJournalExtraction(dailyEntityId: string | null): UseJournalEx
     const runId = ++runIdRef.current;
     lastTextRef.current = text;
     lastRunCandidateCountRef.current = candidatesRef.current.length;
-    void runJournalExtraction(text, candidatesRef.current).then((result) => {
-      // Une frappe plus récente a déjà relancé une passe — ignorer ce résultat périmé.
-      if (runId !== runIdRef.current) return;
-      setSuggestions([
-        ...result.mentions.map(
-          (match): MentionSuggestion => ({
-            kind: "mention",
-            key: `mention:${match.entityId}:${match.startOffset}`,
-            match,
-          }),
-        ),
-        ...result.actions.map(
-          (action, i): ActionSuggestion => ({
-            kind: "action",
-            key: `action:${i}:${action.text}`,
-            action,
-          }),
-        ),
-      ]);
-      // Quand Ollama ne rend rien, l'extracteur rejoue l'heuristique sur le
-      // texte ENTIER : la troncature n'est réelle que si un résultat vient
-      // effectivement du modèle.
-      const fromModel =
-        result.mentions.some((m) => m.source === "ollama") ||
-        result.actions.some((a) => a.source === "ollama");
-      setTruncated(fromModel && text.length > OLLAMA_TEXT_LIMIT);
-    });
+    runJournalExtraction(text, candidatesRef.current)
+      .then((result) => {
+        // Une frappe plus récente a déjà relancé une passe — ignorer ce résultat périmé.
+        if (runId !== runIdRef.current) return;
+        const mentions = oneMentionPerEntity(
+          result.mentions
+            .map((m) => verifiedOffsets(text, m))
+            .filter((m): m is MentionMatch => m !== null),
+        );
+        const actions = dedupedActions(result.actions);
+        setSuggestions([
+          ...mentions.map(
+            (match): MentionSuggestion => ({
+              kind: "mention",
+              key: `mention:${match.entityId}`,
+              match,
+            }),
+          ),
+          ...actions.map(
+            (action, i): ActionSuggestion => ({
+              kind: "action",
+              key: `action:${i}:${action.text}`,
+              action,
+            }),
+          ),
+        ]);
+        setAnalyzedText(text);
+        // Quand Ollama ne rend rien, l'extracteur rejoue l'heuristique sur le
+        // texte ENTIER : la troncature n'est réelle que si un résultat vient
+        // effectivement du modèle. Mesuré sur le résultat brut — ce que le
+        // modèle a lu ne dépend pas de ce qui survit au filtrage.
+        const fromModel =
+          result.mentions.some((m) => m.source === "ollama") ||
+          result.actions.some((a) => a.source === "ollama");
+        setTruncated(fromModel && text.length > OLLAMA_EXTRACT_TEXT_LIMIT);
+      })
+      .catch((err: unknown) => {
+        // Les chemins Ollama sont déjà protégés en interne, pas le repli
+        // heuristique, qui construit des RegExp à partir de données du coffre.
+        if (runId !== runIdRef.current) return;
+        console.error("[journal] extraction échouée", err);
+        setSuggestions([]);
+        setAnalyzedText(text);
+        setTruncated(false);
+      });
   }, []);
 
   useEffect(() => {
@@ -100,17 +176,19 @@ export function useJournalExtraction(dailyEntityId: string | null): UseJournalEx
   }, [candidates, trigger]);
 
   useEffect(() => {
-    if (!dailyEntityId || lastEntityIdRef.current === dailyEntityId) return;
-    const previous = lastEntityIdRef.current;
-    lastEntityIdRef.current = dailyEntityId;
-    // `null` → id, c'est la même journée qui finit de charger, pas un
-    // changement de date : ne pas jeter les suggestions déjà calculées.
-    if (previous === null) return;
+    if (lastDateRef.current === date) return;
+    lastDateRef.current = date;
+    // `JournalEditor` n'est pas remonté au changement de date : sans purge, les
+    // chips d'hier resteraient affichées avec les offsets d'hier au-dessus du
+    // texte d'aujourd'hui. Piloté par la date et non par l'id de l'entité, qui
+    // repasse par `null` tant que l'entrée du jour n'est pas créée.
     runIdRef.current++;
     lastTextRef.current = "";
+    lastRunCandidateCountRef.current = -1;
     setSuggestions([]);
+    setAnalyzedText("");
     setTruncated(false);
-  }, [dailyEntityId]);
+  }, [date]);
 
   const dismissMention = useCallback((key: string) => {
     setSuggestions((prev) => prev.filter((s) => s.key !== key));
@@ -123,12 +201,19 @@ export function useJournalExtraction(dailyEntityId: string | null): UseJournalEx
       createTodo
         .mutateAsync({
           typeId: TODO_TYPE_ID,
+          // ⚠️ Surtout pas de `sourceNoteId` ici : sur une entité `todo` ce
+          // champ marque une entité héritée de l'ancien réconciliateur —
+          // /todos la masque, la compte dans la bannière de migration, et
+          // `lib/todos/migration.ts` la supprime faute de ligne `- [ ]`
+          // correspondante dans le corps de la note.
           fields: {
             text: suggestion.action.text,
             done: false,
+            // Défaut de /todos et de useConvertToTodo : sans lui, pas de badge
+            // P{n} et un tri différent des autres tâches.
+            priority: 5,
             importance: suggestion.action.priority,
             ...(suggestion.action.deadline ? { dueDate: suggestion.action.deadline } : {}),
-            ...(dailyEntityId ? { sourceNoteId: dailyEntityId } : {}),
           },
         })
         .then(() => {
@@ -144,8 +229,8 @@ export function useJournalExtraction(dailyEntityId: string | null): UseJournalEx
           });
         });
     },
-    [createTodo, dailyEntityId, dismissMention, toast, utils],
+    [createTodo, dismissMention, toast, utils],
   );
 
-  return { suggestions, truncated, trigger, dismissMention, acceptAction };
+  return { suggestions, analyzedText, truncated, trigger, dismissMention, acceptAction };
 }

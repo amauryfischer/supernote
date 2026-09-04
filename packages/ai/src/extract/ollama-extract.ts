@@ -7,6 +7,13 @@ import type { OllamaClient } from "../ollama/types.js";
 import type { ExtractedAction, EntityRef, MentionMatch } from "./types.js";
 import { ACTION_EXTRACT_PROMPT_V1, MENTION_EXTRACT_PROMPT_V1 } from "../prompts/index.js";
 
+/**
+ * Longueur maximale envoyée au modèle. Au-delà, la fin du texte n'est vue par
+ * personne : le repli heuristique ne joue que si Ollama ne rend rien. Exporté
+ * pour que l'UI puisse l'annoncer sans redire la valeur.
+ */
+export const OLLAMA_EXTRACT_TEXT_LIMIT = 4000;
+
 const ActionSchema = z.object({
   text: z.string(),
   assignee: z.string().nullable(),
@@ -51,7 +58,7 @@ export async function ollamaExtractActions(
 ): Promise<ExtractedAction[]> {
   const prompt = ACTION_EXTRACT_PROMPT_V1.replace(
     "{{noteContent}}",
-    noteContent.slice(0, 4000),
+    noteContent.slice(0, OLLAMA_EXTRACT_TEXT_LIMIT),
   );
 
   const raw = await client.generate({ prompt, format: "json", temperature: 0.1 });
@@ -78,7 +85,7 @@ export async function ollamaExtractMentions(
 
   const prompt = MENTION_EXTRACT_PROMPT_V1
     .replace("{{candidateEntities}}", entitiesText)
-    .replace("{{noteContent}}", noteContent.slice(0, 4000));
+    .replace("{{noteContent}}", noteContent.slice(0, OLLAMA_EXTRACT_TEXT_LIMIT));
 
   const raw = await client.generate({ prompt, format: "json", temperature: 0.1 });
   const parsed = parseJson(raw, MentionsResponseSchema);

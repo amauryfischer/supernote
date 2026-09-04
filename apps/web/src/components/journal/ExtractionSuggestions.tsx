@@ -2,6 +2,7 @@
 
 import { Chip } from "@heroui/react";
 import { Button, Tooltip } from "@supernote/ui";
+import { OLLAMA_EXTRACT_TEXT_LIMIT } from "@supernote/ai";
 import { Check, Info, X } from "@phosphor-icons/react";
 import type {
   ActionSuggestion,
@@ -95,8 +96,7 @@ export function ExtractionSuggestions({
           style={{ color: "var(--text-muted)" }}
         >
           <Info size={12} weight="bold" className="shrink-0" />
-          L’IA n’a lu que les 4 000 premiers caractères de cette entrée — les suggestions ne
-          couvrent pas la suite.
+          {`L’IA n’a lu que les ${OLLAMA_EXTRACT_TEXT_LIMIT.toLocaleString("fr-FR")} premiers caractères de cette entrée — les suggestions ne couvrent pas la suite.`}
         </p>
       )}
     </section>
