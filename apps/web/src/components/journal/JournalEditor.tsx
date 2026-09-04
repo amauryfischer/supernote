@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { FloppyDisk, WarningCircle } from "@phosphor-icons/react";
 import type { SupernoteEditorProps } from "@supernote/editor";
+import { useToast } from "@supernote/ui";
 import { useDailyEntity } from "@/hooks/useDailyEntity";
 
 const SupernoteEditor = dynamic<SupernoteEditorProps>(
@@ -31,9 +32,19 @@ interface PendingFlush {
   persist: (markdown: string) => Promise<void>;
 }
 
+function formatDisplayDate(date: string): string {
+  return new Date(date + "T12:00:00").toLocaleDateString("fr-FR", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+}
+
 export function JournalEditor({ date }: JournalEditorProps) {
   const { initialMarkdown, isLoading, persist } = useDailyEntity(date);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
+  const { toast } = useToast();
 
   // `<JournalEditor>` n'est jamais remonté au changement de date (seul
   // `<SupernoteEditor key={date}>` l'est) — ces refs doivent donc porter
@@ -48,20 +59,40 @@ export function JournalEditor({ date }: JournalEditorProps) {
       try {
         await doPersist(markdown);
         // Un résultat pour une date qu'on ne regarde plus ne doit pas se
-        // faire passer pour le statut de sauvegarde de la date affichée.
-        if (forDate === dateRef.current) {
+        // faire passer pour le statut de sauvegarde de la date affichée — et
+        // même à date constante, un debounce plus récent déjà armé (frappe
+        // pendant que CE persist attendait le réseau) signifie qu'un contenu
+        // plus frais n'est pas encore sauvegardé : ne pas afficher "Sauvegardé"
+        // pour lui à sa place.
+        if (forDate === dateRef.current && !debounceRef.current) {
           setSaveStatus("saved");
           setTimeout(() => setSaveStatus("idle"), 2000);
         }
       } catch (err) {
         console.error("[journal] échec de la sauvegarde", err);
-        // Contrairement à "saved", pas d'auto-retour à "idle" : un échec ne
-        // doit pas disparaître silencieusement pendant que l'utilisateur
-        // regarde ailleurs. Reste affiché jusqu'à la prochaine tentative.
-        if (forDate === dateRef.current) setSaveStatus("error");
+        if (forDate === dateRef.current) {
+          // Contrairement à "saved", pas d'auto-retour à "idle" : un échec ne
+          // doit pas disparaître silencieusement pendant que l'utilisateur
+          // regarde ailleurs. Reste affiché jusqu'à la prochaine tentative.
+          // Un debounce plus récent déjà armé rejouera le contenu complet —
+          // rien d'irrécupérable dans ce cas, pas la peine d'alerter.
+          if (!debounceRef.current) setSaveStatus("error");
+        } else {
+          // La date affichée a changé depuis ce persist (flush au changement
+          // de date / au démontage, ou navigation pendant un envoi encore en
+          // vol) : aucun badge ne peut plus représenter cet échec, et le
+          // markdown n'existe plus nulle part ailleurs — irrécupérable sans
+          // ce signal.
+          toast({
+            title: "Sauvegarde échouée",
+            description: `L'entrée du ${formatDisplayDate(forDate)} n'a pas été enregistrée.`,
+            variant: "danger",
+            duration: 0,
+          });
+        }
       }
     },
-    [],
+    [toast],
   );
 
   // Détecté PENDANT le rendu — avant que l'enfant SupernoteEditor (qui,
@@ -82,6 +113,11 @@ export function JournalEditor({ date }: JournalEditorProps) {
   persistRef.current = persist;
 
   useEffect(() => {
+    // Le statut affiché appartenait à l'ancienne date — jamais pertinent
+    // pour celle qu'on vient d'afficher. Ferme aussi bien le "Sauvegarde…"
+    // résiduel que l'"error" qui, lui, ne s'efface jamais tout seul (cf.
+    // runPersist) et resterait sinon collé indéfiniment sur la nouvelle date.
+    setSaveStatus("idle");
     const toFlush = pendingFlushRef.current;
     if (!toFlush) return;
     pendingFlushRef.current = null;
@@ -108,10 +144,13 @@ export function JournalEditor({ date }: JournalEditorProps) {
 
   const handleSave = useCallback(
     (markdown: string) => {
+      // Symétrique à handleChange : un debounce d'une AUTRE date (en
+      // théorie inatteignable, le rendu l'a déjà détaché) ne doit jamais
+      // être vidé sans être flushé.
       if (debounceRef.current && debounceRef.current.date === date) {
         clearTimeout(debounceRef.current.timer);
+        debounceRef.current = null;
       }
-      debounceRef.current = null;
       setSaveStatus("saving");
       void runPersist(date, markdown, persist);
     },
@@ -131,12 +170,7 @@ export function JournalEditor({ date }: JournalEditorProps) {
     };
   }, [runPersist]);
 
-  const displayDate = new Date(date + "T12:00:00").toLocaleDateString("fr-FR", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  });
+  const displayDate = formatDisplayDate(date);
 
   if (isLoading) {
     return (

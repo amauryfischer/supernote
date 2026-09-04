@@ -75,7 +75,23 @@ export function useDailyEntity(date: string): UseDailyEntityResult {
   const opStatesRef = useRef<Map<string, DateOpState>>(new Map());
 
   const createMutation = trpc.entities.create.useMutation();
-  const updateMutation = trpc.entities.update.useMutation();
+  // `initialMarkdown` lit `existing?.body` depuis CE cache — sans patch au
+  // succès, le body y restait figé sur le dernier create/refetch (seul le
+  // chemin create invalidait) et une navigation A→B→A ré-affichait un
+  // contenu périmé que la frappe suivante écrasait pour de bon. Patché en
+  // place plutôt qu'invalidate : un invalidate à chaque debounce d'1s
+  // referait un aller-retour sur la liste typeId=daily entière (limit 5000).
+  const updateMutation = trpc.entities.update.useMutation({
+    onSuccess: (updated) => {
+      utils.entities.list.setData(
+        { typeId: DAILY_TYPE_ID, limit: DAILY_LIMIT, offset: 0 },
+        (old) =>
+          old
+            ? { ...old, items: old.items.map((item) => (item.id === updated.id ? updated : item)) }
+            : old,
+      );
+    },
+  });
 
   const persist = useCallback(
     (markdown: string): Promise<void> => {
