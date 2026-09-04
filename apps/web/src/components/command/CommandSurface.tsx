@@ -9,6 +9,7 @@ import { useShortcut } from "@/lib/keyboard/hooks";
 import { useRegisterCommands } from "@/lib/commands/hooks";
 import { buildSeedCommands } from "@/lib/commands/seed";
 import { UnifiedSearchModal } from "@/components/mail/UnifiedSearchModal";
+import { QuickCaptureOverlay } from "./QuickCaptureOverlay";
 
 // CommandPalette pulls in the entire command catalogue UI; defer it until the
 // user actually opens the palette. The first Cmd+K mounts it; subsequent opens
@@ -29,6 +30,7 @@ const CommandPalette = dynamic(
 export function CommandSurface() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [unifiedOpen, setUnifiedOpen] = useState(false);
+  const [captureOpen, setCaptureOpen] = useState(false);
 
   const navigate = useNavigate();
   const { theme, setTheme, resolvedTheme } = useAppTheme();
@@ -141,6 +143,28 @@ export function CommandSurface() {
     },
   });
 
+  // Cmd+Shift+N — capture rapide dans l'entrée du jour. Combo libre au scope
+  // global (aucun conflit — cf. les combos déjà pris ci-dessus).
+  // ⚠️ Chrome réserve Ctrl/Cmd+Shift+N (fenêtre de navigation privée) : la
+  // page ne reçoit alors jamais la combinaison. L'event ci-dessous reste
+  // l'ouverture programmatique fiable.
+  useShortcut({
+    id: "capture.open",
+    keys: "mod+shift+n",
+    scope: "global",
+    description: "Capture rapide dans l'entrée du jour",
+    handler: () => {
+      setCaptureOpen(true);
+      return true;
+    },
+  });
+
+  useEffect(() => {
+    const handler = () => setCaptureOpen(true);
+    window.addEventListener("supernote:open-quick-capture", handler);
+    return () => window.removeEventListener("supernote:open-quick-capture", handler);
+  }, []);
+
   // Cmd+N — handled inside the notes view (see /notes & /notes/[id]) so it
   // can call the real `handleNewNote` with the active folder. Registering it
   // globally here would shadow the per-page handler (first-match-wins).
@@ -167,6 +191,7 @@ export function CommandSurface() {
     <>
       {paletteOpen && <CommandPalette open={paletteOpen} onClose={closePalette} />}
       <UnifiedSearchModal isOpen={unifiedOpen} onClose={() => setUnifiedOpen(false)} />
+      <QuickCaptureOverlay isOpen={captureOpen} onClose={() => setCaptureOpen(false)} />
     </>
   );
 }

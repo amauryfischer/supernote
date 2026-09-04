@@ -7,6 +7,7 @@ import type { SupernoteEditorProps } from "@supernote/editor";
 import type { MentionMatch } from "@supernote/ai";
 import { useToast } from "@supernote/ui";
 import { useDailyEntity } from "@/hooks/useDailyEntity";
+import { registerLiveJournalEntry } from "@/lib/journal-live-entry";
 import {
   useJournalExtraction,
   type ActionSuggestion,
@@ -159,6 +160,12 @@ export function JournalEditor({ date }: JournalEditorProps) {
   // MentionMatch sont calculés contre CE texte. Tagué par date pour la même
   // raison que debounceRef.
   const lastExtractedRef = useRef<{ date: string; markdown: string } | null>(null);
+  // Dernier markdown connu de l'éditeur. Plus frais qu'`initialMarkdown`, qui
+  // ne bouge qu'au retour d'un persist (patch du cache React Query) : entre la
+  // frappe et ce retour, lui seul décrit ce que l'utilisateur voit. Base
+  // obligatoire de la capture rapide, sous peine de la faire écrire par-dessus
+  // du texte déjà tapé.
+  const liveMarkdownRef = useRef<{ date: string; markdown: string } | null>(null);
   // Suggestions écartées (ignorées, ou action déjà transformée en tâche) : le
   // texte n'ayant pas changé, la passe suivante les reproposerait en boucle.
   const suppressedRef = useRef<{ date: string; keys: Set<string> }>({ date, keys: new Set() });
@@ -243,6 +250,7 @@ export function JournalEditor({ date }: JournalEditorProps) {
     // source de vérité.
     setOverride(null);
     suppressedRef.current = { date, keys: new Set() };
+    liveMarkdownRef.current = null;
     const pending = debounceRef.current;
     if (pending) {
       clearTimeout(pending.timer);
@@ -295,6 +303,7 @@ export function JournalEditor({ date }: JournalEditorProps) {
       if (debounceRef.current && debounceRef.current.date === date) {
         clearTimeout(debounceRef.current.timer);
       }
+      liveMarkdownRef.current = { date, markdown };
       setSaveStatus("saving");
       const timer = setTimeout(() => {
         debounceRef.current = null;
@@ -316,6 +325,7 @@ export function JournalEditor({ date }: JournalEditorProps) {
         clearTimeout(debounceRef.current.timer);
         debounceRef.current = null;
       }
+      liveMarkdownRef.current = { date, markdown };
       setSaveStatus("saving");
       const seq = ++seqRef.current;
       void runPersist(date, seq, markdown, persist);
@@ -360,6 +370,7 @@ export function JournalEditor({ date }: JournalEditorProps) {
         clearTimeout(pending.timer);
         debounceRef.current = null;
       }
+      liveMarkdownRef.current = { date, markdown: rewritten };
       setOverride((prev) => ({ date, markdown: rewritten, rev: (prev?.rev ?? 0) + 1 }));
       setSaveStatus("saving");
       const seq = ++seqRef.current;
@@ -394,6 +405,46 @@ export function JournalEditor({ date }: JournalEditorProps) {
     },
     [dismissMention, suggestions],
   );
+
+  // Capture rapide : le texte vient de l'overlay, pas de l'éditeur. Même
+  // mécanique qu'une mention acceptée — réécriture du markdown puis remontage
+  // via `override`, jamais de mutation du DOM ProseMirror.
+  const appendCapture = useCallback(
+    (text: string) => {
+      const live = liveMarkdownRef.current?.date === date ? liveMarkdownRef.current.markdown : null;
+      const base = (live ?? initialMarkdown).trimEnd();
+      const next = base.length > 0 ? `${base}\n\n${text}` : text;
+      const pending = debounceRef.current?.date === date ? debounceRef.current : null;
+      if (pending) {
+        // Son markdown est celui d'AVANT la capture : le laisser tirer
+        // réécrirait l'entrée sans elle.
+        clearTimeout(pending.timer);
+        debounceRef.current = null;
+      }
+      liveMarkdownRef.current = { date, markdown: next };
+      setOverride((prev) => ({ date, markdown: next, rev: (prev?.rev ?? 0) + 1 }));
+      setSaveStatus("saving");
+      const seq = ++seqRef.current;
+      void runPersist(date, seq, next, persist);
+      submitExtraction(date, next);
+    },
+    [date, initialMarkdown, persist, runPersist, submitExtraction],
+  );
+
+  // Le registre ne veut qu'une fonction stable : `appendCapture` change à
+  // chaque rendu (dep `persist`), et se réinscrire à chaque rendu déferait
+  // l'inscription sous la capture qui la lit.
+  const appendCaptureRef = useRef(appendCapture);
+  appendCaptureRef.current = appendCapture;
+
+  // Tant que cet éditeur est monté, il est le seul écrivain de sa date : la
+  // capture rapide lui remet son texte au lieu d'écrire en parallèle sur la
+  // même entité. Pas d'inscription pendant `isLoading` : l'entité du jour
+  // n'est pas encore connue, un persist en créerait une seconde pour la date.
+  useEffect(() => {
+    if (isLoading) return;
+    return registerLiveJournalEntry(date, (text) => appendCaptureRef.current(text));
+  }, [date, isLoading]);
 
   // Démontage réel de JournalEditor (navigation hors de /journal), distinct
   // du changement de date déjà géré ci-dessus : flush le debounce en

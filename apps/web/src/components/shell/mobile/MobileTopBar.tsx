@@ -47,7 +47,6 @@ const ROUTE_LABELS: Record<string, string> = {
   "/templates": "Templates",
   "/recherche": "Recherche",
   "/parametres": "Paramètres",
-  "/capture": "Capture",
 };
 
 /** Top-level routes (anything else gets a back button). */
@@ -67,7 +66,6 @@ const TOP_LEVEL = new Set([
   "/parametres",
   "/archive",
   "/schemas",
-  "/capture",
 ]);
 
 function deriveTitle(pathname: string): string {
