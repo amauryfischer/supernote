@@ -29,6 +29,29 @@ interface UseDailyEntityResult {
 }
 
 /**
+ * Bookkeeping d'un create `daily` en vol, pour UNE date. `JournalEditor`
+ * n'est jamais remonté au changement de date (seul `<SupernoteEditor
+ * key={date}>` l'est) — des refs simples sur le hook fuiraient donc d'une
+ * date à l'autre : le create de la date A resterait "en vol" pendant qu'on
+ * navigue vers B, et le markdown de B serait flushé sur l'entité de A.
+ */
+interface DateOpState {
+  creating: boolean;
+  pendingMarkdown: string | null;
+  pendingPromise: Promise<void> | null;
+  createdId: string | null;
+}
+
+function getOrCreateState(states: Map<string, DateOpState>, date: string): DateOpState {
+  let state = states.get(date);
+  if (!state) {
+    state = { creating: false, pendingMarkdown: null, pendingPromise: null, createdId: null };
+    states.set(date, state);
+  }
+  return state;
+}
+
+/**
  * Trouve ou prépare l'entité `daily` d'une date donnée. Réutilise la même
  * requête que `useDatesWithNote` (typeId=daily, limite large) plutôt que
  * d'ajouter une procédure IPC dédiée à une seule date.
@@ -47,63 +70,55 @@ export function useDailyEntity(date: string): UseDailyEntityResult {
     return null;
   }, [listQuery.data, date]);
 
-  // Comble la fenêtre entre "create a réussi" et "le refetch a vu la
-  // nouvelle entité" : sans ça, deux persist() rapprochés avant refetch
-  // créeraient deux entités `daily` pour la même date.
-  const createdIdRef = useRef<string | null>(null);
-
-  // Comble la fenêtre PRÉCÉDENTE : entre "create dispatché" et "create
-  // résolu". Sans ça, deux persist() coup sur coup avant réponse du premier
-  // create (ex. l'auto-save à 1000ms puis un Ctrl+S juste après) partent
-  // tous les deux en `create` faute d'id connu, et dupliquent l'entité
-  // `daily` du jour. Le markdown le plus récent arrivé pendant qu'un create
-  // est en vol est mis en attente (dernier gagne, jamais perdu) et rejoué en
-  // `update` une fois l'id connu.
-  const creatingRef = useRef(false);
-  const pendingMarkdownRef = useRef<string | null>(null);
-  const pendingPromiseRef = useRef<Promise<void> | null>(null);
+  // Une entrée par date visitée dans cette session d'édition — voir
+  // DateOpState ci-dessus pour le pourquoi de la Map plutôt que des refs.
+  const opStatesRef = useRef<Map<string, DateOpState>>(new Map());
 
   const createMutation = trpc.entities.create.useMutation();
   const updateMutation = trpc.entities.update.useMutation();
 
   const persist = useCallback(
     (markdown: string): Promise<void> => {
-      const id = existing?.id ?? createdIdRef.current;
+      const state = getOrCreateState(opStatesRef.current, date);
+      const id = existing?.id ?? state.createdId;
       if (id) {
         return updateMutation.mutateAsync({ id, body: markdown }).then(() => undefined);
       }
 
-      if (creatingRef.current) {
-        pendingMarkdownRef.current = markdown;
-        return pendingPromiseRef.current ?? Promise.resolve();
+      if (state.creating) {
+        // `creating` et `pendingPromise` sont posés dans le même tick
+        // synchrone plus bas, jamais observables séparément — pendingPromise
+        // est donc garanti non-null ici.
+        state.pendingMarkdown = markdown;
+        return state.pendingPromise!;
       }
 
-      creatingRef.current = true;
-      pendingMarkdownRef.current = null;
+      state.creating = true;
+      state.pendingMarkdown = null;
       const promise = createMutation
         .mutateAsync({ typeId: DAILY_TYPE_ID, fields: { date }, body: markdown })
         .then((created) => {
-          createdIdRef.current = created.id;
+          state.createdId = created.id;
           void utils.entities.list.invalidate({ typeId: DAILY_TYPE_ID });
-          const pending = pendingMarkdownRef.current;
-          pendingMarkdownRef.current = null;
+          const pending = state.pendingMarkdown;
+          state.pendingMarkdown = null;
           if (pending === null) return undefined;
           // Une frappe est arrivée pendant le create — la rejouer avec le
           // markdown le plus frais plutôt que la considérer sauvegardée.
           return updateMutation.mutateAsync({ id: created.id, body: pending }).then(() => undefined);
         })
         .finally(() => {
-          creatingRef.current = false;
-          pendingPromiseRef.current = null;
+          state.creating = false;
+          state.pendingPromise = null;
         });
-      pendingPromiseRef.current = promise;
+      state.pendingPromise = promise;
       return promise;
     },
     [existing, date, createMutation, updateMutation, utils],
   );
 
   return {
-    entityId: existing?.id ?? createdIdRef.current,
+    entityId: existing?.id ?? opStatesRef.current.get(date)?.createdId ?? null,
     initialMarkdown: existing?.body ?? buildTemplateMarkdown(date),
     isLoading: listQuery.isLoading,
     persist,
