@@ -25,7 +25,7 @@ interface UseDailyEntityResult {
   entityId: string | null;
   initialMarkdown: string;
   isLoading: boolean;
-  persist: (markdown: string) => void;
+  persist: (markdown: string) => Promise<void>;
 }
 
 /**
@@ -52,28 +52,54 @@ export function useDailyEntity(date: string): UseDailyEntityResult {
   // créeraient deux entités `daily` pour la même date.
   const createdIdRef = useRef<string | null>(null);
 
-  const createMutation = trpc.entities.create.useMutation({
-    onSuccess: (created) => {
-      createdIdRef.current = created.id;
-      void utils.entities.list.invalidate({ typeId: DAILY_TYPE_ID });
-    },
-  });
+  // Comble la fenêtre PRÉCÉDENTE : entre "create dispatché" et "create
+  // résolu". Sans ça, deux persist() coup sur coup avant réponse du premier
+  // create (ex. l'auto-save à 1000ms puis un Ctrl+S juste après) partent
+  // tous les deux en `create` faute d'id connu, et dupliquent l'entité
+  // `daily` du jour. Le markdown le plus récent arrivé pendant qu'un create
+  // est en vol est mis en attente (dernier gagne, jamais perdu) et rejoué en
+  // `update` une fois l'id connu.
+  const creatingRef = useRef(false);
+  const pendingMarkdownRef = useRef<string | null>(null);
+  const pendingPromiseRef = useRef<Promise<void> | null>(null);
+
+  const createMutation = trpc.entities.create.useMutation();
   const updateMutation = trpc.entities.update.useMutation();
 
   const persist = useCallback(
-    (markdown: string) => {
+    (markdown: string): Promise<void> => {
       const id = existing?.id ?? createdIdRef.current;
       if (id) {
-        void updateMutation.mutateAsync({ id, body: markdown });
-      } else {
-        void createMutation.mutateAsync({
-          typeId: DAILY_TYPE_ID,
-          fields: { date },
-          body: markdown,
-        });
+        return updateMutation.mutateAsync({ id, body: markdown }).then(() => undefined);
       }
+
+      if (creatingRef.current) {
+        pendingMarkdownRef.current = markdown;
+        return pendingPromiseRef.current ?? Promise.resolve();
+      }
+
+      creatingRef.current = true;
+      pendingMarkdownRef.current = null;
+      const promise = createMutation
+        .mutateAsync({ typeId: DAILY_TYPE_ID, fields: { date }, body: markdown })
+        .then((created) => {
+          createdIdRef.current = created.id;
+          void utils.entities.list.invalidate({ typeId: DAILY_TYPE_ID });
+          const pending = pendingMarkdownRef.current;
+          pendingMarkdownRef.current = null;
+          if (pending === null) return undefined;
+          // Une frappe est arrivée pendant le create — la rejouer avec le
+          // markdown le plus frais plutôt que la considérer sauvegardée.
+          return updateMutation.mutateAsync({ id: created.id, body: pending }).then(() => undefined);
+        })
+        .finally(() => {
+          creatingRef.current = false;
+          pendingPromiseRef.current = null;
+        });
+      pendingPromiseRef.current = promise;
+      return promise;
     },
-    [existing, date, createMutation, updateMutation],
+    [existing, date, createMutation, updateMutation, utils],
   );
 
   return {

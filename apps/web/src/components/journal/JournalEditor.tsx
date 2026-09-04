@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { FloppyDisk } from "@phosphor-icons/react";
+import { FloppyDisk, WarningCircle } from "@phosphor-icons/react";
 import type { SupernoteEditorProps } from "@supernote/editor";
 import { useDailyEntity } from "@/hooks/useDailyEntity";
 
@@ -15,34 +15,48 @@ interface JournalEditorProps {
   date: string; // "YYYY-MM-DD"
 }
 
-type SaveStatus = "idle" | "saving" | "saved";
+type SaveStatus = "idle" | "saving" | "saved" | "error";
 
 export function JournalEditor({ date }: JournalEditorProps) {
   const { initialMarkdown, isLoading, persist } = useDailyEntity(date);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const runPersist = useCallback(
+    async (markdown: string) => {
+      try {
+        await persist(markdown);
+        setSaveStatus("saved");
+        setTimeout(() => setSaveStatus("idle"), 2000);
+      } catch (err) {
+        console.error("[journal] échec de la sauvegarde", err);
+        // Contrairement à "saved", pas d'auto-retour à "idle" : un échec ne
+        // doit pas disparaître silencieusement pendant que l'utilisateur
+        // regarde ailleurs. Reste affiché jusqu'à la prochaine tentative.
+        setSaveStatus("error");
+      }
+    },
+    [persist],
+  );
+
   const handleChange = useCallback(
     (markdown: string) => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
       setSaveStatus("saving");
       debounceRef.current = setTimeout(() => {
-        persist(markdown);
-        setSaveStatus("saved");
-        setTimeout(() => setSaveStatus("idle"), 2000);
+        void runPersist(markdown);
       }, 1000);
     },
-    [persist],
+    [runPersist],
   );
 
   const handleSave = useCallback(
     (markdown: string) => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
-      persist(markdown);
-      setSaveStatus("saved");
-      setTimeout(() => setSaveStatus("idle"), 2000);
+      setSaveStatus("saving");
+      void runPersist(markdown);
     },
-    [persist],
+    [runPersist],
   );
 
   useEffect(() => {
@@ -73,10 +87,21 @@ export function JournalEditor({ date }: JournalEditorProps) {
           {displayDate}
         </h1>
         {saveStatus !== "idle" && (
-          <div className="mt-2 flex items-center gap-1" style={{ color: "var(--text-muted)" }}>
-            <FloppyDisk size={11} />
+          <div
+            className="mt-2 flex items-center gap-1"
+            style={{ color: saveStatus === "error" ? "var(--danger)" : "var(--text-muted)" }}
+          >
+            {saveStatus === "error" ? (
+              <WarningCircle size={11} weight="bold" />
+            ) : (
+              <FloppyDisk size={11} />
+            )}
             <span className="text-[10px]">
-              {saveStatus === "saving" ? "Sauvegarde…" : "Sauvegardé"}
+              {saveStatus === "saving"
+                ? "Sauvegarde…"
+                : saveStatus === "error"
+                  ? "Échec de la sauvegarde"
+                  : "Sauvegardé"}
             </span>
           </div>
         )}
