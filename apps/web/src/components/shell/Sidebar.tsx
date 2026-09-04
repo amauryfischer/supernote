@@ -126,22 +126,20 @@ export const Sidebar = memo(function Sidebar() {
   // Built-in features behave like plugins: each has a localStorage flag
   // controlling whether its nav entry is visible. Hooks must run in a fixed
   // order, so we read every gate upfront and expose an item→visible predicate.
-  // Le catalogue `catalog.ts` tague chaque item avec un `gate` (journal /
-  // routines / mail) ; on applique ici la MÊME logique que le drawer mobile.
-  const journalEnabled = usePluginEnabled("journal", false);
+  // Le catalogue `catalog.ts` tague chaque item avec un `gate` (routines /
+  // mail) ; on applique ici la MÊME logique que le drawer mobile.
   const routinesEnabled = usePluginEnabled("routines", true);
   const gmailConnected = useGmailConnected();
   // Fils non lus en boîte de réception → badge discret sur l'entrée « Mail ».
   // Le hook renvoie 0 (donc pas de badge) tant que Gmail n'est pas connecté.
   const mailUnread = useInboxUnreadCount();
   const gateEnabled: Record<NavGate, boolean> = {
-    journal: journalEnabled,
     routines: routinesEnabled,
     mail: gmailConnected,
   };
   const isItemVisible = useCallback(
     (item: NavItem) => (item.gate ? gateEnabled[item.gate] : true),
-    [journalEnabled, routinesEnabled, gmailConnected],
+    [routinesEnabled, gmailConnected],
   );
   // Show the active vault name in the brand header. In Electron the PWA hook
   // is bypassed (vault === null) and we fall back to the static product name.

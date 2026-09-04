@@ -103,16 +103,9 @@ export interface BuiltInPlugin {
 
 /**
  * Catalogue of built-in features that can be toggled from Settings → Plugins.
- * Only Journal is opt-in (defaultOn: false); the rest preserve current
- * behaviour but can be hidden by power users.
+ * All default on; preserved for power users who want to hide them.
  */
 export const BUILT_IN_PLUGINS: BuiltInPlugin[] = [
-  {
-    slug: "journal",
-    defaultOn: false,
-    name: "Journal",
-    description: "Vue calendrier quotidienne pour les entrées de journal.",
-  },
   {
     slug: "routines",
     defaultOn: true,
@@ -128,7 +121,6 @@ export const BUILT_IN_PLUGINS: BuiltInPlugin[] = [
  * member to a string literal (no `string | undefined`).
  */
 export const PLUGIN_HREF_BY_SLUG = {
-  journal: "/journal",
   routines: "/routines",
 } as const satisfies Record<string, string>;
 

@@ -12,14 +12,13 @@
  *
  * Ce module est PUR data (pas de hook, pas de JSX) pour être importable partout.
  * Les libellés sont des clés i18n (`nav.*`) résolues par `useTranslations()`
- * côté composant. Les gates (`journal`, `routines`, `mail`) marquent les items
+ * côté composant. Les gates (`routines`, `mail`) marquent les items
  * dont la visibilité dépend d'un flag plugin / de la connexion Gmail : chaque
  * surface applique les hooks correspondants et filtre — mais de la MÊME façon.
  */
 
 import {
   Archive,
-  Calendar,
   CheckSquare,
   EnvelopeSimple,
   FileText,
@@ -39,7 +38,7 @@ import {
 export type NavGroupId = "navigation" | "knowledge" | "tools";
 
 /** Gate de visibilité — même sémantique appliquée sur toutes les surfaces. */
-export type NavGate = "journal" | "routines" | "mail";
+export type NavGate = "routines" | "mail";
 
 export interface NavItem {
   href: string;
@@ -77,7 +76,6 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { href: "/archive", labelKey: "nav.archive", icon: Archive, group: "knowledge" },
   { href: "/todos", labelKey: "nav.todos", icon: CheckSquare, group: "knowledge" },
   { href: "/habits", labelKey: "nav.habits", icon: GridNine, group: "knowledge" },
-  { href: "/journal", labelKey: "nav.journal", icon: Calendar, group: "knowledge", gate: "journal" },
   { href: "/contacts", labelKey: "nav.contacts", icon: Users, group: "knowledge" },
   { href: "/finance", labelKey: "nav.finance", icon: Wallet, group: "knowledge" },
 

@@ -30,6 +30,7 @@ import { useVault } from "@/lib/pwa/PwaVaultSetup";
 import { useGmailConnected } from "@/hooks/useGmailConnected";
 import { usePluginEnabled } from "@/hooks/usePluginEnabled";
 import { MobileVaultSwitcher } from "./MobileVaultSwitcher";
+import { MobileStatusCard } from "./MobileStatusCard";
 import { ShortcutsCheatSheet } from "@/components/notes/ShortcutsCheatSheet";
 import {
   NAV_GROUP_ORDER,
@@ -158,8 +159,7 @@ export const MoreDrawer = memo(function MoreDrawer({
   const pathname = usePathname();
   const t = useTranslations();
   // Gates de visibilité — mêmes flags que le sidebar desktop, appliqués ici de
-  // façon identique pour garantir la parité (journal masqué par défaut, etc.).
-  const journalEnabled = usePluginEnabled("journal", false);
+  // façon identique pour garantir la parité.
   const routinesEnabled = usePluginEnabled("routines", true);
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [cheatOpen, setCheatOpen] = useState(false);
@@ -185,7 +185,6 @@ export const MoreDrawer = memo(function MoreDrawer({
   const vaultSubtitle = isCloudVault ? "Cloud · temps réel" : "Supernote · vault local";
 
   const gateEnabled: Record<NavGate, boolean> = {
-    journal: journalEnabled,
     routines: routinesEnabled,
     mail: gmailConnected,
   };
@@ -359,6 +358,8 @@ export const MoreDrawer = memo(function MoreDrawer({
               </button>
             </div>
           </div>
+
+          <MobileStatusCard onClose={onClose} />
 
           {/* Sections dérivées du catalogue — chaque groupe = une carte
               arrondie. Libellé de section aligné sur le sidebar desktop (i18n),

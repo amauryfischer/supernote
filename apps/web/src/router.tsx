@@ -83,8 +83,8 @@ export const router: any = createBrowserRouter([
     Component: RootLayout,
     ErrorBoundary: RouteErrorBoundary,
     children: [
-      // ── Home ──────────────────────────────────────────────────────────
-      { index: true, lazy: lazyPage(() => import("./app/page")) },
+      // ── Home (le Journal du jour — voir docs/superpowers/specs/2026-09-03-flux-journal-design.md) ──
+      { index: true, lazy: lazyPage(() => import("./app/journal/page")) },
 
       // ── Notes ─────────────────────────────────────────────────────────
       { path: "notes", lazy: lazyPage(() => import("./app/notes/page")) },
@@ -152,11 +152,12 @@ export const router: any = createBrowserRouter([
       { path: "parametres", lazy: lazyPage(() => import("./app/parametres/page")) },
       { path: "capture", lazy: lazyPage(() => import("./app/capture/page")) },
       { path: "command-demo", lazy: lazyPage(() => import("./app/command-demo/page")) },
+      { path: "dev/writing-surface", lazy: lazyPage(() => import("./app/dev/writing-surface/page")) },
 
       // ── 404 fallback ──────────────────────────────────────────────────
       // Returns the home page on unknown URLs. Replace with a dedicated
       // not-found component if/when one is added.
-      { path: "*", lazy: lazyPage(() => import("./app/page")) },
+      { path: "*", lazy: lazyPage(() => import("./app/journal/page")) },
     ],
   },
 ]);
