@@ -37,7 +37,10 @@ export function ExtractionSuggestions({
   onAcceptAction,
   onReject,
 }: ExtractionSuggestionsProps) {
-  if (suggestions.length === 0) return null;
+  // L'avis de troncature vaut même sans chip : une entrée longue dont rien n'a
+  // survécu au filtrage est précisément le cas où l'utilisateur doit savoir que
+  // la fin n'a été lue par personne.
+  if (suggestions.length === 0 && !truncated) return null;
 
   return (
     <section

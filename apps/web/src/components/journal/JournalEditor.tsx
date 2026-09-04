@@ -69,7 +69,32 @@ function isInsideWikilink(text: string, start: number, end: number): boolean {
   const open = text.lastIndexOf("[[", start);
   if (open === -1) return false;
   if (text.lastIndexOf("]]", start) > open) return false;
-  return text.indexOf("]]", end) !== -1;
+  const close = text.indexOf("]]", end);
+  if (close === -1) return false;
+  // Un `[[` avant ce `]]` : la fermeture appartient à un lien qui commence
+  // APRÈS nous, donc le `[[` d'avant n'était jamais fermé et on est dehors.
+  const nextOpen = text.indexOf("[[", end);
+  return nextOpen === -1 || nextOpen > close;
+}
+
+/** Un `[[Nom]]` écrit dans du code y resterait littéral et corromprait l'échantillon. */
+function isInsideCode(text: string, start: number): boolean {
+  const before = text.slice(0, start);
+  const fences = before.match(/^[ \t]*```/gm);
+  if (fences && fences.length % 2 === 1) return true;
+  const lineStart = before.lastIndexOf("\n") + 1;
+  return (before.slice(lineStart).split("`").length - 1) % 2 === 1;
+}
+
+/** Positions où `[[…]]` peut réellement remplacer `needle` sans rien casser. */
+function writableOccurrences(base: string, needle: string): number[] {
+  const out: number[] = [];
+  for (let at = base.indexOf(needle); at !== -1; at = base.indexOf(needle, at + 1)) {
+    if (isInsideWikilink(base, at, at + needle.length)) continue;
+    if (isInsideCode(base, at)) continue;
+    out.push(at);
+  }
+  return out;
 }
 
 /**
@@ -78,17 +103,27 @@ function isInsideWikilink(text: string, start: number, end: number): boolean {
  * source `ollama` ce sont des entiers rendus par le modèle, validés seulement
  * comme entiers positifs ; et le texte a pu bouger pendant la passe. On
  * n'écrit donc que là où `matchedText` se trouve littéralement.
+ *
+ * Les occurrences déjà liées sont retirées AVANT d'arbitrer : sinon, un contact
+ * cité deux fois n'est liable qu'une seule fois par journée — la seconde
+ * occurrence perd toujours contre la première, que `oneMentionPerEntity` a
+ * choisie et que le wikilink vient de neutraliser.
  */
 function resolveMentionSpan(base: string, match: MentionMatch): [number, number] | null {
   if (!match.matchedText) return null;
-  if (base.slice(match.startOffset, match.endOffset) === match.matchedText) {
+  const len = match.matchedText.length;
+  const free = writableOccurrences(base, match.matchedText);
+  if (free.length === 0) return null;
+  if (
+    base.slice(match.startOffset, match.endOffset) === match.matchedText &&
+    free.includes(match.startOffset)
+  ) {
     return [match.startOffset, match.endOffset];
   }
-  // Repli sur une occurrence UNIQUE : plusieurs candidates, rien ne dit
-  // laquelle le modèle visait.
-  const first = base.indexOf(match.matchedText);
-  if (first === -1 || base.indexOf(match.matchedText, first + 1) !== -1) return null;
-  return [first, first + match.matchedText.length];
+  // Une seule occurrence libre : c'est forcément celle-là. Plusieurs, avec des
+  // offsets qui ne correspondent plus — rien ne dit laquelle le modèle visait.
+  if (free.length > 1) return null;
+  return [free[0]!, free[0]! + len];
 }
 
 function formatDisplayDate(date: string): string {
@@ -101,7 +136,7 @@ function formatDisplayDate(date: string): string {
 }
 
 export function JournalEditor({ date }: JournalEditorProps) {
-  const { initialMarkdown, isLoading, persist } = useDailyEntity(date);
+  const { entityId, initialMarkdown, isLoading, persist } = useDailyEntity(date);
   const {
     suggestions,
     truncated,
@@ -226,6 +261,32 @@ export function JournalEditor({ date }: JournalEditorProps) {
     void runPersist(toFlush.date, seq, toFlush.markdown, toFlush.persist);
   }, [date, runPersist]);
 
+  // Point de passage unique vers l'extraction. Le dédoublonnage n'est pas une
+  // optimisation : à l'ouverture, la passe de chargement et le `onChange` que
+  // BlockNote émet au montage (ensureTrailingParagraph) soumettent le même
+  // texte à une seconde d'intervalle, pour deux appels au modèle.
+  const submitExtraction = useCallback(
+    (forDate: string, markdown: string) => {
+      const last = lastExtractedRef.current;
+      if (last?.date === forDate && last.markdown === markdown) return;
+      lastExtractedRef.current = { date: forDate, markdown };
+      triggerExtraction(markdown);
+    },
+    [triggerExtraction],
+  );
+
+  // Le journal est la page d'accueil : on l'ouvre bien plus souvent qu'on n'y
+  // tape. Sans passe au chargement, une journée déjà rédigée — la veille, ou
+  // sur mobile où l'IA ne tourne pas — n'a jamais la moindre suggestion.
+  // `entityId` plutôt que le markdown : le gabarit d'une journée vierge est du
+  // texte, mais rien n'y a été écrit.
+  useEffect(() => {
+    if (isLoading || !entityId) return;
+    if (lastExtractedRef.current?.date === date) return;
+    if (!initialMarkdown.trim()) return;
+    submitExtraction(date, initialMarkdown);
+  }, [date, entityId, initialMarkdown, isLoading, submitExtraction]);
+
   const handleChange = useCallback(
     (markdown: string) => {
       // Un debounce en attente pour CETTE date est remplacé (dernier gagne,
@@ -239,12 +300,11 @@ export function JournalEditor({ date }: JournalEditorProps) {
         debounceRef.current = null;
         const seq = ++seqRef.current;
         void runPersist(date, seq, markdown, persist);
-        lastExtractedRef.current = { date, markdown };
-        triggerExtraction(markdown);
+        submitExtraction(date, markdown);
       }, 1000);
       debounceRef.current = { date, markdown, timer };
     },
-    [date, persist, runPersist, triggerExtraction],
+    [date, persist, runPersist, submitExtraction],
   );
 
   const handleSave = useCallback(
@@ -259,10 +319,9 @@ export function JournalEditor({ date }: JournalEditorProps) {
       setSaveStatus("saving");
       const seq = ++seqRef.current;
       void runPersist(date, seq, markdown, persist);
-      lastExtractedRef.current = { date, markdown };
-      triggerExtraction(markdown);
+      submitExtraction(date, markdown);
     },
-    [date, persist, runPersist, triggerExtraction],
+    [date, persist, runPersist, submitExtraction],
   );
 
   // Une mention acceptée réécrit le markdown puis le persiste — jamais une
@@ -279,8 +338,18 @@ export function JournalEditor({ date }: JournalEditorProps) {
       // aucune réécriture ne peut alors être rattachée au texte affiché.
       const base = pending?.markdown ?? lastExtracted?.markdown ?? null;
       const span = base === null ? null : resolveMentionSpan(base, match);
-      if (base === null || span === null || isInsideWikilink(base, span[0], span[1])) {
+      if (base === null || span === null) {
+        // Ne PAS suppresser : la position est indécidable maintenant, pas la
+        // mention. Un abandon muet donnerait une chip qui revient et un clic
+        // sans effet, en boucle — le toast dit que la suite est de réessayer.
         dismissMention(suggestion.key);
+        toast({
+          title: "Mention non appliquée",
+          description:
+            `« ${match.matchedText} » n'est plus à la position analysée. ` +
+            "La suggestion reviendra à la prochaine passe.",
+          variant: "warning",
+        });
         return;
       }
       const rewritten = base.slice(0, span[0]) + `[[${match.entityName}]]` + base.slice(span[1]);
@@ -291,22 +360,30 @@ export function JournalEditor({ date }: JournalEditorProps) {
         clearTimeout(pending.timer);
         debounceRef.current = null;
       }
-      lastExtractedRef.current = { date, markdown: rewritten };
       setOverride((prev) => ({ date, markdown: rewritten, rev: (prev?.rev ?? 0) + 1 }));
       setSaveStatus("saving");
       const seq = ++seqRef.current;
       void runPersist(date, seq, rewritten, persist);
       dismissMention(suggestion.key);
+      // Relancer sur le texte réécrit : une seconde occurrence du même contact
+      // ne devient proposable qu'une fois la première neutralisée.
+      submitExtraction(date, rewritten);
     },
-    [date, dismissMention, persist, runPersist],
+    [date, dismissMention, persist, runPersist, submitExtraction, toast],
   );
 
   const handleAcceptAction = useCallback(
     (suggestion: ActionSuggestion) => {
-      suppressedRef.current.keys.add(suggestionContentKey(suggestion));
-      acceptAction(suggestion);
+      const forDate = date;
+      void acceptAction(suggestion).then((created) => {
+        // Écarter avant l'issue perdrait définitivement une action que le clic
+        // a bien demandée mais que le worker a refusée : la chip est déjà
+        // retirée, seule une passe ultérieure peut la reproposer.
+        if (!created || suppressedRef.current.date !== forDate) return;
+        suppressedRef.current.keys.add(suggestionContentKey(suggestion));
+      });
     },
-    [acceptAction],
+    [acceptAction, date],
   );
 
   const handleReject = useCallback(
@@ -342,15 +419,18 @@ export function JournalEditor({ date }: JournalEditorProps) {
   const visibleSuggestions = useMemo(() => {
     const suppressed = suppressedRef.current;
     const base = lastExtractedRef.current?.date === date ? lastExtractedRef.current.markdown : null;
+    // Aucune passe soumise pour cette date : ces chips — actions comprises —
+    // appartiennent à la veille. La purge du hook est un effet passif, donc
+    // post-commit : sans ce court-circuit, une frame les affiche au-dessus du
+    // texte du jour.
+    if (base === null) return [];
     return suggestions.filter((s) => {
       if (suppressed.date === date && suppressed.keys.has(suggestionContentKey(s))) return false;
       if (s.kind !== "mention") return true;
       // Même règle qu'à l'acceptation : ne pas proposer ce qu'on refuserait
-      // d'écrire — mention déjà liée, ou chip d'un texte qui n'est plus là
-      // (changement de date, frappe pendant la passe).
-      if (base === null) return false;
-      const span = resolveMentionSpan(base, s.match);
-      return span !== null && !isInsideWikilink(base, span[0], span[1]);
+      // d'écrire — occurrences déjà liées ou dans du code exclues, position
+      // indécidable exclue.
+      return resolveMentionSpan(base, s.match) !== null;
     });
   }, [suggestions, date]);
 

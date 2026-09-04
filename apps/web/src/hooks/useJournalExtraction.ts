@@ -44,7 +44,13 @@ interface UseJournalExtractionResult {
   trigger: (text: string) => void;
   /** Retire une suggestion (mention ou action) SANS toucher au texte. */
   dismissMention: (key: string) => void;
-  acceptAction: (suggestion: ActionSuggestion) => void;
+  /**
+   * Résout à `true` seulement si la tâche existe vraiment. La chip est retirée
+   * dès le clic (verrou anti-double-clic) : sans cette issue, l'appelant ne
+   * peut pas distinguer « créée » de « refusée par le worker » et écarterait
+   * définitivement une action que personne n'a enregistrée.
+   */
+  acceptAction: (suggestion: ActionSuggestion) => Promise<boolean>;
 }
 
 /**
@@ -195,10 +201,10 @@ export function useJournalExtraction(date: string): UseJournalExtractionResult {
   }, []);
 
   const acceptAction = useCallback(
-    (suggestion: ActionSuggestion) => {
+    (suggestion: ActionSuggestion): Promise<boolean> => {
       // Retiré d'abord : la chip disparue est le verrou anti-double-clic.
       dismissMention(suggestion.key);
-      createTodo
+      return createTodo
         .mutateAsync({
           typeId: TODO_TYPE_ID,
           // ⚠️ Surtout pas de `sourceNoteId` ici : sur une entité `todo` ce
@@ -219,6 +225,7 @@ export function useJournalExtraction(date: string): UseJournalExtractionResult {
         .then(() => {
           void utils.entities.list.invalidate({ typeId: TODO_TYPE_ID });
           toast({ title: "Tâche créée", description: suggestion.action.text, variant: "success" });
+          return true;
         })
         .catch((err: unknown) => {
           // La chip a déjà disparu : sans ce toast, l'échec serait invisible.
@@ -227,6 +234,7 @@ export function useJournalExtraction(date: string): UseJournalExtractionResult {
             description: err instanceof Error ? err.message : suggestion.action.text,
             variant: "danger",
           });
+          return false;
         });
     },
     [createTodo, dismissMention, toast, utils],
