@@ -76,7 +76,7 @@ export type {
 } from "./components/context-menu/index.js";
 
 export { ToastProvider, useToast } from "./components/toast/index.js";
-export type { ToastData, ToastVariant } from "./components/toast/index.js";
+export type { ToastAction, ToastData, ToastVariant } from "./components/toast/index.js";
 
 export { Tabs } from "./components/tabs/index.js";
 export type { TabsProps, TabItem } from "./components/tabs/index.js";

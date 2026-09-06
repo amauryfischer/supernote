@@ -13,6 +13,8 @@ import { usePathname } from "next/navigation";
 import type { Icon as PhosphorIcon } from "@phosphor-icons/react";
 import type { EntityType } from "@supernote/core";
 import type { View } from "@supernote/ipc";
+import type { AiMarginsStatus, DisplayComment } from "@/hooks/useAiMargins";
+import type { NoteBlock } from "@/lib/ai/blockComments";
 
 /**
  * localStorage key for the user's right-panel visibility preference.
@@ -72,6 +74,21 @@ export interface MobileHeaderAction {
   onPress: () => void;
   /** Optional badge dot (notification/dirty indicator). */
   active?: boolean;
+}
+
+/**
+ * Marges IA publiées par la note ouverte, pour que le panneau droit les rende
+ * quand la colonne intégrée ne tient pas. Un commentaire de marge doit rester
+ * AMBIANT : la feuille modale qui masquait la note détruisait sa raison d'être.
+ */
+export interface AiMarginsChrome {
+  comments: DisplayComment[];
+  status: AiMarginsStatus;
+  nothingToAnalyze: boolean;
+  /** Applique le correctif proposé sur le bloc visé. */
+  onApply: (block: NoteBlock, newText: string) => void;
+  /** Écarte la suggestion — elle ne revient pas à la passe suivante. */
+  onDismiss: (block: NoteBlock) => void;
 }
 
 export interface ColumnEditorState {
@@ -143,6 +160,10 @@ interface ShellChromeContextValue {
   entityPeek: EntityPeekState | null;
   openEntityPeek: (baseId: string, entityId: string) => void;
   closeEntityPeek: () => void;
+
+  /** Commentaires IA de la note ouverte, `null` hors note (ou colonne visible). */
+  aiMargins: AiMarginsChrome | null;
+  setAiMargins: (next: AiMarginsChrome | null) => void;
 }
 
 export interface EntityPeekState {
@@ -175,6 +196,27 @@ export function ShellChromeProvider({ children }: { children: React.ReactNode })
   }, []);
 
   const [entityPeek, setEntityPeek] = useState<EntityPeekState | null>(null);
+  const [aiMargins, setAiMarginsState] = useState<AiMarginsChrome | null>(null);
+
+  // Même précaution que `setMobileFab` : la note republie à chaque frappe, et
+  // sans ce court-circuit le shell entier (RightPanel `memo` compris) se
+  // rendrait à chaque touche.
+  const setAiMargins = useCallback((next: AiMarginsChrome | null) => {
+    setAiMarginsState((prev) => {
+      if (prev === next) return prev;
+      if (!prev || !next) return next;
+      if (
+        prev.comments === next.comments &&
+        prev.status === next.status &&
+        prev.nothingToAnalyze === next.nothingToAnalyze &&
+        prev.onApply === next.onApply &&
+        prev.onDismiss === next.onDismiss
+      ) {
+        return prev;
+      }
+      return next;
+    });
+  }, []);
 
   const openEntityPeek = useCallback((baseId: string, entityId: string) => {
     setEntityPeek({ baseId, entityId });
@@ -384,6 +426,8 @@ export function ShellChromeProvider({ children }: { children: React.ReactNode })
       entityPeek,
       openEntityPeek,
       closeEntityPeek,
+      aiMargins,
+      setAiMargins,
     }),
     [
       focusMode,
@@ -410,6 +454,8 @@ export function ShellChromeProvider({ children }: { children: React.ReactNode })
       entityPeek,
       openEntityPeek,
       closeEntityPeek,
+      aiMargins,
+      setAiMargins,
     ],
   );
 
@@ -528,3 +574,26 @@ export function useMobileHeaderActions(actions: MobileHeaderAction[]): void {
   }, [key]);
 }
 
+
+/**
+ * Publie les commentaires IA de la note ouverte vers le panneau droit.
+ * Passer `null` quand la colonne intégrée les affiche déjà, ou hors note.
+ *
+ * L'effet ne se relance que sur les trois valeurs réellement affichées : la
+ * note republie à chaque frappe, mais `comments` ne change d'identité qu'à
+ * l'arrivée d'une carte.
+ */
+export function useAiMarginsChrome(config: AiMarginsChrome | null): void {
+  const ctx = useContext(ShellChromeContext);
+  const ref = useRef(config);
+  ref.current = config;
+  const comments = config?.comments;
+  const status = config?.status;
+  const nothing = config?.nothingToAnalyze;
+  useEffect(() => {
+    if (!ctx) return warnMissingProvider("useAiMarginsChrome");
+    ctx.setAiMargins(ref.current);
+    return () => ctx.setAiMargins(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [comments, status, nothing]);
+}

@@ -7,6 +7,12 @@ import { trpc } from "@/lib/trpc/client";
 import { useShellChrome } from "./shell-chrome-context";
 import { useUiMode } from "@/hooks/useUiMode";
 import { PrioritiesWidget } from "@/components/todos/PrioritiesWidget";
+import { AiCommentCard } from "@/components/notes/AiMarginsPanel";
+import { blockKey } from "@/hooks/useAiMargins";
+import {
+  FolderProposalCard,
+  useFolderProposalActions,
+} from "@/lib/ai/InboxSortJournalEntry";
 import { Button, Skeleton } from "@supernote/ui";
 
 // ── Fixtures used when tRPC is unavailable (browser without IPC) ─────────────
@@ -44,6 +50,79 @@ function entityHref(entity: { id: string; typeName: string }): string {
   if (type === "contact") return `/contacts/${entity.id}`;
   if (type === "note") return `/notes/${entity.id}`;
   return `/notes/${entity.id}`;
+}
+
+
+/**
+ * Les suggestions de la note ouverte, rendues avec les MÊMES cartes que la
+ * colonne intégrée. Elles restent visibles pendant qu'on écrit — c'est tout
+ * l'intérêt d'un commentaire de marge, que la feuille modale qu'elles
+ * remplacent supprimait.
+ */
+function AiMarginsSection({
+  margins,
+  title = "Suggestions IA",
+}: {
+  margins: NonNullable<ReturnType<typeof useShellChrome>["aiMargins"]>;
+  /** « Sur cette note » quand un rangement occupe déjà l'intitulé au-dessus. */
+  title?: string;
+}) {
+  return (
+    // `min-h-0` : sans lui, un enfant en `overflow-y-auto` refuse de rétrécir
+    // et c'est le panneau entier qui déborde.
+    <div className="flex min-h-0 flex-1 flex-col gap-2 p-3">
+      <div className="flex items-center gap-1.5 px-1 pb-1">
+        <Sparkle size={12} style={{ color: "var(--accent)" }} weight="fill" />
+        <span className="sn-eyebrow sn-eyebrow--compact">{title}</span>
+        <span className="ml-auto text-[10.5px] tabular-nums" style={{ color: "var(--text-muted)" }}>
+          {margins.comments.length}
+        </span>
+      </div>
+      <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
+        {margins.comments.map(({ block, comment }) => (
+          <AiCommentCard
+            key={blockKey(block)}
+            block={block}
+            comment={comment}
+            onApplyFix={margins.onApply}
+            onDismiss={margins.onDismiss}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Rangement proposé par le tri de l'inbox. Même contrat que les commentaires de
+ * marge — l'IA propose, l'utilisateur accepte ou écarte d'un clic — donc même
+ * endroit. Visible qu'une note soit ouverte ou non : c'est en écrivant qu'on
+ * tombe dessus, et c'est le seul moment où le tri a besoin d'une décision.
+ *
+ * `shrink-0` : le bloc passe AVANT les commentaires de marge sans manger la
+ * hauteur qui leur est réservée, ni le repli priorités / récents hors note.
+ */
+function FolderProposalsSection({
+  actions,
+}: {
+  actions: ReturnType<typeof useFolderProposalActions>;
+}) {
+  return (
+    <div className="flex shrink-0 flex-col gap-2 p-3">
+      <div className="flex items-center gap-1.5 px-1 pb-1">
+        <Sparkle size={12} style={{ color: "var(--accent)" }} weight="fill" />
+        <span className="sn-eyebrow sn-eyebrow--compact">Suggestions IA</span>
+        <span className="ml-auto text-[10.5px] tabular-nums" style={{ color: "var(--text-muted)" }}>
+          {actions.proposals.length}
+        </span>
+      </div>
+      <div className="flex max-h-[52vh] flex-col gap-2 overflow-y-auto">
+        {actions.proposals.map((p) => (
+          <FolderProposalCard key={p.id} proposal={p} actions={actions} />
+        ))}
+      </div>
+    </div>
+  );
 }
 
 // ── Git status footer ─────────────────────────────────────────────────────────
@@ -159,7 +238,23 @@ function RecentList() {
 // ── Main component ────────────────────────────────────────────────────────────
 
 export const RightPanel = memo(function RightPanel() {
-  const { setRightPanelVisible } = useShellChrome();
+  const { setRightPanelVisible , aiMargins } = useShellChrome();
+  const marginComments = aiMargins && aiMargins.comments.length > 0 ? aiMargins : null;
+  const proposalActions = useFolderProposalActions();
+  const hasProposals = proposalActions.proposals.length > 0;
+  // Dire ce que fait l'IA plutôt que d'inviter à « ouvrir un fichier » alors
+  // qu'un fichier est déjà ouvert.
+  const aiMarginsHint = !aiMargins
+    ? "Ouvre une note pour voir les suggestions de l'IA sur ce que tu écris."
+    : aiMargins.status === "running"
+      ? "Analyse en cours…"
+      : aiMargins.status === "error"
+        ? "Analyse interrompue — Ollama est-il joignable ?"
+        : aiMargins.status === "nomodel"
+          ? "Modèle Ollama introuvable (Réglages → IA)."
+          : aiMargins.nothingToAnalyze
+            ? "Trop court pour être commenté : quelques mots de plus et l'IA prend le relais."
+            : "Rien à signaler sur cette note pour l'instant.";
   const isNext = useUiMode().mode === "next";
 
   return (
@@ -193,42 +288,55 @@ export const RightPanel = memo(function RightPanel() {
 
       <div className="border-b" style={{ borderColor: "var(--border-subtle)" }} />
 
-      {/* Top urgent todos EN PREMIER — le bloc actionnable du panneau prend le
-          rang visuel primaire. Sourced from the same `todo` entities the
-          /todos page reads. Hidden silently when the worker isn't available
-          (e.g. fresh PWA before a vault is loaded). */}
-      <PrioritiesWidget />
+      {/* Une note ouverte qui a des suggestions prend TOUT le panneau : c'est la
+          surface la plus actionnable du moment, et des cartes coincées dans un
+          tiers de la hauteur se lisent mal. Hors note, ou sans suggestion, le
+          panneau reprend son contenu habituel — rien n'est perdu. */}
+      {/* Le rangement en premier : il attend une décision, un commentaire de
+          style peut patienter. */}
+      {hasProposals && <FolderProposalsSection actions={proposalActions} />}
 
-      <div className="border-b" style={{ borderColor: "var(--border-subtle)" }} />
+      {marginComments ? (
+        <AiMarginsSection
+          margins={marginComments}
+          title={hasProposals ? "Sur cette note" : "Suggestions IA"}
+        />
+      ) : (
+        <>
+          <PrioritiesWidget />
 
-      {/* Recent */}
-      <div className="flex flex-col gap-1 p-3">
-        <div className="flex items-center gap-1.5 px-3 pb-2">
-          <Clock size={12} className="text-[var(--text-muted)]" />
-          <span className="sn-eyebrow sn-eyebrow--compact">Récent</span>
+          <div className="border-b" style={{ borderColor: "var(--border-subtle)" }} />
+
+          {/* Recent */}
+          <div className="flex flex-col gap-1 p-3">
+            <div className="flex items-center gap-1.5 px-3 pb-2">
+              <Clock size={12} className="text-[var(--text-muted)]" />
+              <span className="sn-eyebrow sn-eyebrow--compact">Récent</span>
+            </div>
+            <RecentList />
+          </div>
+
+          <div className="border-b" style={{ borderColor: "var(--border-subtle)" }} />
+        </>
+      )}
+
+      {/* AI / Suggestions — l'état quand il n'y a pas (encore) de carte. Muet
+          quand un rangement est déjà proposé au-dessus : « ouvre une note pour
+          voir les suggestions » sous une suggestion se contredit. */}
+      {!marginComments && !hasProposals && (
+        <div className="flex flex-col gap-1 p-3">
+          <div className="flex items-center gap-1.5 px-3 pb-2">
+            <Sparkle size={12} style={{ color: "var(--icon-decorative)" }} />
+            <span className="sn-eyebrow sn-eyebrow--compact">Suggestions IA</span>
+          </div>
+          <p className="px-3 py-1 text-xs leading-relaxed" style={{ color: "var(--text-muted)" }}>
+            {aiMarginsHint}
+          </p>
         </div>
-        <RecentList />
-      </div>
+      )}
 
-      <div className="border-b" style={{ borderColor: "var(--border-subtle)" }} />
-
-      {/* AI / Suggestions */}
-      <div className="flex flex-col gap-1 p-3">
-        <div className="flex items-center gap-1.5 px-3 pb-2">
-          <Sparkle size={12} style={{ color: "var(--icon-decorative)" }} />
-          <span className="sn-eyebrow sn-eyebrow--compact">Suggestions IA</span>
-        </div>
-        <p
-          className="px-3 py-1 text-xs leading-relaxed"
-          style={{ color: "var(--text-muted)" }}
-        >
-          Ouvre un fichier ou lance une recherche pour voir des suggestions
-          contextuelles.
-        </p>
-      </div>
-
-      {/* Spacer */}
-      <div className="flex-1" />
+      {/* Spacer — inutile en mode suggestions, la liste prend déjà la hauteur. */}
+      {!marginComments && <div className="flex-1" />}
 
       {/* Git status footer */}
       <div className="border-t p-3" style={{ borderColor: "var(--border-subtle)" }}>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Button, Popover } from "@heroui/react";
+import { Button, Popover, Spinner } from "@heroui/react";
 import dynamic from "next/dynamic";
 import { CaretDown, CaretRight, Calendar, Tag, FloppyDisk, Microphone, Image, Sparkle, X, CheckCircle, WarningCircle, Presentation, FilePdf, LinkSimple, Stop, CodeSimple } from "@phosphor-icons/react";
 import Link from "next/link";
@@ -19,10 +19,12 @@ import {
   useAutoTitle,
   resolveModel,
   readOllamaHost,
+  probeOllama,
 } from "@/hooks/useAutoTitle";
 import { PromptModal } from "@/components/shell/PromptModal";
 import { isAutoTagEnabled, useAutoTag } from "@/hooks/useAutoTag";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { useRegisterOpenNote } from "@/lib/ai/openNotes";
 import { useKeyboardOpen } from "@/hooks/useKeyboardOpen";
 import { useLongPress } from "@/hooks/useLongPress";
 import { breadcrumb } from "@/lib/diagnostics/freeze-watchdog";
@@ -47,13 +49,24 @@ import { NoteIcon, IconButton, asIcon } from "./NoteIcon";
 import { AiMarginsPanel } from "./AiMarginsPanel";
 import { BacklinksList, useBacklinkCount } from "./BacklinksPanel";
 import { MobileSheet } from "@/components/shell/mobile/MobileSheet";
-import { bestBlockMatchIndex } from "@/lib/ai/blockComments";
+import { useAiMarginsChrome } from "@/components/shell/shell-chrome-context";
+import {
+  bestBlockMatchIndex,
+  isAiMarginsEnabled,
+  analysisUnits,
+  normalizeEol,
+  parseAiMarginsOverride,
+  splitBlocks,
+  type NoteBlock,
+} from "@/lib/ai/blockComments";
+import { blockSnippet, useAiMargins } from "@/hooks/useAiMargins";
+import { isAiRuntimeAllowed } from "@/lib/ai/ai-runtime";
 import { PresentationMode } from "./PresentationMode";
 import { ShareNotePanel } from "./ShareNotePanel";
 import { ContextMenu, useContextMenu, Tooltip, type ContextMenuItemDef } from "@supernote/ui";
 import { useVoiceDictation } from "@/hooks/useVoiceDictation";
 import { MoveNoteModal } from "./MoveNoteModal";
-import { useFolderTree, useRenameFolder } from "./hooks";
+import { useFolderTree, useMoveNote, useRenameFolder } from "./hooks";
 import { useRouter } from "next/navigation";
 import { useSettings } from "@/components/settings/SettingsContext";
 import { useDateFormat } from "@/lib/dateFormat";
@@ -95,6 +108,28 @@ type DropStatus =
 
 /** Préférence globale : rangée métadonnées dépliée ou repliée (repliée par défaut). */
 const META_BAR_STORAGE_KEY = "supernote.notes.metaBarOpen";
+/**
+ * Largeur de note en-dessous de laquelle la marge IA passe en tiroir : 260 px
+ * de marge + ~8 px de gouttière + 80 px de padding laissent tout juste une
+ * colonne de texte lisible.
+ */
+const MARGIN_COLUMN_MIN_WIDTH = 880;
+/**
+ * Bande d'hystérésis : la colonne montée rétrécit l'éditeur, ce qui peut faire
+ * apparaître la barre de défilement du conteneur observé — `contentRect.width`
+ * perd alors ses ~15 px et repasse sous le seuil, la colonne se démonte, la
+ * barre disparaît… en boucle (`ResizeObserver loop completed with undelivered
+ * notifications`). On monte à 880 mais on ne redescend qu'à 840.
+ */
+const MARGIN_COLUMN_DROP_WIDTH = 840;
+
+/**
+ * Espacement des re-sondes Ollama. Sans réessai, un hoquet réseau d'une seconde
+ * éteignait les affordances IA jusqu'au changement de note ou au retour d'onglet.
+ */
+const OLLAMA_PROBE_BACKOFF_MS = [2_000, 5_000, 15_000, 60_000];
+/** Échecs consécutifs tolérés avant d'éteindre les affordances IA déjà allumées. */
+const OLLAMA_PROBE_GRACE = 2;
 
 // ── « Reprendre où j'en étais » ───────────────────────────────────────────────
 //
@@ -209,6 +244,7 @@ function isImage(name: string): boolean {
 }
 
 export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
+  useRegisterOpenNote(note.id); // le tri auto de l'inbox ne déplace pas une note ouverte
   // Mobile focus mode: drop the editor's formatting toolbar while the keyboard
   // is up so only the note content remains (the shell chrome is hidden by
   // MobileShell on the same signal).
@@ -279,7 +315,23 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
     },
     [note.id, icon],
   );
-  const [aiMargins, setAiMargins] = useState<boolean>(() => note.fields?.["aiMargins"] === true);
+  // Marges IA : réglage global (localStorage, défaut on) que `fields.aiMargins`
+  // surcharge par note — absent = la note hérite, true/false = choix explicite.
+  const [marginsOverride, setMarginsOverride] = useState<boolean | null>(() =>
+    parseAiMarginsOverride(note.fields?.["aiMargins"]),
+  );
+  const [marginsGlobal, setMarginsGlobal] = useState<boolean>(() => isAiMarginsEnabled());
+  // Le garde mobile porte sur la valeur EFFECTIVE, pas sur la lecture du
+  // réglage : une note dont `fields.aiMargins` vaut `true` doit rester éteinte
+  // au doigt, alors que l'interrupteur des réglages, lui, doit continuer à dire
+  // la vérité sur la préférence enregistrée.
+  // `isMobile` en plus du garde : matchMedia y est écouté, donc un
+  // redimensionnement sous 768 px éteint réellement au lieu d'attendre un
+  // rendu déclenché par autre chose.
+  // `isAiRuntimeAllowed()` interroge matchMedia : mémoïsé, sinon il repart à
+  // chaque rendu de ce composant.
+  const aiRuntimeAllowed = useMemo(() => !isMobile && isAiRuntimeAllowed(), [isMobile]);
+  const aiMargins = aiRuntimeAllowed && (marginsOverride ?? marginsGlobal);
   const [bodyVersion, setBodyVersion] = useState(0);
   const [presenting, setPresenting] = useState(false);
   // Panneau « Liens entrants » : popover ancré au bouton (desktop) ou
@@ -318,6 +370,11 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
   const autoTitleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoTagTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const bodyRef = useRef<string>(note.body);
+  // Note réellement affichée, lisible depuis une closure survivante (le toast
+  // « Annuler » vit dans un portail et peut être cliqué après un changement de
+  // note, alors que sa closure, elle, a figé l'ancienne).
+  const noteIdRef = useRef<string>(note.id);
+  noteIdRef.current = note.id;
   const titleRef = useRef<string>(note.title);
   const tagsRef = useRef<string[]>(note.tags);
   // Last body string we successfully sent to the server. The
@@ -366,7 +423,21 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
 
   // ── Emailer cette note ─────────────────────────────────────────────────────
   const { createDraft } = useCreateDraft();
-  const { toast } = useToast();
+  const { toast, dismiss } = useToast();
+  // Les toasts « Correction appliquée » encore ouverts. Ils vivent dans le
+  // ToastProvider, au-dessus du routeur : changer de note démonte cet éditeur
+  // sans les fermer, et leur « Annuler » écrirait alors le corps figé de
+  // l'instance morte par-dessus le texte tapé depuis. On les rejette au
+  // démontage — les gardes de la closure, elles, sont des refs d'instance et
+  // laissent tout passer une fois l'instance morte.
+  const fixToastIdsRef = useRef<Set<string>>(new Set());
+  useEffect(
+    () => () => {
+      for (const id of fixToastIdsRef.current) dismiss(id);
+      fixToastIdsRef.current.clear();
+    },
+    [dismiss],
+  );
   const gmailConnected = useGmailConnected();
   const [emailing, setEmailing] = useState(false);
 
@@ -395,6 +466,66 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
   const { updateNote } = useUpdateNote();
   const { suggest: suggestTitle, isAvailable: ollamaAvailable } = useAutoTitle();
   const { suggest: suggestTags } = useAutoTag();
+  // `useAutoTitle` ne sonde qu'au montage, et NoteEditor ne remonte pas d'une
+  // note à l'autre : démarrer Ollama après coup laisserait les affordances IA
+  // éteintes jusqu'à un rechargement complet. On resonde au changement de note
+  // et au retour sur l'onglet.
+  const [ollamaProbe, setOllamaProbe] = useState<boolean | null>(null);
+  useEffect(() => {
+    // Sur mobile on ne sonde même pas : aucun traitement IA n'y tournera, et
+    // `readOllamaHost()` étant configurable, un poste fixe joignable sur le LAN
+    // ferait autrement apparaître les affordances IA sur le téléphone.
+    if (!aiRuntimeAllowed) {
+      setOllamaProbe(false);
+      return undefined;
+    }
+    let cancelled = false;
+    let attempt = 0;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const retry = (): void => {
+      const delay = OLLAMA_PROBE_BACKOFF_MS[Math.min(attempt, OLLAMA_PROBE_BACKOFF_MS.length - 1)]!;
+      attempt++;
+      timer = setTimeout(probe, delay);
+    };
+    const probe = (): void => {
+      if (cancelled) return;
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+        retry();
+        return;
+      }
+      void probeOllama().then((r) => {
+        if (cancelled) return;
+        if (r.status === "ok") {
+          attempt = 0;
+          setOllamaProbe(true);
+          return;
+        }
+        // Un seul échec ne suffit pas à démonter la colonne et le ✦ : tant
+        // qu'Ollama a déjà répondu une fois, on garde l'affichage et on
+        // réessaie. Une vraie panne se signale d'elle-même par le statut
+        // « Analyse interrompue » du panneau.
+        setOllamaProbe((prev) => (prev === true && attempt < OLLAMA_PROBE_GRACE ? true : false));
+        retry();
+      });
+    };
+    probe();
+    const onVisibility = (): void => {
+      if (document.visibilityState !== "visible") return;
+      attempt = 0;
+      if (timer) clearTimeout(timer);
+      probe();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [note.id, aiRuntimeAllowed]);
+  const ollamaReady = aiRuntimeAllowed && (ollamaProbe ?? ollamaAvailable);
+  // Défini ici et pas plus bas : la frappe et l'écoute du caret s'y gatent, or
+  // les deux vivent au-dessus du rendu du panneau.
+  const marginsOn = aiMargins && ollamaReady;
   // Notes-derived todos are now pure projections of the markdown — see
   // `extractChecklists` + `inlineMetadata`. No sync hook, no entity
   // duplication, no debounced "reconcile" pass to fight against the body
@@ -472,16 +603,10 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
     walk(folders);
     return out;
   }, [folders]);
-  const moveMutation = trpc.entities.update.useMutation({
-    onSuccess: () => {
-      // utilsForTags is the same registry as `utils` further down — both
-      // come from the single tRPC react context. Reusing the earlier
-      // reference keeps the move handler self-contained.
-      void utilsForTags.entities.get.invalidate({ id: note.id });
-      void utilsForTags.entities.list.invalidate({ typeId: "note" });
-      void utilsForTags.vault.folders.list.invalidate();
-    },
-  });
+  // Le nom de fichier final est résolu par le worker : un `filePath` explicite
+  // est refusé si la destination est occupée, y compris par un `.md` orphelin
+  // que le cache client ne voit pas.
+  const { moveNote } = useMoveNote();
 
   // Inline rename of any breadcrumb segment. Reuses the same vault.folders.rename
   // mutation as the FileTree — the worker cascades the rename to every nested
@@ -520,15 +645,18 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
     async (nextFolder: string) => {
       setMoveModalOpen(false);
       if (nextFolder === note.folderPath) return;
-      // Falls back to a slugified title when filePath is absent (demo mode).
-      // In real PWA usage `note.filePath` is always present from the worker.
-      const filename =
-        note.filePath?.split("/").pop() ??
-        `${note.title.toLowerCase().replace(/\s+/g, "-").slice(0, 80) || "sans-titre"}.md`;
-      const nextFilePath = `${nextFolder}/${filename}`;
+      const previousName = note.filePath?.split("/").pop() ?? null;
       try {
-        await moveMutation.mutateAsync({ id: note.id, filePath: nextFilePath });
-        showToast(`Note déplacée dans ${nextFolder}`);
+        const result = await moveNote(note.id, nextFolder);
+        void utilsForTags.vault.folders.list.invalidate();
+        const finalName = result?.filePath.split("/").pop() ?? null;
+        // Le worker suffixe en cas de collision : le taire ferait chercher une
+        // note sous un nom qu'elle n'a plus.
+        showToast(
+          finalName && previousName && finalName !== previousName
+            ? `Note déplacée dans ${nextFolder} et renommée « ${finalName} »`
+            : `Note déplacée dans ${nextFolder}`,
+        );
         // Sync the URL so the FileTree highlight follows the note. We replace
         // (not push) — the user's history stack stays meaningful.
         router.replace(`/notes/${note.id}?folder=${encodeURIComponent(nextFolder)}`);
@@ -538,7 +666,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
         );
       }
     },
-    [note.id, note.filePath, note.folderPath, moveMutation, router],
+    [note.id, note.filePath, note.folderPath, moveNote, utilsForTags, router],
   );
   // Une seule liste d'actions pour les deux chemins d'ouverture (clic droit et
   // appui long) : deux listes divergeraient dès la première action ajoutée.
@@ -589,7 +717,10 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
     setTypo(asTypo(note.fields?.["typo"]));
     setCover(asCover(note.fields?.["cover"]));
     setIcon(asIcon(note.fields?.["icon"]));
-    setAiMargins(note.fields?.["aiMargins"] === true);
+    setMarginsOverride(parseAiMarginsOverride(note.fields?.["aiMargins"]));
+    // Relire le réglage global ici évite un remount après un aller-retour
+    // dans les réglages IA.
+    setMarginsGlobal(isAiMarginsEnabled());
     setHtmlMode(note.fields?.["mode"] === "html");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [note.id]);
@@ -1010,7 +1141,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
    * Updates UI + persists. No-op if Ollama is unavailable or returns nothing.
    */
   const runSuggestTitle = useCallback(async () => {
-    if (!ollamaAvailable) {
+    if (!ollamaReady) {
       showToast("Ollama indisponible — démarrez 'OLLAMA_ORIGINS=* ollama serve'");
       return;
     }
@@ -1033,7 +1164,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
     } finally {
       setIsSuggesting(false);
     }
-  }, [ollamaAvailable, suggestTitle, triggerAutoSave]);
+  }, [ollamaReady, suggestTitle, triggerAutoSave]);
 
   /**
    * Auto-title scheduler — fires 2s after typing stops, only if the toggle
@@ -1042,7 +1173,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
    */
   const scheduleAutoTitle = useCallback(
     (markdown: string) => {
-      if (!ollamaAvailable) return;
+      if (!ollamaReady) return;
       if (!isAutoTitleEnabled()) return;
       if (markdown.trim().length < AUTO_TITLE_MIN_CHARS) return;
       if (!isDefaultTitle(titleRef.current)) return;
@@ -1059,7 +1190,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
         triggerAutoSave(bodyRef.current, suggested);
       }, AUTO_TITLE_DEBOUNCE_MS);
     },
-    [ollamaAvailable, suggestTitle, triggerAutoSave],
+    [ollamaReady, suggestTitle, triggerAutoSave],
   );
 
   /**
@@ -1069,7 +1200,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
    */
   const scheduleAutoTag = useCallback(
     (markdown: string) => {
-      if (!ollamaAvailable) return;
+      if (!ollamaReady) return;
       if (!isAutoTagEnabled()) return;
       if (markdown.trim().length < AUTO_TAG_MIN_CHARS) return;
       if (tagsRef.current.length > 0) return;
@@ -1107,7 +1238,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
         }
       }, AUTO_TAG_DEBOUNCE_MS);
     },
-    [ollamaAvailable, suggestTags, tagsUpdateMutation, note.id, note.folderPath],
+    [ollamaReady, suggestTags, tagsUpdateMutation, note.id, note.folderPath],
   );
 
   // ── Pièces jointes (collage, dépôt, menu /) ───────────────────────────────
@@ -1135,9 +1266,9 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
       scheduleAutoTitle(markdown);
       scheduleAutoTag(markdown);
       // Tick léger pour réveiller les marges IA (debounce côté panneau).
-      if (aiMargins) setBodyVersion((v) => v + 1);
+      if (marginsOn) setBodyVersion((v) => v + 1);
     },
-    [triggerAutoSave, title, scheduleAutoTitle, scheduleAutoTag, aiMargins],
+    [triggerAutoSave, title, scheduleAutoTitle, scheduleAutoTag, marginsOn],
   );
 
   // Mode HTML : autosave seule — laisser l'auto-titre ou l'auto-tag lire du
@@ -1297,7 +1428,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
   // Suit le bloc actif (caret) pour surligner son commentaire dans la marge.
   // Lecture DOM seule (selectionchange) — aucune mutation du subtree PM.
   useEffect(() => {
-    if (!aiMargins) { setActiveBlockText(null); return undefined; }
+    if (!marginsOn) { setActiveBlockText(null); return undefined; }
     const onSel = () => {
       const col = editorColRef.current;
       const sel = document.getSelection();
@@ -1312,21 +1443,141 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
     };
     document.addEventListener("selectionchange", onSel);
     return () => document.removeEventListener("selectionchange", onSel);
-  }, [aiMargins]);
+  }, [marginsOn]);
 
-  // Applique une correction IA : remplace le bloc dans le markdown, force le
-  // remount de l'éditeur avec le nouveau contenu, et persiste.
-  const handleApplyFix = useCallback((oldText: string, newText: string) => {
-    const body = bodyRef.current;
-    const idx = body.indexOf(oldText);
-    if (idx === -1) return; // bloc déplacé/modifié entre-temps — abandon silencieux
-    const updated = body.slice(0, idx) + newText + body.slice(idx + oldText.length);
+  // Écrit un corps venu d'ailleurs que la frappe (correction IA, annulation) :
+  // remount de l'éditeur sur le nouveau contenu, puis persistance.
+  const commitBody = useCallback((updated: string) => {
     bodyRef.current = updated;
     setBlockHighlight(null);
     setPendingBody(updated);
-    setExternalBodyVersion((v) => v + 1); // remount BlockNote avec le fix
+    setExternalBodyVersion((v) => v + 1); // remount BlockNote
+    // BlockNote n'émet `onChange` qu'au changement de document, pas au montage :
+    // sans ce tic, la carte du bloc réécrit garderait son aperçu périmé jusqu'à
+    // la frappe suivante.
+    setBodyVersion((v) => v + 1);
     triggerAutoSave(updated, title);
   }, [triggerAutoSave, title]);
+
+  const rejectFix = useCallback((description: string) => {
+    toast({ title: "Correction non appliquée", description, variant: "warning" });
+  }, [toast]);
+
+  /**
+   * Applique une correction IA. Le bloc est retrouvé dans le corps COURANT par
+   * son hash puis par sa position — viser la première occurrence du texte
+   * réécrivait le mauvais bloc quand la note en contient deux identiques.
+   */
+  const handleApplyFix = useCallback((block: NoteBlock, newText: string) => {
+    const body = normalizeEol(bodyRef.current);
+    // On cherche parmi les UNITÉS d'analyse, pas les blocs bruts : une carte
+    // peut porter sur un groupe de lignes courtes, dont le hash et les offsets
+    // n'existent que là.
+    const matches = analysisUnits(body, splitBlocks(body)).filter((b) => b.hash === block.hash);
+    const sameIndex = matches.find((b) => b.index === block.index);
+    // Avec des jumeaux, un repli sur le premier réécrirait silencieusement
+    // l'autre dès qu'une insertion a décalé les positions : on refuse.
+    const target = sameIndex ?? (matches.length === 1 ? matches[0] : undefined);
+    if (!target) {
+      rejectFix(
+        matches.length > 1
+          ? "Le passage existe en double et a bougé depuis la suggestion."
+          : "Le passage a changé depuis la suggestion.",
+      );
+      return;
+    }
+    const previous = body;
+    const expected = body.slice(0, target.start) + newText + body.slice(target.end);
+    // Le toast survit au changement de note (portail global) et aux frappes
+    // suivantes : sans ces deux gardes, « Annuler » écraserait le texte tapé
+    // entre-temps, ou pire, écrirait le corps de CETTE note dans une autre.
+    const noteIdAtApply = noteIdRef.current;
+    commitBody(expected);
+    let toastId = "";
+    toastId = toast({
+      title: "Correction appliquée",
+      description: blockSnippet(newText),
+      action: {
+        label: "Annuler",
+        onClick: () => {
+          fixToastIdsRef.current.delete(toastId);
+          if (noteIdRef.current !== noteIdAtApply) {
+            rejectFix("Vous avez changé de note : l'annulation a été abandonnée.");
+            return;
+          }
+          if (normalizeEol(bodyRef.current) !== expected) {
+            rejectFix("La note a changé depuis : l'annulation a été abandonnée.");
+            return;
+          }
+          commitBody(previous);
+        },
+      },
+      duration: 8000,
+    });
+    fixToastIdsRef.current.add(toastId);
+  }, [commitBody, rejectFix, toast]);
+
+  const getNoteBody = useCallback(() => bodyRef.current, []);
+  // Le moteur est appelé ici et pas dans le panneau : sous 1024 px les
+  // commentaires vivent dans un tiroir monté à l'ouverture, l'analyse doit
+  // tourner sans lui.
+  const aiMarginsEngine = useAiMargins({
+    enabled: aiMargins && ollamaReady,
+    noteId: note.id,
+    noteTitle: title,
+    getBody: getNoteBody,
+    bodyVersion,
+    activeBlockText,
+  });
+
+  // La marge est une colonne de 260 px : ce qui décide n'est pas le viewport
+  // mais la largeur RÉELLE de la note — en colonnes empilées, ou simplement
+  // avec les panneaux latéraux ouverts, une note tient dans 500 px sur un écran
+  // de 1440 et l'éditeur y tomberait à 130 px.
+  const [marginsWide, setMarginsWide] = useState<boolean | null>(null);
+  useEffect(() => {
+    const el = editorContainerRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return undefined;
+    const ro = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect.width;
+      if (typeof w !== "number") return;
+      setMarginsWide((prev) =>
+        prev === true ? w >= MARGIN_COLUMN_DROP_WIDTH : w >= MARGIN_COLUMN_MIN_WIDTH,
+      );
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  // `null` tant que la mesure n'est pas faite : une frame sans marge vaut mieux
+  // qu'un aller-retour sous les yeux. Quand la colonne ne tient pas, ce sont
+  // les mêmes cartes que le panneau droit affiche (cf. `useAiMarginsChrome`).
+  const marginsColumn = marginsOn && marginsWide === true;
+
+  // Quand la colonne intégrée ne tient pas, le panneau droit prend le relais :
+  // un commentaire de marge doit rester visible PENDANT qu'on écrit, ce que la
+  // feuille plein écran qu'il remplace rendait impossible.
+  const marginsChrome = useMemo(
+    () =>
+      marginsOn && !marginsColumn
+        ? {
+            comments: aiMarginsEngine.comments,
+            status: aiMarginsEngine.status,
+            nothingToAnalyze: aiMarginsEngine.nothingToAnalyze,
+            onApply: handleApplyFix,
+            onDismiss: aiMarginsEngine.dismiss,
+          }
+        : null,
+    [
+      marginsOn,
+      marginsColumn,
+      aiMarginsEngine.comments,
+      aiMarginsEngine.status,
+      aiMarginsEngine.nothingToAnalyze,
+      aiMarginsEngine.dismiss,
+      handleApplyFix,
+    ],
+  );
+  useAiMarginsChrome(marginsChrome);
 
   const handleAskAi = useCallback(() => {
     setAiModalOpen(true);
@@ -1634,7 +1885,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
               <Sparkle size={10} weight="fill" /> IA
             </span>
           )}
-          {ollamaAvailable && (
+          {ollamaReady && (
             <Button
               variant="ghost"
               size="sm"
@@ -1691,15 +1942,28 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
           />
           {!icon && <IconButton onChange={handleIconChange} />}
           {!cover && <CoverButton onChange={handleCoverChange} />}
-          {ollamaAvailable && (
+          {ollamaReady && (
             <Button
               variant="ghost"
               size="sm"
               onPress={() => {
-                const next = !aiMargins;
-                setAiMargins(next);
+                const next = !(marginsOverride ?? marginsGlobal);
+                // Une surcharge égale au réglage global n'en est pas une : on
+                // efface le champ (`""` = absent, cf. `parseAiMarginsOverride`)
+                // pour que la note redevienne héritière. Sans ça, un aller-
+                // retour sur ✦ la détachait définitivement du global.
+                const override = next === marginsGlobal ? null : next;
+                setMarginsOverride(override);
                 if (next) setBodyVersion((v) => v + 1);
-                void trpcVanillaClient.entities.update.mutate({ id: note.id, fields: { aiMargins: next } });
+                void trpcVanillaClient.entities.update
+                  .mutate({ id: note.id, fields: { aiMargins: override ?? "" } })
+                  .then(() => {
+                    // Sans invalidation, revenir sur la note sans recharger la
+                    // sert depuis le cache : une note éteinte se rallumerait,
+                    // panneau et file Ollama compris.
+                    void utilsForTags.entities.get.invalidate({ id: note.id });
+                    void utilsForTags.entities.list.invalidate({ typeId: "note" });
+                  });
               }}
               className="sn-hit h-7 min-w-0 gap-1 px-2 text-xs"
               style={{ color: aiMargins ? "var(--accent)" : "var(--text-muted)" }}
@@ -1984,19 +2248,16 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
             />
             )}
           </div>
-          {aiMargins && (
+          {marginsColumn && (
             <div
-              className="hidden w-[260px] shrink-0 lg:block"
+              className="w-[260px] shrink-0"
               style={{ borderLeft: "1px solid var(--border-subtle)" }}
             >
               <AiMarginsPanel
-                noteId={note.id}
-                noteTitle={title}
-                getBody={() => bodyRef.current}
-                bodyVersion={bodyVersion}
-                activeBlockText={activeBlockText}
+                engine={aiMarginsEngine}
                 onHoverBlock={handleHoverBlock}
                 onApplyFix={handleApplyFix}
+                onDismiss={aiMarginsEngine.dismiss}
               />
             </div>
           )}

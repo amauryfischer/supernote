@@ -5,6 +5,13 @@ import { Button } from "../button/Button.js";
 
 export type ToastVariant = "default" | "success" | "warning" | "danger" | "info";
 
+export interface ToastAction {
+  label: string;
+  onClick: () => void;
+  /** Laisse le toast ouvert après le clic (ex. « Voir » qui ouvre un détail). */
+  keepOpen?: boolean;
+}
+
 export interface ToastData {
   id: string;
   title: string;
@@ -13,7 +20,9 @@ export interface ToastData {
   /** Duration in ms before auto-dismiss. 0 = persistent. */
   duration?: number;
   /** Action button config. */
-  action?: { label: string; onClick: () => void };
+  action?: ToastAction;
+  /** Plusieurs actions côte à côte. Prend le pas sur `action` quand fourni. */
+  actions?: ToastAction[];
 }
 
 /** Internal shape — `leaving` drives the exit animation before DOM removal. */
@@ -145,6 +154,7 @@ function SingleToast({ data, onDismiss, onRemove }: SingleToastProps) {
   const variant = data.variant ?? "default";
   const duration = data.duration ?? 4000;
   const IconComponent = variantIcon[variant];
+  const actions = data.actions ?? (data.action ? [data.action] : []);
 
   // ── Auto-dismiss timer, pausable on hover (re-armed with remaining time) ──
   const timerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -225,18 +235,23 @@ function SingleToast({ data, onDismiss, onRemove }: SingleToastProps) {
               {data.description}
             </p>
           )}
-          {data.action && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="-ml-3 mt-1 text-[var(--accent)] hover:text-[var(--accent-hover)]"
-              onClick={() => {
-                data.action?.onClick();
-                onDismiss(data.id);
-              }}
-            >
-              {data.action.label}
-            </Button>
+          {actions.length > 0 && (
+            <div className="-ml-3 mt-1 flex flex-wrap items-center gap-1">
+              {actions.map((a) => (
+                <Button
+                  key={a.label}
+                  variant="ghost"
+                  size="sm"
+                  className="text-[var(--accent)] hover:text-[var(--accent-hover)]"
+                  onClick={() => {
+                    a.onClick();
+                    if (!a.keepOpen) onDismiss(data.id);
+                  }}
+                >
+                  {a.label}
+                </Button>
+              ))}
+            </div>
           )}
         </div>
         <Button
