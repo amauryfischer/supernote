@@ -430,3 +430,14 @@ export function isWorkerReady(): boolean {
 export function getLastVaultReady(): { vaultId: string; vaultName: string } | null {
   return lastVaultReady;
 }
+
+// Sans ça, un remplacement à chaud laisse vivre le worker précédent — le module
+// réévalué repart avec `workerInstance = null` et en démarre un second. Les deux
+// se disputent alors le pool OPFS, et le nouveau échoue définitivement sur
+// `createSyncAccessHandle` : le détenteur est un frère vivant, il ne mourra pas.
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    workerInstance?.terminate();
+    workerInstance = null;
+  });
+}

@@ -202,6 +202,12 @@ export default defineConfig({
     port: 3100,
     host: true,
     strictPort: false,
+    // Les backends de dev (synchro, partage) écrivent leur SQLite dans
+    // `apps/web/` : sans ça, chaque écriture du WAL rechargeait la page en
+    // pleine frappe, toutes les ~60 s.
+    watch: {
+      ignored: ["**/*.db", "**/*.db-wal", "**/*.db-shm"],
+    },
     fs: {
       // Workspaces — allow reading sibling packages.
       allow: [path.resolve(__dirname, "../../")],

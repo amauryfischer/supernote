@@ -50,6 +50,36 @@ interface BootContext {
 
 let bootPromise: Promise<BootContext> | null = null;
 
+/**
+ * Le worker sortant tient encore les handles OPFS quand le nouveau démarre :
+ * un rechargement de page échouait alors sur `NoModificationAllowedError`, et
+ * il fallait recharger une seconde fois. Les handles se libèrent dès que
+ * l'ancien worker meurt — quelques dixièmes de seconde suffisent.
+ */
+function isHandleContention(err: unknown): boolean {
+  const msg = err instanceof Error ? `${err.name} ${err.message}` : String(err);
+  return /NoModificationAllowed|Access Handle/i.test(msg);
+}
+
+const POOL_RETRY_DELAYS_MS = [120, 200, 320, 500, 800, 1200];
+
+async function installPoolWithRetry(
+  sqlite3: Awaited<ReturnType<typeof sqlite3InitModule>>,
+): Promise<SAHPoolUtil> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await sqlite3.installOpfsSAHPoolVfs({
+        name: DEFAULT_VFS_NAME,
+        initialCapacity: 12,
+      });
+    } catch (err) {
+      const delay = POOL_RETRY_DELAYS_MS[attempt];
+      if (delay === undefined || !isHandleContention(err)) throw err;
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+}
+
 async function boot(): Promise<BootContext> {
   if (bootPromise) return bootPromise;
   bootPromise = (async () => {
@@ -60,12 +90,14 @@ async function boot(): Promise<BootContext> {
     const sqlite3 = await sqlite3InitModule();
     // Capacity covers main DB + journal + WAL + a couple of spare slots so
     // VACUUM INTO / temp work doesn't exhaust the pool.
-    const pool = await sqlite3.installOpfsSAHPoolVfs({
-      name: DEFAULT_VFS_NAME,
-      initialCapacity: 12,
-    });
+    const pool = await installPoolWithRetry(sqlite3);
     return { sqlite3, pool, dbPath: DEFAULT_DB_PATH };
   })();
+  // Une promesse rejetée resterait en cache et condamnerait toute tentative
+  // ultérieure de la session : c'est ce qui obligeait à recharger deux fois.
+  bootPromise.catch(() => {
+    bootPromise = null;
+  });
   return bootPromise;
 }
 

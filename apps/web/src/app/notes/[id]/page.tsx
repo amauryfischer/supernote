@@ -114,6 +114,7 @@ function writeLastFolder(folder: string | null) {
 
 function NoteDetailContent() {
   const router = useRouter();
+  const { toast } = useToast();
   const params = useParams<{ id: string }>();
   const searchParams = useSearchParams();
   const folderParam = searchParams.get("folder");
@@ -385,8 +386,18 @@ function NoteDetailContent() {
   }, [archiveFolder, confirm]);
 
   const handleMoveNote = useCallback(async (noteId: string, folderPath: string): Promise<void> => {
-    await moveNote(noteId, folderPath);
-  }, [moveNote]);
+    // Le worker refuse désormais un chemin déjà occupé (au lieu d'écraser) :
+    // sans ce catch, l'échec restait muet ici alors que /notes l'affiche.
+    try {
+      await moveNote(noteId, folderPath);
+    } catch (err) {
+      toast({
+        title: "Impossible de déplacer la note",
+        description: err instanceof Error ? err.message : String(err),
+        variant: "danger",
+      });
+    }
+  }, [moveNote, toast]);
 
   const handleRenameNote = useCallback(async (id: string, newTitle: string): Promise<void> => {
     await renameNote(id, newTitle);
@@ -515,7 +526,6 @@ function NoteDetailContent() {
 
   // ── Emailer cette note (mobile) ───────────────────────────────────────────
   const { createDraft } = useCreateDraft();
-  const { toast } = useToast();
   const gmailConnected = useGmailConnected();
 
   const handleEmailNote = useCallback(async () => {

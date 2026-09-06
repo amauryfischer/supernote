@@ -19,7 +19,6 @@ import {
   isExcalidrawExt,
   isAttachmentExt,
   writeVaultFile,
-  readVaultFile,
   readVaultFileBinary,
   writeVaultFileBinary,
   deleteVaultFile,
@@ -503,19 +502,47 @@ export function buildRouter(
   // Fix: queue same-entity mutations through a per-id promise chain. Different
   // ids still run in parallel (saving entity A doesn't wait on entity B).
   const entityWriteChains = new Map<string, Promise<unknown>>();
-  const runSerialized = <T>(id: string, fn: () => Promise<T>): Promise<T> => {
-    const prev = entityWriteChains.get(id) ?? Promise.resolve();
+  const runSerialized = <T>(key: string, fn: () => Promise<T>): Promise<T> => {
+    const prev = entityWriteChains.get(key) ?? Promise.resolve();
     const next = prev.then(fn, fn);
     // Swallow rejections so a single failed update doesn't poison the chain
     // for every subsequent save on the same entity.
-    entityWriteChains.set(
-      id,
-      next.then(
-        () => undefined,
-        () => undefined,
-      ),
+    const settled = next.then(
+      () => undefined,
+      () => undefined,
     );
+    entityWriteChains.set(key, settled);
+    // Purge une fois la chaîne retombée au repos — et seulement si personne ne
+    // s'y est enchaîné depuis. Les clés `path:` en créent une par chemin de
+    // destination : sans ça, un tri d'inbox laissait une entrée par note rangée.
+    void settled.then(() => {
+      if (entityWriteChains.get(key) === settled) entityWriteChains.delete(key);
+    });
     return next;
+  };
+
+  /**
+   * Existence d'un fichier dans le coffre, sans le lire. `getFileHandle` suffit
+   * pour répondre oui/non ; `readVaultFile` matérialiserait tout le contenu.
+   */
+  const fileExistsAt = async (path: string): Promise<boolean> => {
+    const segments = path.split("/");
+    const name = segments[segments.length - 1];
+    if (!name) return false;
+    try {
+      let dir: FileSystemDirectoryHandle = vaultHandle;
+      for (const seg of segments.slice(0, -1)) {
+        dir = await dir.getDirectoryHandle(seg);
+      }
+      await dir.getFileHandle(name);
+      return true;
+    } catch (err) {
+      // Seul « ça n'existe pas » signifie « libre ». Un dossier nommé `x.md`
+      // (TypeMismatchError) ou un handle FSA périmé (NotAllowedError) répondaient
+      // « libre » eux aussi, c'est-à-dire l'autorisation d'écraser à l'aveugle.
+      if ((err as DOMException)?.name === "NotFoundError") return false;
+      throw err;
+    }
   };
 
   // ── vault.* ────────────────────────────────────────────────────────────────
@@ -1123,6 +1150,13 @@ export function buildRouter(
     // this vault, append "-2", "-3", … until we find a free slot. Without this,
     // creating a second "Nouvelle note" in a folder that already has one
     // throws `UNIQUE constraint failed: entity.vaultId, entity.filePath`.
+    //
+    // ⚠️ Le disque compte autant que la base. Un `.md` orphelin — déposé à la
+    // main, laissé par une synchro — n'a pas de ligne `entity`, donc `existsAt`
+    // ne le voit pas et `writeVaultFile` l'écrasait SANS lever : contenu perdu,
+    // en silence, sur le chemin le plus fréquent de l'application. Un orphelin
+    // fait passer au suffixe suivant, comme une ligne en base : ce n'est pas
+    // une erreur de l'utilisateur, juste un nom déjà pris.
     const existsAt = (p: string): boolean => {
       const r = row(db.exec(
         `SELECT 1 FROM entity WHERE vaultId = ? AND filePath = ? LIMIT 1`,
@@ -1130,64 +1164,75 @@ export function buildRouter(
       ));
       return !!r;
     };
-    if (existsAt(relativePath)) {
-      const dotIdx = relativePath.lastIndexOf(".");
-      const stem = dotIdx > 0 ? relativePath.slice(0, dotIdx) : relativePath;
-      const ext = dotIdx > 0 ? relativePath.slice(dotIdx) : "";
-      let suffix = 2;
-      let candidate = `${stem}-${suffix}${ext}`;
-      while (existsAt(candidate) && suffix < 9999) {
-        suffix++;
-        candidate = `${stem}-${suffix}${ext}`;
-      }
-      relativePath = candidate;
-    }
+    const takenAt = async (p: string): Promise<boolean> =>
+      existsAt(p) || (await fileExistsAt(p));
+    // Clé de sérialisation : le chemin AVANT suffixage, seul point commun à deux
+    // créations concurrentes visant le même nom. Sans elle, elles résolvent
+    // toutes deux le même chemin libre et la seconde écrase la première.
+    const createLockKey = `path:${relativePath}`;
 
-    // Read-only mount guard (defense in depth): a native create whose resolved
-    // path lands under `@mounts/<slug>/…` would be mis-classified as native
-    // (sourceVaultId NULL) → file written to the PARENT disk + pushed to the
-    // PARENT room (cross-vault contamination). Mounted subtrees are structurally
-    // read-only in V1, so reject the create before any disk write or INSERT.
-    if (isMountedPath(relativePath)) {
-      throw new Error("Lecture seule : impossible de créer une note dans un vault monté.");
-    }
-
-    // Canvas split: if fields carry a serialized CanvasDocument (canvas
-    // standalone → `data`, notes with canvas view → `canvas`), write it
-    // to a sibling `.excalidraw` file and replace the in-frontmatter blob
-    // with a `canvasFile` pointer. Entities without a canvas blob are
-    // untouched.
-    const canvasFieldCreate = extractCanvasField(fields);
-    if (canvasFieldCreate) {
-      try {
-        const doc = parseCanvasJson(canvasFieldCreate.json);
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const canvasFile = await writeExcalidrawSibling(vaultHandle, relativePath, doc as any);
-        if (canvasFile) {
-          delete fields[canvasFieldCreate.fieldName];
-          fields["canvasFile"] = canvasFile;
+    const resolveAndWrite = async (): Promise<void> => {
+      if (await takenAt(relativePath)) {
+        const dotIdx = relativePath.lastIndexOf(".");
+        const stem = dotIdx > 0 ? relativePath.slice(0, dotIdx) : relativePath;
+        const ext = dotIdx > 0 ? relativePath.slice(dotIdx) : "";
+        let suffix = 2;
+        let candidate = `${stem}-${suffix}${ext}`;
+        while ((await takenAt(candidate)) && suffix < 9999) {
+          suffix++;
+          candidate = `${stem}-${suffix}${ext}`;
         }
-      } catch (err) {
-        console.warn("[canvas-excalidraw] create: bridge skipped", err);
+        relativePath = candidate;
       }
-    }
 
-    // Frontmatter uses TOP-LEVEL YAML keys for each field (id, type, then
-    // each user-defined field) instead of a nested `fields: {...}` JSON
-    // blob. The latter forced us through JSON.stringify → naive YAML parse,
-    // which dropped/garbled values whenever a field contained a comma,
-    // quote, or newline (the symptom: contact name disappearing and the
-    // ULID showing up instead, because the reindex re-parsed the file and
-    // got an empty `fields` object).
-    const frontmatter: Record<string, unknown> = { id, type: typeRow["name"], ...fields };
-    const content = serializeFrontmatter(frontmatter, body ?? "");
-    await writeVaultFile(vaultHandle, relativePath.split("/"), content);
+      // Read-only mount guard (defense in depth): a native create whose resolved
+      // path lands under `@mounts/<slug>/…` would be mis-classified as native
+      // (sourceVaultId NULL) → file written to the PARENT disk + pushed to the
+      // PARENT room (cross-vault contamination). Mounted subtrees are structurally
+      // read-only in V1, so reject the create before any disk write or INSERT.
+      if (isMountedPath(relativePath)) {
+        throw new Error("Lecture seule : impossible de créer une note dans un vault monté.");
+      }
 
-    db.run(
-      `INSERT INTO entity (id, vaultId, typeId, filePath, fields, body, fileHash, createdAt, updatedAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, vaultId, typeId, relativePath, JSON.stringify(fields), body ?? "", "", ts, ts],
-    );
+      // Canvas split: if fields carry a serialized CanvasDocument (canvas
+      // standalone → `data`, notes with canvas view → `canvas`), write it
+      // to a sibling `.excalidraw` file and replace the in-frontmatter blob
+      // with a `canvasFile` pointer. Entities without a canvas blob are
+      // untouched.
+      const canvasFieldCreate = extractCanvasField(fields);
+      if (canvasFieldCreate) {
+        try {
+          const doc = parseCanvasJson(canvasFieldCreate.json);
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const canvasFile = await writeExcalidrawSibling(vaultHandle, relativePath, doc as any);
+          if (canvasFile) {
+            delete fields[canvasFieldCreate.fieldName];
+            fields["canvasFile"] = canvasFile;
+          }
+        } catch (err) {
+          console.warn("[canvas-excalidraw] create: bridge skipped", err);
+        }
+      }
+
+      // Frontmatter uses TOP-LEVEL YAML keys for each field (id, type, then
+      // each user-defined field) instead of a nested `fields: {...}` JSON
+      // blob. The latter forced us through JSON.stringify → naive YAML parse,
+      // which dropped/garbled values whenever a field contained a comma,
+      // quote, or newline (the symptom: contact name disappearing and the
+      // ULID showing up instead, because the reindex re-parsed the file and
+      // got an empty `fields` object).
+      const frontmatter: Record<string, unknown> = { id, type: typeRow["name"], ...fields };
+      const content = serializeFrontmatter(frontmatter, body ?? "");
+      await writeVaultFile(vaultHandle, relativePath.split("/"), content);
+
+      db.run(
+        `INSERT INTO entity (id, vaultId, typeId, filePath, fields, body, fileHash, createdAt, updatedAt)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [id, vaultId, typeId, relativePath, JSON.stringify(fields), body ?? "", "", ts, ts],
+      );
+    };
+
+    await runSerialized(createLockKey, resolveAndWrite);
     // (Re)creating this id supersedes any prior deletion — clear its tombstone
     // so the reindex stops skipping its file.
     tombstoneClear(db, id);
@@ -1314,6 +1359,36 @@ export function buildRouter(
       throw new Error("Lecture seule : impossible de déplacer une note d'un vault monté.");
     }
 
+    // Garde de DESTINATION, miroir de celle d'entitiesCreate : une entité
+    // native déplacée sous `@mounts/<slug>/…` garderait `sourceVaultId NULL`,
+    // donc son op partirait dans le salon du PÈRE avec un chemin monté —
+    // contamination inter-coffres. La provenance ci-dessus ne couvre que le
+    // sens inverse (sortir une entité montée).
+    if (isMove && provenance === null && isMountedPath(effectivePath)) {
+      throw new Error(
+        "Destination interdite : un sous-arbre monté est en lecture seule.",
+      );
+    }
+
+    /** Vrai si une AUTRE entité occupe déjà ce chemin dans ce coffre. */
+    const pathTakenByOther = (p: string): boolean => {
+      const r = row(db.exec(
+        `SELECT id FROM entity WHERE vaultId = ? AND filePath = ? LIMIT 1`,
+        [vaultId, p],
+      ));
+      return !!r && (r["id"] as string) !== id;
+    };
+
+    // ⚠️ Le déplacement écrit le fichier destination AVANT de supprimer la
+    // source, et l'UPDATE ne lève qu'ensuite sur `entity_vaultId_filePath_key`.
+    // Sans ce test, une collision détruisait DEUX notes : l'occupant (écrasé
+    // par le contenu entrant) et la déplacée (fichier source supprimé, ligne
+    // orpheline balayée en phantom au démarrage suivant). On refuse avant la
+    // moindre écriture. `entities.moveIfFree` suffixe plutôt que de refuser.
+    if (isMove && pathTakenByOther(effectivePath)) {
+      throw new Error(`Un fichier existe déjà à ${effectivePath}.`);
+    }
+
     // Title-driven auto-rename. Keep the on-disk filename — and therefore the
     // name shown by any folder-sync (Google Drive, iCloud, GitHub) — in step
     // with the entity's title. We only act when the caller did NOT request an
@@ -1321,8 +1396,8 @@ export function buildRouter(
     // file is a markdown note. The new stem comes from the type's
     // fileNamePattern; if it differs from the current filename we promote the
     // edit to a move so the write-new/delete-old machinery below renames the
-    // file. The directory is preserved; a collision with another entity gets a
-    // `-N` suffix (same policy as entitiesCreate).
+    // file. The directory is preserved; a collision — autre entité en base ou
+    // `.md` orphelin sur le disque — passe au suffixe `-N`, comme entitiesCreate.
     if (
       !isMove &&
       provenance === null &&
@@ -1339,17 +1414,21 @@ export function buildRouter(
         const slash = oldPath.lastIndexOf("/");
         const dir = slash >= 0 ? oldPath.slice(0, slash) : "";
         const build = (s: string): string => (dir ? `${dir}/${s}.md` : `${s}.md`);
-        const takenByOther = (p: string): boolean => {
+        const takenByOther = async (p: string): Promise<boolean> => {
           const r = row(db.exec(
             `SELECT id FROM entity WHERE vaultId = ? AND filePath = ? LIMIT 1`,
             [vaultId, p],
           ));
-          return !!r && (r["id"] as string) !== id;
+          if (!!r && (r["id"] as string) !== id) return true;
+          // Le disque compte autant que la base : un `.md` orphelin ferait lever
+          // `commitWrite` plus bas, et tout l'UPDATE — titre ET corps en cours
+          // d'édition — partirait avec. `oldPath` est notre propre fichier.
+          return p !== oldPath && (await fileExistsAt(p));
         };
         let candidate = build(stem);
-        if (candidate !== oldPath && takenByOther(candidate)) {
+        if (candidate !== oldPath && (await takenByOther(candidate))) {
           let n = 2;
-          while (takenByOther(build(`${stem}-${n}`)) && n < 9999) n++;
+          while ((await takenByOther(build(`${stem}-${n}`))) && n < 9999) n++;
           candidate = build(`${stem}-${n}`);
         }
         if (candidate !== oldPath && !isMountedPath(candidate)) {
@@ -1404,47 +1483,77 @@ export function buildRouter(
       !effectivePath.toLowerCase().endsWith(".markdown");
 
     let hash: string | null = null;
-    if (provenance !== null) {
-      // Mounted entity: persist DB-only. NO file write, NO move/delete on the
-      // parent FSA — those bytes belong to the mount room, not the parent disk.
-      // `fileHash` stays "" because there is no parent-side file to hash.
-      hash = "";
-    } else if (!isAttachmentEntity) {
-      // Rewrite the .md file
-      const typeRow = row(db.exec(`SELECT name FROM entity_type WHERE id = ?`, [existing["typeId"] ?? null]));
-      // See entitiesCreate: top-level keys, no nested `fields:` blob.
-      const frontmatter: Record<string, unknown> = {
-        id,
-        type: typeRow?.["name"] ?? "",
-        ...newFields,
-      };
-      const content = serializeFrontmatter(frontmatter, newBody);
-      await writeVaultFile(vaultHandle, effectivePath.split("/"), content);
-      hash = await hashContent(content);
-
-      if (isMove) {
-        // Delete the previous file AFTER writing the new one so a crash mid-
-        // move leaves the content reachable at the old path rather than gone.
-        try {
-          await deleteVaultFile(vaultHandle, oldPath.split("/"));
-        } catch {
-          // Old file may already be gone (e.g. concurrent move) — best-effort.
+    /** Suppression du fichier source, jouée seulement une fois l'UPDATE passé. */
+    let cleanupSource: (() => Promise<void>) | null = null;
+    /**
+     * Écriture du fichier + UPDATE de la ligne. Sérialisé sur le chemin de
+     * DESTINATION quand c'est un déplacement : `runSerialized` est clé par id,
+     * donc deux entités différentes visant le même chemin libre franchissaient
+     * toutes les deux le test d'occupation, écrivaient toutes les deux, et la
+     * seconde écrasait le contenu de la première. Rien d'autre ne prend de
+     * verrou `path:` — l'ordre d'acquisition reste id → path, pas d'interblocage.
+     */
+    const commitWrite = async (): Promise<void> => {
+      if (provenance !== null) {
+        // Mounted entity: persist DB-only. NO file write, NO move/delete on the
+        // parent FSA — those bytes belong to the mount room, not the parent disk.
+        // `fileHash` stays "" because there is no parent-side file to hash.
+        hash = "";
+      } else if (!isAttachmentEntity) {
+        // Rewrite the .md file
+        const typeRow = row(db.exec(`SELECT name FROM entity_type WHERE id = ?`, [existing["typeId"] ?? null]));
+        // See entitiesCreate: top-level keys, no nested `fields:` blob.
+        const frontmatter: Record<string, unknown> = {
+          id,
+          type: typeRow?.["name"] ?? "",
+          ...newFields,
+        };
+        const content = serializeFrontmatter(frontmatter, newBody);
+        // Un déplacement n'écrase JAMAIS un fichier existant : la base ne voit pas
+        // les .md orphelins, ni le fichier qu'un déplacement concurrent vient
+        // d'écrire (le test SQL des deux a eu lieu quand le chemin était libre).
+        if (isMove && (await fileExistsAt(effectivePath))) {
+          throw new Error(`Un fichier existe déjà à ${effectivePath}.`);
         }
-        // Move the .excalidraw sibling alongside the .md (best-effort).
-        await moveExcalidrawSibling(vaultHandle, oldPath, effectivePath);
-      }
-    } else if (isMove) {
-      // Attachment rename: move the underlying attachment file itself.
-      // We don't go through writeVaultFile — that writes markdown.
-      console.info(
-        `[entitiesUpdate] attachment rename ${oldPath} → ${effectivePath} (binary move not implemented; SQL row updated, disk file left at old path)`,
-      );
-    }
+        await writeVaultFile(vaultHandle, effectivePath.split("/"), content);
+        hash = await hashContent(content);
 
-    db.run(
-      `UPDATE entity SET fields = ?, body = ?, fileHash = ?, filePath = ?, updatedAt = ? WHERE id = ?`,
-      [JSON.stringify(newFields), newBody, hash, effectivePath, ts, id],
-    );
+        if (isMove) {
+          // ⚠️ La suppression de la source est différée APRÈS l'UPDATE : la
+          // contrainte d'unicité est le seul arbitre réellement atomique, et
+          // `runSerialized` est clé par id — deux entités différentes visant le
+          // même chemin libre ne sont pas sérialisées entre elles. Supprimer
+          // avant l'UPDATE laissait la perdante sans fichier ET sans ligne
+          // cohérente. Dans cet ordre, une levée coûte au pire un doublon.
+          cleanupSource = async () => {
+            try {
+              await deleteVaultFile(vaultHandle, oldPath.split("/"));
+            } catch {
+              // Old file may already be gone (e.g. concurrent move) — best-effort.
+            }
+            // Move the .excalidraw sibling alongside the .md (best-effort).
+            await moveExcalidrawSibling(vaultHandle, oldPath, effectivePath);
+          };
+        }
+      } else if (isMove) {
+        // Attachment rename: move the underlying attachment file itself.
+        // We don't go through writeVaultFile — that writes markdown.
+        console.info(
+          `[entitiesUpdate] attachment rename ${oldPath} → ${effectivePath} (binary move not implemented; SQL row updated, disk file left at old path)`,
+        );
+      }
+
+      db.run(
+        `UPDATE entity SET fields = ?, body = ?, fileHash = ?, filePath = ?, updatedAt = ? WHERE id = ?`,
+        [JSON.stringify(newFields), newBody, hash, effectivePath, ts, id],
+      );
+      // La ligne porte le nouveau chemin : la source peut partir sans risque.
+      if (cleanupSource) await cleanupSource();
+    };
+
+    if (isMove) await runSerialized(`path:${effectivePath}`, commitWrite);
+    else await commitWrite();
+
     tombstoneClear(db, id); // a live, edited entity is not a tombstone
 
     if (tags !== undefined) {
@@ -1481,6 +1590,79 @@ export function buildRouter(
     try { hooks.onEntityUpdated?.(updated, previousForHook); } catch (e) { console.warn("[hook] onEntityUpdated", e); }
     return updated;
     });
+  };
+
+  /**
+   * Déplace une entité dans un dossier en résolvant le premier nom de fichier
+   * LIBRE (`-2`, `-3`, … jusqu'à 9999, la politique d'entitiesCreate) au lieu
+   * d'écraser ou d'échouer. `folder: "."` désigne la racine du coffre.
+   *
+   * Le test d'occupation vit ici, pas chez l'appelant : côté client il serait
+   * non atomique (des minutes entre le scan et l'écriture, une sync distante
+   * ou une création à la souris suffisant à le périmer). Ici il est synchrone
+   * avec la base, juste avant l'écriture. Il ne remplace pas la contrainte
+   * d'unicité — c'est elle qui arbitre deux écritures concurrentes, et
+   * `entitiesUpdate` ne supprime la source qu'une fois l'UPDATE passé.
+   *
+   * Le disque est consulté en plus de la base : un .md orphelin (présent sans
+   * ligne `entity`) serait écrasé par `writeVaultFile` SANS lever.
+   */
+  const entitiesMoveIfFree = async (input: unknown): Promise<unknown> => {
+    const { id, folder } = input as { id: string; folder: string };
+    const existing = row(db.exec(
+      `SELECT filePath, sourceVaultId FROM entity WHERE id = ? AND vaultId = ?`,
+      [id, vaultId],
+    ));
+    if (!existing) throw new Error(`Entity not found: ${id}`);
+    // Une entité montée est en lecture seule : le dire avant de dépenser une
+    // résolution de nom (et ses lectures disque) pour rien.
+    if (((existing["sourceVaultId"] as string | null) ?? null) !== null) {
+      throw new Error("Lecture seule : impossible de déplacer une note d'un vault monté.");
+    }
+    const oldPath = (existing["filePath"] as string) ?? "";
+    // "." = racine du coffre. Sans ça, une note qui vivait à la racine ne
+    // pouvait pas y revenir (annulation d'un rangement).
+    const cleanFolder = folder === "." ? "" : sanitizePath(folder);
+    if (folder !== "." && !cleanFolder) {
+      throw new Error("Dossier de destination vide.");
+    }
+    if (/\.[a-z0-9]+$/i.test(cleanFolder)) {
+      throw new Error(`« ${cleanFolder} » est un fichier, pas un dossier.`);
+    }
+    if (cleanFolder && isMountedPath(`${cleanFolder}/x`)) {
+      throw new Error("Destination interdite : un sous-arbre monté est en lecture seule.");
+    }
+
+    const filename = oldPath.split("/").pop() ?? "";
+    if (!filename) throw new Error("Chemin source invalide.");
+    const at = (name: string): string =>
+      cleanFolder ? `${cleanFolder}/${name}` : name;
+
+    const takenInDb = (p: string): boolean => {
+      const r = row(db.exec(
+        `SELECT id FROM entity WHERE vaultId = ? AND filePath = ? LIMIT 1`,
+        [vaultId, p],
+      ));
+      return !!r && (r["id"] as string) !== id;
+    };
+    const takenOnDisk = fileExistsAt;
+
+    const dot = filename.lastIndexOf(".");
+    const stem = dot > 0 ? filename.slice(0, dot) : filename;
+    const ext = dot > 0 ? filename.slice(dot) : "";
+    let target = at(filename);
+    for (let n = 2; n <= 9999; n++) {
+      if (target === oldPath) break;
+      if (!takenInDb(target) && !(await takenOnDisk(target))) break;
+      target = at(`${stem}-${n}${ext}`);
+    }
+    if (target !== oldPath && (takenInDb(target) || (await takenOnDisk(target)))) {
+      throw new Error(`Aucun nom libre dans ${cleanFolder || "la racine"}.`);
+    }
+    if (target === oldPath) return { filePath: oldPath, moved: false };
+
+    await entitiesUpdate({ id, filePath: target });
+    return { filePath: target, moved: true };
   };
 
   const entitiesDelete = async (input: unknown): Promise<unknown> => {
@@ -3794,7 +3976,10 @@ export function buildRouter(
     const clean = sanitizePath(path);
     if (!clean) throw new Error("vault.writeFile: empty path");
     const segments = clean.split("/");
-    return runSerialized(clean, async () => {
+    // Même espace de noms `path:` que la création et le déplacement d'entité :
+    // sur une clé nue, une écriture binaire et un déplacement visant ce chemin
+    // ne s'excluaient pas.
+    return runSerialized(`path:${clean}`, async () => {
       try {
         await writeVaultFileBinary(vaultHandle, segments, bytes);
       } catch (err) {
@@ -4689,6 +4874,7 @@ export function buildRouter(
     "entities.get": entitiesGet,
     "entities.create": entitiesCreate,
     "entities.update": entitiesUpdate,
+    "entities.moveIfFree": entitiesMoveIfFree,
     "entities.delete": entitiesDelete,
     "entities.search": entitiesSearch,
     "entities.listByDateRange": entitiesListByDateRange,

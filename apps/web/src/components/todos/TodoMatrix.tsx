@@ -62,8 +62,25 @@ const AXIS_BY_QUADRANT: Record<QuadrantKey, { urgent: boolean; important: boolea
   eliminate: { urgent: false, important: false },
 };
 
+const URGENT_WITHIN_DAYS = 2;
+
+/**
+ * L'axe urgence se déduit de l'échéance tant que personne ne l'a fixé à la
+ * main : sans ça une tâche « à faire avant vendredi » tombait dans « Éliminer »,
+ * le seul quadrant que personne ne relit. Un glisser-déposer écrit `urgent` et
+ * reprend alors la main — l'arbitrage de l'utilisateur prime toujours.
+ */
+function isUrgent(row: TodoRowData): boolean {
+  if (typeof row.urgent === "boolean") return row.urgent;
+  if (!row.dueDate) return false;
+  const due = new Date(row.dueDate);
+  if (Number.isNaN(due.getTime())) return false;
+  const days = (due.getTime() - Date.now()) / 86_400_000;
+  return days <= URGENT_WITHIN_DAYS;
+}
+
 function quadrantOf(row: TodoRowData): QuadrantKey {
-  const urg = row.urgent === true;
+  const urg = isUrgent(row);
   const imp = isImportant(row.importance);
   if (urg && imp) return "do";
   if (!urg && imp) return "schedule";
@@ -133,7 +150,10 @@ export function TodoMatrix({
     if (!row) return;
     const target = AXIS_BY_QUADRANT[over.id as QuadrantKey];
     if (!target) return;
-    const curUrgent = row.urgent === true;
+    // Même source que `quadrantOf` : comparer `row.urgent` ici ferait passer
+    // pour « déjà à sa place » une tâche urgente par sa date qu'on glisse vers
+    // un quadrant non urgent, et le geste échouerait en silence.
+    const curUrgent = isUrgent(row);
     const curImportant = isImportant(row.importance);
     if (target.urgent === curUrgent && target.important === curImportant) return;
     onMove(row, target);

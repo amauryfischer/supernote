@@ -7,6 +7,8 @@ import {
   EntitySchema,
   CreateEntityInput,
   UpdateEntityInput,
+  MoveEntityIfFreeInput,
+  MoveEntityIfFreeOutput,
   DeleteEntityInput,
   SearchEntitiesInput,
   SearchEntitiesOutput,
@@ -73,6 +75,20 @@ export const entitiesRouter = router({
     .output(EntitySchema)
     .mutation(() => {
       throw notImplemented("entities.update");
+    }),
+
+  /**
+   * Move an entity into a folder, resolving the first FREE filename worker-side
+   * (`-2`, `-3`, … like `create`). The occupancy test must be atomic with the
+   * write — a client-side check goes stale between scan and mutation, and the
+   * move writes the destination file BEFORE deleting the source, so a collision
+   * destroys both notes.
+   */
+  moveIfFree: publicProcedure
+    .input(MoveEntityIfFreeInput)
+    .output(MoveEntityIfFreeOutput)
+    .mutation(() => {
+      throw notImplemented("entities.moveIfFree");
     }),
 
   /** Delete an entity (moves to trash by default). */

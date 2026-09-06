@@ -519,7 +519,15 @@ export default function TodosPage() {
           dueDate: typeof f["dueDate"] === "string" ? (f["dueDate"] as string) : null,
           priority: parseStandalonePriority(f["priority"]),
           importance: parseStandaloneImportance(f["importance"]),
-          urgent: f["urgent"] === true || f["urgent"] === "true",
+          // `null` = jamais fixé, ce qui laisse la matrice déduire l'urgence de
+          // l'échéance. Coercer un champ absent en `false` rendait cette
+          // déduction morte : toute tâche datée tombait dans « Éliminer ».
+          urgent:
+            f["urgent"] === true || f["urgent"] === "true"
+              ? true
+              : f["urgent"] === false || f["urgent"] === "false"
+                ? false
+                : null,
           reminderAt: typeof f["reminderAt"] === "string" ? (f["reminderAt"] as string) : null,
           reminderText: typeof f["reminderText"] === "string" ? (f["reminderText"] as string) : null,
           reminderFiredAt: typeof f["reminderFiredAt"] === "string" ? (f["reminderFiredAt"] as string) : null,

@@ -111,6 +111,31 @@ export const UpdateEntityInput = z.object({
 });
 export type UpdateEntityInput = z.infer<typeof UpdateEntityInput>;
 
+/**
+ * Déplacement vers un dossier, avec résolution du premier nom de fichier libre
+ * côté worker. Contrairement à `update({ filePath })`, l'appelant ne choisit
+ * pas le nom final : le test d'occupation doit être atomique avec l'écriture,
+ * donc il ne peut pas vivre chez lui.
+ */
+export const MoveEntityIfFreeInput = z.object({
+  id: z.string().min(1),
+  /**
+   * Dossier de destination, sans nom de fichier (ex. "Travail/Clients").
+   * `"."` désigne la racine du coffre — une note qui y vivait doit pouvoir y
+   * revenir quand on annule son rangement.
+   */
+  folder: z.string().min(1),
+});
+export type MoveEntityIfFreeInput = z.infer<typeof MoveEntityIfFreeInput>;
+
+export const MoveEntityIfFreeOutput = z.object({
+  /** Chemin réellement écrit (suffixé en `-2`, `-3`… si besoin). */
+  filePath: z.string(),
+  /** Faux quand la note était déjà à sa place. */
+  moved: z.boolean(),
+});
+export type MoveEntityIfFreeOutput = z.infer<typeof MoveEntityIfFreeOutput>;
+
 export const DeleteEntityInput = z.object({
   id: z.string().min(1),
   moveToTrash: z.boolean().optional().default(true),

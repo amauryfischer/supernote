@@ -567,42 +567,31 @@ export function useRenameNote() {
 
 // ── useMoveNote ───────────────────────────────────────────────────────────────
 
+/**
+ * Déplace une note vers un dossier. Le nom de fichier final est résolu par le
+ * worker (`entities.moveIfFree`), pas ici : un test côté client contre le cache
+ * `entities.list` est plafonné à 500 notes, périmable, et aveugle aux `.md`
+ * orphelins du disque — or `update({ filePath })` refuse désormais une
+ * destination occupée au lieu de l'écraser.
+ */
 export function useMoveNote() {
   const hasBackend = useHasBackend();
   const utils = trpc.useUtils();
-  const mutation = trpc.entities.update.useMutation({
-    onSuccess: (data) => {
-      void utils.entities.get.invalidate({ id: data.id });
-      void utils.entities.list.invalidate();
-    },
-  });
+  const mutation = trpc.entities.moveIfFree.useMutation();
 
   const moveNote = useCallback(
-    async (id: string, targetFolderPath: string): Promise<void> => {
-      if (!hasBackend) return;
-      let cached = utils.entities.get.getData({ id });
-      if (!cached) cached = await utils.entities.get.fetch({ id });
-      const currentPath = cached?.filePath ?? null;
-      if (!currentPath) return;
-      if (currentPath.startsWith(`${targetFolderPath}/`) &&
-          !currentPath.slice(targetFolderPath.length + 1).includes("/")) return;
-
-      const filename = currentPath.split("/").pop()!;
-      const base = filename.replace(/\.md$/, "");
-      const all = utils.entities.list.getData({ typeId: "note", limit: 500, offset: 0 });
-
-      // Find a non-colliding destination path.
-      let nextFilePath = `${targetFolderPath}/${filename}`;
-      if (nextFilePath !== currentPath) {
-        let counter = 0;
-        while (all?.items.some((e) => e.filePath === nextFilePath && e.id !== id)) {
-          counter++;
-          nextFilePath = `${targetFolderPath}/${base}-${counter}.md`;
-        }
-      }
-
-      if (nextFilePath === currentPath) return;
-      await mutation.mutateAsync({ id, filePath: nextFilePath });
+    async (
+      id: string,
+      targetFolderPath: string,
+    ): Promise<{ filePath: string; moved: boolean } | null> => {
+      if (!hasBackend) return null;
+      // `"."` = racine du coffre côté worker ; le schéma IPC refuse le vide.
+      const folder = targetFolderPath.trim() || ".";
+      const result = await mutation.mutateAsync({ id, folder });
+      if (!result.moved) return result;
+      void utils.entities.get.invalidate({ id });
+      void utils.entities.list.invalidate();
+      return result;
     },
     [hasBackend, mutation, utils],
   );
