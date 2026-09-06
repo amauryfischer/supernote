@@ -15,7 +15,10 @@ import type { Logger } from "pino";
 import pino from "pino";
 
 const DEFAULT_BASE_URL = "http://127.0.0.1:11434";
-const DEFAULT_TIMEOUT_MS = 30_000;
+// 30 s ne suffisaient pas : charger un modèle de 5,5 Go en VRAM coûte à lui
+// seul ~16 s, et Ollama sérialise les requêtes concurrentes — un appel de fond
+// tombait en timeout avant d'avoir commencé à générer.
+const DEFAULT_TIMEOUT_MS = 120_000;
 
 interface OllamaTagsResponse {
   models: Array<{
@@ -144,6 +147,14 @@ class OllamaClientImpl implements OllamaClient {
       model,
       prompt: opts.prompt,
       stream: false,
+      // Les modèles à raisonnement (Qwen3.5…) produisent des centaines de
+      // tokens de réflexion avant la réponse : 57 s au lieu de 1,3 s sur une
+      // extraction. Aucune de nos tâches n'en tire parti.
+      think: false,
+      // Sans ça, Ollama décharge le modèle après 5 min — soit exactement
+      // l'intervalle entre deux passes de fond, qui repaieraient 15 s de
+      // rechargement à chaque fois.
+      keep_alive: "2h",
     };
     if (opts.system) body["system"] = opts.system;
     if (opts.format) body["format"] = opts.format;

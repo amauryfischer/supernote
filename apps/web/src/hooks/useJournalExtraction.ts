@@ -3,14 +3,19 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useToast } from "@supernote/ui";
 import { OLLAMA_EXTRACT_TEXT_LIMIT } from "@supernote/ai";
-import type { ExtractedAction, MentionMatch } from "@supernote/ai";
+import type { ExtractedAction, MentionMatch, PersonCandidate } from "@supernote/ai";
 import { trpc } from "@/lib/trpc/client";
 import { runJournalExtraction } from "@/lib/ai/journal-extract";
 import { TODO_TYPE_ID } from "./useTodoSync";
-import { useMentionCandidates } from "./useMentionCandidates";
+import {
+  PERSON_CANDIDATES_INPUT,
+  PERSON_TYPE_ID,
+  useMentionCandidates,
+} from "./useMentionCandidates";
 
 const MAX_MENTIONS = 5;
 const MAX_ACTIONS = 5;
+const MAX_PEOPLE = 3;
 
 export interface MentionSuggestion {
   kind: "mention";
@@ -24,7 +29,14 @@ export interface ActionSuggestion {
   action: ExtractedAction;
 }
 
-export type JournalSuggestion = MentionSuggestion | ActionSuggestion;
+/** Nom cité, inconnu du coffre : la puce propose une CRÉATION, pas un lien. */
+export interface PersonSuggestion {
+  kind: "person";
+  key: string;
+  candidate: PersonCandidate;
+}
+
+export type JournalSuggestion = MentionSuggestion | ActionSuggestion | PersonSuggestion;
 
 interface UseJournalExtractionResult {
   suggestions: JournalSuggestion[];
@@ -51,6 +63,8 @@ interface UseJournalExtractionResult {
    * définitivement une action que personne n'a enregistrée.
    */
   acceptAction: (suggestion: ActionSuggestion) => Promise<boolean>;
+  /** Même contrat que `acceptAction`, pour la création d'un contact. */
+  acceptPerson: (suggestion: PersonSuggestion) => Promise<boolean>;
 }
 
 /**
@@ -118,6 +132,7 @@ export function useJournalExtraction(date: string): UseJournalExtractionResult {
   const utils = trpc.useUtils();
   const { toast } = useToast();
   const createTodo = trpc.entities.create.useMutation();
+  const createPerson = trpc.entities.create.useMutation();
 
   const trigger = useCallback((text: string) => {
     const runId = ++runIdRef.current;
@@ -133,12 +148,20 @@ export function useJournalExtraction(date: string): UseJournalExtractionResult {
             .filter((m): m is MentionMatch => m !== null),
         );
         const actions = dedupedActions(result.actions);
+        const people = result.people.slice(0, MAX_PEOPLE);
         setSuggestions([
           ...mentions.map(
             (match): MentionSuggestion => ({
               kind: "mention",
               key: `mention:${match.entityId}`,
               match,
+            }),
+          ),
+          ...people.map(
+            (candidate): PersonSuggestion => ({
+              kind: "person",
+              key: `person:${candidate.name.toLowerCase()}`,
+              candidate,
             }),
           ),
           ...actions.map(
@@ -157,7 +180,10 @@ export function useJournalExtraction(date: string): UseJournalExtractionResult {
         const fromModel =
           result.mentions.some((m) => m.source === "ollama") ||
           result.actions.some((a) => a.source === "ollama");
-        setTruncated(fromModel && text.length > OLLAMA_EXTRACT_TEXT_LIMIT);
+        // Mesuré sur le texte SOUMIS (gabarit retiré), pas sur `text` : le
+        // gabarit compte pour des centaines de caractères que le modèle n'a
+        // jamais eu à lire.
+        setTruncated(fromModel && result.analysedLength > OLLAMA_EXTRACT_TEXT_LIMIT);
       })
       .catch((err: unknown) => {
         // Les chemins Ollama sont déjà protégés en interne, pas le repli
@@ -218,7 +244,10 @@ export function useJournalExtraction(date: string): UseJournalExtractionResult {
             // Défaut de /todos et de useConvertToTodo : sans lui, pas de badge
             // P{n} et un tri différent des autres tâches.
             priority: 5,
-            importance: suggestion.action.priority,
+            // Ni `urgent` ni `importance` : `dueDate` est la seule source de
+            // vérité de l'axe urgence, dont `quadrantOf` (TodoMatrix) dérive
+            // seul — deux sources finiraient par diverger. Et l'importance est
+            // un jugement qui appartient à l'utilisateur, pas au modèle.
             ...(suggestion.action.deadline ? { dueDate: suggestion.action.deadline } : {}),
           },
         })
@@ -240,5 +269,46 @@ export function useJournalExtraction(date: string): UseJournalExtractionResult {
     [createTodo, dismissMention, toast, utils],
   );
 
-  return { suggestions, analyzedText, truncated, trigger, dismissMention, acceptAction };
+  const acceptPerson = useCallback(
+    (suggestion: PersonSuggestion): Promise<boolean> => {
+      // Même verrou anti-double-clic que `acceptAction` : la chip d'abord.
+      dismissMention(suggestion.key);
+      return createPerson
+        .mutateAsync({
+          typeId: PERSON_TYPE_ID,
+          fields: { name: suggestion.candidate.name },
+        })
+        .then(() => {
+          void utils.entities.list.invalidate({ typeId: PERSON_TYPE_ID });
+          // Entrée exacte de `useMentionCandidates` : le contact ne devient
+          // liable (chip « lier ? ») qu'une fois revenu dans ses candidats.
+          void utils.entities.listSummaries.invalidate(PERSON_CANDIDATES_INPUT);
+          toast({
+            title: "Contact créé",
+            description: suggestion.candidate.name,
+            variant: "success",
+          });
+          return true;
+        })
+        .catch((err: unknown) => {
+          toast({
+            title: "Contact non créé",
+            description: err instanceof Error ? err.message : suggestion.candidate.name,
+            variant: "danger",
+          });
+          return false;
+        });
+    },
+    [createPerson, dismissMention, toast, utils],
+  );
+
+  return {
+    suggestions,
+    analyzedText,
+    truncated,
+    trigger,
+    dismissMention,
+    acceptAction,
+    acceptPerson,
+  };
 }

@@ -5,7 +5,9 @@
 import { z } from "zod";
 import type { OllamaClient } from "../ollama/types.js";
 import type { ExtractedAction, EntityRef, MentionMatch } from "./types.js";
-import { ACTION_EXTRACT_PROMPT_V1, MENTION_EXTRACT_PROMPT_V1 } from "../prompts/index.js";
+import { MENTION_EXTRACT_PROMPT_V1 } from "../prompts/index.js";
+import { ACTION_EXTRACT_PROMPT_V2 } from "./prompts.js";
+import { resolveFrenchDeadline, toIsoDate } from "./deadline-fr.js";
 
 /**
  * Longueur maximale envoyée au modèle. Au-delà, la fin du texte n'est vue par
@@ -14,12 +16,23 @@ import { ACTION_EXTRACT_PROMPT_V1, MENTION_EXTRACT_PROMPT_V1 } from "../prompts/
  */
 export const OLLAMA_EXTRACT_TEXT_LIMIT = 4000;
 
+// Tolérant à dessein : un champ manquant ou d'un type inattendu ne doit pas
+// faire échouer TOUTE la réponse — une action sans date vaut mieux qu'aucune.
 const ActionSchema = z.object({
   text: z.string(),
-  assignee: z.string().nullable(),
-  deadline: z.string().nullable(),
-  priority: z.enum(["high", "medium", "low"]),
+  assignee: z.unknown(),
+  deadlineText: z.unknown(),
+  deadline: z.unknown(),
+  priority: z.unknown(),
 });
+
+function asText(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 ? value : null;
+}
+
+function asPriority(value: unknown): "high" | "medium" | "low" {
+  return value === "high" || value === "low" ? value : "medium";
+}
 
 const ActionsResponseSchema = z.object({
   actions: z.array(ActionSchema),
@@ -55,11 +68,11 @@ function parseJson<T>(
 export async function ollamaExtractActions(
   noteContent: string,
   client: OllamaClient,
+  now: Date = new Date(),
 ): Promise<ExtractedAction[]> {
-  const prompt = ACTION_EXTRACT_PROMPT_V1.replace(
-    "{{noteContent}}",
-    noteContent.slice(0, OLLAMA_EXTRACT_TEXT_LIMIT),
-  );
+  const prompt = ACTION_EXTRACT_PROMPT_V2
+    .replace("{{today}}", toIsoDate(now))
+    .replace("{{noteContent}}", noteContent.slice(0, OLLAMA_EXTRACT_TEXT_LIMIT));
 
   const raw = await client.generate({ prompt, format: "json", temperature: 0.1 });
   const parsed = parseJson(raw, ActionsResponseSchema);
@@ -67,9 +80,12 @@ export async function ollamaExtractActions(
 
   return parsed.actions.map((a) => ({
     text: a.text,
-    assignee: a.assignee,
-    deadline: a.deadline,
-    priority: a.priority,
+    assignee: asText(a.assignee),
+    // L'expression brute prime : le modèle n'a pas de calendrier fiable, la
+    // conversion se fait ici. Sa date ISO ne sert que de dernier recours
+    // (validée par `plausibleIsoDeadline` en aval).
+    deadline: resolveFrenchDeadline(asText(a.deadlineText), now) ?? asText(a.deadline),
+    priority: asPriority(a.priority),
     source: "ollama" as const,
   }));
 }

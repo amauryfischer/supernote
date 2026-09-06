@@ -14,8 +14,12 @@ import {
   extractMentionsHeuristic,
 } from "./heuristic-extract.js";
 import { ollamaExtractActions, ollamaExtractMentions } from "./ollama-extract.js";
+import { refineActions } from "./refine.js";
 import pino from "pino";
 import type { Logger } from "pino";
+
+/** Plafond appliqué APRÈS scission : deux actions issues d'une phrase comptent double. */
+const MAX_REFINED_ACTIONS = 8;
 
 function buildLogger(parent?: Logger): Logger {
   return parent
@@ -34,12 +38,17 @@ class ActionExtractorImpl implements ActionExtractor {
 
   async extractActions(noteContent: string): Promise<ExtractedAction[]> {
     if (!noteContent?.trim()) return [];
+    const now = this.opts.now?.() ?? new Date();
 
     if (this.opts.ollama) {
       try {
         const available = await this.opts.ollama.isAvailable();
         if (available) {
-          const actions = await ollamaExtractActions(noteContent, this.opts.ollama);
+          const raw = await ollamaExtractActions(noteContent, this.opts.ollama, now);
+          // Filtré AVANT de décider : une réponse qui ne contenait qu'un titre
+          // de gabarit ne vaut pas mieux qu'une réponse vide, et l'heuristique
+          // doit alors avoir sa chance.
+          const actions = refineActions(raw, noteContent, now, MAX_REFINED_ACTIONS);
           if (actions.length > 0) {
             this.logger.debug({ count: actions.length }, "Ollama actions");
             return actions;
@@ -50,7 +59,12 @@ class ActionExtractorImpl implements ActionExtractor {
       }
     }
 
-    const actions = extractActionsHeuristic(noteContent);
+    const actions = refineActions(
+      extractActionsHeuristic(noteContent),
+      noteContent,
+      now,
+      MAX_REFINED_ACTIONS,
+    );
     this.logger.debug({ count: actions.length }, "Heuristic actions");
     return actions;
   }

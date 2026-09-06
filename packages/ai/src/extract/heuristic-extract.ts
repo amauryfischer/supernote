@@ -105,7 +105,13 @@ function findEntityInText(
   for (const candidate of candidates) {
     if (candidate.length < 2) continue;
     const escaped = candidate.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const pattern = new RegExp(`\\b${escaped}\\b`, "gi");
+    // `\b` s'appuie sur `\w`, qui reste `[A-Za-z0-9_]` même avec le flag `u` :
+    // « José » ou « Chloé » suivis d'un espace n'ont donc aucune frontière et
+    // ne sont jamais reconnus. Bornes Unicode explicites à la place.
+    const pattern = new RegExp(
+      `(?<![\\p{L}\\p{N}_])${escaped}(?![\\p{L}\\p{N}_])`,
+      "giu",
+    );
     let m: RegExpExecArray | null;
 
     while ((m = pattern.exec(content)) !== null) {

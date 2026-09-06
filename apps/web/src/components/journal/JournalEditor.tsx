@@ -13,6 +13,7 @@ import {
   type ActionSuggestion,
   type JournalSuggestion,
   type MentionSuggestion,
+  type PersonSuggestion,
 } from "@/hooks/useJournalExtraction";
 import { ExtractionSuggestions } from "./ExtractionSuggestions";
 
@@ -60,9 +61,9 @@ interface EditorOverride {
  * écartée doit le rester tant que le texte dit la même chose.
  */
 function suggestionContentKey(s: JournalSuggestion): string {
-  return s.kind === "mention"
-    ? `m:${s.match.entityId}:${s.match.matchedText.toLowerCase()}`
-    : `a:${s.action.text.trim().toLowerCase()}`;
+  if (s.kind === "mention") return `m:${s.match.entityId}:${s.match.matchedText.toLowerCase()}`;
+  if (s.kind === "person") return `p:${s.candidate.name.trim().toLowerCase()}`;
+  return `a:${s.action.text.trim().toLowerCase()}`;
 }
 
 /** L'extracteur re-matche un nom déjà lié : sans ça la chip revient à chaque passe. */
@@ -144,6 +145,7 @@ export function JournalEditor({ date }: JournalEditorProps) {
     trigger: triggerExtraction,
     dismissMention,
     acceptAction,
+    acceptPerson,
   } = useJournalExtraction(date);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [override, setOverride] = useState<EditorOverride | null>(null);
@@ -403,6 +405,19 @@ export function JournalEditor({ date }: JournalEditorProps) {
     [acceptAction, date],
   );
 
+  // Création d'un contact : aucune réécriture du markdown. La passe suivante
+  // proposera « lier ? » sur le nom, une fois le contact entré au coffre.
+  const handleAcceptPerson = useCallback(
+    (suggestion: PersonSuggestion) => {
+      const forDate = date;
+      void acceptPerson(suggestion).then((created) => {
+        if (!created || suppressedRef.current.date !== forDate) return;
+        suppressedRef.current.keys.add(suggestionContentKey(suggestion));
+      });
+    },
+    [acceptPerson, date],
+  );
+
   const handleReject = useCallback(
     (key: string) => {
       const target = suggestions.find((s) => s.key === key);
@@ -557,6 +572,7 @@ export function JournalEditor({ date }: JournalEditorProps) {
         truncated={truncated}
         onAcceptMention={handleAcceptMention}
         onAcceptAction={handleAcceptAction}
+        onAcceptPerson={handleAcceptPerson}
         onReject={handleReject}
       />
     </div>
