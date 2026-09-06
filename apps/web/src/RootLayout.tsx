@@ -30,6 +30,7 @@ import { UiSoundBridge } from "@/lib/uiSounds";
 import { ConfirmProvider } from "@/lib/confirm";
 import { FreezeReportBanner } from "@/lib/diagnostics/FreezeReportBanner";
 import { UiModeSwitcher } from "@/components/dev/UiModeSwitcher";
+import { InboxAutoSort } from "@/lib/ai/InboxAutoSort";
 
 export function RootLayout() {
   return (
@@ -59,6 +60,10 @@ export function RootLayout() {
                     CustomEvents "supernote:ui-sound" si le réglage
                     Notifications → sons est actif. */}
                 <UiSoundBridge />
+                {/* Tri de l'inbox par l'IA locale, au repos. Monté ici pour
+                    vivre sous ToastProvider et TrpcProvider — il rend le
+                    journal des déplacements, rien d'autre. */}
+                <InboxAutoSort />
                 {/* Vault auto-init status banner (only meaningful in Electron;
                     in PWA mode it stays silent). */}
                 <VaultInitBanner />
