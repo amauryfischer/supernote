@@ -31,6 +31,7 @@ import { useGmailConnected } from "@/hooks/useGmailConnected";
 import { usePluginEnabled } from "@/hooks/usePluginEnabled";
 import { MobileVaultSwitcher } from "./MobileVaultSwitcher";
 import { MobileStatusCard } from "./MobileStatusCard";
+import { InboxSortJournalRow } from "@/lib/ai/InboxSortJournalEntry";
 import { ShortcutsCheatSheet } from "@/components/notes/ShortcutsCheatSheet";
 import {
   NAV_GROUP_ORDER,
@@ -360,6 +361,8 @@ export const MoreDrawer = memo(function MoreDrawer({
           </div>
 
           <MobileStatusCard onClose={onClose} />
+
+          <InboxSortJournalRow onClose={onClose} />
 
           {/* Sections dérivées du catalogue — chaque groupe = une carte
               arrondie. Libellé de section aligné sur le sidebar desktop (i18n),

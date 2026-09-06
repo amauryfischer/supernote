@@ -7,24 +7,56 @@
  *   • syncing            → violet (pulsing)
  *   • error              → red
  *   • offline            → grey
- *   • disabled (no git)  → hidden
+ *   • disabled (no git)  → hollow dot, "non configuré"
  *
  * Tapping the dot opens a small popover with the timestamp of the last
  * successful sync, a "Sync now" button, and the latest summary
  * (commits pulled / pushed, conflict count). Designed to fit in the
  * mobile top bar AND the desktop top bar with the same markup.
+ *
+ * ⚠️ La pastille ne disparaît jamais : masquer l'indicateur quand git n'est
+ * pas configuré rend « non configuré » indiscernable de « synchronisé », qui
+ * est précisément la question à laquelle elle répond.
  */
 
 import { useState } from "react";
-import { Button } from "@heroui/react";
+import { Button, Tooltip } from "@supernote/ui";
+import Link from "next/link";
 import { useGitSync } from "./GitSyncProvider";
+
+/** Libellé d'état, partagé avec la carte « État » du drawer mobile. */
+export function gitSyncLabel(sync: {
+  status: string;
+  lastSyncAt?: string | null;
+  errorMsg?: string | null;
+}): string {
+  switch (sync.status) {
+    case "syncing":
+      return "Synchronisation en cours…";
+    case "ok":
+      return sync.lastSyncAt
+        ? `Synchronisé · ${formatRelative(sync.lastSyncAt)}`
+        : "Synchronisé";
+    case "idle":
+      return "En attente";
+    case "error":
+      return `Erreur · ${sync.errorMsg ?? "voir détails"}`;
+    case "offline":
+      return "Hors-ligne";
+    case "disabled":
+      return "Git non configuré";
+    default:
+      return "";
+  }
+}
 
 export function GitSyncIndicator({ size = "sm" }: { size?: "sm" | "md" }) {
   const sync = useGitSync();
   const [open, setOpen] = useState(false);
 
-  if (!sync || sync.status === "disabled") return null;
+  if (!sync) return null;
 
+  const unconfigured = sync.status === "disabled";
   const dotSize = size === "sm" ? 8 : 10;
   const color = (() => {
     switch (sync.status) {
@@ -42,36 +74,19 @@ export function GitSyncIndicator({ size = "sm" }: { size?: "sm" | "md" }) {
     }
   })();
 
-  const label = (() => {
-    switch (sync.status) {
-      case "syncing":
-        return "Synchronisation en cours…";
-      case "ok":
-        return sync.lastSyncAt
-          ? `Synchronisé · ${formatRelative(sync.lastSyncAt)}`
-          : "Synchronisé";
-      case "idle":
-        return "En attente";
-      case "error":
-        return `Erreur · ${sync.errorMsg ?? "voir détails"}`;
-      case "offline":
-        return "Hors-ligne";
-      default:
-        return "";
-    }
-  })();
+  const label = gitSyncLabel(sync);
 
   return (
     <div className="relative">
-      <Button
-        isIconOnly
-        variant="ghost"
-        size="sm"
-        type="button"
-        onPress={() => setOpen((v) => !v)}
-        aria-label={`État de la synchronisation : ${label}`}
-        className="flex h-8 w-8 min-w-0 items-center justify-center rounded-full active:bg-[var(--surface-2)]"
-      >
+      <Tooltip content={label}>
+        <Button
+          variant="ghost"
+          size="icon"
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-label={`État de la synchronisation : ${label}`}
+          className="flex h-8 w-8 items-center justify-center rounded-full"
+        >
         <span
           className={sync.status === "syncing" ? "animate-pulse" : undefined}
           style={{
@@ -79,16 +94,18 @@ export function GitSyncIndicator({ size = "sm" }: { size?: "sm" | "md" }) {
             width: dotSize,
             height: dotSize,
             borderRadius: "50%",
-            backgroundColor: color,
+            backgroundColor: unconfigured ? "transparent" : color,
+            border: unconfigured ? "1px solid var(--text-muted)" : undefined,
             boxShadow:
               sync.status === "ok"
                 ? "0 0 6px -1px oklch(0.65 0.16 150 / 0.5)"
                 : sync.status === "error"
                   ? "0 0 6px -1px var(--danger)"
                   : undefined,
-          }}
-        />
-      </Button>
+            }}
+          />
+        </Button>
+      </Tooltip>
 
       {open && (
         <>
@@ -114,7 +131,8 @@ export function GitSyncIndicator({ size = "sm" }: { size?: "sm" | "md" }) {
                   width: 8,
                   height: 8,
                   borderRadius: "50%",
-                  backgroundColor: color,
+                  backgroundColor: unconfigured ? "transparent" : color,
+                  border: unconfigured ? "1px solid var(--text-muted)" : undefined,
                 }}
               />
               <span
@@ -158,22 +176,40 @@ export function GitSyncIndicator({ size = "sm" }: { size?: "sm" | "md" }) {
               </ul>
             )}
 
-            <Button
-              type="button"
-              variant="primary"
-              onPress={() => {
-                setOpen(false);
-                void sync.syncNow();
-              }}
-              isDisabled={sync.status === "syncing" || sync.status === "offline"}
-              className="w-full text-[13px] font-medium"
-              style={{
-                backgroundColor: "var(--btn-primary-bg)",
-                color: "var(--btn-primary-fg)",
-              }}
-            >
-              {sync.status === "syncing" ? "Synchronisation…" : "Synchroniser maintenant"}
-            </Button>
+            {unconfigured ? (
+              <>
+                <p
+                  className="mb-2 text-[11px] leading-relaxed"
+                  style={{ color: "var(--text-secondary)" }}
+                >
+                  Aucun dépôt lié : ce coffre n'est sauvegardé nulle part par git.
+                </p>
+                <Link
+                  href="/parametres"
+                  onClick={() => setOpen(false)}
+                  className="block w-full rounded-lg px-3 py-2 text-center text-[13px] font-medium"
+                  style={{
+                    backgroundColor: "var(--surface-2)",
+                    color: "var(--text-primary)",
+                  }}
+                >
+                  Configurer git
+                </Link>
+              </>
+            ) : (
+              <Button
+                type="button"
+                variant="primary"
+                onClick={() => {
+                  setOpen(false);
+                  void sync.syncNow();
+                }}
+                isDisabled={sync.status === "syncing" || sync.status === "offline"}
+                className="w-full text-[13px] font-medium"
+              >
+                {sync.status === "syncing" ? "Synchronisation…" : "Synchroniser maintenant"}
+              </Button>
+            )}
           </div>
         </>
       )}

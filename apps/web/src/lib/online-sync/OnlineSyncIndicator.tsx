@@ -8,24 +8,48 @@
  *   • connecting  → violet (pulsing)
  *   • offline     → grey (pulsing — it is actively retrying)
  *   • error       → red
- *   • disabled    → hidden
+ *   • disabled    → hollow dot, "non configuré"
  *
  * Tapping the dot opens a popover with the room key, the last error if any,
  * and a shortcut to the sync settings tab. Same markup fits the desktop and
  * mobile top bars.
+ *
+ * ⚠️ Comme GitSyncIndicator, la pastille ne disparaît jamais : « pas de salon »
+ * doit se lire à l'écran, sinon rien ne le distingue de « tout est à jour ».
  */
 
 import { useState } from "react";
-import { Button } from "@heroui/react";
+import { Button, Tooltip } from "@supernote/ui";
 import Link from "next/link";
 import { useOnlineSync } from "./OnlineSyncProvider";
+
+/** Libellé d'état, partagé avec la carte « État » du drawer mobile. */
+export function onlineSyncLabel(sync: {
+  status: string;
+  lastError?: string | null;
+}): string {
+  switch (sync.status) {
+    case "connecting":
+      return "Connexion au serveur de synchronisation…";
+    case "connected":
+      return "Synchronisation temps réel active";
+    case "error":
+      return `Erreur · ${sync.lastError ?? "voir détails"}`;
+    case "disabled":
+      return "Coffre en ligne non configuré";
+    case "offline":
+    default:
+      return "Hors-ligne · reconnexion automatique";
+  }
+}
 
 export function OnlineSyncIndicator({ size = "sm" }: { size?: "sm" | "md" }) {
   const sync = useOnlineSync();
   const [open, setOpen] = useState(false);
 
-  if (!sync || sync.status === "disabled") return null;
+  if (!sync) return null;
 
+  const unconfigured = sync.status === "disabled";
   const dotSize = size === "sm" ? 8 : 10;
   const color = (() => {
     switch (sync.status) {
@@ -41,50 +65,40 @@ export function OnlineSyncIndicator({ size = "sm" }: { size?: "sm" | "md" }) {
     }
   })();
 
-  const label = (() => {
-    switch (sync.status) {
-      case "connecting":
-        return "Connexion au serveur de synchronisation…";
-      case "connected":
-        return "Synchronisation temps réel active";
-      case "error":
-        return `Erreur · ${sync.lastError ?? "voir détails"}`;
-      case "offline":
-      default:
-        return "Hors-ligne · reconnexion automatique";
-    }
-  })();
+  const label = onlineSyncLabel(sync);
 
   const pulsing = sync.status === "connecting" || sync.status === "offline";
 
   return (
     <div className="relative">
-      <Button
-        isIconOnly
-        variant="ghost"
-        size="sm"
-        type="button"
-        onPress={() => setOpen((v) => !v)}
-        aria-label={`État de la synchronisation en ligne : ${label}`}
-        className="flex h-8 w-8 min-w-0 items-center justify-center rounded-full active:bg-[var(--surface-2)]"
-      >
-        <span
-          className={pulsing ? "animate-pulse" : undefined}
-          style={{
-            display: "inline-block",
-            width: dotSize,
-            height: dotSize,
-            borderRadius: "50%",
-            backgroundColor: color,
-            boxShadow:
-              sync.status === "connected"
-                ? "0 0 6px -1px oklch(0.65 0.16 150 / 0.5)"
-                : sync.status === "error"
-                  ? "0 0 6px -1px var(--danger)"
-                  : undefined,
-          }}
-        />
-      </Button>
+      <Tooltip content={label}>
+        <Button
+          variant="ghost"
+          size="icon"
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-label={`État de la synchronisation en ligne : ${label}`}
+          className="flex h-8 w-8 items-center justify-center rounded-full"
+        >
+          <span
+            className={pulsing ? "animate-pulse" : undefined}
+            style={{
+              display: "inline-block",
+              width: dotSize,
+              height: dotSize,
+              borderRadius: "50%",
+              backgroundColor: unconfigured ? "transparent" : color,
+              border: unconfigured ? "1px solid var(--text-muted)" : undefined,
+              boxShadow:
+                sync.status === "connected"
+                  ? "0 0 6px -1px oklch(0.65 0.16 150 / 0.5)"
+                  : sync.status === "error"
+                    ? "0 0 6px -1px var(--danger)"
+                    : undefined,
+            }}
+          />
+        </Button>
+      </Tooltip>
 
       {open && (
         <>
@@ -110,7 +124,8 @@ export function OnlineSyncIndicator({ size = "sm" }: { size?: "sm" | "md" }) {
                   width: 8,
                   height: 8,
                   borderRadius: "50%",
-                  backgroundColor: color,
+                  backgroundColor: unconfigured ? "transparent" : color,
+                  border: unconfigured ? "1px solid var(--text-muted)" : undefined,
                 }}
               />
               <span
@@ -121,15 +136,25 @@ export function OnlineSyncIndicator({ size = "sm" }: { size?: "sm" | "md" }) {
               </span>
             </div>
 
-            <div
-              className="mb-2 truncate text-[11px]"
-              style={{ color: "var(--text-muted)" }}
-              title={sync.config.serverUrl || "même origine"}
-            >
-              {(sync.config.serverUrl || "même origine").replace(/^https?:\/\/(www\.)?/, "")}
-              {" · salon "}
-              {sync.config.vaultKey}
-            </div>
+            {unconfigured ? (
+              <p
+                className="mb-2 text-[11px] leading-relaxed"
+                style={{ color: "var(--text-secondary)" }}
+              >
+                Aucun salon : ce coffre reste sur cet appareil, rien n'est
+                partagé avec le mobile.
+              </p>
+            ) : (
+              <div
+                className="mb-2 truncate text-[11px]"
+                style={{ color: "var(--text-muted)" }}
+                title={sync.config.serverUrl || "même origine"}
+              >
+                {(sync.config.serverUrl || "même origine").replace(/^https?:\/\/(www\.)?/, "")}
+                {" · salon "}
+                {sync.config.vaultKey}
+              </div>
+            )}
 
             {sync.lastError && (
               <p
@@ -149,7 +174,7 @@ export function OnlineSyncIndicator({ size = "sm" }: { size?: "sm" | "md" }) {
                 color: "var(--text-primary)",
               }}
             >
-              Paramètres de synchronisation
+              {unconfigured ? "Configurer la synchronisation" : "Paramètres de synchronisation"}
             </Link>
           </div>
         </>

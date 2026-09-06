@@ -17,6 +17,8 @@ import {
 } from "@supernote/ui";
 import { GitSyncIndicator } from "@/lib/git/GitSyncIndicator";
 import { OnlineSyncIndicator } from "@/lib/online-sync/OnlineSyncIndicator";
+import { AiStatusIndicator } from "./AiStatusIndicator";
+import { InboxSortJournalButton } from "@/lib/ai/InboxSortJournalEntry";
 
 // ── Route label map for static segments ──────────────────────────────────────
 
@@ -243,6 +245,8 @@ export const TopBar = memo(function TopBar() {
       <div className="flex shrink-0 items-center justify-end gap-1">
         <GitSyncIndicator />
         <OnlineSyncIndicator />
+        <AiStatusIndicator />
+        <InboxSortJournalButton />
         <ThemeToggleButton />
         <Button
           variant="primary"
