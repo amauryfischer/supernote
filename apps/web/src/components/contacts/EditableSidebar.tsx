@@ -101,6 +101,7 @@ export function EditableSidebar({ contact, hasLiveBackend }: EditableSidebarProp
     onSuccess: (data) => {
       void utils.entities.get.invalidate({ id: data.id });
       void utils.entities.list.invalidate({ typeId: "personne" });
+      void utils.entities.listSummaries.invalidate({ typeId: "personne" });
     },
   });
 

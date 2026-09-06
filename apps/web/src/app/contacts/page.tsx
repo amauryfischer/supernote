@@ -132,16 +132,19 @@ export default function ContactsPage() {
   const createMutation = trpc.entities.create.useMutation({
     onSuccess: () => {
       void utils.entities.list.invalidate({ typeId: "personne" });
+      void utils.entities.listSummaries.invalidate({ typeId: "personne" });
     },
   });
   const updateMutation = trpc.entities.update.useMutation({
     onSuccess: () => {
       void utils.entities.list.invalidate({ typeId: "personne" });
+      void utils.entities.listSummaries.invalidate({ typeId: "personne" });
     },
   });
   const deleteMutation = trpc.entities.delete.useMutation({
     onSuccess: () => {
       void utils.entities.list.invalidate({ typeId: "personne" });
+      void utils.entities.listSummaries.invalidate({ typeId: "personne" });
     },
   });
 

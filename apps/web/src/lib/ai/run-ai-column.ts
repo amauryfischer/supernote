@@ -88,6 +88,10 @@ export async function runAIColumn(input: AIRunInput): Promise<AIRunResult> {
         model,
         prompt,
         stream: false,
+        // Pas de raisonnement (Qwen3.5 & co) et modèle maintenu en
+        // VRAM : sinon chaque appel repaie ~15 s de rechargement.
+        think: false,
+        keep_alive: "2h",
         options: { temperature: 0.2 },
       }),
     },

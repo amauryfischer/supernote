@@ -21,11 +21,9 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  AUTO_TITLE_MODEL_KEY,
-  probeOllama,
-  readOllamaHost,
-} from "./useAutoTitle";
+import { isAiRuntimeAllowed } from "@/lib/ai/ai-runtime";
+import { getAiSettings } from "@/lib/ai/settings";
+import { probeOllama, readOllamaHost } from "./useAutoTitle";
 
 const REQUEST_TIMEOUT_MS = 15_000;
 const MAX_BODY_CHARS = 2_000;
@@ -33,21 +31,18 @@ const CACHE_MAX_ENTRIES = 50;
 const MAX_TAGS = 5;
 
 const ENABLED_KEY = "supernote.ai.autoTag";
-const FALLBACK_MODEL = "llama3.2:1b";
+const FALLBACK_MODEL = "qwen3.5:9b";
 
-/** Read the user-configured model — same key as useAutoTitle so settings co-locate. */
+/** Même source que useAutoTitle : les réglages, pas un miroir localStorage. */
 function readPreferredModel(): string {
   if (typeof window === "undefined") return FALLBACK_MODEL;
-  try {
-    return window.localStorage.getItem(AUTO_TITLE_MODEL_KEY) ?? FALLBACK_MODEL;
-  } catch {
-    return FALLBACK_MODEL;
-  }
+  return getAiSettings().model || FALLBACK_MODEL;
 }
 
 /** Read the user's "auto-tag" toggle from localStorage. Default: false (opt-in). */
 export function isAutoTagEnabled(): boolean {
   if (typeof window === "undefined") return false;
+  if (!isAiRuntimeAllowed()) return false;
   try {
     return window.localStorage.getItem(ENABLED_KEY) === "1";
   } catch {
@@ -295,6 +290,10 @@ export function useAutoTag(): UseAutoTagResult {
               model,
               prompt,
               stream: false,
+              // Pas de raisonnement (Qwen3.5 & co) et modèle maintenu en
+              // VRAM : sinon chaque appel repaie ~15 s de rechargement.
+              think: false,
+              keep_alive: "2h",
               options: { temperature: 0.2 },
             }),
           },

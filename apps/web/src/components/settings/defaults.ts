@@ -15,7 +15,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   },
   ia: {
     autoTagging: true,
-    ollamaModel: "llama3.2",
+    ollamaModel: "qwen3.5:9b",
     confidenceThreshold: 0.7,
     autoClassify: true,
     mentionDetection: true,

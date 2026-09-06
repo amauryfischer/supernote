@@ -16,6 +16,7 @@ import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "rea
 import { createPortal } from "react-dom";
 import type { Field, FieldValue, RelationField, SelectOption } from "@supernote/core";
 import { trpc } from "@/lib/trpc/client";
+import { AI_MOBILE_NOTICE, isAiRuntimeAllowed } from "@/lib/ai/ai-runtime";
 import { RelationPicker } from "./RelationPicker";
 
 export type AdvanceDir = "tab" | "shift-tab" | "enter" | "shift-enter";
@@ -182,6 +183,12 @@ function AICellDisplay({
   const run = async () => {
     if (busy) return;
     if (!rowFields || !baseFields) return;
+    // Sans ça, mobile tenterait d'atteindre Ollama sur 127.0.0.1 et l'échec
+    // remonterait en « Failed to fetch » — illisible pour un choix délibéré.
+    if (!isAiRuntimeAllowed()) {
+      setErr(AI_MOBILE_NOTICE);
+      return;
+    }
     setBusy(true);
     setErr(null);
     try {

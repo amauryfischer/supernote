@@ -206,6 +206,7 @@ function OrganisationSelectorPopover({
   const createMut = trpc.entities.create.useMutation({
     onSuccess: () => {
       void utils.entities.list.invalidate({ typeId: "organisation" });
+      void utils.entities.listSummaries.invalidate({ typeId: "organisation" });
       void utils.entities.search.invalidate();
     },
   });

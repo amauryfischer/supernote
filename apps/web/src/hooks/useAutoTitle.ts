@@ -19,6 +19,8 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { isAiRuntimeAllowed } from "@/lib/ai/ai-runtime";
+import { getAiSettings } from "@/lib/ai/settings";
 
 const DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434";
 const REQUEST_TIMEOUT_MS = 15_000;
@@ -32,7 +34,7 @@ const ENABLED_KEY = "supernote.ai.autoTitle";
 const CORS_WARNED_KEY = "supernote.ai.autoTitle.corsWarned";
 const HOST_KEY = "supernote.ai.ollamaHost";
 
-const FALLBACK_MODEL = "llama3.2:1b";
+const FALLBACK_MODEL = "qwen3.5:9b";
 
 /**
  * Result of a probe against Ollama. We distinguish failure modes so the
@@ -91,14 +93,15 @@ const DEFAULT_TITLES = new Set([
   "new-note",
 ]);
 
-/** Read the user-configured model (set in IaOllamaTab) with sane fallback. */
+/**
+ * Le modèle vient des réglages, jamais du miroir `supernote.ai.autoTitle.model` :
+ * ce miroir n'est réécrit que quand l'onglet Réglages est monté, donc une valeur
+ * périmée y survit indéfiniment et fait annoncer « modèle non installé » pour un
+ * modèle que l'utilisateur n'a jamais choisi.
+ */
 function readPreferredModel(): string {
   if (typeof window === "undefined") return FALLBACK_MODEL;
-  try {
-    return window.localStorage.getItem(DEFAULT_MODEL_KEY) ?? FALLBACK_MODEL;
-  } catch {
-    return FALLBACK_MODEL;
-  }
+  return getAiSettings().model || FALLBACK_MODEL;
 }
 
 /**
@@ -125,12 +128,8 @@ export async function resolveModel(host: string): Promise<string | null> {
       .filter(Boolean);
     if (installed.length === 0) return null;
     if (installed.includes(stored)) return stored;
-    // Persist the auto-pick so the settings UI reflects what's actually used.
-    try {
-      window.localStorage.setItem(DEFAULT_MODEL_KEY, installed[0]!);
-    } catch {
-      /* ignore */
-    }
+    // Le repli ne s'écrit nulle part : le persister créait un second modèle de
+    // référence que les réglages ne montrent pas et qui les contredit ensuite.
     return installed[0]!;
   } catch {
     return stored;
@@ -472,6 +471,10 @@ export function useAutoTitle(): UseAutoTitleResult {
               model,
               prompt,
               stream: false,
+              // Pas de raisonnement (Qwen3.5 & co) et modèle maintenu en
+              // VRAM : sinon chaque appel repaie ~15 s de rechargement.
+              think: false,
+              keep_alive: "2h",
               // Low temperature: titles want determinism, not creativity.
               options: { temperature: 0.1 },
             }),
@@ -520,6 +523,7 @@ export function useAutoTitle(): UseAutoTitleResult {
 /** Read the user's "auto-title" toggle from localStorage. Default: false (opt-in). */
 export function isAutoTitleEnabled(): boolean {
   if (typeof window === "undefined") return false;
+  if (!isAiRuntimeAllowed()) return false;
   try {
     return window.localStorage.getItem(ENABLED_KEY) === "1";
   } catch {

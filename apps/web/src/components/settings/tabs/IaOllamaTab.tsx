@@ -20,16 +20,17 @@ import {
   type OllamaProbeResult,
 } from "@/hooks/useAutoTitle";
 import { AUTO_TAG_ENABLED_KEY } from "@/hooks/useAutoTag";
+import { AI_MARGINS_ENABLED_KEY, isAiMarginsEnabled } from "@/lib/ai/blockComments";
+import { INBOX_SORT_ENABLED_KEY, isInboxSortEnabled } from "@/lib/ai/inboxSort";
 
+// Ordre = recommandation. `qwen3.5:9b` tient entier dans 8 Go de VRAM
+// (~7 Go à 32K de contexte) là où un 4b de Gemma déborde et retombe sur le CPU.
 const FALLBACK_MODELS = [
+  "qwen3.5:9b",
+  "qwen3.5:4b",
   "llama3.2",
   "llama3.2:1b",
-  "llama3.1",
-  "mistral",
-  "mistral-nemo",
   "phi3",
-  "gemma2",
-  "qwen2.5",
 ];
 
 const AI_FEATURES: Array<{
@@ -124,6 +125,37 @@ export function IaOllamaTab() {
     }
   };
 
+  // Marges IA — opt-out : la clé n'existe pas tant que l'utilisateur n'a rien
+  // coupé, donc « absent » vaut activé.
+  const [aiMargins, setAiMargins] = useState(true);
+  useEffect(() => {
+    setAiMargins(isAiMarginsEnabled());
+  }, []);
+  const toggleAiMargins = (v: boolean) => {
+    setAiMargins(v);
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(AI_MARGINS_ENABLED_KEY, v ? "1" : "0");
+    } catch {
+      /* ignore */
+    }
+  };
+
+  // Tri de l'inbox — même convention opt-out que les marges IA.
+  const [inboxSort, setInboxSort] = useState(true);
+  useEffect(() => {
+    setInboxSort(isInboxSortEnabled());
+  }, []);
+  const toggleInboxSort = (v: boolean) => {
+    setInboxSort(v);
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(INBOX_SORT_ENABLED_KEY, v ? "1" : "0");
+    } catch {
+      /* ignore */
+    }
+  };
+
   // Configurable Ollama host — kept in localStorage so non-React code paths
   // (the auto-title hook, future workers) can read it without React context.
   const [host, setHost] = useState<string>(DEFAULT_OLLAMA_HOST);
@@ -153,27 +185,20 @@ export function IaOllamaTab() {
 
   const updateIa = (patch: Partial<IaSettings>) => {
     updateSettings("ia", { ...ia, ...patch });
-    // Mirror the model name to localStorage so useAutoTitle can read it
-    // without dragging the React settings context into a worker-ish hook.
-    if (patch.ollamaModel && typeof window !== "undefined") {
-      try {
-        window.localStorage.setItem(AUTO_TITLE_MODEL_KEY, patch.ollamaModel);
-      } catch {
-        /* ignore */
-      }
-    }
   };
 
-  // Mirror initial model on mount so localStorage matches whatever
-  // DEFAULT_SETTINGS / persisted AppSettings put into context.
+  // Le miroir `supernote.ai.autoTitle.model` est supprimé : il n'était réécrit
+  // que quand cet onglet était monté, donc une valeur périmée y survivait et
+  // faisait annoncer « modèle non installé » ailleurs dans l'app. Tout le monde
+  // lit `getAiSettings()` maintenant. Ce nettoyage retire l'ancienne clé.
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
-      window.localStorage.setItem(AUTO_TITLE_MODEL_KEY, ia.ollamaModel);
+      window.localStorage.removeItem(AUTO_TITLE_MODEL_KEY);
     } catch {
       /* ignore */
     }
-  }, [ia.ollamaModel]);
+  }, []);
 
   // ── Live Ollama probe ───────────────────────────────────────────────────
   // We deliberately bypass tRPC here: `system.ollamaStatus` is `notImplemented`
@@ -210,10 +235,17 @@ export function IaOllamaTab() {
 
   const isAvailable = probe?.status === "ok";
   const liveModels = probe?.models?.map((m) => m.name) ?? [];
-  const modelOptions = (liveModels.length > 0 ? liveModels : FALLBACK_MODELS).map((m) => ({
-    value: m,
-    label: m,
-  }));
+  const baseModels = liveModels.length > 0 ? liveModels : FALLBACK_MODELS;
+  // Un `value` absent des options fait afficher la PREMIÈRE option par le
+  // navigateur, sans erreur : l'écran annonçait donc un modèle qui n'était pas
+  // celui en vigueur, et le reste de l'app échouait sur « modèle non installé ».
+  const modelMissing = liveModels.length > 0 && !liveModels.includes(ia.ollamaModel);
+  const modelOptions = (modelMissing ? [ia.ollamaModel, ...baseModels] : baseModels).map(
+    (m) => ({
+      value: m,
+      label: modelMissing && m === ia.ollamaModel ? `${m} — non installé` : m,
+    }),
+  );
 
   // Status text — different message per failure mode. Only the "ok" branch
   // is the success case; the others map to actionable hints.
@@ -539,6 +571,18 @@ export function IaOllamaTab() {
           description="Quand la note n'a aucun tag, Ollama propose 3 à 5 tags après 5s d'inactivité"
         >
           <ToggleSwitch checked={autoTag} onChange={toggleAutoTag} />
+        </SettingRow>
+        <SettingRow
+          label="Marges IA"
+          description="Commenter chaque bloc pendant l'écriture (reformulation, mise en forme, incohérences). Une note peut forcer l'inverse via son bouton ✦."
+        >
+          <ToggleSwitch checked={aiMargins} onChange={toggleAiMargins} />
+        </SettingRow>
+        <SettingRow
+          label="Ranger l'inbox automatiquement"
+          description="Quand vous ne tapez plus, Ollama classe les notes de l'inbox dans vos dossiers existants — jamais pendant la frappe, et chaque passe est annulable."
+        >
+          <ToggleSwitch checked={inboxSort} onChange={toggleInboxSort} />
         </SettingRow>
       </SettingSection>
     </div>
