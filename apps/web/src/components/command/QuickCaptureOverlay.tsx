@@ -3,15 +3,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button, Modal, Textarea } from "@supernote/ui";
 import { useDailyEntity } from "@/hooks/useDailyEntity";
-import { appendToLiveJournalEntry } from "@/lib/journal-live-entry";
+import {
+  appendToLiveJournalEntry,
+  hasLiveJournalEntry,
+  todayJournalDate,
+} from "@/lib/journal-live-entry";
 
-function todayYMD(): string {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
+const isMac =
+  typeof navigator !== "undefined" && /Mac|iPhone|iPod|iPad/.test(navigator.platform);
+
+/** Durée de la sortie du Modal, que le corps doit couvrir (cf. `exiting`). */
+const EXIT_MS = 300;
 
 interface QuickCaptureOverlayProps {
   isOpen: boolean;
@@ -23,11 +25,38 @@ interface QuickCaptureOverlayProps {
  * Écrit dans l'entrée du jour au lieu d'un Inbox séparé — cohérent avec le
  * pari « flux » : tout part du journal.
  *
- * Le formulaire n'est monté qu'à l'ouverture : il tire `entities.list`
+ * Le formulaire n'est monté qu'à l'ouverture : il peut tirer `entities.list`
  * (typeId=daily, limite large), qu'on ne veut pas voir partir sur chaque page
  * de l'app juste parce que le raccourci existe.
  */
 export function QuickCaptureOverlay({ isOpen, onClose }: QuickCaptureOverlayProps) {
+  // Démonté avec `isOpen`, le corps disparaîtrait avant la fin du fondu et la
+  // boîte se réduirait à son titre : on le garde le temps de la sortie.
+  const [exiting, setExiting] = useState(false);
+  // Remonte le corps quand on rouvre pendant cette sortie — il porte encore le
+  // brouillon et le statut de la capture précédente.
+  const [session, setSession] = useState(0);
+  const exitingRef = useRef(false);
+  const wasOpenRef = useRef(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      if (exitingRef.current) setSession((n) => n + 1);
+      exitingRef.current = false;
+      wasOpenRef.current = true;
+      setExiting(false);
+      return;
+    }
+    if (!wasOpenRef.current) return;
+    exitingRef.current = true;
+    setExiting(true);
+    const t = setTimeout(() => {
+      exitingRef.current = false;
+      setExiting(false);
+    }, EXIT_MS);
+    return () => clearTimeout(t);
+  }, [isOpen]);
+
   return (
     <Modal
       isOpen={isOpen}
@@ -36,8 +65,11 @@ export function QuickCaptureOverlay({ isOpen, onClose }: QuickCaptureOverlayProp
       }}
       title="Capture rapide — entrée du jour"
       size="md"
+      // Un clic manqué sur le fond détruirait le brouillon sans un mot. Échap
+      // et le bouton de fermeture restent.
+      isDismissable={false}
     >
-      {isOpen && <QuickCaptureForm onClose={onClose} />}
+      {(isOpen || exiting) && <QuickCaptureForm key={session} onClose={onClose} />}
     </Modal>
   );
 }
@@ -45,22 +77,32 @@ export function QuickCaptureOverlay({ isOpen, onClose }: QuickCaptureOverlayProp
 type CaptureStatus = "idle" | "waiting" | "saving" | "done" | "error";
 
 function QuickCaptureForm({ onClose }: { onClose: () => void }) {
-  const today = useMemo(todayYMD, []);
-  const { initialMarkdown, isLoading, persist } = useDailyEntity(today);
+  const today = useMemo(todayJournalDate, []);
+  // Un éditeur inscrit écrira lui-même : inutile de tirer la liste `daily`
+  // entière (limite 5000, corps compris) pour trois mots jetés. Armé si
+  // l'inscription disparaît avant la validation.
+  const [needsList, setNeedsList] = useState(() => !hasLiveJournalEntry(today));
+  const { initialMarkdown, isReady, persist } = useDailyEntity(today, { enabled: needsList });
   const [draft, setDraft] = useState("");
   const [status, setStatus] = useState<CaptureStatus>("idle");
-  // Capture validée avant que la liste des entrées ne soit chargée, rejouée
-  // par l'effect ci-dessous.
+  // Capture validée avant que la liste ne soit exploitable, rejouée par
+  // l'effect ci-dessous.
   const deferredRef = useRef<string | null>(null);
 
-  const flush = useCallback(
-    (text: string) => {
+  /**
+   * Remet le texte à son écrivain. `false` quand personne n'est inscrit et que
+   * la liste n'a pas encore répondu : écrire alors créerait une seconde entité
+   * `daily` pour la même date.
+   */
+  const deliver = useCallback(
+    (text: string): boolean => {
       // Un JournalEditor ouvert sur aujourd'hui détient le texte le plus
       // frais, frappe non encore sauvegardée comprise : il écrit, pas nous.
       if (appendToLiveJournalEntry(today, text)) {
         setStatus("done");
-        return;
+        return true;
       }
+      if (!isReady) return false;
       setStatus("saving");
       const base = initialMarkdown.trimEnd();
       void persist(base.length > 0 ? `${base}\n\n${text}` : text)
@@ -69,8 +111,9 @@ function QuickCaptureForm({ onClose }: { onClose: () => void }) {
           console.error("[capture] échec de l'écriture dans l'entrée du jour", err);
           setStatus("error");
         });
+      return true;
     },
-    [initialMarkdown, persist, today],
+    [initialMarkdown, isReady, persist, today],
   );
 
   const submit = useCallback(() => {
@@ -80,22 +123,18 @@ function QuickCaptureForm({ onClose }: { onClose: () => void }) {
       onClose();
       return;
     }
-    if (isLoading) {
-      // L'entrée du jour n'est pas encore identifiée : écrire maintenant en
-      // créerait une seconde pour la même date.
-      deferredRef.current = trimmed;
-      setStatus("waiting");
-      return;
-    }
-    flush(trimmed);
-  }, [draft, flush, isLoading, onClose, status]);
+    if (deliver(trimmed)) return;
+    deferredRef.current = trimmed;
+    setNeedsList(true);
+    setStatus("waiting");
+  }, [deliver, draft, onClose, status]);
 
   useEffect(() => {
-    if (status !== "waiting" || isLoading) return;
+    if (status !== "waiting") return;
     const text = deferredRef.current;
-    deferredRef.current = null;
-    if (text) flush(text);
-  }, [flush, isLoading, status]);
+    if (text === null) return;
+    if (deliver(text)) deferredRef.current = null;
+  }, [deliver, status]);
 
   useEffect(() => {
     if (status !== "done") return;
@@ -149,11 +188,13 @@ function QuickCaptureForm({ onClose }: { onClose: () => void }) {
         <span
           className="text-[11px]"
           style={{ color: status === "error" ? "var(--color-danger)" : "var(--text-muted)" }}
+          role="status"
+          aria-live="polite"
         >
           {statusLabel ?? (
             <>
               <kbd className="font-mono">Esc</kbd> Annuler ·{" "}
-              <kbd className="font-mono">⌘ Entrée</kbd> Enregistrer
+              <kbd className="font-mono">{isMac ? "⌘" : "Ctrl"} Entrée</kbd> Enregistrer
             </>
           )}
         </span>

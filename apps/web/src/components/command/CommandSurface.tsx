@@ -9,6 +9,7 @@ import { useShortcut } from "@/lib/keyboard/hooks";
 import { useRegisterCommands } from "@/lib/commands/hooks";
 import { buildSeedCommands } from "@/lib/commands/seed";
 import { UnifiedSearchModal } from "@/components/mail/UnifiedSearchModal";
+import { todayJournalDate } from "@/lib/journal-live-entry";
 import { QuickCaptureOverlay } from "./QuickCaptureOverlay";
 
 // CommandPalette pulls in the entire command catalogue UI; defer it until the
@@ -49,7 +50,7 @@ export function CommandSurface() {
     window.dispatchEvent(new CustomEvent("supernote:toggle-right-panel"));
   }, []);
   // « today » figé au montage (yyyy-mm-dd) — suffisant pour la note du jour.
-  const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const today = useMemo(todayJournalDate, []);
 
   // Commandes liées aux vraies actions (navigation SPA, thème, chrome).
   const commands = useMemo(
@@ -60,6 +61,9 @@ export function CommandSurface() {
 
   const openPalette = useCallback(() => setPaletteOpen(true), []);
   const closePalette = useCallback(() => setPaletteOpen(false), []);
+  // Identité stable : une flèche inline réarmerait le timer de fermeture de la
+  // capture à chaque rendu de ce composant.
+  const closeCapture = useCallback(() => setCaptureOpen(false), []);
 
   // useShortcut n'enregistre le handler qu'une fois (deps id/keys/scope) : la
   // closure capture `paletteOpen=false` pour toujours. On lit l'état courant via
@@ -143,14 +147,12 @@ export function CommandSurface() {
     },
   });
 
-  // Cmd+Shift+N — capture rapide dans l'entrée du jour. Combo libre au scope
-  // global (aucun conflit — cf. les combos déjà pris ci-dessus).
-  // ⚠️ Chrome réserve Ctrl/Cmd+Shift+N (fenêtre de navigation privée) : la
-  // page ne reçoit alors jamais la combinaison. L'event ci-dessous reste
-  // l'ouverture programmatique fiable.
+  // Capture rapide. ⚠️ Pas `mod+shift+n` : Chrome, Edge, Firefox et Safari le
+  // confisquent tous (fenêtre de navigation privée) et la page ne le reçoit
+  // jamais.
   useShortcut({
     id: "capture.open",
-    keys: "mod+shift+n",
+    keys: "mod+alt+c",
     scope: "global",
     description: "Capture rapide dans l'entrée du jour",
     handler: () => {
@@ -191,7 +193,7 @@ export function CommandSurface() {
     <>
       {paletteOpen && <CommandPalette open={paletteOpen} onClose={closePalette} />}
       <UnifiedSearchModal isOpen={unifiedOpen} onClose={() => setUnifiedOpen(false)} />
-      <QuickCaptureOverlay isOpen={captureOpen} onClose={() => setCaptureOpen(false)} />
+      <QuickCaptureOverlay isOpen={captureOpen} onClose={closeCapture} />
     </>
   );
 }

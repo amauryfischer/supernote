@@ -33,6 +33,17 @@ export function buildSeedCommands(deps: SeedCommandDeps): Command[] {
       run: () => navigate("/?new=true"),
     },
     {
+      id: "capture.quick",
+      label: "Capture rapide",
+      description: "Ajouter quelques lignes à l'entrée du jour sans quitter la page",
+      icon: "zap",
+      shortcut: "mod+alt+c",
+      group: "creation",
+      keywords: ["capture", "rapide", "quick", "inbox", "jeter", "noter"],
+      run: () =>
+        window.dispatchEvent(new CustomEvent("supernote:open-quick-capture")),
+    },
+    {
       id: "note.create-daily",
       label: "Note du jour",
       description: "Ouvrir la note quotidienne (journal)",

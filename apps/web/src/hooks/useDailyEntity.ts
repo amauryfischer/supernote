@@ -30,7 +30,19 @@ interface UseDailyEntityResult {
   entityId: string | null;
   initialMarkdown: string;
   isLoading: boolean;
+  /**
+   * La liste a répondu : `entityId` et `initialMarkdown` décrivent l'entité
+   * réelle. `!isLoading` ne suffit pas — une requête en erreur n'est plus en
+   * attente et laisserait écrire le gabarit par-dessus l'entrée du jour, ou
+   * créer une seconde entité pour la même date.
+   */
+  isReady: boolean;
   persist: (markdown: string) => Promise<void>;
+}
+
+interface UseDailyEntityOptions {
+  /** À `false`, la requête n'est pas lancée et `isReady` reste `false`. */
+  enabled?: boolean;
 }
 
 /**
@@ -61,9 +73,15 @@ function getOrCreateState(states: Map<string, DateOpState>, date: string): DateO
  * requête que `useDatesWithNote` (typeId=daily, limite large) plutôt que
  * d'ajouter une procédure IPC dédiée à une seule date.
  */
-export function useDailyEntity(date: string): UseDailyEntityResult {
+export function useDailyEntity(
+  date: string,
+  options?: UseDailyEntityOptions,
+): UseDailyEntityResult {
   const utils = trpc.useUtils();
-  const listQuery = trpc.entities.list.useQuery(DAILY_LIST_QUERY_INPUT, { staleTime: 30_000 });
+  const listQuery = trpc.entities.list.useQuery(DAILY_LIST_QUERY_INPUT, {
+    staleTime: 30_000,
+    enabled: options?.enabled ?? true,
+  });
 
   const existing = useMemo(() => {
     for (const item of listQuery.data?.items ?? []) {
@@ -125,9 +143,13 @@ export function useDailyEntity(date: string): UseDailyEntityResult {
       state.pendingMarkdown = null;
       const promise = createMutation
         .mutateAsync({ typeId: DAILY_TYPE_ID, fields: { date }, body: markdown })
-        .then((created) => {
+        .then(async (created) => {
           state.createdId = created.id;
-          void utils.entities.list.invalidate({ typeId: DAILY_TYPE_ID });
+          // Attendu, pas fire-and-forget : `persist` ne doit résoudre que
+          // quand le cache reflète l'écriture. Sinon l'appelant suivant lit
+          // une liste sans cette entité, repart du gabarit et crée une
+          // SECONDE entrée `daily` pour la même date.
+          await utils.entities.list.invalidate({ typeId: DAILY_TYPE_ID });
           const pending = state.pendingMarkdown;
           state.pendingMarkdown = null;
           if (pending === null) return undefined;
@@ -149,6 +171,7 @@ export function useDailyEntity(date: string): UseDailyEntityResult {
     entityId: existing?.id ?? opStatesRef.current.get(date)?.createdId ?? null,
     initialMarkdown: existing?.body ?? buildTemplateMarkdown(date),
     isLoading: listQuery.isLoading,
+    isReady: listQuery.isSuccess,
     persist,
   };
 }

@@ -10,6 +10,8 @@
  * son texte et le laisse persister.
  */
 
+import { toYmdKey } from "@/hooks/journal-dates";
+
 /** Ajoute `text` au tampon vivant de l'éditeur, à sa suite. */
 type AppendToLiveEntry = (text: string) => void;
 
@@ -38,4 +40,19 @@ export function appendToLiveJournalEntry(date: string, text: string): boolean {
   if (!append) return false;
   append(text);
   return true;
+}
+
+/** Un éditeur est-il déjà inscrit sur `date` ? */
+export function hasLiveJournalEntry(date: string): boolean {
+  return writers.has(date);
+}
+
+/**
+ * Clé calendrier de l'entrée du jour. `toString()` est local là où un
+ * `toISOString()` renverrait déjà demain en soirée : la capture manquerait
+ * alors l'éditeur inscrit sur aujourd'hui.
+ */
+export function todayJournalDate(): string {
+  // `Date.toString()` est toujours parsable — la branche nulle est morte.
+  return toYmdKey(new Date().toString())!;
 }

@@ -137,7 +137,7 @@ function formatDisplayDate(date: string): string {
 }
 
 export function JournalEditor({ date }: JournalEditorProps) {
-  const { entityId, initialMarkdown, isLoading, persist } = useDailyEntity(date);
+  const { entityId, initialMarkdown, isLoading, isReady, persist } = useDailyEntity(date);
   const {
     suggestions,
     truncated,
@@ -176,6 +176,12 @@ export function JournalEditor({ date }: JournalEditorProps) {
   // encore en vol réseau (contrairement à debounceRef, qui ne dit rien
   // pendant ce vol).
   const seqRef = useRef(0);
+  // Capture reçue avant que la liste n'ait répondu : l'entité du jour n'est pas
+  // encore identifiée, écrire maintenant en créerait une seconde pour la même
+  // date. Tamponnée ici plutôt que refusée — l'éditeur s'inscrit au registre
+  // dès son montage, donc il n'existe aucune fenêtre où personne n'écrit, et
+  // la capture ne peut plus être écrite en parallèle par l'overlay.
+  const bufferedCaptureRef = useRef<{ date: string; text: string } | null>(null);
   // Passe à false dans le cleanup de démontage, AVANT le flush — sinon un
   // flush au démontage qui échoue prend la branche "même date" (le
   // composant démonté n'a pas changé dateRef) et échoue en silence.
@@ -411,6 +417,12 @@ export function JournalEditor({ date }: JournalEditorProps) {
   // via `override`, jamais de mutation du DOM ProseMirror.
   const appendCapture = useCallback(
     (text: string) => {
+      if (!isReady) {
+        const buffered =
+          bufferedCaptureRef.current?.date === date ? bufferedCaptureRef.current.text : null;
+        bufferedCaptureRef.current = { date, text: buffered ? `${buffered}\n\n${text}` : text };
+        return;
+      }
       const live = liveMarkdownRef.current?.date === date ? liveMarkdownRef.current.markdown : null;
       const base = (live ?? initialMarkdown).trimEnd();
       const next = base.length > 0 ? `${base}\n\n${text}` : text;
@@ -428,7 +440,7 @@ export function JournalEditor({ date }: JournalEditorProps) {
       void runPersist(date, seq, next, persist);
       submitExtraction(date, next);
     },
-    [date, initialMarkdown, persist, runPersist, submitExtraction],
+    [date, initialMarkdown, isReady, persist, runPersist, submitExtraction],
   );
 
   // Le registre ne veut qu'une fonction stable : `appendCapture` change à
@@ -439,12 +451,22 @@ export function JournalEditor({ date }: JournalEditorProps) {
 
   // Tant que cet éditeur est monté, il est le seul écrivain de sa date : la
   // capture rapide lui remet son texte au lieu d'écrire en parallèle sur la
-  // même entité. Pas d'inscription pendant `isLoading` : l'entité du jour
-  // n'est pas encore connue, un persist en créerait une seconde pour la date.
+  // même entité. Inscription dès le montage, chargement non attendu : une
+  // inscription différée laisserait une fenêtre où l'overlay se croit seul et
+  // écrirait un corps que le document monté juste après ne contient pas.
   useEffect(() => {
-    if (isLoading) return;
     return registerLiveJournalEntry(date, (text) => appendCaptureRef.current(text));
-  }, [date, isLoading]);
+  }, [date]);
+
+  // Rejeu du tampon dès que la liste a répondu. Un tampon d'une autre date est
+  // laissé en place : il sera écrit au retour sur cette date, plutôt que perdu.
+  useEffect(() => {
+    if (!isReady) return;
+    const buffered = bufferedCaptureRef.current;
+    if (!buffered || buffered.date !== date) return;
+    bufferedCaptureRef.current = null;
+    appendCaptureRef.current(buffered.text);
+  }, [date, isReady]);
 
   // Démontage réel de JournalEditor (navigation hors de /journal), distinct
   // du changement de date déjà géré ci-dessus : flush le debounce en
