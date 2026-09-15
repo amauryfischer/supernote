@@ -12,7 +12,7 @@ import { useState } from "react";
 import { Button, Input } from "@heroui/react";
 import { Modal } from "@supernote/ui";
 import { Clock } from "@phosphor-icons/react";
-import { SNOOZE_PRESETS_FULL } from "@/lib/mail-triage";
+import { SNOOZE_PRESETS_FULL, type SnoozePreset } from "@/lib/mail-triage";
 
 /** Formate une date locale pour un `<input type="datetime-local">`. */
 function toLocalInputValue(d: Date): string {
@@ -26,11 +26,20 @@ export function SnoozeMenu({
   onPick,
   /** Libellé du fil reporté (affiché en sous-titre). */
   subject,
+  /** Titre de la fenêtre (réemployé par « Envoyer plus tard »). */
+  title = "Reporter à…",
+  /** Échéances proposées (défaut : les échéances de report). */
+  presets = SNOOZE_PRESETS_FULL,
+  /** Libellé du bouton de validation de la date libre. */
+  confirmLabel = "Reporter",
 }: {
   isOpen: boolean;
   onClose: () => void;
   onPick: (until: number) => void;
   subject?: string;
+  title?: string;
+  presets?: readonly SnoozePreset[];
+  confirmLabel?: string;
 }) {
   const [custom, setCustom] = useState(() => {
     const d = new Date();
@@ -52,7 +61,7 @@ export function SnoozeMenu({
       onOpenChange={(open) => {
         if (!open) onClose();
       }}
-      title="Reporter à…"
+      title={title}
       size="sm"
     >
       {subject && (
@@ -61,7 +70,7 @@ export function SnoozeMenu({
         </p>
       )}
       <div className="flex flex-col gap-1">
-        {SNOOZE_PRESETS_FULL.map((p) => (
+        {presets.map((p) => (
           <Button
             key={p.id}
             variant="ghost"
@@ -94,7 +103,7 @@ export function SnoozeMenu({
             isDisabled={!customValid}
             onPress={() => pick(customTs)}
           >
-            Reporter
+            {confirmLabel}
           </Button>
         </div>
         {!customValid && (

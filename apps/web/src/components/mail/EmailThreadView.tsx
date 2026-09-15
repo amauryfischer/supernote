@@ -45,6 +45,7 @@ import { buildReplyParams, pickReplyAll, buildQuotedBody } from "@/lib/mail-repl
 import { buildForwardSubject, buildForwardedBody } from "@/lib/mail-forward";
 import { ComposerToolbar } from "./ComposerToolbar";
 import { useDeferredSend } from "./useDeferredSend";
+import { SendLaterButton } from "./SendLaterButton";
 import { markdownToHtml, hasMarkup } from "@/lib/mail-markdown";
 import { withSignature } from "@/lib/mail-signature";
 import { loadAutoDraft, saveAutoDraft, clearAutoDraft, threadDraftKey } from "@/lib/mail-draft-store";
@@ -420,7 +421,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
     setReplyBody((prev) => (prev.trim() ? `${prev}\n\n${quote}\n` : `${quote}\n`));
   };
 
-  const submitReply = async (mode: "send" | "draft") => {
+  const submitReply = async (mode: "send" | "draft", sendAt?: number) => {
     const typed = replyBody.trim();
     if (!typed || !clientId) return;
     const cc = replyToAll && hasCc ? replyAll.cc : undefined;
@@ -448,7 +449,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
             ...(replyParams.references ? { references: replyParams.references } : {}),
             ...(attachments?.length ? { attachments } : {}),
           },
-          { label: "Réponse envoyée" },
+          sendAt !== undefined ? { sendAt, label: "Réponse envoyée" } : { label: "Réponse envoyée" },
         );
         clearAutoDraft(threadDraftKey(thread.id));
         setReplyBody("");
@@ -1209,6 +1210,11 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
                   <Quotes size={14} />
                 </Button>
               </Tooltip>
+              <SendLaterButton
+                iconOnly
+                isDisabled={!replyBody.trim() || replyBusy !== null}
+                onPick={(sendAt) => void submitReply("send", sendAt)}
+              />
               <Button
                 variant="ghost"
                 size="sm"

@@ -102,6 +102,7 @@ import {
 } from "@/lib/mail-groups";
 import { MailGroupsManager } from "@/components/mail/MailGroupsManager";
 import { MailOutboxBadge } from "@/components/mail/MailOutboxBadge";
+import { MailOutgoingBadge } from "@/components/mail/MailOutgoingBadge";
 import { trpcVanillaClient } from "@/lib/trpc/client";
 import { TODO_TYPE_ID } from "@/hooks/useTodoSync";
 import { prefersReducedMotion } from "@/lib/motion";
@@ -1678,11 +1679,11 @@ export default function MailPage() {
           </Button>
         </Tooltip>
       )}
-      {accountId ? (
-        <div className="ml-auto shrink-0">
-          <MailOutboxBadge accountId={accountId} clientId={clientId} />
-        </div>
-      ) : null}
+      <div className="ml-auto flex shrink-0 items-center gap-1">
+        {/* Envois programmés / en échec (file d'envoi différé). */}
+        <MailOutgoingBadge />
+        {accountId ? <MailOutboxBadge accountId={accountId} clientId={clientId} /> : null}
+      </div>
       <MailGroupsManager
         isOpen={groupsManagerOpen}
         onClose={() => setGroupsManagerOpen(false)}

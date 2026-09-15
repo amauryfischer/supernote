@@ -9,6 +9,7 @@ import { useCreateDraft } from "@/components/notes/useCreateDraft";
 import { useDeferredSend } from "./useDeferredSend";
 import { useSettings } from "@/components/settings/SettingsContext";
 import { ComposerToolbar } from "./ComposerToolbar";
+import { SendLaterButton } from "./SendLaterButton";
 import { markdownToHtml, hasMarkup } from "@/lib/mail-markdown";
 import { withSignature } from "@/lib/mail-signature";
 import {
@@ -220,7 +221,7 @@ export function ComposeModal({
 
   // ⚠️ Envoi IRRÉVERSIBLE : le mail part immédiatement. Destinataire requis
   // (contrairement au brouillon, optionnel). Confirmation avant départ.
-  const submitSend = async () => {
+  const submitSend = async (sendAt?: number) => {
     const allTo = dedupeEmails([...recipients, ...parseRecipientInput(toInput)]);
     if (allTo.length === 0) {
       toast({ title: "Destinataire requis pour envoyer", variant: "danger" });
@@ -230,9 +231,10 @@ export function ComposeModal({
       toast({ title: "Objet ou corps requis", variant: "danger" });
       return;
     }
-    // Avec une fenêtre d'annulation, la confirmation modale n'a plus lieu
-    // d'être : le rattrapage est DANS le toast, sans bloquer la frappe.
-    if (undoSeconds <= 0) {
+    // Avec une fenêtre d'annulation (ou un envoi programmé, annulable jusqu'à
+    // l'heure dite), la confirmation modale n'a plus lieu d'être : le
+    // rattrapage est DANS le toast, sans bloquer la frappe.
+    if (undoSeconds <= 0 && sendAt === undefined) {
       const who = allTo.length === 1 ? allTo[0] : `${allTo.length} destinataires`;
       if (!window.confirm(`Envoyer ce message à ${who} ? Cette action est immédiate.`)) {
         return;
@@ -242,14 +244,17 @@ export function ComposeModal({
     try {
       const text = finalBody();
       const html = finalHtml(text);
-      await scheduleSend({
-        kind: "message",
-        to: allTo,
-        subject,
-        body: text,
-        ...(html ? { html } : {}),
-        ...(attachments.length ? { attachments: toOutgoing(attachments) } : {}),
-      });
+      await scheduleSend(
+        {
+          kind: "message",
+          to: allTo,
+          subject,
+          body: text,
+          ...(html ? { html } : {}),
+          ...(attachments.length ? { attachments: toOutgoing(attachments) } : {}),
+        },
+        sendAt !== undefined ? { sendAt } : {},
+      );
       clearAutoDraft(COMPOSE_DRAFT_KEY);
       onClose();
     } catch (err) {
@@ -494,6 +499,10 @@ export function ComposeModal({
               {busy === "draft" ? "Création…" : "Créer le brouillon"}
               {busy === null && <ArrowSquareOut size={14} />}
             </Button>
+            <SendLaterButton
+              isDisabled={busy !== null}
+              onPick={(sendAt) => void submitSend(sendAt)}
+            />
             <Button
               variant="primary"
               isDisabled={busy !== null}
