@@ -70,7 +70,7 @@ export type MailDensity = "compact" | "confort";
 const VIRTUALIZE_THRESHOLD = 60;
 
 /** Hauteur estimée d'une ligne (avant mesure réelle) selon la densité. */
-const ROW_ESTIMATE: Record<MailDensity, number> = { compact: 36, confort: 76 };
+const ROW_ESTIMATE: Record<MailDensity, number> = { compact: 36, confort: 62 };
 
 /** Hauteur estimée d'un en-tête de section (avant mesure réelle). */
 const HEADER_ESTIMATE = 34;
@@ -662,23 +662,13 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
             className="h-1.5 w-1.5 shrink-0 rounded-full"
             style={{ backgroundColor: unread ? "var(--accent)" : "transparent" }}
           />
-          <span
-            className={`w-40 shrink-0 truncate text-[13px] ${unread ? "font-semibold" : "font-medium"}`}
-            style={{ color: "var(--text-primary)" }}
-          >
-            {title}
-          </span>
-          {row.kind === "group" && row.count > 1 && (
+          <span className="min-w-0 flex-1 truncate text-[13px]">
             <span
-              className={`shrink-0 rounded-full px-1.5 text-[11px] ${groupUnread > 0 ? "font-bold" : ""}`}
-              style={{ background: "var(--accent-subtle)", color: "var(--accent)" }}
-              title={`${row.count} fils`}
+              className={unread ? "font-semibold" : "font-medium"}
+              style={{ color: "var(--text-primary)" }}
             >
-              {groupUnread > 0 ? `${groupUnread}/${row.count}` : row.count}
+              {subject || "(sans objet)"}
             </span>
-          )}
-          <span className="min-w-0 flex-1 truncate text-[13px]" style={{ color: "var(--text-secondary)" }}>
-            {subject}
             {preview && (
               <span
                 style={{ color: "var(--text-muted)" }}
@@ -697,6 +687,25 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
                 {preview}
               </span>
             )}
+          </span>
+          {row.kind === "group" && row.count > 1 && (
+            <span
+              className={`shrink-0 rounded-full px-1.5 text-[11px] ${groupUnread > 0 ? "font-bold" : ""}`}
+              style={{ background: "var(--accent-subtle)", color: "var(--accent)" }}
+              title={`${row.count} fils`}
+            >
+              {groupUnread > 0 ? `${groupUnread}/${row.count}` : row.count}
+            </span>
+          )}
+          {/* Expéditeur APRÈS l'objet : c'est l'objet qu'on lit pour décider,
+              l'expéditeur ne fait que le qualifier. Colonne fixe pour que les
+              dates restent alignées d'une ligne à l'autre. */}
+          <span
+            className="w-32 shrink-0 truncate text-[12px]"
+            style={{ color: "var(--text-muted)" }}
+            title={title}
+          >
+            {title}
           </span>
           {singleItem && onToggleStar ? (
             <span
@@ -759,14 +768,17 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
           )}
         </span>
 
-        {/* Colonne texte : expéditeur · objet · aperçu (toutes tronquées). */}
+        {/* Colonne texte : objet · expéditeur sur UNE ligne, puis l'aperçu.
+            L'objet d'abord (c'est lui qu'on lit pour décider), l'expéditeur
+            à sa droite pour le qualifier — ça rend une ligne de hauteur par
+            rapport à l'empilement expéditeur / objet / aperçu. */}
         <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <span className="flex min-w-0 items-center gap-1.5">
+          <span className="flex min-w-0 items-baseline gap-2">
             <span
-              className={`truncate text-sm ${unread ? "font-semibold" : "font-medium"}`}
+              className={`min-w-0 flex-1 truncate text-sm ${unread ? "font-semibold" : "font-medium"}`}
               style={{ color: "var(--text-primary)" }}
             >
-              {title}
+              {subject || "(sans objet)"}
             </span>
             {row.kind === "group" && row.count > 1 && (
               <span
@@ -781,9 +793,13 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
                 {groupUnread > 0 ? `${groupUnread}/${row.count}` : row.count}
               </span>
             )}
-          </span>
-          <span className="truncate text-[13px]" style={{ color: "var(--text-secondary)" }}>
-            {subject}
+            <span
+              className="max-w-[45%] shrink-0 truncate text-xs"
+              style={{ color: "var(--text-muted)" }}
+              title={title}
+            >
+              {title}
+            </span>
           </span>
           {preview && (
             /* Résumé IA : deux lignes (une trentaine de mots ne tient pas sur
@@ -811,11 +827,10 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
           )}
         </span>
 
-        {/* Méta droite : date + étoile. */}
-        <span className="flex shrink-0 flex-col items-end gap-1">
-          <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-            {formatMailDate(date)}
-          </span>
+        {/* Méta droite : étoile + date SUR LA MÊME LIGNE. Empilées, elles
+            imposaient une deuxième ligne à un fil sans aperçu — la moitié de
+            la ligne était alors du vide. */}
+        <span className="flex shrink-0 items-center gap-1.5">
           {/* Étoile : native (interactive imbriquée dans la ligne-Button →
               pas de Button HeroUI nesté). stopPropagation = ne pas ouvrir
               le fil. Sur un groupe : indicateur passif non cliquable. */}
@@ -854,6 +869,9 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
               />
             )
           )}
+          <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+            {formatMailDate(date)}
+          </span>
         </span>
       </span>
       )}
