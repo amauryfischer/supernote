@@ -23,6 +23,7 @@ import { SNOOZE_PRESETS, type TriageAction } from "@/lib/mail-triage";
 import type { GmailLabelColor } from "@/lib/gmail";
 import { initials, avatarColor } from "@/lib/mail-avatar";
 import { formatMailDate } from "@/lib/mail-date";
+import { SwipeableRow, type SwipeAction } from "./SwipeableRow";
 
 /** Données partagées par toutes les lignes — évite de threader une douzaine de
  *  props à travers `MailRow`. */
@@ -42,6 +43,10 @@ interface SharedRowProps {
   onOpenContext: (c: { x: number; y: number; row: OverlayRow }) => void;
   /** Densité d'affichage : `compact` = 1 ligne par fil, `confort` = 3 lignes. */
   density: MailDensity;
+  /** Gestes tactiles (mobile) : glisser pour archiver / reporter. */
+  onSwipeRow?: (row: OverlayRow, action: SwipeAction) => void;
+  /** Appui long (mobile) : feuille d'actions de la ligne. */
+  onLongPressRow?: (row: OverlayRow) => void;
 }
 
 /** Densité d'affichage de la liste (préférence utilisateur, cf. réglages Gmail). */
@@ -74,6 +79,8 @@ export function MailOverlayList({
   userLabels,
   density = "confort",
   scrollElementRef,
+  onSwipeRow,
+  onLongPressRow,
 }: {
   rows: OverlayRow[];
   activeKey?: string;
@@ -121,6 +128,13 @@ export function MailOverlayList({
    * virtualisation ; sans lui, la liste est rendue intégralement.
    */
   scrollElementRef?: RefObject<HTMLElement | null>;
+  /**
+   * Glissement tactile sur une ligne (mobile) : droite = archiver, gauche =
+   * reporter. Absent → pas de geste (desktop).
+   */
+  onSwipeRow?: (row: OverlayRow, action: SwipeAction) => void;
+  /** Appui long sur une ligne (mobile) → feuille d'actions. */
+  onLongPressRow?: (row: OverlayRow) => void;
 }) {
   const selectable = Boolean(selectedThreadIds && onToggleRowSelection);
   // Au moins une coche → on garde toutes les cases visibles (mode sélection
@@ -187,6 +201,8 @@ export function MailOverlayList({
     dndEnabled,
     onOpenContext: setCtx,
     density,
+    onSwipeRow,
+    onLongPressRow,
   };
 
   return (
@@ -263,6 +279,8 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
     dndEnabled,
     onOpenContext,
     density,
+    onSwipeRow,
+    onLongPressRow,
   } = shared;
 
   const key = row.kind === "single" ? `t:${row.item.id}` : row.key;
@@ -587,7 +605,11 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
         }
       : {};
 
-  return (
+  // Gestes tactiles : uniquement sur une ligne `single` (une action de triage
+  // sur un groupe entier serait ambiguë).
+  const swipeEnabled = Boolean(onSwipeRow) && isSingle;
+
+  const body = (
     <div
       ref={drop.setNodeRef}
       className={`flex items-center gap-1${selectable ? " group" : ""}`}
@@ -625,6 +647,16 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
       )}
       {rowButton}
     </div>
+  );
+
+  if (!swipeEnabled) return body;
+  return (
+    <SwipeableRow
+      onSwipe={(action) => onSwipeRow?.(row, action)}
+      {...(onLongPressRow ? { onLongPress: () => onLongPressRow(row) } : {})}
+    >
+      {body}
+    </SwipeableRow>
   );
 }
 

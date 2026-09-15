@@ -19,10 +19,11 @@ import {
   Keyboard,
   Rows,
   Confetti,
+  ArrowClockwise,
 } from "@phosphor-icons/react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useSettings } from "@/components/settings/SettingsContext";
-import { AppShell, useMobileTitle, useMobileFab } from "@/components/shell";
+import { AppShell, useMobileTitle, useMobileFab, useMobileHeaderActions } from "@/components/shell";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useGmailConnected } from "@/hooks/useGmailConnected";
 import { useConfirm } from "@/hooks/usePrompt";
@@ -36,6 +37,9 @@ import { MailEisenhowerBoard } from "@/components/mail/MailEisenhowerBoard";
 import { MailShortcutsHelp } from "@/components/mail/MailShortcutsHelp";
 import { MailSearchBar } from "@/components/mail/MailSearchBar";
 import { SnoozeMenu } from "@/components/mail/SnoozeMenu";
+import { MailRowSheet } from "@/components/mail/MailRowSheet";
+import { usePullToRefresh } from "@/components/mail/usePullToRefresh";
+import type { SwipeAction } from "@/components/mail/SwipeableRow";
 import { useMailKeyboard } from "@/components/mail/useMailKeyboard";
 import { useMailList, DEFAULT_MAIL_QUERY } from "@/components/mail/useMailList";
 import { useMailMirror } from "@/components/mail/useMailMirror";
@@ -255,6 +259,8 @@ export default function MailPage() {
   const [helpOpen, setHelpOpen] = useState(false);
   // Cible du menu « Reporter à… » (raccourci `h`, menu contextuel, mobile).
   const [snoozeTarget, setSnoozeTarget] = useState<{ id: string; subject: string } | null>(null);
+  // Feuille d'actions mobile (appui long sur une ligne).
+  const [sheetItem, setSheetItem] = useState<ThreadListItem | null>(null);
   // Valeurs initiales du compose (transfert → objet/corps pré-remplis).
   const [composeInitial, setComposeInitial] = useState<{ subject: string; body: string }>({
     subject: "",
@@ -293,6 +299,34 @@ export default function MailPage() {
   // Action « créer » → FAB sur mobile.
   useMobileFab(
     connected ? { icon: PencilSimple, label: "Nouveau message", onPress: openCompose } : null,
+  );
+
+  // Recherche + densité dans la barre du haut mobile : ces deux affordances
+  // existaient uniquement sur desktop (champ de recherche large, bouton densité
+  // du bandeau d'onglets), donc inaccessibles au doigt.
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
+  useMobileHeaderActions(
+    connected
+      ? [
+          {
+            id: "mail-search",
+            icon: MagnifyingGlass,
+            label: "Rechercher",
+            onPress: () => {
+              setMobileSearchOpen((v) => !v);
+              requestAnimationFrame(() => searchInputRef.current?.focus());
+            },
+            active: mobileSearchOpen,
+          },
+          {
+            id: "mail-density",
+            icon: Rows,
+            label: "Densité de la liste",
+            onPress: () => setDensity(density === "compact" ? "confort" : "compact"),
+            active: density === "compact",
+          },
+        ]
+      : [],
   );
 
   // Items visibles pour l'onglet ACTIF (lit des refs → callback stable).
@@ -905,6 +939,33 @@ export default function MailPage() {
       });
     },
     [clientId, syncThreadLabels, toast, commitMutation],
+  );
+
+  // ── Gestes tactiles (mobile) ───────────────────────────────────────────────
+  // Glisser une ligne : droite = archiver, gauche = reporter (choix de
+  // l'échéance, pour ne pas décider à la place de l'utilisateur).
+  const handleSwipeRow = useCallback(
+    (row: OverlayRow, action: SwipeAction) => {
+      if (row.kind !== "single") return;
+      if (action === "archive") {
+        triageThread(row.item.id, "archive");
+        return;
+      }
+      setSnoozeTarget({ id: row.item.id, subject: row.item.subject });
+    },
+    [triageThread],
+  );
+
+  const handleLongPressRow = useCallback((row: OverlayRow) => {
+    if (row.kind !== "single") return;
+    setSheetItem(row.item);
+  }, []);
+
+  // Tirer pour rafraîchir : resynchronise la boîte (mirror + Gmail).
+  const { pull, refreshing } = usePullToRefresh(
+    listScrollRef,
+    () => loadList(query),
+    isMobile && mailTab !== "todo",
   );
 
   // ── Menu contextuel : conversion en tâche ──────────────────────────────────
@@ -1671,12 +1732,32 @@ export default function MailPage() {
         style={{ borderRight: "1px solid var(--border-subtle)" }}
       >
         {tabStrip}
-        {searchBox}
+        {/* Mobile : la recherche est repliée derrière l'action d'en-tête (la
+            liste garde toute la hauteur) ; desktop : toujours visible. */}
+        {(!isMobile || mobileSearchOpen) && searchBox}
         {bulkBar}
         {/* `relative` = bloc englobant : sans ça, un descendant `position:absolute`
             (ex. span interne de la Checkbox HeroUI) prend `html` comme référent,
             échappe au clip de l'overflow et fait scroller TOUT le document. */}
         <div ref={listScrollRef} className="relative flex-1 overflow-y-auto px-2 pb-4">
+          {/* « Tirer pour rafraîchir » : l'indicateur suit le doigt puis tourne
+              pendant la resynchronisation. */}
+          {(pull > 0 || refreshing) && (
+            <div
+              className="flex items-center justify-center overflow-hidden"
+              style={{ height: pull, transition: refreshing ? "height 160ms ease-out" : undefined }}
+              aria-hidden={!refreshing}
+            >
+              <ArrowClockwise
+                size={18}
+                className={refreshing ? "animate-spin" : undefined}
+                style={{
+                  color: "var(--accent)",
+                  transform: refreshing ? undefined : `rotate(${Math.round(pull * 3)}deg)`,
+                }}
+              />
+            </div>
+          )}
           {listLoading && (
             <div aria-hidden="true" className="flex flex-col gap-1 px-2 py-2">
               {Array.from({ length: 8 }, (_, i) => (
@@ -1727,6 +1808,8 @@ export default function MailPage() {
                 userLabels={labelNames}
                 density={density}
                 scrollElementRef={listScrollRef}
+                onSwipeRow={isMobile ? handleSwipeRow : undefined}
+                onLongPressRow={isMobile ? handleLongPressRow : undefined}
               />
               {/* Sentinelle de scroll infini (chemin live seulement : le mirror
                   charge toute la boîte d'un coup). */}
@@ -1986,6 +2069,20 @@ export default function MailPage() {
         initialBody={composeInitial.body}
       />
       <MailShortcutsHelp isOpen={helpOpen} onClose={() => setHelpOpen(false)} />
+      <MailRowSheet
+        item={sheetItem}
+        onClose={() => setSheetItem(null)}
+        onOpen={(id) => void openThread(id)}
+        onTriage={(id, action) => triageThread(id, action)}
+        onSnoozeMenu={(id, subject) => setSnoozeTarget({ id, subject })}
+        onToggleStar={toggleRowStar}
+        onMarkRead={(item, read) => handleMarkRowRead({ kind: "single", item }, read)}
+        onMute={(id) => {
+          muteThread(id);
+          triageThread(id, "archive");
+          toast({ title: "Fil ignoré", description: "Ses prochains messages seront archivés." });
+        }}
+      />
       <SnoozeMenu
         isOpen={snoozeTarget !== null}
         subject={snoozeTarget?.subject}
