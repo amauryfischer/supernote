@@ -22,6 +22,7 @@ import {
   ArrowClockwise,
   Sparkle,
   SquaresFour,
+  ChatCircleDots,
 } from "@phosphor-icons/react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useSettings } from "@/components/settings/SettingsContext";
@@ -113,6 +114,7 @@ import { MailOutboxBadge } from "@/components/mail/MailOutboxBadge";
 import { MailOutgoingBadge } from "@/components/mail/MailOutgoingBadge";
 import { MailFollowupBadge } from "@/components/mail/MailFollowupBadge";
 import { useMailAutoLabel } from "@/components/mail/useMailAutoLabel";
+import { MailAssistantPanel } from "@/components/mail/MailAssistantPanel";
 import { MAIL_CATEGORIES } from "@/lib/mail-autolabel";
 import { trpcVanillaClient } from "@/lib/trpc/client";
 import { TODO_TYPE_ID } from "@/hooks/useTodoSync";
@@ -273,6 +275,8 @@ export default function MailPage() {
   const [snoozeTarget, setSnoozeTarget] = useState<{ id: string; subject: string } | null>(null);
   // Feuille d'actions mobile (appui long sur une ligne).
   const [sheetItem, setSheetItem] = useState<ThreadListItem | null>(null);
+  // Assistant de boîte (questions en langage naturel, IA locale).
+  const [assistantOpen, setAssistantOpen] = useState(false);
   // Valeurs initiales du compose (transfert → objet/corps pré-remplis).
   const [composeInitial, setComposeInitial] = useState<{
     to?: string;
@@ -1528,6 +1532,9 @@ export default function MailPage() {
         searchInputRef.current?.select();
       },
       density: () => setDensity(density === "compact" ? "confort" : "compact"),
+      assistant: () => {
+        if (aiConfigured && accountId) setAssistantOpen((v) => !v);
+      },
       help: () => setHelpOpen(true),
     };
   }, [
@@ -1557,6 +1564,8 @@ export default function MailPage() {
     drafts,
     density,
     setDensity,
+    aiConfigured,
+    accountId,
     clientId,
     dropThreadFromList,
     patchMirror,
@@ -1566,7 +1575,15 @@ export default function MailPage() {
   // Clavier actif sur desktop uniquement, et jamais par-dessus une modale.
   const chordPrefix = useMailKeyboard({
     enabled:
-      !isMobile && connected && !captureOpen && !composeOpen && !helpOpen && snoozeTarget === null,
+      !isMobile &&
+      connected &&
+      !captureOpen &&
+      !composeOpen &&
+      !helpOpen &&
+      // L'assistant est un panneau par-dessus la boîte : laisser `e` archiver
+      // le fil resté derrière serait une action invisible.
+      !assistantOpen &&
+      snoozeTarget === null,
     context: kbContext,
     handlers: keyboardHandlers,
   });
@@ -1764,6 +1781,22 @@ export default function MailPage() {
             ) : (
               <Sparkle size={16} style={autoLabel.remaining > 0 ? { color: "var(--accent)" } : undefined} />
             )}
+          </Button>
+        </Tooltip>
+      )}
+      {/* Assistant de boîte (questions en langage naturel, IA locale). */}
+      {aiConfigured && accountId && (
+        <Tooltip content="Assistant de boîte (i)">
+          <Button
+            size="sm"
+            variant="ghost"
+            isIconOnly
+            className="shrink-0"
+            aria-label="Ouvrir l'assistant de boîte"
+            aria-pressed={assistantOpen}
+            onPress={() => setAssistantOpen((v) => !v)}
+          >
+            <ChatCircleDots size={16} style={assistantOpen ? { color: "var(--accent)" } : undefined} />
           </Button>
         </Tooltip>
       )}
@@ -2212,6 +2245,25 @@ export default function MailPage() {
           if (snoozeTarget) triageThread(snoozeTarget.id, "snooze", until);
         }}
       />
+      {assistantOpen && accountId && (
+        <div
+          className="sn-overlay-in fixed inset-0 z-40 md:inset-y-0 md:left-auto md:right-0 md:w-[26rem]"
+          style={{
+            background: "var(--surface-1)",
+            borderLeft: "1px solid var(--border-subtle)",
+            boxShadow: "-12px 0 30px color-mix(in oklch, var(--text-primary) 14%, transparent)",
+          }}
+        >
+          <MailAssistantPanel
+            accountId={accountId}
+            onClose={() => setAssistantOpen(false)}
+            onOpenThread={(id) => {
+              setAssistantOpen(false);
+              void openThread(id);
+            }}
+          />
+        </div>
+      )}
       {/* Annonce du résultat des actions aux lecteurs d'écran (le triage change
           la liste sans déplacer le focus : sans ça, rien n'est signalé). */}
       <div aria-live="polite" role="status" className="sr-only">
