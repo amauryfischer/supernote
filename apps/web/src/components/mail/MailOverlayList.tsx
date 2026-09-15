@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type RefObject } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Button, Checkbox } from "@heroui/react";
-import { Tag, Star, DotsSixVertical } from "@phosphor-icons/react";
+import { Tag, Star, DotsSixVertical, Sparkle } from "@phosphor-icons/react";
 import {
   DndContext,
   useDraggable,
@@ -47,6 +47,8 @@ interface SharedRowProps {
   onSwipeRow?: (row: OverlayRow, action: SwipeAction) => void;
   /** Appui long (mobile) : feuille d'actions de la ligne. */
   onLongPressRow?: (row: OverlayRow) => void;
+  /** threadId → mini-résumé IA. Remplace le snippet Gmail quand il existe. */
+  summaries?: ReadonlyMap<string, string>;
 }
 
 /** Densité d'affichage de la liste (préférence utilisateur, cf. réglages Gmail). */
@@ -81,6 +83,7 @@ export function MailOverlayList({
   scrollElementRef,
   onSwipeRow,
   onLongPressRow,
+  summaries,
 }: {
   rows: OverlayRow[];
   activeKey?: string;
@@ -135,6 +138,13 @@ export function MailOverlayList({
   onSwipeRow?: (row: OverlayRow, action: SwipeAction) => void;
   /** Appui long sur une ligne (mobile) → feuille d'actions. */
   onLongPressRow?: (row: OverlayRow) => void;
+  /**
+   * Mini-résumés générés par l'IA locale (threadId → ~30 mots). Quand un fil en
+   * a un, il remplace le snippet Gmail sous l'objet — le snippet est le DÉBUT du
+   * corps (salutation, en-tête de newsletter), le résumé dit ce que l'email veut.
+   * Absent → comportement historique (snippet).
+   */
+  summaries?: ReadonlyMap<string, string>;
 }) {
   const selectable = Boolean(selectedThreadIds && onToggleRowSelection);
   // Au moins une coche → on garde toutes les cases visibles (mode sélection
@@ -203,6 +213,7 @@ export function MailOverlayList({
     density,
     onSwipeRow,
     onLongPressRow,
+    summaries,
   };
 
   return (
@@ -281,6 +292,7 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
     density,
     onSwipeRow,
     onLongPressRow,
+    summaries,
   } = shared;
 
   const key = row.kind === "single" ? `t:${row.item.id}` : row.key;
@@ -329,8 +341,13 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
   const fromAddr =
     singleItem?.from ??
     (row.kind === "group" && row.groupType === "sender" ? row.items[0]?.from : undefined);
-  const preview =
-    row.kind === "single" ? row.item.snippet : row.kind === "group" ? row.items[0]?.snippet ?? "" : "";
+  // Aperçu sous l'objet : le mini-résumé de l'IA locale quand il existe, sinon
+  // le snippet Gmail (début brut du corps). On distingue visuellement les deux :
+  // un résumé est une INTERPRÉTATION du message, pas une citation.
+  const previewItem = row.kind === "single" ? row.item : row.items[0];
+  const aiSummary = previewItem ? summaries?.get(previewItem.id) : undefined;
+  const preview = aiSummary ?? previewItem?.snippet ?? "";
+  const aiPreview = Boolean(aiSummary);
   const avatar = avatarColor(fromAddr?.email || fromAddr?.name || title);
   const mono = initials(fromAddr?.name ?? "", fromAddr?.email ?? title);
 
@@ -428,7 +445,22 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
           <span className="min-w-0 flex-1 truncate text-[13px]" style={{ color: "var(--text-secondary)" }}>
             {subject}
             {preview && (
-              <span style={{ color: "var(--text-muted)" }}> — {preview}</span>
+              <span
+                style={{ color: "var(--text-muted)" }}
+                title={aiPreview ? "Résumé par l'IA locale" : undefined}
+              >
+                {" — "}
+                {aiPreview && (
+                  <Sparkle
+                    size={10}
+                    weight="fill"
+                    aria-hidden
+                    className="inline align-[-1px]"
+                    style={{ color: "var(--accent)" }}
+                  />
+                )}{" "}
+                {preview}
+              </span>
             )}
           </span>
           {singleItem && onToggleStar ? (
@@ -515,8 +547,27 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
             {subject}
           </span>
           {preview && (
-            <span className="truncate text-xs" style={{ color: "var(--text-muted)" }}>
-              {preview}
+            /* Résumé IA : deux lignes (une trentaine de mots ne tient pas sur
+               une ligne tronquée). Snippet Gmail : une ligne, comme avant. */
+            <span
+              className={`flex min-w-0 items-start gap-1 text-xs ${
+                aiPreview ? "" : "truncate"
+              }`}
+              style={{ color: "var(--text-muted)" }}
+              title={aiPreview ? "Résumé par l'IA locale" : undefined}
+            >
+              {aiPreview && (
+                <Sparkle
+                  size={11}
+                  weight="fill"
+                  aria-hidden
+                  className="mt-0.5 shrink-0"
+                  style={{ color: "var(--accent)" }}
+                />
+              )}
+              <span className={aiPreview ? "line-clamp-2 min-w-0" : "min-w-0 truncate"}>
+                {preview}
+              </span>
             </span>
           )}
         </span>

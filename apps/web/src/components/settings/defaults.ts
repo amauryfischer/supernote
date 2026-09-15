@@ -64,6 +64,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     undoSendSeconds: 8,
     followupDays: 3,
     autoLabel: false,
+    listSummary: false,
   },
 };
 

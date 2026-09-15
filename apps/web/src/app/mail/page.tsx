@@ -24,6 +24,7 @@ import {
   SquaresFour,
   ChatCircleDots,
   Funnel,
+  TextAlignLeft,
 } from "@phosphor-icons/react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useSettings } from "@/components/settings/SettingsContext";
@@ -115,6 +116,7 @@ import { MailOutboxBadge } from "@/components/mail/MailOutboxBadge";
 import { MailOutgoingBadge } from "@/components/mail/MailOutgoingBadge";
 import { MailFollowupBadge } from "@/components/mail/MailFollowupBadge";
 import { useMailAutoLabel } from "@/components/mail/useMailAutoLabel";
+import { useMailSummaries } from "@/components/mail/useMailSummaries";
 import { MailAssistantPanel } from "@/components/mail/MailAssistantPanel";
 import { MailRulesManager } from "@/components/mail/MailRulesManager";
 import {
@@ -337,6 +339,17 @@ export default function MailPage() {
     connected ? { icon: PencilSimple, label: "Nouveau message", onPress: openCompose } : null,
   );
 
+  // Déclaré ici (et non près des autres appels IA) parce que la barre du haut
+  // mobile, publiée juste en dessous, en dépend.
+  const aiConfigured = useMemo(() => isAiConfigured(), [settings.ia.ollamaModel]);
+  /**
+   * Passe de résumés déclenchée à la main. Le hook qui la fournit dépend de la
+   * liste, donc n'existe que plus bas : on publie une référence stable ici et on
+   * la branche une fois le hook monté.
+   */
+  const runSummariesRef = useRef<() => void>(() => {});
+  const runSummariesNow = useCallback(() => runSummariesRef.current(), []);
+
   // Recherche + densité dans la barre du haut mobile : ces deux affordances
   // existaient uniquement sur desktop (champ de recherche large, bouton densité
   // du bandeau d'onglets), donc inaccessibles au doigt.
@@ -361,6 +374,16 @@ export default function MailPage() {
             onPress: () => setDensity(density === "compact" ? "confort" : "compact"),
             active: density === "compact",
           },
+          ...(settings.gmail.listSummary && aiConfigured
+            ? [
+                {
+                  id: "mail-summaries",
+                  icon: TextAlignLeft,
+                  label: "Résumer les emails",
+                  onPress: runSummariesNow,
+                },
+              ]
+            : []),
         ]
       : [],
   );
@@ -407,7 +430,6 @@ export default function MailPage() {
 
   const { patchMirror, pushOutboxNow, commitMutation } = useMailMirror(clientId, accountId);
   const drafts = useMailDrafts(thread, settings.gmail.connectedEmail);
-  const aiConfigured = useMemo(() => isAiConfigured(), [settings.ia.ollamaModel]);
 
   useEffect(() => {
     if (connected) void loadList(DEFAULT_MAIL_QUERY);
@@ -954,6 +976,15 @@ export default function MailPage() {
     applyLabel: handleApplyLabel,
     onLabelCreated: addLabel,
   });
+
+  // ── Mini-résumés de liste (IA locale) ──────────────────────────────────────
+  // Le corps vient du miroir local : aucune requête Gmail ajoutée, aucun quota.
+  const listSummaries = useMailSummaries({
+    enabled: Boolean(settings.gmail.listSummary) && aiConfigured,
+    accountId,
+    items: cumItems,
+  });
+  runSummariesRef.current = listSummaries.runNow;
 
   /**
    * « Boîte séparée » : crée une vue par catégorie déjà rencontrée (un label de
@@ -1859,6 +1890,37 @@ export default function MailPage() {
           </Button>
         </Tooltip>
       )}
+      {/* Mini-résumés de liste : état et déclenchement manuel. */}
+      {settings.gmail.listSummary && aiConfigured && (
+        <Tooltip
+          content={
+            listSummaries.busy
+              ? "Résumés en cours…"
+              : listSummaries.remaining > 0
+                ? `${listSummaries.remaining} email(s) sans résumé — cliquer pour lancer`
+                : "Tous les fils sont résumés"
+          }
+        >
+          <Button
+            size="sm"
+            variant="ghost"
+            isIconOnly
+            className="shrink-0"
+            aria-label="Résumer les emails avec l'IA locale"
+            isDisabled={listSummaries.busy}
+            onPress={listSummaries.runNow}
+          >
+            {listSummaries.busy ? (
+              <Spinner size="sm" aria-hidden />
+            ) : (
+              <TextAlignLeft
+                size={16}
+                style={listSummaries.remaining > 0 ? { color: "var(--accent)" } : undefined}
+              />
+            )}
+          </Button>
+        </Tooltip>
+      )}
       {/* Règles locales + propositions issues des gestes répétés. */}
       <Tooltip
         content={
@@ -2062,6 +2124,7 @@ export default function MailPage() {
                 scrollElementRef={listScrollRef}
                 onSwipeRow={isMobile ? handleSwipeRow : undefined}
                 onLongPressRow={isMobile ? handleLongPressRow : undefined}
+                summaries={listSummaries.summaries}
               />
               {/* Sentinelle de scroll infini (chemin live seulement : le mirror
                   charge toute la boîte d'un coup). */}

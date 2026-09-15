@@ -127,6 +127,11 @@ export interface GmailSettings {
   followupDays: number;
   /** Classement automatique des nouveaux emails par l'IA locale (auto-labels). */
   autoLabel: boolean;
+  /**
+   * Mini-résumé (~30 mots) affiché sous l'objet dans la liste, généré par l'IA
+   * locale. Remplace le snippet Gmail. Résultats mis en cache par fil.
+   */
+  listSummary: boolean;
 }
 
 export interface AppSettings {

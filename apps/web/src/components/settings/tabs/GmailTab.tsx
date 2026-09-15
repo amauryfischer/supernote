@@ -16,10 +16,11 @@ import {
 } from "@phosphor-icons/react";
 import { useSettings } from "../SettingsContext";
 import { SettingRow } from "../SettingRow";
-import { Textarea } from "@supernote/ui";
+import { Textarea, useToast } from "@supernote/ui";
 import { SettingSection } from "../SettingSection";
 import { connectGmail, getGmailProfile, GMAIL_READONLY_SCOPE } from "@/lib/gmail";
 import { clearAccessToken } from "@/lib/google-drive";
+import { clearSummaryCache } from "@/lib/mail-summary";
 import {
   loadBlockedSenders,
   loadMutedThreads,
@@ -42,6 +43,7 @@ const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
  */
 export function GmailTab() {
   const { settings, updateSettings, saveSettings } = useSettings();
+  const { toast } = useToast();
   const clientId = settings.googleDrive.clientId.trim();
   const gmail = settings.gmail;
   const aliases = gmail.aliases ?? [];
@@ -265,6 +267,37 @@ export function GmailTab() {
               }}
               aria-label="Classement automatique des emails par l'IA locale"
             />
+          </SettingRow>
+
+          <SettingRow
+            label="Mini-résumé dans la liste (IA locale)"
+            description="Remplace l'aperçu Gmail par une phrase d'une trentaine de mots qui dit ce que l'email attend de toi. Généré une seule fois par fil, puis mis en cache sur cet appareil."
+          >
+            <div className="flex items-center gap-3">
+              <Switch
+                isSelected={gmail.listSummary ?? false}
+                onChange={(sel) => {
+                  updateSettings("gmail", { ...gmail, listSummary: Boolean(sel) });
+                  void saveSettings();
+                }}
+                aria-label="Mini-résumé des emails dans la liste par l'IA locale"
+              />
+              {(gmail.listSummary ?? false) && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onPress={() => {
+                    clearSummaryCache();
+                    toast({
+                      title: "Résumés effacés",
+                      description: "Ils seront régénérés au prochain passage sur la boîte.",
+                    });
+                  }}
+                >
+                  Vider le cache
+                </Button>
+              )}
+            </div>
           </SettingRow>
         </SettingSection>
       )}
