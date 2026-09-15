@@ -4416,6 +4416,113 @@ export function buildRouter(
     return { items: rows(res).map(mailThreadRowToOut), total };
   };
 
+  /**
+   * Recherche instantanée dans le mirror. Les filtres arrivent DÉJÀ analysés
+   * (le worker ne connaît pas la syntaxe Gmail) : on les traduit en prédicats
+   * SQL. Les mots libres balaient objet / expéditeur / extrait, et le CORPS des
+   * messages déjà mirrorés via un EXISTS — c'est ce qui fait la différence avec
+   * un simple filtre de liste.
+   *
+   * LIKE en minuscules des deux côtés : les colonnes ne sont pas indexées pour
+   * la recherche, mais le mirror tient quelques centaines de fils → réponse
+   * sous la milliseconde, sans table FTS à maintenir en plus.
+   */
+  const mailSearchThreads = async (input: unknown): Promise<unknown> => {
+    const {
+      accountId,
+      terms = [],
+      from = [],
+      to = [],
+      subject = [],
+      labelIds = [],
+      isUnread,
+      isRead,
+      isStarred,
+      hasAttachment,
+      after,
+      before,
+      limit = 100,
+      offset = 0,
+    } = (input as {
+      accountId: string;
+      terms?: string[];
+      from?: string[];
+      to?: string[];
+      subject?: string[];
+      labelIds?: string[];
+      isUnread?: boolean;
+      isRead?: boolean;
+      isStarred?: boolean;
+      hasAttachment?: boolean;
+      after?: number;
+      before?: number;
+      limit?: number;
+      offset?: number;
+    }) ?? {};
+    if (!accountId) return { items: [], total: 0 };
+
+    const where: string[] = [`t.accountId = ?`];
+    const params: (string | number)[] = [accountId];
+    const like = (v: string) => `%${v.toLowerCase()}%`;
+
+    for (const id of labelIds) {
+      where.push(`t.labelIds LIKE ?`);
+      params.push(`%${JSON.stringify(id)}%`);
+    }
+    if (isUnread) where.push(`t.labelIds LIKE '%"UNREAD"%'`);
+    if (isRead) where.push(`t.labelIds NOT LIKE '%"UNREAD"%'`);
+    if (isStarred) where.push(`t.labelIds LIKE '%"STARRED"%'`);
+    if (typeof after === "number") {
+      where.push(`t.lastInternalDate >= ?`);
+      params.push(after);
+    }
+    if (typeof before === "number") {
+      where.push(`t.lastInternalDate <= ?`);
+      params.push(before);
+    }
+    for (const f of from) {
+      where.push(`(lower(t.fromEmail) LIKE ? OR lower(t.fromName) LIKE ?)`);
+      params.push(like(f), like(f));
+    }
+    for (const sub of subject) {
+      where.push(`lower(t.subject) LIKE ?`);
+      params.push(like(sub));
+    }
+    for (const dest of to) {
+      where.push(
+        `EXISTS (SELECT 1 FROM mail_message m WHERE m.accountId = t.accountId AND m.threadId = t.id AND lower(m.toJson) LIKE ?)`,
+      );
+      params.push(like(dest));
+    }
+    if (hasAttachment) {
+      where.push(
+        `EXISTS (SELECT 1 FROM mail_message m WHERE m.accountId = t.accountId AND m.threadId = t.id AND m.attachmentsJson NOT IN ('', '[]'))`,
+      );
+    }
+    for (const term of terms) {
+      where.push(
+        `(lower(t.subject) LIKE ? OR lower(t.snippet) LIKE ? OR lower(t.fromName) LIKE ? OR lower(t.fromEmail) LIKE ?
+          OR EXISTS (SELECT 1 FROM mail_message m WHERE m.accountId = t.accountId AND m.threadId = t.id AND lower(m.bodyText) LIKE ?))`,
+      );
+      const l = like(term);
+      params.push(l, l, l, l, l);
+    }
+
+    const whereSql = where.join(" AND ");
+    const totalRow = row(
+      db.exec(`SELECT COUNT(*) AS c FROM mail_thread t WHERE ${whereSql}`, params),
+    );
+    const total = totalRow ? Number(totalRow["c"]) : 0;
+    const res = db.exec(
+      `SELECT t.id, t.subject, t.fromName, t.fromEmail, t.snippet, t.lastDate, t.labelIds
+         FROM mail_thread t WHERE ${whereSql}
+        ORDER BY t.lastInternalDate DESC
+        LIMIT ? OFFSET ?`,
+      [...params, limit, offset],
+    );
+    return { items: rows(res).map(mailThreadRowToOut), total };
+  };
+
   const mailGetThread = async (input: unknown): Promise<unknown> => {
     const { accountId, threadId } = (input as { accountId: string; threadId: string }) ?? {};
     if (!accountId || !threadId) return { thread: null };
@@ -4931,6 +5038,7 @@ export function buildRouter(
     "sync.listMounts": syncListMounts,
 
     "mail.listThreads": mailListThreads,
+    "mail.searchThreads": mailSearchThreads,
     "mail.getThread": mailGetThread,
     "mail.getLabels": mailGetLabels,
     "mail.getState": mailGetState,

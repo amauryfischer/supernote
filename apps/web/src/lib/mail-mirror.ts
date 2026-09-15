@@ -77,6 +77,36 @@ export async function mirrorListThreads(
   return res.items;
 }
 
+/** Filtres de recherche locale (déjà analysés côté client). */
+export interface MirrorSearchFilter {
+  terms?: string[];
+  from?: string[];
+  to?: string[];
+  subject?: string[];
+  labelIds?: string[];
+  isUnread?: boolean;
+  isRead?: boolean;
+  isStarred?: boolean;
+  hasAttachment?: boolean;
+  after?: number;
+  before?: number;
+  limit?: number;
+  offset?: number;
+}
+
+/**
+ * Recherche INSTANTANÉE dans le mirror local (aucun aller-retour réseau).
+ * Complétée à la validation par la recherche Gmail, qui couvre ce qui n'est
+ * pas mirroré.
+ */
+export async function mirrorSearchThreads(
+  accountId: string,
+  filter: MirrorSearchFilter,
+): Promise<ThreadListItem[]> {
+  const res = await trpcVanillaClient.mail.searchThreads.query({ accountId, ...filter });
+  return res.items;
+}
+
 /** Read mirrored Gmail labels (GmailLabel-shaped). */
 export async function mirrorListLabels(accountId: string): Promise<GmailLabel[]> {
   const res = await trpcVanillaClient.mail.getLabels.query({ accountId });

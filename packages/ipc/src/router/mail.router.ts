@@ -5,6 +5,8 @@ import {
   ListThreadsOutput,
   GetThreadInput,
   GetThreadOutput,
+  SearchThreadsInput,
+  SearchThreadsOutput,
   GetLabelsInput,
   GetLabelsOutput,
   GetStateInput,
@@ -37,6 +39,14 @@ export const mailRouter = router({
     .output(ListThreadsOutput)
     .query(() => {
       throw notImplemented("mail.listThreads");
+    }),
+
+  /** Instant local search over the mirror (pre-parsed filters). */
+  searchThreads: publicProcedure
+    .input(SearchThreadsInput)
+    .output(SearchThreadsOutput)
+    .query(() => {
+      throw notImplemented("mail.searchThreads");
     }),
 
   /** Read mirrored messages of one thread (null if not mirrored). */

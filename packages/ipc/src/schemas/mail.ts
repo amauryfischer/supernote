@@ -98,6 +98,42 @@ export const ListThreadsOutput = z.object({
 });
 export type ListThreadsOutput = z.infer<typeof ListThreadsOutput>;
 
+// ── mail.searchThreads ──────────────────────────────────────────────────────
+// Recherche INSTANTANÉE dans le mirror local. Les filtres arrivent déjà
+// analysés (cf. `apps/web/src/lib/mail-search.ts`) : le worker ne connaît pas la
+// syntaxe Gmail, il applique des prédicats. Le même texte est envoyé à Gmail
+// quand l'utilisateur valide, pour couvrir ce qui n'est pas mirroré.
+
+export const SearchThreadsInput = z.object({
+  accountId: z.string(),
+  /** Mots libres : cherchés dans objet / expéditeur / extrait / corps. */
+  terms: z.array(z.string()).default([]),
+  /** `from:` — sous-chaîne du nom OU de l'adresse de l'expéditeur. */
+  from: z.array(z.string()).default([]),
+  /** `to:` — sous-chaîne d'un destinataire d'un message du fil. */
+  to: z.array(z.string()).default([]),
+  /** `subject:` — sous-chaîne de l'objet. */
+  subject: z.array(z.string()).default([]),
+  /** `label:` résolu en identifiants de labels Gmail par l'appelant. */
+  labelIds: z.array(z.string()).default([]),
+  isUnread: z.boolean().optional(),
+  isRead: z.boolean().optional(),
+  isStarred: z.boolean().optional(),
+  hasAttachment: z.boolean().optional(),
+  /** Bornes sur la date du dernier message (epoch ms). */
+  after: z.number().optional(),
+  before: z.number().optional(),
+  limit: z.number().int().positive().max(500).default(100),
+  offset: z.number().int().nonnegative().default(0),
+});
+export type SearchThreadsInput = z.infer<typeof SearchThreadsInput>;
+
+export const SearchThreadsOutput = z.object({
+  items: z.array(MailThreadRowSchema),
+  total: z.number().int().nonnegative(),
+});
+export type SearchThreadsOutput = z.infer<typeof SearchThreadsOutput>;
+
 // ── mail.getThread ──────────────────────────────────────────────────────────
 
 export const GetThreadInput = z.object({

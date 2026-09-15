@@ -34,6 +34,7 @@ import { CaptureEmailModal } from "@/components/mail/CaptureEmailModal";
 import { ComposeModal } from "@/components/mail/ComposeModal";
 import { MailEisenhowerBoard } from "@/components/mail/MailEisenhowerBoard";
 import { MailShortcutsHelp } from "@/components/mail/MailShortcutsHelp";
+import { MailSearchBar } from "@/components/mail/MailSearchBar";
 import { SnoozeMenu } from "@/components/mail/SnoozeMenu";
 import { useMailKeyboard } from "@/components/mail/useMailKeyboard";
 import { useMailList, DEFAULT_MAIL_QUERY } from "@/components/mail/useMailList";
@@ -74,6 +75,7 @@ import { isWorkerReady } from "@/lib/trpc/browser-link";
 import { isAiConfigured } from "@/lib/mail-ai";
 import { toggleRowSelection, pruneSelection } from "@/lib/mail-selection";
 import { muteThread } from "@/lib/mail-mute";
+import { pushSearchHistory, isEmptyQuery } from "@/lib/mail-search";
 import { bumpTriaged, loadStats, MAIL_STATS_EVENT } from "@/lib/mail-stats";
 import {
   loadBindings,
@@ -171,6 +173,10 @@ export default function MailPage() {
   // effective (`query`) reste `in:inbox` quand le champ est vide.
   const [searchText, setSearchText] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
+  // Mode de recherche courant : `null` = boîte normale ; un nombre = résultats
+  // LOCAUX (mirror) ; `remote` = résultats Gmail après validation.
+  const [localCount, setLocalCount] = useState<number | null>(null);
+  const [remoteSearch, setRemoteSearch] = useState(false);
   // Navigation clavier desktop : index de la ligne « curseur » dans `rows`
   // (distinct du fil ouvert). -1 = aucune sélection.
   const [selectedRowIndex, setSelectedRowIndex] = useState(-1);
@@ -325,6 +331,7 @@ export default function MailPage() {
     moreLoading,
     loadList,
     loadMore,
+    searchLocal,
   } = list;
 
   const { patchMirror, pushOutboxNow, commitMutation } = useMailMirror(clientId, accountId);
@@ -1092,6 +1099,100 @@ export default function MailPage() {
     if (!selectedThreadId) setPeekList(false);
   }, [selectedThreadId]);
 
+  // ── Recherche ──────────────────────────────────────────────────────────────
+  // Deux temps : la frappe filtre le MIRROR local (instantané, aucun réseau) ;
+  // `↵` lance la recherche Gmail, qui couvre aussi ce qui n'est pas mirroré.
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const onSearchChange = useCallback(
+    (next: string) => {
+      setSearchText(next);
+      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+      if (isEmptyQuery(next)) {
+        setLocalCount(null);
+        setRemoteSearch(false);
+        if (query !== DEFAULT_MAIL_QUERY) {
+          setQuery(DEFAULT_MAIL_QUERY);
+          void loadList(DEFAULT_MAIL_QUERY);
+        } else {
+          // Sortie de recherche sans changer de requête : on re-dérive la boîte
+          // depuis les items déjà chargés, sans refetch.
+          setRows(buildMailOverlay(computeVisible(cumItems), labelNames, selfAddresses));
+        }
+        return;
+      }
+      searchDebounceRef.current = setTimeout(() => {
+        void searchLocal(next).then((count) => {
+          setRemoteSearch(false);
+          setLocalCount(count);
+        });
+      }, 120);
+    },
+    [
+      query,
+      loadList,
+      searchLocal,
+      setRows,
+      computeVisible,
+      cumItems,
+      labelNames,
+      selfAddresses,
+    ],
+  );
+
+  const submitSearch = useCallback(
+    (raw: string) => {
+      const q = raw.trim();
+      if (!q) {
+        setSearchText("");
+        setLocalCount(null);
+        setRemoteSearch(false);
+        setQuery(DEFAULT_MAIL_QUERY);
+        void loadList(DEFAULT_MAIL_QUERY);
+        return;
+      }
+      pushSearchHistory(q);
+      setSearchText(q);
+      setRemoteSearch(true);
+      setLocalCount(0);
+      setQuery(q);
+      void loadList(q);
+    },
+    [loadList],
+  );
+
+  const clearSearch = useCallback(() => {
+    setSearchText("");
+    setLocalCount(null);
+    setRemoteSearch(false);
+    setQuery(DEFAULT_MAIL_QUERY);
+    void loadList(DEFAULT_MAIL_QUERY);
+  }, [loadList]);
+
+  // Les résultats Gmail remplacent les lignes : le compteur affiché suit.
+  useEffect(() => {
+    if (remoteSearch) setLocalCount(rows.length);
+  }, [rows.length, remoteSearch]);
+
+  const searchBox = (
+    <MailSearchBar
+      value={searchText}
+      onChange={onSearchChange}
+      onSubmit={submitSearch}
+      onClear={clearSearch}
+      inputRef={searchInputRef}
+      localCount={localCount}
+      remote={remoteSearch}
+      leading={
+        !isMobile ? (
+          <Button variant="primary" onPress={openCompose}>
+            <PencilSimple size={16} /> Nouveau message
+          </Button>
+        ) : null
+      }
+    />
+  );
+
   // ── Clavier : câblage des actions (table déclarative → handlers) ────────────
   const kbContext: MailContext = selectedThreadId ? "thread" : selectedGroup ? "group" : "list";
 
@@ -1208,11 +1309,7 @@ export default function MailPage() {
         setMailTab("todo");
         resetSelection();
       },
-      goStarred: () => {
-        setSearchText("is:starred");
-        setQuery("is:starred");
-        void loadList("is:starred");
-      },
+      goStarred: () => submitSearch("is:starred"),
       archive: triage("archive"),
       done: triage("done"),
       snooze: triage("snooze"),
@@ -1308,6 +1405,7 @@ export default function MailPage() {
     onPick,
     closeThread,
     resetSelection,
+    submitSearch,
     loadList,
     query,
     targetThreadId,
@@ -1370,58 +1468,6 @@ export default function MailPage() {
   };
 
   const activeKey = selectedGroup?.key ?? (selectedThreadId ? `t:${selectedThreadId}` : undefined);
-
-  // ── Recherche ──────────────────────────────────────────────────────────────
-  const submitSearch = () => {
-    const q = searchText.trim() || DEFAULT_MAIL_QUERY;
-    setQuery(q);
-    void loadList(q);
-  };
-  const clearSearch = () => {
-    setSearchText("");
-    setQuery(DEFAULT_MAIL_QUERY);
-    void loadList(DEFAULT_MAIL_QUERY);
-  };
-  const searchBox = (
-    <div className="flex gap-2 p-3">
-      {!isMobile && (
-        <Button variant="primary" onPress={openCompose}>
-          <PencilSimple size={16} /> Nouveau message
-        </Button>
-      )}
-      <Input
-        ref={searchInputRef}
-        value={searchText}
-        onChange={(e) => setSearchText(e.target.value)}
-        placeholder="Rechercher dans les emails…  (/)"
-        className="flex-1"
-        onKeyDown={(e) => {
-          if (e.key === "Enter") submitSearch();
-          if (e.key === "Escape") {
-            e.preventDefault();
-            if (searchText) clearSearch();
-            (e.target as HTMLInputElement).blur();
-          }
-        }}
-      />
-      {searchText && (
-        <Tooltip content="Effacer la recherche">
-          <Button
-            size="sm"
-            variant="ghost"
-            onPress={clearSearch}
-            isIconOnly
-            aria-label="Effacer la recherche"
-          >
-            <X size={16} />
-          </Button>
-        </Tooltip>
-      )}
-      <Button size="sm" variant="ghost" onPress={submitSearch} isIconOnly aria-label="Rechercher">
-        <MagnifyingGlass size={16} />
-      </Button>
-    </div>
-  );
 
   // Barre d'actions groupées (desktop uniquement).
   const bulkBar =

@@ -23,7 +23,13 @@ import {
   type GmailLabelColor,
   type ThreadListItem,
 } from "@/lib/gmail";
-import { mirrorAvailable, mirrorListThreads, mirrorListLabels } from "@/lib/mail-mirror";
+import {
+  mirrorAvailable,
+  mirrorListThreads,
+  mirrorListLabels,
+  mirrorSearchThreads,
+} from "@/lib/mail-mirror";
+import { parseMailQuery } from "@/lib/mail-search";
 import { syncMailbox } from "@/lib/mail-sync";
 import { buildMailOverlay, type OverlayRow } from "@/lib/mail-overlay";
 
@@ -61,6 +67,12 @@ export interface MailListApi {
   loadMore: (q: string) => Promise<void>;
   /** Reconstruit l'overlay depuis un jeu d'items (filtre d'onglet appliqué). */
   rebuild: (items: ThreadListItem[]) => OverlayRow[];
+  /**
+   * Recherche INSTANTANÉE dans le mirror local (frappe au kilomètre). Renvoie
+   * le nombre de fils trouvés, ou `null` si le mirror n'est pas disponible
+   * (l'appelant retombe alors sur la recherche Gmail à la validation).
+   */
+  searchLocal: (rawQuery: string) => Promise<number | null>;
 }
 
 export function useMailList({
@@ -198,6 +210,46 @@ export function useMailList({
     [clientId, nextPageToken, moreLoading, labelNames, selfAddresses, computeVisible],
   );
 
+  // Recherche locale : filtres analysés côté client, `label:` résolu en ids via
+  // la table des labels déjà chargée. Les résultats REMPLACENT les lignes sans
+  // toucher à `cumItems` — quitter la recherche restaure la boîte sans refetch.
+  const searchLocal = useCallback(
+    async (rawQuery: string): Promise<number | null> => {
+      if (!mirrorAvailable() || !accountId) return null;
+      const parsed = parseMailQuery(rawQuery);
+      const nameToId = new Map<string, string>();
+      for (const [id, name] of labelNames) nameToId.set(name.toLowerCase(), id);
+      const labelIds = parsed.label.map((n) => nameToId.get(n) ?? n);
+      try {
+        const items = await mirrorSearchThreads(accountId, {
+          terms: parsed.terms,
+          from: parsed.from,
+          to: parsed.to,
+          subject: parsed.subject,
+          labelIds,
+          ...(parsed.isUnread ? { isUnread: true } : {}),
+          ...(parsed.isRead ? { isRead: true } : {}),
+          ...(parsed.isStarred ? { isStarred: true } : {}),
+          ...(parsed.hasAttachment ? { hasAttachment: true } : {}),
+          ...(parsed.after !== undefined ? { after: parsed.after } : {}),
+          ...(parsed.before !== undefined ? { before: parsed.before } : {}),
+          limit: 200,
+        });
+        // Pas de `computeVisible` ici : une recherche doit trouver AUSSI ce qui
+        // est routé dans un groupe ou converti en tâche — sinon on cherche dans
+        // une boîte amputée sans le dire.
+        setRows(buildMailOverlay(items, labelNames, selfAddresses));
+        setNextPageToken(undefined);
+        setListError(null);
+        setListLoading(false);
+        return items.length;
+      } catch {
+        return null;
+      }
+    },
+    [accountId, labelNames, selfAddresses],
+  );
+
   return {
     rows,
     setRows,
@@ -213,5 +265,6 @@ export function useMailList({
     loadList,
     loadMore,
     rebuild,
+    searchLocal,
   };
 }
