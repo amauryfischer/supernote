@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type RefObject } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { Button, Checkbox } from "@heroui/react";
 import { Tag, Star, DotsSixVertical } from "@phosphor-icons/react";
 import {
@@ -39,7 +40,23 @@ interface SharedRowProps {
    *  draggables ni droppables (et la liste défile normalement sur tactile). */
   dndEnabled: boolean;
   onOpenContext: (c: { x: number; y: number; row: OverlayRow }) => void;
+  /** Densité d'affichage : `compact` = 1 ligne par fil, `confort` = 3 lignes. */
+  density: MailDensity;
 }
+
+/** Densité d'affichage de la liste (préférence utilisateur, cf. réglages Gmail). */
+export type MailDensity = "compact" | "confort";
+
+/**
+ * Au-delà de ce nombre de lignes, la liste est VIRTUALISÉE (seules les lignes
+ * visibles sont montées). En dessous, rendu direct : le drag-vers-tag reste
+ * pleinement fonctionnel (une cible de drop hors fenêtre ne serait pas montée),
+ * et une boîte « inbox zero » tient largement sous ce seuil.
+ */
+const VIRTUALIZE_THRESHOLD = 60;
+
+/** Hauteur estimée d'une ligne (avant mesure réelle) selon la densité. */
+const ROW_ESTIMATE: Record<MailDensity, number> = { compact: 36, confort: 76 };
 
 export function MailOverlayList({
   rows,
@@ -55,6 +72,8 @@ export function MailOverlayList({
   onMarkRowRead,
   onApplyLabel,
   userLabels,
+  density = "confort",
+  scrollElementRef,
 }: {
   rows: OverlayRow[];
   activeKey?: string;
@@ -95,6 +114,13 @@ export function MailOverlayList({
   onApplyLabel?: (threadId: string, labelId: string) => void;
   /** Labels utilisateur (labelId → nom) pour le menu « Ajouter un tag ». */
   userLabels?: Map<string, string>;
+  /** Densité d'affichage (préférence utilisateur). Défaut : confort. */
+  density?: MailDensity;
+  /**
+   * Conteneur scrollable de la liste (détenu par la page). Requis pour la
+   * virtualisation ; sans lui, la liste est rendue intégralement.
+   */
+  scrollElementRef?: RefObject<HTMLElement | null>;
 }) {
   const selectable = Boolean(selectedThreadIds && onToggleRowSelection);
   // Au moins une coche → on garde toutes les cases visibles (mode sélection
@@ -122,6 +148,32 @@ export function MailOverlayList({
     onApplyLabel?.(a.threadId, o.labelId);
   };
 
+  // ── Virtualisation ────────────────────────────────────────────────────────
+  // Activée seulement au-delà du seuil ET quand la page nous a passé son
+  // conteneur scrollable. Hauteurs dynamiques : `measureElement` remplace
+  // l'estimation dès que la ligne est montée (densité, groupes multi-lignes).
+  const virtualized = rows.length > VIRTUALIZE_THRESHOLD && Boolean(scrollElementRef?.current);
+  const virtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => scrollElementRef?.current ?? null,
+    estimateSize: () => ROW_ESTIMATE[density],
+    overscan: 8,
+    getItemKey: (i) => {
+      const r = rows[i];
+      if (!r) return i;
+      return r.kind === "single" ? `t:${r.item.id}` : r.key;
+    },
+  });
+
+  // Curseur clavier hors fenêtre rendue : on l'y ramène (sinon `j` semble ne
+  // rien faire — la ligne existe mais n'est pas montée).
+  useEffect(() => {
+    if (!virtualized || selectedIndex == null || selectedIndex < 0) return;
+    virtualizer.scrollToIndex(selectedIndex, { align: "auto" });
+    // `virtualizer` est stable pour un même conteneur.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedIndex, virtualized]);
+
   const shared: SharedRowProps = {
     activeKey,
     onPick,
@@ -134,21 +186,46 @@ export function MailOverlayList({
     anySelected,
     dndEnabled,
     onOpenContext: setCtx,
+    density,
   };
 
   return (
     <>
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-        <div className="flex flex-col gap-1" role="listbox" aria-label="Boîte mail">
-          {rows.map((row, idx) => (
-            <MailRow
-              key={row.kind === "single" ? `t:${row.item.id}` : row.key}
-              row={row}
-              idx={idx}
-              shared={shared}
-            />
-          ))}
-        </div>
+        {virtualized ? (
+          <div
+            className="relative w-full"
+            role="listbox"
+            aria-label="Boîte mail"
+            style={{ height: virtualizer.getTotalSize() }}
+          >
+            {virtualizer.getVirtualItems().map((v) => {
+              const row = rows[v.index]!;
+              return (
+                <div
+                  key={row.kind === "single" ? `t:${row.item.id}` : row.key}
+                  ref={virtualizer.measureElement}
+                  data-index={v.index}
+                  className="absolute left-0 top-0 w-full pb-1"
+                  style={{ transform: `translateY(${v.start}px)` }}
+                >
+                  <MailRow row={row} idx={v.index} shared={shared} />
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="flex flex-col gap-1" role="listbox" aria-label="Boîte mail">
+            {rows.map((row, idx) => (
+              <MailRow
+                key={row.kind === "single" ? `t:${row.item.id}` : row.key}
+                row={row}
+                idx={idx}
+                shared={shared}
+              />
+            ))}
+          </div>
+        )}
       </DndContext>
       {ctx && (
         <MailRowContextMenu
@@ -185,6 +262,7 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
     anySelected,
     dndEnabled,
     onOpenContext,
+    density,
   } = shared;
 
   const key = row.kind === "single" ? `t:${row.item.id}` : row.key;
@@ -244,7 +322,7 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
       variant="ghost"
       onPress={() => onPick(row)}
       className={`h-auto w-full min-w-0 flex-1 justify-start whitespace-normal rounded-lg px-2.5 text-left ${
-        isLabel ? "py-1.5" : "py-2.5"
+        isLabel ? "py-1.5" : density === "compact" ? "py-1" : "py-2.5"
       }${
         cursored && activeKey !== key
           ? " ring-2 ring-inset ring-[var(--accent)] ring-offset-0"
@@ -300,6 +378,72 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
             />
           )}
           <span className="ml-auto shrink-0 text-xs" style={{ color: "var(--text-muted)" }}>
+            {formatMailDate(date)}
+          </span>
+        </span>
+      ) : density === "compact" ? (
+        /* Densité COMPACTE : une seule ligne — pastille non-lu, expéditeur,
+           objet, aperçu grisé, date, étoile. Objectif : voir 3× plus de fils à
+           l'écran (repère : Superhuman). Aucune information n'est perdue,
+           seulement resserrée ; le survol ne tronque pas davantage. */
+        <span className="flex w-full min-w-0 items-center gap-2">
+          <span
+            aria-label={unread ? "Non lu" : undefined}
+            className="h-1.5 w-1.5 shrink-0 rounded-full"
+            style={{ backgroundColor: unread ? "var(--accent)" : "transparent" }}
+          />
+          <span
+            className={`w-40 shrink-0 truncate text-[13px] ${unread ? "font-semibold" : "font-medium"}`}
+            style={{ color: "var(--text-primary)" }}
+          >
+            {title}
+          </span>
+          {row.kind === "group" && row.count > 1 && (
+            <span
+              className={`shrink-0 rounded-full px-1.5 text-[11px] ${groupUnread > 0 ? "font-bold" : ""}`}
+              style={{ background: "var(--accent-subtle)", color: "var(--accent)" }}
+              title={`${row.count} fils`}
+            >
+              {groupUnread > 0 ? `${groupUnread}/${row.count}` : row.count}
+            </span>
+          )}
+          <span className="min-w-0 flex-1 truncate text-[13px]" style={{ color: "var(--text-secondary)" }}>
+            {subject}
+            {preview && (
+              <span style={{ color: "var(--text-muted)" }}> — {preview}</span>
+            )}
+          </span>
+          {singleItem && onToggleStar ? (
+            <span
+              role="button"
+              tabIndex={0}
+              aria-label={starred ? "Retirer l'étoile" : "Mettre une étoile"}
+              aria-pressed={starred}
+              className="inline-flex shrink-0 cursor-pointer p-0.5"
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleStar(singleItem.id, singleItem.labelIds);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onToggleStar(singleItem.id, singleItem.labelIds);
+                }
+              }}
+            >
+              <Star
+                size={13}
+                weight={starred ? "fill" : "regular"}
+                style={{ color: starred ? "#f5b300" : "var(--text-muted)" }}
+              />
+            </span>
+          ) : (
+            starred && (
+              <Star size={13} weight="fill" aria-hidden className="shrink-0" style={{ color: "#f5b300" }} />
+            )
+          )}
+          <span className="w-14 shrink-0 text-right text-[11px]" style={{ color: "var(--text-muted)" }}>
             {formatMailDate(date)}
           </span>
         </span>

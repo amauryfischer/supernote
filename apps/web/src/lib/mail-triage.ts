@@ -153,7 +153,7 @@ export function listDue(nowMs: number): SnoozeEntry[] {
 
 /** Option de snooze proposée dans le Popover. */
 export interface SnoozePreset {
-  id: "tonight" | "tomorrow" | "monday";
+  id: "later" | "tonight" | "tomorrow" | "weekend" | "monday";
   label: string;
   /** Calcule l'échéance (epoch ms) à partir d'une date « maintenant ». */
   computeUntil: (now: Date) => number;
@@ -199,12 +199,58 @@ export function nextMonday(now: Date): number {
   return target.getTime();
 }
 
-/** Presets de snooze, dans l'ordre d'affichage du Popover. */
+/**
+ * « Plus tard » = dans 3 h, arrondi à l'heure pleine suivante. PUR.
+ * Sert au report « je reviens dessus dans la journée » sans choisir de date.
+ */
+export function laterToday(now: Date): number {
+  const target = new Date(now.getTime());
+  target.setMinutes(0, 0, 0);
+  target.setHours(target.getHours() + 3);
+  return target.getTime();
+}
+
+/**
+ * « Ce week-end » = samedi 9 h. Si on est déjà samedi ou dimanche, on vise le
+ * samedi SUIVANT (sinon l'échéance tomberait dans le week-end en cours, voire
+ * dans le passé). PUR.
+ */
+export function thisWeekend(now: Date): number {
+  const target = atHour(now, 9);
+  // getDay(): 6 = samedi. Jours jusqu'au prochain samedi strictement futur.
+  const delta = ((6 - target.getDay() + 7) % 7) || 7;
+  target.setDate(target.getDate() + delta);
+  return target.getTime();
+}
+
+/** Presets de snooze, dans l'ordre d'affichage du Popover de la TriageBar. */
 export const SNOOZE_PRESETS: readonly SnoozePreset[] = [
   { id: "tonight", label: "Ce soir", computeUntil: tonight },
   { id: "tomorrow", label: "Demain", computeUntil: tomorrowMorning },
   { id: "monday", label: "Lundi prochain", computeUntil: nextMonday },
 ];
+
+/**
+ * Jeu COMPLET d'échéances proposé par le menu « Reporter à… » (raccourci `h`,
+ * bottom sheet mobile). Superset de `SNOOZE_PRESETS`, avec les options fines.
+ */
+export const SNOOZE_PRESETS_FULL: readonly SnoozePreset[] = [
+  { id: "later", label: "Plus tard (3 h)", computeUntil: laterToday },
+  { id: "tonight", label: "Ce soir (18 h)", computeUntil: tonight },
+  { id: "tomorrow", label: "Demain (8 h)", computeUntil: tomorrowMorning },
+  { id: "weekend", label: "Ce week-end (sam. 9 h)", computeUntil: thisWeekend },
+  { id: "monday", label: "Lundi prochain (8 h)", computeUntil: nextMonday },
+];
+
+/**
+ * Échéance appliquée par le raccourci clavier `s` (report « par défaut ») :
+ * demain matin. Le choix fin passe par `h` / le Popover de la TriageBar.
+ */
+export const DEFAULT_SNOOZE_PRESET: SnoozePreset = {
+  id: "tomorrow",
+  label: "Demain",
+  computeUntil: tomorrowMorning,
+};
 
 // ─── Exécution réseau (effet de bord isolé) ──────────────────────────────────
 

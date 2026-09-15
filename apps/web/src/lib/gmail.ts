@@ -864,6 +864,45 @@ export function toggleStar(clientId: string, threadId: string, starred: boolean)
 }
 
 /**
+ * Signale un thread comme SPAM : ajoute le label système `SPAM` et retire
+ * `INBOX` via `threads.modify`. Scope `gmail.modify`. Réversible côté Gmail
+ * (retirer SPAM remet le fil dans « Tous les messages »).
+ */
+export function markThreadSpam(clientId: string, threadId: string): Promise<void> {
+  return modifyThreadLabels(clientId, threadId, {
+    addLabelIds: ["SPAM"],
+    removeLabelIds: ["INBOX"],
+  });
+}
+
+/**
+ * Récupère les en-têtes RFC822 demandés du DERNIER message d'un fil
+ * (`format=metadata`), sans rapatrier les corps. Sert au désabonnement en un
+ * clic (`List-Unsubscribe`, `List-Unsubscribe-Post`), que le mirror local ne
+ * stocke pas. Renvoie une map nom-minuscule → valeur ; `{}` si indisponible.
+ */
+export async function getMessageHeaders(
+  clientId: string,
+  messageId: string,
+  names: string[],
+): Promise<Record<string, string>> {
+  const token = await requestAccessToken(clientId, { scope: GMAIL_READONLY_SCOPE, prompt: "" });
+  const params = new URLSearchParams({ format: "metadata" });
+  for (const n of names) params.append("metadataHeaders", n);
+  const res = await fetch(
+    `${GMAIL_API_BASE}/messages/${encodeURIComponent(messageId)}?${params.toString()}`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  if (!res.ok) return {};
+  const json = (await res.json()) as GmailRawMessage;
+  const out: Record<string, string> = {};
+  for (const h of json.payload?.headers ?? []) {
+    out[h.name.toLowerCase()] = h.value;
+  }
+  return out;
+}
+
+/**
  * Met un thread entier à la corbeille Gmail via `threads.trash` (RÉVERSIBLE :
  * Gmail conserve 30 j, restaurable). Scope `gmail.modify`. On évite le DELETE
  * permanent (qui exigerait le scope complet `https://mail.google.com/`).

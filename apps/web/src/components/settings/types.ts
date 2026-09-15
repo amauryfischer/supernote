@@ -111,6 +111,22 @@ export interface GmailSettings {
    * dans la surcouche mail (cf. `buildMailOverlay`). Insensible à la casse.
    */
   aliases: string[];
+  /**
+   * Densité de la liste d'emails. `compact` = une ligne par fil (max de fils à
+   * l'écran, façon Superhuman) ; `confort` = expéditeur + objet + aperçu.
+   */
+  density: "compact" | "confort";
+  /** Signature ajoutée en bas des messages envoyés (texte brut, "" = aucune). */
+  signature: string;
+  /**
+   * Fenêtre d'annulation d'un envoi, en secondes (0 = envoi immédiat). Le
+   * message part réellement à l'expiration du délai.
+   */
+  undoSendSeconds: number;
+  /** Délai par défaut d'un rappel de relance, en jours. */
+  followupDays: number;
+  /** Classement automatique des nouveaux emails par l'IA locale (auto-labels). */
+  autoLabel: boolean;
 }
 
 export interface AppSettings {

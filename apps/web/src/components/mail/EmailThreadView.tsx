@@ -97,10 +97,28 @@ const MENU_COMPONENT_ROW =
  * secondaires (« Plus ») et DÉSACTIVE le composeur de réponse inline (remplacé
  * par un lien « Ouvrir dans Gmail »). Posé par `GmailMessageView`.
  */
-/** Handle impératif exposé au parent (page Mail) via `ref`. */
+/**
+ * Handle impératif exposé au parent (page Mail) via `ref`.
+ *
+ * La page possède le clavier (cf. `useMailKeyboard`) : les raccourcis qui
+ * agissent sur le FIL OUVERT (répondre, transférer, étoile, non lu, labels)
+ * passent par ce handle plutôt que de dupliquer la logique côté page.
+ */
 export interface EmailThreadHandle {
   /** Charge un texte (ex. brouillon IA choisi) dans la zone de réponse + focus. */
   loadDraft: (text: string) => void;
+  /** Place le curseur dans la zone de réponse (raccourci `r`). */
+  focusReply: () => void;
+  /** Active « répondre à tous » puis focus la zone de réponse (raccourci `a`). */
+  replyAll: () => void;
+  /** Ouvre le sélecteur de label (raccourci `l`). */
+  openLabelPicker: () => void;
+  /** Bascule l'étoile du fil (raccourci `t`). */
+  toggleStar: () => void;
+  /** Marque le fil non lu (raccourci `n`). */
+  markUnread: () => void;
+  /** Pré-remplit un transfert dans le composeur (raccourci `f`). */
+  forward: () => void;
 }
 
 interface EmailThreadViewProps {
@@ -253,19 +271,6 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
     setSummaryOpen(false);
     setSuggestedQuadrant(null);
   }, [thread]);
-
-  // Handle impératif : le parent charge un brouillon IA choisi dans la zone de
-  // réponse (remplace si vide, sinon ajoute sous la saisie) puis focus.
-  useImperativeHandle(
-    ref,
-    () => ({
-      loadDraft: (text: string) => {
-        setReplyBody((prev) => (prev.trim() ? `${prev}\n\n${text}` : text));
-        requestAnimationFrame(() => replyTaRef.current?.focus());
-      },
-    }),
-    [],
-  );
 
   // Auto-resize de la zone de réponse : grandit avec le contenu (saisie OU
   // brouillon IA chargé) jusqu'à un plafond, pour qu'on VOIE ce qu'on écrit sans
@@ -581,6 +586,33 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
       });
     }
   };
+
+  // Handle impératif : la page (clavier) pilote le fil ouvert. Déclaré APRÈS les
+  // callbacks qu'il expose (closures à jour), et AVANT le garde « fil vide » —
+  // un hook ne doit jamais se trouver après un `return` conditionnel.
+  useImperativeHandle(
+    ref,
+    () => ({
+      loadDraft: (text: string) => {
+        setReplyBody((prev) => (prev.trim() ? `${prev}\n\n${text}` : text));
+        requestAnimationFrame(() => replyTaRef.current?.focus());
+      },
+      focusReply: () => {
+        requestAnimationFrame(() => replyTaRef.current?.focus());
+      },
+      replyAll: () => {
+        setReplyToAll(true);
+        requestAnimationFrame(() => replyTaRef.current?.focus());
+      },
+      openLabelPicker: openPicker,
+      toggleStar: () => void onToggleStar(),
+      markUnread: () => void onMarkUnread(),
+      forward: onForwardClick,
+    }),
+    // `openPicker` / `onForwardClick` / `onToggleStar` / `onMarkUnread` sont
+    // recréés à chaque rendu : on ré-expose le handle à chaque rendu plutôt que
+    // de figer des closures périmées (labelIds obsolètes → étoile qui « saute »).
+  );
 
   if (!thread.messages.length) {
     return (
