@@ -203,6 +203,53 @@ export function buildReplyPrompt(
 }
 
 /**
+ * Prompt « réponses éclair » : 3 réponses TRÈS courtes, prêtes à envoyer, qui
+ * couvrent les issues usuelles d'un fil (accepter, décliner, demander une
+ * précision). Format imposé : une par ligne, préfixée d'un tiret — c'est ce qui
+ * rend le découpage fiable avec un petit modèle local. PUR.
+ */
+export function buildInstantRepliesPrompt(thread: MailAiThread): string {
+  return [
+    "Voici un fil d'emails. Propose TROIS réponses possibles, très courtes.",
+    "",
+    serializeThread(thread),
+    "",
+    "Contraintes :",
+    "- une réponse par ligne, préfixée d'un tiret ;",
+    "- une à deux phrases maximum, prêtes à envoyer telles quelles ;",
+    "- trois intentions différentes (par exemple : accepter, décliner, demander une précision) ;",
+    "- même langue que le fil, ton professionnel, pas de formule de politesse longue ;",
+    "- aucune signature, aucun objet, aucun commentaire de ta part.",
+  ].join("\n");
+}
+
+/** Longueur au-delà de laquelle une « réponse éclair » n'en est plus une. */
+const MAX_INSTANT_REPLY_CHARS = 220;
+
+/**
+ * Découpe la réponse du modèle en propositions courtes. Tolérant aux préfixes
+ * (tiret, numérotation, guillemets) et aux bavardages : on ne garde que des
+ * lignes plausibles, au plus trois. PUR.
+ */
+export function parseInstantReplies(raw: string): string[] {
+  const out: string[] = [];
+  for (const line of (raw ?? "").split(/\r?\n/)) {
+    const cleaned = line
+      .trim()
+      .replace(/^[-*\u2022]\s*/, "")
+      .replace(/^\d+[.)]\s*/, "")
+      .replace(/^["\u00ab\u00bb\s]+|["\u00ab\u00bb\s]+$/g, "")
+      .trim();
+    if (cleaned.length < 3 || cleaned.length > MAX_INSTANT_REPLY_CHARS) continue;
+    // Une ligne qui se termine par « : » introduit une liste, pas une réponse.
+    if (cleaned.endsWith(":")) continue;
+    if (!out.includes(cleaned)) out.push(cleaned);
+    if (out.length === 3) break;
+  }
+  return out;
+}
+
+/**
  * Prompt de classification Eisenhower (sortie JSON). Demande UNIQUEMENT un objet
  * JSON `{ "quadrant": "do" | "schedule" | "delegate" | "eliminate" }`. PUR.
  */
@@ -393,6 +440,15 @@ export async function summarizeThread(thread: MailAiThread): Promise<string> {
   } catch (err) {
     throw asReachabilityError(err);
   }
+}
+
+/**
+ * Propose jusqu'à 3 réponses éclair pour un fil. Lève une erreur claire si
+ * Ollama est injoignable — l'appelant les masque alors simplement.
+ */
+export async function instantReplies(thread: MailAiThread): Promise<string[]> {
+  const raw = await runLocalPrompt(buildInstantRepliesPrompt(thread), 0.3);
+  return parseInstantReplies(raw);
 }
 
 export interface DraftReplyOptions extends BuildReplyPromptOptions {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, forwardRef, useImperativeHandle } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, forwardRef, useImperativeHandle } from "react";
 import { ArrowSquareOut, Plus, X, Tag, MagnifyingGlass, Check, PaperPlaneTilt, Quotes, Paperclip, Star, Envelope, ArrowBendUpRight, Sparkle, MagicWand, ArrowsClockwise, CaretUp, DotsThreeVertical, Copy, Image as ImageIcon } from "@phosphor-icons/react";
 import { Button, Input, Spinner, Popover } from "@heroui/react";
 import { useToast, Tooltip } from "@supernote/ui";
@@ -62,6 +62,7 @@ import {
   isAiConfigured,
   summarizeThread,
   suggestQuadrant,
+  instantReplies,
   type MailAiThread,
 } from "@/lib/mail-ai";
 
@@ -272,6 +273,11 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
   // MailEisenhowerPicker (ouvre le Popover sur la cellule). Réinitialisé par fil.
   const [suggestedQuadrant, setSuggestedQuadrant] = useState<EisenhowerQuadrant | null>(null);
   const [suggestBusy, setSuggestBusy] = useState(false);
+  // Réponses éclair : propositions très courtes, générées à l'ouverture du fil.
+  // `dismissed` évite qu'elles reviennent après un rejet explicite.
+  const [quickReplies, setQuickReplies] = useState<string[]>([]);
+  const [quickBusy, setQuickBusy] = useState(false);
+  const [quickDismissed, setQuickDismissed] = useState(false);
   const signature = settings.gmail.signature ?? "";
   const replyFileImageRef = useRef<HTMLInputElement>(null);
 
@@ -285,6 +291,8 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
     setSummary(null);
     setSummaryOpen(false);
     setSuggestedQuadrant(null);
+    setQuickReplies([]);
+    setQuickDismissed(false);
   }, [thread]);
 
   // Sauvegarde automatique de la réponse en cours (débattue).
@@ -338,6 +346,39 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
     }),
     [thread],
   );
+
+  // Réponses éclair : générées à l'ouverture du fil, seulement si l'IA locale
+  // est configurée, qu'on n'est pas en embed, et que le DERNIER message n'est
+  // pas de moi (sinon il n'y a rien à répondre). Léger décalage pour ne pas
+  // concurrencer le chargement du fil lui-même.
+  const lastFromMe =
+    (thread.messages[thread.messages.length - 1]?.from.email ?? "").toLowerCase() ===
+    (selfEmail ?? "").toLowerCase();
+
+  const runQuickReplies = useCallback(async () => {
+    setQuickBusy(true);
+    try {
+      const list = await instantReplies(aiThread);
+      setQuickReplies(list);
+    } catch {
+      // Ollama injoignable : on masque simplement la rangée, sans toast — elle
+      // n'a pas été demandée explicitement.
+      setQuickReplies([]);
+    } finally {
+      setQuickBusy(false);
+    }
+  }, [aiThread]);
+
+  useEffect(() => {
+    if (embedded || !aiConfigured || !clientId) return undefined;
+    if (quickDismissed || lastFromMe) return undefined;
+    if (!thread.messages.length) return undefined;
+    const id = setTimeout(() => void runQuickReplies(), 400);
+    return () => clearTimeout(id);
+    // Une seule génération par fil : `runQuickReplies` dépend d'`aiThread`, lui
+    // -même dérivé du fil.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [thread.id, embedded, aiConfigured, clientId, quickDismissed, lastFromMe]);
 
   const runSummary = async () => {
     if (summaryBusy) return;
@@ -1051,6 +1092,49 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
           className="sticky bottom-0 mt-1 border-t px-1 pb-2 pt-2"
           style={{ background: "var(--surface-1)", borderColor: "var(--border-subtle)" }}
         >
+          {/* Réponses éclair : un clic charge le texte dans le composeur (jamais
+              d'envoi direct — on relit avant d'envoyer). */}
+          {!embedded && aiConfigured && (quickBusy || quickReplies.length > 0) && (
+            <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
+              <span className="text-[11px] font-medium" style={{ color: "var(--text-muted)" }}>
+                Réponses éclair
+              </span>
+              {quickBusy && <Spinner size="sm" aria-label="Génération des réponses éclair" />}
+              {quickReplies.map((text) => (
+                <Button
+                  key={text}
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 max-w-full rounded-full px-2.5 text-xs"
+                  style={{ background: "var(--accent-subtle)", color: "var(--accent)" }}
+                  onPress={() => {
+                    setReplyBody((prev) => (prev.trim() ? `${prev}\n\n${text}` : text));
+                    requestAnimationFrame(() => replyTaRef.current?.focus());
+                    setQuickReplies([]);
+                  }}
+                >
+                  <span className="truncate">{text}</span>
+                </Button>
+              ))}
+              {quickReplies.length > 0 && (
+                <Tooltip content="Masquer les réponses éclair">
+                  <Button
+                    isIconOnly
+                    variant="ghost"
+                    size="sm"
+                    aria-label="Masquer les réponses éclair"
+                    className="h-7 min-h-7 w-7 min-w-7"
+                    onPress={() => {
+                      setQuickReplies([]);
+                      setQuickDismissed(true);
+                    }}
+                  >
+                    <X size={12} />
+                  </Button>
+                </Tooltip>
+              )}
+            </div>
+          )}
           <ComposerToolbar
             textareaRef={replyTaRef}
             value={replyBody}
