@@ -195,3 +195,26 @@ export function buildMailOverlay(
   const rowDate = (r: OverlayRow) => (r.kind === "single" ? r.item.date : r.date);
   return rows.sort((a, b) => (rowDate(a) < rowDate(b) ? 1 : -1));
 }
+
+/**
+ * Expéditeurs DISTINCTS d'une ligne, dans l'ordre d'apparition, au plus `max`.
+ * Sert la pile d'avatars d'un groupe (repère : les « bundles » de Shortwave, qui
+ * montrent QUI est dans le paquet avant de l'ouvrir). Dédoublonnage par email en
+ * minuscules, à défaut par nom. Pur & testable.
+ */
+export function distinctSenders(
+  row: OverlayRow,
+  max: number,
+): { name: string; email: string }[] {
+  const items = row.kind === "single" ? [row.item] : row.items;
+  const seen = new Set<string>();
+  const out: { name: string; email: string }[] = [];
+  for (const it of items) {
+    const key = (it.from.email || it.from.name).trim().toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(it.from);
+    if (out.length === max) break;
+  }
+  return out;
+}

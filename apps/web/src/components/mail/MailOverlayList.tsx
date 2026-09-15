@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState, type CSSProperties, type RefObject } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Button, Checkbox } from "@heroui/react";
-import { Tag, Star, DotsSixVertical, Sparkle } from "@phosphor-icons/react";
+import { Tag, Star, DotsSixVertical, Sparkle, CaretDown, Checks } from "@phosphor-icons/react";
 import {
   DndContext,
   useDraggable,
@@ -16,7 +16,14 @@ import {
   type DragEndEvent,
 } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
-import { rowHasUnread, rowHasStar, rowUnreadCount, type OverlayRow } from "@/lib/mail-overlay";
+import {
+  rowHasUnread,
+  rowHasStar,
+  rowUnreadCount,
+  distinctSenders,
+  type OverlayRow,
+} from "@/lib/mail-overlay";
+import type { MailSectionId, MailSectionMarker } from "@/lib/mail-sections";
 import { rowCheckState } from "@/lib/mail-selection";
 import { QUADRANTS, type EisenhowerQuadrant } from "@/lib/mail-eisenhower";
 import { SNOOZE_PRESETS, type TriageAction } from "@/lib/mail-triage";
@@ -65,6 +72,31 @@ const VIRTUALIZE_THRESHOLD = 60;
 /** Hauteur estimée d'une ligne (avant mesure réelle) selon la densité. */
 const ROW_ESTIMATE: Record<MailDensity, number> = { compact: 36, confort: 76 };
 
+/** Hauteur estimée d'un en-tête de section (avant mesure réelle). */
+const HEADER_ESTIMATE = 34;
+
+/** Expéditeurs distincts montrés dans la pile d'avatars d'un groupe. */
+const SENDER_STACK_MAX = 4;
+
+/** Objets d'un groupe-tag montrés en aperçu sur sa ligne. */
+const GROUP_SUBJECT_MAX = 3;
+
+/**
+ * Entrée rendue par la liste : un en-tête de section, ou une ligne avec son
+ * index DANS `rows` (l'index que manipule la navigation clavier — insérer des
+ * en-têtes ne doit pas décaler le curseur).
+ */
+type ListEntry =
+  | { kind: "header"; marker: MailSectionMarker }
+  | { kind: "row"; row: OverlayRow; idx: number };
+
+/** Clé React stable d'une entrée (l'id du fil / du groupe, jamais l'index). */
+function entryKey(entry: ListEntry | undefined, fallback: number): string | number {
+  if (!entry) return fallback;
+  if (entry.kind === "header") return `h:${entry.marker.id}`;
+  return entry.row.kind === "single" ? `t:${entry.row.item.id}` : entry.row.key;
+}
+
 export function MailOverlayList({
   rows,
   activeKey,
@@ -84,6 +116,9 @@ export function MailOverlayList({
   onSwipeRow,
   onLongPressRow,
   summaries,
+  sections,
+  onToggleSection,
+  onMarkSectionRead,
 }: {
   rows: OverlayRow[];
   activeKey?: string;
@@ -145,6 +180,16 @@ export function MailOverlayList({
    * Absent → comportement historique (snippet).
    */
   summaries?: ReadonlyMap<string, string>;
+  /**
+   * En-têtes de section à insérer dans la liste (cf. `mail-sections`). Chaque
+   * marqueur dit AVANT quelle ligne se poser ; `rows` est déjà dans l'ordre
+   * d'affichage, sections repliées exclues. Absent → liste plate (historique).
+   */
+  sections?: readonly MailSectionMarker[];
+  /** Replie / déplie une section. */
+  onToggleSection?: (id: MailSectionId) => void;
+  /** « Tout marquer lu » sur une section (ids des fils non lus). */
+  onMarkSectionRead?: (threadIds: string[]) => void;
 }) {
   const selectable = Boolean(selectedThreadIds && onToggleRowSelection);
   // Au moins une coche → on garde toutes les cases visibles (mode sélection
@@ -172,28 +217,57 @@ export function MailOverlayList({
     onApplyLabel?.(a.threadId, o.labelId);
   };
 
+  // ── Entrées rendues (en-têtes + lignes) ───────────────────────────────────
+  // Une seule liste plate : c'est elle que virtualise le rendu, et elle porte
+  // l'index d'origine de chaque ligne pour que le curseur clavier reste juste.
+  const entries = useMemo<ListEntry[]>(() => {
+    if (!sections || sections.length === 0) {
+      return rows.map((row, idx) => ({ kind: "row", row, idx }));
+    }
+    const out: ListEntry[] = [];
+    let next = 0;
+    for (const marker of sections) {
+      // Défensif : un marqueur en retard ne doit pas avaler les lignes qui le
+      // précèdent (elles sortiraient de la liste au lieu d'être rendues).
+      for (; next < marker.index && next < rows.length; next++) {
+        out.push({ kind: "row", row: rows[next]!, idx: next });
+      }
+      out.push({ kind: "header", marker });
+    }
+    for (; next < rows.length; next++) out.push({ kind: "row", row: rows[next]!, idx: next });
+    return out;
+  }, [rows, sections]);
+
+  /** Index de ligne → index d'entrée (scroll-into-view du curseur clavier). */
+  const entryIndexOfRow = useMemo(() => {
+    const map = new Map<number, number>();
+    entries.forEach((e, i) => {
+      if (e.kind === "row") map.set(e.idx, i);
+    });
+    return map;
+  }, [entries]);
+
   // ── Virtualisation ────────────────────────────────────────────────────────
   // Activée seulement au-delà du seuil ET quand la page nous a passé son
   // conteneur scrollable. Hauteurs dynamiques : `measureElement` remplace
   // l'estimation dès que la ligne est montée (densité, groupes multi-lignes).
   const virtualized = rows.length > VIRTUALIZE_THRESHOLD && Boolean(scrollElementRef?.current);
   const virtualizer = useVirtualizer({
-    count: rows.length,
+    count: entries.length,
     getScrollElement: () => scrollElementRef?.current ?? null,
-    estimateSize: () => ROW_ESTIMATE[density],
+    estimateSize: (i) =>
+      entries[i]?.kind === "header" ? HEADER_ESTIMATE : ROW_ESTIMATE[density],
     overscan: 8,
-    getItemKey: (i) => {
-      const r = rows[i];
-      if (!r) return i;
-      return r.kind === "single" ? `t:${r.item.id}` : r.key;
-    },
+    getItemKey: (i) => entryKey(entries[i], i),
   });
 
   // Curseur clavier hors fenêtre rendue : on l'y ramène (sinon `j` semble ne
   // rien faire — la ligne existe mais n'est pas montée).
   useEffect(() => {
     if (!virtualized || selectedIndex == null || selectedIndex < 0) return;
-    virtualizer.scrollToIndex(selectedIndex, { align: "auto" });
+    virtualizer.scrollToIndex(entryIndexOfRow.get(selectedIndex) ?? selectedIndex, {
+      align: "auto",
+    });
     // `virtualizer` est stable pour un même conteneur.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedIndex, virtualized]);
@@ -227,30 +301,49 @@ export function MailOverlayList({
             style={{ height: virtualizer.getTotalSize() }}
           >
             {virtualizer.getVirtualItems().map((v) => {
-              const row = rows[v.index]!;
+              const entry = entries[v.index]!;
               return (
                 <div
-                  key={row.kind === "single" ? `t:${row.item.id}` : row.key}
+                  key={entryKey(entry, v.index)}
                   ref={virtualizer.measureElement}
                   data-index={v.index}
                   className="absolute left-0 top-0 w-full pb-1"
                   style={{ transform: `translateY(${v.start}px)` }}
                 >
-                  <MailRow row={row} idx={v.index} shared={shared} />
+                  {entry.kind === "header" ? (
+                    <MailSectionHeader
+                      marker={entry.marker}
+                      first={v.index === 0}
+                      onToggle={onToggleSection}
+                      onMarkRead={onMarkSectionRead}
+                    />
+                  ) : (
+                    <MailRow row={entry.row} idx={entry.idx} shared={shared} />
+                  )}
                 </div>
               );
             })}
           </div>
         ) : (
           <div className="flex flex-col gap-1" role="listbox" aria-label="Boîte mail">
-            {rows.map((row, idx) => (
-              <MailRow
-                key={row.kind === "single" ? `t:${row.item.id}` : row.key}
-                row={row}
-                idx={idx}
-                shared={shared}
-              />
-            ))}
+            {entries.map((entry, i) =>
+              entry.kind === "header" ? (
+                <MailSectionHeader
+                  key={`h:${entry.marker.id}`}
+                  marker={entry.marker}
+                  first={i === 0}
+                  onToggle={onToggleSection}
+                  onMarkRead={onMarkSectionRead}
+                />
+              ) : (
+                <MailRow
+                  key={entry.row.kind === "single" ? `t:${entry.row.item.id}` : entry.row.key}
+                  row={entry.row}
+                  idx={entry.idx}
+                  shared={shared}
+                />
+              ),
+            )}
           </div>
         )}
       </DndContext>
@@ -270,6 +363,119 @@ export function MailOverlayList({
         />
       )}
     </>
+  );
+}
+
+/**
+ * Pile d'avatars des expéditeurs d'un groupe (repère : les « bundles » de
+ * Shortwave). Dit QUI est dans le paquet avant de l'ouvrir — un compteur seul
+ * ne le dit pas. Décoratif : le texte de la ligne porte déjà l'information, d'où
+ * `aria-hidden` (sinon le lecteur d'écran récite des initiales).
+ */
+function SenderStack({
+  senders,
+  size,
+}: {
+  senders: { name: string; email: string }[];
+  size: number;
+}) {
+  return (
+    <span className="flex shrink-0 items-center" aria-hidden>
+      {senders.map((sender, i) => {
+        const color = avatarColor(sender.email || sender.name);
+        return (
+          <span
+            key={`${sender.email || sender.name}:${i}`}
+            className={`flex items-center justify-center rounded-md font-semibold ${
+              i > 0 ? "-ml-1.5" : ""
+            }`}
+            style={{
+              width: size,
+              height: size,
+              fontSize: Math.round(size * 0.42),
+              backgroundColor: color.bg,
+              color: color.fg,
+              // Liseré à la couleur du fond : sépare deux pastilles qui se
+              // chevauchent, quel que soit le thème.
+              boxShadow: "0 0 0 1.5px var(--surface-0)",
+              zIndex: senders.length - i,
+            }}
+          >
+            {initials(sender.name, sender.email)}
+          </span>
+        );
+      })}
+    </span>
+  );
+}
+
+/**
+ * Mini-en-tête de section : libellé, compteur (non lus / total), repli, et
+ * « tout marquer lu » quand il reste des non-lus. Deux Boutons FRÈRES et non
+ * imbriqués — une action dans un bouton ne serait atteignable ni au clavier ni
+ * au lecteur d'écran.
+ */
+function MailSectionHeader({
+  marker,
+  first,
+  onToggle,
+  onMarkRead,
+}: {
+  marker: MailSectionMarker;
+  /** Premier en-tête de la liste : pas de filet de séparation au-dessus. */
+  first: boolean;
+  onToggle?: (id: MailSectionId) => void;
+  onMarkRead?: (threadIds: string[]) => void;
+}) {
+  return (
+    <div
+      role="presentation"
+      className={`flex items-center gap-1 px-1 pb-0.5 ${first ? "pt-0.5" : "mt-1 pt-2"}`}
+      style={first ? undefined : { borderTop: "1px solid var(--border-subtle)" }}
+    >
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-8 min-w-0 flex-1 justify-start gap-1.5 px-1.5 md:h-6"
+        aria-expanded={!marker.collapsed}
+        aria-label={`${marker.title} — ${marker.count} fil(s)${
+          marker.unread > 0 ? `, ${marker.unread} non lu(s)` : ""
+        }`}
+        onPress={() => onToggle?.(marker.id)}
+      >
+        <CaretDown
+          size={11}
+          weight="bold"
+          aria-hidden
+          className={`shrink-0 transition-transform ${marker.collapsed ? "-rotate-90" : ""}`}
+          style={{ color: "var(--text-muted)" }}
+        />
+        <span
+          className="truncate text-[11px] font-semibold uppercase tracking-wider"
+          style={{ color: "var(--text-muted)" }}
+        >
+          {marker.title}
+        </span>
+        <span
+          className={`shrink-0 text-[11px] ${marker.unread > 0 ? "font-bold" : ""}`}
+          style={{ color: marker.unread > 0 ? "var(--accent)" : "var(--text-muted)" }}
+        >
+          {marker.unread > 0 ? `${marker.unread}/${marker.count}` : marker.count}
+        </span>
+      </Button>
+      {marker.unread > 0 && onMarkRead && (
+        <Button
+          variant="ghost"
+          size="sm"
+          isIconOnly
+          className="h-8 w-8 shrink-0 md:h-6 md:w-6"
+          aria-label={`Marquer « ${marker.title} » comme lu`}
+          onPress={() => onMarkRead(marker.unreadIds)}
+        >
+          <Checks size={13} aria-hidden style={{ color: "var(--text-muted)" }} />
+        </Button>
+      )}
+    </div>
   );
 }
 
@@ -350,6 +556,10 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
   const aiPreview = Boolean(aiSummary);
   const avatar = avatarColor(fromAddr?.email || fromAddr?.name || title);
   const mono = initials(fromAddr?.name ?? "", fromAddr?.email ?? title);
+  // Groupe à plusieurs expéditeurs → pile d'avatars plutôt qu'un monogramme
+  // unique, qui ne représenterait que le premier du paquet.
+  const stack = row.kind === "group" ? distinctSenders(row, SENDER_STACK_MAX) : [];
+  const showStack = stack.length > 1;
 
   const rowButton = (
     <Button
@@ -401,6 +611,31 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
               style={{ background: "var(--accent-subtle)", color: "var(--accent)" }}
             >
               {groupUnread > 0 ? `${groupUnread}/${row.count}` : row.count}
+            </span>
+          )}
+          {showStack && <SenderStack senders={stack} size={16} />}
+          {/* Objets du paquet : un groupe-tag qui n'affiche que son nom et un
+              compteur oblige à l'ouvrir pour savoir ce qu'il contient. Les
+              premiers objets suffisent à décider (repère : Shortwave). */}
+          {row.kind === "group" && (
+            <span
+              className="min-w-0 flex-1 truncate text-[13px]"
+              style={{ color: "var(--text-secondary)" }}
+            >
+              {row.items.slice(0, GROUP_SUBJECT_MAX).map((it, i) => (
+                <span key={it.id}>
+                  {i > 0 && <span style={{ color: "var(--border)" }}>{"  |  "}</span>}
+                  <span
+                    style={
+                      it.labelIds.includes("UNREAD")
+                        ? { fontWeight: 600, color: "var(--text-primary)" }
+                        : undefined
+                    }
+                  >
+                    {it.subject || "(sans objet)"}
+                  </span>
+                </span>
+              ))}
             </span>
           )}
           {starred && (
@@ -503,13 +738,17 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
             déterministe sobre. Pastille non-lu en surimpression coin
             haut-gauche. */}
         <span className="relative shrink-0">
-          <span
-            aria-hidden
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-xs font-semibold"
-            style={{ backgroundColor: avatar.bg, color: avatar.fg }}
-          >
-            {mono}
-          </span>
+          {showStack ? (
+            <SenderStack senders={stack} size={28} />
+          ) : (
+            <span
+              aria-hidden
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-xs font-semibold"
+              style={{ backgroundColor: avatar.bg, color: avatar.fg }}
+            >
+              {mono}
+            </span>
+          )}
           {unread && (
             <span
               aria-label="Non lu"

@@ -117,6 +117,13 @@ import { MailOutgoingBadge } from "@/components/mail/MailOutgoingBadge";
 import { MailFollowupBadge } from "@/components/mail/MailFollowupBadge";
 import { useMailAutoLabel } from "@/components/mail/useMailAutoLabel";
 import { useMailSummaries } from "@/components/mail/useMailSummaries";
+import {
+  buildMailSections,
+  flattenSections,
+  loadCollapsedSections,
+  saveCollapsedSections,
+  type MailSectionId,
+} from "@/lib/mail-sections";
 import { MailAssistantPanel } from "@/components/mail/MailAssistantPanel";
 import { MailRulesManager } from "@/components/mail/MailRulesManager";
 import {
@@ -427,6 +434,27 @@ export default function MailPage() {
     searchLocal,
     addLabel,
   } = list;
+
+  // ── Sections de liste ──────────────────────────────────────────────────────
+  // La liste n'est plus un ruban : elle est découpée en « Étoilés » puis en
+  // tranches de temps, chacune avec un mini-en-tête repliable (cf. Shortwave).
+  // `displayRows` est la liste RÉELLEMENT affichée — donc aussi celle que
+  // parcourt le clavier : sections repliées exclues, ordre identique.
+  const [collapsedSections, setCollapsedSections] =
+    useState<ReadonlySet<MailSectionId>>(loadCollapsedSections);
+  const toggleSection = useCallback((id: MailSectionId) => {
+    setCollapsedSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      saveCollapsedSections(next);
+      return next;
+    });
+  }, []);
+  const { rows: displayRows, markers: sectionMarkers } = useMemo(
+    () => flattenSections(buildMailSections(rows, Date.now()), collapsedSections),
+    [rows, collapsedSections],
+  );
 
   const { patchMirror, pushOutboxNow, commitMutation } = useMailMirror(clientId, accountId);
   const drafts = useMailDrafts(thread, settings.gmail.connectedEmail);
@@ -1069,6 +1097,63 @@ export default function MailPage() {
     [clientId, syncThreadLabels, toast, commitMutation],
   );
 
+  /**
+   * « Tout marquer lu » d'une section : optimiste en UNE reconstruction de la
+   * surcouche pour tout le lot (appeler `syncThreadLabels` fil par fil la
+   * referait N fois), puis une mutation par fil — l'API Gmail n'expose pas de
+   * modification de labels groupée. En cas d'échec, on recharge la liste plutôt
+   * que de deviner quels fils sont réellement passés.
+   */
+  const markThreadsRead = useCallback(
+    (threadIds: string[]) => {
+      if (!clientId || threadIds.length === 0) return;
+      const ids = new Set(threadIds);
+      const strip = (it: ThreadListItem): ThreadListItem =>
+        ids.has(it.id) && it.labelIds.includes("UNREAD")
+          ? { ...it, labelIds: it.labelIds.filter((l) => l !== "UNREAD") }
+          : it;
+      setRows((rs) =>
+        buildMailOverlay(
+          computeVisible(
+            rs.flatMap((r) => (r.kind === "single" ? [r.item] : r.items)).map(strip),
+          ),
+          labelNames,
+          selfAddresses,
+        ),
+      );
+      setCumItems((items) => items.map(strip));
+      setSelectedGroup((g) => (g ? { ...g, items: g.items.map(strip) } : g));
+      setLiveMessage(`${threadIds.length} email(s) marqué(s) lu(s)`);
+      void Promise.all(
+        threadIds.map((id) =>
+          commitMutation(
+            { threadId: id, kind: "modifyLabels", removeLabelIds: ["UNREAD"] },
+            () => markThreadRead(clientId, id),
+          ),
+        ),
+      ).catch((err) => {
+        toast({
+          title: "Marquage « lu » partiellement échoué",
+          description: err instanceof Error ? err.message : String(err),
+          variant: "danger",
+        });
+        void loadList(query);
+      });
+    },
+    [
+      clientId,
+      commitMutation,
+      computeVisible,
+      labelNames,
+      selfAddresses,
+      setRows,
+      setCumItems,
+      toast,
+      loadList,
+      query,
+    ],
+  );
+
   // ── Fils ignorés / expéditeurs bloqués ─────────────────────────────────────
   // L'API Gmail n'a ni « mute » ni filtre de blocage accessible : on applique
   // donc la règle nous-mêmes à chaque rafraîchissement de la boîte. Silencieux
@@ -1304,13 +1389,13 @@ export default function MailPage() {
   // ── Curseurs clavier ───────────────────────────────────────────────────────
   useEffect(() => {
     setSelectedRowIndex((cur) => {
-      if (rows.length === 0) return -1;
+      if (displayRows.length === 0) return -1;
       if (cur < 0) {
         return !isMobile && !selectedThreadId && !selectedGroup ? 0 : cur;
       }
-      return Math.min(cur, rows.length - 1);
+      return Math.min(cur, displayRows.length - 1);
     });
-  }, [rows, isMobile, selectedThreadId, selectedGroup]);
+  }, [displayRows, isMobile, selectedThreadId, selectedGroup]);
 
   const selectedGroupKey = selectedGroup?.key ?? null;
   useEffect(() => {
@@ -1328,10 +1413,10 @@ export default function MailPage() {
   useEffect(() => {
     setSelectedThreadIds((prev) => {
       if (prev.size === 0) return prev;
-      const next = pruneSelection(prev, rows);
+      const next = pruneSelection(prev, displayRows);
       return next.size === prev.size ? prev : next;
     });
-  }, [rows]);
+  }, [displayRows]);
 
   useEffect(() => {
     if (selectedRowIndex < 0) return;
@@ -1339,7 +1424,7 @@ export default function MailPage() {
       `[data-mail-row-index="${selectedRowIndex}"]`,
     );
     el?.scrollIntoView({ block: "nearest" });
-  }, [selectedRowIndex, rows]);
+  }, [selectedRowIndex, displayRows]);
 
   useEffect(() => {
     if (!selectedThreadId) setPeekList(false);
@@ -1446,25 +1531,25 @@ export default function MailPage() {
   const targetThreadId = useCallback((): string | null => {
     if (selectedThreadId) return selectedThreadId;
     if (selectedGroup) return selectedGroup.items[groupCursor]?.id ?? null;
-    const row = rows[selectedRowIndex];
+    const row = displayRows[selectedRowIndex];
     return row && row.kind === "single" ? row.item.id : null;
-  }, [selectedThreadId, selectedGroup, groupCursor, rows, selectedRowIndex]);
+  }, [selectedThreadId, selectedGroup, groupCursor, displayRows, selectedRowIndex]);
 
   /** Sujet du fil visé (pour les intitulés de menus). */
   const targetSubject = useCallback((): string => {
     if (selectedThreadId) return thread?.messages[0]?.subject ?? "";
     if (selectedGroup) return selectedGroup.items[groupCursor]?.subject ?? "";
-    const row = rows[selectedRowIndex];
+    const row = displayRows[selectedRowIndex];
     return row && row.kind === "single" ? row.item.subject : "";
-  }, [selectedThreadId, thread, selectedGroup, groupCursor, rows, selectedRowIndex]);
+  }, [selectedThreadId, thread, selectedGroup, groupCursor, displayRows, selectedRowIndex]);
 
   /** Labels courants du fil visé (étoile / non-lu depuis la liste). */
   const targetItem = useCallback((): ThreadListItem | null => {
     if (selectedGroup && !selectedThreadId) return selectedGroup.items[groupCursor] ?? null;
-    const row = rows[selectedRowIndex];
+    const row = displayRows[selectedRowIndex];
     if (!selectedThreadId && row && row.kind === "single") return row.item;
     return cumItems.find((it) => it.id === selectedThreadId) ?? null;
-  }, [selectedGroup, selectedThreadId, groupCursor, rows, selectedRowIndex, cumItems]);
+  }, [selectedGroup, selectedThreadId, groupCursor, displayRows, selectedRowIndex, cumItems]);
 
   /** Ouvre le fil visé puis exécute une action qui n'a de sens que fil ouvert. */
   const openThenIntent = useCallback(
@@ -1504,15 +1589,17 @@ export default function MailPage() {
       // Fil ouvert hors groupe : on feuillette les lignes `single` de la liste.
       if (selectedThreadId) {
         const singles: number[] = [];
-        for (let i = 0; i < rows.length; i++) if (rows[i]?.kind === "single") singles.push(i);
-        const openRowIndex = rows.findIndex(
+        for (let i = 0; i < displayRows.length; i++) {
+          if (displayRows[i]?.kind === "single") singles.push(i);
+        }
+        const openRowIndex = displayRows.findIndex(
           (r) => r.kind === "single" && r.item.id === selectedThreadId,
         );
         const cur = singles.indexOf(openRowIndex);
         const pos = cur < 0 ? 0 : Math.min(Math.max(cur + delta, 0), singles.length - 1);
         const ri = singles[pos];
         if (ri == null) return;
-        const r = rows[ri];
+        const r = displayRows[ri];
         if (r && r.kind === "single") {
           setSelectedRowIndex(ri);
           void openThread(r.item.id);
@@ -1520,10 +1607,14 @@ export default function MailPage() {
         return;
       }
       setSelectedRowIndex((cur) =>
-        rows.length === 0 ? -1 : cur < 0 ? 0 : Math.min(Math.max(cur + delta, 0), rows.length - 1),
+        displayRows.length === 0
+          ? -1
+          : cur < 0
+            ? 0
+            : Math.min(Math.max(cur + delta, 0), displayRows.length - 1),
       );
     },
-    [selectedGroup, groupCursor, selectedThreadId, rows, openThread],
+    [selectedGroup, groupCursor, selectedThreadId, displayRows, openThread],
   );
 
   const keyboardHandlers = useMemo<Partial<Record<MailActionId, () => void>>>(() => {
@@ -1540,7 +1631,7 @@ export default function MailPage() {
           if (it) void openThread(it.id);
           return;
         }
-        const row = rows[selectedRowIndex];
+        const row = displayRows[selectedRowIndex];
         if (row) onPick(row);
       },
       close: () => {
@@ -1614,12 +1705,12 @@ export default function MailPage() {
       },
       select: () => {
         if (selectedRowIndex < 0) {
-          const first = rows[0];
-          setSelectedRowIndex(rows.length === 0 ? -1 : 0);
+          const first = displayRows[0];
+          setSelectedRowIndex(displayRows.length === 0 ? -1 : 0);
           if (first) toggleRowSelected(first);
           return;
         }
-        const row = rows[selectedRowIndex];
+        const row = displayRows[selectedRowIndex];
         if (row) toggleRowSelected(row);
       },
       undo: () => {
@@ -1647,7 +1738,7 @@ export default function MailPage() {
     moveCursor,
     selectedGroup,
     groupCursor,
-    rows,
+    displayRows,
     selectedRowIndex,
     selectedThreadId,
     openThread,
@@ -2107,7 +2198,7 @@ export default function MailPage() {
           {!listLoading && !listError && rows.length > 0 && (
             <>
               <MailOverlayList
-                rows={rows}
+                rows={displayRows}
                 activeKey={activeKey}
                 onPick={onPick}
                 onToggleStar={toggleRowStar}
@@ -2125,6 +2216,9 @@ export default function MailPage() {
                 onSwipeRow={isMobile ? handleSwipeRow : undefined}
                 onLongPressRow={isMobile ? handleLongPressRow : undefined}
                 summaries={listSummaries.summaries}
+                sections={sectionMarkers}
+                onToggleSection={toggleSection}
+                onMarkSectionRead={markThreadsRead}
               />
               {/* Sentinelle de scroll infini (chemin live seulement : le mirror
                   charge toute la boîte d'un coup). */}
