@@ -1,0 +1,68 @@
+# Stockage et schéma
+
+*Last Updated: 2026-09-13*
+
+Il n'y a pas de base de données serveur. Le coffre est un SQLite qui tourne **dans un Web Worker du navigateur**.
+
+## Moteur
+
+`@sqlite.org/sqlite-wasm` 3.53, le build officiel, sur la VFS **OPFS SAH pool** (`installOpfsSAHPoolVfs`, pool nommé `supernote-vfs`, 12 slots initiaux). FTS5 est inclus dans ce build, ce qui est la raison du choix.
+
+`apps/web/src/lib/vault-worker/sqlite-adapter.ts` expose une interface compatible sql.js (`exec`, `run`, `export`, `close`) pour éviter de réécrire les milliers d'appels existants. `sql.js` reste listé en dépendance mais n'est plus le moteur actif du worker.
+
+⚠️ `optimizeDeps.exclude: ["@sqlite.org/sqlite-wasm"]` dans `apps/web/vite.config.ts` est obligatoire. Le pré-bundling de Vite réécrit l'URL du `.wasm` et casse le chargement. Ne retire jamais cette exclusion.
+
+## Tables
+
+Le DDL vit dans `apps/web/src/lib/vault-worker/db-schema.ts`. Il reproduit en SQL brut la migration Prisma de `packages/db/prisma/migrations/`, parce que Prisma ne tourne pas dans un navigateur.
+
+| Groupe | Tables |
+|---|---|
+| Coffre | `vault`, `setting` |
+| Modèle | `entity_type`, `entity`, `deleted_entity` |
+| Relations | `relation_type`, `relation_edge`, `mention` |
+| Étiquettes | `tag`, `entity_tag` |
+| Bases et vues | `view`, `variable`, `template` |
+| Automatisations | `automation`, `automation_run` |
+| Miroir courriel | `mail_thread`, `mail_message`, `mail_label`, `mail_sync_state`, `mail_outbox` |
+| Recherche | `entity_fts` (table virtuelle FTS5) |
+
+## Le point structurant : les champs sont du JSON, pas des colonnes
+
+C'est la décision de conception qui explique le plus de comportements surprenants.
+
+| Colonne | Contenu |
+|---|---|
+| `entity_type.fields` | définitions de champs, JSON, défaut `'[]'` |
+| `entity.fields` | valeurs de champs de l'entité, JSON, défaut `'{}'` |
+| `view.filters`, `.sorts`, `.visibleFields`, `.summarize`, `.conditionalFormats` | JSON |
+| `automation.trigger`, `.conditions`, `.actions` | JSON |
+| `relation_edge.fields`, `template.defaultFields` | JSON |
+
+Conséquence directe : le worker est un **pass-through**. Ajouter une propriété de champ ne demande aucune modification du worker, il sérialise ce qu'on lui donne. En revanche le schéma zod de sortie IPC, lui, **strippe toute clé qu'il ne déclare pas**. Voir [patterns.md](patterns.md), c'est le piège le plus coûteux du dépôt.
+
+## Migrations
+
+Il n'existe **pas de système de migration versionné**. Toutes les évolutions de schéma sont des opérations idempotentes exécutées au démarrage du worker, dans `worker.ts`, et détectées par `PRAGMA table_info`.
+
+Ce qui est fait ainsi aujourd'hui : recréation de `entity_fts` si sa forme a changé, recréation de `view` si `typeId` manque, ajout ciblé des colonnes `view.summarize`, `view.conditionalFormats` et `view.chartConfig`, ajout de `entity.sourceVaultId` pour la provenance des entités montées.
+
+⚠️ C'est fragile dès que deux migrations touchent la même colonne : rien ne garantit leur ordre. `CREATE TABLE IF NOT EXISTS` n'ajoute jamais une colonne à une table existante, d'où les `ALTER TABLE` explicites.
+
+## Recherche plein texte
+
+Table virtuelle `entity_fts`, colonnes `id UNINDEXED, title, body, tags, path`, tokenizer `unicode61 remove_diacritics 2` pour que « lea » trouve « Léa ».
+
+L'indexation est **câblée à la main**, sans trigger ni content-table : `worker-router.ts` appelle explicitement `ftsAdd()` et `ftsRemove()` à chaque création, modification et suppression d'entité. La raison est que `title`, `tags` et `path` sont dérivés, pas des colonnes physiques d'`entity`, donc un lien `content="entity"` ne suffirait pas.
+
+Le classement utilise `bm25(entity_fts, 2.0, 1.0, 1.0, 1.5)` avec extraits via `snippet()`. Une requête vide retombe sur un tri `updatedAt DESC`, parce que `MATCH ''` est une erreur de syntaxe FTS5.
+
+⚠️ `search.semantic` est un **stub qui renvoie toujours une liste vide**. La colonne `entity.embedding` existe dans le schéma, mais aucune recherche sémantique n'est opérationnelle.
+
+## Persistance et mirroring
+
+En mode dossier local, la base est aussi miroitée vers `.supernote/index.db` dans le coffre, ce qui la rend synchronisable par Git. Voir `db-persistence.ts` et `fsa-file-io.ts`.
+
+⚠️ Le pool SAH est **global à l'origine du navigateur**, un seul `/index.db`, alors que les fichiers de salon cloud sont nommés par salon. Un marqueur `supernote-cloud/.supernote/db-owner.json` arbitre : si le propriétaire enregistré ne correspond pas au salon visé, le worker reçoit `resetStorage: true` et reconstruit l'index. Un changement de coffre interrompu peut donc laisser une base orpheline, que le démarrage suivant répare tout seul.
+
+Voir aussi : [communication.md](communication.md), [architecture.md](architecture.md).

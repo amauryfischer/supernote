@@ -1,0 +1,99 @@
+{
+  "version": 1,
+  "rules": [
+    {
+      "path": "rules/carte-codebase.md",
+      "hash": "6f456859e46a73b3e6002c19ca99d75fdbd378e12e30bd90c1048ffd8c966a43",
+      "description": "Ce dépôt a une carte maintenue : la lire avant d'explorer",
+      "globs": [],
+      "dirs": [],
+      "prompt": [],
+      "priority": 35,
+      "enabled": true,
+      "include": [
+        ".claude/.codebase-info/INDEX.md"
+      ]
+    },
+    {
+      "path": "rules/editeur-blocknote.md",
+      "hash": "1936b8be2ca1ce2477d6ed0039f835d3c720cfbf80fda62e09a4f667e0f74ebc",
+      "description": "Boucle de debug @supernote/editor et pièges ProseMirror",
+      "globs": [
+        "packages/editor/**"
+      ],
+      "dirs": [],
+      "prompt": [],
+      "priority": 20,
+      "enabled": true,
+      "include": []
+    },
+    {
+      "path": "rules/heroui-v3-api.md",
+      "hash": "bb505cf3404ec530f7f2e31abe05fa9c9bee6ea1d88b8259d51cdfa21bc83c31",
+      "description": "API réelle de HeroUI v3 (surface réduite) et cas natifs justifiés",
+      "globs": [
+        "apps/web/**/*.tsx",
+        "packages/ui/**/*.tsx",
+        "packages/editor/**/*.tsx"
+      ],
+      "dirs": [],
+      "prompt": [],
+      "priority": 20,
+      "enabled": true,
+      "include": []
+    },
+    {
+      "path": "rules/motion-tokens.md",
+      "hash": "33b378c605a17f00026b4413c17a619cf28b4cc8decc610f45214c5a41c6bbc2",
+      "description": "Toute animation passe par les tokens --sn-* et le moteur lib/motion",
+      "globs": [
+        "apps/web/**/*.tsx",
+        "apps/web/**/*.css",
+        "packages/ui/**/*.tsx",
+        "packages/ui/**/*.css"
+      ],
+      "dirs": [],
+      "prompt": [],
+      "priority": 15,
+      "enabled": true,
+      "include": []
+    },
+    {
+      "path": "rules/self-improvement.md",
+      "hash": "3c340ce9198400183a1df9ebcdb93918f27572a8c1dfec678905aa8debff76cc",
+      "description": "Auto-amélioration : construire la capacité qui rend le prochain objectif moins cher",
+      "globs": [],
+      "dirs": [],
+      "prompt": [],
+      "priority": 40,
+      "enabled": true,
+      "include": []
+    },
+    {
+      "path": "rules/socle-implementation.md",
+      "hash": "f1e601f0c1d41590c99c96d8c06103253292a2676ea07f7092f6e06a9b61f696",
+      "description": "Socle d'implémentation : réutiliser avant d'écrire, plus petit correctif à la racine",
+      "globs": [],
+      "dirs": [],
+      "prompt": [],
+      "priority": 30,
+      "enabled": true,
+      "include": []
+    },
+    {
+      "path": "rules/worker-ipc-schemas.md",
+      "hash": "ccb04b3484a76e9d26dc7db20da9055121cb8f244d387a737cfcce53b2db8e9c",
+      "description": "Chaîne de persistance d'une propriété de champ : le zod IPC strippe les clés inconnues",
+      "globs": [
+        "packages/ipc/**",
+        "apps/web/src/components/schemas/**",
+        "apps/web/src/worker/**"
+      ],
+      "dirs": [],
+      "prompt": [],
+      "priority": 20,
+      "enabled": true,
+      "include": []
+    }
+  ]
+}

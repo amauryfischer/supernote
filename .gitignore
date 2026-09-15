@@ -62,3 +62,5 @@ ruvector.db-*
 .claude/settings.local.json
 
 .worktrees/
+tests/e2e/results/
+.claude/worktrees/
