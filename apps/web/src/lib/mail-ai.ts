@@ -365,6 +365,22 @@ function asReachabilityError(err: unknown): Error {
 
 // ── Appels IA (effets de bord, NON testés réseau) ───────────────────────────
 
+/**
+ * Exécute un prompt libre sur l'IA LOCALE (Ollama) et renvoie le texte brut.
+ * Sert aux usages mail qui ne méritent pas leur propre client (classement
+ * automatique, assistant de boîte). Lève une erreur claire si Ollama est
+ * injoignable.
+ */
+export async function runLocalPrompt(prompt: string, temperature = 0.1): Promise<string> {
+  const client = buildClient();
+  try {
+    const text = await client.generate({ prompt, temperature });
+    return text.trim();
+  } catch (err) {
+    throw asReachabilityError(err);
+  }
+}
+
 /** Résume un fil via Ollama. Lève une erreur claire si injoignable. */
 export async function summarizeThread(thread: MailAiThread): Promise<string> {
   const client = buildClient();

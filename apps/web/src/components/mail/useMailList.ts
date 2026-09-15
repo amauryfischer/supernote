@@ -73,6 +73,11 @@ export interface MailListApi {
    * (l'appelant retombe alors sur la recherche Gmail à la validation).
    */
   searchLocal: (rawQuery: string) => Promise<number | null>;
+  /**
+   * Enregistre un label fraîchement créé (classement automatique) dans la table
+   * locale, pour que les lignes l'affichent sans attendre le prochain sync.
+   */
+  addLabel: (label: GmailLabel) => void;
 }
 
 export function useMailList({
@@ -250,6 +255,22 @@ export function useMailList({
     [accountId, labelNames, selfAddresses],
   );
 
+  const addLabel = useCallback((label: GmailLabel) => {
+    setLabelNames((prev) => {
+      if (prev.get(label.id) === label.name) return prev;
+      const next = new Map(prev);
+      next.set(label.id, label.name);
+      return next;
+    });
+    if (label.color) {
+      setLabelColors((prev) => {
+        const next = new Map(prev);
+        next.set(label.id, label.color!);
+        return next;
+      });
+    }
+  }, []);
+
   return {
     rows,
     setRows,
@@ -266,5 +287,6 @@ export function useMailList({
     loadMore,
     rebuild,
     searchLocal,
+    addLabel,
   };
 }

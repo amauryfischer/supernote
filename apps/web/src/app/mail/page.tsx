@@ -20,6 +20,8 @@ import {
   Rows,
   Confetti,
   ArrowClockwise,
+  Sparkle,
+  SquaresFour,
 } from "@phosphor-icons/react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useSettings } from "@/components/settings/SettingsContext";
@@ -93,6 +95,7 @@ import {
 import { quadrantToTodoFields, type EisenhowerQuadrant } from "@/lib/mail-eisenhower";
 import {
   loadGroups,
+  upsertGroup,
   filterInboxItems,
   filterGroupItems,
   groupTabKey,
@@ -104,6 +107,8 @@ import { MailGroupsManager } from "@/components/mail/MailGroupsManager";
 import { MailOutboxBadge } from "@/components/mail/MailOutboxBadge";
 import { MailOutgoingBadge } from "@/components/mail/MailOutgoingBadge";
 import { MailFollowupBadge } from "@/components/mail/MailFollowupBadge";
+import { useMailAutoLabel } from "@/components/mail/useMailAutoLabel";
+import { MAIL_CATEGORIES } from "@/lib/mail-autolabel";
 import { trpcVanillaClient } from "@/lib/trpc/client";
 import { TODO_TYPE_ID } from "@/hooks/useTodoSync";
 import { prefersReducedMotion } from "@/lib/motion";
@@ -368,6 +373,7 @@ export default function MailPage() {
     loadList,
     loadMore,
     searchLocal,
+    addLabel,
   } = list;
 
   const { patchMirror, pushOutboxNow, commitMutation } = useMailMirror(clientId, accountId);
@@ -891,6 +897,48 @@ export default function MailPage() {
     },
     [clientId, labelNames, selfAddresses, toast, commitMutation, computeVisible, setRows, setCumItems],
   );
+
+  // ── Classement automatique (IA locale) ─────────────────────────────────────
+  const autoLabel = useMailAutoLabel({
+    enabled: Boolean(settings.gmail.autoLabel) && aiConfigured,
+    clientId,
+    items: cumItems,
+    labelNames,
+    applyLabel: handleApplyLabel,
+    onLabelCreated: addLabel,
+  });
+
+  /**
+   * « Boîte séparée » : crée une vue par catégorie déjà rencontrée (un label de
+   * classement existe) et pas encore routée. Les fils de ces catégories sortent
+   * alors de l'inbox pour vivre dans leur onglet — mécanique de groupes
+   * existante, alimentée automatiquement.
+   */
+  const missingCategoryGroups = useMemo(() => {
+    const byName = new Map<string, string>();
+    for (const [id, name] of labelNames) byName.set(name.toLowerCase(), id);
+    const routed = new Set(groups.flatMap((g) => g.labelIds));
+    return MAIL_CATEGORIES.flatMap((c) => {
+      const labelId = byName.get(c.labelName.toLowerCase());
+      if (!labelId || routed.has(labelId)) return [];
+      return [{ category: c, labelId }];
+    });
+  }, [labelNames, groups]);
+
+  const createCategoryGroups = useCallback(() => {
+    for (const { category, labelId } of missingCategoryGroups) {
+      upsertGroup({
+        id: `auto-${category.id}`,
+        name: category.title,
+        labelIds: [labelId],
+        createdAt: Date.now(),
+      });
+    }
+    toast({
+      title: `${missingCategoryGroups.length} vue(s) créée(s)`,
+      description: "Ces emails quittent la boîte pour leur onglet.",
+    });
+  }, [missingCategoryGroups, toast]);
 
   const toggleRowStar = useCallback(
     (id: string, current: string[]) => {
@@ -1666,6 +1714,49 @@ export default function MailPage() {
           <Rows size={16} />
         </Button>
       </Tooltip>
+      {/* Classement automatique : état et déclenchement manuel. */}
+      {settings.gmail.autoLabel && aiConfigured && (
+        <Tooltip
+          content={
+            autoLabel.busy
+              ? "Classement en cours…"
+              : autoLabel.remaining > 0
+                ? `${autoLabel.remaining} email(s) à classer — cliquer pour lancer`
+                : "Tout est classé"
+          }
+        >
+          <Button
+            size="sm"
+            variant="ghost"
+            isIconOnly
+            className="shrink-0"
+            aria-label="Classer les emails avec l'IA locale"
+            isDisabled={autoLabel.busy}
+            onPress={autoLabel.runNow}
+          >
+            {autoLabel.busy ? (
+              <Spinner size="sm" aria-hidden />
+            ) : (
+              <Sparkle size={16} style={autoLabel.remaining > 0 ? { color: "var(--accent)" } : undefined} />
+            )}
+          </Button>
+        </Tooltip>
+      )}
+      {/* Boîte séparée : une vue par catégorie déjà rencontrée. */}
+      {missingCategoryGroups.length > 0 && (
+        <Tooltip content={`Créer ${missingCategoryGroups.length} vue(s) pour les catégories détectées`}>
+          <Button
+            size="sm"
+            variant="ghost"
+            isIconOnly
+            className="shrink-0"
+            aria-label="Créer les vues des catégories détectées"
+            onPress={createCategoryGroups}
+          >
+            <SquaresFour size={16} />
+          </Button>
+        </Tooltip>
+      )}
       {!isMobile && (
         <Tooltip content="Raccourcis clavier (?)">
           <Button
