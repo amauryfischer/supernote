@@ -1216,6 +1216,8 @@ export async function sendReply(
     cc?: string | string[];
     subject: string;
     body: string;
+    /** Corps HTML optionnel (alternative du texte). */
+    html?: string;
     inReplyTo?: string;
     references?: string;
     attachments?: OutgoingAttachment[];

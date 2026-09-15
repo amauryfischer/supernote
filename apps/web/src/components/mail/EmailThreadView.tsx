@@ -16,7 +16,6 @@ import {
   markThreadRead,
   markThreadUnread,
   toggleStar,
-  sendReply,
   createDraft,
   buildGmailDraftUrl,
   classifyBubble,
@@ -45,6 +44,7 @@ import {
 import { buildReplyParams, pickReplyAll, buildQuotedBody } from "@/lib/mail-reply";
 import { buildForwardSubject, buildForwardedBody } from "@/lib/mail-forward";
 import { ComposerToolbar } from "./ComposerToolbar";
+import { useDeferredSend } from "./useDeferredSend";
 import { markdownToHtml, hasMarkup } from "@/lib/mail-markdown";
 import { withSignature } from "@/lib/mail-signature";
 import { loadAutoDraft, saveAutoDraft, clearAutoDraft, threadDraftKey } from "@/lib/mail-draft-store";
@@ -184,6 +184,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
   const { settings } = useSettings();
   const clientId = settings.googleDrive.clientId.trim();
   const { toast } = useToast();
+  const { scheduleSend } = useDeferredSend();
 
   const [allLabels, setAllLabels] = useState<GmailLabel[]>([]);
   // État optimiste des labels du thread (resynchronisé à chaque thread chargé).
@@ -432,15 +433,24 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
     setReplyBusy(mode);
     try {
       if (mode === "send") {
-        await sendReply(clientId, {
-          ...replyParams,
-          cc,
-          body,
-          ...(html ? { html } : {}),
-          attachments,
-        });
+        // Passe par la file d'envoi différé : « Annuler l'envoi » pendant la
+        // fenêtre configurée, puis départ réel (cf. MailOutgoingRunner).
+        await scheduleSend(
+          {
+            kind: "reply",
+            threadId: replyParams.threadId,
+            to: replyParams.to ? [replyParams.to] : [],
+            ...(cc?.length ? { cc } : {}),
+            subject: replyParams.subject,
+            body,
+            ...(html ? { html } : {}),
+            ...(replyParams.inReplyTo ? { inReplyTo: replyParams.inReplyTo } : {}),
+            ...(replyParams.references ? { references: replyParams.references } : {}),
+            ...(attachments?.length ? { attachments } : {}),
+          },
+          { label: "Réponse envoyée" },
+        );
         clearAutoDraft(threadDraftKey(thread.id));
-        toast({ title: "Réponse envoyée", variant: "success" });
         setReplyBody("");
         setReplyAttachments([]);
         // Re-fetch fil + liste côté appelant pour faire apparaître la réponse.

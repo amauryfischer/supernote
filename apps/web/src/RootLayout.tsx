@@ -31,6 +31,7 @@ import { ConfirmProvider } from "@/lib/confirm";
 import { FreezeReportBanner } from "@/lib/diagnostics/FreezeReportBanner";
 import { UiModeSwitcher } from "@/components/dev/UiModeSwitcher";
 import { InboxAutoSort } from "@/lib/ai/InboxAutoSort";
+import { MailOutgoingRunner } from "@/components/mail/MailOutgoingRunner";
 
 export function RootLayout() {
   return (
@@ -64,6 +65,10 @@ export function RootLayout() {
                     vivre sous ToastProvider et TrpcProvider — il rend le
                     journal des déplacements, rien d'autre. */}
                 <InboxAutoSort />
+                {/* File d'envoi différé (annulation d'envoi, envoi programmé).
+                    Monté ici, pas dans /mail : un message mis en file doit
+                    partir même si on a quitté la page entre-temps. */}
+                <MailOutgoingRunner />
                 {/* Vault auto-init status banner (only meaningful in Electron;
                     in PWA mode it stays silent). */}
                 <VaultInitBanner />

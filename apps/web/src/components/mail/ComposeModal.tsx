@@ -6,7 +6,7 @@ import { Gear, ArrowSquareOut, X, Paperclip, PaperPlaneTilt, Image as ImageIcon,
 import { applyTemplate, type MailTemplate } from "@/lib/mail-templates";
 import { dedupeEmails, parseRecipientInput } from "@/lib/mail-recipients";
 import { useCreateDraft } from "@/components/notes/useCreateDraft";
-import { useSendMessage } from "@/components/notes/useSendMessage";
+import { useDeferredSend } from "./useDeferredSend";
 import { useSettings } from "@/components/settings/SettingsContext";
 import { ComposerToolbar } from "./ComposerToolbar";
 import { markdownToHtml, hasMarkup } from "@/lib/mail-markdown";
@@ -57,7 +57,7 @@ export function ComposeModal({
   const { settings } = useSettings();
   const signature = settings.gmail.signature ?? "";
   const { createDraft } = useCreateDraft();
-  const { sendMessage } = useSendMessage();
+  const { scheduleSend, undoSeconds } = useDeferredSend();
   const { templates, upsert, remove } = useMailTemplates();
 
   const [recipients, setRecipients] = useState<string[]>(() => parseRecipientInput(initialTo));
@@ -230,23 +230,27 @@ export function ComposeModal({
       toast({ title: "Objet ou corps requis", variant: "danger" });
       return;
     }
-    const who = allTo.length === 1 ? allTo[0] : `${allTo.length} destinataires`;
-    if (!window.confirm(`Envoyer ce message à ${who} ? Cette action est immédiate.`)) {
-      return;
+    // Avec une fenêtre d'annulation, la confirmation modale n'a plus lieu
+    // d'être : le rattrapage est DANS le toast, sans bloquer la frappe.
+    if (undoSeconds <= 0) {
+      const who = allTo.length === 1 ? allTo[0] : `${allTo.length} destinataires`;
+      if (!window.confirm(`Envoyer ce message à ${who} ? Cette action est immédiate.`)) {
+        return;
+      }
     }
     setBusy("send");
     try {
       const text = finalBody();
       const html = finalHtml(text);
-      await sendMessage({
+      await scheduleSend({
+        kind: "message",
         to: allTo,
         subject,
         body: text,
         ...(html ? { html } : {}),
-        attachments: attachments.length ? toOutgoing(attachments) : undefined,
+        ...(attachments.length ? { attachments: toOutgoing(attachments) } : {}),
       });
       clearAutoDraft(COMPOSE_DRAFT_KEY);
-      toast({ title: "Message envoyé", variant: "success" });
       onClose();
     } catch (err) {
       toast({
