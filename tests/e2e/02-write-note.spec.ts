@@ -4,7 +4,7 @@ import { bootDegraded } from "./helpers";
 test.describe("02 — écrire une note", () => {
   test.beforeEach(async ({ page }) => {
     await bootDegraded(page);
-    await page.goto("/");
+    await page.goto("/dev/writing-surface");
     await expect(page.locator(".writing-surface-root")).toBeVisible();
   });
 
