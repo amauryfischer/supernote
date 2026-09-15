@@ -134,7 +134,7 @@ import {
   suggestRules,
   MAIL_RULES_EVENT,
 } from "@/lib/mail-rules";
-import { MAIL_CATEGORIES } from "@/lib/mail-autolabel";
+import { MAIL_CATEGORIES, confidenceThreshold } from "@/lib/mail-autolabel";
 import { trpcVanillaClient } from "@/lib/trpc/client";
 import { TODO_TYPE_ID } from "@/hooks/useTodoSync";
 import { prefersReducedMotion } from "@/lib/motion";
@@ -999,6 +999,7 @@ export default function MailPage() {
   const autoLabel = useMailAutoLabel({
     enabled: Boolean(settings.gmail.autoLabel) && aiConfigured,
     clientId,
+    minConfidence: confidenceThreshold(settings.gmail.autoLabelConfidence),
     items: cumItems,
     labelNames,
     applyLabel: handleApplyLabel,
@@ -1961,7 +1962,9 @@ export default function MailPage() {
               ? "Classement en cours…"
               : autoLabel.remaining > 0
                 ? `${autoLabel.remaining} email(s) à classer — cliquer pour lancer`
-                : "Tout est classé"
+                : autoLabel.lastPass && autoLabel.lastPass.skipped > 0
+                  ? `Tout est passé — ${autoLabel.lastPass.skipped} fil(s) laissé(s) sans tag, confiance insuffisante`
+                  : "Tout est classé"
           }
         >
           <Button

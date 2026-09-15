@@ -21,6 +21,8 @@ import { SettingSection } from "../SettingSection";
 import { connectGmail, getGmailProfile, GMAIL_READONLY_SCOPE } from "@/lib/gmail";
 import { clearAccessToken } from "@/lib/google-drive";
 import { clearSummaryCache } from "@/lib/mail-summary";
+import { CONFIDENCE_LEVELS, DEFAULT_CONFIDENCE_LEVEL } from "@/lib/mail-autolabel";
+import { NativeSelect } from "../NativeSelect";
 import {
   loadBlockedSenders,
   loadMutedThreads,
@@ -268,6 +270,22 @@ export function GmailTab() {
               aria-label="Classement automatique des emails par l'IA locale"
             />
           </SettingRow>
+
+          {(gmail.autoLabel ?? false) && (
+            <SettingRow
+              label="Exigence de confiance"
+              description="Le même email est reclassé plusieurs fois : le tag n'est posé que si le modèle se répète. Cela mesure sa CONSTANCE, pas son exactitude — d'où « prudent » par défaut. Ce qui est écarté reste dans la boîte, sans tag."
+            >
+              <NativeSelect
+                value={gmail.autoLabelConfidence ?? DEFAULT_CONFIDENCE_LEVEL}
+                onChange={(v) => {
+                  updateSettings("gmail", { ...gmail, autoLabelConfidence: v });
+                  void saveSettings();
+                }}
+                options={CONFIDENCE_LEVELS.map((l) => ({ value: l.value, label: l.label }))}
+              />
+            </SettingRow>
+          )}
 
           <SettingRow
             label="Mini-résumé dans la liste (IA locale)"

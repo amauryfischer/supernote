@@ -64,6 +64,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
     undoSendSeconds: 8,
     followupDays: 3,
     autoLabel: false,
+    // Unanimité par défaut : un tag faux fait SORTIR le fil de la boîte.
+    autoLabelConfidence: "strict",
     listSummary: false,
   },
 };

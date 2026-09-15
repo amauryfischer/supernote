@@ -128,6 +128,12 @@ export interface GmailSettings {
   /** Classement automatique des nouveaux emails par l'IA locale (auto-labels). */
   autoLabel: boolean;
   /**
+   * Exigence de confiance du classement automatique : `strict` (le modèle doit
+   * être unanime), `balanced` (majorité nette), `loose` (simple majorité).
+   * En dessous du seuil, aucun tag n'est posé. Cf. `CONFIDENCE_LEVELS`.
+   */
+  autoLabelConfidence: string;
+  /**
    * Mini-résumé (~30 mots) affiché sous l'objet dans la liste, généré par l'IA
    * locale. Remplace le snippet Gmail. Résultats mis en cache par fil.
    */
