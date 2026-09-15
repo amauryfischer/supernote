@@ -23,6 +23,7 @@ import {
   Sparkle,
   SquaresFour,
   ChatCircleDots,
+  Funnel,
 } from "@phosphor-icons/react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useSettings } from "@/components/settings/SettingsContext";
@@ -115,6 +116,15 @@ import { MailOutgoingBadge } from "@/components/mail/MailOutgoingBadge";
 import { MailFollowupBadge } from "@/components/mail/MailFollowupBadge";
 import { useMailAutoLabel } from "@/components/mail/useMailAutoLabel";
 import { MailAssistantPanel } from "@/components/mail/MailAssistantPanel";
+import { MailRulesManager } from "@/components/mail/MailRulesManager";
+import {
+  loadRules,
+  matchRules,
+  bumpApplied,
+  recordAction,
+  suggestRules,
+  MAIL_RULES_EVENT,
+} from "@/lib/mail-rules";
 import { MAIL_CATEGORIES } from "@/lib/mail-autolabel";
 import { trpcVanillaClient } from "@/lib/trpc/client";
 import { TODO_TYPE_ID } from "@/hooks/useTodoSync";
@@ -277,6 +287,15 @@ export default function MailPage() {
   const [sheetItem, setSheetItem] = useState<ThreadListItem | null>(null);
   // Assistant de boîte (questions en langage naturel, IA locale).
   const [assistantOpen, setAssistantOpen] = useState(false);
+  // Règles locales + propositions issues des gestes répétés.
+  const [rulesOpen, setRulesOpen] = useState(false);
+  const [suggestionCount, setSuggestionCount] = useState(0);
+  useEffect(() => {
+    const refresh = () => setSuggestionCount(suggestRules().length);
+    refresh();
+    window.addEventListener(MAIL_RULES_EVENT, refresh);
+    return () => window.removeEventListener(MAIL_RULES_EVENT, refresh);
+  }, []);
   // Valeurs initiales du compose (transfert → objet/corps pré-remplis).
   const [composeInitial, setComposeInitial] = useState<{
     to?: string;
@@ -652,6 +671,12 @@ export default function MailPage() {
   const triageThread = useCallback(
     (id: string, action: TriageAction, until?: number) => {
       if (!clientId) return;
+      // Geste manuel noté : trois archivages du même expéditeur feront une
+      // proposition de règle (cf. mail-rules).
+      if (action === "archive" || action === "done") {
+        const item = cumItems.find((it) => it.id === id);
+        if (item) recordAction(item.from.email, "archive");
+      }
       dropThreadFromList(id);
       if (action === "snooze") {
         addSnooze(id, until ?? DEFAULT_SNOOZE_PRESET.computeUntil(new Date()));
@@ -677,7 +702,7 @@ export default function MailPage() {
           void loadList(query);
         });
     },
-    [clientId, dropThreadFromList, commitMutation, offerUndo, toast, loadList, query],
+    [clientId, cumItems, dropThreadFromList, commitMutation, offerUndo, toast, loadList, query],
   );
 
   const handleTriageRow = useCallback(
@@ -863,6 +888,8 @@ export default function MailPage() {
   const handleApplyLabel = useCallback(
     (threadId: string, labelId: string) => {
       if (!clientId || !labelId) return;
+      const tagged = cumItems.find((it) => it.id === threadId);
+      if (tagged) recordAction(tagged.from.email, "label", labelId);
       const rebuild = (items: ThreadListItem[]) =>
         setRows(buildMailOverlay(computeVisible(items), labelNames, selfAddresses));
       let prev: ThreadListItem[] | null = null;
@@ -905,7 +932,17 @@ export default function MailPage() {
           });
         });
     },
-    [clientId, labelNames, selfAddresses, toast, commitMutation, computeVisible, setRows, setCumItems],
+    [
+      clientId,
+      cumItems,
+      labelNames,
+      selfAddresses,
+      toast,
+      commitMutation,
+      computeVisible,
+      setRows,
+      setCumItems,
+    ],
   );
 
   // ── Classement automatique (IA locale) ─────────────────────────────────────
@@ -1019,6 +1056,44 @@ export default function MailPage() {
       });
     }
   }, [cumItems, clientId, dropThreadFromList, commitMutation]);
+
+  // ── Règles locales ─────────────────────────────────────────────────────────
+  // Appliquées à chaque rafraîchissement de la boîte, une seule règle par fil
+  // (la première qui correspond) : deux règles contradictoires ne se battent
+  // pas sur le même email. Une règle n'efface jamais un email.
+  useEffect(() => {
+    if (!clientId || cumItems.length === 0) return;
+    const matches = matchRules(cumItems, loadRules());
+    if (matches.length === 0) return;
+    for (const { thread: item, rule } of matches) {
+      const add: string[] = [];
+      const remove: string[] = [];
+      if (rule.then.addLabelId && !item.labelIds.includes(rule.then.addLabelId)) {
+        add.push(rule.then.addLabelId);
+      }
+      if (rule.then.star && !item.labelIds.includes("STARRED")) add.push("STARRED");
+      if (rule.then.markRead && item.labelIds.includes("UNREAD")) remove.push("UNREAD");
+      if (rule.then.archive) remove.push(INBOX_LABEL);
+      if (add.length === 0 && remove.length === 0) continue;
+
+      if (rule.then.archive) dropThreadFromList(item.id);
+      else syncThreadLabels(item.id, [...item.labelIds.filter((l) => !remove.includes(l)), ...add]);
+
+      bumpApplied(rule.id);
+      void commitMutation(
+        {
+          threadId: item.id,
+          kind: "modifyLabels",
+          addLabelIds: add,
+          removeLabelIds: remove,
+          ...(rule.then.archive ? { dropThread: true } : {}),
+        },
+        () => modifyThreadLabels(clientId, item.id, { addLabelIds: add, removeLabelIds: remove }),
+      ).catch(() => {
+        /* best-effort : la règle sera ré-appliquée au prochain chargement */
+      });
+    }
+  }, [cumItems, clientId, dropThreadFromList, syncThreadLabels, commitMutation]);
 
   // ── Gestes tactiles (mobile) ───────────────────────────────────────────────
   // Glisser une ligne : droite = archiver, gauche = reporter (choix de
@@ -1784,6 +1859,25 @@ export default function MailPage() {
           </Button>
         </Tooltip>
       )}
+      {/* Règles locales + propositions issues des gestes répétés. */}
+      <Tooltip
+        content={
+          suggestionCount > 0
+            ? `${suggestionCount} règle(s) proposée(s)`
+            : "Règles de la boîte"
+        }
+      >
+        <Button
+          size="sm"
+          variant="ghost"
+          isIconOnly
+          className="shrink-0"
+          aria-label="Règles de la boîte"
+          onPress={() => setRulesOpen(true)}
+        >
+          <Funnel size={16} style={suggestionCount > 0 ? { color: "var(--accent)" } : undefined} />
+        </Button>
+      </Tooltip>
       {/* Assistant de boîte (questions en langage naturel, IA locale). */}
       {aiConfigured && accountId && (
         <Tooltip content="Assistant de boîte (i)">
@@ -1836,6 +1930,11 @@ export default function MailPage() {
         <MailOutgoingBadge />
         {accountId ? <MailOutboxBadge accountId={accountId} clientId={clientId} /> : null}
       </div>
+      <MailRulesManager
+        isOpen={rulesOpen}
+        onClose={() => setRulesOpen(false)}
+        labelNames={labelNames}
+      />
       <MailGroupsManager
         isOpen={groupsManagerOpen}
         onClose={() => setGroupsManagerOpen(false)}
