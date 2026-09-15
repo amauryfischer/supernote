@@ -988,6 +988,13 @@ export interface OutgoingAttachment {
   mimeType: string;
   /** Contenu en base64 standard (avec ou sans padding ; ré-emballé en lignes de 76). */
   base64: string;
+  /**
+   * Identifiant `Content-ID` d'une image INLINE, référencée par le corps HTML
+   * via `cid:<contentId>`. Quand il est présent, la part est envoyée en
+   * `Content-Disposition: inline` à l'intérieur d'un `multipart/related` — donc
+   * affichée DANS le message, pas listée comme fichier joint.
+   */
+  contentId?: string;
 }
 
 /** Génère un boundary MIME unique (préfixe lisible + aléa). Pur (hors `Math.random`). */
@@ -1025,18 +1032,25 @@ function quoteFilename(name: string): string {
 /**
  * Construit un message RFC 2822 pour `drafts.create` / `messages.send`.
  *
- * Sans pièce jointe : message MONO-PART `text/plain; charset=UTF-8` (chemin
- * historique inchangé, rétro-compatible). Avec une ou plusieurs pièces jointes :
- * message `multipart/mixed` — une 1ʳᵉ part `text/plain` (le corps), puis une part
- * par pièce jointe (`Content-Type: <mime>; name=…`, `Content-Transfer-Encoding:
- * base64`, `Content-Disposition: attachment; filename=…`, octets base64 en lignes
- * de 76). Pur, testable.
+ * Quatre formes, de la plus simple à la plus riche — le chemin historique
+ * (texte seul, sans pièce jointe) reste MONO-PART, donc sans régression :
+ *
+ *  1. texte seul                → `text/plain`
+ *  2. texte + HTML              → `multipart/alternative`
+ *  3. + images inline (`cid:`)  → `multipart/related` enveloppant l'alternative
+ *  4. + pièces jointes          → `multipart/mixed` enveloppant le tout
+ *
+ * Le corps texte est TOUJOURS présent : un client qui ne rend pas le HTML (ou
+ * un lecteur d'écran) reçoit la version lisible, jamais un message vide.
+ * Pur, testable.
  */
 export function buildRawMessage(input: {
   to?: string | string[];
   cc?: string | string[];
   subject: string;
   body: string;
+  /** Corps HTML optionnel — envoyé en alternative du texte. */
+  html?: string;
   inReplyTo?: string;
   references?: string;
   attachments?: OutgoingAttachment[];
@@ -1054,30 +1068,86 @@ export function buildRawMessage(input: {
   if (input.references) headers.push(`References: ${sanitizeHeaderValue(input.references)}`);
   headers.push("MIME-Version: 1.0");
 
-  const attachments = (input.attachments ?? []).filter((a) => a && a.base64);
-  if (attachments.length === 0) {
-    // Chemin historique mono-part : aucune régression sur l'envoi sans PJ.
+  const all = (input.attachments ?? []).filter((a) => a && a.base64);
+  const inlineParts = all.filter((a) => a.contentId);
+  const fileParts = all.filter((a) => !a.contentId);
+  const html = input.html?.trim() ? input.html : undefined;
+
+  if (fileParts.length === 0 && inlineParts.length === 0 && !html) {
+    // Chemin historique mono-part : aucune régression sur l'envoi simple.
     return [...headers, 'Content-Type: text/plain; charset="UTF-8"', "", input.body].join("\r\n");
   }
 
-  const boundary = makeBoundary();
-  const lines: string[] = [...headers, `Content-Type: multipart/mixed; boundary="${boundary}"`, ""];
-  // Part 1 : le corps texte.
-  lines.push(`--${boundary}`);
-  lines.push('Content-Type: text/plain; charset="UTF-8"');
-  lines.push("Content-Transfer-Encoding: 8bit");
-  lines.push("");
-  lines.push(input.body);
-  // Une part par pièce jointe.
-  for (const att of attachments) {
+  /** Lignes d'une part fichier (jointe ou inline selon `contentId`). */
+  const attachmentLines = (att: OutgoingAttachment): string[] => {
     const mime = att.mimeType || "application/octet-stream";
     const name = quoteFilename(att.filename || "piece-jointe");
-    lines.push(`--${boundary}`);
-    lines.push(`Content-Type: ${mime}; name="${name}"`);
-    lines.push("Content-Transfer-Encoding: base64");
-    lines.push(`Content-Disposition: attachment; filename="${name}"`);
-    lines.push("");
-    lines.push(wrapBase64(att.base64));
+    const lines = [`Content-Type: ${mime}; name="${name}"`, "Content-Transfer-Encoding: base64"];
+    if (att.contentId) {
+      lines.push(`Content-ID: <${sanitizeHeaderValue(att.contentId)}>`);
+      lines.push(`Content-Disposition: inline; filename="${name}"`);
+    } else {
+      lines.push(`Content-Disposition: attachment; filename="${name}"`);
+    }
+    lines.push("", wrapBase64(att.base64));
+    return lines;
+  };
+
+  /** Corps « texte (+ HTML) », éventuellement en multipart/alternative. */
+  const bodyBlock = (): { contentType: string; lines: string[] } => {
+    if (!html) {
+      return {
+        contentType: 'text/plain; charset="UTF-8"',
+        lines: ["Content-Transfer-Encoding: 8bit", "", input.body],
+      };
+    }
+    const b = makeBoundary();
+    const lines = [
+      "",
+      `--${b}`,
+      'Content-Type: text/plain; charset="UTF-8"',
+      "Content-Transfer-Encoding: 8bit",
+      "",
+      input.body,
+      `--${b}`,
+      'Content-Type: text/html; charset="UTF-8"',
+      "Content-Transfer-Encoding: 8bit",
+      "",
+      html,
+      `--${b}--`,
+    ];
+    return { contentType: `multipart/alternative; boundary="${b}"`, lines };
+  };
+
+  /** Corps + images inline, éventuellement en multipart/related. */
+  const relatedBlock = (): { contentType: string; lines: string[] } => {
+    const body = bodyBlock();
+    if (inlineParts.length === 0) return body;
+    const b = makeBoundary();
+    const lines = ["", `--${b}`, `Content-Type: ${body.contentType}`, ...body.lines];
+    for (const att of inlineParts) {
+      lines.push(`--${b}`, ...attachmentLines(att));
+    }
+    lines.push(`--${b}--`);
+    return { contentType: `multipart/related; boundary="${b}"`, lines };
+  };
+
+  const inner = relatedBlock();
+  if (fileParts.length === 0) {
+    return [...headers, `Content-Type: ${inner.contentType}`, ...inner.lines].join("\r\n");
+  }
+
+  const boundary = makeBoundary();
+  const lines: string[] = [
+    ...headers,
+    `Content-Type: multipart/mixed; boundary="${boundary}"`,
+    "",
+    `--${boundary}`,
+    `Content-Type: ${inner.contentType}`,
+    ...inner.lines,
+  ];
+  for (const att of fileParts) {
+    lines.push(`--${boundary}`, ...attachmentLines(att));
   }
   lines.push(`--${boundary}--`);
   return lines.join("\r\n");
@@ -1099,6 +1169,8 @@ export async function createDraft(
     cc?: string | string[];
     subject: string;
     body: string;
+    /** Corps HTML optionnel (alternative du texte). */
+    html?: string;
     threadId?: string;
     inReplyTo?: string;
     references?: string;
@@ -1175,6 +1247,8 @@ export async function sendMessage(
     cc?: string | string[];
     subject: string;
     body: string;
+    /** Corps HTML optionnel (alternative du texte). */
+    html?: string;
     attachments?: OutgoingAttachment[];
   },
 ): Promise<void> {

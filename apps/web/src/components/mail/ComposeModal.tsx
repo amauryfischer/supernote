@@ -1,14 +1,26 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Modal, Button, Input, Textarea, useToast } from "@supernote/ui";
-import { Gear, ArrowSquareOut, X, Paperclip, PaperPlaneTilt } from "@phosphor-icons/react";
+import { Gear, ArrowSquareOut, X, Paperclip, PaperPlaneTilt, Image as ImageIcon, FloppyDisk } from "@phosphor-icons/react";
 import { applyTemplate, type MailTemplate } from "@/lib/mail-templates";
 import { dedupeEmails, parseRecipientInput } from "@/lib/mail-recipients";
 import { useCreateDraft } from "@/components/notes/useCreateDraft";
 import { useSendMessage } from "@/components/notes/useSendMessage";
+import { useSettings } from "@/components/settings/SettingsContext";
+import { ComposerToolbar } from "./ComposerToolbar";
+import { markdownToHtml, hasMarkup } from "@/lib/mail-markdown";
+import { withSignature } from "@/lib/mail-signature";
+import {
+  loadAutoDraft,
+  saveAutoDraft,
+  clearAutoDraft,
+  COMPOSE_DRAFT_KEY,
+} from "@/lib/mail-draft-store";
 import {
   filesToAttachments,
+  imageToInlineAttachment,
+  isInlineImage,
   toOutgoing,
   totalAttachmentsSize,
   exceedsAttachmentLimit,
@@ -42,6 +54,8 @@ export function ComposeModal({
   initialBody?: string;
 }) {
   const { toast } = useToast();
+  const { settings } = useSettings();
+  const signature = settings.gmail.signature ?? "";
   const { createDraft } = useCreateDraft();
   const { sendMessage } = useSendMessage();
   const { templates, upsert, remove } = useMailTemplates();
@@ -54,17 +68,76 @@ export function ComposeModal({
   const [managerOpen, setManagerOpen] = useState(false);
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const bodyRef = useRef<HTMLTextAreaElement>(null);
+  // Brouillon auto-sauvegardé restauré à l'ouverture (bandeau informatif).
+  const [restored, setRestored] = useState(false);
 
-  // Réinitialise les champs à l'ouverture.
+  // Ouverture : on restaure le brouillon auto-sauvegardé s'il y en a un et que
+  // l'appelant n'impose pas de contenu (transfert, modèle…). Sinon champs
+  // neufs, avec la signature déjà en place.
   useEffect(() => {
-    if (isOpen) {
+    if (!isOpen) return;
+    const prefilled = Boolean(initialTo || initialSubject || initialBody);
+    const draft = prefilled ? null : loadAutoDraft(COMPOSE_DRAFT_KEY);
+    if (draft) {
+      setRecipients(draft.to ?? []);
+      setSubject(draft.subject ?? "");
+      setBody(draft.body);
+      setRestored(true);
+    } else {
       setRecipients(parseRecipientInput(initialTo));
-      setToInput("");
       setSubject(initialSubject);
-      setBody(initialBody);
-      setAttachments([]);
+      setBody(withSignature(initialBody, signature));
+      setRestored(false);
     }
-  }, [isOpen, initialTo, initialSubject, initialBody]);
+    setToInput("");
+    setAttachments([]);
+  }, [isOpen, initialTo, initialSubject, initialBody, signature]);
+
+  // Sauvegarde automatique pendant la frappe : fermer la fenêtre ou recharger
+  // l'onglet ne perd plus le message en cours. Débattue pour ne pas écrire à
+  // chaque caractère.
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    const id = setTimeout(() => {
+      saveAutoDraft({ key: COMPOSE_DRAFT_KEY, subject, body, to: recipients });
+    }, 500);
+    return () => clearTimeout(id);
+  }, [isOpen, subject, body, recipients]);
+
+  /** Corps prêt à partir : signature ajoutée si elle manque. */
+  const finalBody = useCallback(() => withSignature(body, signature), [body, signature]);
+
+  /**
+   * Part HTML à envoyer, ou `undefined` pour rester en texte pur. On n'en
+   * génère une QUE s'il y a de la mise en forme ou une image inline — un
+   * message simple part en texte, comme avant.
+   */
+  const finalHtml = useCallback(
+    (text: string): string | undefined => {
+      const inline = attachments.some((a) => a.contentId);
+      return hasMarkup(text) || inline ? markdownToHtml(text) : undefined;
+    },
+    [attachments],
+  );
+
+  /**
+   * Insère une image DANS le corps : pièce jointe `inline` (Content-ID) +
+   * référence Markdown `![nom](cid:…)` à la position du curseur. Le message
+   * part alors en multipart/related et l'image s'affiche dans le mail.
+   */
+  const insertInlineImages = useCallback(async (files: File[]) => {
+    const images = files.filter((f) => isInlineImage(f.type));
+    if (images.length === 0) return false;
+    const added = await Promise.all(images.map((f) => imageToInlineAttachment(f)));
+    setAttachments((prev) => [...prev, ...added]);
+    setBody((prev) => {
+      const refs = added.map((a) => `![${a.filename}](cid:${a.contentId})`).join("\n");
+      return prev.trim() ? `${prev}\n\n${refs}\n` : `${refs}\n`;
+    });
+    return true;
+  }, []);
 
   const onPickFiles = async (fileList: FileList | null) => {
     if (!fileList || fileList.length === 0) return;
@@ -121,12 +194,16 @@ export function ComposeModal({
     const allTo = dedupeEmails([...recipients, ...parseRecipientInput(toInput)]);
     setBusy("draft");
     try {
+      const text = finalBody();
+      const html = finalHtml(text);
       const { url } = await createDraft({
         to: allTo.length ? allTo : undefined,
         subject,
-        body,
+        body: text,
+        ...(html ? { html } : {}),
         attachments: attachments.length ? toOutgoing(attachments) : undefined,
       });
+      clearAutoDraft(COMPOSE_DRAFT_KEY);
       toast({ title: "Brouillon créé dans Gmail" });
       window.open(url, "_blank", "noopener,noreferrer");
       onClose();
@@ -159,12 +236,16 @@ export function ComposeModal({
     }
     setBusy("send");
     try {
+      const text = finalBody();
+      const html = finalHtml(text);
       await sendMessage({
         to: allTo,
         subject,
-        body,
+        body: text,
+        ...(html ? { html } : {}),
         attachments: attachments.length ? toOutgoing(attachments) : undefined,
       });
+      clearAutoDraft(COMPOSE_DRAFT_KEY);
       toast({ title: "Message envoyé", variant: "success" });
       onClose();
     } catch (err) {
@@ -189,6 +270,29 @@ export function ComposeModal({
         size="lg"
       >
         <div className="flex flex-col gap-3">
+          {restored && (
+            <div
+              className="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-xs"
+              style={{ background: "var(--accent-subtle)", color: "var(--accent)" }}
+            >
+              <FloppyDisk size={13} aria-hidden />
+              Brouillon restauré depuis ta dernière saisie.
+              <Button
+                size="sm"
+                variant="ghost"
+                className="ml-auto h-6 min-h-6 px-1.5 text-xs"
+                onPress={() => {
+                  clearAutoDraft(COMPOSE_DRAFT_KEY);
+                  setRecipients([]);
+                  setSubject("");
+                  setBody(withSignature("", signature));
+                  setRestored(false);
+                }}
+              >
+                Repartir de zéro
+              </Button>
+            </div>
+          )}
           <div className="flex flex-col gap-1.5">
             <span className="text-xs" style={{ color: "var(--text-muted)" }}>
               Destinataires (optionnel)
@@ -261,11 +365,65 @@ export function ComposeModal({
                 </Button>
               </div>
             </div>
+            <ComposerToolbar
+              textareaRef={bodyRef}
+              value={body}
+              onChange={setBody}
+              trailing={
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  isIconOnly
+                  aria-label="Insérer une image dans le message"
+                  className="h-8 min-h-8 w-8 min-w-8"
+                  onPress={() => imageInputRef.current?.click()}
+                >
+                  <ImageIcon size={15} aria-hidden />
+                </Button>
+              }
+            />
             <Textarea
+              ref={bodyRef}
               value={body}
               onChange={(e) => setBody(e.target.value)}
               rows={10}
-              placeholder="Votre message…"
+              placeholder="Votre message…  **gras**, _italique_, - liste"
+              onPaste={(e) => {
+                // Coller une capture d'écran l'insère DANS le message plutôt
+                // que de ne rien faire.
+                const files = Array.from(e.clipboardData?.files ?? []);
+                if (files.length === 0) return;
+                void insertInlineImages(files).then((handled) => {
+                  if (!handled) void onPickFiles(e.clipboardData?.files ?? null);
+                });
+                e.preventDefault();
+              }}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={(e) => {
+                const files = Array.from(e.dataTransfer?.files ?? []);
+                if (files.length === 0) return;
+                e.preventDefault();
+                const images = files.filter((f) => isInlineImage(f.type));
+                const others = files.filter((f) => !isInlineImage(f.type));
+                if (images.length) void insertInlineImages(images);
+                if (others.length) {
+                  void filesToAttachments(others).then((added) =>
+                    setAttachments((prev) => [...prev, ...added]),
+                  );
+                }
+              }}
+            />
+            {/* input image natif (exception justifiée : pas d'équivalent HeroUI). */}
+            <input
+              ref={imageInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={(e) => {
+                void insertInlineImages(Array.from(e.target.files ?? []));
+                e.target.value = "";
+              }}
             />
           </div>
 

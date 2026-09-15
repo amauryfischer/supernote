@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, forwardRef, useImperativeHandle } from "react";
-import { ArrowSquareOut, Plus, X, Tag, MagnifyingGlass, Check, PaperPlaneTilt, Quotes, Paperclip, Star, Envelope, ArrowBendUpRight, Sparkle, MagicWand, ArrowsClockwise, CaretUp, DotsThreeVertical, Copy } from "@phosphor-icons/react";
+import { ArrowSquareOut, Plus, X, Tag, MagnifyingGlass, Check, PaperPlaneTilt, Quotes, Paperclip, Star, Envelope, ArrowBendUpRight, Sparkle, MagicWand, ArrowsClockwise, CaretUp, DotsThreeVertical, Copy, Image as ImageIcon } from "@phosphor-icons/react";
 import { Button, Input, Spinner, Popover } from "@heroui/react";
 import { useToast, Tooltip } from "@supernote/ui";
 import { useSettings } from "@/components/settings/SettingsContext";
@@ -33,6 +33,8 @@ import { parseEmailBody } from "@/lib/email-quote";
 import { sanitizeEmailHtml, splitQuotedHtml } from "@/lib/mail-html";
 import {
   filesToAttachments,
+  imageToInlineAttachment,
+  isInlineImage,
   toOutgoing,
   totalAttachmentsSize,
   exceedsAttachmentLimit,
@@ -42,6 +44,10 @@ import {
 } from "@/lib/mail-attachments";
 import { buildReplyParams, pickReplyAll, buildQuotedBody } from "@/lib/mail-reply";
 import { buildForwardSubject, buildForwardedBody } from "@/lib/mail-forward";
+import { ComposerToolbar } from "./ComposerToolbar";
+import { markdownToHtml, hasMarkup } from "@/lib/mail-markdown";
+import { withSignature } from "@/lib/mail-signature";
+import { loadAutoDraft, saveAutoDraft, clearAutoDraft, threadDraftKey } from "@/lib/mail-draft-store";
 import { TriageBar } from "./TriageBar";
 import { EnrichContactFromEmail } from "./EnrichContactFromEmail";
 import { EmailToEventButton } from "./EmailToEventButton";
@@ -263,14 +269,44 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
   // MailEisenhowerPicker (ouvre le Popover sur la cellule). Réinitialisé par fil.
   const [suggestedQuadrant, setSuggestedQuadrant] = useState<EisenhowerQuadrant | null>(null);
   const [suggestBusy, setSuggestBusy] = useState(false);
+  const signature = settings.gmail.signature ?? "";
+  const replyFileImageRef = useRef<HTMLInputElement>(null);
+
   useEffect(() => {
-    setReplyBody("");
+    // Réponse en cours non envoyée : on la retrouve en revenant sur le fil
+    // (fermer le fil ou recharger l'onglet ne perd plus la frappe).
+    const saved = loadAutoDraft(threadDraftKey(thread.id));
+    setReplyBody(saved?.body ?? "");
     setReplyToAll(false);
     setReplyAttachments([]);
     setSummary(null);
     setSummaryOpen(false);
     setSuggestedQuadrant(null);
   }, [thread]);
+
+  // Sauvegarde automatique de la réponse en cours (débattue).
+  useEffect(() => {
+    const id = setTimeout(() => {
+      saveAutoDraft({ key: threadDraftKey(thread.id), body: replyBody });
+    }, 500);
+    return () => clearTimeout(id);
+  }, [thread.id, replyBody]);
+
+  /**
+   * Insère une image DANS la réponse : pièce jointe inline (Content-ID) +
+   * référence `![nom](cid:…)`. Le message part en multipart/related.
+   */
+  const insertInlineImages = async (files: File[]): Promise<boolean> => {
+    const images = files.filter((f) => isInlineImage(f.type));
+    if (images.length === 0) return false;
+    const added = await Promise.all(images.map((f) => imageToInlineAttachment(f)));
+    setReplyAttachments((prev) => [...prev, ...added]);
+    setReplyBody((prev) => {
+      const refs = added.map((a) => `![${a.filename}](cid:${a.contentId})`).join("\n");
+      return prev.trim() ? `${prev}\n\n${refs}\n` : `${refs}\n`;
+    });
+    return true;
+  };
 
   // Auto-resize de la zone de réponse : grandit avec le contenu (saisie OU
   // brouillon IA chargé) jusqu'à un plafond, pour qu'on VOIE ce qu'on écrit sans
@@ -384,14 +420,26 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
   };
 
   const submitReply = async (mode: "send" | "draft") => {
-    const body = replyBody.trim();
-    if (!body || !clientId) return;
+    const typed = replyBody.trim();
+    if (!typed || !clientId) return;
     const cc = replyToAll && hasCc ? replyAll.cc : undefined;
     const attachments = replyAttachments.length ? toOutgoing(replyAttachments) : undefined;
+    // Signature ajoutée si elle manque ; part HTML seulement s'il y a de la mise
+    // en forme ou une image inline (sinon le message reste en texte pur).
+    const body = withSignature(typed, signature);
+    const inline = replyAttachments.some((a) => a.contentId);
+    const html = hasMarkup(body) || inline ? markdownToHtml(body) : undefined;
     setReplyBusy(mode);
     try {
       if (mode === "send") {
-        await sendReply(clientId, { ...replyParams, cc, body, attachments });
+        await sendReply(clientId, {
+          ...replyParams,
+          cc,
+          body,
+          ...(html ? { html } : {}),
+          attachments,
+        });
+        clearAutoDraft(threadDraftKey(thread.id));
         toast({ title: "Réponse envoyée", variant: "success" });
         setReplyBody("");
         setReplyAttachments([]);
@@ -399,7 +447,14 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
         onReplied?.();
         return;
       } else {
-        const { draftId } = await createDraft(clientId, { ...replyParams, cc, body, attachments });
+        const { draftId } = await createDraft(clientId, {
+          ...replyParams,
+          cc,
+          body,
+          ...(html ? { html } : {}),
+          attachments,
+        });
+        clearAutoDraft(threadDraftKey(thread.id));
         window.open(buildGmailDraftUrl(draftId), "_blank", "noopener");
         toast({ title: "Brouillon créé", description: "Ouvert dans Gmail." });
       }
@@ -973,6 +1028,23 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
           className="sticky bottom-0 mt-1 border-t px-1 pb-2 pt-2"
           style={{ background: "var(--surface-1)", borderColor: "var(--border-subtle)" }}
         >
+          <ComposerToolbar
+            textareaRef={replyTaRef}
+            value={replyBody}
+            onChange={setReplyBody}
+            trailing={
+              <Button
+                variant="ghost"
+                size="sm"
+                isIconOnly
+                aria-label="Insérer une image dans la réponse"
+                className="h-8 min-h-8 w-8 min-w-8"
+                onPress={() => replyFileImageRef.current?.click()}
+              >
+                <ImageIcon size={15} aria-hidden />
+              </Button>
+            }
+          />
           {/* textarea natif justifié : composeur inline (envoi ⌘/Ctrl+↵).
               Auto-resize (cf. effet) → grandit avec le contenu, `min-height` =
               base confortable (~3 lignes) pour qu'on voie ce qu'on écrit. */}
@@ -984,6 +1056,29 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
               if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
                 e.preventDefault();
                 void submitReply("send");
+              }
+            }}
+            onPaste={(e) => {
+              // Coller une capture d'écran l'insère DANS la réponse.
+              const files = Array.from(e.clipboardData?.files ?? []);
+              if (files.length === 0) return;
+              e.preventDefault();
+              void insertInlineImages(files).then((handled) => {
+                if (!handled) void onPickReplyFiles(e.clipboardData?.files ?? null);
+              });
+            }}
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={(e) => {
+              const files = Array.from(e.dataTransfer?.files ?? []);
+              if (files.length === 0) return;
+              e.preventDefault();
+              const images = files.filter((f) => isInlineImage(f.type));
+              const others = files.filter((f) => !isInlineImage(f.type));
+              if (images.length) void insertInlineImages(images);
+              if (others.length) {
+                void filesToAttachments(others).then((added) =>
+                  setReplyAttachments((prev) => [...prev, ...added]),
+                );
               }
             }}
             placeholder={`Répondre à ${replyParams.to}…`}
@@ -1004,6 +1099,17 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
             className="hidden"
             onChange={(e) => {
               void onPickReplyFiles(e.target.files);
+              e.target.value = "";
+            }}
+          />
+          <input
+            ref={replyFileImageRef}
+            type="file"
+            accept="image/*"
+            multiple
+            className="hidden"
+            onChange={(e) => {
+              void insertInlineImages(Array.from(e.target.files ?? []));
               e.target.value = "";
             }}
           />

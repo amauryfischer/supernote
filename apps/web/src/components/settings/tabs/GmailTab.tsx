@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Button, Input } from "@heroui/react";
+import { Button, Input, Switch } from "@heroui/react";
 import {
   EnvelopeSimple,
   Plug,
@@ -9,9 +9,12 @@ import {
   CheckCircle,
   UsersThree,
   Trash,
+  PencilSimple,
+  Rows,
 } from "@phosphor-icons/react";
 import { useSettings } from "../SettingsContext";
 import { SettingRow } from "../SettingRow";
+import { Textarea } from "@supernote/ui";
 import { SettingSection } from "../SettingSection";
 import { connectGmail, getGmailProfile, GMAIL_READONLY_SCOPE } from "@/lib/gmail";
 import { clearAccessToken } from "@/lib/google-drive";
@@ -139,6 +142,110 @@ export function GmailTab() {
           </SettingRow>
         )}
       </SettingSection>
+
+      {isConnected && (
+        <SettingSection
+          title="Rédaction et lecture"
+          description="Signature, densité de la liste, fenêtre d'annulation d'envoi et rappels de relance."
+          icon={<PencilSimple size={16} />}
+        >
+          <SettingRow
+            label="Signature"
+            description="Ajoutée en bas des messages envoyés, après le séparateur « -- »."
+          >
+            <Textarea
+              value={gmail.signature ?? ""}
+              onChange={(e) => updateSettings("gmail", { ...gmail, signature: e.target.value })}
+              onBlur={() => void saveSettings()}
+              rows={4}
+              placeholder={"Prénom Nom\nFonction · Société\n06 00 00 00 00"}
+              className="w-full sm:w-96"
+            />
+          </SettingRow>
+
+          <SettingRow
+            label="Densité de la liste"
+            description="Compact = une ligne par fil (plus d'emails à l'écran). Confort = expéditeur, objet et aperçu."
+          >
+            <div className="flex items-center gap-2">
+              <Rows size={14} style={{ color: "var(--text-muted)" }} aria-hidden />
+              <Switch
+                isSelected={(gmail.density ?? "confort") === "compact"}
+                onChange={(sel) => {
+                  updateSettings("gmail", { ...gmail, density: sel ? "compact" : "confort" });
+                  void saveSettings();
+                }}
+                aria-label="Densité compacte de la liste d'emails"
+              />
+              <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+                {(gmail.density ?? "confort") === "compact" ? "Compact" : "Confort"}
+              </span>
+            </div>
+          </SettingRow>
+
+          <SettingRow
+            label="Annuler l'envoi"
+            description="Délai pendant lequel un message reste rattrapable avant de partir vraiment. 0 = envoi immédiat."
+          >
+            <div className="flex items-center gap-2">
+              <Input
+                type="number"
+                min={0}
+                max={60}
+                value={String(gmail.undoSendSeconds ?? 8)}
+                onChange={(e) => {
+                  const n = Math.max(0, Math.min(60, Number(e.target.value) || 0));
+                  updateSettings("gmail", { ...gmail, undoSendSeconds: n });
+                }}
+                onBlur={() => void saveSettings()}
+                className="w-24"
+                aria-label="Fenêtre d'annulation d'envoi, en secondes"
+              />
+              <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+                secondes
+              </span>
+            </div>
+          </SettingRow>
+
+          <SettingRow
+            label="Rappel de relance"
+            description="Délai par défaut d'un rappel « pas de réponse » posé sur un fil."
+          >
+            <div className="flex items-center gap-2">
+              <Input
+                type="number"
+                min={1}
+                max={60}
+                value={String(gmail.followupDays ?? 3)}
+                onChange={(e) => {
+                  const n = Math.max(1, Math.min(60, Number(e.target.value) || 1));
+                  updateSettings("gmail", { ...gmail, followupDays: n });
+                }}
+                onBlur={() => void saveSettings()}
+                className="w-24"
+                aria-label="Délai par défaut d'un rappel de relance, en jours"
+              />
+              <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+                jours
+              </span>
+            </div>
+          </SettingRow>
+
+          <SettingRow
+            label="Classement automatique (IA locale)"
+            description="Propose un tag pour chaque nouvel email (newsletter, notification, facture…) via Ollama. Rien ne sort de ta machine."
+          >
+            <Switch
+              isSelected={gmail.autoLabel ?? false}
+              onChange={(sel) => {
+                updateSettings("gmail", { ...gmail, autoLabel: Boolean(sel) });
+                void saveSettings();
+              }}
+              aria-label="Classement automatique des emails par l'IA locale"
+            />
+          </SettingRow>
+        </SettingSection>
+      )}
 
       {isConnected && (
         <SettingSection

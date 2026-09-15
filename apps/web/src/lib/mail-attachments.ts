@@ -55,7 +55,12 @@ export function dataUrlToBase64(dataUrl: string): string {
  * pour passer à `sendReply` / `createDraft`. Pur.
  */
 export function toOutgoing(attachments: PendingAttachment[]): OutgoingAttachment[] {
-  return attachments.map(({ filename, mimeType, base64 }) => ({ filename, mimeType, base64 }));
+  return attachments.map(({ filename, mimeType, base64, contentId }) => ({
+    filename,
+    mimeType,
+    base64,
+    ...(contentId ? { contentId } : {}),
+  }));
 }
 
 /**
@@ -78,6 +83,30 @@ export function fileToAttachment(file: File): Promise<PendingAttachment> {
     };
     reader.readAsDataURL(file);
   });
+}
+
+/** Le fichier est-il une image affichable dans le corps du message ? PUR. */
+export function isInlineImage(mimeType: string): boolean {
+  return /^image\/(png|jpe?g|gif|webp)$/i.test(mimeType.trim());
+}
+
+/** Identifiant `Content-ID` unique pour une image inline. */
+export function newContentId(): string {
+  const rnd =
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`;
+  return `sn-${rnd}@supernote`;
+}
+
+/**
+ * Lit un `File` image en pièce jointe INLINE : même contenu qu'une pièce jointe
+ * classique, plus un `contentId` que le corps HTML référencera via `cid:`.
+ * L'image s'affiche alors DANS le message au lieu d'être listée en fichier.
+ */
+export async function imageToInlineAttachment(file: File): Promise<PendingAttachment> {
+  const att = await fileToAttachment(file);
+  return { ...att, contentId: newContentId() };
 }
 
 /** Lit plusieurs `File` en parallèle (utilitaire pour un `<input multiple>`). */
