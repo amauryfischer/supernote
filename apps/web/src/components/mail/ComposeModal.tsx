@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Modal, Button, Input, Textarea, useToast } from "@supernote/ui";
 import { Gear, ArrowSquareOut, X, Paperclip, PaperPlaneTilt, Image as ImageIcon, FloppyDisk } from "@phosphor-icons/react";
 import { applyTemplate, type MailTemplate } from "@/lib/mail-templates";
@@ -10,6 +10,8 @@ import { useDeferredSend } from "./useDeferredSend";
 import { useSettings } from "@/components/settings/SettingsContext";
 import { ComposerToolbar } from "./ComposerToolbar";
 import { SendLaterButton } from "./SendLaterButton";
+import { useSnippetAutocomplete, SnippetPopup } from "./SnippetAutocomplete";
+import { firstName } from "@/lib/mail-snippets";
 import { markdownToHtml, hasMarkup } from "@/lib/mail-markdown";
 import { withSignature } from "@/lib/mail-signature";
 import {
@@ -185,6 +187,27 @@ export function ComposeModal({
     setSubject(next.subject);
     setBody(next.body);
   };
+
+  // Modèles à la frappe (`;raccourci`). Les variables sont alimentées par le
+  // premier destinataire et l'objet déjà saisis.
+  const snippetContext = useMemo(() => {
+    const first = recipients[0] ?? "";
+    return {
+      prenom: firstName(undefined, first),
+      nom: first,
+      email: first,
+      objet: subject,
+      moi: signature.split("\n")[0]?.trim() ?? "",
+    };
+  }, [recipients, subject, signature]);
+
+  const snippets = useSnippetAutocomplete({
+    templates,
+    value: body,
+    onChange: setBody,
+    textareaRef: bodyRef,
+    context: snippetContext,
+  });
 
   const submitDraft = async () => {
     if (!subject.trim() && !body.trim()) {
@@ -391,10 +414,22 @@ export function ComposeModal({
                 </Button>
               }
             />
+            <div className="relative">
+              {snippets.open && (
+                <SnippetPopup
+                  matches={snippets.matches}
+                  index={snippets.index}
+                  onPick={snippets.accept}
+                />
+              )}
             <Textarea
               ref={bodyRef}
               value={body}
               onChange={(e) => setBody(e.target.value)}
+              onKeyDown={(e) => snippets.handleKeyDown(e)}
+              onKeyUp={snippets.refresh}
+              onClick={snippets.refresh}
+              onBlur={snippets.close}
               rows={10}
               placeholder="Votre message…  **gras**, _italique_, - liste"
               onPaste={(e) => {
@@ -422,6 +457,7 @@ export function ComposeModal({
                 }
               }}
             />
+            </div>
             {/* input image natif (exception justifiée : pas d'équivalent HeroUI). */}
             <input
               ref={imageInputRef}

@@ -19,6 +19,12 @@ export interface MailTemplate {
   /** Objet — pertinent pour kind "email" ; ignoré pour "signature". */
   subject?: string;
   body: string;
+  /**
+   * Raccourci d'insertion à la frappe : taper `;<shortcut>` dans le composeur
+   * propose ce modèle (cf. `mail-snippets`). Facultatif — sans raccourci, le
+   * modèle reste accessible par son nom.
+   */
+  shortcut?: string;
 }
 
 /** Délimiteur de signature standard (RFC 3676) — cohérent avec `email-quote`. */
@@ -109,6 +115,7 @@ export function parseTemplates(raw: string): MailTemplate[] {
     if (typeof r.body !== "string") continue;
     const t: MailTemplate = { id: r.id, name: r.name, kind: r.kind, body: r.body };
     if (r.kind === "email" && typeof r.subject === "string") t.subject = r.subject;
+    if (typeof r.shortcut === "string" && r.shortcut.trim()) t.shortcut = r.shortcut.trim();
     out.push(t);
   }
   return out;

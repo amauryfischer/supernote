@@ -48,6 +48,9 @@ import { useDeferredSend } from "./useDeferredSend";
 import { SendLaterButton } from "./SendLaterButton";
 import { FollowupButton } from "./FollowupButton";
 import { UnsubscribeButton } from "./UnsubscribeButton";
+import { useSnippetAutocomplete, SnippetPopup } from "./SnippetAutocomplete";
+import { useMailTemplates } from "./useMailTemplates";
+import { firstName } from "@/lib/mail-snippets";
 import { muteThread, blockSender } from "@/lib/mail-mute";
 import { applyTriage } from "@/lib/mail-triage";
 import { markdownToHtml, hasMarkup } from "@/lib/mail-markdown";
@@ -465,6 +468,33 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
     const quote = buildQuotedBody(last);
     setReplyBody((prev) => (prev.trim() ? `${prev}\n\n${quote}\n` : `${quote}\n`));
   };
+
+  // ── Modèles à la frappe (`;raccourci`) ─────────────────────────────────────
+  // Le correspondant et l'objet alimentent les variables du modèle ; on ne
+  // calcule rien de plus que ce que le composeur a déjà sous la main.
+  const { templates: snippetTemplates } = useMailTemplates();
+  const snippetContext = useMemo(() => {
+    const target =
+      [...thread.messages]
+        .reverse()
+        .find((m) => m.from.email.toLowerCase() !== (selfEmail ?? "").toLowerCase()) ??
+      thread.messages[0];
+    return {
+      prenom: firstName(target?.from.name, target?.from.email),
+      nom: target?.from.name || target?.from.email || "",
+      email: target?.from.email || "",
+      objet: thread.messages[0]?.subject ?? "",
+      moi: (settings.gmail.signature ?? "").split("\n")[0]?.trim() ?? "",
+    };
+  }, [thread, selfEmail, settings.gmail.signature]);
+
+  const snippets = useSnippetAutocomplete({
+    templates: snippetTemplates,
+    value: replyBody,
+    onChange: setReplyBody,
+    textareaRef: replyTaRef,
+    context: snippetContext,
+  });
 
   const submitReply = async (mode: "send" | "draft", sendAt?: number) => {
     const typed = replyBody.trim();
@@ -1226,16 +1256,32 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
           {/* textarea natif justifié : composeur inline (envoi ⌘/Ctrl+↵).
               Auto-resize (cf. effet) → grandit avec le contenu, `min-height` =
               base confortable (~3 lignes) pour qu'on voie ce qu'on écrit. */}
+          <div className="relative">
+            {snippets.open && (
+              <SnippetPopup
+                matches={snippets.matches}
+                index={snippets.index}
+                onPick={snippets.accept}
+              />
+            )}
           <textarea
             ref={replyTaRef}
             value={replyBody}
-            onChange={(e) => setReplyBody(e.target.value)}
+            onChange={(e) => {
+              setReplyBody(e.target.value);
+            }}
             onKeyDown={(e) => {
+              // La complétion de modèles passe en premier : quand la liste est
+              // ouverte, ↵ insère au lieu d'envoyer.
+              if (snippets.handleKeyDown(e)) return;
               if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
                 e.preventDefault();
                 void submitReply("send");
               }
             }}
+            onKeyUp={snippets.refresh}
+            onClick={snippets.refresh}
+            onBlur={snippets.close}
             onPaste={(e) => {
               // Coller une capture d'écran l'insère DANS la réponse.
               const files = Array.from(e.clipboardData?.files ?? []);
@@ -1269,6 +1315,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
               color: "var(--text-primary)",
             }}
           />
+          </div>
           {/* input file natif (exception justifiée : pas d'équivalent HeroUI). */}
           <input
             ref={replyFileRef}

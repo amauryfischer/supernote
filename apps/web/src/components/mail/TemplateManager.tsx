@@ -8,6 +8,7 @@ import {
   type MailTemplate,
   type MailTemplateKind,
 } from "@/lib/mail-templates";
+import { SNIPPET_VARIABLES } from "@/lib/mail-snippets";
 
 /**
  * Gestion CRUD des modèles d'email (modal). Contrôlé : l'état des templates vit
@@ -131,6 +132,23 @@ export function TemplateManager({
                 />
               </div>
 
+              <div className="flex flex-col gap-1">
+                <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+                  Raccourci de frappe
+                </span>
+                <Input
+                  value={draft.shortcut ?? ""}
+                  onChange={(e) =>
+                    setDraft({ ...draft, shortcut: e.target.value.replace(/[^\w-]/g, "") })
+                  }
+                  placeholder="merci"
+                />
+                <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>
+                  Taper <code>;{draft.shortcut || "raccourci"}</code> dans un message insère ce
+                  modèle.
+                </span>
+              </div>
+
               {draft.kind === "email" && (
                 <div className="flex flex-col gap-1">
                   <span className="text-xs" style={{ color: "var(--text-muted)" }}>
@@ -154,6 +172,25 @@ export function TemplateManager({
                   rows={draft.kind === "signature" ? 4 : 8}
                   placeholder={draft.kind === "signature" ? "Jean Dupont\n01 23 45 67 89" : "Contenu de l'email…"}
                 />
+                <div className="flex flex-wrap gap-1 pt-0.5">
+                  <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>
+                    Variables :
+                  </span>
+                  {SNIPPET_VARIABLES.map((v) => (
+                    <button
+                      key={v.name}
+                      type="button"
+                      title={v.hint}
+                      className="rounded px-1 text-[11px] font-mono"
+                      style={{ background: "var(--surface-2)", color: "var(--text-secondary)" }}
+                      onClick={() =>
+                        setDraft((d) => (d ? { ...d, body: `${d.body}{{${v.name}}}` } : d))
+                      }
+                    >
+                      {`{{${v.name}}}`}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               <div className="flex items-center justify-between gap-2">
