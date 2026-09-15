@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button, Input, Switch } from "@heroui/react";
 import {
   EnvelopeSimple,
@@ -11,6 +11,8 @@ import {
   Trash,
   PencilSimple,
   Rows,
+  ProhibitInset,
+  SpeakerSlash,
 } from "@phosphor-icons/react";
 import { useSettings } from "../SettingsContext";
 import { SettingRow } from "../SettingRow";
@@ -18,6 +20,13 @@ import { Textarea } from "@supernote/ui";
 import { SettingSection } from "../SettingSection";
 import { connectGmail, getGmailProfile, GMAIL_READONLY_SCOPE } from "@/lib/gmail";
 import { clearAccessToken } from "@/lib/google-drive";
+import {
+  loadBlockedSenders,
+  loadMutedThreads,
+  unblockSender,
+  unmuteThread,
+  MAIL_MUTE_EVENT,
+} from "@/lib/mail-mute";
 
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
@@ -37,6 +46,19 @@ export function GmailTab() {
   const gmail = settings.gmail;
   const aliases = gmail.aliases ?? [];
   const [busy, setBusy] = useState(false);
+  // Filtres locaux (fils ignorés, expéditeurs bloqués) : rien ne doit être une
+  // porte à sens unique — on les liste ici pour pouvoir les défaire.
+  const [blocked, setBlocked] = useState<string[]>([]);
+  const [mutedCount, setMutedCount] = useState(0);
+  useEffect(() => {
+    const refresh = () => {
+      setBlocked([...loadBlockedSenders()]);
+      setMutedCount(loadMutedThreads().size);
+    };
+    refresh();
+    window.addEventListener(MAIL_MUTE_EVENT, refresh);
+    return () => window.removeEventListener(MAIL_MUTE_EVENT, refresh);
+  }, []);
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
 
@@ -244,6 +266,65 @@ export function GmailTab() {
               aria-label="Classement automatique des emails par l'IA locale"
             />
           </SettingRow>
+        </SettingSection>
+      )}
+
+      {isConnected && (blocked.length > 0 || mutedCount > 0) && (
+        <SettingSection
+          title="Filtres locaux"
+          description="Gmail n'expose ni « ignorer un fil » ni filtre de blocage : Supernote applique ces règles lui-même, à chaque rafraîchissement de la boîte. Elles vivent sur cet appareil."
+          icon={<ProhibitInset size={16} />}
+        >
+          {blocked.length > 0 && (
+            <SettingRow
+              label="Expéditeurs bloqués"
+              description="Leurs nouveaux emails sont archivés dès leur arrivée."
+            >
+              <div className="flex w-full max-w-md flex-col gap-2">
+                {blocked.map((addr) => (
+                  <div
+                    key={addr}
+                    className="flex items-center justify-between gap-2 rounded-md px-3 py-1.5"
+                    style={{ background: "var(--surface-2)" }}
+                  >
+                    <span className="truncate text-sm" style={{ color: "var(--text-primary)" }}>
+                      {addr}
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      aria-label={`Débloquer ${addr}`}
+                      onPress={() => unblockSender(addr)}
+                    >
+                      Débloquer
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </SettingRow>
+          )}
+          {mutedCount > 0 && (
+            <SettingRow
+              label="Fils ignorés"
+              description="Ces fils sont ré-archivés s'ils remontent en boîte de réception."
+            >
+              <div className="flex items-center gap-2">
+                <SpeakerSlash size={14} style={{ color: "var(--text-muted)" }} aria-hidden />
+                <span className="text-sm" style={{ color: "var(--text-primary)" }}>
+                  {mutedCount}
+                </span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onPress={() => {
+                    for (const id of loadMutedThreads()) unmuteThread(id);
+                  }}
+                >
+                  Tout réactiver
+                </Button>
+              </div>
+            </SettingRow>
+          )}
         </SettingSection>
       )}
 

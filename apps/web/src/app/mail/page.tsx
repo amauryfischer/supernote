@@ -80,7 +80,12 @@ import { syncThreadDetail } from "@/lib/mail-sync";
 import { isWorkerReady } from "@/lib/trpc/browser-link";
 import { isAiConfigured } from "@/lib/mail-ai";
 import { toggleRowSelection, pruneSelection } from "@/lib/mail-selection";
-import { muteThread } from "@/lib/mail-mute";
+import {
+  muteThread,
+  loadMutedThreads,
+  loadBlockedSenders,
+  threadsToAutoArchive,
+} from "@/lib/mail-mute";
 import { pushSearchHistory, isEmptyQuery } from "@/lib/mail-search";
 import { bumpTriaged, loadStats, MAIL_STATS_EVENT } from "@/lib/mail-stats";
 import {
@@ -269,10 +274,11 @@ export default function MailPage() {
   // Feuille d'actions mobile (appui long sur une ligne).
   const [sheetItem, setSheetItem] = useState<ThreadListItem | null>(null);
   // Valeurs initiales du compose (transfert → objet/corps pré-remplis).
-  const [composeInitial, setComposeInitial] = useState<{ subject: string; body: string }>({
-    subject: "",
-    body: "",
-  });
+  const [composeInitial, setComposeInitial] = useState<{
+    to?: string;
+    subject: string;
+    body: string;
+  }>({ subject: "", body: "" });
   // Annonce vocale (lecteurs d'écran) du résultat de la dernière action.
   const [liveMessage, setLiveMessage] = useState("");
   // Compteur « traités aujourd'hui » (écran inbox zero).
@@ -298,7 +304,7 @@ export default function MailPage() {
   }, []);
 
   // Transfert : pré-remplit le compose (objet « Fwd: … » + corps cité), To vide.
-  const handleForward = useCallback((prefill: { subject: string; body: string }) => {
+  const handleForward = useCallback((prefill: { to?: string; subject: string; body: string }) => {
     setComposeInitial(prefill);
     setComposeOpen(true);
   }, []);
@@ -990,6 +996,25 @@ export default function MailPage() {
     },
     [clientId, syncThreadLabels, toast, commitMutation],
   );
+
+  // ── Fils ignorés / expéditeurs bloqués ─────────────────────────────────────
+  // L'API Gmail n'a ni « mute » ni filtre de blocage accessible : on applique
+  // donc la règle nous-mêmes à chaque rafraîchissement de la boîte. Silencieux
+  // par construction — l'utilisateur a demandé à ne plus voir ces fils.
+  useEffect(() => {
+    if (!clientId || cumItems.length === 0) return;
+    const ids = threadsToAutoArchive(cumItems, loadMutedThreads(), loadBlockedSenders());
+    if (ids.length === 0) return;
+    for (const id of ids) dropThreadFromList(id);
+    for (const id of ids) {
+      void commitMutation(
+        { threadId: id, kind: "modifyLabels", removeLabelIds: [INBOX_LABEL], dropThread: true },
+        () => applyTriage(clientId, id, "archive"),
+      ).catch(() => {
+        /* best-effort : la règle sera ré-appliquée au prochain chargement */
+      });
+    }
+  }, [cumItems, clientId, dropThreadFromList, commitMutation]);
 
   // ── Gestes tactiles (mobile) ───────────────────────────────────────────────
   // Glisser une ligne : droite = archiver, gauche = reporter (choix de
@@ -2160,6 +2185,7 @@ export default function MailPage() {
       <ComposeModal
         isOpen={composeOpen}
         onClose={() => setComposeOpen(false)}
+        initialTo={composeInitial.to ?? ""}
         initialSubject={composeInitial.subject}
         initialBody={composeInitial.body}
       />

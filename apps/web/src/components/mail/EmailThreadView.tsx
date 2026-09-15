@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, forwardRef, useImperativeHandle } from "react";
-import { ArrowSquareOut, Plus, X, Tag, MagnifyingGlass, Check, PaperPlaneTilt, Quotes, Paperclip, Star, Envelope, ArrowBendUpRight, Sparkle, MagicWand, ArrowsClockwise, CaretUp, DotsThreeVertical, Copy, Image as ImageIcon } from "@phosphor-icons/react";
+import { ArrowSquareOut, Plus, X, Tag, MagnifyingGlass, Check, PaperPlaneTilt, Quotes, Paperclip, Star, Envelope, ArrowBendUpRight, Sparkle, MagicWand, ArrowsClockwise, CaretUp, DotsThreeVertical, Copy, Image as ImageIcon, SpeakerSlash, UserMinus } from "@phosphor-icons/react";
 import { Button, Input, Spinner, Popover } from "@heroui/react";
 import { useToast, Tooltip } from "@supernote/ui";
 import { useSettings } from "@/components/settings/SettingsContext";
@@ -47,6 +47,9 @@ import { ComposerToolbar } from "./ComposerToolbar";
 import { useDeferredSend } from "./useDeferredSend";
 import { SendLaterButton } from "./SendLaterButton";
 import { FollowupButton } from "./FollowupButton";
+import { UnsubscribeButton } from "./UnsubscribeButton";
+import { muteThread, blockSender } from "@/lib/mail-mute";
+import { applyTriage } from "@/lib/mail-triage";
 import { markdownToHtml, hasMarkup } from "@/lib/mail-markdown";
 import { withSignature } from "@/lib/mail-signature";
 import { loadAutoDraft, saveAutoDraft, clearAutoDraft, threadDraftKey } from "@/lib/mail-draft-store";
@@ -155,7 +158,7 @@ interface EmailThreadViewProps {
    * Appelé quand l'utilisateur clique « Transférer » — l'appelant ouvre le
    * ComposeModal pré-rempli (objet « Fwd: … » + corps cité), destinataire vide.
    */
-  onForward?: (prefill: { subject: string; body: string }) => void;
+  onForward?: (prefill: { to?: string; subject: string; body: string }) => void;
   /**
    * Appelé après la conversion réussie d'un email en tâche Eisenhower — l'appelant
    * retire le fil de la liste inbox, comme pour un triage « Fait ».
@@ -861,6 +864,74 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
                             suggestedQuadrant={suggestedQuadrant}
                           />
                         </div>
+                      )}
+                      {clientId && correspondentMsg && (
+                        <div className={MENU_COMPONENT_ROW}>
+                          <UnsubscribeButton
+                            message={correspondentMsg}
+                            clientId={clientId}
+                            className={MENU_ROW}
+                            {...(onForward ? { onCompose: onForward } : {})}
+                            onBlockAndArchive={() => {
+                              blockSender(correspondentMsg.from.email);
+                              void applyTriage(clientId, thread.id, "archive")
+                                .then(() => onTriaged?.("archive"))
+                                .catch(() => {
+                                  toast({ title: "Archivage échoué", variant: "danger" });
+                                });
+                            }}
+                          />
+                        </div>
+                      )}
+                      {clientId && (
+                        <Button
+                          variant="ghost"
+                          className={MENU_ROW}
+                          aria-label="Ignorer ce fil"
+                          onPress={() => {
+                            setMoreOpen(false);
+                            muteThread(thread.id);
+                            void applyTriage(clientId, thread.id, "archive")
+                              .then(() => {
+                                onTriaged?.("archive");
+                                toast({
+                                  title: "Fil ignoré",
+                                  description: "Ses prochains messages seront archivés.",
+                                });
+                              })
+                              .catch(() => {
+                                toast({ title: "Archivage échoué", variant: "danger" });
+                              });
+                          }}
+                        >
+                          <SpeakerSlash size={16} />
+                          <span>Ignorer ce fil</span>
+                        </Button>
+                      )}
+                      {clientId && correspondentMsg && (
+                        <Button
+                          variant="ghost"
+                          className={MENU_ROW}
+                          aria-label="Bloquer cet expéditeur"
+                          onPress={() => {
+                            setMoreOpen(false);
+                            blockSender(correspondentMsg.from.email);
+                            void applyTriage(clientId, thread.id, "archive")
+                              .then(() => {
+                                onTriaged?.("archive");
+                                toast({
+                                  title: "Expéditeur bloqué",
+                                  description: `Les prochains emails de ${correspondentMsg.from.email} seront archivés.`,
+                                });
+                              })
+                              .catch(() => {
+                                toast({ title: "Archivage échoué", variant: "danger" });
+                              });
+                          }}
+                        >
+                          <UserMinus size={16} />
+                          <span>Bloquer l'expéditeur</span>
+                        </Button>
                       )}
                       {clientId && (
                         <div className={MENU_COMPONENT_ROW}>
