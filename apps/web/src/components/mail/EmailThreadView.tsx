@@ -64,6 +64,9 @@ import { ExtractActionsButton } from "./ExtractActionsButton";
 import { type TriageAction } from "@/lib/mail-triage";
 import { type EisenhowerQuadrant } from "@/lib/mail-eisenhower";
 import { useConvertToTodo } from "./useConvertToTodo";
+import { QuickRepliesRow } from "./QuickRepliesRow";
+import { useIsMobile } from "@/hooks/useIsMobile";
+import { useMailQuickRepliesChrome } from "@/components/shell/shell-chrome-context";
 import {
   isAiConfigured,
   summarizeThread,
@@ -385,6 +388,25 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
     // -même dérivé du fil.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [thread.id, embedded, aiConfigured, clientId, quickDismissed, lastFromMe]);
+
+  const isMobile = useIsMobile();
+  const quickRepliesShown =
+    !embedded && !!clientId && !!replyParams.to && aiConfigured && (quickBusy || quickReplies.length > 0);
+  const quickRepliesConfig = {
+    items: quickReplies,
+    busy: quickBusy,
+    onPick: (text: string) => {
+      setReplyBody((prev) => (prev.trim() ? `${prev}\n\n${text}` : text));
+      requestAnimationFrame(() => replyTaRef.current?.focus());
+      setQuickReplies([]);
+    },
+    onDismiss: () => {
+      setQuickReplies([]);
+      setQuickDismissed(true);
+    },
+  };
+  // Sur mobile le panneau droit n'existe pas : la rangée reste sous le fil.
+  useMailQuickRepliesChrome(quickRepliesShown && !isMobile ? quickRepliesConfig : null);
 
   const runSummary = async () => {
     if (summaryBusy) return;
@@ -1193,48 +1215,8 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
           className="sticky bottom-0 mt-1 border-t px-1 pb-2 pt-2"
           style={{ background: "var(--surface-1)", borderColor: "var(--border-subtle)" }}
         >
-          {/* Réponses éclair : un clic charge le texte dans le composeur (jamais
-              d'envoi direct — on relit avant d'envoyer). */}
-          {!embedded && aiConfigured && (quickBusy || quickReplies.length > 0) && (
-            <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
-              <span className="text-[11px] font-medium" style={{ color: "var(--text-muted)" }}>
-                Réponses éclair
-              </span>
-              {quickBusy && <Spinner size="sm" aria-label="Génération des réponses éclair" />}
-              {quickReplies.map((text) => (
-                <Button
-                  key={text}
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 max-w-full rounded-full px-2.5 text-xs"
-                  style={{ background: "var(--accent-subtle)", color: "var(--accent)" }}
-                  onPress={() => {
-                    setReplyBody((prev) => (prev.trim() ? `${prev}\n\n${text}` : text));
-                    requestAnimationFrame(() => replyTaRef.current?.focus());
-                    setQuickReplies([]);
-                  }}
-                >
-                  <span className="truncate">{text}</span>
-                </Button>
-              ))}
-              {quickReplies.length > 0 && (
-                <Tooltip content="Masquer les réponses éclair">
-                  <Button
-                    isIconOnly
-                    variant="ghost"
-                    size="sm"
-                    aria-label="Masquer les réponses éclair"
-                    className="h-7 min-h-7 w-7 min-w-7"
-                    onPress={() => {
-                      setQuickReplies([]);
-                      setQuickDismissed(true);
-                    }}
-                  >
-                    <X size={12} />
-                  </Button>
-                </Tooltip>
-              )}
-            </div>
+          {quickRepliesShown && isMobile && (
+            <QuickRepliesRow {...quickRepliesConfig} className="mb-1.5" />
           )}
           <ComposerToolbar
             textareaRef={replyTaRef}

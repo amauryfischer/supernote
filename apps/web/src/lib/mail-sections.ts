@@ -89,13 +89,31 @@ function timeBucket(row: OverlayRow, now: number): MailSectionId {
 }
 
 /**
+ * Un groupe mêlant fils étoilés et non étoilés est coupé en deux : sinon une
+ * seule étoile emporterait tout le groupe dans « Étoilés ». La moitié étoilée
+ * garde la clé suffixée `#star` (deux lignes rendues ne partagent pas une clé).
+ */
+function splitByStar(row: OverlayRow): OverlayRow[] {
+  if (row.kind === "single") return [row];
+  const starred = row.items.filter((it) => it.labelIds.includes("STARRED"));
+  if (starred.length === 0 || starred.length === row.items.length) return [row];
+  const rest = row.items.filter((it) => !it.labelIds.includes("STARRED"));
+  const latest = (items: typeof row.items) =>
+    items.reduce((max, it) => (it.date > max ? it.date : max), "");
+  return [
+    { ...row, key: `${row.key}#star`, items: starred, count: starred.length, date: latest(starred) },
+    { ...row, items: rest, count: rest.length, date: latest(rest) },
+  ];
+}
+
+/**
  * Range les lignes en sections, en PRÉSERVANT leur ordre relatif à l'intérieur
  * de chaque section (la liste arrive déjà triée par date). Les sections vides
  * ne sont pas rendues. PUR.
  */
 export function buildMailSections(rows: readonly OverlayRow[], now: number): MailSection[] {
   const buckets = new Map<MailSectionId, OverlayRow[]>();
-  for (const row of rows) {
+  for (const row of rows.flatMap(splitByStar)) {
     const id = rowHasStar(row) ? "starred" : timeBucket(row, now);
     const arr = buckets.get(id);
     if (arr) arr.push(row);

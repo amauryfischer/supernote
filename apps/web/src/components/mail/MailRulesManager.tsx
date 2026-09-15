@@ -14,8 +14,8 @@
  */
 
 import { useEffect, useState } from "react";
-import { Button, Input, Switch } from "@heroui/react";
-import { Modal, useToast } from "@supernote/ui";
+import { Button, Input } from "@heroui/react";
+import { Modal, useToast, Switch } from "@supernote/ui";
 import { Plus, Trash, Lightning, Funnel } from "@phosphor-icons/react";
 import { NativeSelect } from "@/components/settings/NativeSelect";
 import {

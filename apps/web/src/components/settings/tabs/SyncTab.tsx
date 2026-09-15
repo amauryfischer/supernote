@@ -2,7 +2,8 @@
 
 import { GitBranch, ArrowsClockwise, CheckCircle, CloudCheck, Plugs } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
-import { Button, Input, Switch, Chip } from "@heroui/react";
+import { Switch } from "@supernote/ui";
+import { Button, Input, Chip } from "@heroui/react";
 import { useSettings } from "../SettingsContext";
 import { SettingRow } from "../SettingRow";
 import { SettingSection } from "../SettingSection";

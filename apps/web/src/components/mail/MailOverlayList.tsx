@@ -48,8 +48,6 @@ interface SharedRowProps {
    *  draggables ni droppables (et la liste défile normalement sur tactile). */
   dndEnabled: boolean;
   onOpenContext: (c: { x: number; y: number; row: OverlayRow }) => void;
-  /** Densité d'affichage : `compact` = 1 ligne par fil, `confort` = 3 lignes. */
-  density: MailDensity;
   /** Gestes tactiles (mobile) : glisser pour archiver / reporter. */
   onSwipeRow?: (row: OverlayRow, action: SwipeAction) => void;
   /** Appui long (mobile) : feuille d'actions de la ligne. */
@@ -57,9 +55,6 @@ interface SharedRowProps {
   /** threadId → mini-résumé IA. Remplace le snippet Gmail quand il existe. */
   summaries?: ReadonlyMap<string, string>;
 }
-
-/** Densité d'affichage de la liste (préférence utilisateur, cf. réglages Gmail). */
-export type MailDensity = "compact" | "confort";
 
 /**
  * Au-delà de ce nombre de lignes, la liste est VIRTUALISÉE (seules les lignes
@@ -69,8 +64,8 @@ export type MailDensity = "compact" | "confort";
  */
 const VIRTUALIZE_THRESHOLD = 60;
 
-/** Hauteur estimée d'une ligne (avant mesure réelle) selon la densité. */
-const ROW_ESTIMATE: Record<MailDensity, number> = { compact: 36, confort: 62 };
+/** Hauteur estimée d'une ligne (avant mesure réelle). */
+const ROW_ESTIMATE = 62;
 
 /** Hauteur estimée d'un en-tête de section (avant mesure réelle). */
 const HEADER_ESTIMATE = 34;
@@ -111,7 +106,6 @@ export function MailOverlayList({
   onMarkRowRead,
   onApplyLabel,
   userLabels,
-  density = "confort",
   scrollElementRef,
   onSwipeRow,
   onLongPressRow,
@@ -159,8 +153,6 @@ export function MailOverlayList({
   onApplyLabel?: (threadId: string, labelId: string) => void;
   /** Labels utilisateur (labelId → nom) pour le menu « Ajouter un tag ». */
   userLabels?: Map<string, string>;
-  /** Densité d'affichage (préférence utilisateur). Défaut : confort. */
-  density?: MailDensity;
   /**
    * Conteneur scrollable de la liste (détenu par la page). Requis pour la
    * virtualisation ; sans lui, la liste est rendue intégralement.
@@ -250,13 +242,13 @@ export function MailOverlayList({
   // ── Virtualisation ────────────────────────────────────────────────────────
   // Activée seulement au-delà du seuil ET quand la page nous a passé son
   // conteneur scrollable. Hauteurs dynamiques : `measureElement` remplace
-  // l'estimation dès que la ligne est montée (densité, groupes multi-lignes).
+  // l'estimation dès que la ligne est montée (groupes multi-lignes).
   const virtualized = rows.length > VIRTUALIZE_THRESHOLD && Boolean(scrollElementRef?.current);
   const virtualizer = useVirtualizer({
     count: entries.length,
     getScrollElement: () => scrollElementRef?.current ?? null,
     estimateSize: (i) =>
-      entries[i]?.kind === "header" ? HEADER_ESTIMATE : ROW_ESTIMATE[density],
+      entries[i]?.kind === "header" ? HEADER_ESTIMATE : ROW_ESTIMATE,
     overscan: 8,
     getItemKey: (i) => entryKey(entries[i], i),
   });
@@ -284,7 +276,6 @@ export function MailOverlayList({
     anySelected,
     dndEnabled,
     onOpenContext: setCtx,
-    density,
     onSwipeRow,
     onLongPressRow,
     summaries,
@@ -495,7 +486,6 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
     anySelected,
     dndEnabled,
     onOpenContext,
-    density,
     onSwipeRow,
     onLongPressRow,
     summaries,
@@ -506,7 +496,7 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
   const isLabel = row.kind === "group" && row.groupType === "label";
   const labelId =
     row.kind === "group" && row.groupType === "label" && row.key.startsWith("label:")
-      ? row.key.slice("label:".length)
+      ? row.key.slice("label:".length).replace(/#star$/, "")
       : null;
 
   // DnD : ligne single = source ; groupe-label = cible. Un thread déjà porteur
@@ -567,7 +557,7 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
       variant="ghost"
       onPress={() => onPick(row)}
       className={`h-auto w-full min-w-0 flex-1 justify-start whitespace-normal rounded-lg px-2.5 text-left ${
-        isLabel ? "py-1.5" : density === "compact" ? "py-1" : "py-2.5"
+        isLabel ? "py-1.5" : "py-2.5"
       }${
         cursored && activeKey !== key
           ? " ring-2 ring-inset ring-[var(--accent)] ring-offset-0"
@@ -648,96 +638,6 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
             />
           )}
           <span className="ml-auto shrink-0 text-xs" style={{ color: "var(--text-muted)" }}>
-            {formatMailDate(date)}
-          </span>
-        </span>
-      ) : density === "compact" ? (
-        /* Densité COMPACTE : une seule ligne — pastille non-lu, expéditeur,
-           objet, aperçu grisé, date, étoile. Objectif : voir 3× plus de fils à
-           l'écran (repère : Superhuman). Aucune information n'est perdue,
-           seulement resserrée ; le survol ne tronque pas davantage. */
-        <span className="flex w-full min-w-0 items-center gap-2">
-          <span
-            aria-label={unread ? "Non lu" : undefined}
-            className="h-1.5 w-1.5 shrink-0 rounded-full"
-            style={{ backgroundColor: unread ? "var(--accent)" : "transparent" }}
-          />
-          <span className="min-w-0 flex-1 truncate text-[13px]">
-            <span
-              className={unread ? "font-semibold" : "font-medium"}
-              style={{ color: "var(--text-primary)" }}
-            >
-              {subject || "(sans objet)"}
-            </span>
-            {preview && (
-              <span
-                style={{ color: "var(--text-muted)" }}
-                title={aiPreview ? "Résumé par l'IA locale" : undefined}
-              >
-                {" — "}
-                {aiPreview && (
-                  <Sparkle
-                    size={10}
-                    weight="fill"
-                    aria-hidden
-                    className="inline align-[-1px]"
-                    style={{ color: "var(--accent)" }}
-                  />
-                )}{" "}
-                {preview}
-              </span>
-            )}
-          </span>
-          {row.kind === "group" && row.count > 1 && (
-            <span
-              className={`shrink-0 rounded-full px-1.5 text-[11px] ${groupUnread > 0 ? "font-bold" : ""}`}
-              style={{ background: "var(--accent-subtle)", color: "var(--accent)" }}
-              title={`${row.count} fils`}
-            >
-              {groupUnread > 0 ? `${groupUnread}/${row.count}` : row.count}
-            </span>
-          )}
-          {/* Expéditeur APRÈS l'objet : c'est l'objet qu'on lit pour décider,
-              l'expéditeur ne fait que le qualifier. Colonne fixe pour que les
-              dates restent alignées d'une ligne à l'autre. */}
-          <span
-            className="w-32 shrink-0 truncate text-[12px]"
-            style={{ color: "var(--text-muted)" }}
-            title={title}
-          >
-            {title}
-          </span>
-          {singleItem && onToggleStar ? (
-            <span
-              role="button"
-              tabIndex={0}
-              aria-label={starred ? "Retirer l'étoile" : "Mettre une étoile"}
-              aria-pressed={starred}
-              className="inline-flex shrink-0 cursor-pointer p-0.5"
-              onClick={(e) => {
-                e.stopPropagation();
-                onToggleStar(singleItem.id, singleItem.labelIds);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  onToggleStar(singleItem.id, singleItem.labelIds);
-                }
-              }}
-            >
-              <Star
-                size={13}
-                weight={starred ? "fill" : "regular"}
-                style={{ color: starred ? "#f5b300" : "var(--text-muted)" }}
-              />
-            </span>
-          ) : (
-            starred && (
-              <Star size={13} weight="fill" aria-hidden className="shrink-0" style={{ color: "#f5b300" }} />
-            )
-          )}
-          <span className="w-14 shrink-0 text-right text-[11px]" style={{ color: "var(--text-muted)" }}>
             {formatMailDate(date)}
           </span>
         </span>

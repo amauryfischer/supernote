@@ -8,6 +8,7 @@ import { useShellChrome } from "./shell-chrome-context";
 import { useUiMode } from "@/hooks/useUiMode";
 import { PrioritiesWidget } from "@/components/todos/PrioritiesWidget";
 import { AiCommentCard } from "@/components/notes/AiMarginsPanel";
+import { QuickRepliesRow } from "@/components/mail/QuickRepliesRow";
 import { blockKey } from "@/hooks/useAiMargins";
 import {
   FolderProposalCard,
@@ -238,7 +239,7 @@ function RecentList() {
 // ── Main component ────────────────────────────────────────────────────────────
 
 export const RightPanel = memo(function RightPanel() {
-  const { setRightPanelVisible , aiMargins } = useShellChrome();
+  const { setRightPanelVisible, aiMargins, mailQuickReplies } = useShellChrome();
   const marginComments = aiMargins && aiMargins.comments.length > 0 ? aiMargins : null;
   const proposalActions = useFolderProposalActions();
   const hasProposals = proposalActions.proposals.length > 0;
@@ -322,16 +323,23 @@ export const RightPanel = memo(function RightPanel() {
 
       {/* AI / Suggestions — l'état quand il n'y a pas (encore) de carte. Muet
           quand un rangement est déjà proposé au-dessus : « ouvre une note pour
-          voir les suggestions » sous une suggestion se contredit. */}
-      {!marginComments && !hasProposals && (
+          voir les suggestions » sous une suggestion se contredit. Les réponses
+          éclair, elles, restent : leur seul emplacement desktop est ici. */}
+      {!marginComments && (mailQuickReplies || !hasProposals) && (
         <div className="flex flex-col gap-1 p-3">
           <div className="flex items-center gap-1.5 px-3 pb-2">
             <Sparkle size={12} style={{ color: "var(--icon-decorative)" }} />
-            <span className="sn-eyebrow sn-eyebrow--compact">Suggestions IA</span>
+            <span className="sn-eyebrow sn-eyebrow--compact">
+              {hasProposals ? "Sur ce fil" : "Suggestions IA"}
+            </span>
           </div>
-          <p className="px-3 py-1 text-xs leading-relaxed" style={{ color: "var(--text-muted)" }}>
-            {aiMarginsHint}
-          </p>
+          {mailQuickReplies ? (
+            <QuickRepliesRow {...mailQuickReplies} className="px-3" />
+          ) : (
+            <p className="px-3 py-1 text-xs leading-relaxed" style={{ color: "var(--text-muted)" }}>
+              {aiMarginsHint}
+            </p>
+          )}
         </div>
       )}
 

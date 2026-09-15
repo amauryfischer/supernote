@@ -51,6 +51,8 @@ export interface UseMailSummariesResult {
   busy: boolean;
   /** Fils encore sans résumé. */
   remaining: number;
+  /** Dernier échec d'appel à l'IA locale (null après une réussite). */
+  error: string | null;
   /** Lance une passe sans attendre (et réessaye les fils en échec). */
   runNow: () => void;
 }
@@ -63,6 +65,8 @@ export function useMailSummaries({
   const { toast } = useToast();
   const [summaries, setSummaries] = useState<ReadonlyMap<string, string>>(new Map());
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const errorRef = useRef<string | null>(null);
   const runningRef = useRef(false);
   /** Fils dont le résumé a échoué : on ne les repropose pas en boucle. */
   const failedRef = useRef<Set<string>>(new Set());
@@ -137,12 +141,21 @@ export function useMailSummaries({
             from: item.from,
             body: await resolveBody(item),
           });
-        } catch {
-          // Ollama injoignable : on arrête la passe et on patiente. Les fils
-          // ne sont PAS marqués en échec — ils repasseront après le délai.
+        } catch (err) {
+          // Ollama injoignable ou modèle absent : on arrête la passe et on
+          // patiente. Les fils ne sont PAS marqués en échec — ils repasseront
+          // après le délai. Toast au premier échec seulement (passes en boucle).
           cooldownUntilRef.current = Date.now() + COOLDOWN_MS;
+          const message = err instanceof Error ? err.message : String(err);
+          if (errorRef.current === null) {
+            toast({ title: "Résumés IA indisponibles", description: message, variant: "danger" });
+          }
+          errorRef.current = message;
+          setError(message);
           break;
         }
+        errorRef.current = null;
+        setError(null);
         if (!text) {
           // Réponse inexploitable : le fil garde son snippet, on n'insiste pas.
           failedRef.current.add(item.id);
@@ -156,7 +169,7 @@ export function useMailSummaries({
       runningRef.current = false;
       setBusy(false);
     }
-  }, [resolveBody]);
+  }, [resolveBody, toast]);
 
   /** Passe manuelle : réessaye aussi les fils en échec, et dit ce qu'elle fait. */
   const runNow = useCallback(() => {
@@ -184,5 +197,5 @@ export function useMailSummaries({
 
   // Réglage coupé → la liste retrouve immédiatement ses snippets Gmail (on ne
   // vide pas la map : rallumer le réglage réaffiche les résumés sans recalcul).
-  return { summaries: enabled ? summaries : EMPTY_SUMMARIES, busy, remaining, runNow };
+  return { summaries: enabled ? summaries : EMPTY_SUMMARIES, busy, remaining, error, runNow };
 }

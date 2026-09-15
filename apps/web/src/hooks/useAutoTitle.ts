@@ -34,7 +34,7 @@ const ENABLED_KEY = "supernote.ai.autoTitle";
 const CORS_WARNED_KEY = "supernote.ai.autoTitle.corsWarned";
 const HOST_KEY = "supernote.ai.ollamaHost";
 
-const FALLBACK_MODEL = "qwen3.5:9b";
+const FALLBACK_MODEL = "qwen3.5:4b";
 
 /**
  * Result of a probe against Ollama. We distinguish failure modes so the

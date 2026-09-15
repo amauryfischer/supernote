@@ -1,6 +1,6 @@
 "use client";
 
-import { Switch } from "@heroui/react";
+import { Switch } from "@supernote/ui";
 
 interface ToggleSwitchProps {
   checked: boolean;

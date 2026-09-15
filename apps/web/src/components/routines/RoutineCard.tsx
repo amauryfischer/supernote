@@ -1,6 +1,7 @@
 "use client";
 
-import { Button, Switch } from "@heroui/react";
+import { Switch } from "@supernote/ui";
+import { Button } from "@heroui/react";
 import { Calendar, Lightning, Alarm, WebhooksLogo, PencilSimple, Play, Power, Trash } from "@phosphor-icons/react";
 import Link from "next/link";
 import type { RoutineFixture } from "./fixtures";

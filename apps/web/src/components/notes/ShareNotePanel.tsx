@@ -1,9 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Button, Input, Popover, Switch } from "@heroui/react";
+import { Button, Input, Popover } from "@heroui/react";
 import { ShareNetwork, Copy, Check } from "@phosphor-icons/react";
-import { useToast } from "@supernote/ui";
+import { useToast, Switch } from "@supernote/ui";
 import type { Note } from "./fixtures";
 import { exportNoteHtml } from "@/lib/share/exportNoteHtml";
 import {

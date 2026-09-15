@@ -15,7 +15,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   },
   ia: {
     autoTagging: true,
-    ollamaModel: "qwen3.5:9b",
+    ollamaModel: "qwen3.5:4b",
     confidenceThreshold: 0.7,
     autoClassify: true,
     mentionDetection: true,
@@ -57,7 +57,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   gmail: {
     connectedEmail: "",
     aliases: [],
-    density: "confort",
     signature: "",
     // 8 s : assez pour rattraper une bourde, assez court pour ne pas donner
     // l'impression que l'app « retient » les envois.

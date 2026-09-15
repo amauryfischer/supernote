@@ -26,6 +26,8 @@ export type MailActionId =
   | "prev"
   | "open"
   | "close"
+  | "paneGroup"
+  | "paneList"
   | "goInbox"
   | "goTodo"
   | "goStarred"
@@ -50,7 +52,6 @@ export type MailActionId =
   | "aiDraft"
   // Vue
   | "search"
-  | "density"
   | "assistant"
   | "help";
 
@@ -114,6 +115,22 @@ export const MAIL_SHORTCUTS: MailBinding[] = [
     label: "Revenir à la liste",
     group: "Navigation",
     contexts: ["group", "thread"],
+  },
+  {
+    id: "paneGroup",
+    keys: [["ArrowRight"]],
+    display: "→",
+    label: "Passer aux emails du groupe",
+    group: "Navigation",
+    contexts: ["group"],
+  },
+  {
+    id: "paneList",
+    keys: [["ArrowLeft"]],
+    display: "←",
+    label: "Revenir du groupe à la liste",
+    group: "Navigation",
+    contexts: ["group"],
   },
   {
     id: "goInbox",
@@ -286,14 +303,6 @@ export const MAIL_SHORTCUTS: MailBinding[] = [
     keys: [["/"]],
     display: "/",
     label: "Rechercher",
-    group: "Vue",
-    contexts: ALL,
-  },
-  {
-    id: "density",
-    keys: [["v"]],
-    display: "v",
-    label: "Densité de la liste",
     group: "Vue",
     contexts: ALL,
   },

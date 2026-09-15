@@ -2,13 +2,14 @@
 
 import { useState } from "react";
 import { Modal, Button, Input, Checkbox, useToast } from "@supernote/ui";
-import { Plus, PencilSimple, Trash, Tag, X } from "@phosphor-icons/react";
+import { Plus, PencilSimple, Trash, Tag, X, MagnifyingGlass } from "@phosphor-icons/react";
 import {
   loadGroups,
   upsertGroup,
   removeGroup,
   type MailGroup,
 } from "@/lib/mail-groups";
+import { normalize } from "@/lib/unified-search";
 
 /** Génère un id de groupe stable, robuste si `crypto.randomUUID` absent. */
 function newGroupId(): string {
@@ -41,12 +42,18 @@ export function MailGroupsManager({
   const [groups, setGroups] = useState<MailGroup[]>(() => loadGroups());
   // Édition courante : `null` = liste ; objet = formulaire (création ou édition).
   const [editing, setEditing] = useState<MailGroup | null>(null);
+  const [labelQuery, setLabelQuery] = useState("");
 
   const refresh = () => setGroups(loadGroups());
 
-  const startCreate = () =>
+  const startCreate = () => {
+    setLabelQuery("");
     setEditing({ id: newGroupId(), name: "", labelIds: [], createdAt: Date.now() });
-  const startEdit = (g: MailGroup) => setEditing({ ...g });
+  };
+  const startEdit = (g: MailGroup) => {
+    setLabelQuery("");
+    setEditing({ ...g });
+  };
 
   const toggleLabel = (labelId: string) => {
     setEditing((e) =>
@@ -84,6 +91,10 @@ export function MailGroupsManager({
   };
 
   const labelEntries = [...labelNames.entries()];
+  const q = normalize(labelQuery);
+  const visibleLabels = q
+    ? labelEntries.filter(([, name]) => normalize(name).includes(q))
+    : labelEntries;
 
   return (
     <Modal
@@ -120,23 +131,46 @@ export function MailGroupsManager({
                 Aucun label Gmail détecté. Crée des labels dans Gmail puis recharge.
               </p>
             ) : (
-              <div
-                className="flex max-h-64 flex-col gap-1 overflow-y-auto rounded-lg border p-2"
-                style={{ borderColor: "var(--border-subtle)" }}
-              >
-                {labelEntries.map(([id, name]) => (
-                  <Checkbox
-                    key={id}
-                    isSelected={editing.labelIds.includes(id)}
-                    onChange={() => toggleLabel(id)}
-                  >
-                    <span className="inline-flex items-center gap-1.5 text-sm">
-                      <Tag size={13} aria-hidden style={{ color: "var(--accent)" }} />
-                      {name}
-                    </span>
-                  </Checkbox>
-                ))}
-              </div>
+              <>
+                <div className="relative">
+                  <MagnifyingGlass
+                    size={14}
+                    aria-hidden
+                    className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2"
+                    style={{ color: "var(--text-muted)" }}
+                  />
+                  <Input
+                    type="search"
+                    value={labelQuery}
+                    onChange={(e) => setLabelQuery(e.target.value)}
+                    placeholder="Chercher un tag…"
+                    aria-label="Chercher un tag"
+                    className="w-full pl-8"
+                  />
+                </div>
+                <div
+                  className="flex max-h-64 flex-col gap-1 overflow-y-auto rounded-lg border p-2"
+                  style={{ borderColor: "var(--border-subtle)" }}
+                >
+                  {visibleLabels.length === 0 && (
+                    <p className="px-1 py-2 text-xs" style={{ color: "var(--text-muted)" }}>
+                      Aucun tag ne correspond.
+                    </p>
+                  )}
+                  {visibleLabels.map(([id, name]) => (
+                    <Checkbox
+                      key={id}
+                      isSelected={editing.labelIds.includes(id)}
+                      onChange={() => toggleLabel(id)}
+                    >
+                      <span className="inline-flex items-center gap-1.5 text-sm">
+                        <Tag size={13} aria-hidden style={{ color: "var(--accent)" }} />
+                        {name}
+                      </span>
+                    </Checkbox>
+                  ))}
+                </div>
+              </>
             )}
           </div>
 

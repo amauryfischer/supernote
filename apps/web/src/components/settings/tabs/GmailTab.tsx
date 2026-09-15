@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Button, Input, Switch } from "@heroui/react";
+import { Button, Input } from "@heroui/react";
 import {
   EnvelopeSimple,
   Plug,
@@ -10,13 +10,12 @@ import {
   UsersThree,
   Trash,
   PencilSimple,
-  Rows,
   ProhibitInset,
   SpeakerSlash,
 } from "@phosphor-icons/react";
 import { useSettings } from "../SettingsContext";
 import { SettingRow } from "../SettingRow";
-import { Textarea, useToast } from "@supernote/ui";
+import { Textarea, useToast, Switch } from "@supernote/ui";
 import { SettingSection } from "../SettingSection";
 import { connectGmail, getGmailProfile, GMAIL_READONLY_SCOPE } from "@/lib/gmail";
 import { clearAccessToken } from "@/lib/google-drive";
@@ -187,26 +186,6 @@ export function GmailTab() {
               placeholder={"Prénom Nom\nFonction · Société\n06 00 00 00 00"}
               className="w-full sm:w-96"
             />
-          </SettingRow>
-
-          <SettingRow
-            label="Densité de la liste"
-            description="Compact = une ligne par fil (plus d'emails à l'écran). Confort = expéditeur, objet et aperçu."
-          >
-            <div className="flex items-center gap-2">
-              <Rows size={14} style={{ color: "var(--text-muted)" }} aria-hidden />
-              <Switch
-                isSelected={(gmail.density ?? "confort") === "compact"}
-                onChange={(sel) => {
-                  updateSettings("gmail", { ...gmail, density: sel ? "compact" : "confort" });
-                  void saveSettings();
-                }}
-                aria-label="Densité compacte de la liste d'emails"
-              />
-              <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-                {(gmail.density ?? "confort") === "compact" ? "Compact" : "Confort"}
-              </span>
-            </div>
           </SettingRow>
 
           <SettingRow

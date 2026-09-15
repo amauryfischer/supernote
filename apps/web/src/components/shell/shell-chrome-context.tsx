@@ -91,6 +91,17 @@ export interface AiMarginsChrome {
   onDismiss: (block: NoteBlock) => void;
 }
 
+/**
+ * Réponses éclair du fil ouvert, publiées vers le panneau droit sur desktop :
+ * au-dessus du composeur, elles poussaient la lecture du fil.
+ */
+export interface MailQuickRepliesChrome {
+  items: string[];
+  busy: boolean;
+  onPick: (text: string) => void;
+  onDismiss: () => void;
+}
+
 export interface ColumnEditorState {
   base: EntityType;
   view: View;
@@ -164,6 +175,10 @@ interface ShellChromeContextValue {
   /** Commentaires IA de la note ouverte, `null` hors note (ou colonne visible). */
   aiMargins: AiMarginsChrome | null;
   setAiMargins: (next: AiMarginsChrome | null) => void;
+
+  /** Réponses éclair du fil de mail ouvert, `null` hors fil (ou sur mobile). */
+  mailQuickReplies: MailQuickRepliesChrome | null;
+  setMailQuickReplies: (next: MailQuickRepliesChrome | null) => void;
 }
 
 export interface EntityPeekState {
@@ -197,6 +212,7 @@ export function ShellChromeProvider({ children }: { children: React.ReactNode })
 
   const [entityPeek, setEntityPeek] = useState<EntityPeekState | null>(null);
   const [aiMargins, setAiMarginsState] = useState<AiMarginsChrome | null>(null);
+  const [mailQuickReplies, setMailQuickReplies] = useState<MailQuickRepliesChrome | null>(null);
 
   // Même précaution que `setMobileFab` : la note republie à chaque frappe, et
   // sans ce court-circuit le shell entier (RightPanel `memo` compris) se
@@ -428,6 +444,8 @@ export function ShellChromeProvider({ children }: { children: React.ReactNode })
       closeEntityPeek,
       aiMargins,
       setAiMargins,
+      mailQuickReplies,
+      setMailQuickReplies,
     }),
     [
       focusMode,
@@ -456,6 +474,8 @@ export function ShellChromeProvider({ children }: { children: React.ReactNode })
       closeEntityPeek,
       aiMargins,
       setAiMargins,
+      mailQuickReplies,
+      setMailQuickReplies,
     ],
   );
 
@@ -596,4 +616,23 @@ export function useAiMarginsChrome(config: AiMarginsChrome | null): void {
     return () => ctx.setAiMargins(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [comments, status, nothing]);
+}
+
+/**
+ * Publie les réponses éclair du fil ouvert vers le panneau droit. Même contrat
+ * que `useAiMarginsChrome` : l'effet ne suit que ce qui est affiché, les
+ * callbacks passent par la ref.
+ */
+export function useMailQuickRepliesChrome(config: MailQuickRepliesChrome | null): void {
+  const ctx = useContext(ShellChromeContext);
+  const ref = useRef(config);
+  ref.current = config;
+  const items = config?.items;
+  const busy = config?.busy;
+  useEffect(() => {
+    if (!ctx) return warnMissingProvider("useMailQuickRepliesChrome");
+    ctx.setMailQuickReplies(ref.current);
+    return () => ctx.setMailQuickReplies(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items, busy]);
 }

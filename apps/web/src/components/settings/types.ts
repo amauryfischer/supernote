@@ -111,11 +111,6 @@ export interface GmailSettings {
    * dans la surcouche mail (cf. `buildMailOverlay`). Insensible à la casse.
    */
   aliases: string[];
-  /**
-   * Densité de la liste d'emails. `compact` = une ligne par fil (max de fils à
-   * l'écran, façon Superhuman) ; `confort` = expéditeur + objet + aperçu.
-   */
-  density: "compact" | "confort";
   /** Signature ajoutée en bas des messages envoyés (texte brut, "" = aucune). */
   signature: string;
   /**

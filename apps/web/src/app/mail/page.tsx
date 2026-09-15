@@ -17,7 +17,6 @@ import {
   ArrowsClockwise,
   Faders,
   Keyboard,
-  Rows,
   Confetti,
   ArrowClockwise,
   Sparkle,
@@ -169,7 +168,7 @@ function triageMutation(id: string, action: TriageAction): MirrorMutation {
 }
 
 export default function MailPage() {
-  const { settings, updateSettings } = useSettings();
+  const { settings } = useSettings();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const isMobile = useIsMobile();
@@ -219,6 +218,8 @@ export default function MailPage() {
   const [selectedRowIndex, setSelectedRowIndex] = useState(-1);
   // Curseur clavier DANS un groupe ouvert (pane2).
   const [groupCursor, setGroupCursor] = useState(0);
+  // Groupe ouvert : volet qui reçoit ↑/↓/↵ et les actions (← / → pour basculer).
+  const [pane, setPane] = useState<"list" | "group">("group");
   const groupScrollRef = useRef<HTMLDivElement | null>(null);
   const listScrollRef = useRef<HTMLDivElement | null>(null);
   // Conteneur scrollable du fil ouvert : on s'y positionne EN BAS à l'ouverture.
@@ -321,14 +322,6 @@ export default function MailPage() {
     return () => window.removeEventListener(MAIL_STATS_EVENT, refresh);
   }, []);
 
-  const density = settings.gmail.density ?? "confort";
-  const setDensity = useCallback(
-    (next: "compact" | "confort") => {
-      updateSettings("gmail", { ...settings.gmail, density: next });
-    },
-    [settings.gmail, updateSettings],
-  );
-
   // Ouvre un compose vierge (« Nouveau message »).
   const openCompose = useCallback(() => {
     setComposeInitial({ subject: "", body: "" });
@@ -357,9 +350,8 @@ export default function MailPage() {
   const runSummariesRef = useRef<() => void>(() => {});
   const runSummariesNow = useCallback(() => runSummariesRef.current(), []);
 
-  // Recherche + densité dans la barre du haut mobile : ces deux affordances
-  // existaient uniquement sur desktop (champ de recherche large, bouton densité
-  // du bandeau d'onglets), donc inaccessibles au doigt.
+  // Recherche dans la barre du haut mobile : le champ de recherche large
+  // n'existe que sur desktop, donc inaccessible au doigt.
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   useMobileHeaderActions(
     connected
@@ -373,13 +365,6 @@ export default function MailPage() {
               requestAnimationFrame(() => searchInputRef.current?.focus());
             },
             active: mobileSearchOpen,
-          },
-          {
-            id: "mail-density",
-            icon: Rows,
-            label: "Densité de la liste",
-            onPress: () => setDensity(density === "compact" ? "confort" : "compact"),
-            active: density === "compact",
           },
           ...(settings.gmail.listSummary && aiConfigured
             ? [
@@ -624,6 +609,7 @@ export default function MailPage() {
         void openThread(row.item.id);
       } else {
         setSelectedGroup(row);
+        setPane("group");
         setSelectedThreadId(null);
         setThread(null);
       }
@@ -641,6 +627,9 @@ export default function MailPage() {
           return items.length ? [{ ...r, items, count: items.length }] : [];
         }),
       );
+      // Les lignes sont reconstruites depuis `cumItems` (étoile, tag, onglet) :
+      // un fil laissé là ressusciterait à la prochaine reconstruction.
+      setCumItems((items) => items.filter((it) => it.id !== id));
       setSelectedGroup((g) => {
         if (!g) return g;
         const items = g.items.filter((it) => it.id !== id);
@@ -654,7 +643,7 @@ export default function MailPage() {
         return cur;
       });
     },
-    [setRows],
+    [setRows, setCumItems],
   );
 
   // ── Annuler (toast + raccourci `z`) ─────────────────────────────────────────
@@ -1404,12 +1393,12 @@ export default function MailPage() {
   }, [selectedGroupKey]);
 
   useEffect(() => {
-    if (!selectedGroup) return;
+    if (!selectedGroup || pane !== "group") return;
     const el = groupScrollRef.current?.querySelector<HTMLElement>(
       `[data-mail-group-index="${groupCursor}"]`,
     );
     el?.scrollIntoView({ block: "nearest" });
-  }, [groupCursor, selectedGroup]);
+  }, [groupCursor, selectedGroup, pane]);
 
   useEffect(() => {
     setSelectedThreadIds((prev) => {
@@ -1527,30 +1516,32 @@ export default function MailPage() {
 
   // ── Clavier : câblage des actions (table déclarative → handlers) ────────────
   const kbContext: MailContext = selectedThreadId ? "thread" : selectedGroup ? "group" : "list";
+  // Groupe qui a la main au clavier ; null quand ← a rendu la main à la liste.
+  const activeGroup = pane === "group" ? selectedGroup : null;
 
   /** Fil visé par une action : le fil ouvert, sinon l'item sous le curseur. */
   const targetThreadId = useCallback((): string | null => {
     if (selectedThreadId) return selectedThreadId;
-    if (selectedGroup) return selectedGroup.items[groupCursor]?.id ?? null;
+    if (activeGroup) return activeGroup.items[groupCursor]?.id ?? null;
     const row = displayRows[selectedRowIndex];
     return row && row.kind === "single" ? row.item.id : null;
-  }, [selectedThreadId, selectedGroup, groupCursor, displayRows, selectedRowIndex]);
+  }, [selectedThreadId, activeGroup, groupCursor, displayRows, selectedRowIndex]);
 
   /** Sujet du fil visé (pour les intitulés de menus). */
   const targetSubject = useCallback((): string => {
     if (selectedThreadId) return thread?.messages[0]?.subject ?? "";
-    if (selectedGroup) return selectedGroup.items[groupCursor]?.subject ?? "";
+    if (activeGroup) return activeGroup.items[groupCursor]?.subject ?? "";
     const row = displayRows[selectedRowIndex];
     return row && row.kind === "single" ? row.item.subject : "";
-  }, [selectedThreadId, thread, selectedGroup, groupCursor, displayRows, selectedRowIndex]);
+  }, [selectedThreadId, thread, activeGroup, groupCursor, displayRows, selectedRowIndex]);
 
   /** Labels courants du fil visé (étoile / non-lu depuis la liste). */
   const targetItem = useCallback((): ThreadListItem | null => {
-    if (selectedGroup && !selectedThreadId) return selectedGroup.items[groupCursor] ?? null;
+    if (activeGroup && !selectedThreadId) return activeGroup.items[groupCursor] ?? null;
     const row = displayRows[selectedRowIndex];
     if (!selectedThreadId && row && row.kind === "single") return row.item;
     return cumItems.find((it) => it.id === selectedThreadId) ?? null;
-  }, [selectedGroup, selectedThreadId, groupCursor, displayRows, selectedRowIndex, cumItems]);
+  }, [activeGroup, selectedThreadId, groupCursor, displayRows, selectedRowIndex, cumItems]);
 
   /** Ouvre le fil visé puis exécute une action qui n'a de sens que fil ouvert. */
   const openThenIntent = useCallback(
@@ -1576,8 +1567,8 @@ export default function MailPage() {
     (delta: 1 | -1) => {
       // Groupe ouvert : on feuillette ses items (et on ouvre au vol si un fil
       // est déjà affiché → lecture en rafale).
-      if (selectedGroup) {
-        const items = selectedGroup.items;
+      if (activeGroup) {
+        const items = activeGroup.items;
         if (items.length === 0) return;
         const next = Math.min(Math.max(groupCursor + delta, 0), items.length - 1);
         setGroupCursor(next);
@@ -1615,7 +1606,7 @@ export default function MailPage() {
             : Math.min(Math.max(cur + delta, 0), displayRows.length - 1),
       );
     },
-    [selectedGroup, groupCursor, selectedThreadId, displayRows, openThread],
+    [activeGroup, groupCursor, selectedThreadId, displayRows, openThread],
   );
 
   const keyboardHandlers = useMemo<Partial<Record<MailActionId, () => void>>>(() => {
@@ -1627,8 +1618,8 @@ export default function MailPage() {
       next: () => moveCursor(1),
       prev: () => moveCursor(-1),
       open: () => {
-        if (selectedGroup) {
-          const it = selectedGroup.items[groupCursor];
+        if (activeGroup) {
+          const it = activeGroup.items[groupCursor];
           if (it) void openThread(it.id);
           return;
         }
@@ -1638,6 +1629,17 @@ export default function MailPage() {
       close: () => {
         if (selectedThreadId) closeThread();
         else if (selectedGroup) setSelectedGroup(null);
+      },
+      paneGroup: () => {
+        if (!selectedGroup?.items.length) return;
+        setPane("group");
+        setGroupCursor(0);
+      },
+      paneList: () => {
+        if (!selectedGroup) return;
+        setPane("list");
+        const i = displayRows.findIndex((r) => r.kind === "group" && r.key === selectedGroup.key);
+        if (i >= 0) setSelectedRowIndex(i);
       },
       goInbox: () => {
         setMailTab("inbox");
@@ -1729,7 +1731,6 @@ export default function MailPage() {
         searchInputRef.current?.focus();
         searchInputRef.current?.select();
       },
-      density: () => setDensity(density === "compact" ? "confort" : "compact"),
       assistant: () => {
         if (aiConfigured && accountId) setAssistantOpen((v) => !v);
       },
@@ -1738,6 +1739,7 @@ export default function MailPage() {
   }, [
     moveCursor,
     selectedGroup,
+    activeGroup,
     groupCursor,
     displayRows,
     selectedRowIndex,
@@ -1760,8 +1762,6 @@ export default function MailPage() {
     performUndo,
     openCompose,
     drafts,
-    density,
-    setDensity,
     aiConfigured,
     accountId,
     clientId,
@@ -1818,7 +1818,9 @@ export default function MailPage() {
     }
   };
 
-  const activeKey = selectedGroup?.key ?? (selectedThreadId ? `t:${selectedThreadId}` : undefined);
+  // Volet liste actif : le groupe ouvert perd son surlignage, sinon il masquerait
+  // l'anneau du curseur posé dessus par ←.
+  const activeKey = activeGroup?.key ?? (selectedThreadId ? `t:${selectedThreadId}` : undefined);
 
   // Barre d'actions groupées (desktop uniquement).
   const bulkBar =
@@ -1939,21 +1941,6 @@ export default function MailPage() {
           <Faders size={16} />
         </Button>
       </Tooltip>
-      <Tooltip content={density === "compact" ? "Densité confort (v)" : "Densité compacte (v)"}>
-        <Button
-          size="sm"
-          variant="ghost"
-          isIconOnly
-          onPress={() => setDensity(density === "compact" ? "confort" : "compact")}
-          aria-label={
-            density === "compact" ? "Passer en densité confort" : "Passer en densité compacte"
-          }
-          aria-pressed={density === "compact"}
-          className="shrink-0"
-        >
-          <Rows size={16} />
-        </Button>
-      </Tooltip>
       {/* Classement automatique : état et déclenchement manuel. */}
       {settings.gmail.autoLabel && aiConfigured && (
         <Tooltip
@@ -1990,7 +1977,9 @@ export default function MailPage() {
           content={
             listSummaries.busy
               ? "Résumés en cours…"
-              : listSummaries.remaining > 0
+              : listSummaries.error
+                ? `${listSummaries.error} — cliquer pour réessayer`
+                : listSummaries.remaining > 0
                 ? `${listSummaries.remaining} email(s) sans résumé — cliquer pour lancer`
                 : "Tous les fils sont résumés"
           }
@@ -2009,7 +1998,13 @@ export default function MailPage() {
             ) : (
               <TextAlignLeft
                 size={16}
-                style={listSummaries.remaining > 0 ? { color: "var(--accent)" } : undefined}
+                style={
+                  listSummaries.error
+                    ? { color: "var(--danger)" }
+                    : listSummaries.remaining > 0
+                      ? { color: "var(--accent)" }
+                      : undefined
+                }
               />
             )}
           </Button>
@@ -2124,7 +2119,7 @@ export default function MailPage() {
         className="flex h-full flex-col overflow-hidden"
         style={{ borderRight: "1px solid var(--border-subtle)" }}
       >
-        {tabStrip}
+        {isMobile && tabStrip}
         <div className="flex-1 overflow-y-auto pb-4">
           <MailEisenhowerBoard
             bindings={todoBindings}
@@ -2139,7 +2134,7 @@ export default function MailPage() {
         className="flex h-full flex-col overflow-hidden"
         style={{ borderRight: "1px solid var(--border-subtle)" }}
       >
-        {tabStrip}
+        {isMobile && tabStrip}
         {/* Mobile : la recherche est repliée derrière l'action d'en-tête (la
             liste garde toute la hauteur) ; desktop : toujours visible. */}
         {(!isMobile || mobileSearchOpen) && searchBox}
@@ -2206,7 +2201,7 @@ export default function MailPage() {
                 onPick={onPick}
                 onToggleStar={toggleRowStar}
                 labelColors={labelColors}
-                selectedIndex={isMobile ? undefined : selectedRowIndex}
+                selectedIndex={isMobile || activeGroup ? undefined : selectedRowIndex}
                 selectedThreadIds={isMobile ? undefined : selectedThreadIds}
                 onToggleRowSelection={isMobile ? undefined : toggleRowSelected}
                 onConvertRowToTodo={handleConvertRow}
@@ -2214,7 +2209,6 @@ export default function MailPage() {
                 onMarkRowRead={handleMarkRowRead}
                 onApplyLabel={isMobile ? undefined : handleApplyLabel}
                 userLabels={labelNames}
-                density={density}
                 scrollElementRef={listScrollRef}
                 onSwipeRow={isMobile ? handleSwipeRow : undefined}
                 onLongPressRow={isMobile ? handleLongPressRow : undefined}
@@ -2254,11 +2248,15 @@ export default function MailPage() {
           title={selectedGroup.title}
           items={selectedGroup.items}
           activeThreadId={selectedThreadId ?? undefined}
-          cursorIndex={isMobile ? undefined : groupCursor}
-          onPick={(id) => void openThread(id)}
+          cursorIndex={isMobile || pane !== "group" ? undefined : groupCursor}
+          onPick={(id) => {
+            setPane("group");
+            void openThread(id);
+          }}
           onDeleteAll={() => void deleteGroup(selectedGroup)}
           onMarkAllRead={() => void markGroupRead(selectedGroup)}
           deleteBusy={bulkBusy}
+          summaries={listSummaries.summaries}
         />
       </div>
     </div>
@@ -2600,6 +2598,7 @@ export default function MailPage() {
                 onDeleteAll={() => void deleteGroup(selectedGroup)}
                 onMarkAllRead={() => void markGroupRead(selectedGroup)}
                 deleteBusy={bulkBusy}
+                summaries={listSummaries.summaries}
               />
             </div>
           </div>
@@ -2622,77 +2621,80 @@ export default function MailPage() {
 
   return (
     <AppShell>
-      <div className="relative flex h-full overflow-hidden">
-        {selectedThreadId ? (
-          <>
-            <div className="absolute inset-0 overflow-hidden">{pane1}</div>
-            {!peekList && (
-              <button
-                type="button"
-                onClick={closeThread}
-                aria-label="Fermer l'email (revenir à la boîte)"
-                title="Cliquer pour revenir à la boîte"
-                className="absolute inset-y-0 left-0 z-10 cursor-pointer transition-colors hover:bg-[color-mix(in_oklch,var(--accent)_8%,transparent)]"
-                style={{ width: drawerLeft }}
-              />
-            )}
-            <div
-              className="sn-overlay-in absolute inset-y-0 right-0 z-20 flex overflow-hidden"
-              style={{
-                left: drawerLeft,
-                transition: slide,
-                background: "var(--surface-0)",
-                borderLeft: "1px solid var(--border-subtle)",
-                boxShadow: "-12px 0 30px color-mix(in oklch, var(--text-primary) 14%, transparent)",
-              }}
-            >
-              <button
-                type="button"
-                onClick={() => setPeekList((p) => !p)}
-                aria-label={peekList ? "Replier la boîte" : "Voir la boîte"}
-                title={peekList ? "Replier la boîte" : "Voir la boîte"}
-                className="group flex h-full w-4 shrink-0 items-center justify-center border-r transition-colors hover:bg-[var(--accent-subtle)]"
-                style={{ borderColor: "var(--border-subtle)", background: "var(--surface-1)" }}
-              >
-                {peekList ? (
-                  <CaretDoubleRight
-                    size={12}
-                    weight="bold"
-                    className="group-hover:text-[var(--accent)]"
-                    style={{ color: "var(--text-muted)" }}
-                  />
-                ) : (
-                  <CaretDoubleLeft
-                    size={12}
-                    weight="bold"
-                    className="group-hover:text-[var(--accent)]"
-                    style={{ color: "var(--text-muted)" }}
-                  />
-                )}
-              </button>
-              {selectedGroup && (
-                <div className="h-full shrink-0 overflow-hidden" style={{ flexBasis: "18rem" }}>
-                  {pane2}
-                </div>
+      <div className="flex h-full flex-col overflow-hidden">
+        {tabStrip}
+        <div className="relative flex min-h-0 flex-1 overflow-hidden">
+          {selectedThreadId ? (
+            <>
+              <div className="absolute inset-0 overflow-hidden">{pane1}</div>
+              {!peekList && (
+                <button
+                  type="button"
+                  onClick={closeThread}
+                  aria-label="Fermer l'email (revenir à la boîte)"
+                  title="Cliquer pour revenir à la boîte"
+                  className="absolute inset-y-0 left-0 z-10 cursor-pointer transition-colors hover:bg-[color-mix(in_oklch,var(--accent)_8%,transparent)]"
+                  style={{ width: drawerLeft }}
+                />
               )}
+              <div
+                className="sn-overlay-in absolute inset-y-0 right-0 z-20 flex overflow-hidden"
+                style={{
+                  left: drawerLeft,
+                  transition: slide,
+                  background: "var(--surface-0)",
+                  borderLeft: "1px solid var(--border-subtle)",
+                  boxShadow: "-12px 0 30px color-mix(in oklch, var(--text-primary) 14%, transparent)",
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => setPeekList((p) => !p)}
+                  aria-label={peekList ? "Replier la boîte" : "Voir la boîte"}
+                  title={peekList ? "Replier la boîte" : "Voir la boîte"}
+                  className="group flex h-full w-4 shrink-0 items-center justify-center border-r transition-colors hover:bg-[var(--accent-subtle)]"
+                  style={{ borderColor: "var(--border-subtle)", background: "var(--surface-1)" }}
+                >
+                  {peekList ? (
+                    <CaretDoubleRight
+                      size={12}
+                      weight="bold"
+                      className="group-hover:text-[var(--accent)]"
+                      style={{ color: "var(--text-muted)" }}
+                    />
+                  ) : (
+                    <CaretDoubleLeft
+                      size={12}
+                      weight="bold"
+                      className="group-hover:text-[var(--accent)]"
+                      style={{ color: "var(--text-muted)" }}
+                    />
+                  )}
+                </button>
+                {selectedGroup && (
+                  <div className="h-full shrink-0 overflow-hidden" style={{ flexBasis: "18rem" }}>
+                    {pane2}
+                  </div>
+                )}
+                <div className="h-full min-w-0 flex-1 overflow-hidden">{pane3}</div>
+              </div>
+            </>
+          ) : selectedGroup ? (
+            <>
+              <div className="h-full shrink-0 overflow-hidden" style={{ flexBasis: "50%" }}>
+                {pane1}
+              </div>
+              <div className="h-full min-w-0 flex-1 overflow-hidden">{pane2}</div>
+            </>
+          ) : (
+            <>
+              <div className="h-full shrink-0 overflow-hidden" style={{ flexBasis: "50%" }}>
+                {pane1}
+              </div>
               <div className="h-full min-w-0 flex-1 overflow-hidden">{pane3}</div>
-            </div>
-          </>
-        ) : selectedGroup ? (
-          <>
-            <div className="h-full shrink-0 overflow-hidden" style={{ flexBasis: "50%" }}>
-              {pane1}
-            </div>
-            <div className="h-full min-w-0 flex-1 overflow-hidden">{pane2}</div>
-          </>
-        ) : (
-          <>
-            <div className="h-full shrink-0 overflow-hidden" style={{ flexBasis: "50%" }}>
-              {pane1}
-            </div>
-            <div className="h-full min-w-0 flex-1 overflow-hidden">{pane3}</div>
-          </>
-        )}
+            </>
+          )}
+        </div>
       </div>
       {overlays}
     </AppShell>

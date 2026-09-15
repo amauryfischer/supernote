@@ -2,7 +2,7 @@
 
 import { Button } from "@heroui/react";
 import { Tooltip } from "@supernote/ui";
-import { Trash, EnvelopeOpen } from "@phosphor-icons/react";
+import { Trash, EnvelopeOpen, Sparkle } from "@phosphor-icons/react";
 import type { ThreadListItem } from "@/lib/gmail";
 import { formatMailDateTime } from "@/lib/mail-date";
 import { initials, avatarColor } from "@/lib/mail-avatar";
@@ -16,6 +16,7 @@ export function MailGroupList({
   onDeleteAll,
   onMarkAllRead,
   deleteBusy,
+  summaries,
 }: {
   title: string;
   items: ThreadListItem[];
@@ -28,6 +29,8 @@ export function MailGroupList({
   /** Présent → affiche « tout marquer comme lu » (si ≥1 non lu). */
   onMarkAllRead?: () => void;
   deleteBusy?: boolean;
+  /** threadId → mini-résumé IA, affiché sous l'objet (cf. MailOverlayList). */
+  summaries?: ReadonlyMap<string, string>;
 }) {
   const unreadCount = items.filter((it) => it.labelIds.includes("UNREAD")).length;
   return (
@@ -72,6 +75,7 @@ export function MailGroupList({
         const unread = it.labelIds.includes("UNREAD");
         const avatar = avatarColor(it.from.email || it.from.name || title);
         const mono = initials(it.from.name ?? "", it.from.email ?? "");
+        const aiSummary = summaries?.get(it.id);
         return (
           <Button
             key={it.id}
@@ -123,6 +127,22 @@ export function MailGroupList({
                   </span>
                 </span>
                 <span className="truncate text-sm" style={{ color: "var(--text-secondary)" }}>{it.subject}</span>
+                {aiSummary && (
+                  <span
+                    className="flex min-w-0 items-start gap-1 text-xs"
+                    style={{ color: "var(--text-muted)" }}
+                    title="Résumé par l'IA locale"
+                  >
+                    <Sparkle
+                      size={11}
+                      weight="fill"
+                      aria-hidden
+                      className="mt-0.5 shrink-0"
+                      style={{ color: "var(--accent)" }}
+                    />
+                    <span className="line-clamp-2 min-w-0">{aiSummary}</span>
+                  </span>
+                )}
               </span>
             </span>
           </Button>
