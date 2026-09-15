@@ -8,7 +8,7 @@ on:
 
 jobs:
   check:
-    name: Lint + Typecheck
+    name: Lint + Typecheck + E2E
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -31,4 +31,10 @@ jobs:
 
       - name: Lint
         run: pnpm lint
+
+      - name: Install Playwright chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: E2E
+        run: pnpm test:e2e
 

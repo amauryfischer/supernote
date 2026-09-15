@@ -1,87 +1,26 @@
-/**
- * 03-navigate.spec.ts
- *
- * Clicks every sidebar link and verifies:
- * - Page loads without "Internal Server Error" text
- * - URL changes accordingly
- */
-
 import { test, expect } from "@playwright/test";
-import { tryLaunchApp, closeApp, isElectronAvailable, type AppHandle } from "./helpers";
+import { bootDegraded } from "./helpers";
 
-interface NavTarget {
-  label: string;
-  href: string;
-}
-
-const SIDEBAR_LINKS: NavTarget[] = [
-  { label: "Accueil", href: "/" },
-  { label: "Notes", href: "/notes" },
-  { label: "Contacts", href: "/contacts" },
-  { label: "Finance", href: "/finance" },
-  { label: "Schémas", href: "/schemas" },
-  { label: "Routines", href: "/routines" },
-  { label: "Paramètres", href: "/parametres" },
+// mail, journal et routines sont écartées : leur `gate` (lib/navigation/catalog.ts)
+// dépend d'un drapeau localStorage ou d'un compte Google connecté.
+const ROUTES = [
+  { path: "/notes", heading: "Sélectionnez une note ou créez-en une" },
+  { path: "/todos", heading: "Todos" },
+  { path: "/contacts", heading: "Contacts" },
+  { path: "/finance", heading: "Finance" },
 ];
 
-test.describe("03 — sidebar navigation", () => {
-  let handle: AppHandle | null = null;
-  let electronSkipped = false;
-  const consoleErrors: string[] = [];
-
-  test.beforeAll(async () => {
-    if (!isElectronAvailable()) {
-      electronSkipped = true;
-      return;
-    }
-    handle = await tryLaunchApp();
-    if (!handle) {
-      electronSkipped = true;
-      return;
-    }
-
-    handle.page.on("console", (msg) => {
-      if (msg.type() === "error") {
-        consoleErrors.push(msg.text());
-      }
-    });
-
-    await handle.page.waitForLoadState("networkidle");
+test.describe("03 — navigation", () => {
+  test.beforeEach(async ({ page }) => {
+    await bootDegraded(page);
   });
 
-  test.afterAll(async () => {
-    if (handle) {
-      await closeApp(handle);
-      handle = null;
-    }
-  });
-
-  for (const nav of SIDEBAR_LINKS) {
-    test(`navigates to ${nav.label} (${nav.href})`, async () => {
-      if (electronSkipped || !handle) {
-        test.skip(true, "Electron not available in this environment (WSL2/headless)");
-        return;
-      }
-
-      const link = handle.page.locator(`a[href="${nav.href}"]`).first();
-      const linkVisible = await link.isVisible().catch(() => false);
-
-      if (!linkVisible) {
-        await handle.page.goto(`http://localhost:3000${nav.href}`);
-      } else {
-        await link.click();
-      }
-
-      await handle.page.waitForLoadState("domcontentloaded");
-
-      const bodyText = await handle.page.textContent("body").catch(() => "");
-      expect(bodyText).not.toContain("Internal Server Error");
-      expect(bodyText).not.toContain("Application error");
-
-      const url = await handle.page.url();
-      if (nav.href !== "/") {
-        expect(url).toContain(nav.href);
-      }
+  for (const route of ROUTES) {
+    test(`${route.path} rend son écran`, async ({ page }) => {
+      await page.goto(route.path);
+      await expect(
+        page.getByRole("heading", { name: route.heading }).first(),
+      ).toBeVisible();
     });
   }
 });
