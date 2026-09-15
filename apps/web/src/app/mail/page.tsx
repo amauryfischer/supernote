@@ -103,6 +103,7 @@ import {
 import { MailGroupsManager } from "@/components/mail/MailGroupsManager";
 import { MailOutboxBadge } from "@/components/mail/MailOutboxBadge";
 import { MailOutgoingBadge } from "@/components/mail/MailOutgoingBadge";
+import { MailFollowupBadge } from "@/components/mail/MailFollowupBadge";
 import { trpcVanillaClient } from "@/lib/trpc/client";
 import { TODO_TYPE_ID } from "@/hooks/useTodoSync";
 import { prefersReducedMotion } from "@/lib/motion";
@@ -1680,6 +1681,8 @@ export default function MailPage() {
         </Tooltip>
       )}
       <div className="ml-auto flex shrink-0 items-center gap-1">
+        {/* Rappels de relance en attente. */}
+        <MailFollowupBadge onOpenThread={(id) => void openThread(id)} />
         {/* Envois programmés / en échec (file d'envoi différé). */}
         <MailOutgoingBadge />
         {accountId ? <MailOutboxBadge accountId={accountId} clientId={clientId} /> : null}

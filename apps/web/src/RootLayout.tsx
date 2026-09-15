@@ -32,6 +32,7 @@ import { FreezeReportBanner } from "@/lib/diagnostics/FreezeReportBanner";
 import { UiModeSwitcher } from "@/components/dev/UiModeSwitcher";
 import { InboxAutoSort } from "@/lib/ai/InboxAutoSort";
 import { MailOutgoingRunner } from "@/components/mail/MailOutgoingRunner";
+import { MailFollowupRunner } from "@/components/mail/MailFollowupRunner";
 
 export function RootLayout() {
   return (
@@ -69,6 +70,9 @@ export function RootLayout() {
                     Monté ici, pas dans /mail : un message mis en file doit
                     partir même si on a quitté la page entre-temps. */}
                 <MailOutgoingRunner />
+                {/* Rappels de relance : un fil sans réponse revient en boîte à
+                    l'échéance, même si on n'est pas sur /mail. */}
+                <MailFollowupRunner />
                 {/* Vault auto-init status banner (only meaningful in Electron;
                     in PWA mode it stays silent). */}
                 <VaultInitBanner />

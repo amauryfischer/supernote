@@ -46,6 +46,7 @@ import { buildForwardSubject, buildForwardedBody } from "@/lib/mail-forward";
 import { ComposerToolbar } from "./ComposerToolbar";
 import { useDeferredSend } from "./useDeferredSend";
 import { SendLaterButton } from "./SendLaterButton";
+import { FollowupButton } from "./FollowupButton";
 import { markdownToHtml, hasMarkup } from "@/lib/mail-markdown";
 import { withSignature } from "@/lib/mail-signature";
 import { loadAutoDraft, saveAutoDraft, clearAutoDraft, threadDraftKey } from "@/lib/mail-draft-store";
@@ -817,6 +818,17 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
                             onConvert={(q) => void convertToTodo(q)}
                             isBusy={convertBusy}
                             suggestedQuadrant={suggestedQuadrant}
+                          />
+                        </div>
+                      )}
+                      {clientId && (
+                        <div className={MENU_COMPONENT_ROW}>
+                          <FollowupButton
+                            threadId={thread.id}
+                            subject={thread.messages[0]?.subject ?? ""}
+                            messageCount={thread.messages.length}
+                            defaultDays={settings.gmail.followupDays ?? 3}
+                            className={MENU_ROW}
                           />
                         </div>
                       )}
