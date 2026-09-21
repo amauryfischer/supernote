@@ -7,11 +7,19 @@
  * Phase suivante (Pack C cont.) : publication via slug public côté API Hono.
  */
 
-import { useMemo, useState, type ChangeEvent } from "react";
+import { useMemo, useState } from "react";
 import { Button, Input, TextArea } from "@heroui/react";
 import type { EntityType, Field } from "@supernote/core";
 import type { View } from "@supernote/ipc";
-import { useEntityMutations, useViewMutations, resolveVisibleFieldIds } from "./hooks";
+import {
+  useEntitiesForView,
+  useEntityMutations,
+  useViewMutations,
+  resolveVisibleFieldIds,
+  checkFieldConstraints,
+  isBlankValue,
+} from "./hooks";
+import { Cell, READONLY_KINDS } from "./Cell";
 import { useToast } from "@supernote/ui";
 
 interface FormViewProps {
@@ -49,24 +57,56 @@ export function FormView({ base, view }: FormViewProps) {
       .map((id) => map.get(id))
       .filter((f): f is Field => Boolean(f));
   }, [base.fields, cfg.fields, visibleIds]);
+  // Les champs calculés (formule, date de création…) ne se saisissent pas.
+  const inputFields = useMemo(
+    () => fieldsToShow.filter((f) => !READONLY_KINDS.has(f.kind)),
+    [fieldsToShow],
+  );
+  const requiredIds = useMemo(
+    () =>
+      inputFields
+        .filter((f) => cfg.fields?.find((fc) => fc.fieldId === f.id)?.required ?? f.required)
+        .map((f) => f.id),
+    [inputFields, cfg.fields],
+  );
 
   const mut = useEntityMutations(base.id);
   const { update: updateView } = useViewMutations();
   const { toast } = useToast();
-  const [values, setValues] = useState<Record<string, string>>({});
+  // Lignes existantes chargées seulement si un champ unique doit être vérifié.
+  const hasUnique = inputFields.some((f) => f.unique);
+  const { data: existing } = useEntitiesForView(hasUnique ? base.id : undefined, [], []);
+  const [values, setValues] = useState<Record<string, unknown>>({});
+  const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitted, setSubmitted] = useState(false);
+
+  const setValue = (fieldId: string, next: unknown) => {
+    setValues((prev) => ({ ...prev, [fieldId]: next }));
+    setErrors((prev) => {
+      if (!(fieldId in prev)) return prev;
+      const rest = { ...prev };
+      delete rest[fieldId];
+      return rest;
+    });
+  };
 
   const submit = () => {
     const fieldsPayload: Record<string, unknown> = {};
-    for (const f of fieldsToShow) {
+    for (const f of inputFields) {
       const v = values[f.id];
-      if (v !== undefined && v !== "") fieldsPayload[f.id] = coerceValue(v, f);
+      if (!isBlankValue(v)) fieldsPayload[f.id] = v;
     }
+    const found = checkFieldConstraints(inputFields, fieldsPayload, existing?.items ?? [], {
+      mustFill: requiredIds,
+    });
+    setErrors(found);
+    if (Object.keys(found).length > 0) return;
     mut.create.mutate(
       { typeId: base.id, fields: fieldsPayload as never, body: "" },
       {
         onSuccess: () => {
           setValues({});
+          setErrors({});
           setSubmitted(true);
           toast({
             title: "Soumission enregistrée",
@@ -80,7 +120,7 @@ export function FormView({ base, view }: FormViewProps) {
   };
 
   return (
-    <div className="mx-auto max-w-2xl p-6">
+    <div className="mx-auto max-w-2xl p-4 md:p-6">
       <div className="mb-4">
         <Input
           aria-label="Titre du formulaire"
@@ -109,41 +149,56 @@ export function FormView({ base, view }: FormViewProps) {
       />
 
       <div className="mt-6 flex flex-col gap-3">
-        {fieldsToShow.map((f) => {
+        {inputFields.map((f) => {
           const configured = cfg.fields?.find((fc) => fc.fieldId === f.id);
           const label = configured?.label ?? f.label ?? f.name;
-          const required = configured?.required ?? false;
-          const val = values[f.id] ?? "";
+          const helpText = configured?.helpText ?? f.helpText;
+          const error = errors[f.id];
           return (
-            <label key={f.id} className="flex flex-col gap-1">
+            <div key={f.id} className="flex flex-col gap-1">
               <span className="text-sm" style={{ color: "var(--text-primary)" }}>
                 {label}
-                {required && (
+                {requiredIds.includes(f.id) && (
                   <span style={{ color: "#EF4444" }} aria-hidden>
                     {" "}
                     *
                   </span>
                 )}
               </span>
-              {configured?.helpText && (
+              {helpText && (
                 <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-                  {configured.helpText}
+                  {helpText}
                 </span>
               )}
-              <FieldInput
-                field={f}
-                value={val}
-                onChange={(v) =>
-                  setValues((prev) => ({ ...prev, [f.id]: v }))
-                }
-              />
-            </label>
+              {/* Même éditeur typé que la grille et la fiche : options du
+                  select, sélecteur de relation, date, nombre, case à cocher. */}
+              <div
+                className="flex min-h-9 rounded-md border"
+                style={{
+                  borderColor: error ? "#EF4444" : "var(--border-subtle)",
+                  backgroundColor: "var(--surface-1)",
+                }}
+              >
+                <Cell
+                  field={f}
+                  value={values[f.id]}
+                  onChange={(next) => setValue(f.id, next)}
+                  rowFields={values}
+                  baseFields={base.fields}
+                />
+              </div>
+              {error && (
+                <span role="alert" className="text-xs" style={{ color: "#EF4444" }}>
+                  {error}
+                </span>
+              )}
+            </div>
           );
         })}
       </div>
 
       <div className="mt-6 flex items-center gap-2">
-        <Button variant="primary" onPress={submit} isDisabled={fieldsToShow.length === 0}>
+        <Button variant="primary" onPress={submit} isDisabled={inputFields.length === 0}>
           Envoyer
         </Button>
         {submitted && (
@@ -165,104 +220,4 @@ export function FormView({ base, view }: FormViewProps) {
       </div>
     </div>
   );
-}
-
-function FieldInput({
-  field,
-  value,
-  onChange,
-}: {
-  field: Field;
-  value: string;
-  onChange: (v: string) => void;
-}) {
-  const kind = field.kind;
-  if (kind === "longtext" || kind === "markdown") {
-    return (
-      <TextArea
-        rows={3}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        aria-label={field.label || field.name}
-      />
-    );
-  }
-  if (kind === "number" || kind === "currency" || kind === "percent" || kind === "rating") {
-    return (
-      <Input
-        type="number"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        aria-label={field.label || field.name}
-      />
-    );
-  }
-  if (kind === "date") {
-    return (
-      <Input
-        type="date"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        aria-label={field.label || field.name}
-      />
-    );
-  }
-  if (kind === "datetime") {
-    return (
-      <Input
-        type="datetime-local"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        aria-label={field.label || field.name}
-      />
-    );
-  }
-  if (kind === "email") {
-    return (
-      <Input
-        type="email"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        aria-label={field.label || field.name}
-      />
-    );
-  }
-  if (kind === "url") {
-    return (
-      <Input
-        type="url"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        aria-label={field.label || field.name}
-      />
-    );
-  }
-  return (
-    <Input
-      type="text"
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      aria-label={field.label || field.name}
-    />
-  );
-}
-
-function coerceValue(raw: string, field: Field): unknown {
-  if (raw === "" || raw === null || raw === undefined) return null;
-  const numericKinds = [
-    "number",
-    "currency",
-    "percent",
-    "rating",
-    "progress",
-    "duration",
-  ];
-  if (numericKinds.includes(field.kind)) {
-    const n = Number(raw);
-    return Number.isFinite(n) ? n : null;
-  }
-  if (field.kind === "bool") {
-    return raw === "true" || raw === "1" || raw === "on";
-  }
-  return raw;
 }

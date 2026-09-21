@@ -1083,32 +1083,36 @@ export function buildRouter(
   };
 
   const entitiesCreate = async (input: unknown): Promise<unknown> => {
-    const { typeId, fields, body, tags } = input as {
+    const { typeId, fields, body, tags, id: restoreId } = input as {
       typeId: string;
       fields: Record<string, unknown>;
       body?: string;
       tags?: string[];
+      id?: string;
     };
-    const id = generateId();
+    // Annulation d'une suppression : reprendre l'id d'origine garde valides les
+    // relations des autres entités, qui le référencent encore dans leurs champs.
+    const id =
+      typeof restoreId === "string" && restoreId && !row(db.exec(`SELECT 1 FROM entity WHERE id = ?`, [restoreId]))
+        ? restoreId
+        : generateId();
     const ts = now();
     const typeRow = row(db.exec(`SELECT name, defaultPath, fileNamePattern, fields FROM entity_type WHERE id = ?`, [typeId]));
     if (!typeRow) throw new Error(`EntityType not found: ${typeId}`);
 
     // Applique les valeurs par défaut déclarées au schéma pour chaque champ
     // absent du payload — une nouvelle ligne hérite des defaults (façon Notion).
+    // Les valeurs d'entité sont indexées par `id` de champ, pas par `name`.
     try {
       const defs = JSON.parse((typeRow["fields"] as string) || "[]") as Array<{
+        id?: string;
         name?: string;
         defaultValue?: unknown;
       }>;
       for (const def of defs) {
-        if (
-          def &&
-          typeof def.name === "string" &&
-          def.defaultValue !== undefined &&
-          fields[def.name] === undefined
-        ) {
-          fields[def.name] = def.defaultValue;
+        const key = def?.id || def?.name;
+        if (key && def.defaultValue !== undefined && fields[key] === undefined) {
+          fields[key] = def.defaultValue;
         }
       }
     } catch {

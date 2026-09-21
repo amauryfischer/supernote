@@ -93,6 +93,8 @@ export const CreateEntityInput = z.object({
   fields: z.record(z.string(), FieldValueSchema),
   body: z.string().optional(),
   tags: z.array(z.string()).optional(),
+  /** Restauration (annulation d'une suppression) : réutilise cet id s'il est libre. */
+  id: z.string().min(1).optional(),
 });
 export type CreateEntityInput = z.infer<typeof CreateEntityInput>;
 

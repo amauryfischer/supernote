@@ -12,8 +12,9 @@
  */
 
 import { useMemo, useState } from "react";
-import { Button } from "@heroui/react";
-import { EmptyState } from "@supernote/ui";
+import { Button, Popover } from "@heroui/react";
+import { ArrowsLeftRight } from "@phosphor-icons/react";
+import { EmptyState, Tooltip } from "@supernote/ui";
 import type { EntityType, SelectOption } from "@supernote/core";
 import type { View } from "@supernote/ipc";
 import {
@@ -44,13 +45,13 @@ export function KanbanView({ base, view, searchQuery }: KanbanViewProps) {
   const allItems = useMemo(() => data?.items ?? [], [data?.items]);
   const items = useSearchFilter(allItems, base, view, searchQuery);
 
-  if (!groupField) {
-    return <KanbanEmptyState />;
-  }
-
   // The field's options drive the columns. Status and select fields both
   // expose `options: SelectOption[]`.
-  const options = ((groupField as { options?: SelectOption[] }).options ?? []) as SelectOption[];
+  const options = useMemo(
+    () => ((groupField as { options?: SelectOption[] } | null)?.options ?? []) as SelectOption[],
+    [groupField],
+  );
+  const groupFieldId = groupField?.id;
 
   // Bucket entries by the group field's value. Anything unset (null/empty
   // string) lands in the leading "Sans valeur" bucket so it stays
@@ -59,18 +60,49 @@ export function KanbanView({ base, view, searchQuery }: KanbanViewProps) {
     const byKey = new Map<string, typeof items>();
     byKey.set(NULL_BUCKET, []);
     for (const opt of options) byKey.set(opt.value, []);
+    if (!groupFieldId) return byKey;
     for (const item of items) {
-      const raw = item.fields[groupField.id];
+      const raw = item.fields[groupFieldId];
       const key = raw === null || raw === undefined || raw === "" ? NULL_BUCKET : String(raw);
       if (!byKey.has(key)) byKey.set(key, []);
       byKey.get(key)!.push(item);
     }
     return byKey;
-  }, [items, options, groupField.id]);
+  }, [items, options, groupFieldId]);
 
   const visibleFieldIds = useMemo(
     () => resolveVisibleFieldIds(view, base.fields.map((f) => f.id)),
     [view, base.fields],
+  );
+
+  if (!groupField) {
+    return <KanbanEmptyState />;
+  }
+
+  // Au doigt, le glisser-déposer HTML5 n'existe pas : chaque carte offre
+  // « Déplacer vers… » (révélé au survol sur desktop, permanent au tactile).
+  const moveTargets = [
+    { value: NULL_BUCKET, label: "Sans valeur", color: "#94A3B8" },
+    ...options.map((o) => ({ value: o.value, label: o.label, color: o.color })),
+  ];
+  const renderCard = (entity: (typeof items)[number], bucket: string) => (
+    <EntityCard
+      key={entity.id}
+      base={base}
+      entity={entity}
+      visibleFieldIds={visibleFieldIds}
+      onDragStart={(id) => setDragging(id)}
+      onDragEnd={() => setDragging(null)}
+      actions={
+        mut.readOnly ? undefined : (
+          <MoveToPicker
+            targets={moveTargets}
+            current={bucket}
+            onMove={(value) => handleDrop(value, entity.id)}
+          />
+        )
+      }
+    />
   );
 
   const handleDrop = (toValue: string, entityId: string) => {
@@ -108,16 +140,7 @@ export function KanbanView({ base, view, searchQuery }: KanbanViewProps) {
         onAdd={() => addCardTo(NULL_BUCKET)}
         dragging={!!dragging}
       >
-        {(buckets.get(NULL_BUCKET) ?? []).map((entity) => (
-          <EntityCard
-            key={entity.id}
-            base={base}
-            entity={entity}
-            visibleFieldIds={visibleFieldIds}
-            onDragStart={(id) => setDragging(id)}
-            onDragEnd={() => setDragging(null)}
-          />
-        ))}
+        {(buckets.get(NULL_BUCKET) ?? []).map((entity) => renderCard(entity, NULL_BUCKET))}
       </KanbanColumn>
 
       {options.map((opt) => (
@@ -130,16 +153,7 @@ export function KanbanView({ base, view, searchQuery }: KanbanViewProps) {
           onAdd={() => addCardTo(opt.value)}
           dragging={!!dragging}
         >
-          {(buckets.get(opt.value) ?? []).map((entity) => (
-            <EntityCard
-              key={entity.id}
-              base={base}
-              entity={entity}
-              visibleFieldIds={visibleFieldIds}
-              onDragStart={(id) => setDragging(id)}
-              onDragEnd={() => setDragging(null)}
-            />
-          ))}
+          {(buckets.get(opt.value) ?? []).map((entity) => renderCard(entity, opt.value))}
         </KanbanColumn>
       ))}
 
@@ -151,6 +165,66 @@ export function KanbanView({ base, view, searchQuery }: KanbanViewProps) {
         </div>
       )}
     </div>
+  );
+}
+
+// ── Déplacer vers… ───────────────────────────────────────────────────────
+
+function MoveToPicker({
+  targets,
+  current,
+  onMove,
+}: {
+  targets: Array<{ value: string; label: string; color?: string }>;
+  current: string;
+  onMove: (value: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Popover isOpen={open} onOpenChange={setOpen}>
+      <Tooltip content="Déplacer vers…">
+        <Button
+          isIconOnly
+          variant="ghost"
+          size="sm"
+          aria-label="Déplacer vers…"
+          className="sn-reveal sn-hit h-6 w-6 min-w-0 rounded-md"
+          style={{ color: "var(--text-muted)" }}
+        >
+          <ArrowsLeftRight size={13} aria-hidden />
+        </Button>
+      </Tooltip>
+      <Popover.Content className="w-56 p-1">
+        <Popover.Dialog className="outline-none" aria-label="Déplacer vers">
+          <p className="px-2 pb-1 pt-0.5 text-[11px]" style={{ color: "var(--text-muted)" }}>
+            Déplacer vers…
+          </p>
+          <div className="flex flex-col">
+            {targets.map((t) => (
+              <Button
+                key={t.value}
+                variant="ghost"
+                size="sm"
+                isDisabled={t.value === current}
+                onPress={() => {
+                  setOpen(false);
+                  onMove(t.value);
+                }}
+                className="sn-hit h-8 w-full justify-start gap-2 rounded-md px-2 text-left text-xs"
+                style={{ color: "var(--text-primary)" }}
+              >
+                <span
+                  className="inline-block size-2 shrink-0 rounded-full"
+                  style={{ backgroundColor: t.color ?? "#64748B" }}
+                  aria-hidden
+                />
+                <span className="truncate">{t.label}</span>
+              </Button>
+            ))}
+          </div>
+        </Popover.Dialog>
+      </Popover.Content>
+    </Popover>
   );
 }
 

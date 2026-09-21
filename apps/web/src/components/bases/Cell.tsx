@@ -7,9 +7,7 @@
  *   - Display: a span/div showing the formatted value. Click to enter edit.
  *   - Edit: a kind-specific input. Enter / blur commits, Escape cancels.
  *
- * Read-only kinds (createdAt, updatedAt, autoNumber, formula, rollup, lookup,
- * file, image, relation) render in display mode only — they can't be edited
- * from the grid in Phase 1.
+ * `READONLY_KINDS` (champs calculés, `ai`) restent en mode affichage.
  */
 
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -24,7 +22,8 @@ export type AdvanceDir = "tab" | "shift-tab" | "enter" | "shift-enter";
 interface CellProps {
   field: Field;
   value: unknown;
-  onChange: (next: unknown, advance?: AdvanceDir) => void;
+  /** Retourner `false` signale une écriture refusée (validation) : la cellule garde l'ancienne valeur. */
+  onChange: (next: unknown, advance?: AdvanceDir) => void | boolean;
   readOnly?: boolean;
   /** Nonce qui, lorsqu'il change, force le passage en mode édition. */
   forceEditKey?: number;
@@ -37,7 +36,7 @@ interface CellProps {
   baseFields?: Field[];
 }
 
-const READONLY_KINDS = new Set<Field["kind"]>([
+export const READONLY_KINDS: ReadonlySet<Field["kind"]> = new Set<Field["kind"]>([
   "createdAt",
   "updatedAt",
   "createdBy",
@@ -95,8 +94,7 @@ function CellInner({ field, value, onChange, readOnly, forceEditKey, rowFields, 
           setEditing(false);
           setInitialChar(undefined);
           if (!cellValueEq(next, effectiveValue)) {
-            setPending({ value: next });
-            onChange(next, advance);
+            if (onChange(next, advance) !== false) setPending({ value: next });
           } else if (advance) {
             // Pas de mutation mais on signale l'advance pour la navigation.
             onChange(effectiveValue, advance);

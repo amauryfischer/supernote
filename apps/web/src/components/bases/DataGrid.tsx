@@ -7,14 +7,11 @@
  * One row per Entity returned by `views.queryForView`. Cell edits are
  * committed immediately via `entities.update`; the query is invalidated so
  * every other open view of the same Base re-renders.
- *
- * Phase 1: no virtualization, no column resizing.
- * Phase 2: navigation clavier, copier/coller, multi-sélection lignes.
- * Phase 3: menu colonne (⋯), resize, drag-reorder.
  */
 
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { Button } from "@heroui/react";
 import { Plus, Trash, ArrowUp, ArrowDown, CaretDown, ArrowsOutSimple } from "@phosphor-icons/react";
 import type { EntityType, Field, SelectOption } from "@supernote/core";
@@ -22,13 +19,14 @@ import type { View, SortClause } from "@supernote/ipc";
 import { EmptyState, useToast } from "@supernote/ui";
 import { trpc } from "@/lib/trpc/client";
 import { coreFieldToIpc } from "@/components/schemas/adapters";
-import { Cell, type AdvanceDir } from "./Cell";
+import { Cell, READONLY_KINDS, type AdvanceDir } from "./Cell";
 import {
   useEntitiesForView,
   useEntityMutations,
   useViewMutations,
   resolveVisibleFieldIds,
   useSearchFilter,
+  isBlankValue,
 } from "./hooks";
 import { ColumnHeaderMenu } from "./ColumnHeaderMenu";
 import { FooterSummarize, SummarizePicker } from "./FooterSummarize";
@@ -86,6 +84,12 @@ interface DataGridProps {
   /** Recherche instantanée (toolbar) — filtre client-side sur les champs visibles. */
   searchQuery?: string;
 }
+
+// Sous ce seuil tout est monté (zéro changement de comportement) ; au-delà,
+// seules les lignes visibles + la marge d'overscan le sont.
+const VIRTUALIZE_THRESHOLD = 200;
+const ROW_ESTIMATE: Record<string, number> = { short: 29, normal: 37, tall: 61 };
+const GROUP_ROW_ESTIMATE = 30;
 
 // ── Largeurs colonnes — localStorage ─────────────────────────────────────────
 
@@ -275,7 +279,87 @@ export function DataGrid({ base, view, maxHeight, readOnly = false, searchQuery 
     }
   }, [items]);
 
+  // ── Lignes à rendre : plates, ou en-têtes de groupe + lignes dépliées ──────
+  type Item = (typeof items)[number];
+  type GridSection = { key: string; label: string; color?: string; items: Item[] };
+  type GridEntry = { kind: "row"; entity: Item; idx: number } | { kind: "group"; sec: GridSection };
+  const entries = useMemo((): GridEntry[] => {
+    // Table plate par défaut ; groupée seulement si `groupByField` est
+    // explicitement choisi (zéro régression sur l'usage courant).
+    const gf = view.groupByField ? resolveGroupByField(base, view.groupByField) : null;
+    if (!gf) return items.map((entity, idx) => ({ kind: "row", entity, idx }));
+    const idxOf = new Map(items.map((e, i) => [e.id, i] as const));
+    const opts = ((gf as { options?: SelectOption[] }).options ?? []) as SelectOption[];
+    const buckets = new Map<string, Item[]>();
+    buckets.set("__none", []);
+    opts.forEach((o) => buckets.set(o.value, []));
+    for (const it of items) {
+      const raw = it.fields[gf.id];
+      const k = raw === null || raw === undefined || raw === "" ? "__none" : String(raw);
+      if (!buckets.has(k)) buckets.set(k, []);
+      buckets.get(k)!.push(it);
+    }
+    const sections: GridSection[] = [
+      { key: "__none", label: "Sans valeur", items: buckets.get("__none") ?? [] },
+      ...opts.map((o) => ({ key: o.value, label: o.label, color: o.color, items: buckets.get(o.value) ?? [] })),
+    ].filter((sec) => sec.items.length > 0);
+    const out: GridEntry[] = [];
+    for (const sec of sections) {
+      out.push({ kind: "group", sec });
+      if (collapsedGroups.has(sec.key)) continue;
+      for (const it of sec.items) out.push({ kind: "row", entity: it, idx: idxOf.get(it.id) ?? 0 });
+    }
+    return out;
+  }, [items, base, view.groupByField, collapsedGroups]);
+  const entryIndexById = useMemo(() => {
+    const m = new Map<string, number>();
+    entries.forEach((e, i) => {
+      if (e.kind === "row") m.set(e.entity.id, i);
+    });
+    return m;
+  }, [entries]);
+
+  const virtualized = !isMobile && entries.length > VIRTUALIZE_THRESHOLD;
+  const theadRef = useRef<HTMLTableSectionElement | null>(null);
+  // L'en-tête collant précède les lignes dans le conteneur scrollable.
+  const [headerOffset, setHeaderOffset] = useState(0);
+  useLayoutEffect(() => {
+    if (virtualized) setHeaderOffset(theadRef.current?.offsetHeight ?? 0);
+  }, [virtualized, view.rowHeight]);
+  // Hauteurs de ligne fixées par `--sn-row-height` : l'estimation suffit, et
+  // les `<tr>` d'espacement gardent les positions cohérentes sans mesure.
+  const rowVirtualizer = useVirtualizer({
+    count: entries.length,
+    getScrollElement: () => wrapperRef.current,
+    estimateSize: (i) =>
+      entries[i]?.kind === "group"
+        ? GROUP_ROW_ESTIMATE
+        : ROW_ESTIMATE[view.rowHeight ?? "normal"] ?? ROW_ESTIMATE.normal!,
+    getItemKey: (i) => {
+      const e = entries[i];
+      if (!e) return i;
+      return e.kind === "row" ? e.entity.id : `grp-${e.sec.key}`;
+    },
+    overscan: 10,
+    enabled: virtualized,
+    scrollMargin: headerOffset,
+    scrollPaddingStart: headerOffset,
+  });
+
+  // Mobile : cartes empilées, même seuil, conteneur scrollable propre.
+  const mobileScrollRef = useRef<HTMLDivElement | null>(null);
+  const cardsVirtualized = isMobile && items.length > VIRTUALIZE_THRESHOLD;
+  const cardVirtualizer = useVirtualizer({
+    count: items.length,
+    getScrollElement: () => mobileScrollRef.current,
+    estimateSize: () => visibleIds.length * 41 + 58,
+    getItemKey: (i) => items[i]?.id ?? i,
+    overscan: 4,
+    enabled: cardsVirtualized,
+  });
+
   // Scroll la cellule cible dans le viewport quand la cible change.
+  const editRetryRef = useRef<string | null>(null);
   useEffect(() => {
     if (!pendingEditTarget) return;
     const wrap = wrapperRef.current;
@@ -283,23 +367,35 @@ export function DataGrid({ base, view, maxHeight, readOnly = false, searchQuery 
     const row = wrap.querySelector<HTMLElement>(
       `tr[data-row-id="${pendingEditTarget.entityId}"]`,
     );
-    row?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    if (row) {
+      editRetryRef.current = null;
+      row.scrollIntoView({ block: "nearest", inline: "nearest" });
+      return;
+    }
+    // Ligne hors de la fenêtre virtualisée : la monter, puis redemander
+    // l'édition — une Cell montée avec la clé déjà posée n'entre pas en édition.
+    const index = entryIndexById.get(pendingEditTarget.entityId);
+    if (!virtualized || index === undefined) return;
+    if (editRetryRef.current === pendingEditTarget.entityId) return;
+    editRetryRef.current = pendingEditTarget.entityId;
+    rowVirtualizer.scrollToIndex(index, { align: "center" });
+    let raf2 = 0;
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => setEditNonce((n) => n + 1));
+    });
+    return () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+    };
+    // entryIndexById / virtualized lus à l'instant de la demande d'édition.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingEditTarget, editNonce]);
 
   // Première colonne éditable (skip readonly comme createdAt/formula/etc.).
   const firstEditableFieldId = useMemo(() => {
-    const readonlyKinds = new Set([
-      "createdAt",
-      "updatedAt",
-      "createdBy",
-      "autoNumber",
-      "formula",
-      "rollup",
-      "lookup",
-    ]);
     for (const fid of visibleIds) {
       const f = fieldById.get(fid);
-      if (f && !readonlyKinds.has(f.kind)) return fid;
+      if (f && !READONLY_KINDS.has(f.kind)) return fid;
     }
     return visibleIds[0];
   }, [visibleIds, fieldById]);
@@ -359,8 +455,12 @@ export function DataGrid({ base, view, maxHeight, readOnly = false, searchQuery 
   // Cache handlers stables (évite React.memo(Cell) cache miss)
   const updateRef = useRef(mut.update);
   updateRef.current = mut.update;
+  const validateRef = useRef(mut.validate);
+  validateRef.current = mut.validate;
+  const toastRef = useRef(toast);
+  toastRef.current = toast;
   const handlerCacheRef = useRef(
-    new Map<string, (next: unknown, advance?: AdvanceDir) => void>(),
+    new Map<string, (next: unknown, advance?: AdvanceDir) => boolean>(),
   );
   const [justEdited, setJustEdited] = useState<{ entityId: string; fieldId: string; ts: number } | null>(null);
   const justEditedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -381,20 +481,29 @@ export function DataGrid({ base, view, maxHeight, readOnly = false, searchQuery 
       const cache = handlerCacheRef.current;
       const cached = cache.get(key);
       if (cached) return cached;
-      const handler = (next: unknown, advance?: AdvanceDir) => {
+      const handler = (next: unknown, advance?: AdvanceDir): boolean => {
         const prev = itemsRef.current.find((e) => e.id === entityId)?.fields[fieldId];
-        if (prev !== next) {
+        // Tab/Entrée sans modification : naviguer sans réécrire (et sans
+        // déclencher « obligatoire » sur une cellule restée vide).
+        const unchanged = prev === next || (isBlankValue(prev) && isBlankValue(next));
+        if (!unchanged) {
+          const refusal = validateRef.current({ [fieldId]: next }, entityId);
+          if (refusal) {
+            toastRef.current({ title: refusal, variant: "danger" });
+            return false;
+          }
           undoStackRef.current.push({ entityId, fieldId, prev });
           if (undoStackRef.current.length > 100) undoStackRef.current.shift();
+          updateRef.current.mutate({
+            id: entityId,
+            fields: { [fieldId]: next as never },
+          });
+          setJustEdited({ entityId, fieldId, ts: Date.now() });
+          if (justEditedTimer.current) clearTimeout(justEditedTimer.current);
+          justEditedTimer.current = setTimeout(() => setJustEdited(null), 1400);
         }
-        updateRef.current.mutate({
-          id: entityId,
-          fields: { [fieldId]: next as never },
-        });
-        setJustEdited({ entityId, fieldId, ts: Date.now() });
-        if (justEditedTimer.current) clearTimeout(justEditedTimer.current);
-        justEditedTimer.current = setTimeout(() => setJustEdited(null), 1400);
         if (advance) computeAdvanceRef.current(entityId, fieldId, advance);
+        return true;
       };
       cache.set(key, handler);
       return handler;
@@ -410,42 +519,35 @@ export function DataGrid({ base, view, maxHeight, readOnly = false, searchQuery 
     return true;
   }, []);
 
-  // Pendant une recherche, marque aussi les lignes masquées comme « vues » :
-  // quand la query s'efface elles réapparaissent sans rejouer l'anim enter.
+  // Toutes les lignes connues comptent comme « vues » après le rendu : ni une
+  // ligne masquée par la recherche, ni une ligne montée plus tard par la
+  // virtualisation au défilement ne rejouent l'anim enter.
   useEffect(() => {
-    if (!searchActive) return;
     for (const e of allItems) seenRowsRef.current.add(e.id);
-  }, [searchActive, allItems]);
+  }, [allItems]);
 
   // ── Tri colonnes ──────────────────────────────────────────────────────────
-  // sortByField(fieldId) : cycle asc → desc → none.
+  // sortByField(fieldId) : cycle asc → desc → aucun.
   // sortByField(fieldId, "asc"|"desc") : force la direction.
-  // sortByField(fieldId, null) : efface le tri.
+  // sortByField(fieldId, null) : efface le tri de ce champ.
+  // Un champ déjà trié est modifié en place : les autres critères du multi-tri
+  // restent. Un nouveau champ remplace le tri, sauf avec `append` (Shift+clic).
   const sortByField = useCallback(
-    (fieldId: string, direction?: "asc" | "desc" | null) => {
+    (fieldId: string, direction?: "asc" | "desc" | null, append = false) => {
       const current = view.sorts.find((s) => s.fieldId === fieldId);
+      const others = view.sorts.filter((s) => s.fieldId !== fieldId);
+      const nextDir =
+        direction !== undefined
+          ? direction
+          : !current
+            ? "asc"
+            : current.direction === "asc"
+              ? "desc"
+              : null;
       let next: SortClause[];
-      if (direction === null) {
-        // Effacer le tri
-        next = view.sorts.filter((s) => s.fieldId !== fieldId);
-      } else if (direction === "asc" || direction === "desc") {
-        // Forcer une direction
-        const without = view.sorts.filter((s) => s.fieldId !== fieldId);
-        next = [{ fieldId, direction }];
-        // Conserve les autres tris (le menu ne fait que changer ce champ)
-        // Note: on remplace tout par un tri unique sur ce champ pour
-        // rester cohérent avec la logique précédente.
-        void without;
-      } else {
-        // Cycle : none → asc → desc → none
-        if (!current) {
-          next = [{ fieldId, direction: "asc" }];
-        } else if (current.direction === "asc") {
-          next = [{ fieldId, direction: "desc" }];
-        } else {
-          next = view.sorts.filter((s) => s.fieldId !== fieldId);
-        }
-      }
+      if (nextDir === null) next = others;
+      else if (current) next = view.sorts.map((s) => (s.fieldId === fieldId ? { fieldId, direction: nextDir } : s));
+      else next = append ? [...view.sorts, { fieldId, direction: nextDir }] : [{ fieldId, direction: nextDir }];
       updateView.mutate({ id: view.id, sorts: next });
     },
     [view.id, view.sorts, updateView],
@@ -512,6 +614,40 @@ export function DataGrid({ base, view, maxHeight, readOnly = false, searchQuery 
   );
 
   // ── Suppression avec undo ─────────────────────────────────────────────────
+  // Les valeurs calculées (formule, rollup, lookup) arrivent dans `fields` via
+  // queryForView : ne jamais les réécrire dans le blob stocké.
+  const storedFields = useCallback(
+    (fields: Record<string, unknown>, opts?: { dropUnique?: boolean }) => {
+      const out: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(fields)) {
+        const f = fieldById.get(k);
+        if (f && (f.kind === "formula" || f.kind === "rollup" || f.kind === "lookup")) continue;
+        if (f && opts?.dropUnique && f.unique) continue;
+        out[k] = v;
+      }
+      return out;
+    },
+    [fieldById],
+  );
+
+  // Restaure la même entité (id, corps, tags, chemin) : les relations qui la
+  // pointent depuis d'autres entités redeviennent valides.
+  const restoreEntity = useCallback(
+    (e: (typeof items)[number]) => {
+      mut.create.mutate({
+        id: e.id,
+        typeId: base.id,
+        fields: {
+          ...storedFields(e.fields),
+          ...(e.filePath ? { filePath: e.filePath } : {}),
+        } as Record<string, never>,
+        body: e.body ?? "",
+        tags: e.tags,
+      });
+    },
+    [mut.create, base.id, storedFields],
+  );
+
   const deleteWithUndo = useCallback(
     (entityId: string) => {
       const snapshot = items.find((e) => e.id === entityId);
@@ -520,19 +656,10 @@ export function DataGrid({ base, view, maxHeight, readOnly = false, searchQuery 
       toast({
         title: "Entrée supprimée",
         duration: 5000,
-        action: {
-          label: "Annuler",
-          onClick: () => {
-            mut.create.mutate({
-              typeId: base.id,
-              fields: snapshot.fields as Record<string, never>,
-              body: "",
-            });
-          },
-        },
+        action: { label: "Annuler", onClick: () => restoreEntity(snapshot) },
       });
     },
-    [items, mut.delete, mut.create, base.id, toast],
+    [items, mut.delete, restoreEntity, toast],
   );
 
   const bulkDeleteWithUndo = useCallback(
@@ -550,18 +677,12 @@ export function DataGrid({ base, view, maxHeight, readOnly = false, searchQuery 
         action: {
           label: "Annuler",
           onClick: () => {
-            for (const e of snapshots) {
-              mut.create.mutate({
-                typeId: base.id,
-                fields: e.fields as Record<string, never>,
-                body: "",
-              });
-            }
+            for (const e of snapshots) restoreEntity(e);
           },
         },
       });
     },
-    [items, mut.delete, mut.create, base.id, toast],
+    [items, mut.delete, restoreEntity, toast],
   );
 
   // ── Dupliquer une entité (menu contextuel + Cmd/Ctrl+D) ───────────────────
@@ -569,9 +690,13 @@ export function DataGrid({ base, view, maxHeight, readOnly = false, searchQuery 
     (entityId: string) => {
       const ent = items.find((e) => e.id === entityId);
       if (!ent) return;
-      mut.create.mutate({ typeId: base.id, fields: ent.fields as Record<string, never>, body: "" });
+      mut.create.mutate({
+        typeId: base.id,
+        fields: storedFields(ent.fields, { dropUnique: true }) as Record<string, never>,
+        body: "",
+      });
     },
-    [items, mut.create, base.id],
+    [items, mut.create, base.id, storedFields],
   );
 
   // ── Clavier sur lignes sélectionnées ──────────────────────────────────────
@@ -630,20 +755,11 @@ export function DataGrid({ base, view, maxHeight, readOnly = false, searchQuery 
   // Cherche dynamiquement la prochaine cellule éditable et déclenche
   // l'auto-edit. Si on dépasse la dernière ligne avec Tab, crée une row.
   useEffect(() => {
-    const readonlyKinds = new Set([
-      "createdAt",
-      "updatedAt",
-      "createdBy",
-      "autoNumber",
-      "formula",
-      "rollup",
-      "lookup",
-    ]);
     const isEditableAt = (col: number) => {
       const fid = visibleIdsRef.current[col];
       if (!fid) return false;
       const f = fieldByIdRef.current.get(fid);
-      return !!f && !readonlyKinds.has(f.kind);
+      return !!f && !READONLY_KINDS.has(f.kind);
     };
     computeAdvanceRef.current = (entityId, fieldId, advance) => {
       const currentItems = itemsRef.current;
@@ -737,10 +853,22 @@ export function DataGrid({ base, view, maxHeight, readOnly = false, searchQuery 
 
         if (nextRow !== rowIdx || nextCol !== colIdx) {
           e.preventDefault();
-          const nextTd = wrapperRef.current?.querySelector<HTMLElement>(
-            `td[data-cell-row="${nextRow}"][data-cell-col="${nextCol}"] [data-cell-display]`,
-          );
-          nextTd?.focus();
+          const selector = `td[data-cell-row="${nextRow}"][data-cell-col="${nextCol}"] [data-cell-display]`;
+          const nextTd = wrapperRef.current?.querySelector<HTMLElement>(selector);
+          if (nextTd) {
+            nextTd.focus();
+          } else if (virtualized) {
+            const nextId = itemsRef.current[nextRow]?.id;
+            const index = nextId ? entryIndexById.get(nextId) : undefined;
+            if (index !== undefined) {
+              rowVirtualizer.scrollToIndex(index, { align: "auto" });
+              requestAnimationFrame(() =>
+                requestAnimationFrame(() =>
+                  wrapperRef.current?.querySelector<HTMLElement>(selector)?.focus(),
+                ),
+              );
+            }
+          }
         }
         return;
       }
@@ -772,7 +900,7 @@ export function DataGrid({ base, view, maxHeight, readOnly = false, searchQuery 
         const fieldId = td.dataset.fieldId!;
         const field = fieldByIdRef.current.get(fieldId);
         if (!field) return;
-        if (READONLY_PASTE_KINDS.has(field.kind)) return;
+        if (READONLY_KINDS.has(field.kind)) return;
         e.preventDefault();
         void navigator.clipboard.readText().then((text) => {
           const parsed = parsePasteValue(text, field);
@@ -793,7 +921,7 @@ export function DataGrid({ base, view, maxHeight, readOnly = false, searchQuery 
         const above = itemsRef.current[rowIdx - 1];
         const cur = itemsRef.current[rowIdx];
         const field = fieldByIdRef.current.get(fieldId);
-        if (!above || !cur || !field || READONLY_PASTE_KINDS.has(field.kind)) return;
+        if (!above || !cur || !field || READONLY_KINDS.has(field.kind)) return;
         e.preventDefault();
         getCellHandler(cur.id, fieldId)(above.fields[fieldId] ?? "");
         return;
@@ -809,7 +937,7 @@ export function DataGrid({ base, view, maxHeight, readOnly = false, searchQuery 
         return;
       }
     },
-    [visibleIds.length, getCellHandler],
+    [visibleIds.length, getCellHandler, virtualized, entryIndexById, rowVirtualizer],
   );
 
   // ── Drag-reorder colonnes ─────────────────────────────────────────────────
@@ -949,8 +1077,51 @@ export function DataGrid({ base, view, maxHeight, readOnly = false, searchQuery 
   // devient une carte empilée (libellé + valeur éditable via <Cell>), conforme
   // à la règle mobile-parity. Le desktop garde le DataGrid table ci-dessous.
   if (isMobile) {
+    const renderCard = (entity: Item) => (
+      <div
+        className="overflow-hidden rounded-xl border"
+        style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-1)" }}
+      >
+        {visibleIds.map((fid, i) => {
+          const f = fieldById.get(fid);
+          if (!f) return null;
+          return (
+            <div
+              key={fid}
+              className="flex items-start gap-3 px-3 py-2"
+              style={{ borderTop: i === 0 ? undefined : "1px solid var(--border-subtle)" }}
+            >
+              <span className="w-24 shrink-0 pt-2 text-xs" style={{ color: "var(--text-muted)" }}>
+                {f.label || f.name}
+              </span>
+              <div className="min-h-8 min-w-0 flex-1">
+                <Cell
+                  field={f}
+                  value={entity.fields[fid]}
+                  onChange={getCellHandler(entity.id, fid)}
+                  rowFields={entity.fields}
+                  baseFields={base.fields as unknown as Field[]}
+                  readOnly={readOnly}
+                />
+              </div>
+            </div>
+          );
+        })}
+        {/* Au doigt, ni survol ni clic droit : la fiche s'ouvre d'ici. */}
+        <Button
+          variant="ghost"
+          size="sm"
+          onPress={() => openEntityPeek(base.id, entity.id)}
+          className="flex h-9 w-full items-center justify-center gap-1.5 rounded-none border-t text-xs"
+          style={{ borderColor: "var(--border-subtle)", color: "var(--text-secondary)" }}
+        >
+          <ArrowsOutSimple size={13} aria-hidden /> Ouvrir la fiche
+        </Button>
+      </div>
+    );
     return (
       <div
+        ref={mobileScrollRef}
         className="flex flex-col gap-2.5 p-3"
         style={{ maxHeight: maxHeight ?? "100%", overflowY: "auto", backgroundColor: "var(--surface-0)" }}
       >
@@ -960,40 +1131,26 @@ export function DataGrid({ base, view, maxHeight, readOnly = false, searchQuery 
           <p className="py-8 text-center text-sm" style={{ color: "var(--text-muted)" }}>
             {searchActive ? "Aucun résultat pour cette recherche." : "Aucune entrée."}
           </p>
+        ) : cardsVirtualized ? (
+          <div className="relative w-full shrink-0" style={{ height: cardVirtualizer.getTotalSize() }}>
+            {cardVirtualizer.getVirtualItems().map((v) => {
+              const entity = items[v.index];
+              if (!entity) return null;
+              return (
+                <div
+                  key={entity.id}
+                  ref={cardVirtualizer.measureElement}
+                  data-index={v.index}
+                  className="absolute left-0 top-0 w-full pb-2.5"
+                  style={{ transform: `translateY(${v.start}px)` }}
+                >
+                  {renderCard(entity)}
+                </div>
+              );
+            })}
+          </div>
         ) : (
-          items.map((entity) => (
-            <div
-              key={entity.id}
-              className="overflow-hidden rounded-xl border"
-              style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-1)" }}
-            >
-              {visibleIds.map((fid, i) => {
-                const f = fieldById.get(fid);
-                if (!f) return null;
-                return (
-                  <div
-                    key={fid}
-                    className="flex items-start gap-3 px-3 py-2"
-                    style={{ borderTop: i === 0 ? undefined : "1px solid var(--border-subtle)" }}
-                  >
-                    <span className="w-24 shrink-0 pt-2 text-xs" style={{ color: "var(--text-muted)" }}>
-                      {f.label || f.name}
-                    </span>
-                    <div className="min-h-8 min-w-0 flex-1">
-                      <Cell
-                        field={f}
-                        value={entity.fields[fid]}
-                        onChange={getCellHandler(entity.id, fid)}
-                        rowFields={entity.fields}
-                        baseFields={base.fields as unknown as Field[]}
-                        readOnly={readOnly}
-                      />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          ))
+          items.map((entity) => <div key={entity.id}>{renderCard(entity)}</div>)
         )}
         {!readOnly && (
           <Button
@@ -1041,6 +1198,7 @@ export function DataGrid({ base, view, maxHeight, readOnly = false, searchQuery 
         }}
       >
         <thead
+          ref={theadRef}
           className="sticky top-0 z-10"
           style={{ backgroundColor: "var(--surface-1)" }}
         >
@@ -1093,7 +1251,7 @@ export function DataGrid({ base, view, maxHeight, readOnly = false, searchQuery 
                     // Survol header : fondu couleur subtil & rapide (--sn-dur-1).
                     transition: colorTransition,
                   }}
-                  title="Clic : trier (asc → desc → aucun) · Double-clic : renommer · Clic droit : options"
+                  title="Clic : trier (asc → desc → aucun) · Shift+clic : ajouter au tri · Double-clic : renommer · Clic droit : options"
                   onClick={(e) => {
                     if (dragJustEndedRef.current) return;
                     // Clic sur la caret ▼ : la propagation est stoppée par
@@ -1103,9 +1261,10 @@ export function DataGrid({ base, view, maxHeight, readOnly = false, searchQuery 
                     // 2ᵉ clic (e.detail > 1) ne re-programme rien.
                     if (e.detail > 1) return;
                     if (sortClickTimerRef.current) window.clearTimeout(sortClickTimerRef.current);
+                    const append = e.shiftKey;
                     sortClickTimerRef.current = window.setTimeout(() => {
                       sortClickTimerRef.current = null;
-                      sortByField(fid);
+                      sortByField(fid, undefined, append);
                     }, 230);
                   }}
                   onDoubleClick={(e) => {
@@ -1332,7 +1491,7 @@ export function DataGrid({ base, view, maxHeight, readOnly = false, searchQuery 
             </tr>
           )}
           {(() => {
-            const renderRow = (entity: (typeof items)[number], idx: number) => {
+            const renderRow = (entity: Item, idx: number) => {
             const isSelected = selectedIds.has(entity.id);
             const fresh = isFreshRow(entity.id);
             const isLastRow = idx === items.length - 1;
@@ -1509,131 +1668,140 @@ export function DataGrid({ base, view, maxHeight, readOnly = false, searchQuery 
               </tr>
             );
             };
-            // Table plate par défaut ; groupée seulement si `groupByField` est
-            // explicitement choisi (zéro régression sur l'usage courant).
-            const gf = view.groupByField ? resolveGroupByField(base, view.groupByField) : null;
-            if (!gf) return items.map((e, i) => renderRow(e, i));
-            const idxOf = new Map(items.map((e, i) => [e.id, i] as const));
-            const opts = ((gf as { options?: SelectOption[] }).options ?? []) as SelectOption[];
-            const buckets = new Map<string, typeof items>();
-            buckets.set("__none", []);
-            opts.forEach((o) => buckets.set(o.value, []));
-            for (const it of items) {
-              const raw = it.fields[gf.id];
-              const k = raw === null || raw === undefined || raw === "" ? "__none" : String(raw);
-              if (!buckets.has(k)) buckets.set(k, []);
-              buckets.get(k)!.push(it);
-            }
-            const sections = [
-              { key: "__none", label: "Sans valeur", color: undefined as string | undefined, items: buckets.get("__none") ?? [] },
-              ...opts.map((o) => ({ key: o.value, label: o.label, color: o.color, items: buckets.get(o.value) ?? [] })),
-            ].filter((s) => s.items.length > 0);
-            return sections.map((sec) => (
-              <Fragment key={`grp-${sec.key}`}>
-                <tr className="sn-datagrid-group-row" style={{ borderBottom: "1px solid var(--border-subtle)", backgroundColor: "var(--surface-1)" }}>
-                  {/* Cellule libellé : fusionne l'index + la colonne primaire
-                      (sticky) → la même largeur combinée que les lignes de
-                      données. Caret + chip + count. Seule cette cellule replie
-                      le groupe ; les cellules d'agrégat ne le déclenchent pas. */}
-                  <td
-                    colSpan={visibleIds.length > 0 ? 2 : 1}
-                    className="sticky left-0 px-2 py-1.5"
-                    style={{
-                      backgroundColor: "var(--surface-1)",
-                      borderRight: "1px solid var(--border-subtle)",
-                      zIndex: 6,
-                    }}
+            const renderGroupHeader = (sec: GridSection) => (
+              <tr
+                key={`grp-${sec.key}`}
+                className="sn-datagrid-group-row"
+                style={{ borderBottom: "1px solid var(--border-subtle)", backgroundColor: "var(--surface-1)" }}
+              >
+                {/* Cellule libellé : fusionne l'index + la colonne primaire
+                    (sticky) → la même largeur combinée que les lignes de
+                    données. Caret + chip + count. Seule cette cellule replie
+                    le groupe ; les cellules d'agrégat ne le déclenchent pas. */}
+                <td
+                  colSpan={visibleIds.length > 0 ? 2 : 1}
+                  className="sticky left-0 px-2 py-1.5"
+                  style={{
+                    backgroundColor: "var(--surface-1)",
+                    borderRight: "1px solid var(--border-subtle)",
+                    zIndex: 6,
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => toggleGroup(sec.key)}
+                    className="flex items-center gap-2 text-xs font-medium"
+                    style={{ color: "var(--text-secondary)" }}
                   >
-                    <button
-                      type="button"
-                      onClick={() => toggleGroup(sec.key)}
-                      className="flex items-center gap-2 text-xs font-medium"
-                      style={{ color: "var(--text-secondary)" }}
+                    <CaretDown
+                      size={12}
+                      weight="bold"
+                      style={{
+                        transform: collapsedGroups.has(sec.key) ? "rotate(-90deg)" : "none",
+                        transition: "transform var(--sn-dur-1, 90ms)",
+                      }}
+                    />
+                    {sec.color ? (
+                      <span className="rounded px-1.5 py-0.5" style={{ backgroundColor: sec.color + "22", color: sec.color }}>
+                        {sec.label}
+                      </span>
+                    ) : (
+                      <span>{sec.label}</span>
+                    )}
+                    <span style={{ color: "var(--text-muted)" }}>{sec.items.length}</span>
+                  </button>
+                </td>
+                {/* Agrégats par section, alignés sur les colonnes (hors
+                    colonne primaire, absorbée par la cellule libellé). */}
+                {visibleIds.slice(1).map((fid) => {
+                  const field = fieldById.get(fid);
+                  const op = field ? summarizeMap[fid] : undefined;
+                  const colW = colWidths[fid] ?? (field ? columnMinWidth(field) : 160);
+                  const numeric = field ? isNumericField(field) : false;
+                  const { label } =
+                    field && op
+                      ? computeSummarize(op, field, sec.items.map((it) => it.fields[fid]))
+                      : { label: null };
+                  // Ternaire (pas juste `showOp &&`) : narrow `op` en
+                  // SummarizeOp non-undefined pour summarizeOpLabel.
+                  const opNode =
+                    op && op !== "none" && label !== null ? (
+                      <span>
+                        <span style={{ opacity: 0.6, marginRight: 4 }}>
+                          {summarizeOpLabel(op)}
+                        </span>
+                        <span style={{ fontWeight: 600, color: "var(--text-secondary)" }}>
+                          {label}
+                        </span>
+                      </span>
+                    ) : null;
+                  const showOp = opNode !== null;
+                  return (
+                    <td
+                      key={fid}
+                      className={`px-2 py-1.5 text-[11px]${showOp ? " cursor-pointer hover:bg-[var(--surface-2)]" : ""}`}
+                      style={{
+                        width: colW,
+                        minWidth: colW,
+                        maxWidth: colW,
+                        borderRight: "1px solid var(--border-subtle)",
+                        color: "var(--text-muted)",
+                        fontVariantNumeric: "tabular-nums",
+                        textAlign: numeric ? "right" : "left",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                      onClick={
+                        showOp
+                          ? (e) => {
+                              e.stopPropagation();
+                              setGroupOpPicker({
+                                fid,
+                                anchor: e.currentTarget as HTMLElement,
+                              });
+                            }
+                          : undefined
+                      }
+                      title={showOp ? "Changer l'agrégation" : undefined}
                     >
-                      <CaretDown
-                        size={12}
-                        weight="bold"
-                        style={{
-                          transform: collapsedGroups.has(sec.key) ? "rotate(-90deg)" : "none",
-                          transition: "transform var(--sn-dur-1, 90ms)",
-                        }}
-                      />
-                      {sec.color ? (
-                        <span className="rounded px-1.5 py-0.5" style={{ backgroundColor: sec.color + "22", color: sec.color }}>
-                          {sec.label}
-                        </span>
-                      ) : (
-                        <span>{sec.label}</span>
-                      )}
-                      <span style={{ color: "var(--text-muted)" }}>{sec.items.length}</span>
-                    </button>
-                  </td>
-                  {/* Agrégats par section, alignés sur les colonnes (hors
-                      colonne primaire, absorbée par la cellule libellé). */}
-                  {visibleIds.slice(1).map((fid) => {
-                    const field = fieldById.get(fid);
-                    const op = field ? summarizeMap[fid] : undefined;
-                    const colW = colWidths[fid] ?? (field ? columnMinWidth(field) : 160);
-                    const numeric = field ? isNumericField(field) : false;
-                    const { label } =
-                      field && op
-                        ? computeSummarize(op, field, sec.items.map((it) => it.fields[fid]))
-                        : { label: null };
-                    // Ternaire (pas juste `showOp &&`) : narrow `op` en
-                    // SummarizeOp non-undefined pour summarizeOpLabel.
-                    const opNode =
-                      op && op !== "none" && label !== null ? (
-                        <span>
-                          <span style={{ opacity: 0.6, marginRight: 4 }}>
-                            {summarizeOpLabel(op)}
-                          </span>
-                          <span style={{ fontWeight: 600, color: "var(--text-secondary)" }}>
-                            {label}
-                          </span>
-                        </span>
-                      ) : null;
-                    const showOp = opNode !== null;
-                    return (
-                      <td
-                        key={fid}
-                        className={`px-2 py-1.5 text-[11px]${showOp ? " cursor-pointer hover:bg-[var(--surface-2)]" : ""}`}
-                        style={{
-                          width: colW,
-                          minWidth: colW,
-                          maxWidth: colW,
-                          borderRight: "1px solid var(--border-subtle)",
-                          color: "var(--text-muted)",
-                          fontVariantNumeric: "tabular-nums",
-                          textAlign: numeric ? "right" : "left",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                        }}
-                        onClick={
-                          showOp
-                            ? (e) => {
-                                e.stopPropagation();
-                                setGroupOpPicker({
-                                  fid,
-                                  anchor: e.currentTarget as HTMLElement,
-                                });
-                              }
-                            : undefined
-                        }
-                        title={showOp ? "Changer l'agrégation" : undefined}
-                      >
-                        {opNode}
-                      </td>
-                    );
-                  })}
-                  {/* Cellules de fin (+ colonne, actions, filler) — alignement. */}
-                  <td />
-                  <td />
-                  <td />
-                </tr>
-                {!collapsedGroups.has(sec.key) && sec.items.map((it) => renderRow(it, idxOf.get(it.id) ?? 0))}
-              </Fragment>
-            ));
+                      {opNode}
+                    </td>
+                  );
+                })}
+                {/* Cellules de fin (+ colonne, actions, filler) — alignement. */}
+                <td />
+                <td />
+                <td />
+              </tr>
+            );
+            const renderEntry = (entry: GridEntry) =>
+              entry.kind === "row" ? renderRow(entry.entity, entry.idx) : renderGroupHeader(entry.sec);
+            if (!virtualized) return entries.map(renderEntry);
+            const vItems = rowVirtualizer.getVirtualItems();
+            const first = vItems[0];
+            const last = vItems[vItems.length - 1];
+            const margin = rowVirtualizer.options.scrollMargin;
+            const padTop = first ? first.start - margin : 0;
+            const padBottom = last ? rowVirtualizer.getTotalSize() - (last.end - margin) : 0;
+            return (
+              <>
+                {padTop > 0 && (
+                  <tr aria-hidden style={{ height: padTop }}>
+                    <td colSpan={visibleIds.length + 4} style={{ padding: 0 }} />
+                  </tr>
+                )}
+                {vItems.map((v) => {
+                  const entry = entries[v.index];
+                  return entry ? renderEntry(entry) : null;
+                })}
+                {padBottom > 0 && (
+                  <tr aria-hidden style={{ height: padBottom }}>
+                    <td colSpan={visibleIds.length + 4} style={{ padding: 0 }} />
+                  </tr>
+                )}
+              </>
+            );
           })()}
 
           {/* + Nouvelle entrée — toute la ligne est cliquable */}
@@ -1726,7 +1894,7 @@ export function DataGrid({ base, view, maxHeight, readOnly = false, searchQuery 
           }}
           onDelete={() => {
             if (selectedIds.size > 1 && selectedIds.has(rowMenu.entityId)) {
-              for (const id of selectedIds) deleteWithUndo(id);
+              bulkDeleteWithUndo(Array.from(selectedIds));
               setSelectedIds(new Set());
             } else {
               deleteWithUndo(rowMenu.entityId);
@@ -1834,16 +2002,6 @@ function serializeCellValue(value: unknown): string {
 
 /** Sentinelle : signifie "ne pas coller" (parse échoué ou champ en lecture seule). */
 const SKIP = Symbol("SKIP");
-
-const READONLY_PASTE_KINDS = new Set<Field["kind"]>([
-  "createdAt",
-  "updatedAt",
-  "createdBy",
-  "autoNumber",
-  "formula",
-  "rollup",
-  "lookup",
-]);
 
 const BOOL_TRUTHY = new Set(["true", "1", "oui", "yes", "x", "✓"]);
 

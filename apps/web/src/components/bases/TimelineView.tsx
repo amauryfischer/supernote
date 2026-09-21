@@ -12,6 +12,7 @@ import { useMemo } from "react";
 import type { EntityType, Field } from "@supernote/core";
 import type { TimelineConfig, View } from "@supernote/ipc";
 import { NativeSelect } from "@/components/settings/NativeSelect";
+import { useShellChrome } from "@/components/shell/shell-chrome-context";
 import { useEntitiesForView, useViewMutations, resolveVisibleFieldIds } from "./hooks";
 
 interface TimelineViewProps {
@@ -29,6 +30,7 @@ interface BarPoint {
 export function TimelineView({ base, view }: TimelineViewProps) {
   const { data, isLoading } = useEntitiesForView(base.id, view.filters, view.sorts);
   const { update: updateView } = useViewMutations();
+  const { openEntityPeek } = useShellChrome();
   const items = data?.items ?? [];
 
   const dateFields = useMemo<Field[]>(
@@ -127,7 +129,17 @@ export function TimelineView({ base, view }: TimelineViewProps) {
               return (
                 <div
                   key={b.id}
-                  className="grid grid-cols-[180px_1fr] items-center gap-2 text-xs"
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`Ouvrir ${b.label}`}
+                  onClick={() => openEntityPeek(base.id, b.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      openEntityPeek(base.id, b.id);
+                    }
+                  }}
+                  className="sn-hit grid cursor-pointer grid-cols-[110px_1fr] items-center gap-2 rounded text-xs hover:bg-[var(--surface-1)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] md:grid-cols-[180px_1fr]"
                 >
                   <span className="truncate" style={{ color: "var(--text-secondary)" }}>
                     {b.label}
@@ -171,7 +183,7 @@ function toTs(v: unknown): number | null {
 function Ruler({ min, max }: { min: number; max: number }) {
   const ticks = [0, 0.25, 0.5, 0.75, 1];
   return (
-    <div className="mt-2 grid grid-cols-[180px_1fr] gap-2">
+    <div className="mt-2 grid grid-cols-[110px_1fr] gap-2 md:grid-cols-[180px_1fr]">
       <span />
       <div className="relative h-4 text-[10px]" style={{ color: "var(--text-muted)" }}>
         {ticks.map((t) => (

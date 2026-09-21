@@ -16,6 +16,7 @@ import { trpc } from "@/lib/trpc/client";
 import type { EntityType, Field } from "@supernote/core";
 import type { View, FilterClause, SortClause } from "@supernote/ipc";
 import { isCodaBase } from "@/lib/coda/bindings";
+import { ipcEntityTypeToCore } from "@/components/schemas/adapters";
 
 export function useViews(typeId: string | undefined) {
   return trpc.views.list.useQuery(
@@ -54,8 +55,17 @@ export function useEntitiesForView(
   filters: FilterClause[],
   sorts: SortClause[],
 ) {
+  // Une clause fraîchement ajoutée (`eq ""`) ne doit pas vider la vue avant
+  // que l'utilisateur ait choisi une valeur.
+  const activeFilters = useMemo(
+    () =>
+      filters.filter(
+        (f) => f.op === "is_empty" || f.op === "is_not_empty" || !isBlankValue(f.value),
+      ),
+    [filters],
+  );
   return trpc.views.queryForView.useQuery(
-    { typeId: typeId ?? "", filters, sorts },
+    { typeId: typeId ?? "", filters: activeFilters, sorts },
     { enabled: !!typeId, staleTime: 5_000 },
   );
 }
@@ -92,6 +102,57 @@ type ViewData = { items: RowEntity[] };
 type RowSnapshot = [QueryKey, ViewData | undefined];
 type MutContext = { snaps: RowSnapshot[] };
 
+/** Vide au sens « obligatoire » : `0` et `false` sont des valeurs. */
+export function isBlankValue(v: unknown): boolean {
+  return (
+    v === null ||
+    v === undefined ||
+    (typeof v === "string" && v.trim() === "") ||
+    (Array.isArray(v) && v.length === 0)
+  );
+}
+
+function uniqueKey(v: unknown): string {
+  if (Array.isArray(v)) return v.map(String).sort().join("\u001f");
+  return typeof v === "string" ? v.trim().toLowerCase() : String(v);
+}
+
+/**
+ * Manquements à `required` / `unique` dans `values`, par id de champ.
+ * `mustFill` liste les champs à exiger : l'appelant décide (clés du patch pour
+ * une édition, champs du formulaire pour une soumission). Vider un champ déjà
+ * vide n'en est pas un. L'unicité se compare à `rows`, hors `entityId`.
+ */
+export function checkFieldConstraints(
+  fields: readonly Field[],
+  values: Record<string, unknown>,
+  rows: readonly { id: string; fields: Record<string, unknown> }[],
+  { entityId, mustFill }: { entityId?: string; mustFill: readonly string[] },
+): Record<string, string> {
+  const errors: Record<string, string> = {};
+  const self = entityId ? rows.find((r) => r.id === entityId) : undefined;
+  for (const field of fields) {
+    const label = field.label || field.name;
+    const v = values[field.id];
+    if (isBlankValue(v)) {
+      const alreadyBlank = self !== undefined && isBlankValue(self.fields[field.id]);
+      if (mustFill.includes(field.id) && !alreadyBlank) {
+        errors[field.id] = `« ${label} » est obligatoire.`;
+      }
+      continue;
+    }
+    if (!field.unique || !(field.id in values)) continue;
+    const key = uniqueKey(v);
+    const taken = rows.some(
+      (r) => r.id !== entityId && !isBlankValue(r.fields[field.id]) && uniqueKey(r.fields[field.id]) === key,
+    );
+    if (taken) errors[field.id] = `« ${label} » doit être unique : cette valeur existe déjà.`;
+  }
+  return errors;
+}
+
+class FieldConstraintError extends Error {}
+
 /** Mutations on entities (rows) that propagate to every open view.
  *
  * Writes are OPTIMISTIC: `onMutate` patches every cached `views.queryForView`
@@ -103,24 +164,63 @@ export function useEntityMutations(typeId: string | undefined) {
   const utils = trpc.useUtils();
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const { data: ipcSchema } = trpc.schemas.get.useQuery(
+    { id: typeId ?? "" },
+    { enabled: !!typeId, staleTime: 30_000 },
+  );
+  const fieldDefs = useMemo(
+    () => (ipcSchema ? ipcEntityTypeToCore(ipcSchema).fields : []),
+    [ipcSchema],
+  );
 
   // Prefix that matches EVERY queryForView cache regardless of filters/sorts —
   // a Base can be open in several views/inline blocks at once; all must update.
   const viewsPrefix = getQueryKey(trpc.views.queryForView);
 
+  const viewCaches = () =>
+    queryClient
+      .getQueriesData<ViewData>({ queryKey: viewsPrefix })
+      .filter(([key]) => {
+        const input = (key as [unknown, { input?: { typeId?: string } }])?.[1]?.input;
+        return !!typeId && input?.typeId === typeId;
+      });
+
   /** Patch all queryForView caches for `typeId`; return snapshots for rollback. */
   const patchRows = (fn: (rows: RowEntity[]) => RowEntity[]): RowSnapshot[] => {
-    if (!typeId) return [];
     const snaps: RowSnapshot[] = [];
-    for (const [key, data] of queryClient.getQueriesData<ViewData>({ queryKey: viewsPrefix })) {
-      const input = (key as [unknown, { input?: { typeId?: string } }])?.[1]?.input;
-      if (!input || input.typeId !== typeId) continue;
+    for (const [key, data] of viewCaches()) {
       snaps.push([key, data]);
       if (data && Array.isArray(data.items)) {
         queryClient.setQueryData<ViewData>(key, { ...data, items: fn(data.items) });
       }
     }
     return snaps;
+  };
+
+  // ponytail: unicité vérifiée sur les lignes déjà en cache (vues ouvertes de
+  // la base), pas sur tout le coffre ; route worker dédiée si ça ne suffit plus.
+  const cachedRows = (): RowEntity[] => {
+    const byId = new Map<string, RowEntity>();
+    for (const [, data] of viewCaches()) for (const r of data?.items ?? []) byId.set(r.id, r);
+    return [...byId.values()];
+  };
+
+  /** Premier manquement du patch (`null` si valide). Édition : `entityId` ; création : sans. */
+  const validate = (patch: Record<string, unknown>, entityId?: string): string | null => {
+    if (fieldDefs.length === 0) return null;
+    const mustFill = entityId
+      ? fieldDefs.filter((f) => f.required && f.id in patch).map((f) => f.id)
+      : [];
+    const errors = checkFieldConstraints(fieldDefs, patch, cachedRows(), { entityId, mustFill });
+    return Object.values(errors)[0] ?? null;
+  };
+  const assertValid = (patch: Record<string, unknown>, entityId?: string) => {
+    const message = validate(patch, entityId);
+    if (message) throw new FieldConstraintError(message);
+  };
+  const onFailure = (e: unknown, ctx: MutContext | undefined) => {
+    rollback(ctx);
+    if (e instanceof FieldConstraintError) toast({ title: e.message, variant: "danger" });
   };
   const rollback = (ctx: MutContext | undefined) => {
     if (!ctx) return;
@@ -131,12 +231,15 @@ export function useEntityMutations(typeId: string | undefined) {
     void utils.entities.list.invalidate();
   };
 
+  // Une contrainte violée lève dans `onMutate` : rien n'est patché ni écrit, et
+  // les `onError` / `onSettled` de l'appelant tournent comme pour un échec worker.
   const create = trpc.entities.create.useMutation({
     onMutate: async (vars): Promise<MutContext> => {
+      assertValid(vars.fields ?? {});
       await utils.views.queryForView.cancel();
       const ts = new Date().toISOString();
       const optimistic: RowEntity = {
-        id: `__opt_${ts}_${Math.round(performance.now())}`,
+        id: vars.id ?? `__opt_${ts}_${Math.round(performance.now())}`,
         typeId: vars.typeId,
         filePath: "",
         body: vars.body ?? "",
@@ -147,12 +250,13 @@ export function useEntityMutations(typeId: string | undefined) {
       // Sorted by createdAt ASC server-side → fresh row lands at the bottom.
       return { snaps: patchRows((rows) => [...rows, optimistic]) };
     },
-    onError: (_e, _v, ctx) => rollback(ctx),
+    onError: (e, _v, ctx) => onFailure(e, ctx),
     onSettled: reconcile,
   });
 
   const update = trpc.entities.update.useMutation({
     onMutate: async (vars): Promise<MutContext> => {
+      assertValid(vars.fields ?? {}, vars.id);
       await utils.views.queryForView.cancel();
       const ts = new Date().toISOString();
       // Mirror the worker's merge semantics: { ...existingFields, ...patch }.
@@ -171,7 +275,7 @@ export function useEntityMutations(typeId: string | undefined) {
         ),
       };
     },
-    onError: (_e, _v, ctx) => rollback(ctx),
+    onError: (e, _v, ctx) => onFailure(e, ctx),
     onSettled: reconcile,
   });
 
@@ -189,7 +293,7 @@ export function useEntityMutations(typeId: string | undefined) {
   // can mutate its data. The schema has no native read-only flag; the binding
   // registry is the source of truth (cf. mounts, also an app-level invariant).
   const readOnly = typeof typeId === "string" && typeId.length > 0 && isCodaBase(typeId);
-  if (!readOnly) return { create, update, delete: del, typeId, readOnly: false };
+  if (!readOnly) return { create, update, delete: del, typeId, readOnly: false, validate };
 
   const blocked = {
     mutate: () => toast({ title: "Base Coda en lecture seule", variant: "danger" }),
@@ -204,6 +308,7 @@ export function useEntityMutations(typeId: string | undefined) {
     delete: { ...del, ...blocked } as unknown as typeof del,
     typeId,
     readOnly: true,
+    validate,
   };
 }
 

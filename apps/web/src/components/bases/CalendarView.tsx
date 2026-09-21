@@ -9,8 +9,8 @@
  *
  * Layout: 7 columns (lundi → dimanche), 5–6 rows of days. Each cell shows
  * the day number + up to 3 entry chips; overflow renders a "+N" badge.
- * Click an entry chip — Phase 1 just toggles a tooltip; Phase 4 will open
- * an entity drawer. Drag-and-drop between cells rewrites the date field.
+ * Click an entry chip to open its side-peek. Drag-and-drop between cells
+ * rewrites the date field.
  */
 
 import { useMemo, useState } from "react";
@@ -18,6 +18,7 @@ import { Button } from "@heroui/react";
 import { CaretLeft, CaretRight, CalendarBlank } from "@phosphor-icons/react";
 import type { EntityType } from "@supernote/core";
 import type { View } from "@supernote/ipc";
+import { useShellChrome } from "@/components/shell/shell-chrome-context";
 import { useEntitiesForView, useEntityMutations } from "./hooks";
 import { resolveDateField, deriveCardTitle, readDateValue } from "./entity-summary";
 
@@ -37,6 +38,7 @@ export function CalendarView({ base, view }: CalendarViewProps) {
   const dateField = resolveDateField(base, view.groupByField);
   const { data } = useEntitiesForView(base.id, view.filters, view.sorts);
   const mut = useEntityMutations(base.id);
+  const { openEntityPeek } = useShellChrome();
 
   // Cursor month — defaults to today's month. Stored as Date pointing to
   // the 1st of the displayed month so day arithmetic stays simple.
@@ -44,6 +46,22 @@ export function CalendarView({ base, view }: CalendarViewProps) {
     const now = new Date();
     return new Date(now.getFullYear(), now.getMonth(), 1);
   });
+
+  const items = useMemo(() => data?.items ?? [], [data?.items]);
+
+  // Bucket entries by ISO day string (YYYY-MM-DD).
+  const byDay = useMemo(() => {
+    const map = new Map<string, typeof items>();
+    if (!dateField) return map;
+    for (const item of items) {
+      const d = readDateValue(item, dateField, item.createdAt, item.updatedAt);
+      if (!d) continue;
+      const key = isoDay(d);
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(item);
+    }
+    return map;
+  }, [items, dateField]);
 
   if (!dateField) {
     return (
@@ -57,21 +75,6 @@ export function CalendarView({ base, view }: CalendarViewProps) {
       </div>
     );
   }
-
-  const items = data?.items ?? [];
-
-  // Bucket entries by ISO day string (YYYY-MM-DD).
-  const byDay = useMemo(() => {
-    const map = new Map<string, typeof items>();
-    for (const item of items) {
-      const d = readDateValue(item, dateField, item.createdAt, item.updatedAt);
-      if (!d) continue;
-      const key = isoDay(d);
-      if (!map.has(key)) map.set(key, []);
-      map.get(key)!.push(item);
-    }
-    return map;
-  }, [items, dateField]);
 
   const days = buildMonthGrid(cursor);
   const monthLabel = `${MONTH_LABELS[cursor.getMonth()]} ${cursor.getFullYear()}`;
@@ -171,6 +174,7 @@ export function CalendarView({ base, view }: CalendarViewProps) {
               isToday={isToday}
               entries={entries}
               onDrop={(id) => handleDropOnDay(key, id)}
+              onOpen={(id) => openEntityPeek(base.id, id)}
               renderEntry={(entity) => deriveCardTitle(entity, base)}
             />
           );
@@ -199,11 +203,12 @@ interface CalendarCellProps {
     fields: Record<string, unknown>;
   }) => string;
   onDrop: (entityId: string) => void;
+  onOpen: (entityId: string) => void;
 }
 
 const MAX_VISIBLE = 3;
 
-function CalendarCell({ day, dim, isToday, entries, renderEntry, onDrop }: CalendarCellProps) {
+function CalendarCell({ day, dim, isToday, entries, renderEntry, onDrop, onOpen }: CalendarCellProps) {
   const [over, setOver] = useState(false);
   const visible = entries.slice(0, MAX_VISIBLE);
   const overflow = entries.length - visible.length;
@@ -248,24 +253,37 @@ function CalendarCell({ day, dim, isToday, entries, renderEntry, onDrop }: Calen
         {day.getDate()}
       </div>
       <div className="flex flex-col gap-0.5">
-        {visible.map((entity) => (
-          <div
-            key={entity.id}
-            draggable
-            onDragStart={(e) => {
-              e.dataTransfer.effectAllowed = "move";
-              e.dataTransfer.setData("text/plain", entity.id);
-            }}
-            className="cursor-grab truncate rounded px-1.5 py-0.5 text-[11px]"
-            style={{
-              backgroundColor: "var(--btn-primary-bg)",
-              color: "var(--btn-primary-fg)",
-            }}
-            title={renderEntry(entity)}
-          >
-            {renderEntry(entity)}
-          </div>
-        ))}
+        {visible.map((entity) => {
+          const label = renderEntry(entity);
+          return (
+            <div
+              key={entity.id}
+              role="button"
+              tabIndex={0}
+              aria-label={`Ouvrir ${label}`}
+              draggable
+              onDragStart={(e) => {
+                e.dataTransfer.effectAllowed = "move";
+                e.dataTransfer.setData("text/plain", entity.id);
+              }}
+              onClick={() => onOpen(entity.id)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  onOpen(entity.id);
+                }
+              }}
+              className="sn-hit flex cursor-pointer items-center truncate rounded px-1.5 py-0.5 text-[11px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+              style={{
+                backgroundColor: "var(--btn-primary-bg)",
+                color: "var(--btn-primary-fg)",
+              }}
+              title={label}
+            >
+              <span className="truncate">{label}</span>
+            </div>
+          );
+        })}
         {overflow > 0 && (
           <span
             className="text-[10px]"

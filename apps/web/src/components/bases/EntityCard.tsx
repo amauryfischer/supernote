@@ -12,7 +12,7 @@
  */
 
 import type { EntityType } from "@supernote/core";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Cell } from "./Cell";
 import {
   deriveCardTitle,
@@ -40,6 +40,8 @@ interface EntityCardProps {
   onEditField?: (entityId: string, fieldId: string, value: unknown) => void;
   /** Compact mode used by lists (no cover, tight padding). */
   compact?: boolean;
+  /** Actions à droite du titre (ex. « Déplacer vers… » du Kanban). */
+  actions?: ReactNode;
 }
 
 export function EntityCard({
@@ -51,6 +53,7 @@ export function EntityCard({
   onDragEnd,
   onEditField,
   compact,
+  actions,
 }: EntityCardProps) {
   // Local drag flag so the card can ease its own pickup cue. Native HTML5 DnD
   // renders a detached drag image, so the source node never receives a
@@ -149,12 +152,21 @@ export function EntityCard({
         />
       )}
       <div className={`flex flex-col gap-1 ${compact ? "px-2 py-1.5" : "px-3 py-2"}`}>
-        <h4
-          className={`line-clamp-2 ${compact ? "text-xs" : "text-sm"} font-semibold`}
-          style={{ color: "var(--text-primary)" }}
-        >
-          {title}
-        </h4>
+        <div className="flex items-start gap-1">
+          <h4
+            className={`line-clamp-2 min-w-0 flex-1 ${compact ? "text-xs" : "text-sm"} font-semibold`}
+            style={{ color: "var(--text-primary)" }}
+          >
+            {title}
+          </h4>
+          {actions && (
+            // Les popovers sont portés hors du DOM mais leurs clics remontent
+            // l'arbre React jusqu'à la carte : on les arrête ici.
+            <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
+              {actions}
+            </div>
+          )}
+        </div>
         {visibleSecondary.length > 0 && (
           <div className="flex flex-col gap-0.5 text-xs">
             {visibleSecondary.map((field) => (

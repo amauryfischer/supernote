@@ -473,6 +473,7 @@ function FieldEditForm({ field, isSaving, prefill, currentBaseId, currentBasePlu
   const [name, setName] = useState(field?.name ?? (prefill ? "formule" : ""));
   const [kind, setKind] = useState<FieldKind>(field?.kind ?? (prefill ? "formula" : "text"));
   const [required, setRequired] = useState(field?.required ?? false);
+  const [unique, setUnique] = useState(field?.unique ?? false);
   const [options, setOptions] = useState<SelectOption[]>(
     (field as { options?: SelectOption[] })?.options ?? [],
   );
@@ -539,7 +540,7 @@ function FieldEditForm({ field, isSaving, prefill, currentBaseId, currentBasePlu
 
     // Slug auto-dérivé du libellé — l'utilisateur ne le gère plus.
     const finalName = (name.trim() || makeSlug(label.trim()) || field?.name || newFieldId());
-    const base = { id: field?.id ?? newFieldId(), name: finalName, label: label.trim(), required, unique: field?.unique ?? false };
+    const base = { id: field?.id ?? newFieldId(), name: finalName, label: label.trim(), required, unique };
 
     // Valeur par défaut, coercée selon le kind.
     const coerceDefault = (): unknown => {
@@ -910,6 +911,13 @@ function FieldEditForm({ field, isSaving, prefill, currentBaseId, currentBasePlu
           onChange={() => setRequired((v) => !v)}
         />
         Champ obligatoire
+      </label>
+      <label className="flex cursor-pointer items-center gap-2 text-xs" style={{ color: "var(--text-secondary)" }}>
+        <Checkbox
+          isSelected={unique}
+          onChange={() => setUnique((v) => !v)}
+        />
+        Valeur unique
       </label>
 
       {/* Error */}
