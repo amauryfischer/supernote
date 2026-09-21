@@ -11,7 +11,6 @@ export type {
   IaSettings,
   SyncSettings,
   Plugin,
-  ApiSettings,
   Shortcut,
   NotificationSettings,
   SettingsTab,
@@ -22,12 +21,9 @@ export { AppearanceTab } from "./tabs/AppearanceTab";
 export { IaOllamaTab } from "./tabs/IaOllamaTab";
 export { SyncTab } from "./tabs/SyncTab";
 export { PluginsTab } from "./tabs/PluginsTab";
-export { ApiTab } from "./tabs/ApiTab";
 export { ShortcutsTab } from "./tabs/ShortcutsTab";
 export { NotificationsTab } from "./tabs/NotificationsTab";
-export { BackupTab } from "./tabs/BackupTab";
 export { AboutTab } from "./tabs/AboutTab";
-export { SecurityTab } from "./tabs/SecurityTab";
 export { TemplatesTab } from "./tabs/TemplatesTab";
 export { SchemasTab } from "./tabs/SchemasTab";
 export { GoogleDriveTab } from "./tabs/GoogleDriveTab";

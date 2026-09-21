@@ -12,11 +12,8 @@ export interface SeedCommandDeps {
 }
 
 /**
- * Construit les commandes de la palette avec de vraies actions liées au contexte
- * React (navigation SPA, thème, chrome). Avant, `SEED_COMMANDS` était statique et
- * 10/13 `run` n'étaient que des `console.info` (un module ne peut pas appeler les
- * hooks) : la palette — pourtant vendue comme hub par l'onboarding — ne faisait
- * rien. Câblé depuis CommandSurface.
+ * Commandes de la palette, liées au contexte React (navigation SPA, thème,
+ * chrome) : un module ne peut pas appeler les hooks. Câblé depuis CommandSurface.
  */
 export function buildSeedCommands(deps: SeedCommandDeps): Command[] {
   const { navigate, toggleTheme, toggleRightPanel, newNote } = deps;
@@ -115,15 +112,3 @@ export function buildSeedCommands(deps: SeedCommandDeps): Command[] {
     },
   ];
 }
-
-/**
- * Liste statique (métadonnées) — pour les surfaces qui n'affichent que le
- * catalogue (ex. page /command-demo). Les `run` sont inertes ; les vraies
- * actions viennent de `buildSeedCommands` câblé dans CommandSurface.
- */
-export const SEED_COMMANDS: Command[] = buildSeedCommands({
-  navigate: () => {},
-  toggleTheme: () => {},
-  toggleRightPanel: () => {},
-  newNote: () => {},
-});

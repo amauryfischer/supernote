@@ -25,7 +25,6 @@
     "@supernote/canvas": "workspace:*",
     "@supernote/core": "workspace:*",
     "@supernote/editor": "workspace:*",
-    "@supernote/finance": "workspace:*",
     "@supernote/formulas": "workspace:*",
     "@supernote/ipc": "workspace:*",
     "@supernote/notifications": "workspace:*",

@@ -12,8 +12,6 @@
     { "path": "./packages/canvas" },
     { "path": "./packages/automations" },
     { "path": "./packages/formulas" },
-    { "path": "./packages/search" },
-    { "path": "./packages/git" },
-    { "path": "./packages/plugin-sdk" }
+    { "path": "./packages/search" }
   ]
 }

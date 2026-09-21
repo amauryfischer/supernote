@@ -8,13 +8,10 @@ import {
   Robot,
   GitBranch,
   PuzzlePiece,
-  Key,
   Keyboard,
   Bell,
-  Archive,
   Info,
   FloppyDisk,
-  ShieldCheck,
   BookmarkSimple,
   Database,
   Table,
@@ -29,12 +26,9 @@ import {
   IaOllamaTab,
   SyncTab,
   PluginsTab,
-  ApiTab,
   ShortcutsTab,
   NotificationsTab,
-  BackupTab,
   AboutTab,
-  SecurityTab,
   TemplatesTab,
   SchemasTab,
   GoogleDriveTab,
@@ -56,11 +50,8 @@ const NAV_ITEMS: NavItem[] = [
   { id: "ia-ollama", labelKey: "settings.tabs.iaOllama", icon: Robot },
   { id: "sync", labelKey: "settings.tabs.sync", icon: GitBranch },
   { id: "plugins", labelKey: "settings.tabs.plugins", icon: PuzzlePiece },
-  { id: "api", labelKey: "settings.tabs.api", icon: Key },
   { id: "shortcuts", labelKey: "settings.tabs.shortcuts", icon: Keyboard },
   { id: "notifications", labelKey: "settings.tabs.notifications", icon: Bell },
-  { id: "backup", labelKey: "settings.tabs.backup", icon: Archive },
-  { id: "securite", labelKey: "settings.tabs.securite", icon: ShieldCheck },
   { id: "templates", labelKey: "settings.tabs.templates", icon: BookmarkSimple },
   { id: "schemas", labelKey: "settings.tabs.schemas", icon: Database },
   { id: "google-drive", labelKey: "settings.tabs.googleDrive", icon: Database },
@@ -76,11 +67,8 @@ function TabContent({ active }: { active: SettingsTab }) {
     case "ia-ollama": return <IaOllamaTab />;
     case "sync": return <SyncTab />;
     case "plugins": return <PluginsTab />;
-    case "api": return <ApiTab />;
     case "shortcuts": return <ShortcutsTab />;
     case "notifications": return <NotificationsTab />;
-    case "backup": return <BackupTab />;
-    case "securite": return <SecurityTab />;
     case "templates": return <TemplatesTab />;
     case "schemas": return <SchemasTab />;
     case "google-drive": return <GoogleDriveTab />;
@@ -102,7 +90,7 @@ function SettingsContent() {
   // Mobile chrome — publish the active section name as the page title
   useMobileTitle(isMobile ? t("settings.title") : null, isMobile ? t(activeItem.labelKey) : null);
   const saveable =
-    activeTab !== "about" && activeTab !== "securite" && activeTab !== "templates" && activeTab !== "schemas";
+    activeTab !== "about" && activeTab !== "templates" && activeTab !== "schemas";
   // Sous md, « Enregistrer » monte dans la barre du haut : seul sur sa rangée,
   // il coûtait 60px de hauteur à chaque onglet.
   useMobileHeaderActions(

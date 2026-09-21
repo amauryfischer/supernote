@@ -4,11 +4,8 @@ export type SettingsTab =
   | "ia-ollama"
   | "sync"
   | "plugins"
-  | "api"
   | "shortcuts"
   | "notifications"
-  | "backup"
-  | "securite"
   | "templates"
   | "schemas"
   | "google-drive"
@@ -53,11 +50,6 @@ export interface Plugin {
   version: string;
   enabled: boolean;
   path: string;
-}
-
-export interface ApiSettings {
-  httpToken: string;
-  serverUrl: string;
 }
 
 export interface Shortcut {
@@ -143,7 +135,6 @@ export interface AppSettings {
   ia: IaSettings;
   sync: SyncSettings;
   plugins: Plugin[];
-  api: ApiSettings;
   shortcuts: Shortcut[];
   /** Overrides utilisateur des raccourcis éditeur : actionId -> combo canonique. Absent = défaut. */
   editorShortcuts: Record<string, string>;

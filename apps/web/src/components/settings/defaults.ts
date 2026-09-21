@@ -28,10 +28,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
     autoCommitInterval: 5,
   },
   plugins: [],
-  api: {
-    httpToken: "sn_" + Math.random().toString(36).slice(2, 18),
-    serverUrl: "http://localhost:3001",
-  },
   shortcuts: [
     { id: "new-note", label: "Nouvelle note", keys: "Cmd+N" },
     { id: "command-palette", label: "Palette de commandes", keys: "Cmd+K" },

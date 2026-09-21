@@ -146,7 +146,6 @@ export const router: any = createBrowserRouter([
       { path: "templates", lazy: lazyPage(() => import("./app/templates/page")) },
       { path: "recherche", lazy: lazyPage(() => import("./app/recherche/page")) },
       { path: "parametres", lazy: lazyPage(() => import("./app/parametres/page")) },
-      { path: "command-demo", lazy: lazyPage(() => import("./app/command-demo/page")) },
       { path: "dev/writing-surface", lazy: lazyPage(() => import("./app/dev/writing-surface/page")) },
 
       // ── 404 fallback ──────────────────────────────────────────────────

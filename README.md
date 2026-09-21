@@ -158,16 +158,8 @@ supernote/
 │   ├── search/          # FTS5 + sémantique + langage de requête
 │   ├── automations/     # Engine de routines et automations
 │   ├── formulas/        # Parser + évaluateur de formules Coda-like
-│   ├── finance/         # Module finance — prix live, amortissement, snapshots
-│   ├── git/             # Wrappers isomorphic-git
-│   ├── import/          # Importeurs Notion, Obsidian, vCard, OFX
 │   ├── notifications/   # Notifications OS + in-app
 │   ├── templates/       # Engine de templates + seeds
-│   ├── plugin-sdk/      # API et types pour plugins tiers
-│   ├── api/             # Serveur HTTP local + MCP server
-│   ├── cli/             # CLI compagnon `supernote`
-│   ├── ocr/             # OCR Tesseract.js
-│   ├── voice/           # Transcription whisper.cpp
 │   ├── tsconfig/        # Config TypeScript partagée
 │   └── eslint-config/   # Config ESLint partagée
 └── docs/
