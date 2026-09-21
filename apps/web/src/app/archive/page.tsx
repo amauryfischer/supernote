@@ -10,18 +10,20 @@
  * action puts the note back in the active set.
  */
 
-import { Archive, ArrowUUpLeft, FileText, Folder as FolderIcon, MagnifyingGlass } from "@phosphor-icons/react";
+import { Archive, ArrowLeft, ArrowUUpLeft, FileText, Folder as FolderIcon, MagnifyingGlass } from "@phosphor-icons/react";
 import { Button, Input } from "@heroui/react";
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { AppShell, useMobileTitle } from "@/components/shell";
+import { useRouter } from "next/navigation";
+import { AppShell, useMobileBack, useMobileTitle } from "@/components/shell";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useNoteList, useArchiveNote } from "@/components/notes/hooks";
 import { useDateFormat } from "@/lib/dateFormat";
-import { useToast } from "@supernote/ui";
+import { Tooltip, useToast } from "@supernote/ui";
 
 export default function ArchivePage() {
   const isMobile = useIsMobile();
+  const router = useRouter();
   // `null` folderPath → fetch every note, then we pick the archived ones.
   // The recursive filter in useNoteList collapses to a no-op when null.
   const { notes, isLoading, isError, errorMessage } = useNoteList(null);
@@ -106,6 +108,7 @@ export default function ArchivePage() {
         : `${archived.length} note${archived.length !== 1 ? "s" : ""}`
       : null,
   );
+  useMobileBack(isMobile ? () => router.push("/notes") : null);
 
   const handleUnarchiveGroup = async (ids: string[]) => {
     try {
@@ -138,6 +141,19 @@ export default function ArchivePage() {
           style={{ borderBottom: "1px solid var(--border-subtle)" }}
         >
           <div className="flex items-center gap-3">
+            <Tooltip content="Retour aux notes">
+              <Button
+                variant="ghost"
+                size="sm"
+                isIconOnly
+                onPress={() => router.push("/notes")}
+                aria-label="Retour aux notes"
+                className="h-8 w-8 min-w-0 rounded-md hover:bg-[var(--surface-2)]"
+                style={{ color: "var(--text-secondary)" }}
+              >
+                <ArrowLeft size={16} />
+              </Button>
+            </Tooltip>
             <div
               className="flex h-9 w-9 items-center justify-center rounded-lg"
               style={{ backgroundColor: "var(--surface-2)", color: "var(--text-secondary)" }}

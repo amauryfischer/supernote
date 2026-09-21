@@ -92,7 +92,8 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { Button, Input } from "@heroui/react";
 import type { Folder as FolderType } from "./fixtures";
 import { useTranslations } from "next-intl";
-import { ContextMenu, useContextMenu, useToast, type ContextMenuItemDef } from "@supernote/ui";
+import { ContextMenu, Tooltip, useContextMenu, useToast, type ContextMenuItemDef } from "@supernote/ui";
+import { useRouter } from "next/navigation";
 import { ConnectVaultModal } from "./ConnectVaultModal";
 import { useUpdateFolder, useReorderFolders, useMoveFolder } from "./hooks";
 import { trpc, trpcVanillaClient } from "@/lib/trpc/client";
@@ -802,6 +803,7 @@ export function FileTree({
   onDropNote,
 }: FileTreeProps) {
   const t = useTranslations("notes");
+  const router = useRouter();
   // Single context-menu state shared by every FolderNode — only one can be
   // open at a time anyway, and the ContextMenu element lives at the FileTree
   // root so it can render above the scroll container without clipping.
@@ -1247,6 +1249,11 @@ export function FileTree({
             onClick={() => setConnectVaultOpen(true)}
             label="Connecter un vault"
             icon={<Plugs size={13} />}
+          />
+          <ActionButton
+            onClick={() => router.push("/archive")}
+            label="Notes archivées"
+            icon={<Archive size={13} />}
           />
           {onCollapse && (
             <ActionButton
@@ -2561,20 +2568,22 @@ interface ActionButtonProps {
 
 function ActionButton({ onClick, label, icon }: ActionButtonProps) {
   return (
-    <Button
-      variant="ghost"
-      size="sm"
-      isIconOnly
-      onPress={onClick}
-      aria-label={label}
-      // Ces boutons sont côte à côte : leurs zones tactiles se bornent
-      // mutuellement, donc 24px de visuel = 24px de cible utile. `sn-hit`
-      // porte le plancher dès qu'un doigt peut servir, rendu compact sinon.
-      className="sn-hit h-6 w-6 min-w-0 rounded-md hover:bg-[var(--surface-2)]"
-      style={{ color: "var(--text-muted)" }}
-    >
-      {icon}
-    </Button>
+    <Tooltip content={label}>
+      <Button
+        variant="ghost"
+        size="sm"
+        isIconOnly
+        onPress={onClick}
+        aria-label={label}
+        // Ces boutons sont côte à côte : leurs zones tactiles se bornent
+        // mutuellement, donc 24px de visuel = 24px de cible utile. `sn-hit`
+        // porte le plancher dès qu'un doigt peut servir, rendu compact sinon.
+        className="sn-hit h-6 w-6 min-w-0 rounded-md hover:bg-[var(--surface-2)]"
+        style={{ color: "var(--text-muted)" }}
+      >
+        {icon}
+      </Button>
+    </Tooltip>
   );
 }
 

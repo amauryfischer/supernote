@@ -378,7 +378,7 @@ function NoteDetailContent() {
     const ok = await confirm({
       title: `Archiver "${path}" ?`,
       description:
-        "Toutes les notes du dossier (et de ses sous-dossiers) seront déplacées dans les archives. Le dossier disparaîtra de l'arborescence — vous pourrez le recréer ou retrouver les notes dans /archive.",
+        "Toutes les notes du dossier (et de ses sous-dossiers) seront déplacées dans les archives. Le dossier disparaîtra de l'arborescence — vous pourrez le recréer ou retrouver les notes via l'icône « Notes archivées » en tête du coffre.",
       confirmLabel: "Archiver",
     });
     if (!ok) return { archivedCount: 0 };

@@ -18,7 +18,6 @@
  */
 
 import {
-  Archive,
   CheckSquare,
   EnvelopeSimple,
   FileDashed,
@@ -72,7 +71,6 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { href: "/ai", labelKey: "nav.ai", icon: Robot, group: "navigation" },
 
   { href: "/notes", labelKey: "nav.notes", icon: FileText, group: "knowledge" },
-  { href: "/archive", labelKey: "nav.archive", icon: Archive, group: "knowledge" },
   { href: "/todos", labelKey: "nav.todos", icon: CheckSquare, group: "knowledge" },
   { href: "/habits", labelKey: "nav.habits", icon: GridNine, group: "knowledge" },
   { href: "/contacts", labelKey: "nav.contacts", icon: Users, group: "knowledge" },
@@ -115,10 +113,9 @@ export function navItemsInGroup(group: NavGroupId): NavItem[] {
 
 /**
  * Préfixes de route qui, lorsqu'ils sont actifs, doivent surligner l'onglet
- * « Plus » de la bottom-nav : tout ce qui vit uniquement dans le drawer
- * (donc hors onglets primaires et hors `/archive`, couvert par l'onglet Notes).
+ * « Plus » de la bottom-nav : tout ce qui vit uniquement dans le drawer.
  */
 export const MOBILE_MORE_MATCH_PREFIXES: readonly string[] = [
   ...NAV_ITEMS.map((i) => i.href),
   NAV_SETTINGS.href,
-].filter((href) => href !== "/" && !MOBILE_PRIMARY_HREFS.includes(href) && href !== "/archive");
+].filter((href) => href !== "/" && !MOBILE_PRIMARY_HREFS.includes(href));
