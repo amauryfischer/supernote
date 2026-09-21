@@ -71,7 +71,7 @@ En mode dossier local, la base est aussi miroitée vers `.supernote/index.db` da
 
 ## Store du serveur de synchronisation
 
-`apps/web/sync-store.mjs`, monté seulement si `DATABASE_URL` est défini : SQLite (`better-sqlite3`, URL `file:`) en dev, PostgreSQL en prod Scalingo. Deux tables par moteur : l'op-log (`op` / `sync_op`, dernière op par `(vault, entité)` conservée à la compaction) et une table clé-valeur de méta (`meta` / `sync_meta`).
+`apps/web/sync-store.mjs`, monté seulement si `DATABASE_URL` est défini : SQLite (`better-sqlite3`, URL `file:`) en dev, PostgreSQL en prod Scalingo. Trois tables par moteur : l'op-log (`op` / `sync_op`, dernière op par `(vault, entité)` conservée à la compaction), une table clé-valeur de méta (`meta` / `sync_meta`) et les pièces jointes des notes (`blob` / `sync_blob`, clé `(vault, path)`, créée au démarrage, jamais purgée).
 
 La méta porte l'`epoch` et les **mots de passe de salon** sous la clé `pw:<nom>`, valeur `sel:hash` en hex (`scrypt`). `claimVaultPassword` insère sans écraser (`INSERT OR IGNORE` / `ON CONFLICT DO NOTHING`), ce qui arbitre deux revendications simultanées. Il n'y a pas de table des salons : un salon existe dès sa première op, et il est « protégé » dès qu'une clé `pw:` le nomme.
 

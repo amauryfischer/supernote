@@ -1,6 +1,6 @@
 # Motifs et pièges
 
-*Last Updated: 2026-09-21*
+*Last Updated: 2026-09-22*
 
 Les motifs récurrents du dépôt, et surtout les contraintes que le code ne dit pas tout seul. Commence par la section « La chaîne zod » si tu touches aux champs, c'est le piège le plus coûteux.
 
@@ -33,6 +33,8 @@ Les quatre couches à toucher, dans l'ordre :
 Le worker stocke la forme IPC, le domaine parle la forme core. `type` côté IPC contre `kind` côté core, `formulaExpr` contre `expression`.
 
 `apps/web/src/components/schemas/adapters.ts` est le **seul** traducteur, dans les deux sens. Les seeds anciens stockent `kind` au lieu de `type`, donc l'adapter accepte les deux.
+
+⚠️ Le type `personne` a lui aussi deux vocabulaires : la fiche `/contacts` lit `emails`, `phones`, `organisationId`, `social` (listes JSON), la base « Personnes » lit `email`, `phone`, `company`, `role`, `linkedin`. Écrire ou chercher un contact depuis ailleurs doit toucher les deux, comme `apps/web/src/lib/contact-from-email.ts`.
 
 ## ⚠️ Le cycle dist
 
