@@ -1,291 +1,472 @@
 "use client";
 
 /**
- * EnrichContactFromEmail — surface d'enrichissement d'un contact « personne »
- * à partir de la signature d'un email.
+ * Crée ou complète un contact `personne` depuis l'expéditeur d'un email.
  *
- * 1. Extrait { phone, mobile, role, company, linkedin, website } de
- *    `message.bodyText` via `extractSignatureFields` (pur, lib signature-extract).
- * 2. Cherche un contact `personne` existant dont le champ `email` correspond à
- *    `message.from.email` (insensible à la casse) parmi les entités listées par
- *    `trpc.entities.list({ typeId: "personne" })`.
- * 3. Présente les champs extraits avec cases à cocher (conflits signalés) et,
- *    sur validation, applique le patch via `useEntityMutations("personne")` —
- *    update si le contact existe, sinon create (nouvelle fiche pré-remplie).
- *
- * Ne modifie NI le worker NI l'IPC : réutilise les procédures `entities.*`
- * existantes via le hook `useEntityMutations` de la feature Bases.
- *
- * HeroUI v3 (Button, Chip, Checkbox) + Modal/useToast de @supernote/ui.
+ * Formulaire pré-rempli par les heuristiques de `lib/contact-from-email`
+ * (nom affiché, adresse, domaine, signature), rapproché du coffre (contact au
+ * même email, organisation du même domaine ou au nom proche), puis affiné par
+ * l'IA locale si elle est configurée. Rien n'est écrit avant validation.
  */
 
-import { useEffect, useMemo, useState } from "react";
-import { Button, Chip, Checkbox } from "@heroui/react";
-import { Modal, useToast } from "@supernote/ui";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { Button, Chip, Input, Spinner } from "@heroui/react";
+import { UserPlus } from "@phosphor-icons/react";
+import { Modal, Tooltip, useToast } from "@supernote/ui";
+import { useRouter } from "next/navigation";
 import { trpc } from "@/lib/trpc/client";
-import {
-  extractSignatureFields,
-  hasAnyExtractedField,
-  buildContactApplications,
-  findContactByEmail,
-  type FieldApplication,
-} from "@/lib/signature-extract";
 import { useEntityMutations } from "@/components/bases/hooks";
+import { contactFormToEntityFields, entityToContact } from "@/components/contacts/entityAdapter";
+import { isAiConfigured, runLocalPrompt } from "@/lib/mail-ai";
+import {
+  buildContactPrompt,
+  draftFromContact,
+  entityName,
+  findContactMatch,
+  findOrgByName,
+  findOrgForDomain,
+  guessContactFromEmail,
+  joinName,
+  looseKey,
+  parseContactAiResponse,
+  type AiContactKey,
+  type ContactDraft,
+  type ContactMatch,
+  type EmailContactGuess,
+} from "@/lib/contact-from-email";
 import type { EmailMessage } from "@/lib/gmail";
-import type { FieldValue } from "@supernote/ipc";
-
-const PERSONNE_TYPE_ID = "personne";
-
-interface ContactRow {
-  id: string;
-  fields: Record<string, FieldValue>;
-}
+import type { EntitySummary, FieldValue } from "@supernote/ipc";
 
 export interface EnrichContactFromEmailProps {
-  /** Email source dont on lit la signature (`bodyText`) et l'expéditeur. */
+  /** Message dont on lit l'expéditeur et la signature (`bodyText`). */
   message: EmailMessage;
-  /** Variante d'affichage : bouton compact (déclencheur) ou panneau inline. */
-  variant?: "button" | "inline";
-  /** Libellé du bouton déclencheur (variant="button"). */
-  triggerLabel?: string;
+  /** Contrôlé par le fil : le menu « Plus » ouvre la même modale que le bouton icône. */
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
 }
 
-/**
- * Bouton qui ouvre une modale d'enrichissement, OU panneau inline directement
- * embarqué (variant="inline"). Le gros du travail vit dans `EnrichPanel`.
- */
-export function EnrichContactFromEmail({
-  message,
-  variant = "button",
-  triggerLabel = "Enrichir le contact",
-}: EnrichContactFromEmailProps) {
-  const [open, setOpen] = useState(false);
+const LABEL = "Créer / compléter le contact";
 
-  const extracted = useMemo(
-    () => extractSignatureFields(message.bodyText ?? ""),
-    [message.bodyText],
-  );
-
-  // Rien d'exploitable dans la signature → on n'affiche pas le déclencheur.
-  if (!hasAnyExtractedField(extracted)) return null;
-
-  if (variant === "inline") {
-    return <EnrichPanel message={message} onDone={() => undefined} />;
-  }
+/** Bouton icône (à côté de l'adresse du correspondant) et sa modale. */
+export function EnrichContactFromEmail({ message, open, onOpenChange }: EnrichContactFromEmailProps) {
+  if (!message.from.email) return null;
 
   return (
     <>
-      <Button variant="ghost" size="sm" onPress={() => setOpen(true)}>
-        {triggerLabel}
-      </Button>
+      <Tooltip content={LABEL}>
+        <Button
+          isIconOnly
+          variant="ghost"
+          size="sm"
+          aria-label={LABEL}
+          className="sn-hit h-6 min-h-6 w-6 min-w-6 shrink-0"
+          onPress={() => onOpenChange(true)}
+        >
+          <UserPlus size={13} />
+        </Button>
+      </Tooltip>
       <Modal
         isOpen={open}
-        onOpenChange={(o) => setOpen(o)}
-        title="Enrichir le contact"
+        onOpenChange={onOpenChange}
+        title="Contact depuis l'email"
         size="lg"
+        className="max-h-[calc(100dvh-2rem)] overflow-y-auto"
       >
-        <EnrichPanel message={message} onDone={() => setOpen(false)} />
+        {open && <ContactForm message={message} onDone={() => onOpenChange(false)} />}
       </Modal>
     </>
   );
 }
 
-function EnrichPanel({
-  message,
-  onDone,
-}: {
-  message: EmailMessage;
-  onDone: () => void;
-}) {
+const FIELDS: { key: keyof ContactDraft; label: string; type: string }[] = [
+  { key: "firstName", label: "Prénom", type: "text" },
+  { key: "lastName", label: "Nom", type: "text" },
+  { key: "email", label: "Email", type: "email" },
+  { key: "phone", label: "Téléphone", type: "tel" },
+  { key: "organisation", label: "Organisation", type: "text" },
+  { key: "role", label: "Poste", type: "text" },
+  { key: "linkedin", label: "LinkedIn", type: "url" },
+];
+
+// Nom, téléphone et liens déjà trouvés viennent tels quels de l'en-tête ou de la signature : un petit
+// modèle ne ferait que les reformater, ou confondre l'expéditeur avec le « Bonjour X » du corps.
+const AI_CAN_REPLACE = new Set<AiContactKey>(["organisation", "role"]);
+
+const inputClass =
+  "w-full rounded-md border px-3 py-2 text-sm outline-none transition-colors focus:border-[var(--accent)]";
+const inputStyle = {
+  borderColor: "var(--border-subtle)",
+  backgroundColor: "var(--surface-1)",
+  color: "var(--text-primary)",
+};
+
+function text(v: unknown): string {
+  return typeof v === "string" ? v.trim() : "";
+}
+
+function ContactForm({ message, onDone }: { message: EmailMessage; onDone: () => void }) {
   const { toast } = useToast();
-  const email = message.from.email;
-
-  const extracted = useMemo(
-    () => extractSignatureFields(message.bodyText ?? ""),
-    [message.bodyText],
+  const router = useRouter();
+  const idPrefix = useId();
+  const guess = useMemo(
+    () => guessContactFromEmail(message.from, message.bodyText ?? ""),
+    [message.from, message.bodyText],
   );
 
-  // Liste des contacts pour la correspondance par email. Limite haute : la base
-  // Contacts est typiquement petite ; on récupère tout en une fois.
-  const { data, isLoading } = trpc.entities.list.useQuery({
-    typeId: PERSONNE_TYPE_ID,
-    limit: 10000,
-    offset: 0,
-  });
+  // Mêmes entrées que /contacts et OrganisationSelector : cache partagé.
+  const contactsQ = trpc.entities.list.useQuery({ typeId: "personne", limit: 500 }, { retry: false });
+  const orgsQ = trpc.entities.list.useQuery({ typeId: "organisation", limit: 200 }, { retry: false });
+  const contacts = useMemo<EntitySummary[]>(() => contactsQ.data?.items ?? [], [contactsQ.data]);
+  const orgs = useMemo<EntitySummary[]>(() => orgsQ.data?.items ?? [], [orgsQ.data]);
+  const loading = contactsQ.isPending || orgsQ.isPending;
 
-  const contacts = useMemo<ContactRow[]>(
-    () => (data?.items ?? []).map((e) => ({ id: e.id, fields: e.fields })),
-    [data],
-  );
-
-  const match = useMemo(
-    () => findContactByEmail(contacts, email),
-    [contacts, email],
-  );
-
-  const applications = useMemo(
-    () => buildContactApplications(extracted, match?.fields ?? {}),
-    [extracted, match],
-  );
-
-  // Sélection : par défaut, on coche les champs vides côté contact (sans
-  // conflit). Les conflits restent décochés — l'utilisateur choisit d'écraser.
-  // Recalculé quand la correspondance/les applications changent (la liste de
-  // contacts arrive de façon asynchrone après le 1ᵉʳ rendu).
-  const [selected, setSelected] = useState<Record<string, boolean>>({});
-  const applicationsKey = applications.map((a) => `${a.fieldName}:${a.conflict}`).join("|");
-  useEffect(() => {
-    setSelected(Object.fromEntries(applications.map((a) => [a.fieldName, !a.conflict])));
-    // applicationsKey capture l'identité fonctionnelle de `applications`.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [applicationsKey]);
+  const [draft, setDraft] = useState<ContactDraft | null>(null);
+  const [match, setMatch] = useState<ContactMatch<EntitySummary>>(null);
+  const [initial, setInitial] = useState<ContactDraft | null>(null);
+  const [domainOrgId, setDomainOrgId] = useState<string | null>(null);
+  const [baseSuggestions, setBaseSuggestions] = useState<Partial<ContactDraft>>({});
+  const [aiSuggestions, setAiSuggestions] = useState<Partial<ContactDraft>>({});
+  const [ai, setAi] = useState<"off" | "running" | "done" | "failed">("off");
   const [busy, setBusy] = useState(false);
+  // Champs à ne plus écraser : saisis par l'utilisateur, déjà renseignés sur le contact, ou org trouvée au coffre.
+  const locked = useRef(new Set<keyof ContactDraft>());
+  const alive = useRef(true);
+  const aiStarted = useRef(false);
 
-  const { create, update } = useEntityMutations(PERSONNE_TYPE_ID);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
 
-  const toggle = (fieldName: string, checked: boolean) =>
-    setSelected((s) => ({ ...s, [fieldName]: checked }));
+  useEffect(() => {
+    if (loading || draft) return;
+    const init = initialDraft(guess, contacts, orgs, locked.current);
+    setMatch(init.match);
+    setInitial(init.current);
+    setDomainOrgId(init.domainOrgId);
+    setBaseSuggestions(init.suggestions);
+    setDraft(init.draft);
+  }, [loading, draft, guess, contacts, orgs]);
 
-  const selectedApps = applications.filter((a) => selected[a.fieldName]);
+  useEffect(() => {
+    if (!draft || aiStarted.current || guess.automated || !isAiConfigured()) return;
+    aiStarted.current = true;
+    setAi("running");
+    runLocalPrompt(buildContactPrompt(message.from, guess.signature))
+      .then((raw) => {
+        if (!alive.current) return;
+        const found = parseContactAiResponse(raw);
+        setAiSuggestions(
+          Object.fromEntries(Object.entries(found).filter(([k]) => locked.current.has(k as AiContactKey))),
+        );
+        setDraft((d) => {
+          if (!d) return d;
+          const next = { ...d };
+          for (const [k, v] of Object.entries(found) as [AiContactKey, string][]) {
+            if (locked.current.has(k)) continue;
+            if (d[k] && (!AI_CAN_REPLACE.has(k) || looseKey(d[k]) === looseKey(v))) continue;
+            next[k] = v;
+          }
+          return next;
+        });
+        setAi("done");
+      })
+      .catch(() => {
+        if (alive.current) setAi("failed");
+      });
+  }, [draft, guess, message.from]);
 
-  const apply = async () => {
-    if (selectedApps.length === 0) return;
+  const linkedOrg = useMemo(
+    () => (draft ? findOrgByName(orgs, draft.organisation) : null),
+    [orgs, draft],
+  );
+
+  const personMut = useEntityMutations("personne");
+  const orgMut = useEntityMutations("organisation");
+  const utils = trpc.useUtils();
+
+  if (loading || !draft) {
+    return (
+      <div className="flex items-center gap-2 text-sm" style={{ color: "var(--text-muted)" }}>
+        <Spinner size="sm" /> Recherche dans les contacts…
+      </div>
+    );
+  }
+
+  const setField = (k: keyof ContactDraft, v: string) => {
+    locked.current.add(k);
+    setDraft((d) => (d ? { ...d, [k]: v } : d));
+  };
+
+  const suggestionFor = (k: keyof ContactDraft): string => {
+    const v = aiSuggestions[k] || baseSuggestions[k] || "";
+    return v && looseKey(v) !== looseKey(draft[k]) ? v : "";
+  };
+
+  const orgName = draft.organisation.trim();
+  const createsOrg = !linkedOrg && orgName.length > 0;
+
+  const save = async () => {
+    const name = joinName(draft) || draft.email.trim();
+    if (!name) {
+      toast({ title: "Il faut au moins un nom ou un email", variant: "danger" });
+      return;
+    }
     setBusy(true);
     try {
-      const patch: Record<string, FieldValue> = {};
-      for (const a of selectedApps) patch[a.fieldName] = a.extracted;
-
-      if (match) {
-        await update.mutateAsync({ id: match.id, fields: patch });
-        toast({ title: "Contact mis à jour" });
-      } else {
-        // Création : on pré-remplit nom + email depuis l'expéditeur.
-        const createFields: Record<string, FieldValue> = {
-          name: message.from.name || email || "Sans nom",
-          ...patch,
-        };
-        if (email) createFields.email = email;
-        await create.mutateAsync({ typeId: PERSONNE_TYPE_ID, fields: createFields, body: "" });
-        toast({ title: "Contact créé" });
+      let orgId = linkedOrg?.id;
+      if (createsOrg) {
+        const website = draft.website.trim();
+        const org = await orgMut.create.mutateAsync({
+          typeId: "organisation",
+          fields: website ? { name: orgName, website } : { name: orgName },
+          body: "",
+        });
+        orgId = org?.id;
       }
+      const company = linkedOrg ? entityName(linkedOrg) : orgName;
+      let id: string | undefined;
+      if (match && initial) {
+        const patch = contactPatch(match.row, draft, initial, { name, orgId, company, guess });
+        if (Object.keys(patch).length === 0) {
+          toast({ title: "Contact déjà à jour" });
+          onDone();
+          return;
+        }
+        await personMut.update.mutateAsync({ id: match.row.id, fields: patch });
+        id = match.row.id;
+      } else {
+        const created = await personMut.create.mutateAsync({
+          typeId: "personne",
+          fields: newContactFields(draft, { name, orgId, company, guess }),
+          body: "",
+        });
+        id = created?.id;
+      }
+      void utils.entities.get.invalidate();
+      void utils.entities.listSummaries.invalidate();
+      toast({
+        title: match ? "Contact complété" : "Contact créé",
+        description: name,
+        ...(id ? { action: { label: "Ouvrir", onClick: () => router.push(`/contacts/${id}`) } } : {}),
+      });
       onDone();
     } catch (err) {
       toast({
-        title: "Échec de l'enrichissement",
+        title: "Enregistrement impossible",
         description: err instanceof Error ? err.message : String(err),
         variant: "danger",
       });
     } finally {
-      setBusy(false);
+      if (alive.current) setBusy(false);
     }
   };
 
-  if (isLoading) {
-    return (
-      <p className="text-sm" style={{ color: "var(--text-muted)" }}>
-        Chargement des contacts…
-      </p>
-    );
-  }
-
   return (
     <div className="flex flex-col gap-4">
-      {/* En-tête : qui + état de la correspondance */}
-      <div className="flex flex-col gap-1">
-        <span className="text-sm font-medium">{message.from.name || email || "Expéditeur"}</span>
-        {email && (
-          <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-            {email}
+      <div className="flex flex-wrap items-center gap-2 text-xs" style={{ color: "var(--text-muted)" }}>
+        {match ? (
+          <>
+            <Chip size="sm" variant="soft" color="success">
+              Contact existant
+            </Chip>
+            <span className="min-w-0 break-words">
+              {entityName(match.row)} ({match.by === "email" ? "même email" : "même nom"})
+            </span>
+          </>
+        ) : (
+          <Chip size="sm" variant="soft" color="accent">
+            Nouveau contact
+          </Chip>
+        )}
+        {guess.automated && (
+          <Chip size="sm" variant="soft" color="warning">
+            Adresse automatique
+          </Chip>
+        )}
+        {ai === "running" && (
+          <span className="flex items-center gap-1.5">
+            <Spinner size="sm" /> L'IA locale affine…
           </span>
         )}
-        <div className="mt-1">
-          {match ? (
-            <Chip size="sm" variant="soft" color="success">
-              Contact existant — mise à jour
-            </Chip>
-          ) : (
-            <Chip size="sm" variant="soft" color="accent">
-              Nouveau contact — création
-            </Chip>
-          )}
-        </div>
+        {ai === "done" && <span>Affiné par l'IA locale</span>}
+        {ai === "failed" && <span>IA indisponible : pré-rempli par l'en-tête et la signature</span>}
       </div>
 
-      {/* Champs extraits */}
-      {applications.length === 0 ? (
-        <p className="text-sm" style={{ color: "var(--text-muted)" }}>
-          Aucun champ exploitable détecté dans la signature.
-        </p>
-      ) : (
-        <ul className="flex flex-col gap-3">
-          {applications.map((a) => (
-            <FieldRow
-              key={a.fieldName}
-              app={a}
-              checked={!!selected[a.fieldName]}
-              onToggle={(c) => toggle(a.fieldName, c)}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        {FIELDS.map(({ key, label, type }) => {
+          const id = `${idPrefix}-${key}`;
+          const suggestion = suggestionFor(key);
+          return (
+            <div key={key} className={`flex min-w-0 flex-col gap-1${key === "linkedin" ? " sm:col-span-2" : ""}`}>
+              <label htmlFor={id} className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
+                {label}
+              </label>
+              <Input
+                id={id}
+                type={type}
+                value={draft[key]}
+                onChange={(e) => setField(key, e.target.value)}
+                className={inputClass}
+                style={inputStyle}
+              />
+              {suggestion && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onPress={() => setField(key, suggestion)}
+                  className="sn-hit h-auto min-h-0 justify-start px-0 py-0.5 text-left text-xs"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  <span className="truncate">Remplacer par « {suggestion} »</span>
+                </Button>
+              )}
+              {key === "organisation" && orgName && (
+                <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+                  {linkedOrg
+                    ? `Liée à l'organisation existante « ${entityName(linkedOrg)} »${
+                        linkedOrg.id === domainOrgId ? ` (via @${guess.domain})` : ""
+                      }`
+                    : "Nouvelle organisation, créée à l'enregistrement"}
+                </span>
+              )}
+            </div>
+          );
+        })}
+        {createsOrg && (
+          <div className="flex min-w-0 flex-col gap-1 sm:col-span-2">
+            <label
+              htmlFor={`${idPrefix}-website`}
+              className="text-xs font-medium"
+              style={{ color: "var(--text-secondary)" }}
+            >
+              Site web de l'organisation
+            </label>
+            <Input
+              id={`${idPrefix}-website`}
+              type="url"
+              value={draft.website}
+              onChange={(e) => setField("website", e.target.value)}
+              className={inputClass}
+              style={inputStyle}
             />
-          ))}
-        </ul>
-      )}
+          </div>
+        )}
+      </div>
 
-      {/* Actions */}
       <div className="flex flex-wrap items-center justify-end gap-2">
         <Button variant="ghost" size="sm" onPress={onDone} isDisabled={busy}>
           Annuler
         </Button>
-        <Button
-          size="sm"
-          onPress={() => void apply()}
-          isDisabled={busy || selectedApps.length === 0}
-        >
-          {busy
-            ? "Application…"
-            : match
-              ? `Mettre à jour (${selectedApps.length})`
-              : `Créer le contact (${selectedApps.length})`}
+        <Button variant="primary" size="sm" onPress={() => void save()} isDisabled={busy}>
+          {busy ? "Enregistrement…" : match ? "Compléter le contact" : "Créer le contact"}
         </Button>
       </div>
     </div>
   );
 }
 
-function FieldRow({
-  app,
-  checked,
-  onToggle,
-}: {
-  app: FieldApplication;
-  checked: boolean;
-  onToggle: (checked: boolean) => void;
-}) {
-  return (
-    <li className="flex items-start gap-3">
-      <Checkbox
-        isSelected={checked}
-        onChange={(isSel) => onToggle(Boolean(isSel))}
-        // Cible tactile confortable sur mobile.
-        className="mt-0.5"
-        aria-label={`Appliquer ${app.label}`}
-      />
-      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-medium" style={{ color: "var(--text-muted)" }}>
-            {app.label}
-          </span>
-          {app.conflict && (
-            <Chip size="sm" variant="soft" color="warning">
-              écrase
-            </Chip>
-          )}
-        </div>
-        <span className="text-sm break-words">{app.extracted}</span>
-        {app.conflict && app.current && (
-          <span className="text-xs line-through" style={{ color: "var(--text-muted)" }}>
-            actuel : {app.current}
-          </span>
-        )}
-      </div>
-    </li>
-  );
+function initialDraft(
+  guess: EmailContactGuess,
+  contacts: EntitySummary[],
+  orgs: EntitySummary[],
+  locked: Set<keyof ContactDraft>,
+): {
+  draft: ContactDraft;
+  match: ContactMatch<EntitySummary>;
+  current: ContactDraft | null;
+  domainOrgId: string | null;
+  suggestions: Partial<ContactDraft>;
+} {
+  const domainOrg = findOrgForDomain(contacts, orgs, guess.domain);
+  const guessed = domainOrg ? { ...guess.draft, organisation: entityName(domainOrg) } : guess.draft;
+  if (domainOrg) locked.add("organisation");
+  const match = findContactMatch(contacts, guessed.email, joinName(guessed));
+  if (!match) return { draft: guessed, match, current: null, domainOrgId: domainOrg?.id ?? null, suggestions: {} };
+
+  const current = draftFromContact(match.row, orgs, guessed.email);
+  const draft = { ...current, email: guessed.email, website: guessed.website };
+  const suggestions: Partial<ContactDraft> = {};
+  for (const k of Object.keys(current) as (keyof ContactDraft)[]) {
+    if (k === "email" || k === "website") continue;
+    if (!current[k]) {
+      draft[k] = guessed[k];
+    } else {
+      locked.add(k);
+      if (guessed[k] && looseKey(guessed[k]) !== looseKey(current[k])) suggestions[k] = guessed[k];
+    }
+  }
+  return { draft, match, current, domainOrgId: domainOrg?.id ?? null, suggestions };
+}
+
+interface SaveContext {
+  name: string;
+  orgId: string | undefined;
+  company: string;
+  guess: EmailContactGuess;
+}
+
+function newContactFields(d: ContactDraft, { name, orgId, company, guess }: SaveContext): Record<string, FieldValue> {
+  const email = d.email.trim();
+  const phone = d.phone.trim();
+  const linkedin = d.linkedin.trim();
+  return {
+    ...contactFormToEntityFields({
+      name,
+      emails: email ? [{ value: email, label: guess.domain ? "pro" : "perso" }] : [],
+      phones: phone ? [{ value: phone, label: guess.phoneLabel }] : [],
+      organisationId: orgId,
+      relationType: "connaissance",
+      linkedin: linkedin || undefined,
+      tags: [],
+      notes: "",
+    }),
+    // La fiche contact lit `emails`/`phones`/`organisationId`/`social`, la base « Personnes » ces scalaires.
+    email,
+    phone,
+    company,
+    role: d.role.trim(),
+    linkedin,
+  };
+}
+
+/** Complète sans effacer : seules les valeurs nouvelles ou modifiées partent, les listes sont fusionnées. */
+function contactPatch(
+  row: EntitySummary,
+  d: ContactDraft,
+  initial: ContactDraft,
+  { name, orgId, company, guess }: SaveContext,
+): Record<string, FieldValue> {
+  const f = row.fields;
+  const c = entityToContact(row);
+  const patch: Record<string, FieldValue> = {};
+  if (name !== joinName(initial)) patch.name = name;
+
+  const email = d.email.trim().toLowerCase();
+  if (email && !c.emails.some((e) => e.value.trim().toLowerCase() === email)) {
+    patch.emails = JSON.stringify([...c.emails, { value: email, label: guess.domain ? "pro" : "perso" }]);
+  }
+  if (email && !text(f.email)) patch.email = email;
+
+  const phone = d.phone.trim();
+  if (phone && phone !== initial.phone) {
+    const digits = (s: string) => s.replace(/\D/g, "");
+    if (!c.phones.some((p) => digits(p.value) === digits(phone))) {
+      patch.phones = JSON.stringify([...c.phones, { value: phone, label: guess.phoneLabel }]);
+    }
+    patch.phone = phone;
+  }
+
+  if (orgId && orgId !== text(f.organisationId)) patch.organisationId = orgId;
+  if (company && company !== text(f.company)) patch.company = company;
+  const role = d.role.trim();
+  if (role && role !== text(f.role)) patch.role = role;
+  const linkedin = d.linkedin.trim();
+  if (linkedin && linkedin !== initial.linkedin) {
+    patch.linkedin = linkedin;
+    patch.social = JSON.stringify({ ...c.social, linkedin });
+  }
+  return patch;
 }

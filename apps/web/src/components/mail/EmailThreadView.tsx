@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, forwardRef, useImperativeHandle, type ReactNode } from "react";
-import { ArrowSquareOut, Plus, X, Tag, MagnifyingGlass, Check, PaperPlaneTilt, Quotes, Paperclip, Star, Envelope, ArrowBendUpRight, Sparkle, MagicWand, ArrowsClockwise, CaretUp, DotsThreeVertical, Copy, Image as ImageIcon, SpeakerSlash, UserMinus } from "@phosphor-icons/react";
+import { ArrowSquareOut, Plus, X, Tag, MagnifyingGlass, Check, PaperPlaneTilt, Quotes, Paperclip, Star, Envelope, ArrowBendUpRight, Sparkle, MagicWand, ArrowsClockwise, CaretUp, DotsThreeVertical, Copy, Image as ImageIcon, SpeakerSlash, UserMinus, UserPlus } from "@phosphor-icons/react";
 import { Button, Chip, Input, Spinner, Popover } from "@heroui/react";
 import { useToast, Tooltip } from "@supernote/ui";
 import { useSettings } from "@/components/settings/SettingsContext";
@@ -102,7 +102,7 @@ import {
 const MENU_ROW =
   "flex h-auto w-full items-center justify-start gap-2.5 rounded-md px-3 py-2 text-sm";
 // Conteneur qui uniformise un COMPOSANT-action self-contained (ExtractActions,
-// EnrichContact, EmailToEvent — chacun apporte son propre
+// EmailToEvent — chacun apporte son propre
 // déclencheur + overlay) en « ligne de menu » pleine largeur. Le sélecteur
 // descendant ne touche QUE le déclencheur encore dans l'arbre : le contenu de
 // l'overlay (Popover/Modal/Dropdown) est porté ailleurs via portal, donc non
@@ -244,6 +244,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
   const [pickerOpen, setPickerOpen] = useState(false);
   // Ouverture du menu overflow « Plus » (actions secondaires regroupées).
   const [moreOpen, setMoreOpen] = useState(false);
+  const [contactOpen, setContactOpen] = useState(false);
   const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
   // Éditeur de couleur d'un label appliqué : id du label ciblé + ancre du badge.
   const [colorEdit, setColorEdit] = useState<{ id: string; color: GmailLabelColor | undefined; rect: DOMRect } | null>(
@@ -1106,10 +1107,20 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
                           <span>Non lu</span>
                         </Button>
                       )}
-                      {correspondentMsg && (
-                        <div className={MENU_COMPONENT_ROW}>
-                          <EnrichContactFromEmail message={correspondentMsg} />
-                        </div>
+                      {correspondentMsg?.from.email && (
+                        <Button
+                          variant="ghost"
+                          className={MENU_ROW}
+                          aria-label="Créer ou compléter le contact"
+                          onPress={() => {
+                            // La modale vit hors du menu : ouverte dedans, le popover resterait par-dessus.
+                            setMoreOpen(false);
+                            setContactOpen(true);
+                          }}
+                        >
+                          <UserPlus size={16} />
+                          <span>Créer / compléter le contact</span>
+                        </Button>
                       )}
                       <div className={MENU_COMPONENT_ROW}>
                         <EmailToEventButton message={firstMsg} />
@@ -1140,6 +1151,9 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
                 <Copy size={12} />
               </Button>
             </Tooltip>
+            {correspondentMsg && (
+              <EnrichContactFromEmail message={correspondentMsg} open={contactOpen} onOpenChange={setContactOpen} />
+            )}
             {lastRecipients.text && (
               <span
                 className="min-w-0 truncate text-xs"

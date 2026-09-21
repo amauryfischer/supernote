@@ -1,8 +1,7 @@
 /**
  * signature-extract — extraction PURE de coordonnées depuis le bloc signature
- * d'un email. On isole d'abord la signature via `stripSignature` (email-quote),
- * puis on parse ce bloc avec des regex robustes (formats FR/EN variés) pour en
- * tirer { phone, mobile, role, company, website, linkedin }.
+ * d'un email, isolé en amont par `parseEmailBody` (email-quote). Regex robustes
+ * (formats FR/EN variés) pour en tirer { phone, mobile, role, company, website, linkedin }.
  *
  * Aucun effet de bord, aucune dépendance React/IPC → testable isolément.
  *
@@ -11,8 +10,6 @@
  * pour ne JAMAIS proposer d'écraser un contact avec du bruit. Un champ absent
  * est simplement `undefined`.
  */
-
-import { stripSignature } from "./email-quote";
 
 export interface ExtractedSignature {
   /** Téléphone fixe / standard (premier numéro non-mobile rencontré). */
@@ -63,6 +60,8 @@ function looksLikeFrenchMobile(digits: string): boolean {
   // Cas international FR : 33 6/7 …  (+33 6 …)
   if (/^33[67]\d{8}$/.test(digits)) return true;
   if (/^0033[67]\d{8}$/.test(digits)) return true;
+  // « +33 (0)7 … » : le 0 national entre parenthèses reste dans les chiffres.
+  if (/^330[67]\d{8}$/.test(digits)) return true;
   return false;
 }
 
@@ -261,24 +260,7 @@ function extractRoleCompany(lines: string[]): RoleCompany {
 
 // ─── API publique ─────────────────────────────────────────────────────────────
 
-/**
- * Extrait les coordonnées du bloc signature d'un corps d'email (texte brut).
- * Isole d'abord la signature via `stripSignature`, puis parse ce bloc. Si
- * aucune signature n'est détectée, retombe sur l'analyse du texte entier (un
- * email ultra-court peut n'être qu'une signature).
- */
-export function extractSignatureFields(rawBody: string): ExtractedSignature {
-  const { signature } = stripSignature(rawBody ?? "");
-  // Fallback : pas de délimiteur de signature détecté → analyser tout le corps
-  // (cas « bloc de coordonnées sans formule de politesse »).
-  const block = signature.trim().length > 0 ? signature : (rawBody ?? "");
-  return parseSignatureBlock(block);
-}
-
-/**
- * Parse un bloc signature DÉJÀ isolé. Exposé séparément pour tester la logique
- * de parsing sans dépendre de la détection de signature.
- */
+/** Parse un bloc signature DÉJÀ isolé. */
 export function parseSignatureBlock(block: string): ExtractedSignature {
   const lines = block.split(/\r?\n/);
 
@@ -300,99 +282,4 @@ export function parseSignatureBlock(block: string): ExtractedSignature {
   if (rc.company) result.company = rc.company;
 
   return result;
-}
-
-/** Vrai si l'extraction a produit au moins un champ exploitable. */
-export function hasAnyExtractedField(s: ExtractedSignature): boolean {
-  return Boolean(s.phone || s.mobile || s.role || s.company || s.website || s.linkedin);
-}
-
-// ─── Mapping vers les champs du type « personne » ───────────────────────────────
-
-/**
- * Une ligne d'application : un champ du contact (clé `personne`), son libellé
- * d'affichage, la valeur extraite, et la valeur actuelle (si le contact existe
- * déjà). `conflict` = le contact a déjà une valeur DIFFÉRENTE pour ce champ.
- */
-export interface FieldApplication {
-  /** Clé du champ dans le type `personne` (name=…, ex "phone", "company"). */
-  fieldName: "phone" | "role" | "company" | "linkedin";
-  /** Libellé humain (FR). */
-  label: string;
-  /** Valeur extraite de la signature. */
-  extracted: string;
-  /** Valeur actuelle du contact (string), si renseignée. */
-  current?: string;
-  /** Vrai si `current` existe et diffère de `extracted`. */
-  conflict: boolean;
-}
-
-/** Normalise une FieldValue (du worker) en string pour comparaison/affichage. */
-function fieldToString(v: unknown): string {
-  if (v == null) return "";
-  if (typeof v === "string") return v;
-  if (typeof v === "number" || typeof v === "boolean") return String(v);
-  if (Array.isArray(v)) return v.join(", ");
-  return "";
-}
-
-/**
- * Construit la liste des champs applicables sur un contact `personne`.
- *
- * Mapping vers les champs seedés du type `personne` (cf. seed-default-types) :
- *   - mobile/phone → `phone`  (le type n'a qu'un seul champ téléphone ; on
- *     préfère le mobile, sinon le fixe)
- *   - role         → `role`
- *   - company      → `company`
- *   - linkedin     → `linkedin`
- *   - website      → ignoré (pas de champ site web sur `personne`, c'est sur
- *     `organisation`) — signalé en limite.
- *
- * `currentFields` = fields actuels du contact (peut être vide pour une création).
- * Pur & testable.
- */
-export function buildContactApplications(
-  extracted: ExtractedSignature,
-  currentFields: Record<string, unknown> = {},
-): FieldApplication[] {
-  const out: FieldApplication[] = [];
-  const phone = extracted.mobile ?? extracted.phone;
-
-  const candidates: Array<{ fieldName: FieldApplication["fieldName"]; label: string; value?: string }> = [
-    { fieldName: "phone", label: "Téléphone", value: phone },
-    { fieldName: "role", label: "Rôle", value: extracted.role },
-    { fieldName: "company", label: "Entreprise", value: extracted.company },
-    { fieldName: "linkedin", label: "LinkedIn", value: extracted.linkedin },
-  ];
-
-  for (const c of candidates) {
-    if (!c.value) continue;
-    const current = fieldToString(currentFields[c.fieldName]);
-    out.push({
-      fieldName: c.fieldName,
-      label: c.label,
-      extracted: c.value,
-      current: current || undefined,
-      conflict: current.length > 0 && current.trim() !== c.value.trim(),
-    });
-  }
-  return out;
-}
-
-/** Normalise un email pour comparaison (trim + minuscules). */
-export function normalizeEmailKey(email: string | undefined): string {
-  return (email ?? "").trim().toLowerCase();
-}
-
-/**
- * Cherche, parmi des contacts, celui dont le champ `email` correspond (insensible
- * à la casse) à l'adresse donnée. Renvoie `null` si aucun. Pur & testable.
- */
-export function findContactByEmail<T extends { fields: Record<string, unknown> }>(
-  contacts: T[],
-  email: string | undefined,
-): T | null {
-  const key = normalizeEmailKey(email);
-  if (!key) return null;
-  return contacts.find((c) => normalizeEmailKey(fieldToString(c.fields.email)) === key) ?? null;
 }
