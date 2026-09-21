@@ -36,11 +36,11 @@ ThemeProvider → ToastProvider → ConfirmProvider → NotificationsProvider
 
 ⚠️ Ce rechargement automatique peut surprendre pendant un débogage d'import.
 
-Le repli `*` rend la page d'accueil. Il n'y a pas de composant 404 dédié.
+La boîte mail est l'accueil : `/` et le repli `*` redirigent vers `/mail` par un `loader` `redirect`. Il n'y a pas de composant 404 dédié.
 
 ## Les portes de navigation ne protègent rien
 
-`src/lib/navigation/catalog.ts` définit `NavGate`, avec trois valeurs : `journal`, `routines`, `mail`. Trois entrées du catalogue les portent.
+`src/lib/navigation/catalog.ts` définit `NavGate`, avec une seule valeur : `routines`. Mail, devenu l'accueil, n'a plus de porte.
 
 ⚠️ Une porte fermée **masque seulement l'entrée dans la navigation**. La route reste accessible par URL directe, et ni le routeur ni les pages ne relisent le drapeau. N'appuie jamais une logique de permission dessus.
 

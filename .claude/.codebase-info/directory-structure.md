@@ -1,6 +1,6 @@
 # Arborescence
 
-*Last Updated: 2026-09-13*
+*Last Updated: 2026-09-21*
 
 Monorepo pnpm workspaces, orchestré par Turborepo. Le principe d'organisation est **par domaine**, pas par couche : chaque paquet possède un sujet, pas un étage technique.
 
@@ -17,7 +17,7 @@ supernote/
 │       │   ├── app/            une page par route, convention héritée de Next
 │       │   ├── components/     composants, groupés par domaine
 │       │   │   ├── shell/      coquille desktop + mobile/
-│       │   │   ├── home/       widgets d'accueil
+│       │   │   ├── home/       widgets de l'ancien accueil (banc /dev/writing-surface)
 │       │   │   ├── notes/      arbre de fichiers, listes, éditeur de note
 │       │   │   ├── schemas/    édition des types d'entité, adapters core↔IPC
 │       │   │   └── ...

@@ -1,6 +1,6 @@
 # Architecture
 
-*Last Updated: 2026-09-13*
+*Last Updated: 2026-09-21*
 
 Supernote est un **système de connaissance et CRM personnel local-first**. Il n'y a pas de serveur applicatif : la base de données tourne dans un Web Worker, dans le navigateur de l'utilisateur.
 
@@ -82,11 +82,13 @@ La deuxième ligne est celle qui coûte le plus cher quand on l'ignore. Voir [pa
 
 ## Héritages visibles
 
-Deux migrations ont laissé des traces qu'il faut savoir lire.
+Trois migrations ont laissé des traces qu'il faut savoir lire.
 
 **Next.js vers Vite.** Les pages vivent en `app/<route>/page.tsx`, portent `"use client"`, et importent `next/navigation` ou `next/link`. Ça fonctionne grâce aux alias de `vite.config.ts` vers `src/lib/next-shims/`. Ce n'est pas du Next.js.
 
 **Electron vers PWA.** `apps/desktop` n'existe plus. Tout `docs/dev/` le décrit encore, et la page `/capture` visait cette fenêtre Electron. La suite e2e a été reciblée sur le navigateur en septembre 2026.
+
+**Journal retiré.** Des coffres anciens contiennent des entités `daily` sous `Daily/`. `purgeJournalEntries()`, dans `vault-worker/worker.ts`, les supprime au démarrage par `entities.delete`, puis retire le type. Les entrées montées restent à leur coffre source, et la clé étrangère garde le type tant qu'il en reste.
 
 ## Ce que le worker ne fait pas
 

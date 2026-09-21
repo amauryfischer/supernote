@@ -1,6 +1,6 @@
 # Prise en main
 
-*Last Updated: 2026-09-13*
+*Last Updated: 2026-09-22*
 
 ## Démarrer
 
@@ -36,9 +36,9 @@ pnpm --filter @supernote/editor build
 
 **Déboguer le coffre.** En développement, le worker est exposé sous `window.__supernoteWorker`. Ses journaux sont réémis vers la console de l'onglet.
 
-**Tester l'éditeur sans coffre.** La surface d'écriture de l'accueil fait tourner l'éditeur complet. La persistance expire mais l'édition fonctionne. Les pages Notes, elles, sont inutilisables sans coffre.
+**Tester l'éditeur sans coffre.** Le banc `/dev/writing-surface` fait tourner l'éditeur complet. La persistance expire mais l'édition fonctionne. Les pages Notes, elles, sont inutilisables sans coffre.
 
-**Ajouter une page.** Crée `apps/web/src/app/<route>/page.tsx`, enveloppe dans `<AppShell>`, déclare la route dans `router.tsx` en `lazy`, ajoute l'entrée dans `lib/navigation/catalog.ts`. Publie le chrome mobile avec `useMobileTitle`, `useMobileFab` et `useMobileHeaderActions`, **depuis un composant rendu sous `AppShell`**, pas depuis celui qui le rend.
+**Ajouter une page.** Crée `apps/web/src/app/<route>/page.tsx`, enveloppe dans `<AppShell>`, déclare la route dans `router.tsx` en `lazy`, ajoute l'entrée dans `lib/navigation/catalog.ts`. Publie le chrome mobile avec `useMobileTitle`, `useMobileFab` (`false` masque le FAB, `null` laisse le « Nouveau » par défaut) et `useMobileHeaderActions` ; une vue empilée sans route propre (fil mail, éditeur de template) publie son retour avec `useMobileBack`. Le provider vit dans `RootLayout`, donc la page elle-même peut appeler ces hooks.
 
 **Ajouter un composant.** Vérifie d'abord si `@supernote/ui` le fournit. L'application contourne ce paquet dans deux tiers des cas, ne creuse pas l'écart sans raison.
 

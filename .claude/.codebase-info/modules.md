@@ -1,6 +1,6 @@
 # Paquets
 
-*Last Updated: 2026-09-13*
+*Last Updated: 2026-09-21*
 
 Vingt-trois paquets dans `packages/`, plus l'application `apps/web`. **Tous ne sont pas vivants.** Vérifie cette page avant d'aller lire du code : plus d'un tiers n'est importé nulle part.
 
@@ -41,7 +41,7 @@ Tous les paquets sont consommés par leur `dist/`. Voir le cycle de build dans [
 
 ⚠️ **`@supernote/finance` dort, mais la fonctionnalité finance est bien vivante.** Le paquet est déclaré dans `apps/web/package.json` et n'est importé par aucun fichier. Tout le code finance utilisé vit dans `apps/web/src/components/finance/` et `apps/web/src/app/finance/`. Ne supprime pas les pages en croyant retirer une fonctionnalité morte.
 
-⚠️ **`@supernote/git` n'est pas un vestige.** Il dort aujourd'hui, mais il correspond à la direction retenue pour le chantier flux et journal. Son API init, commit, diff, push, pull est complète.
+⚠️ **`@supernote/git` n'est pas un vestige.** Il dort aujourd'hui, mais il correspond à la direction retenue pour la synchronisation par git, commit automatique et fusion à trois voies. Son API init, commit, diff, push, pull est complète.
 
 ## `packages/views` n'existe pas
 
