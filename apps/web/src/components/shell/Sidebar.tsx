@@ -146,7 +146,6 @@ export const Sidebar = memo(function Sidebar() {
       )}
       <SidebarRail
         brandLabel={brandLabel}
-        isCloudVault={isCloudVault}
         canPickVault={canPickVault}
         brandRef={brandRef}
         switcherOpen={switcherOpen}

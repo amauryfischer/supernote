@@ -1,6 +1,6 @@
 "use client";
 
-import { Bell, Cloud } from "@phosphor-icons/react";
+import { Bell } from "@phosphor-icons/react";
 import { Fragment, memo, type RefObject } from "react";
 import { useRouter } from "next/navigation";
 import { NotificationBadge } from "@supernote/notifications/renderer";
@@ -51,7 +51,6 @@ const RailItem = memo(function RailItem({ item, active, label, badgeCount = 0, t
 
 interface SidebarRailProps {
   brandLabel: string;
-  isCloudVault: boolean;
   canPickVault: boolean;
   brandRef: RefObject<HTMLButtonElement | null>;
   switcherOpen: boolean;
@@ -72,7 +71,6 @@ interface SidebarRailProps {
  */
 export const SidebarRail = memo(function SidebarRail({
   brandLabel,
-  isCloudVault,
   canPickVault,
   brandRef,
   switcherOpen,
@@ -100,10 +98,9 @@ export const SidebarRail = memo(function SidebarRail({
           aria-label={canPickVault ? "Changer de vault" : brandLabel}
           aria-haspopup={canPickVault ? "menu" : undefined}
           aria-expanded={canPickVault ? switcherOpen : undefined}
-          className="sn-pressable mb-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--radius-lg)] text-[12px] font-bold"
-          style={{ backgroundColor: "var(--brand-mark-bg)", color: "var(--brand-mark-fg)" }}
+          className="sn-pressable mb-1 flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-[var(--radius-lg)] p-0"
         >
-          {isCloudVault ? <Cloud size={15} weight="fill" /> : "S"}
+          <img src="/icons/icon-192.png" alt="" className="h-8 w-8" draggable={false} />
         </Button>
       </Tooltip>
 
