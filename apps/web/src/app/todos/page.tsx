@@ -95,6 +95,8 @@ import { TodoBulkActionBar } from "@/components/todos/TodoBulkActionBar";
 import { EditTodoModal, type EditTodoValues } from "@/components/todos/EditTodoModal";
 import { TodoCalendarView } from "@/components/todos/TodoCalendarView";
 import { TodoMatrix } from "@/components/todos/TodoMatrix";
+import { useMailTodos, mailThreadIdOf } from "@/components/todos/useMailTodos";
+import { useNavigate } from "react-router-dom";
 import { GridFour } from "@phosphor-icons/react";
 import {
   composeTodoMailto,
@@ -414,6 +416,13 @@ export default function TodosPage() {
     setToast(msg);
     setTimeout(() => setToast(null), 4000);
   }, []);
+
+  const navigate = useNavigate();
+  const mailTodos = useMailTodos(showToast);
+  const openMailThread = useCallback(
+    (row: TodoRowData) => navigate(`/mail?thread=${encodeURIComponent(row.sourceThreadId ?? "")}`),
+    [navigate],
+  );
 
   /**
    * Materialize one UiTodoRow per checklist line across every note. Pure
@@ -1577,12 +1586,26 @@ export default function TodosPage() {
               </div>
             ) : (
               <TodoMatrix
-                todos={matrixTodos}
-                onMove={(row, target) => void handleMatrixMove(row, target)}
-                onToggle={(row) => void handleToggle(row as UiTodoRow)}
-                onEdit={(row) => setEditing(row as UiTodoRow)}
-                onEmail={(row) => handleEmailOne(row as UiTodoRow)}
-                onContextMenu={(e, row) => openTodoContextMenu(e, row as UiTodoRow)}
+                todos={tagFilter.size > 0 ? matrixTodos : [...matrixTodos, ...mailTodos.rows]}
+                onMove={(row, target) =>
+                  mailThreadIdOf(row.id)
+                    ? mailTodos.move(row.id, target)
+                    : void handleMatrixMove(row, target)
+                }
+                onToggle={(row) =>
+                  mailThreadIdOf(row.id)
+                    ? mailTodos.markDone(row.id)
+                    : void handleToggle(row as UiTodoRow)
+                }
+                onEdit={(row) =>
+                  mailThreadIdOf(row.id) ? openMailThread(row) : setEditing(row as UiTodoRow)
+                }
+                onEmail={(row) =>
+                  mailThreadIdOf(row.id) ? openMailThread(row) : handleEmailOne(row as UiTodoRow)
+                }
+                onContextMenu={(e, row) => {
+                  if (!mailThreadIdOf(row.id)) openTodoContextMenu(e, row as UiTodoRow);
+                }}
               />
             )}
           </div>
@@ -1628,6 +1651,29 @@ export default function TodosPage() {
 
         {/* List view content */}
         <div className={`flex-1 overflow-y-auto px-4 py-6 md:px-8 ${viewMode !== "list" ? "hidden" : ""}`}>
+          {(filter === "pending" || filter === "all") &&
+            tagFilter.size === 0 &&
+            mailTodos.rows.length > 0 && (
+              <section className="mx-auto mb-5 max-w-3xl" aria-label="Emails à traiter">
+                <header className="sn-eyebrow mb-1.5 flex items-center gap-1.5">
+                  <Envelope size={11} />
+                  <span>Emails</span>
+                  <span className="font-normal" style={{ color: "var(--text-muted)" }}>
+                    · {mailTodos.rows.length}
+                  </span>
+                </header>
+                <ul className="flex flex-col gap-1">
+                  {mailTodos.rows.map((row) => (
+                    <TodoRow
+                      key={row.id}
+                      row={row}
+                      onToggle={() => mailTodos.markDone(row.id)}
+                      onEdit={() => openMailThread(row)}
+                    />
+                  ))}
+                </ul>
+              </section>
+            )}
           {notesQuery.isLoading || todosQuery.isLoading ? (
             <div className="mx-auto max-w-3xl space-y-2">
               {Array.from({ length: 4 }).map((_, i) => (
@@ -1639,7 +1685,10 @@ export default function TodosPage() {
               ))}
             </div>
           ) : sortedTodos.length === 0 ? (
-            filter === "pending" && totalAll > 0 && totalPending === 0 ? (
+            filter === "pending" &&
+            totalAll > 0 &&
+            totalPending === 0 &&
+            mailTodos.rows.length === 0 ? (
               // Inbox-zéro : tout est coché (≠ « aucun todo n'existe »).
               // Variante célébration — sobre, mais avec le sourire.
               <EmptyState

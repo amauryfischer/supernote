@@ -19,6 +19,7 @@
  */
 
 import * as React from "react";
+import { mailThreadIdOf } from "./useMailTodos";
 import {
   DndContext,
   useDraggable,
@@ -241,7 +242,7 @@ function Quadrant({ def, rows, onToggle, onEdit, onEmail, onContextMenu }: Quadr
               row={row}
               onToggle={() => onToggle(row)}
               onEdit={() => onEdit(row)}
-              onEmail={() => onEmail(row)}
+              onEmail={mailThreadIdOf(row.id) ? undefined : () => onEmail(row)}
               onContextMenu={(e) => onContextMenu(e, row)}
             />
           ))
@@ -255,7 +256,7 @@ interface MatrixCardProps {
   row: TodoRowData;
   onToggle: () => void;
   onEdit: () => void;
-  onEmail: () => void;
+  onEmail?: () => void;
   onContextMenu: (e: React.MouseEvent) => void;
 }
 
@@ -291,7 +292,7 @@ function MatrixCard({ row, onToggle, onEdit, onEmail, onContextMenu }: MatrixCar
         multiline
         onToggle={onToggle}
         onEdit={onEdit}
-        onEmail={onEmail}
+        {...(onEmail ? { onEmail } : {})}
         onContextMenu={onContextMenu}
       />
     </li>
