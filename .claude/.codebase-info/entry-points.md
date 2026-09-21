@@ -1,6 +1,6 @@
 # Points d'entrée
 
-*Last Updated: 2026-09-13*
+*Last Updated: 2026-09-21*
 
 ## Démarrage du navigateur
 
@@ -54,7 +54,7 @@ Le seuil est `MOBILE_MAX_WIDTH = 767` dans `hooks/useIsMobile.ts`, aligné sur l
 
 ## Serveur de production
 
-`apps/web/server.mjs`, lancé par le `Procfile`. Sert le `dist/` prébuild avec repli history-API et les types MIME corrects pour le wasm, les modules et les polices. Monte `/api/sync/*` uniquement si `DATABASE_URL` est défini.
+`apps/web/server.mjs`, lancé par le `Procfile`. Sert le `dist/` prébuild avec repli history-API et les types MIME corrects pour le wasm, les modules et les polices. Monte `/api/sync/*` uniquement si `DATABASE_URL` est défini, plus le back-office `/admin` si `ADMIN_TOKEN` l'est aussi.
 
 ## Build et scripts
 

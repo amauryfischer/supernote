@@ -1,6 +1,6 @@
 # Communication
 
-*Last Updated: 2026-09-13*
+*Last Updated: 2026-09-21*
 
 Trois canaux : le thread principal parle au worker, le worker parle au thread principal, et l'application parle au serveur de synchronisation.
 
@@ -65,5 +65,7 @@ Un coffre peut en monter d'autres comme sous-dossiers. `MountSyncManager` tient 
 `apps/web/server.mjs` ne monte `/api/sync/*` que si `DATABASE_URL` est défini, et ne charge `better-sqlite3` qu'à ce moment. Sans cette variable, le déploiement garde sa garantie de zéro dépendance à l'exécution.
 
 En développement, un middleware de `vite.config.ts` monte le même backend, à la même condition.
+
+**Back-office.** `GET /admin`, servi par `sync-backend.mjs`, rend une page HTML qui liste les espaces à partir de l'op-log groupé par `vault` (`store.listVaults()`). Le serveur ne tient aucun registre d'espaces : le nom affiché est la clé de salon, qui sert aussi de secret quand `SYNC_TOKEN` est vide. D'où un Basic Auth dédié sur `ADMIN_TOKEN`, et l'exclusion de `/admin` dans `public/sw.js` pour que la liste n'atterrisse jamais en Cache Storage.
 
 Voir aussi : [architecture.md](architecture.md), [database.md](database.md).

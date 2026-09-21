@@ -1,6 +1,6 @@
 # Motifs et pièges
 
-*Last Updated: 2026-09-13*
+*Last Updated: 2026-09-21*
 
 Les motifs récurrents du dépôt, et surtout les contraintes que le code ne dit pas tout seul. Commence par la section « La chaîne zod » si tu touches aux champs, c'est le piège le plus coûteux.
 
@@ -89,6 +89,14 @@ Le mode de saisie se décide **au pointeur, jamais à la largeur** : `.sn-reveal
 | `@supernote/ipc` | ^4.4.3 |
 
 Les API de zod 3 et 4 diffèrent. Un schéma copié d'un paquet à l'autre ne se comporte pas forcément pareil, en particulier sur le stripping et les messages d'erreur.
+
+## ⚠️ Changer un défaut de réglage n'atteint pas les navigateurs existants
+
+`SettingsProvider` (`apps/web/src/components/settings/SettingsContext.tsx`) écrit l'objet de réglages **entier** dans `supernote.settings` dès le montage. Chaque défaut en vigueur au premier lancement se fige donc dans le stockage local, et modifier `defaults.ts` ne change rien pour un navigateur déjà passé par l'app. C'est ainsi que `llama3.2` a survécu à deux changements du modèle par défaut.
+
+Pour retirer un ancien défaut, ajoute-le à une migration du type `migrateIa` (`defaults.ts`, `RETIRED_DEFAULT_MODELS`), appliquée par **les deux** lecteurs de la clé : `loadInitialSettings` dans `SettingsContext.tsx` et `readPersistedIa` dans `lib/ai/settings.ts`. Le second lit le stockage sans attendre le Provider, et les effets des composants enfants passent avant l'écriture de celui-ci.
+
+Côté Ollama, tout `createOllamaClient` doit recevoir `defaultModel` (`settings.ia.ollamaModel` ou `getAiSettings().model`). Sans lui, le client choisit seul dans `PREFERRED_MODELS` de `@supernote/ai`, `llama3.2:3b` en tête, et ignore les réglages.
 
 ## Vérification
 

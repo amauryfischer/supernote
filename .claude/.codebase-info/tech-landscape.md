@@ -1,6 +1,6 @@
 # Paysage technique
 
-*Last Updated: 2026-09-13*
+*Last Updated: 2026-09-21*
 
 Supernote est un **système de connaissance et CRM personnel local-first**, livré comme une PWA. Il n'y a pas de serveur applicatif : le coffre de données tourne dans un Web Worker, dans le navigateur.
 
@@ -58,6 +58,7 @@ Le serveur de production est `apps/web/server.mjs`. Il sert le `dist/` prébuild
 | `VITE_UNSPLASH_ACCESS_KEY` | recherche photo pour les couvertures de note | la recherche est indisponible, les presets marchent |
 | `VITE_SOURCEMAP` | émission des sourcemaps au build | pas de sourcemaps |
 | `DATABASE_URL` | active la synchronisation en ligne, en dev comme en prod | l'app reste purement locale |
+| `ADMIN_TOKEN` | active le back-office `/admin` (mot de passe Basic Auth), exige `DATABASE_URL` | `/admin` sert le shell SPA |
 
 Les valeurs vivent dans `apps/web/.env.local`, qui n'est pas versionné. Ne jamais recopier une valeur ici.
 
