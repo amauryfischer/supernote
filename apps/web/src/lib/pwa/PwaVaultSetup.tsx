@@ -62,6 +62,15 @@ import { clearPendingOps } from "@/lib/online-sync/pendingStore";
 
 const DEGRADED_STORAGE_KEY = "supernote.degraded";
 
+/** Mode dégradé choisi (pas de coffre) : lisible hors du provider, ex. depuis CommandSurface. */
+export function isDegradedVault(): boolean {
+  try {
+    return window.localStorage.getItem(DEGRADED_STORAGE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
 /**
  * OPFS scratch directory that backs a cloud vault. A real (OPFS-resident)
  * FileSystemDirectoryHandle, so the worker treats it exactly like a folder

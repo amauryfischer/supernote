@@ -4,28 +4,16 @@ import { AppShell, useMobileTitle, useMobileFab, useMobileBack } from "@/compone
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { TemplateEditor, TemplateList } from "@/components/templates";
 import { useApplyTemplate } from "@/components/templates/useApplyTemplate";
-import { SEED_TEMPLATES } from "@supernote/templates";
+import { useTemplateList } from "@/components/templates/useTemplateList";
 import { trpc } from "@/lib/trpc/client";
+import { useConfirm } from "@/lib/confirm";
+import { EmptyState, useToast } from "@supernote/ui";
 import type { Template } from "@supernote/templates";
-import type { TemplateIpc } from "@supernote/ipc";
-import { FilePlus, Plus } from "@phosphor-icons/react";
-import { useState, useCallback } from "react";
+import { FileDashed, FilePlus, Plus } from "@phosphor-icons/react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 
-// ── IPC adapter ───────────────────────────────────────────────────────────
-
-function templateFromIpc(t: TemplateIpc): Template {
-  return {
-    id: t.id,
-    name: t.name,
-    description: t.description,
-    icon: t.icon,
-    entityType: t.entityType,
-    body: t.body,
-    frontmatter: t.frontmatter,
-  };
-}
-
-// ── Loading skeleton ──────────────────────────────────────────────────────
+const NEW_TEMPLATE_BODY = "# {{prompt:Titre?}}\n\n{{cursor}}\n";
 
 function TemplateSidebarSkeleton() {
   return (
@@ -45,121 +33,152 @@ function TemplateSidebarSkeleton() {
   );
 }
 
-// ── Page ──────────────────────────────────────────────────────────────────
-
-let customIdCounter = 0;
-
-function newCustomTemplate(): Template {
-  customIdCounter += 1;
-  return {
-    id: `custom-${Date.now()}-${customIdCounter}`,
-    name: "Nouveau template",
-    description: "",
-    icon: undefined,
-    body: "# {{prompt:Titre?}}\n\n{{cursor}}\n",
-  };
+function errorMessage(err: unknown): string | undefined {
+  return err instanceof Error ? err.message : undefined;
 }
 
 function TemplatesPageContent() {
   const isMobile = useIsMobile();
-  const listQuery = trpc.templates.list.useQuery({ source: "all" });
-  const saveMutation = trpc.templates.save.useMutation({
-    onSuccess: () => { void listQuery.refetch(); },
-  });
-  const deleteMutation = trpc.templates.delete.useMutation({
-    onSuccess: () => { void listQuery.refetch(); },
-  });
-  const testMutation = trpc.templates.test.useMutation();
+  const confirm = useConfirm();
+  const { toast } = useToast();
+  const utils = trpc.useUtils();
+  const { hasBackend, templates, isLoading, error } = useTemplateList();
+  const saveMutation = trpc.templates.save.useMutation();
+  const deleteMutation = trpc.templates.delete.useMutation();
   const { apply, isApplying, modal: applyModal } = useApplyTemplate();
 
-  // Fallback: use local state when IPC unavailable
-  const useFallback = listQuery.isError;
-  const [localTemplates, setLocalTemplates] = useState<Template[]>([...SEED_TEMPLATES]);
-  const [selectedId, setSelectedId] = useState<string | null>(SEED_TEMPLATES[0]?.id ?? null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selected = templates.find((t) => t.id === selectedId) ?? templates[0] ?? null;
 
-  const ipcTemplates: Template[] = (listQuery.data ?? []).map(templateFromIpc);
-  const templates: Template[] = useFallback ? localTemplates : ipcTemplates;
-
-  const selected = templates.find((t) => t.id === selectedId) ?? null;
+  const dirtyRef = useRef(false);
+  const handleDirtyChange = useCallback((dirty: boolean) => {
+    dirtyRef.current = dirty;
+  }, []);
+  const confirmDiscard = useCallback(
+    async () =>
+      !dirtyRef.current ||
+      confirm({
+        title: "Modifications non enregistrées",
+        body: "Les modifications de ce modèle seront perdues.",
+        confirmLabel: "Abandonner",
+        variant: "danger",
+      }),
+    [confirm],
+  );
 
   // Mobile : maître-détail — la liste plein écran, puis l'éditeur plein écran
   // avec retour dans la barre du haut (côte à côte, l'éditeur tenait sur un
   // caractère de large).
   const [mobileEditing, setMobileEditing] = useState(false);
+
+  // `?id=` : arrivée depuis un résultat de recherche.
+  const idParam = useSearchParams().get("id");
+  useEffect(() => {
+    if (!idParam) return;
+    setSelectedId(idParam);
+    setMobileEditing(true);
+  }, [idParam]);
+
   const showEditor = !isMobile || (mobileEditing && selected !== null);
   const showList = !isMobile || !showEditor;
   useMobileTitle(
     isMobile ? (showEditor ? (selected?.name ?? "Templates") : "Templates") : null,
   );
-  useMobileBack(isMobile && showEditor ? () => setMobileEditing(false) : null);
+  useMobileBack(
+    isMobile && showEditor
+      ? () =>
+          void confirmDiscard().then((ok) => {
+            if (!ok) return;
+            dirtyRef.current = false;
+            setMobileEditing(false);
+          })
+      : null,
+  );
 
-  const handleSave = useCallback((updated: Template) => {
-    if (useFallback) {
-      setLocalTemplates((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
-      return;
-    }
-    saveMutation.mutate({
-      id: updated.id,
-      name: updated.name,
-      description: updated.description,
-      icon: updated.icon,
-      entityType: updated.entityType,
-      body: updated.body,
-      frontmatter: updated.frontmatter,
-    });
-  }, [useFallback, saveMutation]);
+  const handleSelect = useCallback(
+    async (id: string) => {
+      if (id !== selected?.id && !(await confirmDiscard())) return;
+      setSelectedId(id);
+      setMobileEditing(true);
+    },
+    [selected?.id, confirmDiscard],
+  );
 
-  const handleNew = useCallback(() => {
-    const t = newCustomTemplate();
-    setMobileEditing(true);
-    if (useFallback) {
-      setLocalTemplates((prev) => [...prev, t]);
-      setSelectedId(t.id);
-      return;
+  const handleSave = useCallback(
+    async (t: Template) => {
+      try {
+        await saveMutation.mutateAsync({
+          id: t.id,
+          name: t.name,
+          description: t.description,
+          icon: t.icon,
+          entityType: t.entityType,
+          body: t.body,
+          frontmatter: t.frontmatter,
+        });
+        await utils.templates.list.invalidate();
+        toast({ title: "Modèle enregistré", variant: "success" });
+      } catch (err) {
+        toast({ title: "Échec de l'enregistrement du modèle", description: errorMessage(err), variant: "danger" });
+      }
+    },
+    [saveMutation, utils, toast],
+  );
+
+  const handleNew = useCallback(async () => {
+    if (!(await confirmDiscard())) return;
+    try {
+      const saved = await saveMutation.mutateAsync({ name: "Nouveau modèle", body: NEW_TEMPLATE_BODY });
+      await utils.templates.list.invalidate();
+      setSelectedId(saved.id);
+      setMobileEditing(true);
+    } catch (err) {
+      toast({ title: "Impossible de créer le modèle", description: errorMessage(err), variant: "danger" });
     }
-    // Optimistically add to local then save
-    saveMutation.mutate(
-      { name: t.name, description: t.description, body: t.body },
-      {
-        onSuccess: (saved) => {
-          void listQuery.refetch();
-          setSelectedId(saved.id);
-        },
-      },
-    );
-  }, [useFallback, saveMutation, listQuery]);
+  }, [confirmDiscard, saveMutation, utils, toast]);
+
+  const handleDelete = useCallback(
+    async (id: string) => {
+      const name = templates.find((t) => t.id === id)?.name ?? "ce modèle";
+      const ok = await confirm({
+        title: `Supprimer « ${name} » ?`,
+        body: "Le modèle disparaît de ce coffre et des appareils synchronisés.",
+        confirmLabel: "Supprimer",
+        variant: "danger",
+      });
+      if (!ok) return;
+      try {
+        await deleteMutation.mutateAsync({ id });
+        if (selected?.id === id) setSelectedId(null);
+        await utils.templates.list.invalidate();
+      } catch (err) {
+        toast({ title: "Impossible de supprimer le modèle", description: errorMessage(err), variant: "danger" });
+      }
+    },
+    [templates, confirm, deleteMutation, selected?.id, utils, toast],
+  );
 
   // Éditeur ouvert : le FAB applique le template (miroir du bouton « Appliquer ») ;
   // sur la liste, il en crée un.
   useMobileFab(
-    !isMobile
+    !isMobile || !hasBackend
       ? null
       : showEditor && selected
         ? { icon: FilePlus, label: "Appliquer le template", onPress: () => apply(selected) }
         : { icon: Plus, label: "Nouveau template", onPress: handleNew },
   );
 
-  const handleDelete = useCallback((id: string) => {
-    if (!confirm("Supprimer ce template ?")) return;
-    if (useFallback) {
-      setLocalTemplates((prev) => {
-        const next = prev.filter((t) => t.id !== id);
-        if (selectedId === id) setSelectedId(next[0]?.id ?? null);
-        return next;
-      });
-      return;
-    }
-    // Seed templates can't be deleted via IPC
-    deleteMutation.mutate(
-      { id },
-      {
-        onSuccess: () => {
-          void listQuery.refetch();
-          if (selectedId === id) setSelectedId(ipcTemplates[0]?.id ?? null);
-        },
-      },
+  if (!hasBackend) {
+    return (
+      <div className="flex h-full items-center justify-center px-4">
+        <EmptyState
+          icon={<FileDashed size={28} />}
+          title="Aucun coffre ouvert"
+          description="Les modèles sont enregistrés dans le coffre : ouvrez un dossier ou un coffre cloud pour les créer et les retrouver."
+        />
+      </div>
     );
-  }, [useFallback, deleteMutation, listQuery, selectedId, ipcTemplates]);
+  }
 
   return (
     <div className="flex h-full flex-col overflow-hidden md:flex-row">
@@ -167,18 +186,19 @@ function TemplatesPageContent() {
       <div className="flex min-h-0 flex-1 overflow-y-auto md:w-[260px] md:flex-none md:shrink-0 md:border-r"
         style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-1)" }}
       >
-        {listQuery.isLoading ? (
+        {isLoading ? (
           <TemplateSidebarSkeleton />
+        ) : error ? (
+          <p className="px-4 py-3 text-sm" style={{ color: "var(--danger)" }}>
+            Impossible de charger les modèles : {error}
+          </p>
         ) : (
           <TemplateList
             templates={templates}
-            selectedId={selectedId}
-            onSelect={(id) => {
-              setSelectedId(id);
-              setMobileEditing(true);
-            }}
-            onNew={handleNew}
-            onDelete={handleDelete}
+            selectedId={selected?.id ?? null}
+            onSelect={(id) => void handleSelect(id)}
+            onNew={() => void handleNew()}
+            onDelete={(id) => void handleDelete(id)}
           />
         )}
       </div>
@@ -190,21 +210,14 @@ function TemplatesPageContent() {
           <TemplateEditor
             key={selected.id}
             template={selected}
-            onSave={handleSave}
+            onSave={(t) => void handleSave(t)}
+            isSaving={saveMutation.isPending}
+            onDirtyChange={handleDirtyChange}
             // Sous md, « Appliquer » est le FAB.
             onApply={isMobile ? undefined : apply}
             isApplying={isApplying}
-            onTest={
-              useFallback
-                ? undefined
-                : (body) =>
-                    testMutation.mutateAsync({ id: selected.id, body }).then((r) => ({
-                      rendered: r.rendered,
-                      error: r.error,
-                    }))
-            }
           />
-        ) : listQuery.isLoading ? null : (
+        ) : isLoading ? null : (
           <div className="flex h-full items-center justify-center">
             <p className="text-sm" style={{ color: "var(--text-muted)" }}>
               Sélectionnez ou créez un template

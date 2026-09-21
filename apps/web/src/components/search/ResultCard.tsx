@@ -28,6 +28,7 @@ interface ResultCardProps {
 function entityHref(entityId: string, typeId: string): string {
   const t = typeId.toLowerCase();
   if (t === "personne" || t === "contact") return `/contacts/${entityId}`;
+  if (t === "template") return `/templates?id=${encodeURIComponent(entityId)}`;
   return `/notes/${entityId}`;
 }
 

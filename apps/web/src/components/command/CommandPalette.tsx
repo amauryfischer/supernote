@@ -115,6 +115,7 @@ function entityHref(entityId: string, typeId: string): string {
   const t = typeId.toLowerCase();
   if (t === "personne" || t === "contact") return `/contacts/${entityId}`;
   if (t === "note") return `/notes/${entityId}`;
+  if (t === "template") return `/templates?id=${encodeURIComponent(entityId)}`;
   // Fallback: every entity has a notes-style detail page in the current
   // routing layout, so /notes/{id} surfaces something useful even for
   // types without a dedicated route (organisation, ressource, …).

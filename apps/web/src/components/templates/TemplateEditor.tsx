@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Button, Input, TextArea } from "@heroui/react";
 import { listVariables, renderTemplate } from "@supernote/templates";
 import type { Template, TemplateResolvers } from "@supernote/templates";
@@ -10,12 +10,6 @@ interface TemplateEditorProps {
   template: Template;
   onSave: (updated: Template) => void;
   /**
-   * Optional override for the "Tester" action.
-   * Receives the current body and returns { rendered, error? }.
-   * When not provided, a local mock renderer is used.
-   */
-  onTest?: (body: string) => Promise<{ rendered: string; error?: string }>;
-  /**
    * Apply the template at runtime: interpolate its placeholders ({{date}},
    * {{time}}, {{prompt}}…) and create a note from the result. Receives the
    * template as currently edited so "what you see is what you apply".
@@ -23,6 +17,9 @@ interface TemplateEditorProps {
   onApply?: (template: Template) => void;
   /** True while a note is being created from a template. */
   isApplying?: boolean;
+  isSaving?: boolean;
+  /** Signale les modifications non enregistrées (garde de changement de modèle). */
+  onDirtyChange?: (dirty: boolean) => void;
 }
 
 /** Minimal mock resolvers for the local "Test" preview feature. */
@@ -39,7 +36,14 @@ function buildMockResolvers(): TemplateResolvers {
   };
 }
 
-export function TemplateEditor({ template, onSave, onTest, onApply, isApplying }: TemplateEditorProps) {
+export function TemplateEditor({
+  template,
+  onSave,
+  onApply,
+  isApplying,
+  isSaving,
+  onDirtyChange,
+}: TemplateEditorProps) {
   const [name, setName] = useState(template.name);
   const [entityType, setEntityType] = useState(template.entityType ?? "");
   const [body, setBody] = useState(template.body);
@@ -50,6 +54,12 @@ export function TemplateEditor({ template, onSave, onTest, onApply, isApplying }
   const variables = listVariables({ ...template, body });
 
   const edited: Template = { ...template, name, entityType: entityType || undefined, body };
+
+  const dirty =
+    name !== template.name || entityType !== (template.entityType ?? "") || body !== template.body;
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
 
   const handleSave = () => {
     onSave(edited);
@@ -63,30 +73,18 @@ export function TemplateEditor({ template, onSave, onTest, onApply, isApplying }
     setIsRendering(true);
     setPreviewError(null);
     try {
-      if (onTest) {
-        // Use tRPC backend renderer
-        const result = await onTest(body);
-        if (result.error) {
-          setPreviewError(result.error);
-          setPreview(null);
-        } else {
-          setPreview(result.rendered);
-        }
-      } else {
-        // Local mock renderer fallback
-        const result = await renderTemplate(
-          { ...template, body },
-          { resolvers: buildMockResolvers(), now: new Date() },
-        );
-        setPreview(result.body);
-      }
+      const result = await renderTemplate(
+        { ...template, body },
+        { resolvers: buildMockResolvers(), now: new Date() },
+      );
+      setPreview(result.body);
     } catch (e) {
       setPreviewError(e instanceof Error ? e.message : String(e));
       setPreview(null);
     } finally {
       setIsRendering(false);
     }
-  }, [onTest, template, body]);
+  }, [template, body]);
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -129,9 +127,10 @@ export function TemplateEditor({ template, onSave, onTest, onApply, isApplying }
           <Button
             variant="primary"
             onPress={handleSave}
-            className="rounded-md px-3 py-1.5 text-xs font-medium text-white transition-colors"
+            isDisabled={isSaving || !dirty || !name.trim()}
+            className="rounded-md px-3 py-1.5 text-xs font-medium transition-colors"
           >
-            Enregistrer
+            {isSaving ? "Enregistrement…" : "Enregistrer"}
           </Button>
         </div>
       </div>

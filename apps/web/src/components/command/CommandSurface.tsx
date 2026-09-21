@@ -10,12 +10,17 @@ import { useRegisterCommands } from "@/lib/commands/hooks";
 import { buildSeedCommands } from "@/lib/commands/seed";
 import { UnifiedSearchModal } from "@/components/mail/UnifiedSearchModal";
 import { useNewInboxNote } from "@/components/notes/hooks";
+import { TEMPLATE_PICKER_EVENT, openTemplatePicker } from "@/components/templates/template-picker-event";
 
 // CommandPalette pulls in the entire command catalogue UI; defer it until the
 // user actually opens the palette. The first Cmd+K mounts it; subsequent opens
 // reuse the loaded chunk.
 const CommandPalette = dynamic(
   () => import("./CommandPalette").then((m) => ({ default: m.CommandPalette })),
+  { ssr: false },
+);
+const TemplatePickerModal = dynamic(
+  () => import("@/components/templates/TemplatePickerModal").then((m) => ({ default: m.TemplatePickerModal })),
   { ssr: false },
 );
 
@@ -30,6 +35,9 @@ const CommandPalette = dynamic(
 export function CommandSurface() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [unifiedOpen, setUnifiedOpen] = useState(false);
+  // `null` tant que jamais ouvert : le chunk n'est chargé qu'au premier appel,
+  // puis reste monté pour que les questions du modèle survivent à sa fermeture.
+  const [templatePickerOpen, setTemplatePickerOpen] = useState<boolean | null>(null);
 
   const navigate = useNavigate();
   const { theme, setTheme, resolvedTheme } = useAppTheme();
@@ -56,7 +64,14 @@ export function CommandSurface() {
 
   // Commandes liées aux vraies actions (navigation SPA, thème, chrome).
   const commands = useMemo(
-    () => buildSeedCommands({ navigate, toggleTheme, toggleRightPanel, newNote }),
+    () =>
+      buildSeedCommands({
+        navigate,
+        toggleTheme,
+        toggleRightPanel,
+        newNote,
+        newNoteFromTemplate: openTemplatePicker,
+      }),
     [navigate, toggleTheme, toggleRightPanel, newNote],
   );
   useRegisterCommands(commands);
@@ -84,6 +99,12 @@ export function CommandSurface() {
     const handler = () => setUnifiedOpen(true);
     window.addEventListener("supernote:open-unified-search", handler);
     return () => window.removeEventListener("supernote:open-unified-search", handler);
+  }, []);
+
+  useEffect(() => {
+    const handler = () => setTemplatePickerOpen(true);
+    window.addEventListener(TEMPLATE_PICKER_EVENT, handler);
+    return () => window.removeEventListener(TEMPLATE_PICKER_EVENT, handler);
   }, []);
 
   // Cmd+K / Ctrl+K — open command palette.
@@ -185,6 +206,9 @@ export function CommandSurface() {
     <>
       {paletteOpen && <CommandPalette open={paletteOpen} onClose={closePalette} />}
       <UnifiedSearchModal isOpen={unifiedOpen} onClose={() => setUnifiedOpen(false)} />
+      {templatePickerOpen !== null && (
+        <TemplatePickerModal isOpen={templatePickerOpen} onOpenChange={setTemplatePickerOpen} />
+      )}
     </>
   );
 }

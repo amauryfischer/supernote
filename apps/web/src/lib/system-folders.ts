@@ -22,6 +22,8 @@ export const SYSTEM_FOLDER_ROOTS: readonly string[] = [
   // pixel-garden page like todos are by /todos — keep their folder out of
   // /notes so it isn't mistaken for a stray note folder (and deletable).
   "Habitudes",
+  // Modèles (type `template`) : gérés par /templates.
+  "Modèles",
   // `_archive` is the bucket where useArchiveFolder relocates notes when
   // the user archives a whole folder. Hidden from the FileTree so the
   // archived subtree never competes visually with active folders, and so

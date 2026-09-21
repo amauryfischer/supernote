@@ -1,6 +1,6 @@
 "use client";
 
-import { CaretRight, Desktop, Moon, Plus, SidebarSimple, Sun } from "@phosphor-icons/react";
+import { CaretRight, Desktop, FileDashed, Moon, Plus, SidebarSimple, Sun } from "@phosphor-icons/react";
 import { memo, useCallback, useEffect, useMemo, type MouseEvent as ReactMouseEvent } from "react";
 import { usePathname } from "next/navigation";
 import { trpc } from "@/lib/trpc/client";
@@ -8,8 +8,10 @@ import { recordVisit } from "@/lib/navigation/recents";
 import { SearchTrigger } from "./SearchTrigger";
 import { useShellChrome } from "./shell-chrome-context";
 import { useNewInboxNote } from "@/components/notes/hooks";
+import { openTemplatePicker } from "@/components/templates/template-picker-event";
 import {
   Button,
+  Tooltip,
   useAppTheme,
   setThemeWithTransition,
   originFromElement,
@@ -241,6 +243,18 @@ export const TopBar = memo(function TopBar() {
           <Plus size={13} />
           Nouveau
         </Button>
+        <Tooltip content="Nouvelle note depuis un modèle" placement="bottom">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={openTemplatePicker}
+            aria-label="Nouvelle note depuis un modèle"
+            className="sn-pressable sn-motion-colors flex h-7 w-7 items-center justify-center rounded-[var(--radius-md)]"
+            style={{ color: "var(--text-muted)" }}
+          >
+            <FileDashed size={15} />
+          </Button>
+        </Tooltip>
         <Button
           variant="ghost"
           size="icon"

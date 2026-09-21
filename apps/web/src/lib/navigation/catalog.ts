@@ -21,6 +21,7 @@ import {
   Archive,
   CheckSquare,
   EnvelopeSimple,
+  FileDashed,
   FileText,
   Function,
   Gear,
@@ -78,6 +79,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { href: "/finance", labelKey: "nav.finance", icon: Wallet, group: "knowledge" },
 
   { href: "/tags", labelKey: "nav.tags", icon: Tag, group: "tools" },
+  { href: "/templates", labelKey: "nav.templates", icon: FileDashed, group: "tools" },
   { href: "/variables", labelKey: "nav.variables", icon: Function, group: "tools" },
   { href: "/routines", labelKey: "nav.routines", icon: Lightning, group: "tools", gate: "routines" },
   { href: "/pomodoro", labelKey: "nav.pomodoro", icon: Timer, group: "tools" },

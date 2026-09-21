@@ -8,9 +8,10 @@
  */
 
 import { Button, Modal } from "@supernote/ui";
-import { EnvelopeSimple, FileText } from "@phosphor-icons/react";
+import { EnvelopeSimple, FileDashed, FileText } from "@phosphor-icons/react";
 
 import { GOOGLE_DOC_KINDS, type GoogleDocKind } from "@/lib/google-drive";
+import { openTemplatePicker } from "@/components/templates/template-picker-event";
 import { DRIVE_DOC_ICONS, DRIVE_DOC_ORDER, type IconComponent } from "./driveDocMeta";
 
 interface NewItemSheetProps {
@@ -42,6 +43,7 @@ export function NewItemSheet({
     <Modal isOpen={isOpen} onOpenChange={onOpenChange} title="Créer" size="sm">
       <div className="flex flex-col gap-2">
         <SheetRow icon={FileText} label="Note" onPress={() => pick(onNewNote)} />
+        <SheetRow icon={FileDashed} label="Note depuis un modèle" onPress={() => pick(openTemplatePicker)} />
         {DRIVE_DOC_ORDER.map((kind) => (
           <SheetRow
             key={kind}

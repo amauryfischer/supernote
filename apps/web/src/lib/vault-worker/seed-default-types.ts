@@ -277,6 +277,20 @@ const vaultMountFields: SeedField[] = [
   { id: "vm_token", name: "token", label: "Jeton d'accès", kind: "text" },
 ];
 
+export const TEMPLATE_TYPE_ID = "template";
+export const TEMPLATE_FOLDER = "Modèles";
+// Horodatage des modèles de départ intacts : toute édition ou suppression réelle le bat en LWW.
+export const TEMPLATE_SEED_TS = "2000-01-01T00:00:00.000Z";
+
+// `frontmatter` : objet sérialisé en JSON, le YAML plat du miroir ne garde pas les objets imbriqués.
+const templateFields: SeedField[] = [
+  { id: "tpl_name", name: "name", label: "Nom", kind: "text", required: true },
+  { id: "tpl_description", name: "description", label: "Description", kind: "text" },
+  { id: "tpl_icon", name: "icon", label: "Icône", kind: "text" },
+  { id: "tpl_entity_type", name: "entityType", label: "Type cible", kind: "text" },
+  { id: "tpl_frontmatter", name: "frontmatter", label: "Champs initiaux (JSON)", kind: "text" },
+];
+
 const goalFields: SeedField[] = [
   { id: "goal_name", name: "name", label: "Objectif", kind: "text", required: true },
   { id: "goal_target", name: "target_amount", label: "Montant cible", kind: "currency", currencyCode: "EUR" },
@@ -309,6 +323,7 @@ export const DEFAULT_ENTITY_TYPES: SeedEntityType[] = [
   { id: "todo", name: "Todo", plural: "Todos", icon: "CheckSquare", color: "#22C55E", fields: todoFields, defaultPath: "Todos", fileNamePattern: "{text}" },
   { id: "habit", name: "Habitude", plural: "Habitudes", icon: "GridNine", color: "#8B5CF6", fields: habitFields, defaultPath: "Habitudes", fileNamePattern: "{name}" },
   { id: "vault_mount", name: "vault_mount", plural: "vault_mounts", icon: "Plugs", color: "#8b5cf6", fields: vaultMountFields, defaultPath: "VaultMounts", fileNamePattern: "{label}" },
+  { id: TEMPLATE_TYPE_ID, name: "Modèle", plural: "Modèles", icon: "FileDashed", color: "#64748B", fields: templateFields, defaultPath: TEMPLATE_FOLDER, fileNamePattern: "{name}" },
 ];
 
 export const DEFAULT_RELATION_TYPES: SeedRelationType[] = [

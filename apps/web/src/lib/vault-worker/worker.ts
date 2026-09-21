@@ -987,6 +987,14 @@ async function handleInitVault(
     router = buildRouter(db, handle, vaultId, hooks);
     console.info("[init] step=buildRouter done");
 
+    // Avant VAULT_READY, donc avant la synchro : une suppression venue d'un
+    // autre appareil doit trouver le modèle de départ pour l'effacer.
+    try {
+      await router["templates.seedDefaults"]?.(undefined);
+    } catch (err) {
+      console.warn("[seed] templates.seedDefaults failed (non-fatal)", err);
+    }
+
     console.info("[init] step=bootEngine");
     await bootAutomationEngine(db, vaultId);
     console.info("[init] step=bootEngine done");

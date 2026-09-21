@@ -9,6 +9,8 @@ export interface SeedCommandDeps {
   toggleRightPanel: () => void;
   /** Crée une note vierge dans l'Inbox et l'ouvre. */
   newNote: () => void;
+  /** Ouvre le choix du modèle, puis crée la note. */
+  newNoteFromTemplate: () => void;
 }
 
 /**
@@ -16,7 +18,7 @@ export interface SeedCommandDeps {
  * chrome) : un module ne peut pas appeler les hooks. Câblé depuis CommandSurface.
  */
 export function buildSeedCommands(deps: SeedCommandDeps): Command[] {
-  const { navigate, toggleTheme, toggleRightPanel, newNote } = deps;
+  const { navigate, toggleTheme, toggleRightPanel, newNote, newNoteFromTemplate } = deps;
   return [
     // ---- Création ----------------------------------------------------------
     {
@@ -28,6 +30,15 @@ export function buildSeedCommands(deps: SeedCommandDeps): Command[] {
       group: "creation",
       keywords: ["new", "note", "create", "ajouter", "capture", "rapide", "inbox", "noter"],
       run: newNote,
+    },
+    {
+      id: "note.create-from-template",
+      label: "Nouvelle note depuis un modèle",
+      description: "Choisir un modèle, répondre à ses questions, ouvrir la note",
+      icon: "file-plus",
+      group: "creation",
+      keywords: ["modèle", "modele", "template", "gabarit", "new", "note", "créer"],
+      run: newNoteFromTemplate,
     },
 
     // ---- Navigation --------------------------------------------------------
@@ -70,6 +81,14 @@ export function buildSeedCommands(deps: SeedCommandDeps): Command[] {
       group: "navigation",
       keywords: ["schemas", "types", "entités"],
       run: () => navigate("/schemas"),
+    },
+    {
+      id: "nav.templates",
+      label: "Aller aux Modèles",
+      icon: "file-text",
+      group: "navigation",
+      keywords: ["modèles", "modeles", "templates", "gabarits"],
+      run: () => navigate("/templates"),
     },
     {
       id: "nav.settings",

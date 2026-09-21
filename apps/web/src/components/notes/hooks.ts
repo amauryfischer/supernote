@@ -52,7 +52,7 @@ function useHasBackend(): boolean {
  * (TanStack Query has retry: false here) — surfacing as a permanent
  * "Vault not initialized" panel even though the worker is up.
  */
-function useWorkerReady(): boolean {
+export function useWorkerReady(): boolean {
   const [ready, setReady] = useState<boolean>(() =>
     typeof window === "undefined" ? false : isWorkerReady(),
   );

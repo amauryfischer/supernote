@@ -34,7 +34,7 @@ import {
 } from "./canvas-excalidraw-io";
 import { parseFormula, evaluate, type FormulaContext, type Value as FormulaValue, type Scope, type FormulaAST } from "@supernote/formulas";
 import type { VariableInput } from "@supernote/core";
-import { VariableInputSchema } from "@supernote/ipc";
+import { VariableInputSchema, type TemplateIpc, type SaveTemplateInput } from "@supernote/ipc";
 import {
   listVariables,
   getVariable,
@@ -48,6 +48,8 @@ import { resolveMountWrite, crossProvenanceCollision, isMountedPath } from "./mo
 import { resolveFileNameStem } from "./entity-filename";
 import { decodeTagPaths } from "./tag-paths";
 import { sanitizePath, stripPathSlashes, sanitizeFolderPath, derivePath } from "./path-utils";
+import { TEMPLATE_TYPE_ID, TEMPLATE_FOLDER, TEMPLATE_SEED_TS } from "./seed-default-types";
+import { SEED_TEMPLATES } from "@supernote/templates/seeds";
 
 type SqlValue = string | number | null | Uint8Array;
 type SqlRow = Record<string, SqlValue>;
@@ -622,6 +624,7 @@ export function buildRouter(
     "Canvas",
     "Routines",
     "Todos",
+    TEMPLATE_FOLDER,
   ];
 
   function isSystemFolder(p: string): boolean {
@@ -4098,6 +4101,8 @@ export function buildRouter(
 
   /** Full snapshot of the vault as one `upsert` op per entity. */
   const syncSnapshot = async (): Promise<unknown> => {
+    // Un modèle de départ intact existe à l'identique sur chaque appareil : le
+    // pousser ressusciterait ailleurs un modèle supprimé.
     const res = db.exec(
       `SELECT e.id, e.typeId, et.name AS typeName, et.fields AS typeFields,
               e.filePath, e.fields, e.body,
@@ -4106,8 +4111,9 @@ export function buildRouter(
                  FROM entity_tag etag JOIN tag t ON t.id = etag.tagId
                 WHERE etag.entityId = e.id) AS tagPaths
          FROM entity e JOIN entity_type et ON et.id = e.typeId
-        WHERE e.vaultId = ? AND e.sourceVaultId IS NULL`,
-      [vaultId],
+        WHERE e.vaultId = ? AND e.sourceVaultId IS NULL
+          AND NOT (e.typeId = ? AND e.updatedAt = ?)`,
+      [vaultId, TEMPLATE_TYPE_ID, TEMPLATE_SEED_TS],
     );
     const ops: SyncOp[] = rows(res).map((r) => {
       const updatedAt = (r["updatedAt"] as string) ?? now();
@@ -4389,6 +4395,113 @@ export function buildRouter(
       mentionsRemove(db, id);
     }
     return { removed: victims.length };
+  };
+
+  // ── templates.* ─────────────────────────────────────────────────────────────
+  // Un modèle est une entité système `template` : miroir .md, FTS et synchro
+  // passent par le chemin commun des entités.
+
+  const SEED_TEMPLATE_IDS = new Set(SEED_TEMPLATES.map((t) => t.id));
+
+  const templateEntityFields = (t: Omit<SaveTemplateInput, "id" | "body">): Record<string, unknown> => ({
+    name: t.name,
+    description: t.description ?? "",
+    icon: t.icon ?? "",
+    entityType: t.entityType ?? "",
+    frontmatter: t.frontmatter ? JSON.stringify(t.frontmatter) : "",
+  });
+
+  const templateRowToApi = (r: SqlRow): TemplateIpc => {
+    const id = r["id"] as string;
+    const f = safeParseFieldsBlob((r["fields"] as string) || "{}");
+    const text = (v: unknown): string | undefined => (typeof v === "string" && v ? v : undefined);
+    // La relecture du YAML (reindex) peut déjà avoir redonné un objet.
+    let fm: unknown = f["frontmatter"];
+    if (typeof fm === "string" && fm) {
+      try { fm = JSON.parse(fm); } catch { fm = undefined; }
+    }
+    return {
+      id,
+      name: text(f["name"]) ?? "Sans nom",
+      description: text(f["description"]),
+      icon: text(f["icon"]),
+      entityType: text(f["entityType"]),
+      body: (r["body"] as string) ?? "",
+      frontmatter: fm && typeof fm === "object" && !Array.isArray(fm) ? (fm as Record<string, unknown>) : undefined,
+      source: SEED_TEMPLATE_IDS.has(id) ? "seed" : "user",
+    };
+  };
+
+  const templateRow = (id: string): SqlRow | null =>
+    row(db.exec(
+      `SELECT id, fields, body FROM entity WHERE id = ? AND typeId = ? AND sourceVaultId IS NULL`,
+      [id, TEMPLATE_TYPE_ID],
+    ));
+
+  const templatesList = async (input: unknown): Promise<TemplateIpc[]> => {
+    const { source = "all" } = (input as { source?: string } | undefined) ?? {};
+    return rows(db.exec(
+      `SELECT id, fields, body FROM entity
+        WHERE vaultId = ? AND typeId = ? AND sourceVaultId IS NULL
+        ORDER BY createdAt, id`,
+      [vaultId, TEMPLATE_TYPE_ID],
+    ))
+      .map(templateRowToApi)
+      .filter((t) => source === "all" || t.source === source);
+  };
+
+  const templatesSave = async (input: unknown): Promise<TemplateIpc> => {
+    const { id, body, ...meta } = input as SaveTemplateInput;
+    const fields = templateEntityFields(meta);
+    const saved = (id && templateRow(id)
+      ? await entitiesUpdate({ id, fields, body })
+      : await entitiesCreate({ typeId: TEMPLATE_TYPE_ID, fields, body })) as { id: string };
+    const r = templateRow(saved.id);
+    if (!r) throw new Error(`Modèle introuvable après enregistrement : ${saved.id}`);
+    return templateRowToApi(r);
+  };
+
+  const templatesDelete = async (input: unknown): Promise<{ id: string; deleted: boolean }> => {
+    const { id } = input as { id: string };
+    if (!templateRow(id)) return { id, deleted: false };
+    await entitiesDelete({ id });
+    return { id, deleted: true };
+  };
+
+  /**
+   * Modèles de départ, une fois par coffre, avant le démarrage de la synchro.
+   * Le dossier sur disque sert de marqueur : il survit aux reconstructions de
+   * la base (changement de coffre) et reste en place quand on vide les modèles.
+   * Ids stables + horodatage TEMPLATE_SEED_TS : deux appareils sèment la même
+   * entité, et une édition ou suppression réelle l'emporte partout.
+   * ponytail: après reconstruction de la base, le reindex rehorodate les modèles intacts à « maintenant » et le snapshot les repousse ; marquer l'intact dans les champs si un modèle supprimé ailleurs revient.
+   */
+  const templatesSeedDefaults = async (): Promise<{ seeded: number }> => {
+    try {
+      await vaultHandle.getDirectoryHandle(TEMPLATE_FOLDER);
+      return { seeded: 0 };
+    } catch (err) {
+      if ((err as DOMException)?.name !== "NotFoundError") throw err;
+    }
+    const typeRow = row(db.exec(`SELECT name FROM entity_type WHERE id = ?`, [TEMPLATE_TYPE_ID]));
+    if (!typeRow) return { seeded: 0 };
+    let seeded = 0;
+    for (const t of SEED_TEMPLATES) {
+      if (isTombstoned(db, t.id)) continue;
+      const fields = templateEntityFields(t);
+      const stem = resolveFileNameStem("{name}", fields, t.id, TEMPLATE_SEED_TS) || t.id;
+      const filePath = `${TEMPLATE_FOLDER}/${stem}.md`;
+      const content = serializeFrontmatter({ id: t.id, type: typeRow["name"], ...fields }, t.body);
+      await writeVaultFile(vaultHandle, filePath.split("/"), content);
+      db.run(
+        `INSERT OR IGNORE INTO entity (id, vaultId, typeId, filePath, fields, body, fileHash, createdAt, updatedAt)
+         VALUES (?, ?, ?, ?, ?, ?, '', ?, ?)`,
+        [t.id, vaultId, TEMPLATE_TYPE_ID, filePath, JSON.stringify(fields), t.body, TEMPLATE_SEED_TS, TEMPLATE_SEED_TS],
+      );
+      ftsAdd(db, { id: t.id, typeId: TEMPLATE_TYPE_ID, title: t.name, body: t.body, tags: "", path: derivePath(filePath) });
+      seeded++;
+    }
+    return { seeded };
   };
 
   // ── Mail mirror (local-first Gmail cache) ──────────────────────────────────
@@ -5088,6 +5201,11 @@ export function buildRouter(
     "sync.applyOps": syncApplyOps,
     "sync.purgeMounted": syncPurgeMounted,
     "sync.listMounts": syncListMounts,
+
+    "templates.list": templatesList,
+    "templates.save": templatesSave,
+    "templates.delete": templatesDelete,
+    "templates.seedDefaults": templatesSeedDefaults,
 
     "mail.listThreads": mailListThreads,
     "mail.searchThreads": mailSearchThreads,
