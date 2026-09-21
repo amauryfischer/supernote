@@ -17,8 +17,8 @@ function openPalette() {
 }
 
 /**
- * Champ de recherche factice qui ouvre la command palette. Vit dans la sidebar
- * (registre next, à la Linear) ou dans la topbar (registre héritage).
+ * Champ de recherche factice qui ouvre la command palette, centré dans la
+ * topbar.
  */
 export const SearchTrigger = memo(function SearchTrigger({
   className = "",

@@ -133,8 +133,6 @@ export interface GmailSettings {
    * locale. Remplace le snippet Gmail. Résultats mis en cache par fil.
    */
   listSummary: boolean;
-  /** Rendu des pastilles de labels (liste et fil). */
-  labelStyle: LabelStyle;
 }
 
 export type LabelStyle = "solid" | "soft" | "outline" | "dot";

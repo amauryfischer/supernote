@@ -5,7 +5,7 @@
  * twin of {@link GitSyncIndicator}, sharing its visual language:
  *
  *   • connected   → green dot
- *   • connecting  → violet (pulsing)
+ *   • connecting  → accent (pulsing)
  *   • offline     → grey (pulsing — it is actively retrying)
  *   • error       → red
  *   • disabled    → hollow dot, "non configuré"

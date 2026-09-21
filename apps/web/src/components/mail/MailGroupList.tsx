@@ -3,7 +3,8 @@
 import { Button } from "@heroui/react";
 import { Tooltip } from "@supernote/ui";
 import { Trash, EnvelopeOpen, Sparkle } from "@phosphor-icons/react";
-import type { ThreadListItem } from "@/lib/gmail";
+import type { GmailLabelColor, ThreadListItem } from "@/lib/gmail";
+import { RowLabelChips } from "./LabelMarker";
 import { formatMailDateTime } from "@/lib/mail-date";
 import { initials, avatarColor } from "@/lib/mail-avatar";
 
@@ -17,6 +18,9 @@ export function MailGroupList({
   onMarkAllRead,
   deleteBusy,
   summaries,
+  labelNames,
+  labelColors,
+  groupLabelId,
 }: {
   title: string;
   items: ThreadListItem[];
@@ -31,6 +35,10 @@ export function MailGroupList({
   deleteBusy?: boolean;
   /** threadId → mini-résumé IA, affiché sous l'objet (cf. MailOverlayList). */
   summaries?: ReadonlyMap<string, string>;
+  labelNames?: ReadonlyMap<string, string>;
+  labelColors?: ReadonlyMap<string, GmailLabelColor>;
+  /** Label du groupe ouvert : commun à toutes les lignes, donc pas répété en pastille. */
+  groupLabelId?: string;
 }) {
   const unreadCount = items.filter((it) => it.labelIds.includes("UNREAD")).length;
   return (
@@ -126,7 +134,16 @@ export function MailGroupList({
                     {formatMailDateTime(it.date)}
                   </span>
                 </span>
-                <span className="truncate text-sm" style={{ color: "var(--text-secondary)" }}>{it.subject}</span>
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <span className="min-w-0 flex-1 truncate text-sm" style={{ color: "var(--text-secondary)" }}>
+                    {it.subject}
+                  </span>
+                  <RowLabelChips
+                    labelIds={it.labelIds.filter((id) => id !== groupLabelId)}
+                    names={labelNames}
+                    colors={labelColors}
+                  />
+                </span>
                 {aiSummary && (
                   <span
                     className="flex min-w-0 items-start gap-1 text-xs"

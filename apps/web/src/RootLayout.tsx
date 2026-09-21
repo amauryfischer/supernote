@@ -29,7 +29,6 @@ import { SettingsProvider } from "@/components/settings/SettingsContext";
 import { UiSoundBridge } from "@/lib/uiSounds";
 import { ConfirmProvider } from "@/lib/confirm";
 import { FreezeReportBanner } from "@/lib/diagnostics/FreezeReportBanner";
-import { UiModeSwitcher } from "@/components/dev/UiModeSwitcher";
 import { InboxAutoSort } from "@/lib/ai/InboxAutoSort";
 import { MailOutgoingRunner } from "@/components/mail/MailOutgoingRunner";
 import { MailFollowupRunner } from "@/components/mail/MailFollowupRunner";
@@ -48,8 +47,6 @@ export function RootLayout() {
                 {/* Watchdog anti-freeze : breadcrumb de route + bannière de
                     rapport si la session précédente a gelé (cf. diagnostics). */}
                 <FreezeReportBanner />
-                {/* Comparateur ancien/nouveau registre visuel — dev uniquement. */}
-                {import.meta.env.DEV && <UiModeSwitcher />}
                 {/* Global top-of-viewport navigation progress bar */}
                 <NavProgress />
                 {/* Register the Service Worker (no-op when not available) */}

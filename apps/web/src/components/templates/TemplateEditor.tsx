@@ -92,14 +92,14 @@ export function TemplateEditor({ template, onSave, onTest, onApply, isApplying }
     <div className="flex h-full flex-col overflow-hidden">
       {/* Header */}
       <div
-        className="flex items-center justify-between px-6 py-4"
+        className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 md:px-6 md:py-4"
         style={{ borderBottom: "1px solid var(--border-subtle)" }}
       >
         <Input
           type="text"
           value={name}
           onChange={(e) => setName(e.target.value)}
-          className="bg-transparent text-lg font-semibold"
+          className="min-w-0 flex-1 basis-full bg-transparent text-lg font-semibold md:basis-auto"
           placeholder="Nom du template"
           aria-label="Nom du template"
         />
@@ -136,11 +136,12 @@ export function TemplateEditor({ template, onSave, onTest, onApply, isApplying }
         </div>
       </div>
 
-      <div className="flex flex-1 overflow-hidden">
-        {/* Left: form */}
+      <div className="flex flex-1 flex-col overflow-hidden md:flex-row">
+        {/* Formulaire : colonne gauche dès md ; sous md, bandeau bas borné pour
+            laisser la hauteur au corps. */}
         <div
-          className="flex flex-col gap-4 overflow-y-auto p-6"
-          style={{ width: 320, borderRight: "1px solid var(--border-subtle)" }}
+          className="order-last flex max-h-[35%] shrink-0 flex-col gap-4 overflow-y-auto border-t p-4 md:order-none md:max-h-none md:w-80 md:border-r md:border-t-0 md:p-6"
+          style={{ borderColor: "var(--border-subtle)" }}
         >
           {/* Entity type */}
           <div>
@@ -194,7 +195,7 @@ export function TemplateEditor({ template, onSave, onTest, onApply, isApplying }
           <TextArea
             value={body}
             onChange={(e) => setBody(e.target.value)}
-            className={`flex-1 resize-none p-6 font-mono text-sm bg-[var(--surface-0)] text-[var(--text-primary)]${preview !== null || previewError !== null ? " border-b border-[var(--border-subtle)]" : ""}`}
+            className={`flex-1 resize-none p-4 font-mono text-sm md:p-6 bg-[var(--surface-0)] text-[var(--text-primary)]${preview !== null || previewError !== null ? " border-b border-[var(--border-subtle)]" : ""}`}
             aria-label="Corps du template"
             spellCheck={false}
             rows={10}

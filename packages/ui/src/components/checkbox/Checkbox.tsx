@@ -26,7 +26,7 @@ export function Checkbox({ className, children, ...props }: CheckboxProps) {
       {...props}
     >
       <CheckboxControl className="flex h-4 w-4 shrink-0 items-center justify-center rounded border border-[var(--border)] bg-[var(--surface-1)] transition-colors data-[selected]:border-[var(--color-primary)] data-[selected]:bg-[var(--color-primary)]">
-        <CheckboxIndicator className="text-white">
+        <CheckboxIndicator className="text-[var(--color-primary-foreground)]">
           <svg
             width="10"
             height="8"

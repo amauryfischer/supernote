@@ -44,7 +44,8 @@ function writeRightPanelPreference(next: boolean): void {
 
 /**
  * Configuration published by a page to populate the mobile floating action
- * button. `null` hides the FAB. The FAB is rendered above the bottom nav and
+ * button. `null` falls back to the generic « Nouveau » ; `false` hides the FAB
+ * (surfaces with their own bottom composer). The FAB is rendered above the bottom nav and
  * is the primary affordance for the page's "create" action on phones.
  */
 export interface MobileFabConfig {
@@ -150,8 +151,13 @@ interface ShellChromeContextValue {
   setMobileSubtitle: (subtitle: string | null) => void;
 
   /** Floating action button config. `null` hides the FAB. */
-  mobileFab: MobileFabConfig | null;
-  setMobileFab: (config: MobileFabConfig | null) => void;
+  mobileFab: MobileFabConfig | null | false;
+  setMobileFab: (config: MobileFabConfig | null | false) => void;
+
+  /** Retour publié par une page à navigation interne (ex. fil mail) : prime
+   *  sur le retour de route dans la barre du haut. */
+  mobileBack: (() => void) | null;
+  setMobileBack: (handler: (() => void) | null) => void;
 
   /** Header action buttons (right side of the mobile top bar). */
   mobileHeaderActions: MobileHeaderAction[];
@@ -246,8 +252,14 @@ export function ShellChromeProvider({ children }: { children: React.ReactNode })
   // `MobileShell` to populate the top bar and FAB.
   const [mobileTitle, setMobileTitleState] = useState<string | null>(null);
   const [mobileSubtitle, setMobileSubtitleState] = useState<string | null>(null);
-  const [mobileFab, setMobileFabState] = useState<MobileFabConfig | null>(null);
+  const [mobileFab, setMobileFabState] = useState<MobileFabConfig | null | false>(null);
   const [mobileHeaderActions, setMobileHeaderActionsState] = useState<MobileHeaderAction[]>([]);
+  const [mobileBack, setMobileBackState] = useState<(() => void) | null>(null);
+  // Forme fonction du setter : un handler passé nu serait appelé comme updater.
+  const setMobileBack = useCallback(
+    (handler: (() => void) | null) => setMobileBackState(() => handler),
+    [],
+  );
 
   // Le provider vit désormais à la racine (RootLayout) et survit donc aux
   // changements de route — avant, il était remonté par chaque page et cet
@@ -381,7 +393,7 @@ export function ShellChromeProvider({ children }: { children: React.ReactNode })
   // would trigger a context-value churn → all consumers re-render → page
   // re-renders → infinite "Maximum update depth" loop. Comparing primitives
   // is cheap enough to do unconditionally.
-  const setMobileFab = useCallback((config: MobileFabConfig | null) => {
+  const setMobileFab = useCallback((config: MobileFabConfig | null | false) => {
     setMobileFabState((prev) => {
       if (prev === config) return prev;
       if (!prev || !config) return config;
@@ -436,6 +448,8 @@ export function ShellChromeProvider({ children }: { children: React.ReactNode })
       setMobileFab,
       mobileHeaderActions,
       setMobileHeaderActions,
+      mobileBack,
+      setMobileBack,
       columnEditor,
       openColumnEditor,
       closeColumnEditor,
@@ -466,6 +480,8 @@ export function ShellChromeProvider({ children }: { children: React.ReactNode })
       setMobileFab,
       mobileHeaderActions,
       setMobileHeaderActions,
+      mobileBack,
+      setMobileBack,
       columnEditor,
       openColumnEditor,
       closeColumnEditor,
@@ -559,17 +575,36 @@ export function useMobileTitle(title: string | null, subtitle: string | null = n
  * second line of defense, the provider's `setMobileFab` performs a
  * structural compare and bails out when nothing changed.
  */
-export function useMobileFab(config: MobileFabConfig | null): void {
+export function useMobileFab(config: MobileFabConfig | null | false): void {
   const ctx = useContext(ShellChromeContext);
   const ref = useRef(config);
   ref.current = config;
-  const key = config ? config.label : "__null__";
+  const key = config ? config.label : String(config);
   useEffect(() => {
     if (!ctx) return warnMissingProvider("useMobileFab");
     ctx.setMobileFab(ref.current);
     return () => ctx.setMobileFab(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
+}
+
+/**
+ * Publie un retour pour la barre du haut mobile tant que `handler` est non nul
+ * — pour les vues empilées sans route propre (fil ouvert dans /mail). Seule la
+ * transition nul/non nul republie ; le dernier handler est lu via une ref.
+ */
+export function useMobileBack(handler: (() => void) | null): void {
+  const ctx = useContext(ShellChromeContext);
+  const ref = useRef(handler);
+  ref.current = handler;
+  const active = handler !== null;
+  useEffect(() => {
+    if (!ctx) return warnMissingProvider("useMobileBack");
+    if (!active) return;
+    ctx.setMobileBack(() => ref.current?.());
+    return () => ctx.setMobileBack(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active]);
 }
 
 /**

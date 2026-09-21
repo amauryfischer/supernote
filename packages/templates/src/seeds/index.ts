@@ -4,14 +4,6 @@
 
 import type { Template } from "../types.js";
 
-export const DAILY_JOURNAL: Template = {
-  id: "seed-daily-journal",
-  name: "Daily Journal",
-  description: "A daily journaling template with sections for highlights, tasks and people",
-  icon: "book-open",
-  body: "Journal du {{date:EEEE D MMMM YYYY}}\n\n## Ce qui a marqué la journée\n{{cursor}}\n\n## Actions\n- [ ] \n\n## Personnes croisées\n",
-};
-
 export const MEETING_NOTES: Template = {
   id: "seed-meeting-notes",
   name: "Compte-rendu de réunion",
@@ -29,7 +21,6 @@ export const RECIPE: Template = {
 };
 
 export const SEED_TEMPLATES: readonly Template[] = [
-  DAILY_JOURNAL,
   MEETING_NOTES,
   RECIPE,
 ] as const;

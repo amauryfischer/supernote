@@ -281,12 +281,28 @@ export function clearSeen(): void {
 /**
  * Fils restant à classer : jamais vus, et sans AUCUN label utilisateur — l'IA ne
  * repasse pas derrière un rangement déjà fait, qu'il vienne d'elle ou de l'utilisateur.
+ * `ignoredLabelIds` ne comptent pas comme rangement (cf. `selfLabelIds`).
  * PUR (l'ensemble `seen` est injecté).
  */
 export function pendingForClassification<
   T extends { id: string; labelIds: string[] },
->(items: readonly T[], seen: ReadonlySet<string>): T[] {
-  return items.filter((it) => !seen.has(it.id) && !it.labelIds.some(isUserLabelId));
+>(items: readonly T[], seen: ReadonlySet<string>, ignoredLabelIds?: ReadonlySet<string>): T[] {
+  return items.filter(
+    (it) =>
+      !seen.has(it.id) && !it.labelIds.some((id) => isUserLabelId(id) && !ignoredLabelIds?.has(id)),
+  );
+}
+
+/**
+ * Labels nommés d'après une de mes adresses (filtre Gmail d'une boîte partagée,
+ * ex. `contact@…`) : posés sur presque tout, ils ne disent rien du contenu.
+ */
+export function selfLabelIds(
+  labelNames: ReadonlyMap<string, string>,
+  selfAddresses: readonly string[],
+): Set<string> {
+  const self = new Set(selfAddresses.map((a) => a.trim().toLowerCase()).filter(Boolean));
+  return new Set([...labelNames].filter(([, name]) => self.has(name.trim().toLowerCase())).map(([id]) => id));
 }
 
 // Gmail préfixe les labels utilisateur par `Label_` (les système : INBOX, CATEGORY_…).

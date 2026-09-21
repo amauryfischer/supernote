@@ -104,6 +104,8 @@ export interface EmailMessage {
   subject: string;
   from: EmailAddress;
   to: EmailAddress[];
+  /** Absent des fils relus depuis le miroir local (colonne non stockée) : seule la lecture live le porte. */
+  cc?: EmailAddress[];
   date: string; // ISO, "" si non parsable
   snippet: string;
   bodyText: string; // text/plain (toujours présent : chemin texte/citation/signature)
@@ -219,6 +221,15 @@ export function parseAddress(raw: string): EmailAddress {
   const m = s.match(/^(.*?)\s*<([^>]+)>$/);
   if (m) return { name: m[1]!.trim().replace(/^"|"$/g, ""), email: m[2]!.trim() };
   return { name: s, email: s };
+}
+
+/**
+ * Parse un en-tête To/Cc. Limite connue : split naïf sur "," → une virgule dans
+ * un nom affiché entre guillemets ("Nom, Prénom" <a@b>) casse la liste. Rare,
+ * et n'affecte que l'affichage / les suggestions de destinataires.
+ */
+export function parseAddressList(raw: string): EmailAddress[] {
+  return raw.split(",").map(parseAddress).filter((a) => a.email.includes("@"));
 }
 
 /** Catégorie d'un message dans l'affichage chat (couleur + alignement). */
@@ -342,17 +353,14 @@ function toIsoDate(raw: string): string {
 
 export function parseGmailMessage(raw: GmailRawMessage): EmailMessage {
   const p = raw.payload;
-  const toRaw = header(p, "To");
   const bodyHtml = findHtml(p);
   const msg: EmailMessage = {
     id: raw.id,
     threadId: raw.threadId,
     subject: header(p, "Subject"),
     from: parseAddress(header(p, "From")),
-    // Limite P1 connue : split naïf sur "," → une virgule dans un nom affiché
-    // entre guillemets ("Nom, Prénom" <a@b>) casse la liste. Acceptable : rare,
-    // n'affecte que l'affichage des destinataires (pas la sécurité ni le corps).
-    to: toRaw ? toRaw.split(",").map((a) => parseAddress(a)) : [],
+    to: parseAddressList(header(p, "To")),
+    cc: parseAddressList(header(p, "Cc")),
     date: toIsoDate(header(p, "Date")),
     snippet: raw.snippet ?? "",
     bodyText: findPlainText(p),
@@ -745,35 +753,9 @@ export function removeThreadLabel(clientId: string, threadId: string, labelId: s
 }
 
 /**
- * Palette Gmail FIXE. L'API `labels.create`/`labels.patch` rejette (HTTP 400
- * « Invalid label color ») toute couleur hors de la liste blanche Gmail : on ne
- * peut PAS choisir une couleur arbitraire. On expose donc une sélection des
- * paires (fond, texte) valides — chaque `backgroundColor` et `textColor` figure
- * dans la liste autorisée Gmail. Sert au sélecteur de couleur de l'UI.
- */
-export const GMAIL_LABEL_PALETTE: readonly GmailLabelColor[] = [
-  { backgroundColor: "#fb4c2f", textColor: "#ffffff" }, // rouge
-  { backgroundColor: "#ffad47", textColor: "#000000" }, // orange
-  { backgroundColor: "#fad165", textColor: "#000000" }, // jaune
-  { backgroundColor: "#16a766", textColor: "#ffffff" }, // vert
-  { backgroundColor: "#43d692", textColor: "#000000" }, // menthe
-  { backgroundColor: "#4a86e8", textColor: "#ffffff" }, // bleu
-  { backgroundColor: "#a479e2", textColor: "#ffffff" }, // violet
-  { backgroundColor: "#f691b3", textColor: "#000000" }, // rose
-  { backgroundColor: "#cc3a21", textColor: "#ffffff" }, // brique
-  { backgroundColor: "#eaa041", textColor: "#000000" }, // ambre
-  { backgroundColor: "#149e60", textColor: "#ffffff" }, // émeraude
-  { backgroundColor: "#3c78d8", textColor: "#ffffff" }, // indigo
-  { backgroundColor: "#8e63ce", textColor: "#ffffff" }, // pourpre
-  { backgroundColor: "#e07798", textColor: "#ffffff" }, // framboise
-  { backgroundColor: "#999999", textColor: "#ffffff" }, // gris
-  { backgroundColor: "#666666", textColor: "#ffffff" }, // ardoise
-];
-
-/**
  * Crée un nouveau label utilisateur via `users.labels.create` (POST /labels).
  * Scope `gmail.modify` (couvre la gestion des labels — pas de scope nouveau).
- * `color` optionnelle, doit appartenir à `GMAIL_LABEL_PALETTE` sinon 400. Gmail
+ * `color` optionnelle, doit appartenir à la grille Gmail (`LABEL_HUES`) sinon 400. Gmail
  * renvoie 409 si un label du même `name` existe déjà. Retourne le label créé
  * (id généré par Gmail).
  */
@@ -813,25 +795,37 @@ export async function createLabel(
 }
 
 /**
- * Change la couleur d'un label existant via `users.labels.patch`
- * (PATCH /labels/{id}). Scope `gmail.modify`. `color` doit appartenir à
- * `GMAIL_LABEL_PALETTE` (sinon 400). N'agit que sur les labels utilisateur (les
- * labels système ne sont pas re-colorables).
+ * Renomme et/ou recolore un label utilisateur via `users.labels.patch`
+ * (PATCH /labels/{id}). Scope `gmail.modify`. `color` doit appartenir à la
+ * grille Gmail (`LABEL_HUES`, sinon 400) ; un nom déjà pris renvoie 409.
  */
-export async function updateLabelColor(
+export async function updateLabel(
   clientId: string,
   labelId: string,
-  color: GmailLabelColor,
+  patch: { name?: string; color?: GmailLabelColor },
 ): Promise<void> {
   const token = await requestAccessToken(clientId, { scope: GMAIL_MODIFY_SCOPE, prompt: "" });
   const res = await fetch(`${GMAIL_API_BASE}/labels/${encodeURIComponent(labelId)}`, {
     method: "PATCH",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ color }),
+    body: JSON.stringify(patch),
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(`Gmail label patch ${res.status}: ${text.slice(0, 300)}`);
+  }
+}
+
+/** Supprime un label utilisateur (il disparaît de tous les fils, les emails restent). */
+export async function deleteLabel(clientId: string, labelId: string): Promise<void> {
+  const token = await requestAccessToken(clientId, { scope: GMAIL_MODIFY_SCOPE, prompt: "" });
+  const res = await fetch(`${GMAIL_API_BASE}/labels/${encodeURIComponent(labelId)}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Gmail label delete ${res.status}: ${text.slice(0, 300)}`);
   }
 }
 
@@ -876,6 +870,32 @@ export function markThreadSpam(clientId: string, threadId: string): Promise<void
     addLabelIds: ["SPAM"],
     removeLabelIds: ["INBOX"],
   });
+}
+
+/**
+ * Destinataires (To/Cc) des derniers messages envoyés, du plus fréquent au plus
+ * rare : les gens à qui on écrit ne sont ni dans la boîte de réception ni dans
+ * le miroir (qui ne garde que le détail des fils ouverts).
+ */
+export async function listSentRecipients(clientId: string, max = 100): Promise<EmailAddress[]> {
+  const list = await gmailFetch<{ messages?: Array<{ id: string }> }>(
+    clientId,
+    `/messages?labelIds=SENT&maxResults=${max}`,
+  );
+  const headers = await mapPool(list.messages ?? [], GMAIL_METADATA_CONCURRENCY, (m) =>
+    gmailFetch<GmailRawMessage>(
+      clientId,
+      `/messages/${encodeURIComponent(m.id)}?format=metadata&metadataHeaders=To&metadataHeaders=Cc`,
+    ).then((raw) => (raw.payload?.headers ?? []).map((h) => h.value).join(",")),
+  );
+  const counts = new Map<string, { address: EmailAddress; n: number }>();
+  for (const address of headers.flatMap(parseAddressList)) {
+    const key = address.email.toLowerCase();
+    const hit = counts.get(key);
+    if (hit) hit.n++;
+    else counts.set(key, { address, n: 1 });
+  }
+  return [...counts.values()].sort((a, b) => b.n - a.n).map((c) => c.address);
 }
 
 /**

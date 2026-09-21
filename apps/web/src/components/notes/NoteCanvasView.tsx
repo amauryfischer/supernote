@@ -106,8 +106,8 @@ function defaultCanvasFromNote(note: Note): CanvasDocument {
     width,
     height,
     angle: 0,
-    strokeColor: "#7c3aed",
-    backgroundColor: "#ede9fe",
+    strokeColor: "#1e1e1e",
+    backgroundColor: "#f1f3f5",
     fillStyle: "solid",
     strokeWidth: 1,
     strokeStyle: "solid",
@@ -117,7 +117,7 @@ function defaultCanvasFromNote(note: Note): CanvasDocument {
     frameId: null,
     roundness: { type: 3 },
     // Bind a text child so Excalidraw renders the note title centered inside
-    // the rectangle. Without this the seed shows as an empty purple block.
+    // the rectangle. Without this the seed shows as an empty block.
     boundElements: [{ id: seedTextId, type: "text" }],
     updated: 1,
     locked: false,

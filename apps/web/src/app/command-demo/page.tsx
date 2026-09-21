@@ -59,7 +59,7 @@ export default function CommandDemoPage() {
           style={{
             backgroundColor: "var(--btn-primary-bg)",
             color: "var(--btn-primary-fg)",
-            boxShadow: "0 2px 8px oklch(0.55 0.24 295 / 0.3)",
+            boxShadow: "var(--sn-shadow-md)",
           }}
         >
           <Command size={16} />

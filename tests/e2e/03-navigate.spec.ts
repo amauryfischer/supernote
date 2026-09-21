@@ -1,8 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { bootDegraded } from "./helpers";
 
-// mail, journal et routines sont écartées : leur `gate` (lib/navigation/catalog.ts)
-// dépend d'un drapeau localStorage ou d'un compte Google connecté.
+// mail (compte Google requis) et routines (drapeau localStorage) sont écartées.
 const ROUTES = [
   { path: "/notes", heading: "Sélectionnez une note ou créez-en une" },
   { path: "/todos", heading: "Todos" },

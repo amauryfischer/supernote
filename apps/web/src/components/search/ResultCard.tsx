@@ -4,7 +4,6 @@ import {
   FileText,
   User,
   BookOpen,
-  CalendarBlank,
   Hash,
   FolderOpen,
   Clock,
@@ -36,7 +35,6 @@ const TYPE_ICONS: Record<string, Icon> = {
   note: FileText,
   personne: User,
   ressource: BookOpen,
-  journal: CalendarBlank,
 };
 
 function highlightMatch(text: string, query: string): React.ReactNode {
@@ -136,7 +134,7 @@ export function ResultCard({ result, query, debugMode }: ResultCardProps) {
             {result.semantic && (
               <span
                 className="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-medium"
-                style={{ backgroundColor: "oklch(0.92 0.05 295)", color: "oklch(0.45 0.18 295)" }}
+                style={{ backgroundColor: "var(--accent-subtle)", color: "var(--accent)" }}
               >
                 <Clock size={8} />
                 sémantique

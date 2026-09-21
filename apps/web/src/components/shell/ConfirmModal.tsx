@@ -10,6 +10,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Button } from "@supernote/ui";
 import { useFocusTrap } from "@/hooks/useFocusTrap";
 
@@ -75,9 +76,13 @@ export function ConfirmModal({
 
   if (!open) return null;
 
-  return (
+  // Portail sur <body> + top-layer : une Modal react-aria ouverte rend le reste
+  // de l'app `inert` et renverrait ce dialogue sous elle, non cliquable.
+  return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      data-react-aria-top-layer=""
+      className="fixed inset-0 flex items-center justify-center p-4"
+      style={{ zIndex: "calc(var(--z-modal) + 1)" }}
       onClick={onCancel}
       role="presentation"
     >
@@ -137,6 +142,7 @@ export function ConfirmModal({
           </Button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

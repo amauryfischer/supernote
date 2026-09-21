@@ -3,6 +3,7 @@
 import { CircleNotch, Plus } from "@phosphor-icons/react";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { useShellChrome } from "../shell-chrome-context";
+import { useNewInboxNote } from "@/components/notes/hooks";
 import { Button } from "@supernote/ui";
 
 /**
@@ -12,25 +13,19 @@ import { Button } from "@supernote/ui";
  * matching the pattern used elsewhere in our products (cf. `eu4` BottomBar).
  *
  * When no page-level FAB config is published, we still render an inert
- * placeholder so the central gap in the nav is filled — pressing it sends
- * the user to the home/create surface as a sensible fallback. Pages that
+ * placeholder so the central gap in the nav is filled — pressing it creates
+ * a blank note in the Inbox, like the desktop topbar's "Nouveau". Pages that
  * publish a config (`useMobileFab`) take over both the icon and the action.
  */
 export const MobileFab = memo(function MobileFab() {
   const { mobileFab } = useShellChrome();
 
-  // No config from the page → render a generic "+" button that at least
-  // gives the user a way to start something (lands on the home writing
-  // surface in fresh-note mode). Avoids leaving the nav with a hole.
-  const Icon = mobileFab?.icon ?? Plus;
-  const label = mobileFab?.label ?? "Nouveau";
-  const onPress = mobileFab?.onPress ?? (() => {
-    // Fallback: go home and request a fresh writing surface. Same effect as
-    // the desktop topbar's "Nouveau" button when not on the home route.
-    if (typeof window !== "undefined") {
-      window.location.assign("/?new=true");
-    }
-  });
+  // No config from the page → generic "+" so the nav never has a hole.
+  const newInboxNote = useNewInboxNote();
+  const fab = mobileFab || null;
+  const Icon = fab?.icon ?? Plus;
+  const label = fab?.label ?? "Nouveau";
+  const onPress = fab?.onPress ?? newInboxNote;
 
   // Une création passe par le worker : selon l'état du coffre elle prend de
   // quelques ms à plusieurs secondes (et jusqu'au timeout RPC). Sans état
@@ -56,6 +51,8 @@ export const MobileFab = memo(function MobileFab() {
       if (aliveRef.current) setPending(false);
     });
   }, [onPress, pending]);
+
+  if (mobileFab === false) return null;
 
   return (
     <Button
@@ -91,10 +88,9 @@ export const MobileFab = memo(function MobileFab() {
         // transform) so `.sn-pop-in` / `.sn-pressable` can animate `transform`
         // freely without resetting the centering.
         marginLeft: "-28px",
-        // La couleur vient de `variant="primary"` (`--btn-primary-*`) : accent
-        // en héritage, neutre quasi-noir/quasi-blanc en next. Pas de peinture
-        // inline, sinon le rôle ne bascule plus avec le registre.
-        // L'élévation passe par le token d'ombre du registre — le halo accent
+        // La couleur vient de `variant="primary"` (`--btn-primary-*`). Pas de
+        // peinture inline, sinon le rôle ne suit plus les tokens.
+        // L'élévation passe par le token d'ombre — le halo accent
         // sans décalage qui traînait ici était de la décoration, pas de la
         // profondeur.
         boxShadow: "var(--shadow-xl)",

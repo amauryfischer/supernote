@@ -74,11 +74,12 @@ export function pickReplyAll(
   const self = (selfEmail ?? "").toLowerCase();
   const primary = pickReplyTo(thread, selfEmail);
   const primaryKey = primary.toLowerCase();
-  // Collecte de toutes les adresses From/To du fil, dans l'ordre d'apparition.
+  // Collecte de toutes les adresses From/To/Cc du fil, dans l'ordre d'apparition.
   const all: EmailAddress[] = [];
   for (const m of thread.messages) {
     if (m.from) all.push(m.from);
     for (const a of m.to) all.push(a);
+    for (const a of m.cc ?? []) all.push(a);
   }
   const everyone = dedupeEmails(all.map((a) => a.email)).filter((e) => {
     const k = e.toLowerCase();

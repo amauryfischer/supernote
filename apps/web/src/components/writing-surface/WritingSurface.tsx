@@ -118,21 +118,6 @@ export function WritingSurface() {
     });
   }, [onRequestNewNote, resetNote]);
 
-  // Auto-focus when navigated to "/?new=true" (from topbar "Nouveau" on other pages)
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("new") === "true") {
-      // Reset and remount editor
-      setContent("");
-      resetNote();
-      setEditorKey((k) => k + 1);
-      // Clean the param from URL without reloading
-      const url = new URL(window.location.href);
-      url.searchParams.delete("new");
-      window.history.replaceState({}, "", url.toString());
-    }
-  }, [resetNote]);
 
   // After the editor remounts (editorKey changed), focus the contenteditable
   // so the user can start typing immediately. SupernoteEditor doesn't expose

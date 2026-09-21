@@ -16,7 +16,7 @@ export function NativeSelect({ value, onChange, options }: NativeSelectProps) {
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="rounded-md border px-2 py-1.5 text-sm focus:outline-none"
+      className="min-w-0 max-w-full rounded-md border px-2 py-1.5 text-sm focus:outline-none"
       style={{
         borderColor: "var(--border)",
         backgroundColor: "var(--surface-1)",

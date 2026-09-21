@@ -9,9 +9,10 @@ import { useEffect, useState } from "react";
  * Detection: when the virtual keyboard slides up, the visual viewport shrinks
  * while the layout viewport (`window.innerHeight`) stays put on every mobile
  * browser we target. A shrink past the threshold therefore means "keyboard
- * up". We additionally require a contenteditable to be focused so that typing
- * in a plain `<input>`/`<textarea>` — e.g. the search field that lives inside
- * the very top bar we'd otherwise hide — does NOT trigger focus mode.
+ * up". We additionally require a contenteditable or a `<textarea>` (multi-line
+ * composers: mail reply, assistant) to be focused so that typing in a plain
+ * `<input>` — e.g. the search field that lives inside the very top bar we'd
+ * otherwise hide — does NOT trigger focus mode.
  *
  * Falls back to `false` when `visualViewport` is unavailable (older browsers,
  * SSR), so desktop and unsupported environments never enter focus mode.
@@ -23,7 +24,7 @@ const KEYBOARD_MIN_SHRINK_PX = 120;
 
 function isEditableElementFocused(): boolean {
   const el = typeof document !== "undefined" ? document.activeElement : null;
-  return el instanceof HTMLElement && el.isContentEditable;
+  return el instanceof HTMLTextAreaElement || (el instanceof HTMLElement && el.isContentEditable);
 }
 
 export function useKeyboardOpen(): boolean {

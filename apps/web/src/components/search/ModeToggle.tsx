@@ -27,11 +27,7 @@ export function ModeToggle({ mode, onChange }: ModeToggleProps) {
           size="sm"
           onPress={() => onChange(m.value)}
           className="rounded-md px-3 py-1 text-xs font-medium"
-          style={
-            mode === m.value
-              ? { backgroundColor: "var(--accent)", color: "white" }
-              : { color: "var(--text-secondary)" }
-          }
+          style={mode === m.value ? undefined : { color: "var(--text-secondary)" }}
         >
           {m.label}
         </Button>

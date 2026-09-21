@@ -2,12 +2,12 @@
 
 import { CaretRight, Desktop, Moon, Plus, SidebarSimple, Sun } from "@phosphor-icons/react";
 import { memo, useCallback, useEffect, useMemo, type MouseEvent as ReactMouseEvent } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { trpc } from "@/lib/trpc/client";
 import { recordVisit } from "@/lib/navigation/recents";
-import { useUiMode } from "@/hooks/useUiMode";
 import { SearchTrigger } from "./SearchTrigger";
 import { useShellChrome } from "./shell-chrome-context";
+import { useNewInboxNote } from "@/components/notes/hooks";
 import {
   Button,
   useAppTheme,
@@ -31,7 +31,6 @@ const ROUTE_LABELS: Record<string, string> = {
   tags: "Tags",
   ai: "Assistant IA",
   pomodoro: "Pomodoro",
-  journal: "Journal",
   contacts: "Contacts",
   finance: "Finance",
   schemas: "Schémas",
@@ -204,43 +203,27 @@ function ThemeToggleButton() {
 // ── TopBar ────────────────────────────────────────────────────────────────────
 
 export const TopBar = memo(function TopBar() {
-  const { toggleRightPanel, rightPanelVisible, requestNewNote } = useShellChrome();
-  const router = useRouter();
-  const pathname = usePathname();
-  const isNext = useUiMode().mode === "next";
-
-  const handleNewNote = useCallback(() => {
-    if (pathname === "/") {
-      requestNewNote();
-    } else {
-      router.push("/?new=true");
-    }
-  }, [pathname, requestNewNote, router]);
+  const { toggleRightPanel, rightPanelVisible } = useShellChrome();
+  const handleNewNote = useNewInboxNote();
 
   return (
     <header
-      className={`shell-chrome border-b px-3 ${
-        isNext
-          ? "grid grid-cols-[1fr_auto_1fr] items-center gap-3"
-          : "flex items-center gap-2"
-      }`}
+      className="shell-chrome grid grid-cols-[1fr_auto_1fr] items-center gap-3 border-b px-3"
       style={{
         height: "var(--header-height)",
         borderColor: "var(--border-subtle)",
-        // Registre next : la topbar appartient à la feuille de contenu (même
-        // surface, un seul filet en bas). Héritage : surface de chrome.
-        backgroundColor: isNext ? "var(--surface-content)" : "var(--surface-1)",
+        // La topbar appartient à la feuille de contenu : même surface, un seul
+        // filet en bas.
+        backgroundColor: "var(--surface-content)",
       }}
     >
-      {!isNext && <SearchTrigger className="w-56 shrink-0 lg:w-64" />}
-
-      <div className={`flex min-w-0 items-center justify-start overflow-hidden ${isNext ? "" : "flex-1"}`}>
+      <div className="flex min-w-0 items-center justify-start overflow-hidden">
         <Breadcrumb />
       </div>
 
-      {/* Registre next : la palette ⌘K en barre centrée, seule affordance de
-          recherche du shell (le rail n'a pas de champ). */}
-      {isNext && <SearchTrigger className="w-[min(380px,34vw)]" />}
+      {/* La palette ⌘K en barre centrée, seule affordance de recherche du
+          shell (le rail n'a pas de champ). */}
+      <SearchTrigger className="w-[min(380px,34vw)]" />
 
       <div className="flex shrink-0 items-center justify-end gap-1">
         <GitSyncIndicator />

@@ -159,8 +159,8 @@ export function useAiMargins({
   const model = settings.ia.ollamaModel;
 
   // Le commentaire dépend du bloc MAIS aussi du titre et du contexte de sa note
-  // et du modèle interrogé : deux entrées de journal partagent des blocs de
-  // gabarit identiques, et changer de modèle doit tout réanalyser.
+  // et du modèle interrogé : deux notes issues d'un même modèle partagent des
+  // blocs identiques, et changer de modèle doit tout réanalyser.
   const cacheKey = useCallback(
     (hash: string) => `${noteId}:${model}:${hash}`,
     [noteId, model],

@@ -78,7 +78,7 @@ function applyClientFilters(
   });
 }
 
-const TYPE_ORDER = ["note", "personne", "ressource", "journal"];
+const TYPE_ORDER = ["note", "personne", "ressource"];
 
 // ---------------------------------------------------------------------------
 // Page

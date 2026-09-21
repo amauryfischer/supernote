@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Modal, Button, Input, Textarea, useToast } from "@supernote/ui";
 import { Gear, ArrowSquareOut, X, Paperclip, PaperPlaneTilt, Image as ImageIcon, FloppyDisk } from "@phosphor-icons/react";
 import { applyTemplate, type MailTemplate } from "@/lib/mail-templates";
@@ -14,6 +14,7 @@ import { useSnippetAutocomplete, SnippetPopup } from "./SnippetAutocomplete";
 import { firstName } from "@/lib/mail-snippets";
 import { markdownToHtml, hasMarkup } from "@/lib/mail-markdown";
 import { withSignature } from "@/lib/mail-signature";
+import type { ForwardThread } from "@/lib/mail-forward";
 import {
   loadAutoDraft,
   saveAutoDraft,
@@ -31,7 +32,8 @@ import {
   MAX_ATTACHMENTS_BYTES,
   type PendingAttachment,
 } from "@/lib/mail-attachments";
-import { formatBytes } from "@/lib/gmail";
+import { formatBytes, listSentRecipients, type EmailAddress } from "@/lib/gmail";
+import { useContactsSource } from "@/components/contacts/useContactsSource";
 import { useMailTemplates } from "./useMailTemplates";
 import { TemplatePicker } from "./TemplatePicker";
 import { TemplateManager } from "./TemplateManager";
@@ -49,12 +51,18 @@ export function ComposeModal({
   initialTo = "",
   initialSubject = "",
   initialBody = "",
+  thread,
+  correspondents = [],
 }: {
   isOpen: boolean;
   onClose: () => void;
   initialTo?: string;
   initialSubject?: string;
   initialBody?: string;
+  /** Transfert : part dans le fil d'origine, qui garde la trace du transfert. */
+  thread?: ForwardThread | undefined;
+  /** Expéditeurs déjà vus (liste mail chargée), proposés en autocomplétion. */
+  correspondents?: EmailAddress[];
 }) {
   const { toast } = useToast();
   const { settings } = useSettings();
@@ -169,6 +177,8 @@ export function ComposeModal({
     setAttachments((prev) => prev.filter((_, i) => i !== index));
   };
 
+  const suggestionsId = useId();
+
   const addRecipients = (emails: string[]) => {
     setRecipients((prev) => dedupeEmails([...prev, ...emails]));
   };
@@ -225,6 +235,7 @@ export function ComposeModal({
         subject,
         body: text,
         ...(html ? { html } : {}),
+        ...thread,
         attachments: attachments.length ? toOutgoing(attachments) : undefined,
       });
       clearAutoDraft(COMPOSE_DRAFT_KEY);
@@ -269,7 +280,8 @@ export function ComposeModal({
       const html = finalHtml(text);
       await scheduleSend(
         {
-          kind: "message",
+          kind: thread ? "reply" : "message",
+          ...thread,
           to: allTo,
           subject,
           body: text,
@@ -359,6 +371,8 @@ export function ComposeModal({
             <Input
               type="email"
               value={toInput}
+              list={suggestionsId}
+              autoComplete="off"
               onChange={(e) => setToInput(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter" || e.key === ",") {
@@ -369,6 +383,7 @@ export function ComposeModal({
               onBlur={commitManual}
               placeholder="nom@exemple.com — Entrée pour ajouter"
             />
+            <RecipientSuggestions id={suggestionsId} correspondents={correspondents} />
             <OrgRecipientPicker onAdd={addRecipients} />
           </div>
 
@@ -558,5 +573,54 @@ export function ComposeModal({
         onRemove={remove}
       />
     </>
+  );
+}
+
+// Une seule tentative par session, même en échec : ~50 requêtes metadata, et rejouer
+// sur un 403 de quota l'entretiendrait.
+let sentRecipientsCache: Promise<EmailAddress[]> | null = null;
+
+/**
+ * Destinataires habituels (envoyés, par fréquence) + contacts du coffre +
+ * expéditeurs connus, en `<datalist>` natif pour le champ destinataire.
+ */
+function RecipientSuggestions({ id, correspondents }: { id: string; correspondents: EmailAddress[] }) {
+  const { settings } = useSettings();
+  const { contacts } = useContactsSource();
+  const clientId = settings.googleDrive.clientId.trim();
+  const [sent, setSent] = useState<EmailAddress[]>([]);
+  useEffect(() => {
+    if (!clientId) return undefined;
+    let alive = true;
+    sentRecipientsCache ??= listSentRecipients(clientId, 50).catch(() => []);
+    void sentRecipientsCache.then((list) => {
+      if (alive) setSent(list);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [clientId]);
+
+  const suggestions = useMemo(() => {
+    const self = new Set(
+      [settings.gmail.connectedEmail, ...settings.gmail.aliases].map((a) => a.toLowerCase()),
+    );
+    const byEmail = new Map<string, string>();
+    const add = (email: string, name: string) => {
+      const key = email.trim().toLowerCase();
+      if (key && !self.has(key) && !byEmail.has(key)) byEmail.set(key, name);
+    };
+    for (const c of sent) add(c.email, c.name);
+    for (const c of contacts) for (const e of c.emails) add(e.value, c.name);
+    for (const c of correspondents) add(c.email, c.name);
+    return [...byEmail];
+  }, [sent, contacts, correspondents, settings.gmail.connectedEmail, settings.gmail.aliases]);
+
+  return (
+    <datalist id={id}>
+      {suggestions.map(([email, name]) => (
+        <option key={email} value={email} label={name && name.toLowerCase() !== email ? name : undefined} />
+      ))}
+    </datalist>
   );
 }

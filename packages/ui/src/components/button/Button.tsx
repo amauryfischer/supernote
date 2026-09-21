@@ -8,9 +8,8 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        // Rôle, pas couleur : `--btn-primary-*` vaut l'accent de marque par
-        // défaut et bascule sur un neutre quasi-noir/quasi-blanc dans le
-        // registre next, sans que le composant ait à le savoir.
+        // Rôle, pas couleur : `--btn-primary-*` décide du rendu sans que le
+        // composant ait à le savoir.
         //
         // ⚠️ `!` obligatoire : HeroUI livre ses `.button--*` HORS layer, et une
         // règle non layerée bat TOUJOURS un utilitaire Tailwind (`@layer

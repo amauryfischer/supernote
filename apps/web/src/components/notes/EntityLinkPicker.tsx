@@ -213,8 +213,8 @@ export function EntityLinkPicker({
               <span
                 className="ml-3 shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium"
                 style={{
-                  backgroundColor: "var(--accent-subtle, #ede9fe)",
-                  color: "var(--accent, #7c3aed)",
+                  backgroundColor: "var(--accent-subtle)",
+                  color: "var(--accent)",
                 }}
               >
                 {hit.typeName}

@@ -12,7 +12,6 @@ const EXAMPLES = [
   { query: "type:personne tag:client", label: "Contacts clients" },
   { query: "type:note tag:idee", label: "Notes idées" },
   { query: "type:note tag:urgent", label: "Notes urgentes" },
-  { query: "type:journal", label: "Entrées de journal" },
   { query: "architecture AND NOT archive", label: "Architecture (sans archives)" },
   { query: "\"deep work\" tag:lecture", label: "Lectures Deep Work" },
 ];
@@ -78,7 +77,7 @@ export function EmptyState({ query, onExampleClick }: EmptyStateProps) {
               <p className="text-xs font-medium" style={{ color: "var(--text-primary)" }}>
                 {ex.label}
               </p>
-              <p className="mt-0.5 font-mono text-[10px]" style={{ color: "var(--text-muted)" }}>
+              <p className="mt-0.5 font-mono text-xs md:text-[10px]" style={{ color: "var(--text-muted)" }}>
                 {ex.query}
               </p>
             </Button>

@@ -80,6 +80,7 @@ export interface MailListApi {
    * locale, pour que les lignes l'affichent sans attendre le prochain sync.
    */
   addLabel: (label: GmailLabel) => void;
+  removeLabel: (id: string) => void;
 }
 
 export function useMailList({
@@ -275,6 +276,17 @@ export function useMailList({
     }
   }, []);
 
+  const removeLabel = useCallback((id: string) => {
+    const without = <T,>(prev: Map<string, T>) => {
+      if (!prev.has(id)) return prev;
+      const next = new Map(prev);
+      next.delete(id);
+      return next;
+    };
+    setLabelNames(without);
+    setLabelColors(without);
+  }, []);
+
   return {
     rows,
     setRows,
@@ -292,5 +304,6 @@ export function useMailList({
     rebuild,
     searchLocal,
     addLabel,
+    removeLabel,
   };
 }

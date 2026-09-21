@@ -189,7 +189,8 @@ export default function NouveauContactPage() {
         <Link
           href="/contacts"
           prefetch={true}
-          className="mb-6 flex items-center gap-1.5 text-sm transition-colors hover:underline"
+          // Sous md, la barre du haut porte déjà le retour.
+          className="mb-6 hidden items-center gap-1.5 text-sm transition-colors hover:underline md:flex"
           style={{ color: "var(--text-muted)" }}
         >
           <ArrowLeft size={14} />

@@ -7,6 +7,8 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useToast } from "@supernote/ui";
 import { trpc, hasWorkerBackend } from "@/lib/trpc/client";
 import { isWorkerReady } from "@/lib/trpc/browser-link";
 import {
@@ -440,6 +442,21 @@ export function useCreateNote() {
   );
 
   return { createNote, isPending: mutation.isPending };
+}
+
+/** Note vierge dans `Inbox/`, ouverte aussitôt : bouton « Nouveau » et capture ⌘⌥C. */
+export function useNewInboxNote(): () => Promise<void> {
+  const { createNote } = useCreateNote();
+  const router = useRouter();
+  const { toast } = useToast();
+  return useCallback(async () => {
+    try {
+      const id = await createNote({ folder: "Inbox", title: "Nouvelle note" });
+      if (id) router.push(`/notes/${id}?folder=Inbox`);
+    } catch {
+      toast({ title: "Impossible de créer la note", variant: "danger" });
+    }
+  }, [createNote, router, toast]);
 }
 
 // ── useCreateDriveDoc ─────────────────────────────────────────────────────────

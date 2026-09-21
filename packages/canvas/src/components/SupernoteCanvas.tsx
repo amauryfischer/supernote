@@ -61,8 +61,8 @@ const CONTAINER_STYLE: React.CSSProperties = {
 // Excalidraw with sensible defaults for everything else (seed, version,
 // versionNonce, index, …).
 
-const ENTITY_FILL = "#ede9fe";
-const ENTITY_STROKE = "#7c3aed";
+const ENTITY_FILL = "#f1f3f5";
+const ENTITY_STROKE = "#1e1e1e";
 const TEXT_STROKE = "#1e293b";
 const GROUP_FILL = "rgba(200,200,200,0.10)";
 const GROUP_STROKE = "#cbd5e1";

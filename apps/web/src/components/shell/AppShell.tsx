@@ -2,7 +2,6 @@
 
 import { memo } from "react";
 import { useIsMobile } from "@/hooks/useIsMobile";
-import { useUiMode } from "@/hooks/useUiMode";
 import { MobileShell } from "./mobile/MobileShell";
 import { RightPanel } from "./RightPanel";
 import { ShellChromeProvider, useHasShellChrome, useShellChrome } from "./shell-chrome-context";
@@ -107,13 +106,12 @@ const RightPanelWrapper = memo(function RightPanelWrapper({
  * panels dim and the topbar fades so the user keeps a writing flow.
  * The user can also collapse the right panel manually.
  *
- * Registre next : la sidebar est un rail posé sur le fond de chrome, et tout
+ * La sidebar est un rail posé sur le fond de chrome, et tout
  * le reste (topbar, contenu, panneau droit, side-peek) vit dans une feuille
  * inset arrondie. En focus mode la feuille s'étend jusqu'aux bords.
  */
 function ShellLayout({ children }: AppShellProps) {
   const { focusMode, rightPanelVisible, accentOverride, columnEditor, entityPeek } = useShellChrome();
-  const isNext = useUiMode().mode === "next";
 
   // Folder-scoped accent override propagates through CSS-variable inheritance.
   // Setting `--accent` / `--accent-subtle` / … on the outermost shell element
@@ -121,7 +119,7 @@ function ShellLayout({ children }: AppShellProps) {
   // just the editor pane like before. Cleared back to defaults when the
   // current route doesn't publish an override (e.g. /tags, /todos).
   const rootStyle: React.CSSProperties = {
-    backgroundColor: isNext ? "var(--surface-chrome)" : "var(--surface-content)",
+    backgroundColor: "var(--surface-chrome)",
     ...(accentOverride ?? {}),
   };
 
@@ -164,31 +162,27 @@ function ShellLayout({ children }: AppShellProps) {
     <div className="flex h-screen w-screen overflow-hidden" style={rootStyle}>
       <SidebarWrapper focusMode={focusMode} />
 
-      {isNext ? (
+      <div
+        className="flex min-w-0 flex-1 overflow-hidden"
+        style={{
+          padding: focusMode ? 0 : "var(--frame-gap)",
+          transition: "padding var(--sn-dur-4) var(--sn-ease-out)",
+        }}
+      >
         <div
-          className="flex min-w-0 flex-1 overflow-hidden"
+          className="flex min-w-0 flex-1 overflow-hidden border"
           style={{
-            padding: focusMode ? 0 : "var(--frame-gap)",
-            transition: "padding var(--sn-dur-4) var(--sn-ease-out)",
+            borderRadius: focusMode ? 0 : "var(--frame-radius)",
+            borderColor: focusMode ? "transparent" : "var(--border)",
+            backgroundColor: "var(--surface-content)",
+            boxShadow: focusMode ? "none" : "var(--sn-shadow-sm)",
+            transition:
+              "border-radius var(--sn-dur-4) var(--sn-ease-out), border-color var(--sn-dur-4) var(--sn-ease-out), box-shadow var(--sn-dur-4) var(--sn-ease-out)",
           }}
         >
-          <div
-            className="flex min-w-0 flex-1 overflow-hidden border"
-            style={{
-              borderRadius: focusMode ? 0 : "var(--frame-radius)",
-              borderColor: focusMode ? "transparent" : "var(--border)",
-              backgroundColor: "var(--surface-content)",
-              boxShadow: focusMode ? "none" : "var(--sn-shadow-sm)",
-              transition:
-                "border-radius var(--sn-dur-4) var(--sn-ease-out), border-color var(--sn-dur-4) var(--sn-ease-out), box-shadow var(--sn-dur-4) var(--sn-ease-out)",
-            }}
-          >
-            {sheet}
-          </div>
+          {sheet}
         </div>
-      ) : (
-        sheet
-      )}
+      </div>
     </div>
   );
 }

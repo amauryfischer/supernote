@@ -7,8 +7,8 @@ export interface SeedCommandDeps {
   toggleTheme: () => void;
   /** Affiche/masque le panneau droit (event → shell-chrome-context). */
   toggleRightPanel: () => void;
-  /** Date du jour ISO (yyyy-mm-dd) pour la note quotidienne. */
-  today: string;
+  /** Crée une note vierge dans l'Inbox et l'ouvre. */
+  newNote: () => void;
 }
 
 /**
@@ -19,7 +19,7 @@ export interface SeedCommandDeps {
  * rien. Câblé depuis CommandSurface.
  */
 export function buildSeedCommands(deps: SeedCommandDeps): Command[] {
-  const { navigate, toggleTheme, toggleRightPanel, today } = deps;
+  const { navigate, toggleTheme, toggleRightPanel, newNote } = deps;
   return [
     // ---- Création ----------------------------------------------------------
     {
@@ -27,30 +27,10 @@ export function buildSeedCommands(deps: SeedCommandDeps): Command[] {
       label: "Nouvelle note",
       description: "Créer une nouvelle note vide dans l'Inbox",
       icon: "file-plus",
-      shortcut: "mod+n",
-      group: "creation",
-      keywords: ["new", "note", "create", "ajouter"],
-      run: () => navigate("/?new=true"),
-    },
-    {
-      id: "capture.quick",
-      label: "Capture rapide",
-      description: "Ajouter quelques lignes à l'entrée du jour sans quitter la page",
-      icon: "zap",
       shortcut: "mod+alt+c",
       group: "creation",
-      keywords: ["capture", "rapide", "quick", "inbox", "jeter", "noter"],
-      run: () =>
-        window.dispatchEvent(new CustomEvent("supernote:open-quick-capture")),
-    },
-    {
-      id: "note.create-daily",
-      label: "Note du jour",
-      description: "Ouvrir la note quotidienne (journal)",
-      icon: "calendar",
-      group: "creation",
-      keywords: ["daily", "journal", "today", "aujourd'hui"],
-      run: () => navigate(today ? `/journal/${today}` : "/journal"),
+      keywords: ["new", "note", "create", "ajouter", "capture", "rapide", "inbox", "noter"],
+      run: newNote,
     },
 
     // ---- Navigation --------------------------------------------------------
@@ -145,5 +125,5 @@ export const SEED_COMMANDS: Command[] = buildSeedCommands({
   navigate: () => {},
   toggleTheme: () => {},
   toggleRightPanel: () => {},
-  today: "",
+  newNote: () => {},
 });

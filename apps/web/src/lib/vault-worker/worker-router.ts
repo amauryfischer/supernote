@@ -586,7 +586,6 @@ export function buildRouter(
   const SYSTEM_FOLDER_ROOTS: readonly string[] = [
     "Contacts",
     "Interactions",
-    "Daily",
     "Tags",
     "Finance",
     "Canvas",
@@ -4770,6 +4769,14 @@ export function buildRouter(
       );
     }
 
+    // Liste complète des labels Gmail : on oublie ceux supprimés depuis. Liste vide = échec
+    // probable de labels.list côté client, on ne purge pas.
+    if (labels?.length) {
+      db.run(
+        `DELETE FROM mail_label WHERE accountId = ? AND id NOT IN (${labels.map(() => "?").join(", ")})`,
+        [accountId, ...labels.map((l) => l.id)],
+      );
+    }
     for (const l of labels ?? []) {
       db.run(
         `INSERT INTO mail_label (accountId, id, name, colorJson, type, updatedAt)

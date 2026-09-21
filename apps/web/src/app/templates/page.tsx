@@ -1,6 +1,6 @@
 "use client";
 
-import { AppShell, useMobileTitle, useMobileFab } from "@/components/shell";
+import { AppShell, useMobileTitle, useMobileFab, useMobileBack } from "@/components/shell";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { TemplateEditor, TemplateList } from "@/components/templates";
 import { useApplyTemplate } from "@/components/templates/useApplyTemplate";
@@ -8,7 +8,7 @@ import { SEED_TEMPLATES } from "@supernote/templates";
 import { trpc } from "@/lib/trpc/client";
 import type { Template } from "@supernote/templates";
 import type { TemplateIpc } from "@supernote/ipc";
-import { FilePlus } from "@phosphor-icons/react";
+import { FilePlus, Plus } from "@phosphor-icons/react";
 import { useState, useCallback } from "react";
 
 // ── IPC adapter ───────────────────────────────────────────────────────────
@@ -82,24 +82,16 @@ function TemplatesPageContent() {
 
   const selected = templates.find((t) => t.id === selectedId) ?? null;
 
-  // Mobile chrome — publish the selected template name as the page title.
-  // On mobile the 2-col layout stacks: tabs list on top (horizontal scroll),
-  // editor below taking full width.
+  // Mobile : maître-détail — la liste plein écran, puis l'éditeur plein écran
+  // avec retour dans la barre du haut (côte à côte, l'éditeur tenait sur un
+  // caractère de large).
+  const [mobileEditing, setMobileEditing] = useState(false);
+  const showEditor = !isMobile || (mobileEditing && selected !== null);
+  const showList = !isMobile || !showEditor;
   useMobileTitle(
-    isMobile ? (selected?.name ?? "Templates") : null,
+    isMobile ? (showEditor ? (selected?.name ?? "Templates") : "Templates") : null,
   );
-
-  // Mobile FAB: apply the selected template (interpolate placeholders + create
-  // a note). Mirrors the desktop "Appliquer" button in the editor header.
-  useMobileFab(
-    isMobile && selected
-      ? {
-          icon: FilePlus,
-          label: "Appliquer le template",
-          onPress: () => apply(selected),
-        }
-      : null,
-  );
+  useMobileBack(isMobile && showEditor ? () => setMobileEditing(false) : null);
 
   const handleSave = useCallback((updated: Template) => {
     if (useFallback) {
@@ -119,6 +111,7 @@ function TemplatesPageContent() {
 
   const handleNew = useCallback(() => {
     const t = newCustomTemplate();
+    setMobileEditing(true);
     if (useFallback) {
       setLocalTemplates((prev) => [...prev, t]);
       setSelectedId(t.id);
@@ -135,6 +128,16 @@ function TemplatesPageContent() {
       },
     );
   }, [useFallback, saveMutation, listQuery]);
+
+  // Éditeur ouvert : le FAB applique le template (miroir du bouton « Appliquer ») ;
+  // sur la liste, il en crée un.
+  useMobileFab(
+    !isMobile
+      ? null
+      : showEditor && selected
+        ? { icon: FilePlus, label: "Appliquer le template", onPress: () => apply(selected) }
+        : { icon: Plus, label: "Nouveau template", onPress: handleNew },
+  );
 
   const handleDelete = useCallback((id: string) => {
     if (!confirm("Supprimer ce template ?")) return;
@@ -160,8 +163,8 @@ function TemplatesPageContent() {
 
   return (
     <div className="flex h-full flex-col overflow-hidden md:flex-row">
-      {/* Template list — on mobile: horizontal scroll strip at top; on desktop: vertical sidebar */}
-      <div className="flex shrink-0 overflow-x-auto border-b md:w-[260px] md:overflow-x-hidden md:overflow-y-auto md:border-b-0 md:border-r [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      {showList && (
+      <div className="flex min-h-0 flex-1 overflow-y-auto md:w-[260px] md:flex-none md:shrink-0 md:border-r"
         style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-1)" }}
       >
         {listQuery.isLoading ? (
@@ -170,20 +173,26 @@ function TemplatesPageContent() {
           <TemplateList
             templates={templates}
             selectedId={selectedId}
-            onSelect={setSelectedId}
+            onSelect={(id) => {
+              setSelectedId(id);
+              setMobileEditing(true);
+            }}
             onNew={handleNew}
             onDelete={handleDelete}
           />
         )}
       </div>
+      )}
 
+      {showEditor && (
       <main className="flex-1 overflow-hidden" style={{ backgroundColor: "var(--surface-0)" }}>
         {selected ? (
           <TemplateEditor
             key={selected.id}
             template={selected}
             onSave={handleSave}
-            onApply={apply}
+            // Sous md, « Appliquer » est le FAB.
+            onApply={isMobile ? undefined : apply}
             isApplying={isApplying}
             onTest={
               useFallback
@@ -203,6 +212,7 @@ function TemplatesPageContent() {
           </div>
         )}
       </main>
+      )}
 
       {/* Prompt flow for {{prompt:…}} placeholders when applying a template. */}
       {applyModal}

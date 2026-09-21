@@ -31,8 +31,7 @@ import type { GmailLabelColor } from "@/lib/gmail";
 import { initials, avatarColor } from "@/lib/mail-avatar";
 import { formatMailDate } from "@/lib/mail-date";
 import { SwipeableRow, type SwipeAction } from "./SwipeableRow";
-import { LabelMarker, labelChipStyle } from "./LabelMarker";
-import { useSettings } from "@/components/settings/SettingsContext";
+import { LabelMarker, RowLabelChips, labelChipStyle } from "./LabelMarker";
 
 /** Données partagées par toutes les lignes — évite de threader une douzaine de
  *  props à travers `MailRow`. */
@@ -41,6 +40,8 @@ interface SharedRowProps {
   onPick: (row: OverlayRow) => void;
   onToggleStar?: (threadId: string, labelIds: string[]) => void;
   labelColors?: Map<string, GmailLabelColor>;
+  /** Labels utilisateur (id → nom), affichés en pastilles sur les lignes. */
+  labelNames?: Map<string, string>;
   selectedIndex?: number;
   selectedThreadIds?: ReadonlySet<string>;
   onToggleRowSelection?: (row: OverlayRow) => void;
@@ -271,6 +272,7 @@ export function MailOverlayList({
     onPick,
     onToggleStar,
     labelColors,
+    labelNames: userLabels,
     selectedIndex,
     selectedThreadIds,
     onToggleRowSelection,
@@ -444,7 +446,7 @@ function MailSectionHeader({
           style={{ color: "var(--text-muted)" }}
         />
         <span
-          className="truncate text-[11px] font-semibold uppercase tracking-wider"
+          className="sn-eyebrow sn-eyebrow--compact truncate"
           style={{ color: "var(--text-muted)" }}
         >
           {marker.title}
@@ -476,12 +478,12 @@ function MailSectionHeader({
  *  (groupe-tag). Les hooks DnD sont TOUJOURS appelés (règle des hooks) et
  *  neutralisés via `disabled` selon le type de ligne et `dndEnabled`. */
 function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: SharedRowProps }) {
-  const { labelStyle } = useSettings().settings.gmail;
   const {
     activeKey,
     onPick,
     onToggleStar,
     labelColors,
+    labelNames,
     selectedIndex,
     selectedThreadIds,
     onToggleRowSelection,
@@ -568,7 +570,7 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
       }`}
       // Ligne ouverte : surlignage SOBRE (accent-subtle + barre accent à
       // gauche), cohérent avec l'item actif de la sidebar — pas un bloc
-      // violet plein.
+      // plein.
       style={
         activeKey === key
           ? { backgroundColor: "var(--accent-subtle)", boxShadow: "inset 3px 0 0 0 var(--accent)" }
@@ -584,9 +586,9 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
         <span className="flex w-full min-w-0 items-center gap-2">
           <span
             className="inline-flex min-w-0 items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium"
-            style={labelChipStyle(labelColor, labelStyle)}
+            style={labelChipStyle(labelColor)}
           >
-            <LabelMarker color={labelColor} style={labelStyle} size={11} />
+            <LabelMarker color={labelColor} size={11} />
             <span className="truncate">{title}</span>
           </span>
           {row.kind === "group" && row.count > 1 && (
@@ -602,7 +604,12 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
               {groupUnread > 0 ? `${groupUnread}/${row.count}` : row.count}
             </span>
           )}
-          {showStack && <SenderStack senders={stack} size={16} />}
+          {/* Sous md, la pile d'avatars prendrait la place des objets. */}
+          {showStack && (
+            <span className="hidden shrink-0 md:inline-flex">
+              <SenderStack senders={stack} size={16} />
+            </span>
+          )}
           {/* Objets du paquet : un groupe-tag qui n'affiche que son nom et un
               compteur oblige à l'ouvrir pour savoir ce qu'il contient. Les
               premiers objets suffisent à décider (repère : Shortwave). */}
@@ -679,6 +686,9 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
             >
               {subject || "(sans objet)"}
             </span>
+            {singleItem && (
+              <RowLabelChips labelIds={singleItem.labelIds} names={labelNames} colors={labelColors} />
+            )}
             {row.kind === "group" && row.count > 1 && (
               <span
                 className={`shrink-0 rounded-full px-1.5 text-xs ${groupUnread > 0 ? "font-bold" : ""}`}
@@ -693,20 +703,22 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
               </span>
             )}
             <span
-              className="max-w-[45%] shrink-0 truncate text-xs"
+              className="hidden max-w-[45%] shrink-0 truncate text-xs md:inline"
               style={{ color: "var(--text-muted)" }}
               title={title}
             >
               {title}
             </span>
           </span>
-          {preview && (
+          {(preview || title) && (
             /* Résumé IA : deux lignes (une trentaine de mots ne tient pas sur
-               une ligne tronquée). Snippet Gmail : une ligne, comme avant. */
+               une ligne tronquée). Snippet Gmail : une ligne, comme avant.
+               Sous md, l'expéditeur ouvre cette ligne : à droite de l'objet il
+               ne lui laissait que quelques lettres. */
             <span
               className={`flex min-w-0 items-start gap-1 text-xs ${
                 aiPreview ? "" : "truncate"
-              }`}
+              } ${preview ? "" : "md:hidden"}`}
               style={{ color: "var(--text-muted)" }}
               title={aiPreview ? "Résumé par l'IA locale" : undefined}
             >
@@ -720,6 +732,10 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
                 />
               )}
               <span className={aiPreview ? "line-clamp-2 min-w-0" : "min-w-0 truncate"}>
+                <span className="font-medium md:hidden" style={{ color: "var(--text-secondary)" }}>
+                  {title}
+                  {preview && " · "}
+                </span>
                 {preview}
               </span>
             </span>

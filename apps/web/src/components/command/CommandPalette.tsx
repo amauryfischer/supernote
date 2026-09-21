@@ -23,6 +23,8 @@ import { usePathname, useRouter } from "next/navigation";
 import { registry } from "@/lib/commands/registry";
 import type { Command as AppCommand } from "@/lib/commands/types";
 import { useDebounce } from "@/hooks/useDebounce";
+import { useIsMobile } from "@/hooks/useIsMobile";
+import { Button } from "@heroui/react";
 import { trpc, hasWorkerBackend } from "@/lib/trpc/client";
 import { isWorkerReady } from "@/lib/trpc/browser-link";
 import type { SearchResult } from "@supernote/ipc";
@@ -74,7 +76,7 @@ function ShortcutHint({ keys }: { keys: string }) {
     });
 
   return (
-    <span className="flex items-center gap-0.5">
+    <span className="hidden items-center gap-0.5 sm:flex">
       {parts.map((p, i) => (
         <kbd
           key={i}
@@ -125,7 +127,6 @@ const ENTITY_TYPE_LABELS: Record<string, string> = {
   contact: "Contacts",
   organisation: "Organisations",
   ressource: "Ressources",
-  journal: "Journal",
 };
 
 function entityGroupLabel(typeId: string, fallback: string): string {
@@ -142,6 +143,9 @@ interface CommandPaletteProps {
 }
 
 export function CommandPalette({ open, onClose }: CommandPaletteProps) {
+  // Téléphone : pas de clavier physique → ni indices de touches ni « Esc », et
+  // la palette se cale en haut, au-dessus du clavier virtuel.
+  const isMobile = useIsMobile();
   const [query, setQuery] = useState("");
   // Item actif (surligné) selon cmdk. cmdk n'appelle `onValueChange` qu'en mode
   // contrôlé : on pilote donc `value` nous-mêmes. Comme cmdk met aussi à jour la
@@ -331,7 +335,8 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     <div
       className="cmdpalette-backdrop fixed inset-0 z-50 flex items-start justify-center"
       style={{
-        paddingTop: "12vh",
+        paddingTop: isMobile ? "calc(env(safe-area-inset-top, 0px) + 8px)" : "12vh",
+        paddingInline: isMobile ? 8 : 0,
         backgroundColor: "oklch(0.14 0.006 260 / 0.4)",
         backdropFilter: "blur(4px)",
       }}
@@ -393,21 +398,31 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
             <Command.Input
               value={query}
               onValueChange={setQuery}
-              placeholder="Tapez une commande, cherchez une note, ou créez quelque chose…"
+              placeholder={
+                isMobile
+                  ? "Chercher ou lancer une commande…"
+                  : "Tapez une commande, cherchez une note, ou créez quelque chose…"
+              }
               className="flex-1 bg-transparent text-sm outline-none placeholder:text-[var(--text-muted)]"
               style={{ color: "var(--text-primary)" }}
               autoFocus
             />
-            <kbd
-              className="rounded-[var(--radius-sm)] px-1.5 py-0.5 text-[10px] font-mono"
-              style={{
-                backgroundColor: "var(--surface-3)",
-                color: "var(--text-muted)",
-                border: "1px solid var(--border)",
-              }}
-            >
-              Esc
-            </kbd>
+            {isMobile ? (
+              <Button variant="ghost" size="sm" onPress={onClose}>
+                Annuler
+              </Button>
+            ) : (
+              <kbd
+                className="rounded-[var(--radius-sm)] px-1.5 py-0.5 text-[10px] font-mono"
+                style={{
+                  backgroundColor: "var(--surface-3)",
+                  color: "var(--text-muted)",
+                  border: "1px solid var(--border)",
+                }}
+              >
+                Esc
+              </kbd>
+            )}
           </div>
 
           {/* Corps : liste à gauche + aperçu (Raycast) à droite */}
@@ -496,9 +511,9 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
           )}
           </div>
 
-          {/* Footer */}
+          {/* Footer — raccourcis clavier, sans objet au doigt */}
           <div
-            className="flex items-center justify-between px-4 py-2 text-[11px]"
+            className="hidden items-center justify-between px-4 py-2 text-[11px] sm:flex"
             style={{
               borderTop: "1px solid var(--border-subtle)",
               color: "var(--text-muted)",
@@ -638,7 +653,6 @@ const TYPE_ICON_MAP: Record<string, PhosphorIcon> = {
   contact: Users,
   organisation: Folder,
   ressource: BookOpen,
-  journal: Calendar,
 };
 
 function EntityCommandItem({

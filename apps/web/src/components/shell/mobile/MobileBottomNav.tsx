@@ -1,10 +1,11 @@
 "use client";
 
 import {
+  type IconWeight,
   CheckSquare,
   DotsThree,
   FileText,
-  House,
+  EnvelopeSimple,
   type Icon as PhosphorIcon,
 } from "@phosphor-icons/react";
 import Link from "next/link";
@@ -24,6 +25,9 @@ interface NavTab {
   onPress?: () => void;
   /** Patterns that count as active for this tab. */
   match: (pathname: string) => boolean;
+  /** Graisse active : `fill` par défaut ; les trois points pleins formaient
+   *  une pilule noire. */
+  activeWeight?: IconWeight;
 }
 
 /**
@@ -34,8 +38,8 @@ interface NavTab {
  *
  * Layout: 56 px tall + safe-area-inset-bottom. Icons centered in each tab
  * column, label in 10 px below. L'onglet actif prend le rôle `--nav-active-*`
- * (neutre fort dans le registre next, accent en héritage) — jamais `--accent`
- * en dur : la navigation est un état « vous êtes ici », pas une sélection.
+ * (neutre fort), jamais `--accent` en dur : la navigation est un état « vous
+ * êtes ici », pas une sélection.
  */
 export const MobileBottomNav = memo(function MobileBottomNav({
   onOpenMore,
@@ -44,15 +48,14 @@ export const MobileBottomNav = memo(function MobileBottomNav({
 }) {
   const pathname = usePathname();
 
-  // Two tabs on each side of the FAB. Journal moves into the "Plus" drawer
-  // so the central slot is reserved for the create action — the most common
-  // verb on every page.
+  // Two tabs on each side of the FAB: the central slot is reserved for the
+  // create action — the most common verb on every page.
   const leftTabs: NavTab[] = [
     {
-      href: "/",
-      label: "Accueil",
-      icon: House,
-      match: (p) => p === "/",
+      href: "/mail",
+      label: "Mail",
+      icon: EnvelopeSimple,
+      match: (p) => p.startsWith("/mail"),
     },
     {
       href: "/notes",
@@ -72,10 +75,11 @@ export const MobileBottomNav = memo(function MobileBottomNav({
       href: "#more",
       label: "Plus",
       icon: DotsThree,
+      activeWeight: "bold",
       onPress: onOpenMore,
       match: (p) =>
         // Highlight "Plus" whenever we're on a section that lives only in the
-        // drawer (finance, contacts, journal, assistant IA, pomodoro…). Dérivé
+        // drawer (finance, contacts, assistant IA, pomodoro…). Dérivé
         // du catalogue : tout ajout de route dans catalog.ts surligne « Plus »
         // sans édition ici — plus de liste recopiée à la main.
         MOBILE_MORE_MATCH_PREFIXES.some((prefix) => p.startsWith(prefix)),
@@ -158,12 +162,14 @@ const NavTabButton = memo(function NavTabButton({
         variant="ghost"
         onClick={tab.onPress}
         className={baseClass}
-        style={style}
+        // ⚠️ `.button--md` (hors @layer) fixe hauteur/padding/rayon et bat les
+        // utilitaires Tailwind : seul l'inline aligne l'onglet sur les `Link`.
+        style={{ ...style, height: "100%", padding: 0, borderRadius: 0 }}
         aria-label={tab.label}
         aria-current={active ? "page" : undefined}
       >
         {indicator}
-        <Icon size={22} weight={active ? "fill" : "regular"} />
+        <Icon size={22} weight={active ? (tab.activeWeight ?? "fill") : "regular"} />
         <span>{tab.label}</span>
       </Button>
     );
@@ -177,7 +183,7 @@ const NavTabButton = memo(function NavTabButton({
       aria-current={active ? "page" : undefined}
     >
       {indicator}
-      <Icon size={22} weight={active ? "fill" : "regular"} />
+      <Icon size={22} weight={active ? (tab.activeWeight ?? "fill") : "regular"} />
       <span>{tab.label}</span>
     </Link>
   );

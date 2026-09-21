@@ -5,7 +5,6 @@ import { memo } from "react";
 import { useRouter } from "next/navigation";
 import { trpc } from "@/lib/trpc/client";
 import { useShellChrome } from "./shell-chrome-context";
-import { useUiMode } from "@/hooks/useUiMode";
 import { PrioritiesWidget } from "@/components/todos/PrioritiesWidget";
 import { AiCommentCard } from "@/components/notes/AiMarginsPanel";
 import { QuickRepliesRow } from "@/components/mail/QuickRepliesRow";
@@ -256,7 +255,6 @@ export const RightPanel = memo(function RightPanel() {
           : aiMargins.nothingToAnalyze
             ? "Trop court pour être commenté : quelques mots de plus et l'IA prend le relais."
             : "Rien à signaler sur cette note pour l'instant.";
-  const isNext = useUiMode().mode === "next";
 
   return (
     <aside
@@ -264,9 +262,9 @@ export const RightPanel = memo(function RightPanel() {
       style={{
         width: "var(--panel-width)",
         borderColor: "var(--border-subtle)",
-        // Registre next : le panneau vit DANS la feuille inset, même surface
-        // que le contenu, seul un filet le sépare.
-        backgroundColor: isNext ? "var(--surface-content)" : "var(--surface-chrome)",
+        // Le panneau vit DANS la feuille inset, même surface que le contenu,
+        // seul un filet le sépare.
+        backgroundColor: "var(--surface-content)",
       }}
     >
       {/* Panel header — pas de libellé « Contexte » : eyebrow redondant, le

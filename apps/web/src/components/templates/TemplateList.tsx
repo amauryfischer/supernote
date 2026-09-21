@@ -23,13 +23,8 @@ const ICON_MAP: Record<string, string> = {
 export function TemplateList({ templates, selectedId, onSelect, onNew, onDelete }: TemplateListProps) {
   return (
     <aside
-      className="flex flex-col border-r"
-      style={{
-        width: 260,
-        minWidth: 260,
-        backgroundColor: "var(--surface-1)",
-        borderColor: "var(--border-subtle)",
-      }}
+      className="flex w-full flex-col md:w-[260px] md:min-w-[260px]"
+      style={{ backgroundColor: "var(--surface-1)" }}
     >
       <div
         className="flex items-center justify-between px-4 py-3"

@@ -27,7 +27,6 @@ import {
 import { memo, useCallback, useEffect, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { NotificationBadge, useNotifications } from "@supernote/notifications/renderer";
 import { useVault } from "@/lib/pwa/PwaVaultSetup";
-import { useGmailConnected } from "@/hooks/useGmailConnected";
 import { usePluginEnabled } from "@/hooks/usePluginEnabled";
 import { MobileVaultSwitcher } from "./MobileVaultSwitcher";
 import { MobileStatusCard } from "./MobileStatusCard";
@@ -156,7 +155,6 @@ export const MoreDrawer = memo(function MoreDrawer({
 }) {
   const { unreadCount } = useNotifications();
   const vault = useVault();
-  const gmailConnected = useGmailConnected();
   const pathname = usePathname();
   const t = useTranslations();
   // Gates de visibilité — mêmes flags que le sidebar desktop, appliqués ici de
@@ -187,11 +185,10 @@ export const MoreDrawer = memo(function MoreDrawer({
 
   const gateEnabled: Record<NavGate, boolean> = {
     routines: routinesEnabled,
-    mail: gmailConnected,
   };
   const isItemVisible = (item: NavItem) => (item.gate ? gateEnabled[item.gate] : true);
   // Groupes du drawer dérivés du catalogue : on retire les routes déjà
-  // présentes dans la bottom-nav (Accueil, Notes, Todos) pour éviter les
+  // présentes dans la bottom-nav (Mail, Notes, Todos) pour éviter les
   // doublons ; le reste (dont Assistant IA et Pomodoro, jadis injoignables au
   // doigt) peuple le drawer. Même ordre et mêmes libellés que le sidebar.
   const settingsActive = isNavActive(NAV_SETTINGS.href, pathname);

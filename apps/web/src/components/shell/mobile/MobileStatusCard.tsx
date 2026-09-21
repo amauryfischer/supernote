@@ -75,7 +75,7 @@ function StatusRow({
         </span>
         {detail && (
           <span
-            className="block truncate font-mono text-[11px]"
+            className="block truncate text-[12px]"
             style={{ color: "var(--text-muted)" }}
           >
             {detail}

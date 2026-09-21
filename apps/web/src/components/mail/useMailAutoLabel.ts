@@ -28,6 +28,7 @@ import {
   loadSeen,
   markSeen,
   pendingForClassification,
+  selfLabelIds,
 } from "@/lib/mail-autolabel";
 
 /** Bilan de la dernière passe — ce qui a été posé, ce qui a été écarté. */
@@ -54,6 +55,8 @@ export interface UseMailAutoLabelOptions {
   items: ThreadListItem[];
   /** Labels connus (id → nom) pour retrouver / créer ceux des catégories. */
   labelNames: Map<string, string>;
+  /** Mes adresses (compte + alias) : un label à leur nom ne compte pas comme rangement. */
+  selfAddresses: readonly string[];
   /** Applique un label à un fil (chemin optimiste + outbox de la page). */
   applyLabel: (threadId: string, labelId: string) => void;
   /** Appelé après création d'un label Gmail (la page recharge sa table). */
@@ -66,6 +69,7 @@ export function useMailAutoLabel({
   minConfidence,
   items,
   labelNames,
+  selfAddresses,
   applyLabel,
   onLabelCreated,
 }: UseMailAutoLabelOptions) {
@@ -83,6 +87,8 @@ export function useMailAutoLabel({
   itemsRef.current = items;
   const labelNamesRef = useRef(labelNames);
   labelNamesRef.current = labelNames;
+  const selfAddressesRef = useRef(selfAddresses);
+  selfAddressesRef.current = selfAddresses;
   const applyRef = useRef(applyLabel);
   applyRef.current = applyLabel;
 
@@ -94,11 +100,17 @@ export function useMailAutoLabel({
     return undefined;
   }, []);
 
-  const remaining = enabled ? pendingForClassification(items, loadSeen()).length : 0;
+  const remaining = enabled
+    ? pendingForClassification(items, loadSeen(), selfLabelIds(labelNames, selfAddresses)).length
+    : 0;
 
   const run = useCallback(async () => {
     if (runningRef.current || !clientId) return;
-    const pending = pendingForClassification(itemsRef.current, loadSeen()).slice(0, BATCH);
+    const pending = pendingForClassification(
+      itemsRef.current,
+      loadSeen(),
+      selfLabelIds(labelNamesRef.current, selfAddressesRef.current),
+    ).slice(0, BATCH);
     if (pending.length === 0) return;
 
     runningRef.current = true;
@@ -171,7 +183,11 @@ export function useMailAutoLabel({
 
   /** Passe manuelle : dit ce qu'elle fait, y compris quand il n'y a rien. */
   const runNow = useCallback(() => {
-    const pending = pendingForClassification(itemsRef.current, loadSeen()).length;
+    const pending = pendingForClassification(
+      itemsRef.current,
+      loadSeen(),
+      selfLabelIds(labelNamesRef.current, selfAddressesRef.current),
+    ).length;
     if (pending === 0) {
       toast({ title: "Rien à classer", description: "Tous les fils sans label ont déjà été vus." });
       return;

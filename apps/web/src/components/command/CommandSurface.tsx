@@ -9,8 +9,7 @@ import { useShortcut } from "@/lib/keyboard/hooks";
 import { useRegisterCommands } from "@/lib/commands/hooks";
 import { buildSeedCommands } from "@/lib/commands/seed";
 import { UnifiedSearchModal } from "@/components/mail/UnifiedSearchModal";
-import { todayJournalDate } from "@/lib/journal-live-entry";
-import { QuickCaptureOverlay } from "./QuickCaptureOverlay";
+import { useNewInboxNote } from "@/components/notes/hooks";
 
 // CommandPalette pulls in the entire command catalogue UI; defer it until the
 // user actually opens the palette. The first Cmd+K mounts it; subsequent opens
@@ -31,7 +30,6 @@ const CommandPalette = dynamic(
 export function CommandSurface() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [unifiedOpen, setUnifiedOpen] = useState(false);
-  const [captureOpen, setCaptureOpen] = useState(false);
 
   const navigate = useNavigate();
   const { theme, setTheme, resolvedTheme } = useAppTheme();
@@ -49,21 +47,22 @@ export function CommandSurface() {
   const toggleRightPanel = useCallback(() => {
     window.dispatchEvent(new CustomEvent("supernote:toggle-right-panel"));
   }, []);
-  // « today » figé au montage (yyyy-mm-dd) — suffisant pour la note du jour.
-  const today = useMemo(todayJournalDate, []);
+  const newInboxNote = useNewInboxNote();
+  // `useRegisterCommands` ne réagit qu'au changement d'id : ref pour que la
+  // commande appelle toujours la version courante.
+  const newInboxNoteRef = useRef(newInboxNote);
+  newInboxNoteRef.current = newInboxNote;
+  const newNote = useCallback(() => void newInboxNoteRef.current(), []);
 
   // Commandes liées aux vraies actions (navigation SPA, thème, chrome).
   const commands = useMemo(
-    () => buildSeedCommands({ navigate, toggleTheme, toggleRightPanel, today }),
-    [navigate, toggleTheme, toggleRightPanel, today],
+    () => buildSeedCommands({ navigate, toggleTheme, toggleRightPanel, newNote }),
+    [navigate, toggleTheme, toggleRightPanel, newNote],
   );
   useRegisterCommands(commands);
 
   const openPalette = useCallback(() => setPaletteOpen(true), []);
   const closePalette = useCallback(() => setPaletteOpen(false), []);
-  // Identité stable : une flèche inline réarmerait le timer de fermeture de la
-  // capture à chaque rendu de ce composant.
-  const closeCapture = useCallback(() => setCaptureOpen(false), []);
 
   // useShortcut n'enregistre le handler qu'une fois (deps id/keys/scope) : la
   // closure capture `paletteOpen=false` pour toujours. On lit l'état courant via
@@ -154,26 +153,19 @@ export function CommandSurface() {
     id: "capture.open",
     keys: "mod+alt+c",
     scope: "global",
-    description: "Capture rapide dans l'entrée du jour",
+    description: "Nouvelle note vierge dans l'Inbox",
     handler: () => {
-      setCaptureOpen(true);
+      newNote();
       return true;
     },
   });
-
-  useEffect(() => {
-    const handler = () => setCaptureOpen(true);
-    window.addEventListener("supernote:open-quick-capture", handler);
-    return () => window.removeEventListener("supernote:open-quick-capture", handler);
-  }, []);
 
   // Cmd+N — handled inside the notes view (see /notes & /notes/[id]) so it
   // can call the real `handleNewNote` with the active folder. Registering it
   // globally here would shadow the per-page handler (first-match-wins).
 
   // Cmd+D — PAS de binding global : il masquait « recopier vers le bas » du
-  // DataGrid (et c'est un raccourci navigateur). La « Note du jour » reste
-  // accessible via la palette.
+  // DataGrid (et c'est un raccourci navigateur).
 
   // Cmd+Shift+F — recherche globale (navigation SPA vers /recherche).
   useShortcut({
@@ -193,7 +185,6 @@ export function CommandSurface() {
     <>
       {paletteOpen && <CommandPalette open={paletteOpen} onClose={closePalette} />}
       <UnifiedSearchModal isOpen={unifiedOpen} onClose={() => setUnifiedOpen(false)} />
-      <QuickCaptureOverlay isOpen={captureOpen} onClose={closeCapture} />
     </>
   );
 }

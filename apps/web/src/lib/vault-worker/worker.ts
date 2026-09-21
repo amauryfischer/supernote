@@ -1061,10 +1061,27 @@ async function handleInitVault(
           self.postMessage({ type: "INDEX_PROGRESS", indexed, total: indexed });
         }
         await runCanvasMigration();
+        await purgeJournalEntries();
       } catch (err) {
         console.warn("[init] background reindex failed (non-fatal)", err);
       }
     })();
+
+    // Le Journal n'existe plus : ses entrées `daily` passent par
+    // `entities.delete` (fichier, FTS, tombstone, synchro). Les entrées montées
+    // appartiennent à leur coffre source, qui les purge lui-même ; tant qu'il en
+    // reste, la contrainte de clé étrangère garde le type.
+    async function purgeJournalEntries() {
+      if (!db || !db.exec(`SELECT 1 FROM entity_type WHERE id = 'daily'`)[0]?.values.length) return;
+      const ids = (db.exec(`SELECT id FROM entity WHERE typeId = 'daily' AND sourceVaultId IS NULL`)[0]?.values ?? [])
+        .map(([id]) => String(id));
+      for (const id of ids) await router["entities.delete"]!({ id });
+      if (!db.exec(`SELECT 1 FROM entity WHERE typeId = 'daily' LIMIT 1`)[0]?.values.length) {
+        db.run(`DELETE FROM entity_type WHERE id = 'daily'`);
+      }
+      console.info(`[init] purged ${ids.length} journal entr(y/ies)`);
+      await schedulePersist();
+    }
 
     async function runCanvasMigration() {
       if (!db || !vaultId) return;

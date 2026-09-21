@@ -4,7 +4,7 @@
  * Compact status indicator for the Git sync. Shows a colored dot:
  *
  *   • idle / ok         → green
- *   • syncing            → violet (pulsing)
+ *   • syncing            → accent (pulsing)
  *   • error              → red
  *   • offline            → grey
  *   • disabled (no git)  → hollow dot, "non configuré"

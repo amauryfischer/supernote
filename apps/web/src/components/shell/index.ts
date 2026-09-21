@@ -10,6 +10,7 @@ export {
   useMobileTitle,
   useMobileFab,
   useMobileHeaderActions,
+  useMobileBack,
   type MobileFabConfig,
   type MobileHeaderAction,
   type ColumnEditorState,

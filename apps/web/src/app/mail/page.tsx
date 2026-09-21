@@ -4,7 +4,6 @@ import { EmptyState, Skeleton } from "@supernote/ui";
 import {
   FilePlus,
   Database,
-  ArrowLeft,
   MagnifyingGlass,
   PencilSimple,
   Archive,
@@ -23,12 +22,11 @@ import {
   ChatCircleDots,
   Funnel,
   TextAlignLeft,
-  Palette,
-  Check,
+  Tag,
 } from "@phosphor-icons/react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useSettings } from "@/components/settings/SettingsContext";
-import { AppShell, useMobileTitle, useMobileFab, useMobileHeaderActions } from "@/components/shell";
+import { AppShell, useMobileTitle, useMobileFab, useMobileHeaderActions, useMobileBack } from "@/components/shell";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useGmailConnected } from "@/hooks/useGmailConnected";
 import { useConfirm } from "@/hooks/usePrompt";
@@ -40,11 +38,13 @@ import { CaptureEmailModal } from "@/components/mail/CaptureEmailModal";
 import { ComposeModal } from "@/components/mail/ComposeModal";
 import { MailEisenhowerBoard, type MailTodoCard } from "@/components/mail/MailEisenhowerBoard";
 import { MailShortcutsHelp } from "@/components/mail/MailShortcutsHelp";
+import { MailLabelsManager } from "@/components/mail/MailLabelsManager";
 import { MailSearchBar } from "@/components/mail/MailSearchBar";
 import { SnoozeMenu } from "@/components/mail/SnoozeMenu";
 import { MailRowSheet } from "@/components/mail/MailRowSheet";
 import { usePullToRefresh } from "@/components/mail/usePullToRefresh";
 import type { SwipeAction } from "@/components/mail/SwipeableRow";
+import type { ForwardThread } from "@/lib/mail-forward";
 import { useMailKeyboard } from "@/components/mail/useMailKeyboard";
 import { useMailList, DEFAULT_MAIL_QUERY } from "@/components/mail/useMailList";
 import { useMailMirror } from "@/components/mail/useMailMirror";
@@ -58,9 +58,12 @@ import {
   markThreadUnread,
   markThreadSpam,
   toggleStar,
-  GMAIL_LABEL_PALETTE,
+  updateLabel,
+  createLabel,
+  deleteLabel,
   type EmailThread,
   type GmailLabel,
+  type GmailLabelColor,
   type ThreadListItem,
 } from "@/lib/gmail";
 import {
@@ -139,9 +142,7 @@ import {
 } from "@/lib/mail-rules";
 import { confidenceThreshold } from "@/lib/mail-autolabel";
 import { prefersReducedMotion } from "@/lib/motion";
-import { useToast, Tooltip, DropdownMenu } from "@supernote/ui";
-import { LABEL_STYLES, LabelMarker, labelChipStyle } from "@/components/mail/LabelMarker";
-import type { LabelStyle } from "@/components/settings/types";
+import { useToast, Tooltip } from "@supernote/ui";
 
 type GroupRow = Extract<OverlayRow, { kind: "group" }>;
 
@@ -159,8 +160,6 @@ const UNDO_TOAST_DURATION_MS = 6000;
 /** Fenêtre du raccourci clavier « z » (annuler la dernière action) : 10 s. */
 const UNDO_WINDOW_MS = 10000;
 
-const LABEL_STYLE_PREVIEW = GMAIL_LABEL_PALETTE[5];
-
 /**
  * Mutation mirror équivalente à une action de triage (modèle inbox zero). PAS de
  * `dropThread` : on retire seulement INBOX (le fil sort de la liste filtrée
@@ -174,7 +173,7 @@ function triageMutation(id: string, action: TriageAction): MirrorMutation {
 }
 
 export default function MailPage() {
-  const { settings, updateSettings } = useSettings();
+  const { settings } = useSettings();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const isMobile = useIsMobile();
@@ -263,6 +262,10 @@ export default function MailPage() {
 
 
   const [selectedGroup, setSelectedGroup] = useState<GroupRow | null>(null);
+  const selectedGroupLabelId =
+    selectedGroup?.groupType === "label"
+      ? selectedGroup.key.replace(/^label:/, "").replace(/#star$/, "")
+      : undefined;
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   // Fil ouvert : la liste se réduit à un rail ; `peekList` la déplie par-dessus.
   const [peekList, setPeekList] = useState(false);
@@ -282,6 +285,7 @@ export default function MailPage() {
   const [assistantOpen, setAssistantOpen] = useState(false);
   // Règles locales + propositions issues des gestes répétés.
   const [rulesOpen, setRulesOpen] = useState(false);
+  const [labelsManagerOpen, setLabelsManagerOpen] = useState(false);
   const [suggestionCount, setSuggestionCount] = useState(0);
   useEffect(() => {
     const refresh = () => setSuggestionCount(suggestRules().length);
@@ -294,6 +298,7 @@ export default function MailPage() {
     to?: string;
     subject: string;
     body: string;
+    thread?: ForwardThread;
   }>({ subject: "", body: "" });
   // Annonce vocale (lecteurs d'écran) du résultat de la dernière action.
   const [liveMessage, setLiveMessage] = useState("");
@@ -312,14 +317,19 @@ export default function MailPage() {
   }, []);
 
   // Transfert : pré-remplit le compose (objet « Fwd: … » + corps cité), To vide.
-  const handleForward = useCallback((prefill: { to?: string; subject: string; body: string }) => {
+  const handleForward = useCallback((prefill: { to?: string; subject: string; body: string; thread?: ForwardThread }) => {
     setComposeInitial(prefill);
     setComposeOpen(true);
   }, []);
 
-  // Action « créer » → FAB sur mobile.
+  // Action « créer » → FAB sur mobile ; masqué dans un fil, où il couvrirait
+  // le composer de réponse.
   useMobileFab(
-    connected ? { icon: PencilSimple, label: "Nouveau message", onPress: openCompose } : null,
+    selectedThreadId
+      ? false
+      : connected
+        ? { icon: PencilSimple, label: "Nouveau message", onPress: openCompose }
+        : null,
   );
 
   // Déclaré ici (et non près des autres appels IA) parce que la barre du haut
@@ -336,16 +346,25 @@ export default function MailPage() {
   // Recherche dans la barre du haut mobile : le champ de recherche large
   // n'existe que sur desktop, donc inaccessible au doigt.
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
-  const setLabelStyle = (labelStyle: LabelStyle) =>
-    updateSettings("gmail", { ...settings.gmail, labelStyle });
-  const labelStyleIndex = LABEL_STYLES.findIndex((s) => s.id === settings.gmail.labelStyle);
-  const cycleLabelStyle = () => {
-    const next = LABEL_STYLES[(labelStyleIndex + 1) % LABEL_STYLES.length]!;
-    setLabelStyle(next.id);
-    toast({ title: `Style des labels : ${next.name}` });
-  };
+  // Capture (définie plus bas) : même relais par ref que les résumés.
+  const captureNoteRef = useRef<() => void>(() => {});
   useMobileHeaderActions(
-    connected
+    connected && selectedThreadId
+      ? [
+          {
+            id: "mail-capture-note",
+            icon: FilePlus,
+            label: "Capturer en note",
+            onPress: () => captureNoteRef.current(),
+          },
+          {
+            id: "mail-capture-base",
+            icon: Database,
+            label: "Capturer dans une base",
+            onPress: () => setCaptureOpen(true),
+          },
+        ]
+      : connected && !selectedGroup
       ? [
           {
             id: "mail-search",
@@ -358,11 +377,10 @@ export default function MailPage() {
             active: mobileSearchOpen,
           },
           {
-            id: "mail-label-style",
-            icon: Palette,
-            // Le style courant dans le label force la republication : le provider fige les callbacks.
-            label: `Style des labels : ${LABEL_STYLES[labelStyleIndex]?.name ?? "Plein"}`,
-            onPress: cycleLabelStyle,
+            id: "mail-labels",
+            icon: Tag,
+            label: "Gérer les labels",
+            onPress: () => setLabelsManagerOpen(true),
           },
           ...(settings.gmail.listSummary && aiConfigured
             ? [
@@ -421,7 +439,9 @@ export default function MailPage() {
     loadMore,
     searchLocal,
     addLabel,
+    removeLabel,
   } = list;
+  const correspondents = useMemo(() => cumItems.map((it) => it.from), [cumItems]);
 
   // ── Sections de liste ──────────────────────────────────────────────────────
   // La liste n'est plus un ruban : elle est découpée en « Todo », « Étoilés »
@@ -462,7 +482,7 @@ export default function MailPage() {
   );
 
   const { patchMirror, pushOutboxNow, commitMutation } = useMailMirror(clientId, accountId);
-  const drafts = useMailDrafts(thread, settings.gmail.connectedEmail);
+  const drafts = useMailDrafts(thread, settings.gmail.connectedEmail, selfAddresses);
 
   useEffect(() => {
     if (connected) void loadList(DEFAULT_MAIL_QUERY);
@@ -479,19 +499,22 @@ export default function MailPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mailTab, groups, cumItems, labelNames, selfAddresses, computeVisible, flatLabelIds]);
 
-  // Réveil auto des snoozes échus : remet en boîte les fils dont l'échéance est
-  // dépassée, puis purge leur entrée. Best-effort, non bloquant.
+  // Réveil des snoozes échus, vérifié chaque minute : un onglet resté ouvert
+  // doit rendre le fil à l'heure dite, pas au prochain rechargement.
   useEffect(() => {
     if (!connected || !clientId) return;
-    const due = listDue(Date.now());
-    for (const e of due) {
-      void modifyThreadLabels(clientId, e.threadId, { addLabelIds: [INBOX_LABEL] })
-        .then(() => removeSnooze(e.threadId))
-        .catch(() => {
-          /* réveil best-effort : on retentera au prochain montage */
-        });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const wakeDue = () => {
+      for (const e of listDue(Date.now())) {
+        void modifyThreadLabels(clientId, e.threadId, { addLabelIds: [INBOX_LABEL] })
+          .then(() => removeSnooze(e.threadId))
+          .catch(() => {
+            /* réveil best-effort : retenté à la minute suivante */
+          });
+      }
+    };
+    wakeDue();
+    const timer = window.setInterval(wakeDue, 60_000);
+    return () => window.clearInterval(timer);
   }, [connected, clientId]);
 
   // ── Ouverture d'un fil ──────────────────────────────────────────────────────
@@ -586,6 +609,18 @@ export default function MailPage() {
     setThreadError(null);
     setPeekList(false);
   }, []);
+
+  // Mobile : fil et groupe s'empilent sans route propre → le retour vit dans
+  // la barre du haut.
+  useMobileBack(
+    !isMobile
+      ? null
+      : selectedThreadId
+        ? closeThread
+        : selectedGroup
+          ? () => setSelectedGroup(null)
+          : null,
+  );
 
   // Deep-link `/mail?thread=<id>` : ouvre directement le fil. Consommé une fois.
   useEffect(() => {
@@ -1050,6 +1085,7 @@ export default function MailPage() {
     minConfidence: confidenceThreshold(settings.gmail.autoLabelConfidence),
     items: cumItems,
     labelNames,
+    selfAddresses,
     applyLabel: handleApplyLabel,
     onLabelCreated: addLabel,
   });
@@ -1059,6 +1095,7 @@ export default function MailPage() {
   const listSummaries = useMailSummaries({
     enabled: Boolean(settings.gmail.listSummary) && aiConfigured,
     accountId,
+    selfEmails: selfAddresses,
     items: cumItems,
   });
   runSummariesRef.current = listSummaries.runNow;
@@ -1257,6 +1294,64 @@ export default function MailPage() {
     isMobile && mailTab !== "todo",
   );
 
+  const labelError = useCallback(
+    (title: string, err: unknown) =>
+      toast({ title, description: err instanceof Error ? err.message : String(err), variant: "danger" }),
+    [toast],
+  );
+
+  const patchLabel = useCallback(
+    async (id: string, patch: { name?: string; color?: GmailLabelColor }) => {
+      const name = labelNames.get(id);
+      if (!clientId || !name) return;
+      const color = labelColors.get(id);
+      addLabel({ id, name: patch.name ?? name, color: patch.color ?? color });
+      try {
+        await updateLabel(clientId, id, patch);
+      } catch (err) {
+        addLabel({ id, name, color });
+        labelError(patch.name ? "Renommage du label échoué" : "Couleur du label échouée", err);
+      }
+    },
+    [clientId, labelNames, labelColors, addLabel, labelError],
+  );
+
+  const createUserLabel = useCallback(
+    async (name: string) => {
+      if (!clientId) return false;
+      try {
+        addLabel(await createLabel(clientId, name));
+        return true;
+      } catch (err) {
+        labelError("Création du label échouée", err);
+        return false;
+      }
+    },
+    [clientId, addLabel, labelError],
+  );
+
+  const deleteUserLabel = useCallback(
+    async (id: string) => {
+      const name = labelNames.get(id);
+      if (!clientId || !name) return;
+      const ok = await confirm({
+        title: `Supprimer le label « ${name} » ?`,
+        description: "Il est retiré de tous les emails dans Gmail. Les emails eux-mêmes sont conservés.",
+        destructive: true,
+        confirmLabel: "Supprimer",
+      });
+      if (!ok) return;
+      try {
+        await deleteLabel(clientId, id);
+        removeLabel(id);
+        void loadList(query);
+      } catch (err) {
+        labelError("Suppression du label échouée", err);
+      }
+    },
+    [clientId, labelNames, confirm, removeLabel, loadList, query, labelError],
+  );
+
   // ── Matrice todo : 4 labels Gmail ──────────────────────────────────────────
   const loadTodoLabels = useCallback(async () => {
     const labels = await ensureTodoLabels(clientId, labelNames);
@@ -1390,54 +1485,6 @@ export default function MailPage() {
       void openThread(threadId);
     },
     [openThread],
-  );
-
-  const handleTodoDone = useCallback(
-    (item: ThreadListItem) => {
-      if (!clientId) return;
-      const quadrant = quadrantOfLabels(item.labelIds, todoLabelIds);
-      void loadTodoLabels()
-        .then(async (labels) => {
-          const change = {
-            addLabelIds: [],
-            removeLabelIds: [...todoLabelChange(labels, null).removeLabelIds, INBOX_LABEL],
-          };
-          dropThreadFromList(item.id);
-          bumpTriaged();
-          await commitMutation({ threadId: item.id, kind: "modifyLabels", ...change }, () =>
-            modifyThreadLabels(clientId, item.id, change),
-          );
-          const back = {
-            addLabelIds: quadrant ? [labels[quadrant].id, INBOX_LABEL] : [INBOX_LABEL],
-            removeLabelIds: [],
-          };
-          toast({
-            title: TRIAGE_DONE_LABEL.done,
-            duration: UNDO_TOAST_DURATION_MS,
-            action: {
-              label: "Annuler",
-              onClick: () =>
-                void commitMutation({ threadId: item.id, kind: "modifyLabels", ...back }, () =>
-                  modifyThreadLabels(clientId, item.id, back),
-                ).then(() => loadList(query)),
-            },
-          });
-        })
-        .catch((err) => {
-          toast({
-            title: "Action échouée",
-            description: err instanceof Error ? err.message : String(err),
-            variant: "danger",
-          });
-          void loadList(query);
-        });
-    },
-    [clientId, todoLabelIds, loadTodoLabels, dropThreadFromList, commitMutation, toast, loadList, query],
-  );
-
-  const handleTodoMoveQuadrant = useCallback(
-    (item: ThreadListItem, quadrant: EisenhowerQuadrant) => assignQuadrant(item.id, quadrant),
-    [assignQuadrant],
   );
 
   // ── Curseurs clavier ───────────────────────────────────────────────────────
@@ -2125,29 +2172,18 @@ export default function MailPage() {
         </Tooltip>
       )}
       {!isMobile && (
-        <DropdownMenu
-          trigger={
-            <Tooltip content="Style des labels">
-              <Button size="sm" variant="ghost" isIconOnly className="shrink-0" aria-label="Style des labels">
-                <Palette size={16} />
-              </Button>
-            </Tooltip>
-          }
-          items={LABEL_STYLES.map((s) => ({
-            key: s.id,
-            label: (
-              <span
-                className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium"
-                style={labelChipStyle(LABEL_STYLE_PREVIEW, s.id)}
-              >
-                <LabelMarker color={LABEL_STYLE_PREVIEW} style={s.id} size={11} />
-                {s.name}
-              </span>
-            ),
-            endContent: settings.gmail.labelStyle === s.id ? <Check size={14} /> : undefined,
-            onPress: () => setLabelStyle(s.id),
-          }))}
-        />
+        <Tooltip content="Gérer les labels">
+          <Button
+            size="sm"
+            variant="ghost"
+            isIconOnly
+            onPress={() => setLabelsManagerOpen(true)}
+            aria-label="Gérer les labels"
+            className="shrink-0"
+          >
+            <Tag size={16} />
+          </Button>
+        </Tooltip>
       )}
       {!isMobile && (
         <Tooltip content="Raccourcis clavier (?)">
@@ -2170,6 +2206,16 @@ export default function MailPage() {
         <MailOutgoingBadge />
         {accountId ? <MailOutboxBadge accountId={accountId} clientId={clientId} /> : null}
       </div>
+      <MailLabelsManager
+        isOpen={labelsManagerOpen}
+        onClose={() => setLabelsManagerOpen(false)}
+        labelNames={labelNames}
+        labelColors={labelColors}
+        onCreate={createUserLabel}
+        onRename={(id, name) => void patchLabel(id, { name })}
+        onDelete={(id) => void deleteUserLabel(id)}
+        onPick={(id, color) => void patchLabel(id, { color })}
+      />
       <MailRulesManager
         isOpen={rulesOpen}
         onClose={() => setRulesOpen(false)}
@@ -2214,8 +2260,6 @@ export default function MailPage() {
             cards={todoCards}
             summaries={listSummaries.summaries}
             onOpen={handleTodoOpen}
-            onDone={handleTodoDone}
-            onMoveQuadrant={handleTodoMoveQuadrant}
           />
         </div>
       </div>
@@ -2347,13 +2391,18 @@ export default function MailPage() {
           onMarkAllRead={() => void markGroupRead(selectedGroup)}
           deleteBusy={bulkBusy}
           summaries={listSummaries.summaries}
+          labelNames={labelNames}
+          labelColors={labelColors}
+          groupLabelId={selectedGroupLabelId}
         />
       </div>
     </div>
   ) : null;
 
-  // Capture = action SECONDAIRE → rangée discrète.
-  const captureBar = thread ? (
+  captureNoteRef.current = () => void handleCaptureNote();
+
+  // Capture = action SECONDAIRE → rangée discrète (barre du haut sur mobile).
+  const captureBar = thread && !isMobile ? (
     <div className="flex shrink-0 items-center gap-1 px-4 pb-1 pt-2">
       <span className="text-xs" style={{ color: "var(--text-muted)" }}>
         Capturer :
@@ -2568,6 +2617,8 @@ export default function MailPage() {
         initialTo={composeInitial.to ?? ""}
         initialSubject={composeInitial.subject}
         initialBody={composeInitial.body}
+        thread={composeInitial.thread}
+        correspondents={correspondents}
       />
       <MailShortcutsHelp isOpen={helpOpen} onClose={() => setHelpOpen(false)} />
       <MailRowSheet
@@ -2650,11 +2701,6 @@ export default function MailPage() {
       return (
         <AppShell>
           <div className="relative flex h-full flex-col overflow-hidden">
-            <div className="shrink-0 px-3 pt-3">
-              <Button variant="ghost" size="sm" onPress={closeThread}>
-                <ArrowLeft size={16} /> Retour
-              </Button>
-            </div>
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{pane3}</div>
             {draftsOpen && (
               <div
@@ -2674,11 +2720,6 @@ export default function MailPage() {
       return (
         <AppShell>
           <div className="flex h-full flex-col overflow-hidden">
-            <div className="shrink-0 px-3 pt-3">
-              <Button variant="ghost" size="sm" onPress={() => setSelectedGroup(null)}>
-                <ArrowLeft size={16} /> Retour
-              </Button>
-            </div>
             <div className="flex-1 overflow-y-auto px-2 pb-4">
               <MailGroupList
                 title={selectedGroup.title}
@@ -2689,6 +2730,9 @@ export default function MailPage() {
                 onMarkAllRead={() => void markGroupRead(selectedGroup)}
                 deleteBusy={bulkBusy}
                 summaries={listSummaries.summaries}
+                labelNames={labelNames}
+                labelColors={labelColors}
+                groupLabelId={selectedGroupLabelId}
               />
             </div>
           </div>

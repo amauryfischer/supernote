@@ -27,12 +27,13 @@ import { Button } from "@supernote/ui";
  */
 
 const ROUTE_LABELS: Record<string, string> = {
-  "/": "Accueil",
+  "/mail": "Mail",
+  "/ai": "Assistant IA",
+  "/pomodoro": "Pomodoro",
   "/notes": "Notes",
   "/archive": "Archive",
   "/todos": "Todos",
   "/habits": "Habitudes",
-  "/journal": "Journal",
   "/contacts": "Contacts",
   "/finance": "Finance",
   "/finance/comptes": "Comptes",
@@ -51,11 +52,12 @@ const ROUTE_LABELS: Record<string, string> = {
 
 /** Top-level routes (anything else gets a back button). */
 const TOP_LEVEL = new Set([
-  "/",
+  "/mail",
+  "/ai",
+  "/pomodoro",
   "/notes",
   "/todos",
   "/habits",
-  "/journal",
   "/recherche",
   "/contacts",
   "/finance",
@@ -118,10 +120,11 @@ export const MobileTopBar = memo(function MobileTopBar() {
     mobileTitle,
     mobileSubtitle,
     mobileHeaderActions,
+    mobileBack,
   } = useShellChrome();
   const [overflowOpen, setOverflowOpen] = useState(false);
 
-  const showBack = !TOP_LEVEL.has(pathname);
+  const showBack = mobileBack !== null || !TOP_LEVEL.has(pathname);
   const title = mobileTitle ?? deriveTitle(pathname);
 
   // Record a frecency visit for the current page. The mobile header already
@@ -135,6 +138,7 @@ export const MobileTopBar = memo(function MobileTopBar() {
   }, [pathname, title]);
 
   const onBack = useCallback(() => {
+    if (mobileBack) return mobileBack();
     // Prefer router back when we have history to pop, else fall back to the
     // parent route. `window.history.length` is unreliable but it's the best
     // signal available cross-browser.
@@ -144,7 +148,7 @@ export const MobileTopBar = memo(function MobileTopBar() {
       const parent = pathname.replace(/\/[^/]+$/, "") || "/";
       router.push(parent);
     }
-  }, [pathname, router]);
+  }, [mobileBack, pathname, router]);
 
   const onOpenSearch = useCallback(() => {
     window.dispatchEvent(new CustomEvent("supernote:open-command-palette"));
@@ -161,6 +165,10 @@ export const MobileTopBar = memo(function MobileTopBar() {
     }
     return { inlineActions: inline, overflowActions: overflow };
   }, [mobileHeaderActions]);
+
+  // Une page qui publie sa propre recherche (ex. mail) remplace la loupe
+  // globale : deux loupes identiques côte à côte ne se distinguent pas.
+  const pageHasSearch = mobileHeaderActions.some((a) => a.icon === MagnifyingGlass);
 
   return (
     <>
@@ -213,7 +221,7 @@ export const MobileTopBar = memo(function MobileTopBar() {
               when its config exists, so other vaults pay nothing here. */}
           <GitSyncIndicator />
           <OnlineSyncIndicator />
-          {!showBack && (
+          {!showBack && !pageHasSearch && (
             <IconButton
               icon={MagnifyingGlass}
               label="Recherche"

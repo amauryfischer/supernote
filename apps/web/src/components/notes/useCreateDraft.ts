@@ -8,6 +8,9 @@ export interface CreateDraftOptions {
   body: string;
   /** Pièces jointes (base64 standard) — message multipart/mixed si non vide. */
   attachments?: OutgoingAttachment[];
+  threadId?: string;
+  inReplyTo?: string;
+  references?: string;
 }
 
 export interface CreateDraftResult {

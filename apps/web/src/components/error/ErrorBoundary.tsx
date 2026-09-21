@@ -106,7 +106,7 @@ function ErrorFallback({ title, detail }: { title: string; detail: string }) {
             padding: "8px 14px",
             borderRadius: 10,
             border: "none",
-            background: "var(--accent, #6d28d9)",
+            background: "var(--accent, #1d2027)",
             color: "var(--accent-foreground, #fff)",
             cursor: "pointer",
             fontSize: 13,

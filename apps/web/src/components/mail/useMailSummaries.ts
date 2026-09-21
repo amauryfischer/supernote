@@ -17,6 +17,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useToast } from "@supernote/ui";
 import type { ThreadListItem } from "@/lib/gmail";
 import { mirrorAvailable, mirrorGetThread } from "@/lib/mail-mirror";
+import { isNoteToSelf } from "@/lib/mail-ai";
 import {
   buildThreadBody,
   cachedSummary,
@@ -41,6 +42,8 @@ export interface UseMailSummariesOptions {
   enabled: boolean;
   /** Compte Gmail mirroré (vide → on résume les snippets). */
   accountId: string;
+  /** Adresses « à moi » (compte connecté + alias). */
+  selfEmails: readonly string[];
   /** Fils de la boîte, dans l'ordre affiché. */
   items: ThreadListItem[];
 }
@@ -60,6 +63,7 @@ export interface UseMailSummariesResult {
 export function useMailSummaries({
   enabled,
   accountId,
+  selfEmails,
   items,
 }: UseMailSummariesOptions): UseMailSummariesResult {
   const { toast } = useToast();
@@ -96,27 +100,22 @@ export function useMailSummaries({
 
   /** Corps du fil, miroir d'abord ; snippet en repli. Jamais d'appel Gmail. */
   const resolveBody = useCallback(
-    async (item: ThreadListItem): Promise<string> => {
+    async (item: ThreadListItem): Promise<{ body: string; noteToSelf: boolean }> => {
       if (mirrorAvailable() && accountId) {
         try {
           const cached = await mirrorGetThread(accountId, item.id);
           if (cached && cached.thread.messages.length > 0) {
-            const body = buildThreadBody(
-              cached.thread.messages.map((m) => ({
-                from: m.from,
-                bodyText: m.bodyText,
-                snippet: m.snippet,
-              })),
-            );
-            if (body) return body;
+            const messages = cached.thread.messages;
+            const body = buildThreadBody(messages, selfEmails);
+            if (body) return { body, noteToSelf: isNoteToSelf(messages, selfEmails) };
           }
         } catch {
           /* miroir indisponible → snippet */
         }
       }
-      return item.snippet;
+      return { body: item.snippet, noteToSelf: false };
     },
-    [accountId],
+    [accountId, selfEmails],
   );
 
   const run = useCallback(async () => {
@@ -139,7 +138,8 @@ export function useMailSummaries({
           text = await summarizeForList({
             subject: item.subject,
             from: item.from,
-            body: await resolveBody(item),
+            selfEmails,
+            ...(await resolveBody(item)),
           });
         } catch (err) {
           // Ollama injoignable ou modèle absent : on arrête la passe et on
@@ -169,7 +169,7 @@ export function useMailSummaries({
       runningRef.current = false;
       setBusy(false);
     }
-  }, [resolveBody, toast]);
+  }, [resolveBody, selfEmails, toast]);
 
   /** Passe manuelle : réessaye aussi les fils en échec, et dit ce qu'elle fait. */
   const runNow = useCallback(() => {

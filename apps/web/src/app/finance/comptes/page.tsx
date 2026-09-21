@@ -84,12 +84,13 @@ export default function ComptesPage() {
           <div className="flex items-center gap-3">
             <Link
               href="/finance"
-              className="flex items-center gap-1 text-sm hover:underline"
+              // Sous md, la barre du haut porte déjà le retour.
+              className="hidden items-center gap-1 text-sm hover:underline md:flex"
               style={{ color: "var(--text-muted)" }}
             >
               <ArrowLeft size={14} /> Finance
             </Link>
-            <span style={{ color: "var(--border)" }}>/</span>
+            <span className="hidden md:inline" style={{ color: "var(--border)" }}>/</span>
             <h1 className="text-xl font-bold" style={{ color: "var(--text-primary)" }}>Comptes</h1>
           </div>
           <Button

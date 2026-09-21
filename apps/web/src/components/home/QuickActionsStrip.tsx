@@ -3,7 +3,7 @@
 import { Button } from "@supernote/ui";
 import { useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
-import { Plus, CalendarBlank, CheckSquare, Hash } from "@phosphor-icons/react";
+import { Plus, CheckSquare, Hash } from "@phosphor-icons/react";
 import type { IconComponent } from "@supernote/ui";
 import { useShellChrome } from "@/components/shell";
 
@@ -23,16 +23,7 @@ export function QuickActionsStrip() {
       key: "newNote",
       icon: Plus,
       label: t("newNote"),
-      run: () => {
-        shell.requestNewNote();
-        router.push("/");
-      },
-    },
-    {
-      key: "journal",
-      icon: CalendarBlank,
-      label: t("journal"),
-      run: () => router.push("/journal"),
+      run: shell.requestNewNote,
     },
     {
       key: "todo",

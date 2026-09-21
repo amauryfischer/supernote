@@ -1744,7 +1744,7 @@ function LoadingSpinner() {
         width: 40,
         height: 40,
         border: "3px solid #e5e7eb",
-        borderTopColor: "#7c3aed",
+        borderTopColor: "#1d2027",
         borderRadius: "50%",
         animation: "spin 0.8s linear infinite",
         margin: "0 auto 16px",
@@ -1792,7 +1792,7 @@ const styles: Record<string, React.CSSProperties> = {
   logo: {
     width: 64,
     height: 64,
-    background: "#7c3aed",
+    background: "#1d2027",
     borderRadius: 16,
     color: "#fff",
     fontSize: 32,
@@ -1823,7 +1823,7 @@ const styles: Record<string, React.CSSProperties> = {
     margin: 0,
   },
   btnPrimary: {
-    background: "#7c3aed",
+    background: "#1d2027",
     color: "#fff",
     border: "none",
     borderRadius: 8,

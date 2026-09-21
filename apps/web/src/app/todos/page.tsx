@@ -2035,12 +2035,9 @@ function SortMenu({ value, onChange }: SortMenuProps) {
       // pour un contrôle secondaire — il ne restait que 164px aux filtres, qui
       // se coupaient au milieu du deuxième onglet. Plafonné au doigt, libre au
       // desktop.
-      className="flex max-w-[132px] shrink-0 items-center gap-1.5 rounded-md border px-2 py-1.5 text-xs md:max-w-none [&>select]:w-full [&>select]:min-w-0"
-      style={{
-        borderColor: "var(--border-subtle)",
-        backgroundColor: "var(--surface-1)",
-        color: "var(--text-secondary)",
-      }}
+      // Pas de cadre ici : le select porte déjà le sien.
+      className="flex max-w-[132px] shrink-0 items-center gap-1.5 text-xs md:max-w-none [&>select]:w-full [&>select]:min-w-0"
+      style={{ color: "var(--text-secondary)" }}
       title="Tri"
     >
       <SortAscending size={12} />

@@ -30,6 +30,7 @@ import { OLLAMA_HOST_KEY, DEFAULT_OLLAMA_HOST } from "@/hooks/useAutoTitle";
 import { trpcVanillaClient } from "@/lib/trpc/client";
 import type { EntitySummary } from "@supernote/ipc";
 import type { EisenhowerQuadrant } from "@/lib/mail-eisenhower";
+import type { EmailThread } from "@/lib/gmail";
 
 // ── Forme minimale d'un fil acceptée par les builders ───────────────────────
 // On ne dépend PAS de `EmailThread` complet pour garder les builders purs et
@@ -44,6 +45,8 @@ export interface MailAiAddress {
 export interface MailAiMessage {
   subject: string;
   from: MailAiAddress;
+  /** Destinataires directs : distinguent une note à moi-même d'un email envoyé. */
+  to?: MailAiAddress[];
   date: string;
   /** Corps text/plain (JAMAIS de HTML injecté dans le prompt). */
   bodyText: string;
@@ -52,6 +55,26 @@ export interface MailAiMessage {
 export interface MailAiThread {
   id: string;
   messages: MailAiMessage[];
+  /** Adresses « à moi » (compte connecté + alias) : leurs messages sont marqués « Moi ». */
+  selfEmails?: readonly string[];
+}
+
+/**
+ * Adaptateur EmailThread → MailAiThread : QUE du texte brut dans le prompt
+ * (bodyText/snippet, jamais le HTML de l'expéditeur → pas d'injection).
+ */
+export function toMailAiThread(thread: EmailThread, selfEmails: readonly string[]): MailAiThread {
+  return {
+    id: thread.id,
+    selfEmails,
+    messages: thread.messages.map((m) => ({
+      subject: m.subject,
+      from: { name: m.from.name, email: m.from.email },
+      to: m.to.map((a) => ({ name: a.name, email: a.email })),
+      date: m.date,
+      bodyText: m.bodyText || m.snippet || "",
+    })),
+  };
 }
 
 // ── Constantes de sérialisation ─────────────────────────────────────────────
@@ -80,12 +103,50 @@ export function isAiConfigured(): boolean {
 
 // ── Helpers de sérialisation (purs) ─────────────────────────────────────────
 
-/** Affiche un expéditeur de façon lisible : "Nom <email>" ou l'un des deux. */
-function formatSender(from: MailAiAddress): string {
+/** Adresse appartenant à l'utilisateur (insensible à la casse, vides ignorés). PUR. */
+export function isSelfAddress(email: string, selfEmails: readonly string[] | undefined): boolean {
+  const e = (email ?? "").trim().toLowerCase();
+  return !!e && (selfEmails ?? []).some((s) => s.trim().toLowerCase() === e);
+}
+
+/** Fil dont chaque message va de moi à moi seul : un pense-bête. PUR. */
+export function isNoteToSelf(
+  messages: readonly { from: MailAiAddress; to?: readonly MailAiAddress[] }[],
+  selfEmails: readonly string[] | undefined,
+): boolean {
+  return (
+    messages.length > 0 &&
+    messages.every((m) => {
+      const to = m.to ?? [];
+      return (
+        isSelfAddress(m.from.email, selfEmails) &&
+        to.length > 0 &&
+        to.every((a) => isSelfAddress(a.email, selfEmails))
+      );
+    })
+  );
+}
+
+/** Affiche une adresse : "Nom <email>", l'un des deux, ou « Moi (…) ». */
+function formatSender(from: MailAiAddress, selfEmails?: readonly string[]): string {
   const name = from.name?.trim();
   const email = from.email?.trim();
-  if (name && email) return `${name} <${email}>`;
-  return name || email || "(expéditeur inconnu)";
+  const label = name && email ? `${name} <${email}>` : name || email || "(expéditeur inconnu)";
+  return isSelfAddress(email, selfEmails) ? `Moi (${label})` : label;
+}
+
+/**
+ * Sans cette ligne, un petit modèle lit chaque message comme reçu et résume mes
+ * propres envois (ou mes notes à moi-même) comme des demandes qu'on me fait.
+ */
+function selfPerspective(thread: MailAiThread): string | null {
+  if (isNoteToSelf(thread.messages, thread.selfEmails)) {
+    return "Je suis l'utilisateur. Ce fil est une note que je me suis envoyée à moi-même : un pense-bête, pas un email reçu.";
+  }
+  if (thread.messages.some((m) => isSelfAddress(m.from.email, thread.selfEmails))) {
+    return "Je suis l'utilisateur : les messages « De : Moi » sont les miens, les autres viennent de mes correspondants.";
+  }
+  return null;
 }
 
 /** Tronque un texte en ajoutant un marqueur explicite si coupé. PUR. */
@@ -102,18 +163,23 @@ function truncate(text: string, max: number): string {
  */
 export function serializeThread(thread: MailAiThread): string {
   const msgs = thread.messages.slice(-MAX_MESSAGES);
-  return msgs
+  const body = msgs
     .map((m, i) => {
       const lines = [
         `--- Message ${i + 1} ---`,
-        `De : ${formatSender(m.from)}`,
-        `Objet : ${m.subject?.trim() || "(sans objet)"}`,
+        `De : ${formatSender(m.from, thread.selfEmails)}`,
       ];
+      if (m.to && m.to.length > 0) {
+        lines.push(`À : ${m.to.map((a) => formatSender(a, thread.selfEmails)).join(", ")}`);
+      }
+      lines.push(`Objet : ${m.subject?.trim() || "(sans objet)"}`);
       if (m.date?.trim()) lines.push(`Date : ${m.date.trim()}`);
       lines.push("", truncate(m.bodyText, MAX_BODY_CHARS));
       return lines.join("\n");
     })
     .join("\n\n");
+  const perspective = selfPerspective(thread);
+  return perspective ? `${perspective}\n\n${body}` : body;
 }
 
 /** Sujet du fil = sujet du premier message (fallback explicite). PUR. */

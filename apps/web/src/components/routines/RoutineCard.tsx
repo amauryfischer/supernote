@@ -97,7 +97,7 @@ export function RoutineCard({ routine, onToggleEnabled, onDelete, onRun }: Routi
 
       {/* Actions bar */}
       <div
-        className="mt-3 flex items-center gap-1 border-t pt-3"
+        className="mt-3 flex flex-wrap items-center gap-1 border-t pt-3"
         style={{ borderColor: "var(--border-subtle)" }}
       >
         <Link href={`/routines/${routine.id}`}>
@@ -131,12 +131,11 @@ export function RoutineCard({ routine, onToggleEnabled, onDelete, onRun }: Routi
           <Power size={13} />
           {routine.enabled ? "Désactiver" : "Activer"}
         </Button>
-        <div className="flex-1" />
         <Button
           variant="ghost"
           size="sm"
           onPress={() => onDelete(routine.id)}
-          className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors hover:bg-[oklch(0.93_0.10_28_/_0.15)]"
+          className="ml-auto flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors hover:bg-[oklch(0.93_0.10_28_/_0.15)]"
           style={{ color: "var(--danger)" }}
         >
           <Trash size={13} />

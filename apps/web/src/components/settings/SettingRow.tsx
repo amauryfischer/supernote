@@ -10,8 +10,10 @@ interface SettingRowProps {
 
 export function SettingRow({ label, description, children }: SettingRowProps) {
   return (
-    <div className="flex items-center justify-between gap-4 py-3">
-      <div className="flex-1">
+    // flex-wrap : un contrôle large (select, chemin) passe sous le libellé
+    // quand les deux ne tiennent pas côte à côte ; un interrupteur reste aligné.
+    <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 py-3">
+      <div className="min-w-[10rem] flex-1">
         <p className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
           {label}
         </p>
@@ -21,7 +23,7 @@ export function SettingRow({ label, description, children }: SettingRowProps) {
           </p>
         )}
       </div>
-      <div className="shrink-0">{children}</div>
+      <div className="max-w-full shrink-0">{children}</div>
     </div>
   );
 }

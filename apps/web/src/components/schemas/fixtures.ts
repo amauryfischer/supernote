@@ -89,25 +89,6 @@ const noteFields: Field[] = [
   f({ id: "note_updated_at", name: "updatedAt", label: "Modifié le", kind: "updatedAt" }),
 ];
 
-// ---- Daily ----
-const dailyFields: Field[] = [
-  f({ id: "daily_date", name: "date", label: "Date", kind: "date", required: true, unique: true }),
-  f({ id: "daily_body", name: "body", label: "Journal", kind: "markdown" }),
-  f({
-    id: "daily_mood", name: "mood", label: "Humeur", kind: "rating", min: 1, max: 5,
-  } as FieldInput),
-  f({
-    id: "daily_energy", name: "energy", label: "Energie", kind: "select",
-    options: [
-      { value: "high", label: "Haute", color: "#10B981" },
-      { value: "medium", label: "Moyenne", color: "#FBBF24" },
-      { value: "low", label: "Basse", color: "#EF4444" },
-    ],
-  } as FieldInput),
-  f({ id: "daily_gratitude", name: "gratitude", label: "Gratitude", kind: "longtext" }),
-  f({ id: "daily_created_at", name: "createdAt", label: "Créé le", kind: "createdAt" }),
-];
-
 // ---- Tag ----
 const tagFields: Field[] = [
   f({ id: "tag_name", name: "name", label: "Nom", kind: "text", required: true, unique: true }),
@@ -230,16 +211,6 @@ export const ENTITY_TYPES: EntityType[] = [
     fileNamePattern: "{title}",
   },
   {
-    id: "daily",
-    name: "Daily",
-    plural: "Dailies",
-    icon: "Calendar",
-    color: "#EC4899",
-    fields: dailyFields,
-    defaultPath: "/Daily",
-    fileNamePattern: "{date}",
-  },
-  {
     id: "tag",
     name: "Tag",
     plural: "Tags",
@@ -344,7 +315,6 @@ export const ENTITY_COUNTS: Record<string, number> = {
   organisation: 0,
   interaction: 0,
   note: 0,
-  daily: 0,
   tag: 0,
   account: 0,
   asset: 0,

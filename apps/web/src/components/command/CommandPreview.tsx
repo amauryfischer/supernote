@@ -3,7 +3,6 @@
 import { Chip, Spinner } from "@heroui/react";
 import {
   BookOpen,
-  Calendar,
   FileText,
   Folder,
   Users,
@@ -21,7 +20,6 @@ const TYPE_ICON_MAP: Record<string, PhosphorIcon> = {
   contact: Users,
   organisation: Folder,
   ressource: BookOpen,
-  journal: Calendar,
 };
 
 // Longueur max de l'extrait affiché.

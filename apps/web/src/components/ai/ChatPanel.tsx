@@ -24,6 +24,7 @@ import { createOllamaClient, runAgent, type AgentEvent, type ChatMessage } from 
 import { DEFAULT_TOOLS } from "@/lib/ai/tools";
 import { getAiSettings } from "@/lib/ai/settings";
 import { NativeSelect } from "@/components/settings/NativeSelect";
+import { useMobileFab } from "@/components/shell";
 
 const SYSTEM_PROMPT = `Tu es l'assistant intégré à Supernote, un outil personnel de prise de notes.
 Tu as accès en lecture ET en écriture au vault de l'utilisateur via des outils :
@@ -82,6 +83,7 @@ function previewResult(result: unknown): string {
 }
 
 export function ChatPanel() {
+  useMobileFab(false);
   const [items, setItems] = useState<DisplayItem[]>([]);
   const [input, setInput] = useState("");
   const [running, setRunning] = useState(false);
@@ -255,12 +257,13 @@ export function ChatPanel() {
   return (
     <div className="flex h-full flex-col" style={{ backgroundColor: "var(--surface-0)" }}>
       <header
-        className="flex items-center justify-between gap-3 border-b px-6 py-3"
+        className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-2 md:gap-3 md:px-6 md:py-3"
         style={{ borderColor: "var(--border-subtle)" }}
       >
-        <div className="flex items-center gap-2">
-          <Robot size={20} weight="duotone" style={{ color: "var(--accent)" }} />
-          <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+        <div className="flex min-w-0 items-center gap-2">
+          {/* Sous md, la barre du haut porte déjà « Assistant IA ». */}
+          <Robot size={20} weight="duotone" className="hidden md:block" style={{ color: "var(--accent)" }} />
+          <span className="hidden text-sm font-semibold md:inline" style={{ color: "var(--text-primary)" }}>
             Assistant Supernote
           </span>
           {probe.state === "available" && probe.models.length > 0 ? (
@@ -293,7 +296,7 @@ export function ChatPanel() {
         </div>
       </header>
 
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-6">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4 md:px-6 md:py-6">
         <div className="mx-auto flex max-w-3xl flex-col gap-4">
           {items.length === 0 && probe.state !== "unavailable" && (
             <div
@@ -343,7 +346,7 @@ export function ChatPanel() {
 
       {error && (
         <div
-          className="border-t px-6 py-2 text-xs"
+          className="border-t px-4 py-2 text-xs md:px-6"
           style={{
             borderColor: "var(--border-subtle)",
             color: "var(--danger)",
@@ -354,7 +357,7 @@ export function ChatPanel() {
         </div>
       )}
 
-      <div className="border-t px-6 py-4" style={{ borderColor: "var(--border-subtle)" }}>
+      <div className="border-t px-4 py-3 md:px-6 md:py-4" style={{ borderColor: "var(--border-subtle)" }}>
         <div className="mx-auto flex max-w-3xl items-end gap-2">
           <TextArea
             rows={2}

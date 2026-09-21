@@ -18,7 +18,7 @@
  * Tout ici est PUR sauf `summarizeForList` (appel Ollama) et les accès au cache.
  */
 
-import { runLocalPrompt } from "./mail-ai";
+import { isSelfAddress, runLocalPrompt } from "./mail-ai";
 
 /** Budget de mots d'un résumé de liste (la demande : « une trentaine de mots »). */
 export const SUMMARY_MAX_WORDS = 30;
@@ -46,6 +46,10 @@ export interface SummarizableThread {
   from: { name: string; email: string };
   /** Contenu texte du fil, déjà aplati. Peut être vide. */
   body: string;
+  /** Adresses « à moi » (compte connecté + alias). */
+  selfEmails?: readonly string[];
+  /** Fil envoyé de moi à moi seul (cf. `isNoteToSelf`). */
+  noteToSelf?: boolean;
 }
 
 /** Aplatit sur une ligne et borne la longueur. PUR. */
@@ -68,13 +72,18 @@ function cap(text: string, max: number): string {
  * `MAX_MESSAGES` plus récents, chacun tronqué, l'ensemble plafonné. Le corps
  * text/plain prime ; à défaut le snippet du message. PUR.
  */
-export function buildThreadBody(messages: readonly SummarizableMessage[]): string {
+export function buildThreadBody(
+  messages: readonly SummarizableMessage[],
+  selfEmails?: readonly string[],
+): string {
   const recent = messages.slice(-MAX_MESSAGES);
   const parts: string[] = [];
   for (const m of recent) {
     const raw = m.bodyText?.trim() || m.snippet?.trim() || "";
     if (!raw) continue;
-    const who = m.from?.name?.trim() || m.from?.email?.trim() || "";
+    const who = isSelfAddress(m.from?.email ?? "", selfEmails)
+      ? "Moi"
+      : m.from?.name?.trim() || m.from?.email?.trim() || "";
     const text = clip(raw, MAX_MESSAGE_CHARS);
     parts.push(who ? `${who} : ${text}` : text);
   }
@@ -88,8 +97,15 @@ export function buildThreadBody(messages: readonly SummarizableMessage[]): strin
  * quoi le modèle rend une liste à puces inutilisable sur une ligne. PUR.
  */
 export function buildListSummaryPrompt(thread: SummarizableThread): string {
-  const sender = thread.from.name?.trim() || thread.from.email?.trim() || "(inconnu)";
+  const fromSelf = isSelfAddress(thread.from.email, thread.selfEmails);
+  const name = thread.from.name?.trim() || thread.from.email?.trim() || "(inconnu)";
+  const sender = fromSelf ? `moi (${name})` : name;
   const body = thread.body.trim();
+  const intent = thread.noteToSelf
+    ? "- c'est une note que je me suis envoyée à moi-même : dis ce que je dois retenir ou faire ;"
+    : fromSelf
+      ? "- c'est moi qui écris : dis ce que je demande ou annonce, et à qui ; les lignes « Moi » sont les miennes ;"
+      : "- dis ce que l'expéditeur demande, annonce ou attend de moi ; les lignes « Moi » sont les miennes ;";
   return [
     "Tu résumes un email pour l'afficher dans une liste de boîte de réception.",
     "",
@@ -100,7 +116,7 @@ export function buildListSummaryPrompt(thread: SummarizableThread): string {
     "",
     "Contraintes :",
     `- ${SUMMARY_MAX_WORDS} mots maximum, UNE seule phrase, en français ;`,
-    "- dis ce que l'expéditeur demande, annonce ou attend de moi ;",
+    intent,
     "- n'écris pas « cet email », « ce message », « l'expéditeur » : va droit au fait ;",
     "- n'invente aucune information absente du contenu ;",
     "- pas de guillemets, pas de liste, pas de commentaire de ta part ;",
@@ -148,7 +164,8 @@ export async function summarizeForList(thread: SummarizableThread): Promise<stri
 
 // ── Cache local ─────────────────────────────────────────────────────────────
 
-const CACHE_KEY = "supernote.mail.listSummaries";
+// v2 : les résumés antérieurs ignoraient qui est « moi » (fingerprint = date seule).
+const CACHE_KEY = "supernote.mail.listSummaries.v2";
 /** Au-delà, on oublie les entrées les moins récemment écrites. */
 const CACHE_MAX = 600;
 /** Une entrée plus vieille que ça n'a plus de valeur (le fil est enterré). */

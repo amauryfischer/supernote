@@ -197,6 +197,32 @@ export function splitQuotedHtml(html: string): { body: string; quoted: string } 
   return { body: root.innerHTML.trim(), quoted: quoted.trim() };
 }
 
+/**
+ * Conteneurs de signature posés par les clients courants (Outlook `#Signature`,
+ * `#x_Signature` en réponse ; Gmail ; Apple Mail ; Thunderbird ; Proton).
+ */
+const SIGNATURE_SELECTOR =
+  "[id='Signature' i], [id$='_Signature' i], .gmail_signature, .gmail_signature_prefix, [data-smartmail='gmail_signature'], #AppleMailSignature, .moz-signature, .protonmail_signature_block";
+
+/**
+ * Sépare un corps HTML DÉJÀ sanitizé (et déjà privé de sa citation) de sa
+ * signature, repérée uniquement par les marqueurs des clients (cf.
+ * `SIGNATURE_SELECTOR`). Sans marqueur, ou si la signature engloberait tout le
+ * texte, le corps reste intact.
+ */
+export function splitSignatureHtml(html: string): { body: string; signature: string } {
+  if (!html || typeof DOMParser === "undefined") return { body: html, signature: "" };
+  const root = new DOMParser().parseFromString(html, "text/html").body;
+  const parts: string[] = [];
+  for (const el of root.querySelectorAll(SIGNATURE_SELECTOR)) {
+    if (!el.isConnected) continue;
+    parts.push(el.outerHTML);
+    el.remove();
+  }
+  if (parts.length === 0 || (root.textContent ?? "").trim() === "") return { body: html, signature: "" };
+  return { body: root.innerHTML.trim(), signature: parts.join("") };
+}
+
 export function sanitizeEmailHtml(dirty: string): string {
   if (!dirty) return "";
   ensureLinkHook();

@@ -44,10 +44,13 @@ export function TemplatePickerStep({ onSelect }: TemplatePickerStepProps) {
               key={key}
               variant="ghost"
               onPress={() => onSelect(key)}
-              className="flex h-auto items-start gap-3 rounded-xl border p-4 text-left transition-all hover:border-[var(--accent)] hover:shadow-sm"
+              className="flex h-auto w-full items-start justify-start gap-3 rounded-xl border p-4 text-left transition-all hover:border-[var(--accent)] hover:shadow-sm"
+              // ⚠️ `.button` (hors @layer) impose nowrap : sans l'inline, la
+              // description débordait de l'écran au lieu de passer à la ligne.
               style={{
                 borderColor: "var(--border)",
                 backgroundColor: "var(--surface-1)",
+                whiteSpace: "normal",
               }}
             >
               <div
@@ -58,7 +61,7 @@ export function TemplatePickerStep({ onSelect }: TemplatePickerStepProps) {
               >
                 <Icon size={20} style={{ color: isBlank ? "var(--text-muted)" : "var(--accent)" }} />
               </div>
-              <div>
+              <div className="min-w-0">
                 <div className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
                   {meta.label}
                 </div>

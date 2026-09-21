@@ -11,7 +11,12 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useToast } from "@supernote/ui";
-import { draftReplyVariants, type MailAiThread, type ReplyVariant } from "@/lib/mail-ai";
+import {
+  draftReplyVariants,
+  toMailAiThread,
+  type MailAiThread,
+  type ReplyVariant,
+} from "@/lib/mail-ai";
 import { pickReplyTo } from "@/lib/mail-reply";
 import type { EmailThread } from "@/lib/gmail";
 
@@ -26,28 +31,19 @@ export interface MailDraftsApi {
   aiThread: MailAiThread | null;
 }
 
-export function useMailDrafts(thread: EmailThread | null, selfEmail: string): MailDraftsApi {
+export function useMailDrafts(
+  thread: EmailThread | null,
+  selfEmail: string,
+  selfEmails: readonly string[],
+): MailDraftsApi {
   const { toast } = useToast();
   const [variants, setVariants] = useState<ReplyVariant[]>([]);
   const [busy, setBusy] = useState(false);
   const [useNotes, setUseNotes] = useState(false);
 
-  // Adaptateur EmailThread → MailAiThread : QUE du texte brut dans le prompt
-  // (bodyText/snippet, jamais le HTML de l'expéditeur → pas d'injection).
   const aiThread = useMemo<MailAiThread | null>(
-    () =>
-      thread
-        ? {
-            id: thread.id,
-            messages: thread.messages.map((m) => ({
-              subject: m.subject,
-              from: { name: m.from.name, email: m.from.email },
-              date: m.date,
-              bodyText: m.bodyText || m.snippet || "",
-            })),
-          }
-        : null,
-    [thread],
+    () => (thread ? toMailAiThread(thread, selfEmails) : null),
+    [thread, selfEmails],
   );
 
   // Destinataire externe visé (« Nom <email> ») → oriente le brouillon vers lui,

@@ -8,7 +8,7 @@
  *
  * CSS vars consumed from the host app:
  *   --text-primary, --text-secondary, --text-muted
- *   --accent, --accent-light
+ *   --accent, --accent-subtle
  *   --bg-base, --bg-surface, --bg-elevated
  *   --border, --border-light
  *   --radius-sm, --radius-md
@@ -23,6 +23,19 @@
   background: transparent;
   /* Anchor for the SmoothCaret overlay (and entity-picker overlay). */
   position: relative;
+}
+
+/* BlockNote pose `.light`/`.dark` sur son conteneur, et le thème HeroUI
+ * redéfinit ses variables sur ces classes : sans ce re-pin, l'éditeur prend
+ * l'accent bleu et les bordures de HeroUI au lieu de ceux de l'app. */
+.bn-container {
+  --accent: inherit;
+  --accent-foreground: inherit;
+  --border: inherit;
+  --danger: inherit;
+  --link: inherit;
+  --success: inherit;
+  --warning: inherit;
 }
 
 /* Force the BlockNote container/editor to use our light tokens — its default
@@ -43,8 +56,8 @@
   --bn-colors-tooltip-text: var(--text-primary, #1a1a2e);
   --bn-colors-hovered-background: var(--surface-2, #f3f0ff);
   --bn-colors-hovered-text: var(--text-primary, #1a1a2e);
-  --bn-colors-selected-background: var(--accent-subtle, rgb(124 58 237 / 0.1));
-  --bn-colors-selected-text: var(--accent, #7c3aed);
+  --bn-colors-selected-background: var(--accent-subtle);
+  --bn-colors-selected-text: var(--accent);
   --bn-colors-disabled-background: var(--surface-2, #f3f0ff);
   --bn-colors-disabled-text: var(--text-muted, #6b7280);
   --bn-colors-shadow: rgb(0 0 0 / 0.06);
@@ -56,7 +69,7 @@
 
 .sn-editor-wrapper .bn-editor {
   padding: 0;
-  caret-color: var(--accent, #7c3aed);
+  caret-color: var(--accent);
 }
 
 .sn-editor-wrapper .bn-block {
@@ -64,7 +77,7 @@
 }
 
 /* Disable focus rings on the editor itself — the global :focus-visible rule
- * in apps/web/src/app/globals.css applies a violet outline that surrounds the
+ * in apps/web/src/app/globals.css applies an accent outline that surrounds the
  * whole writing canvas while typing. The editor doesn't need it (caret is
  * sufficient feedback). */
 .sn-editor-wrapper,
@@ -80,9 +93,9 @@
   outline: none !important;
 }
 
-/* Selection highlight */
+/* Plus dense que --accent-subtle : un accent achromatique à 10 % se perd sur le blanc. */
 .sn-editor-wrapper .ProseMirror ::selection {
-  background: var(--accent-subtle, rgb(124 58 237 / 0.2));
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
 }
 
 /* ── Smooth caret overlay ───────────────────────────────────── */
@@ -116,8 +129,8 @@
   width: 100%;
   height: 100%;
   border-radius: inherit;
-  background: var(--accent, #7c3aed);
-  box-shadow: 0 0 6px color-mix(in srgb, var(--accent, #7c3aed) 45%, transparent);
+  background: var(--accent);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 45%, transparent);
   /* Solid for the first ~60% of the cycle, then off — JS restarts the
    * animation on every caret move so the bar never blinks mid-typing,
    * matching native caret behaviour. */
@@ -146,7 +159,7 @@
   background: linear-gradient(
     90deg,
     transparent,
-    color-mix(in srgb, var(--accent, #7c3aed) 70%, transparent)
+    color-mix(in srgb, var(--accent) 70%, transparent)
   );
 }
 
@@ -220,7 +233,7 @@
 }
 
 @keyframes sn-block-flash {
-  0% { background-color: color-mix(in srgb, var(--accent, #7c3aed) 14%, transparent); }
+  0% { background-color: color-mix(in srgb, var(--accent) 14%, transparent); }
   100% { background-color: transparent; }
 }
 
@@ -246,7 +259,7 @@
   height: 5px;
   border-radius: 9999px;
   opacity: 0;
-  background: var(--accent, #7c3aed);
+  background: var(--accent);
 }
 
 .sn-check-burst i:nth-child(2) { background: #f59e0b; }
@@ -303,7 +316,7 @@
  * default black, with soft rounded ends. */
 .sn-editor-wrapper .prosemirror-dropcursor-block,
 .sn-editor-wrapper .prosemirror-dropcursor-inline {
-  background: var(--accent, #7c3aed) !important;
+  background: var(--accent) !important;
   border-radius: 2px;
 }
 
@@ -353,7 +366,7 @@
   height: 7px;
   border-radius: 2px;
   opacity: 0;
-  background: var(--accent, #7c3aed);
+  background: var(--accent);
 }
 
 /* Spread positions/colors/delays — deterministic via nth-child. */
@@ -487,8 +500,8 @@
 }
 
 .sn-fmt-toolbar__btn[data-active="true"] {
-  background: var(--accent-subtle, rgba(124, 58, 237, 0.1));
-  color: var(--accent, #7c3aed);
+  background: var(--accent-subtle);
+  color: var(--accent);
 }
 
 .sn-fmt-toolbar__sep {
@@ -592,8 +605,8 @@
 }
 
 .sn-color-menu__swatch[data-active] {
-  border-color: var(--accent, #7c3aed);
-  box-shadow: 0 0 0 2px var(--accent-subtle, rgba(124, 58, 237, 0.18));
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-subtle);
 }
 
 /* Highlight swatches are solid color dots — keep an inner hairline so the
@@ -723,7 +736,7 @@
   background: var(--surface-2, #f3f4f6);
   flex-shrink: 0;
   font-size: 0.8rem;
-  color: var(--accent, #7c3aed);
+  color: var(--accent);
 }
 
 .sn-block-menu__label {
@@ -767,10 +780,10 @@
 }
 
 .sn-block-menu__item--current .sn-block-menu__icon {
-  background: var(--accent-subtle, rgba(124, 58, 237, 0.14));
+  background: var(--accent-subtle);
 }
 .sn-block-menu__item--current .sn-block-menu__label {
-  color: var(--accent, #7c3aed);
+  color: var(--accent);
   font-weight: 600;
 }
 
@@ -965,8 +978,8 @@
   align-items: center;
   padding: 0.1rem 0.45rem;
   border-radius: var(--radius-sm, 4px);
-  background: var(--accent-light, #ede9fe);
-  color: var(--accent, #7c3aed);
+  background: var(--accent-subtle);
+  color: var(--accent);
   font-size: 0.875em;
   font-weight: 500;
   cursor: pointer;
@@ -976,7 +989,7 @@
 }
 
 .sn-wikilink:hover {
-  background: var(--accent, #7c3aed);
+  background: var(--accent);
   color: #fff;
 }
 
@@ -998,7 +1011,7 @@
 }
 
 .sn-mention:hover {
-  border-color: var(--accent, #7c3aed);
+  border-color: var(--accent);
 }
 
 .sn-mention__icon {
@@ -1007,7 +1020,7 @@
 }
 
 .sn-mention__label {
-  color: var(--accent, #7c3aed);
+  color: var(--accent);
 }
 
 /* ── Tag pill ───────────────────────────────────────────────── */
@@ -1126,7 +1139,7 @@
   border-bottom: 1px solid var(--border-light, #e9d5ff);
   font-size: 0.8rem;
   font-weight: 600;
-  color: var(--accent, #7c3aed);
+  color: var(--accent);
 }
 
 .sn-embed__icon {
@@ -1165,7 +1178,7 @@
 
 /* Use accent color for selection */
 .sn-editor-wrapper .ProseMirror .selectedCell::after {
-  background: color-mix(in srgb, var(--accent, #7c3aed) 20%, transparent);
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
 }
 
 /* Slash menu */
@@ -1226,7 +1239,7 @@
   background: var(--surface-2, #f3f4f6);
   flex-shrink: 0;
   font-size: 0.9rem;
-  color: var(--accent, #7c3aed);
+  color: var(--accent);
 }
 
 .sn-slash-menu__text {
@@ -1351,7 +1364,7 @@
   border: none;
   border-top: 1px solid var(--border-subtle, #e5e7eb);
   background: transparent;
-  color: var(--accent, #7c3aed);
+  color: var(--accent);
   font-size: 0.8rem;
   font-weight: 500;
   cursor: pointer;
@@ -1360,7 +1373,7 @@
 }
 
 .sn-entity-picker__create:hover {
-  background: var(--accent-subtle, rgba(124, 58, 237, 0.06));
+  background: var(--accent-subtle);
 }
 
 .sn-entity-picker__fallback {

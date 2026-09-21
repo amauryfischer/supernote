@@ -19,7 +19,7 @@ export function SettingSection({
 }: SettingSectionProps) {
   return (
     <div
-      className="rounded-xl border p-5"
+      className="rounded-xl border p-4 md:p-5"
       style={{ borderColor: "var(--border)", backgroundColor: "var(--surface-0)" }}
     >
       <div className="mb-4 flex items-start justify-between">

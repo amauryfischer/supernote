@@ -8,5 +8,4 @@ export const ENTITY_TYPE_LABELS: Record<string, string> = {
   note: "Notes",
   personne: "Personnes",
   ressource: "Ressources",
-  journal: "Journal",
 };

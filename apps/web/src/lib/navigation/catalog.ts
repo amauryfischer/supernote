@@ -12,9 +12,9 @@
  *
  * Ce module est PUR data (pas de hook, pas de JSX) pour être importable partout.
  * Les libellés sont des clés i18n (`nav.*`) résolues par `useTranslations()`
- * côté composant. Les gates (`routines`, `mail`) marquent les items
- * dont la visibilité dépend d'un flag plugin / de la connexion Gmail : chaque
- * surface applique les hooks correspondants et filtre — mais de la MÊME façon.
+ * côté composant. Les gates marquent les items dont la visibilité dépend d'un
+ * flag plugin : chaque surface applique les hooks correspondants et filtre —
+ * mais de la MÊME façon.
  */
 
 import {
@@ -25,7 +25,6 @@ import {
   Function,
   Gear,
   GridNine,
-  House,
   Lightning,
   Robot,
   Tag,
@@ -38,11 +37,11 @@ import {
 export type NavGroupId = "navigation" | "knowledge" | "tools";
 
 /** Gate de visibilité — même sémantique appliquée sur toutes les surfaces. */
-export type NavGate = "routines" | "mail";
+export type NavGate = "routines";
 
 export interface NavItem {
   href: string;
-  /** Clé i18n, ex. `nav.home`. Résolue via `useTranslations()`. */
+  /** Clé i18n, ex. `nav.mail`. Résolue via `useTranslations()`. */
   labelKey: string;
   icon: PhosphorIcon;
   group: NavGroupId;
@@ -61,18 +60,17 @@ export const NAV_GROUP_LABEL_KEY: Record<NavGroupId, string> = {
 
 /**
  * Groupes rendus SANS en-tête de section, sur les deux surfaces. Le groupe
- * « navigation » (Accueil, Assistant IA) est épinglé en tête : un libellé
+ * « navigation » (Mail, Assistant IA) est épinglé en tête : un libellé
  * « Navigation » au-dessus d'une nav est un eyebrow redondant.
  */
 export const NAV_HEADERLESS_GROUPS: ReadonlySet<NavGroupId> = new Set<NavGroupId>(["navigation"]);
 
 /** Items de la nav principale (scrollable), dans l'ordre. */
 export const NAV_ITEMS: readonly NavItem[] = [
-  { href: "/", labelKey: "nav.home", icon: House, group: "navigation" },
+  { href: "/mail", labelKey: "nav.mail", icon: EnvelopeSimple, group: "navigation" },
   { href: "/ai", labelKey: "nav.ai", icon: Robot, group: "navigation" },
 
   { href: "/notes", labelKey: "nav.notes", icon: FileText, group: "knowledge" },
-  { href: "/mail", labelKey: "nav.mail", icon: EnvelopeSimple, group: "knowledge", gate: "mail" },
   { href: "/archive", labelKey: "nav.archive", icon: Archive, group: "knowledge" },
   { href: "/todos", labelKey: "nav.todos", icon: CheckSquare, group: "knowledge" },
   { href: "/habits", labelKey: "nav.habits", icon: GridNine, group: "knowledge" },
@@ -101,7 +99,7 @@ export const NAV_SETTINGS: NavItem = {
  * donc PAS dans le drawer « Plus » (évite les doublons). Le reste du catalogue
  * peuple le drawer automatiquement.
  */
-export const MOBILE_PRIMARY_HREFS: readonly string[] = ["/", "/notes", "/todos"];
+export const MOBILE_PRIMARY_HREFS: readonly string[] = ["/mail", "/notes", "/todos"];
 
 /** `true` si `href` correspond à la route active (exact pour `/`, préfixe sinon). */
 export function isNavActive(href: string, pathname: string): boolean {

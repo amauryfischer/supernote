@@ -26,7 +26,6 @@
     "title": "Titre"
   },
   "nav": {
-    "home": "Accueil",
     "ai": "Assistant IA",
     "search": "Recherche",
     "notes": "Notes",
@@ -35,7 +34,6 @@
     "garden": "Jardin",
     "todos": "Todos",
     "habits": "Habitudes",
-    "journal": "Journal",
     "contacts": "Contacts",
     "projects": "Projets",
     "finance": "Finance",
@@ -88,7 +86,6 @@
       "notes": "Vos notes libres et documents",
       "contacts": "Personnes et organisations",
       "projects": "Projets et tâches actives",
-      "journal": "Notes quotidiennes",
       "schemas": "Types d'entités et champs",
       "routines": "Automations et rappels"
     },
@@ -129,7 +126,6 @@
       "actions": {
         "title": "Capture rapide",
         "newNote": "Nouvelle note",
-        "journal": "Journal du jour",
         "todo": "Todo express",
         "schema": "Schéma"
       },
@@ -310,12 +306,6 @@
       "fr": "Français",
       "en": "English"
     }
-  },
-  "journal": {
-    "title": "Journal",
-    "today": "Aujourd'hui",
-    "yesterday": "Hier",
-    "selectDate": "Sélectionnez une date"
   },
   "search": {
     "title": "Recherche",

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, forwardRef, useImperativeHandle, type ReactNode } from "react";
 import { ArrowSquareOut, Plus, X, Tag, MagnifyingGlass, Check, PaperPlaneTilt, Quotes, Paperclip, Star, Envelope, ArrowBendUpRight, Sparkle, MagicWand, ArrowsClockwise, CaretUp, DotsThreeVertical, Copy, Image as ImageIcon, SpeakerSlash, UserMinus } from "@phosphor-icons/react";
-import { Button, Input, Spinner, Popover } from "@heroui/react";
+import { Button, Chip, Input, Spinner, Popover } from "@heroui/react";
 import { useToast, Tooltip } from "@supernote/ui";
 import { useSettings } from "@/components/settings/SettingsContext";
 import {
@@ -12,8 +12,7 @@ import {
   removeThreadLabel,
   modifyThreadLabels,
   createLabel,
-  updateLabelColor,
-  GMAIL_LABEL_PALETTE,
+  updateLabel,
   markThreadRead,
   markThreadUnread,
   toggleStar,
@@ -24,6 +23,7 @@ import {
   formatBytes,
   type EmailThread,
   type EmailMessage,
+  type EmailAddress,
   type EmailAttachment,
   type GmailLabel,
   type GmailLabelColor,
@@ -31,7 +31,8 @@ import {
 } from "@/lib/gmail";
 import { parseEmailBody } from "@/lib/email-quote";
 import { senderHue } from "@/lib/mail-avatar";
-import { sanitizeEmailHtml, splitQuotedHtml } from "@/lib/mail-html";
+import { formatMailDateTime } from "@/lib/mail-date";
+import { sanitizeEmailHtml, splitQuotedHtml, splitSignatureHtml } from "@/lib/mail-html";
 import {
   filesToAttachments,
   imageToInlineAttachment,
@@ -43,8 +44,14 @@ import {
   MAX_ATTACHMENTS_BYTES,
   type PendingAttachment,
 } from "@/lib/mail-attachments";
-import { buildReplyParams, pickReplyAll, buildQuotedBody } from "@/lib/mail-reply";
-import { buildForwardSubject, buildForwardedBody } from "@/lib/mail-forward";
+import { buildReplyParams, pickReplyAll, buildQuotedBody, replyHeaders } from "@/lib/mail-reply";
+import {
+  buildForwardSubject,
+  buildForwardedBody,
+  forwardLabel,
+  forwardMarks,
+  type ForwardThread,
+} from "@/lib/mail-forward";
 import { ComposerToolbar } from "./ComposerToolbar";
 import { useDeferredSend } from "./useDeferredSend";
 import { SendLaterButton } from "./SendLaterButton";
@@ -60,7 +67,7 @@ import { withSignature } from "@/lib/mail-signature";
 import { loadAutoDraft, saveAutoDraft, clearAutoDraft, threadDraftKey } from "@/lib/mail-draft-store";
 import { TriageBar } from "./TriageBar";
 import { EnrichContactFromEmail } from "./EnrichContactFromEmail";
-import { LabelMarker, labelChipStyle } from "./LabelMarker";
+import { LabelMarker, LabelStyleGrid, labelChipStyle } from "./LabelMarker";
 import { EmailToEventButton } from "./EmailToEventButton";
 import { MailEisenhowerPicker } from "./MailEisenhowerPicker";
 import { ExtractActionsButton } from "./ExtractActionsButton";
@@ -80,6 +87,7 @@ import { useMailQuickRepliesChrome } from "@/components/shell/shell-chrome-conte
 import {
   isAiConfigured,
   summarizeThread,
+  toMailAiThread,
   suggestQuadrant,
   instantReplies,
   type MailAiThread,
@@ -115,7 +123,7 @@ const MENU_COMPONENT_ROW =
  * `gmail.modify` (consentement incrémental), avec mise à jour optimiste + rollback.
  *
  * `selfEmail` : adresse du compte connecté → détermine quels messages sont « moi »
- * (alignés à droite, violet). Chaque autre expéditeur reçoit une teinte
+ * (alignés à droite, accent). Chaque autre expéditeur reçoit une teinte
  * déterministe (même couleur que son avatar, d'un fil à l'autre) ; les collègues
  * du même domaine portent en plus une pastille « interne ». Absent → tout traité
  * comme externe à gauche.
@@ -176,8 +184,9 @@ interface EmailThreadViewProps {
   /**
    * Appelé quand l'utilisateur clique « Transférer » — l'appelant ouvre le
    * ComposeModal pré-rempli (objet « Fwd: … » + corps cité), destinataire vide.
+   * `thread` fait partir le transfert dans ce fil, pour le marquer sur l'original.
    */
-  onForward?: (prefill: { to?: string; subject: string; body: string }) => void;
+  onForward?: (prefill: { to?: string; subject: string; body: string; thread?: ForwardThread }) => void;
   /** Fil rangé dans un label todo, Gmail déjà poussé : `change` sert au miroir,
    *  `todoLabels` porte les labels tout juste créés. */
   onConvertedToTodo?: (
@@ -221,7 +230,9 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
   const [moreOpen, setMoreOpen] = useState(false);
   const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
   // Éditeur de couleur d'un label appliqué : id du label ciblé + ancre du badge.
-  const [colorEdit, setColorEdit] = useState<{ id: string; rect: DOMRect } | null>(null);
+  const [colorEdit, setColorEdit] = useState<{ id: string; color: GmailLabelColor | undefined; rect: DOMRect } | null>(
+    null,
+  );
   const triggerRef = useRef<HTMLButtonElement>(null);
   // Garde anti-double : 1 seul markThreadRead par thread ouvert.
   const readMarkedRef = useRef<string | null>(null);
@@ -272,10 +283,14 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
 
   // ─── Réponse rapide (barre fixe en bas) ───────────────────────────────────
   const replyParams = useMemo(() => buildReplyParams(thread, selfEmail), [thread, selfEmail]);
+  const forwardsById = useMemo(() => forwardMarks(thread.messages), [thread.messages]);
   // « Répondre à tous » : tous les participants du fil sauf soi (Cc inclus à l'envoi).
   const replyAll = useMemo(() => pickReplyAll(thread, selfEmail), [thread, selfEmail]);
   const [replyBody, setReplyBody] = useState("");
   const [replyBusy, setReplyBusy] = useState<"send" | "draft" | null>(null);
+  // Mobile : le composeur reste une ligne tant qu'on n'y a pas touché — déplié
+  // d'office, il mangeait un tiers de l'écran au-dessus du fil.
+  const [replyOpen, setReplyOpen] = useState(false);
   // Toggle « Répondre à tous » : défaut = réponse simple. Pas de Cc à ajouter
   // (seul le destinataire principal) → l'option est sans effet, on la masque.
   const [replyToAll, setReplyToAll] = useState(false);
@@ -310,6 +325,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
     // (fermer le fil ou recharger l'onglet ne perd plus la frappe).
     const saved = loadAutoDraft(threadDraftKey(thread.id));
     setReplyBody(saved?.body ?? "");
+    setReplyOpen(false);
     setReplyToAll(false);
     setReplyAttachments([]);
     setSummary(null);
@@ -356,19 +372,9 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
   // Gate d'affichage des features IA : visibles seulement si un modèle Ollama
   // est configuré dans les réglages. Réactif au modèle des réglages.
   const aiConfigured = useMemo(() => isAiConfigured(), [settings.ia.ollamaModel]);
-  // Adaptateur EmailThread → MailAiThread : on ne passe QUE du texte brut au
-  // prompt (bodyText/snippet, JAMAIS le HTML de l'expéditeur → pas d'injection).
   const aiThread = useMemo<MailAiThread>(
-    () => ({
-      id: thread.id,
-      messages: thread.messages.map((m) => ({
-        subject: m.subject,
-        from: { name: m.from.name, email: m.from.email },
-        date: m.date,
-        bodyText: m.bodyText || m.snippet || "",
-      })),
-    }),
-    [thread],
+    () => toMailAiThread(thread, [selfEmail ?? "", ...settings.gmail.aliases]),
+    [thread, selfEmail, settings.gmail.aliases],
   );
 
   // Réponses éclair : générées à l'ouverture du fil, seulement si l'IA locale
@@ -405,6 +411,8 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
   }, [thread.id, embedded, aiConfigured, clientId, quickDismissed, lastFromMe]);
 
   const isMobile = useIsMobile();
+  const composerCompact =
+    isMobile && !replyOpen && !replyBody.trim() && replyAttachments.length === 0;
   const quickRepliesShown =
     !embedded && !!clientId && !!replyParams.to && aiConfigured && (quickBusy || quickReplies.length > 0);
   const quickRepliesConfig = {
@@ -604,6 +612,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
     onForward({
       subject: buildForwardSubject(last.subject || thread.messages[0]?.subject || ""),
       body: buildForwardedBody(last),
+      thread: { threadId: thread.id, ...replyHeaders(thread) },
     });
   };
 
@@ -719,7 +728,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
     const prev = allLabels;
     setAllLabels((ls) => ls.map((l) => (l.id === labelId ? { ...l, color } : l)));
     try {
-      await updateLabelColor(clientId, labelId, color);
+      await updateLabel(clientId, labelId, { color });
     } catch (err) {
       setAllLabels(prev);
       toast({
@@ -823,6 +832,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
   // Adresse du correspondant (celle vers laquelle on répond = l'externe X, cf.
   // pickReplyTo) → affichée + copiable dans l'en-tête.
   const recipientEmail = replyParams.to || correspondentMsg?.from.email || "";
+  const lastRecipients = recipientsLine(thread.messages[thread.messages.length - 1], selfEmail);
   const copyRecipient = async () => {
     if (!recipientEmail) return;
     try {
@@ -839,13 +849,14 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
     // poussé EN BAS du panneau même quand le fil est court. En embed (bloc note)
     // : hauteur naturelle, pas de composeur.
     <div className={`flex flex-col gap-3${embedded ? "" : " min-h-full"}`}>
-      {/* En-tête (sujet + actions + labels) ÉPINGLÉ en haut du panneau : reste
+      {/* En-tête (sujet + actions + labels) ÉPINGLÉ en haut du panneau dès md
+          (sur téléphone il mangerait un tiers de l'écran) : reste
           visible pendant le défilement des messages. `-mx-4 px-4` = déborde le
           padding du conteneur scroll pour couvrir toute la largeur ; fond opaque
           + bordure bas pour que les messages passent DERRIÈRE. Pas en embed. */}
       <div
         className={`flex flex-col gap-2${
-          embedded ? "" : " sticky top-0 z-10 -mx-4 border-b px-4 pb-2 pt-1"
+          embedded ? "" : " -mx-4 border-b px-4 pb-2 pt-1 md:sticky md:top-0 md:z-10"
         }`}
         style={
           embedded
@@ -853,7 +864,9 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
             : { background: "var(--surface-0, var(--background))", borderColor: "var(--border-subtle)" }
         }
       >
-        <div className="flex items-start justify-between gap-3">
+        {/* Sous md, le sujet prend toute la largeur (2 lignes) et les actions
+            passent dessous : côte à côte, il ne restait que quelques lettres. */}
+        <div className="flex flex-col gap-1 md:flex-row md:items-start md:justify-between md:gap-3">
           <div className="flex min-w-0 flex-1 items-center gap-1.5">
             {clientId && (
               <Button
@@ -873,7 +886,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
               </Button>
             )}
             {subject ? (
-              <h2 className="min-w-0 flex-1 truncate text-base font-semibold" style={{ color: "var(--text-primary)" }}>
+              <h2 className="line-clamp-2 min-w-0 flex-1 text-base font-semibold md:truncate" style={{ color: "var(--text-primary)" }}>
                 {subject}
               </h2>
             ) : (
@@ -885,7 +898,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
               (kebab) ci-dessous — masqué en mode embed. On garde un Popover (et
               non DropdownMenu items) car 4 actions sont des composants
               self-contained à overlay propre : on les déplace tels quels. */}
-          <div className="flex shrink-0 items-center justify-end gap-1.5">
+          <div className="flex shrink-0 items-center gap-1.5 md:justify-end">
             {clientId && (
               <MailEisenhowerPicker
                 onConvert={(q) => void convertToTodo(q)}
@@ -1076,7 +1089,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
             ouvrir le composeur). Masqué en embed / si pas d'adresse. */}
         {!embedded && recipientEmail && (
           <div className="flex min-w-0 items-center gap-1 pl-0.5">
-            <span className="truncate text-xs" style={{ color: "var(--text-muted)" }}>
+            <span className="max-w-[45%] shrink-0 truncate text-xs" style={{ color: "var(--text-muted)" }}>
               {recipientEmail}
             </span>
             <Tooltip content="Copier l'adresse">
@@ -1091,6 +1104,15 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
                 <Copy size={12} />
               </Button>
             </Tooltip>
+            {lastRecipients.text && (
+              <span
+                className="min-w-0 truncate text-xs"
+                style={{ color: "var(--text-muted)" }}
+                title={lastRecipients.title}
+              >
+                {lastRecipients.text}
+              </span>
+            )}
           </div>
         )}
         <div className="flex flex-wrap items-center gap-1.5">
@@ -1098,20 +1120,21 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
             <span
               key={l.id}
               className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium"
-              style={labelChipStyle(l.color, settings.gmail.labelStyle)}
+              style={labelChipStyle(l.color)}
             >
-              <LabelMarker color={l.color} style={settings.gmail.labelStyle} size={10} />
-              {/* Clic sur le nom → menu de couleur (palette Gmail fixe). */}
+              <LabelMarker color={l.color} size={10} />
+              {/* Clic sur le nom → menu couleur + style (enregistrés dans la couleur Gmail). */}
               <Button
                 variant="ghost"
                 size="sm"
                 onPress={(e) =>
                   setColorEdit({
                     id: l.id,
+                    color: l.color,
                     rect: (e.target as HTMLElement).getBoundingClientRect(),
                   })
                 }
-                aria-label={`Changer la couleur du label ${l.name}`}
+                aria-label={`Changer la couleur et le style du label ${l.name}`}
                 className="-my-1.5 inline-flex h-8 min-h-8 max-w-[12rem] items-center bg-transparent p-0 font-medium hover:opacity-70"
                 style={{ color: "inherit" }}
               >
@@ -1211,6 +1234,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
           message={m}
           kind={classifyBubble(m.from.email, selfEmail)}
           clientId={clientId}
+          forwardNotes={forwardsById.get(m.id)?.map((f) => forwardLabel(f, selfEmail))}
         />
       ))}
 
@@ -1244,10 +1268,10 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
           className="sticky bottom-0 mt-1 border-t px-1 pb-2 pt-2"
           style={{ background: "var(--surface-1)", borderColor: "var(--border-subtle)" }}
         >
-          {quickRepliesShown && isMobile && (
+          {quickRepliesShown && composerCompact && (
             <QuickRepliesRow {...quickRepliesConfig} className="mb-1.5" />
           )}
-          <ComposerToolbar
+          {!composerCompact && <ComposerToolbar
             textareaRef={replyTaRef}
             value={replyBody}
             onChange={setReplyBody}
@@ -1263,7 +1287,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
                 <ImageIcon size={15} aria-hidden />
               </Button>
             }
-          />
+          />}
           {/* textarea natif justifié : composeur inline (envoi ⌘/Ctrl+↵).
               Auto-resize (cf. effet) → grandit avec le contenu, `min-height` =
               base confortable (~3 lignes) pour qu'on voie ce qu'on écrit. */}
@@ -1292,6 +1316,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
             }}
             onKeyUp={snippets.refresh}
             onClick={snippets.refresh}
+            onFocus={() => setReplyOpen(true)}
             onBlur={snippets.close}
             onPaste={(e) => {
               // Coller une capture d'écran l'insère DANS la réponse.
@@ -1319,7 +1344,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
             placeholder={`Répondre à ${replyParams.to}…`}
             className="w-full resize-none overflow-y-auto rounded-lg border px-3 py-2 text-sm outline-none"
             style={{
-              minHeight: "4.75rem",
+              minHeight: composerCompact ? "2.5rem" : "4.75rem",
               maxHeight: "260px",
               borderColor: "var(--border-subtle)",
               background: "var(--surface-0, var(--background))",
@@ -1379,15 +1404,15 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
               ))}
             </div>
           )}
-          <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2">
+          {!composerCompact && <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2">
             <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs" style={{ color: "var(--text-muted)" }}>
               <span className="min-w-0 truncate">
                 À : {replyToAll && hasCc ? replyAll.to : replyParams.to}
                 {replyToAll && hasCc && ` · Cc : ${replyAll.cc.join(", ")}`}
               </span>
-              <span className="shrink-0">⌘/Ctrl+↵ pour envoyer</span>
+              <span className="hidden shrink-0 md:inline">⌘/Ctrl+↵ pour envoyer</span>
             </div>
-            <div className="flex shrink-0 flex-wrap items-center gap-2">
+            <div className="flex min-w-0 flex-wrap items-center justify-end gap-2 md:shrink-0">
               {aiConfigured && (
                 <Tooltip content="Proposer plusieurs brouillons (IA locale)">
                   <Button
@@ -1457,7 +1482,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
                 <PaperPlaneTilt size={14} /> {replyBusy === "send" ? "Envoi…" : "Envoyer"}
               </Button>
             </div>
-          </div>
+          </div>}
         </div>
       )}
 
@@ -1474,6 +1499,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
       <ColorMenu
         open={colorEdit !== null}
         anchorRect={colorEdit?.rect ?? null}
+        current={colorEdit?.color}
         onPick={(color) => {
           if (colorEdit) void setLabelColor(colorEdit.id, color);
         }}
@@ -1663,19 +1689,20 @@ function LabelPicker({
 }
 
 /**
- * Sélecteur de couleur ancré pour un label : grille de pastilles issues de la
- * palette Gmail FIXE (`GMAIL_LABEL_PALETTE` — l'API rejette toute autre couleur).
+ * Sélecteur couleur × style d'un label : une ligne par style, une colonne par teinte.
  * Même mécanique d'ancrage/fermeture que `LabelPicker` (position fixe clampée,
  * clic-extérieur + Échap ferment).
  */
 function ColorMenu({
   open,
   anchorRect,
+  current,
   onPick,
   onClose,
 }: {
   open: boolean;
   anchorRect: DOMRect | null;
+  current: GmailLabelColor | undefined;
   onPick: (color: GmailLabelColor) => void;
   onClose: () => void;
 }) {
@@ -1703,8 +1730,8 @@ function ColorMenu({
 
   if (!open || !anchorRect) return null;
 
-  const POP_W = 184;
-  const POP_H = 120;
+  const POP_W = 336;
+  const POP_H = 156;
   const margin = 6;
   let left = anchorRect.left;
   let top = anchorRect.bottom + margin;
@@ -1726,22 +1753,13 @@ function ColorMenu({
       }}
       onClick={(e) => e.stopPropagation()}
     >
-      <div className="grid grid-cols-8 gap-1.5">
-        {GMAIL_LABEL_PALETTE.map((c) => (
-          <Button
-            key={c.backgroundColor}
-            isIconOnly
-            variant="ghost"
-            onPress={() => {
-              onPick(c);
-              onClose();
-            }}
-            aria-label={`Couleur ${c.backgroundColor}`}
-            className="h-6 min-h-6 w-6 min-w-6 rounded-full p-0 transition-transform hover:scale-110"
-            style={{ backgroundColor: c.backgroundColor, border: "1px solid var(--border-subtle)" }}
-          />
-        ))}
-      </div>
+      <LabelStyleGrid
+        current={current}
+        onPick={(color) => {
+          onPick(color);
+          onClose();
+        }}
+      />
     </div>
   );
 }
@@ -1776,31 +1794,46 @@ function ensureMailHtmlStyle(): void {
   document.head.appendChild(el);
 }
 
+/** « à X, Y · cc Z » (moi = compte connecté) + adresses complètes pour l'infobulle. */
+function recipientsLine(message: EmailMessage | undefined, selfEmail?: string): { text: string; title: string } {
+  if (!message) return { text: "", title: "" };
+  const self = (selfEmail ?? "").toLowerCase();
+  const who = (a: EmailAddress) => (a.email.toLowerCase() === self ? "moi" : a.name || a.email);
+  const cc = message.cc ?? [];
+  const parts = (to: string, ccLabel: string, fmt: (a: EmailAddress) => string, sep: string) =>
+    [
+      message.to.length ? `${to}${message.to.map(fmt).join(", ")}` : "",
+      cc.length ? `${ccLabel}${cc.map(fmt).join(", ")}` : "",
+    ]
+      .filter(Boolean)
+      .join(sep);
+  return { text: parts("à ", "cc ", who, " · "), title: parts("À : ", "Cc : ", (a) => a.email, "\n") };
+}
+
 function MessageBubble({
   message,
   kind,
   clientId,
+  forwardNotes,
 }: {
   message: EmailMessage;
   kind: BubbleKind;
   clientId: string;
+  forwardNotes?: Array<{ label: string; title: string }> | undefined;
 }) {
   const mine = kind === "mine";
   const internal = kind === "internal";
   const tint = mine ? null : senderTint(message.from.email || message.from.name);
   const files = message.attachments.filter((a) => !a.inline);
   const inlineImages = message.attachments.filter((a) => a.inline);
-  const date = message.date ? new Date(message.date).toLocaleString() : "";
-  // Chemin HTML : si le mail a un corps text/html, on le rend sanitizé (DOMPurify)
-  // SANS extraire citation/signature (on affiche le HTML complet, tel que conçu
-  // par l'expéditeur). Mémoïsé : la sanitization touche le DOM (template parse).
-  // Chemin HTML : sanitize PUIS sépare le contenu neuf de la citation (historique
-  // de réponses/transfert) pour ne pas afficher de « blocs rémanents ». La
-  // citation reste accessible via un bloc repliable.
-  const htmlParts = useMemo(
-    () => (message.bodyHtml ? splitQuotedHtml(sanitizeEmailHtml(message.bodyHtml)) : null),
-    [message.bodyHtml],
-  );
+  const date = formatMailDateTime(message.date ?? "");
+  // Chemin HTML : sanitize PUIS sépare contenu neuf, signature et citation, ces deux
+  // dernières repliées. Mémoïsé : la sanitization touche le DOM (template parse).
+  const htmlParts = useMemo(() => {
+    if (!message.bodyHtml) return null;
+    const { body, quoted } = splitQuotedHtml(sanitizeEmailHtml(message.bodyHtml));
+    return { ...splitSignatureHtml(body), quoted };
+  }, [message.bodyHtml]);
   // Chemin texte (fallback historique) : parse uniquement quand pas de HTML.
   const { body, quoted, signature } = useMemo(
     () => (htmlParts ? { body: "", quoted: "", signature: "" } : parseEmailBody(message.bodyText || message.snippet)),
@@ -1850,6 +1883,13 @@ function MessageBubble({
                 style={{ color: "var(--text-secondary)" }}
                 // eslint-disable-next-line react/no-danger -- contenu sanitizé en amont (sanitizeEmailHtml)
                 dangerouslySetInnerHTML={{ __html: htmlParts.body }}
+              />
+            )}
+            {htmlParts.signature && (
+              <CollapsibleHtml
+                openLabel="··· Afficher la signature"
+                closeLabel="Masquer la signature"
+                html={htmlParts.signature}
               />
             )}
             {htmlParts.quoted && (
@@ -1912,6 +1952,16 @@ function MessageBubble({
           >
             Ouvrir dans Gmail <ArrowSquareOut size={12} />
           </a>
+        )}
+        {forwardNotes && forwardNotes.length > 0 && (
+          <div className="mt-1.5 flex flex-wrap gap-1">
+            {forwardNotes.map((note) => (
+              <Chip key={note.title} size="sm" variant="soft" title={note.title} className="max-w-full gap-1">
+                <ArrowBendUpRight size={11} aria-hidden className="shrink-0" />
+                <span className="truncate">{note.label}</span>
+              </Chip>
+            ))}
+          </div>
         )}
       </div>
     </div>
@@ -2013,7 +2063,7 @@ function CollapsibleBlock({ openLabel, closeLabel, text }: { openLabel: string; 
   );
 }
 
-/** `html` doit être DÉJÀ sanitizé (sortie de `splitQuotedHtml(sanitizeEmailHtml(...))`). */
+/** `html` doit être DÉJÀ sanitizé (découpé après `sanitizeEmailHtml`). */
 function CollapsibleHtml({ openLabel, closeLabel, html }: { openLabel: string; closeLabel: string; html: string }) {
   return (
     <Collapsible openLabel={openLabel} closeLabel={closeLabel}>

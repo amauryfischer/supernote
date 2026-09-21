@@ -1766,7 +1766,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
       {isDropping && (
         <div
           className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-2"
-          style={{ backgroundColor: "rgba(124,58,237,0.08)", border: "2px dashed var(--accent)" }}
+          style={{ backgroundColor: "var(--accent-subtle)", border: "2px dashed var(--accent)" }}
         >
           {dropStatus === "audio-over" ? (
             <Microphone size={32} style={{ color: "var(--accent)" }} />

@@ -4,7 +4,6 @@ import { buildConfig } from "./config/index.js";
 import { registerNew } from "./commands/new.js";
 import { registerSearch } from "./commands/search.js";
 import { registerQuery } from "./commands/query.js";
-import { registerDaily } from "./commands/daily.js";
 import { registerExport } from "./commands/export.js";
 import { registerSync } from "./commands/sync.js";
 import { registerApi } from "./commands/api.js";
@@ -46,7 +45,6 @@ function getConfig(vault?: string): SupernoteConfig {
 registerNew(program, getConfig);
 registerSearch(program, getConfig);
 registerQuery(program, getConfig);
-registerDaily(program, getConfig);
 registerExport(program, getConfig);
 registerSync(program, getConfig);
 registerApi(program);

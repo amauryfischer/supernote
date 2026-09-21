@@ -5,9 +5,8 @@
  * todo (cf. `mail-eisenhower`). Présentationnel : la page porte les mutations.
  */
 
-import { useState } from "react";
-import { Button, Popover } from "@heroui/react";
-import { ArrowRight, CheckCircle, EnvelopeOpen, Envelope, Sparkle } from "@phosphor-icons/react";
+import { Button } from "@heroui/react";
+import { Envelope, Sparkle } from "@phosphor-icons/react";
 import { QUADRANTS, type EisenhowerQuadrant } from "@/lib/mail-eisenhower";
 import type { ThreadListItem } from "@/lib/gmail";
 
@@ -21,8 +20,6 @@ export interface MailEisenhowerBoardProps {
   /** Mini-résumés IA de la liste, par threadId. */
   summaries?: ReadonlyMap<string, string>;
   onOpen: (threadId: string) => void;
-  onDone: (item: ThreadListItem) => void;
-  onMoveQuadrant: (item: ThreadListItem, quadrant: EisenhowerQuadrant) => void;
 }
 
 /** Sous-titre d'aide par quadrant (axes urgence/importance lisibles). */
@@ -42,118 +39,52 @@ const QUADRANT_ACCENT: Record<EisenhowerQuadrant, string> = {
 };
 
 function TodoCard({
-  card: { item, quadrant },
+  card: { item },
   summary,
   onOpen,
-  onDone,
-  onMoveQuadrant,
 }: {
   card: MailTodoCard;
   summary?: string;
   onOpen: (threadId: string) => void;
-  onDone: (item: ThreadListItem) => void;
-  onMoveQuadrant: (item: ThreadListItem, quadrant: EisenhowerQuadrant) => void;
 }) {
-  const [moveOpen, setMoveOpen] = useState(false);
-  const targets = QUADRANTS.filter((q) => q.id !== quadrant);
-
   return (
-    <div
-      className="flex flex-col gap-2 rounded-lg border p-3"
+    <Button
+      variant="ghost"
+      onPress={() => onOpen(item.id)}
+      aria-label={`Ouvrir : ${item.subject || "Email sans sujet"}`}
+      className="h-auto w-full min-w-0 flex-col items-stretch justify-start gap-2 whitespace-normal rounded-lg border p-3 text-left"
       style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-1)" }}
     >
-      <div className="flex items-center gap-1.5 text-xs" style={{ color: "var(--text-muted)" }}>
+      <span className="flex items-center gap-1.5 text-xs" style={{ color: "var(--text-muted)" }}>
         <Envelope size={13} aria-hidden style={{ color: "var(--accent)" }} />
         <span className="truncate">{item.from.name || item.from.email || "Email"}</span>
-      </div>
-      <p
+      </span>
+      <span
         className="line-clamp-2 break-words text-sm font-medium"
         style={{ color: "var(--text-primary)" }}
       >
         {item.subject || "Email sans sujet"}
-      </p>
+      </span>
       {summary ? (
-        <div className="flex flex-col gap-1">
+        <span className="flex flex-col gap-1">
           <span
             className="sn-eyebrow sn-eyebrow--compact flex items-center gap-1"
             style={{ color: "var(--accent)" }}
           >
             <Sparkle size={11} weight="fill" aria-hidden /> Résumé
           </span>
-          <p className="line-clamp-4 break-words text-xs" style={{ color: "var(--text-secondary)" }}>
+          <span className="line-clamp-4 break-words text-xs" style={{ color: "var(--text-secondary)" }}>
             {summary}
-          </p>
-        </div>
+          </span>
+        </span>
       ) : (
         item.snippet && (
-          <p className="line-clamp-3 break-words text-xs" style={{ color: "var(--text-secondary)" }}>
+          <span className="line-clamp-3 break-words text-xs" style={{ color: "var(--text-secondary)" }}>
             {item.snippet}
-          </p>
+          </span>
         )
       )}
-      <div className="flex flex-wrap items-center gap-1.5">
-        <Button
-          variant="ghost"
-          size="sm"
-          onPress={() => onOpen(item.id)}
-          aria-label="Ouvrir le fil de cet email"
-        >
-          <EnvelopeOpen size={15} aria-hidden /> Ouvrir
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          onPress={() => onDone(item)}
-          aria-label="Marquer fait : retire le label et archive"
-        >
-          <CheckCircle size={15} aria-hidden /> Fait
-        </Button>
-        <Popover isOpen={moveOpen} onOpenChange={setMoveOpen}>
-          <Button
-            variant="ghost"
-            size="sm"
-            aria-label="Déplacer vers un autre quadrant"
-          >
-            <ArrowRight size={15} aria-hidden /> Quadrant
-          </Button>
-          <Popover.Content className="w-56 p-2">
-            <Popover.Dialog className="outline-none">
-              <p
-                className="mb-1.5 px-1 text-[11px] font-medium"
-                style={{ color: "var(--text-muted)" }}
-              >
-                Déplacer vers
-              </p>
-              <div className="flex flex-col gap-1">
-                {targets.map((q) => (
-                  <Button
-                    key={q.id}
-                    variant="ghost"
-                    size="sm"
-                    className="w-full justify-start"
-                    onPress={() => {
-                      setMoveOpen(false);
-                      onMoveQuadrant(item, q.id);
-                    }}
-                    aria-label={`Déplacer vers ${q.label} (${QUADRANT_HINT[q.id]})`}
-                  >
-                    <span
-                      className="text-sm font-semibold"
-                      style={{ color: QUADRANT_ACCENT[q.id] }}
-                    >
-                      {q.label}
-                    </span>
-                    <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>
-                      {QUADRANT_HINT[q.id]}
-                    </span>
-                  </Button>
-                ))}
-              </div>
-            </Popover.Dialog>
-          </Popover.Content>
-        </Popover>
-      </div>
-    </div>
+    </Button>
   );
 }
 
@@ -161,8 +92,6 @@ export function MailEisenhowerBoard({
   cards,
   summaries,
   onOpen,
-  onDone,
-  onMoveQuadrant,
 }: MailEisenhowerBoardProps) {
   const byQuadrant = new Map<EisenhowerQuadrant, MailTodoCard[]>();
   for (const q of QUADRANTS) byQuadrant.set(q.id, []);
@@ -211,8 +140,6 @@ export function MailEisenhowerBoard({
                     card={c}
                     summary={summaries?.get(c.item.id)}
                     onOpen={onOpen}
-                    onDone={onDone}
-                    onMoveQuadrant={onMoveQuadrant}
                   />
                 ))}
               </div>

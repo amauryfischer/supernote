@@ -14,7 +14,7 @@ import { Skeleton } from "@supernote/ui";
 
 const SEED_IDS = new Set([
   "personne", "organisation", "interaction", "note",
-  "daily", "tag", "account", "asset", "loan", "snapshot", "goal",
+  "tag", "account", "asset", "loan", "snapshot", "goal",
 ]);
 
 const CUSTOM_TYPE_EXAMPLES = ["Livre", "Recette", "Voyage"];

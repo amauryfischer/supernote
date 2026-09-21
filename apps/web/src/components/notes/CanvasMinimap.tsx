@@ -152,8 +152,8 @@ function buildSvgShapes(doc: CanvasLike, bbox: BBox): React.ReactNode[] {
           width={scaleW(w)}
           height={scaleH(h)}
           rx={el.type === "ellipse" ? scaleW(w) / 2 : 2}
-          fill="var(--accent-subtle, #ede9fe)"
-          stroke="var(--accent, #7c3aed)"
+          fill="var(--accent-subtle)"
+          stroke="var(--accent)"
           strokeWidth={0.5}
           opacity={0.8}
         />,

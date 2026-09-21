@@ -129,6 +129,9 @@ export async function incrementalSync(
 ): Promise<boolean> {
   const hist = await listHistory(clientId, startHistoryId);
   if (!hist.ok) return false;
+  // L'historique couvre toute la boîte (envoyés, archives, labels) : relire chaque fil
+  // touché peut dépasser le quota Gmail par minute. Au-delà, le full sync borné coûte moins.
+  if (hist.changedThreadIds.length > FULL_SYNC_PAGES * PAGE_SIZE) return false;
 
   // Rafraîchir AUSSI la liste des labels : l'historique Gmail couvre les
   // changements d'appartenance (label posé/retiré sur un fil) mais PAS la

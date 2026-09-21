@@ -506,7 +506,7 @@ function NoteDetailContent() {
 
   // Publish the folder accent override to the shell so the sidebar / topbar /
   // right panel inherit the tint while the user is in this folder. Cleared
-  // on unmount so /tags, /todos, etc. fall back to the default purple accent.
+  // on unmount so /tags, /todos, etc. fall back to the default accent.
   const { setAccentOverride } = useShellChrome();
   useEffect(() => {
     const vars = folderAccentVars(editorAccentColor);

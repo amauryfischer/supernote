@@ -26,7 +26,6 @@
     "title": "Title"
   },
   "nav": {
-    "home": "Home",
     "ai": "AI Assistant",
     "search": "Search",
     "notes": "Notes",
@@ -34,7 +33,6 @@
     "garden": "Garden",
     "todos": "Todos",
     "habits": "Habits",
-    "journal": "Journal",
     "contacts": "Contacts",
     "projects": "Projects",
     "finance": "Finance",
@@ -87,7 +85,6 @@
       "notes": "Your free notes and documents",
       "contacts": "People and organizations",
       "projects": "Active projects and tasks",
-      "journal": "Daily notes",
       "schemas": "Entity types and fields",
       "routines": "Automations and reminders"
     },
@@ -128,7 +125,6 @@
       "actions": {
         "title": "Quick capture",
         "newNote": "New note",
-        "journal": "Today's journal",
         "todo": "Quick todo",
         "schema": "Schema"
       },
@@ -309,12 +305,6 @@
       "fr": "Français",
       "en": "English"
     }
-  },
-  "journal": {
-    "title": "Journal",
-    "today": "Today",
-    "yesterday": "Yesterday",
-    "selectDate": "Select a date"
   },
   "search": {
     "title": "Search",

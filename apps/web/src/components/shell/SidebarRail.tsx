@@ -66,7 +66,7 @@ interface SidebarRailProps {
 }
 
 /**
- * Sidebar réduite à un rail d'icônes (registre next). Les libellés vivent dans
+ * Sidebar réduite à un rail d'icônes. Les libellés vivent dans
  * les tooltips ; la recherche est dans la topbar ; le vault s'ouvre depuis la
  * marque en tête.
  */

@@ -400,7 +400,9 @@ export function TodoRow({
           onPress={onEmail}
           aria-label="Envoyer par email"
           // Même traitement que le lien vers la note.
-          className="sn-reveal sn-hit flex shrink-0 items-center justify-center gap-1 rounded px-1.5 py-0.5 text-[10px]"
+          // -my-2 : la boîte de 36px (`.button--md`) se recentre sur la 1ʳᵉ
+          // ligne du titre au lieu de pendre dessous.
+          className="sn-reveal sn-hit -my-2 flex shrink-0 items-center justify-center gap-1 rounded px-1.5 py-0.5 text-[10px]"
           style={{ color: "var(--text-muted)" }}
         >
           <Envelope size={11} />

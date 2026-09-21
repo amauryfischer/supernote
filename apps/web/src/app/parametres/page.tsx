@@ -20,7 +20,7 @@ import {
   Table,
   EnvelopeSimple,
 } from "@phosphor-icons/react";
-import { AppShell, useMobileTitle } from "@/components/shell";
+import { AppShell, useMobileTitle, useMobileHeaderActions } from "@/components/shell";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import {
   useSettings,
@@ -101,6 +101,15 @@ function SettingsContent() {
 
   // Mobile chrome — publish the active section name as the page title
   useMobileTitle(isMobile ? t("settings.title") : null, isMobile ? t(activeItem.labelKey) : null);
+  const saveable =
+    activeTab !== "about" && activeTab !== "securite" && activeTab !== "templates" && activeTab !== "schemas";
+  // Sous md, « Enregistrer » monte dans la barre du haut : seul sur sa rangée,
+  // il coûtait 60px de hauteur à chaque onglet.
+  useMobileHeaderActions(
+    isMobile && saveable
+      ? [{ id: "settings-save", icon: FloppyDisk, label: t("settings.save"), onPress: () => void saveSettings() }]
+      : [],
+  );
 
   return (
     <div className="flex h-full flex-col md:flex-row">
@@ -141,23 +150,23 @@ function SettingsContent() {
 
       {/* Main content */}
       <div className="flex flex-1 flex-col overflow-hidden">
-        {/* Header — hidden on mobile (title in top bar, save button kept) */}
+        {/* Header — desktop seulement (mobile : titre et « Enregistrer » dans la barre du haut) */}
         <div
-          className="flex items-center justify-between border-b px-3 py-3 md:px-6 md:py-4"
+          className="hidden items-center justify-between border-b px-6 py-4 md:flex"
           style={{ borderColor: "var(--border)" }}
         >
-          <div className="hidden items-center gap-2 md:flex">
+          <div className="flex items-center gap-2">
             <ActiveIcon size={18} style={{ color: "var(--accent)" }} />
             <h1 className="text-base font-semibold" style={{ color: "var(--text-primary)" }}>
               {t(activeItem.labelKey)}
             </h1>
           </div>
-          {activeTab !== "about" && activeTab !== "securite" && activeTab !== "templates" && activeTab !== "schemas" && (
+          {saveable && (
             <Button
               onPress={saveSettings}
               isDisabled={isSaving}
               size="sm"
-              className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-all hover:opacity-90 disabled:opacity-50 md:ml-auto"
+              className="ml-auto flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-all hover:opacity-90 disabled:opacity-50"
               style={{
                 backgroundColor: "var(--btn-primary-bg)",
                 color: "var(--btn-primary-fg)",

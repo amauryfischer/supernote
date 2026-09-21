@@ -138,22 +138,6 @@ const noteFields: SeedField[] = [
   { id: "note_updated_at", name: "updatedAt", label: "Modifié le", kind: "updatedAt" },
 ];
 
-const dailyFields: SeedField[] = [
-  { id: "daily_date", name: "date", label: "Date", kind: "date", required: true, unique: true },
-  { id: "daily_body", name: "body", label: "Journal", kind: "markdown" },
-  { id: "daily_mood", name: "mood", label: "Humeur", kind: "rating", min: 1, max: 5 },
-  {
-    id: "daily_energy", name: "energy", label: "Energie", kind: "select",
-    options: [
-      { value: "high", label: "Haute", color: "#10B981" },
-      { value: "medium", label: "Moyenne", color: "#FBBF24" },
-      { value: "low", label: "Basse", color: "#EF4444" },
-    ],
-  },
-  { id: "daily_gratitude", name: "gratitude", label: "Gratitude", kind: "longtext" },
-  { id: "daily_created_at", name: "createdAt", label: "Créé le", kind: "createdAt" },
-];
-
 const tagFields: SeedField[] = [
   { id: "tag_name", name: "name", label: "Nom", kind: "text", required: true, unique: true },
   { id: "tag_color", name: "color", label: "Couleur", kind: "color" },
@@ -314,7 +298,6 @@ export const DEFAULT_ENTITY_TYPES: SeedEntityType[] = [
   { id: "organisation", name: "Organisation", plural: "Organisations", icon: "Building2", color: "#0EA5E9", fields: orgaFields, defaultPath: "Contacts/Organisations", fileNamePattern: "{name}" },
   { id: "interaction", name: "Interaction", plural: "Interactions", icon: "MessageCircle", color: "#10B981", fields: interactionFields, defaultPath: "Interactions", fileNamePattern: "{date}-{title}" },
   { id: "note", name: "Note", plural: "Notes", icon: "FileText", color: "#F59E0B", fields: noteFields, defaultPath: "Notes", fileNamePattern: "{title}" },
-  { id: "daily", name: "Daily", plural: "Dailies", icon: "Calendar", color: "#EC4899", fields: dailyFields, defaultPath: "Daily", fileNamePattern: "{date}" },
   { id: "tag", name: "Tag", plural: "Tags", icon: "Tag", color: "#64748B", fields: tagFields, defaultPath: "Tags", fileNamePattern: "{name}" },
   { id: "account", name: "Account", plural: "Accounts", icon: "Wallet", color: "#4F8EF7", fields: accountFields, defaultPath: "Finance/Accounts", fileNamePattern: "{name}" },
   { id: "asset", name: "Asset", plural: "Assets", icon: "TrendingUp", color: "#10B981", fields: assetFields, defaultPath: "Finance/Assets", fileNamePattern: "{name}" },

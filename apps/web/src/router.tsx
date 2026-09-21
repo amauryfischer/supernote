@@ -10,7 +10,7 @@
  * automatically. The shell (RootLayout) is loaded eagerly.
  */
 
-import { createBrowserRouter } from "react-router-dom";
+import { createBrowserRouter, redirect } from "react-router-dom";
 import { RootLayout } from "./RootLayout";
 import { RouteErrorBoundary } from "./components/error/ErrorBoundary";
 
@@ -83,8 +83,8 @@ export const router: any = createBrowserRouter([
     Component: RootLayout,
     ErrorBoundary: RouteErrorBoundary,
     children: [
-      // ── Home (le Journal du jour — voir docs/superpowers/specs/2026-09-03-flux-journal-design.md) ──
-      { index: true, lazy: lazyPage(() => import("./app/journal/page")) },
+      // ── Home : la boîte mail ──────────────────────────────────────────
+      { index: true, loader: () => redirect("/mail") },
 
       // ── Notes ─────────────────────────────────────────────────────────
       { path: "notes", lazy: lazyPage(() => import("./app/notes/page")) },
@@ -99,10 +99,6 @@ export const router: any = createBrowserRouter([
 
       // ── Habitudes (jardin de pixels) ──────────────────────────────────
       { path: "habits", lazy: lazyPage(() => import("./app/habits/page")) },
-
-      // ── Journal ───────────────────────────────────────────────────────
-      { path: "journal", lazy: lazyPage(() => import("./app/journal/page")) },
-      { path: "journal/:date", lazy: lazyPage(() => import("./app/journal/[date]/page")) },
 
       // ── Contacts ──────────────────────────────────────────────────────
       { path: "contacts", lazy: lazyPage(() => import("./app/contacts/page")) },
@@ -156,7 +152,7 @@ export const router: any = createBrowserRouter([
       // ── 404 fallback ──────────────────────────────────────────────────
       // Returns the home page on unknown URLs. Replace with a dedicated
       // not-found component if/when one is added.
-      { path: "*", lazy: lazyPage(() => import("./app/journal/page")) },
+      { path: "*", loader: () => redirect("/mail") },
     ],
   },
 ]);
