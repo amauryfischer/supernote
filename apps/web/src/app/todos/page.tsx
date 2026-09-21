@@ -55,7 +55,6 @@ import { EmptyState, ContextMenu, useContextMenu, DropdownMenu, Tooltip, type Co
 import { importanceColor, importanceLabel, importanceForAxis } from "@/components/todos/TodoRow";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { loadBindings, reconcileBindings, removeBindingByTodo, MAIL_BINDINGS_EVENT, type MailTodoBinding } from "@/lib/mail-todo-binding";
 import {
   DndContext,
   closestCenter,
@@ -466,30 +465,6 @@ export default function TodosPage() {
     return out;
   }, [notesQuery.data]);
 
-  // Liaisons email ↔ tâche (localStorage) → permet d'afficher « lié à un email »
-  // + le lien d'ouverture sur les tâches standalone créées depuis un email.
-  const [mailBindings, setMailBindings] = useState<MailTodoBinding[]>([]);
-  useEffect(() => {
-    const reload = () => setMailBindings(loadBindings());
-    reload();
-    // Un résumé IA arrivé après coup (conversion → Ollama en tâche de fond)
-    // émet cet évènement → on recharge pour l'afficher sans re-navigation.
-    window.addEventListener(MAIL_BINDINGS_EVENT, reload);
-    return () => window.removeEventListener(MAIL_BINDINGS_EVENT, reload);
-  }, []);
-  // Auto-réparation des liaisons email depuis la provenance durable du coffre
-  // (cf. mail/page.tsx) : reconstruit dans localStorage les liaisons perdues à
-  // partir des champs `mail*` des entités todo déjà chargées. reconcileBindings
-  // émet MAIL_BINDINGS_EVENT → le listener ci-dessus recharge mailBindings.
-  useEffect(() => {
-    const items = todosQuery.data?.items;
-    if (items) reconcileBindings(items);
-  }, [todosQuery.data]);
-  const bindingByTodo = useMemo(
-    () => new Map(mailBindings.map((b) => [b.todoId, b] as const)),
-    [mailBindings],
-  );
-
   const standaloneRows: UiTodoRow[] = useMemo(() => {
     const items = todosQuery.data?.items ?? [];
     return items
@@ -503,15 +478,16 @@ export default function TodosPage() {
       .map((e) => {
         const f = e.fields ?? {};
         const text = typeof f["text"] === "string" ? (f["text"] as string) : "(sans texte)";
-        const b = bindingByTodo.get(e.id);
+        // Tâches créées depuis un email avant le passage aux labels Gmail.
+        const mailField = (k: string) => (typeof f[k] === "string" && f[k] ? (f[k] as string) : null);
         return {
           kind: "standalone" as const,
           id: e.id,
           text,
           done: f["done"] === true || f["done"] === "true",
-          sourceThreadId: b?.threadId ?? null,
-          sourceFromName: b?.fromName ?? b?.fromEmail ?? null,
-          sourceSummary: b?.summary ?? b?.snippet ?? null,
+          sourceThreadId: mailField("mailThreadId"),
+          sourceFromName: mailField("mailFromName") ?? mailField("mailFromEmail"),
+          sourceSummary: mailField("mailSnippet"),
           sourceNoteId: null,
           line: null,
           blockId: null,
@@ -537,7 +513,7 @@ export default function TodosPage() {
           sortOrder: typeof f["sortOrder"] === "number" ? (f["sortOrder"] as number) : null,
         };
       });
-  }, [todosQuery.data, bindingByTodo]);
+  }, [todosQuery.data]);
 
   const allTodos: UiTodoRow[] = useMemo(
     () => [...noteRows, ...standaloneRows],
@@ -837,9 +813,6 @@ export default function TodosPage() {
       if (row.kind !== "standalone") return; // note-derived: must edit the note
       try {
         await trpcVanillaClient.entities.delete.mutate({ id: row.id });
-        // Élague la liaison email→todo éventuelle : sinon le thread source reste
-        // masqué de l'inbox et une carte fantôme (todoId mort) traîne sur le board.
-        removeBindingByTodo(row.id);
         await utils.entities.list.invalidate({ typeId: TODO_TYPE_ID });
         setEditing(null);
         showToast("Tâche supprimée");

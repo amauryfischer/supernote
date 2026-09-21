@@ -1,25 +1,14 @@
 "use client";
 
 /**
- * MailEisenhowerPicker — bouton « → Todo » qui ouvre un Popover présentant la
- * matrice d'Eisenhower en grille 2×2. Au choix d'un quadrant, déclenche
- * `onConvert(quadrant)` : l'appelant (EmailThreadView) crée la tâche, enregistre
- * la liaison thread ↔ todo et sort le fil de l'inbox.
- *
- * Le composant est purement présentational : il ne crée RIEN lui-même (pas de
- * réseau, pas de store). Il expose juste le choix du quadrant. La grille reprend
- * l'ordre canonique de `QUADRANTS` (do / schedule / delegate / eliminate) et les
- * deux axes (urgent / important) pour que l'utilisateur situe son choix d'un
- * coup d'œil, exactement comme la matrice de /todos.
- *
- * Mobile : déclencheur à hit-target tactile (h-9 ≈ 36px), libellé masqué sous
- * `sm` (icône seule) ; la grille du Popover reste lisible (cellules ~h-16,
- * min-w borné) sans débordement horizontal.
+ * MailEisenhowerPicker — bouton « Todo » qui ouvre la matrice d'Eisenhower en
+ * grille 2×2 ; `onConvert(quadrant)` laisse l'appelant poser le label Gmail.
  */
 
 import { useEffect, useState } from "react";
 import { Button, Popover } from "@heroui/react";
 import { ListChecks, Sparkle } from "@phosphor-icons/react";
+import { Tooltip } from "@supernote/ui";
 import { QUADRANTS, type EisenhowerQuadrant } from "@/lib/mail-eisenhower";
 
 export interface MailEisenhowerPickerProps {
@@ -35,6 +24,8 @@ export interface MailEisenhowerPickerProps {
    * prop le composant se comporte exactement comme avant.
    */
   suggestedQuadrant?: EisenhowerQuadrant | null;
+  /** Quadrant où le fil est déjà rangé (label todo présent). */
+  currentQuadrant?: EisenhowerQuadrant | null;
 }
 
 /** Sous-titre d'aide par quadrant (axes urgence/importance lisibles). */
@@ -57,7 +48,9 @@ export function MailEisenhowerPicker({
   onConvert,
   isBusy = false,
   suggestedQuadrant = null,
+  currentQuadrant = null,
 }: MailEisenhowerPickerProps) {
+  const current = QUADRANTS.find((q) => q.id === currentQuadrant);
   const [open, setOpen] = useState(false);
 
   // Suggestion IA reçue → ouvre le Popover sur la matrice (cellule suggérée mise
@@ -73,21 +66,32 @@ export function MailEisenhowerPicker({
 
   return (
     <Popover isOpen={open} onOpenChange={setOpen}>
-      <Button
-        variant="ghost"
-        size="sm"
-        isDisabled={isBusy}
-        className="h-9 gap-1.5"
-        aria-label="Convertir cet email en tâche (matrice d'Eisenhower)"
-      >
-        <ListChecks size={18} aria-hidden />
-        <span className="hidden sm:inline">Todo</span>
-      </Button>
+      <Tooltip content={current ? `Todo · ${current.label} (1–4)` : "Mettre en todo (1–4)"}>
+        <Button
+          variant="ghost"
+          size="sm"
+          isIconOnly
+          isDisabled={isBusy}
+          className="h-9"
+          aria-label={
+            current
+              ? `Rangé dans « ${current.label} » : changer de quadrant`
+              : "Mettre en todo (matrice d'Eisenhower)"
+          }
+        >
+          <ListChecks
+            size={18}
+            weight={current ? "fill" : "regular"}
+            style={current ? { color: QUADRANT_ACCENT[current.id] } : undefined}
+            aria-hidden
+          />
+        </Button>
+      </Tooltip>
       <Popover.Content className="w-72 p-2">
         <Popover.Dialog className="outline-none">
           <div className="mb-2 px-1">
             <p className="text-xs font-medium" style={{ color: "var(--text-primary)" }}>
-              Convertir en tâche
+              Mettre en todo
             </p>
             <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>
               Choisis un quadrant de la matrice.

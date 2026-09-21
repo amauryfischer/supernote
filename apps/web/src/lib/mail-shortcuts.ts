@@ -42,6 +42,10 @@ export type MailActionId =
   | "spam"
   | "star"
   | "label"
+  | "todoDo"
+  | "todoSchedule"
+  | "todoDelegate"
+  | "todoEliminate"
   | "select"
   | "undo"
   // Rédaction
@@ -235,6 +239,39 @@ export const MAIL_SHORTCUTS: MailBinding[] = [
     keys: [["l"]],
     display: "l",
     label: "Ajouter un label",
+    group: "Triage",
+    contexts: ALL,
+  },
+  // Chiffres de la rangée du haut : sur AZERTY sans Maj, `key` vaut & é " '.
+  {
+    id: "todoDo",
+    keys: [["1"], ["&"]],
+    display: "1",
+    label: "Todo : Faire",
+    group: "Triage",
+    contexts: ALL,
+  },
+  {
+    id: "todoSchedule",
+    keys: [["2"], ["é"]],
+    display: "2",
+    label: "Todo : Planifier",
+    group: "Triage",
+    contexts: ALL,
+  },
+  {
+    id: "todoDelegate",
+    keys: [["3"], ['"']],
+    display: "3",
+    label: "Todo : Déléguer",
+    group: "Triage",
+    contexts: ALL,
+  },
+  {
+    id: "todoEliminate",
+    keys: [["4"], ["'"]],
+    display: "4",
+    label: "Todo : Éliminer",
     group: "Triage",
     contexts: ALL,
   },

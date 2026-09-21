@@ -1,27 +1,14 @@
 /**
- * mail-eisenhower — logique PURE de mapping entre les quadrants de la matrice
- * d'Eisenhower et les champs d'une entité `todo` de base.
- *
- * Modèle mental (identique à `components/todos/TodoMatrix.tsx`, calqué pour
- * rester cohérent) — deux axes binaires :
- *   - Urgence    ← le flag `urgent` (booléen).
- *   - Importance ← le champ `importance` (échelle 4 niveaux), réduit à un binaire
- *                  « important = high | critical », sinon non-important.
- *
- *        │ URGENT              │ PAS URGENT
- *   ─────┼─────────────────────┼─────────────────────
- *   IMP. │ Faire (do)          │ Planifier (schedule)
- *   ¬IMP.│ Déléguer (delegate) │ Éliminer (eliminate)
- *
- * Ce module ne fait AUCUN effet de bord (ni réseau, ni localStorage) : il traduit
- * dans les deux sens un quadrant ↔ les champs persistés du todo. Le store des
- * liaisons thread ↔ todo vit dans `mail-todo-binding.ts`.
+ * mail-eisenhower — la matrice d'Eisenhower du mail vit dans 4 labels Gmail, un
+ * par quadrant. Le quadrant d'un thread se lit dans ses `labelIds` : même vue
+ * depuis Supernote, Gmail ou Shortwave, sans store local.
  */
 
-/** Les quatre quadrants de la matrice d'Eisenhower. */
+import { createLabel, listLabels, type GmailLabel } from "./gmail";
+import { INBOX_LABEL } from "./mail-triage";
+
 export type EisenhowerQuadrant = "do" | "schedule" | "delegate" | "eliminate";
 
-/** Définition d'un quadrant : identifiant, libellé FR, et axes binaires. */
 export interface EisenhowerQuadrantDef {
   id: EisenhowerQuadrant;
   label: string;
@@ -29,11 +16,7 @@ export interface EisenhowerQuadrantDef {
   important: boolean;
 }
 
-/**
- * Les quadrants dans l'ordre de lecture de la grille 2×2 (colonne urgente
- * d'abord) : `do`, `schedule`, `delegate`, `eliminate`. Cet ordre est celui
- * attendu par l'UI (boutons / grille) pour rester aligné avec `TodoMatrix`.
- */
+/** Ordre de lecture de la grille 2×2, aligné sur `TodoMatrix`. */
 export const QUADRANTS: readonly EisenhowerQuadrantDef[] = [
   { id: "do", label: "Faire", urgent: true, important: true },
   { id: "schedule", label: "Planifier", urgent: false, important: true },
@@ -41,49 +24,148 @@ export const QUADRANTS: readonly EisenhowerQuadrantDef[] = [
   { id: "eliminate", label: "Éliminer", urgent: false, important: false },
 ];
 
+// Le préfixe numéroté garde l'ordre de la matrice dans les listes de labels
+// triées alphabétiquement (Gmail, Shortwave).
+export const TODO_LABEL_NAMES: Record<EisenhowerQuadrant, string> = {
+  do: "Todo/1 Faire",
+  schedule: "Todo/2 Planifier",
+  delegate: "Todo/3 Déléguer",
+  eliminate: "Todo/4 Éliminer",
+};
+
+export type TodoLabelIds = Partial<Record<EisenhowerQuadrant, string>>;
+
+/** Paires `[id, nom]` : un `Map` id→nom ou `labels.map((l) => [l.id, l.name])`. */
+type LabelPairs = Iterable<readonly [string, string]>;
+
+// Gmail tient les noms de label pour uniques sans égard à la casse.
+export function resolveTodoLabelIds(labels: LabelPairs): TodoLabelIds {
+  const byName = new Map<string, string>();
+  for (const [id, name] of labels) byName.set(name.toLowerCase(), id);
+  const ids: TodoLabelIds = {};
+  for (const q of QUADRANTS) {
+    const id = byName.get(TODO_LABEL_NAMES[q.id].toLowerCase());
+    if (id) ids[q.id] = id;
+  }
+  return ids;
+}
+
+export function todoLabelIdSet(ids: TodoLabelIds): Set<string> {
+  return new Set(Object.values(ids).filter((id): id is string => Boolean(id)));
+}
+
+export function quadrantOfLabels(
+  labelIds: readonly string[],
+  ids: TodoLabelIds,
+): EisenhowerQuadrant | null {
+  for (const q of QUADRANTS) {
+    const id = ids[q.id];
+    if (id && labelIds.includes(id)) return q.id;
+  }
+  return null;
+}
+
+export type TodoLabels = Record<EisenhowerQuadrant, GmailLabel>;
+
 /**
- * Champs `todo` à écrire pour matérialiser un quadrant. On collapse l'importance
- * sur deux valeurs canoniques (`high` / `low`) — suffisant pour reclasser une
- * tâche créée depuis un email, et cohérent avec `quadrantOf` (high ⇒ important,
- * low ⇒ non-important). PUR.
- *
- *   - do        = urgent + high
- *   - schedule  = !urgent + high
- *   - delegate  = urgent + low
- *   - eliminate = !urgent + low
+ * Renvoie les 4 labels todo, créés s'ils manquent. La liste locale peut être
+ * périmée (label créé depuis Shortwave) : on relit Gmail avant de créer, sinon
+ * `createLabel` prendrait un 409.
  */
-export function quadrantToTodoFields(q: EisenhowerQuadrant): {
-  urgent: boolean;
-  importance: "high" | "low";
-} {
-  switch (q) {
-    case "do":
-      return { urgent: true, importance: "high" };
-    case "schedule":
-      return { urgent: false, importance: "high" };
-    case "delegate":
-      return { urgent: true, importance: "low" };
-    case "eliminate":
-      return { urgent: false, importance: "low" };
-    default: {
-      // Exhaustivité : un nouveau quadrant sans branche → erreur TS ici.
-      const never: never = q;
-      throw new Error(`Quadrant Eisenhower inconnu : ${String(never)}`);
-    }
+export async function ensureTodoLabels(clientId: string, known: LabelPairs): Promise<TodoLabels> {
+  let pairs: Array<readonly [string, string]> = [...known];
+  if (Object.keys(resolveTodoLabelIds(pairs)).length < QUADRANTS.length) {
+    pairs = (await listLabels(clientId)).map((l) => [l.id, l.name] as const);
+  }
+  const ids = resolveTodoLabelIds(pairs);
+  const out = {} as TodoLabels;
+  for (const q of QUADRANTS) {
+    const id = ids[q.id];
+    out[q.id] = id
+      ? { id, name: TODO_LABEL_NAMES[q.id] }
+      : await createLabel(clientId, TODO_LABEL_NAMES[q.id]);
+  }
+  return out;
+}
+
+/** Ranger dans `q` retire les trois autres labels ; `null` les retire tous. */
+export function todoLabelChange(
+  labels: TodoLabels,
+  q: EisenhowerQuadrant | null,
+): { addLabelIds: string[]; removeLabelIds: string[] } {
+  return {
+    addLabelIds: q ? [labels[q].id] : [],
+    removeLabelIds: QUADRANTS.filter((d) => d.id !== q).map((d) => labels[d.id].id),
+  };
+}
+
+export function applyLabelChange(
+  labelIds: readonly string[],
+  change: { addLabelIds: string[]; removeLabelIds: string[] },
+): string[] {
+  const remove = new Set(change.removeLabelIds);
+  const kept = labelIds.filter((id) => !remove.has(id));
+  return [...kept, ...change.addLabelIds.filter((id) => !kept.includes(id))];
+}
+
+const LEGACY_BINDINGS_KEY = "supernote.mail.todo-bindings";
+
+function isQuadrant(v: unknown): v is EisenhowerQuadrant {
+  return typeof v === "string" && QUADRANTS.some((q) => q.id === v);
+}
+
+function readLegacyBindings(): Array<{ threadId: string; quadrant: EisenhowerQuadrant }> {
+  try {
+    const parsed: unknown = JSON.parse(window.localStorage.getItem(LEGACY_BINDINGS_KEY) ?? "[]");
+    if (!Array.isArray(parsed)) return [];
+    return parsed.flatMap((b: unknown) => {
+      if (typeof b !== "object" || b === null) return [];
+      const { threadId, quadrant } = b as Record<string, unknown>;
+      return typeof threadId === "string" && threadId && isQuadrant(quadrant)
+        ? [{ threadId, quadrant }]
+        : [];
+    });
+  } catch {
+    return [];
   }
 }
 
 /**
- * Détermine le quadrant d'une tâche à partir de ses axes bruts. Inverse de
- * `quadrantToTodoFields` et cohérent avec `TodoMatrix.quadrantOf` :
- * « important » ⇔ `importance === "high" || importance === "critical"`. Toute
- * autre valeur (`medium`, `low`, vide, inconnue) est traitée comme
- * non-importante. PUR.
+ * Migration unique de l'ancien store localStorage (thread → tâche coffre) : on
+ * pose le label du quadrant et on remet INBOX, que l'ancienne conversion
+ * retirait. Un thread supprimé (404) est ignoré ; tout autre échec garde la clé
+ * pour retenter, sinon les liaisons seraient perdues. Renvoie le nombre de
+ * threads migrés.
  */
-export function quadrantOf(urgent: boolean, importance: string): EisenhowerQuadrant {
-  const important = importance === "high" || importance === "critical";
-  if (urgent && important) return "do";
-  if (!urgent && important) return "schedule";
-  if (urgent && !important) return "delegate";
-  return "eliminate";
+export async function migrateLegacyTodoBindings(
+  labels: TodoLabels,
+  modify: (threadId: string, change: { addLabelIds: string[]; removeLabelIds: string[] }) => Promise<void>,
+): Promise<number> {
+  const legacy = readLegacyBindings();
+  let migrated = 0;
+  let retryable = 0;
+  for (const b of legacy) {
+    const change = todoLabelChange(labels, b.quadrant);
+    try {
+      await modify(b.threadId, { ...change, addLabelIds: [...change.addLabelIds, INBOX_LABEL] });
+      migrated++;
+    } catch (e) {
+      if (!/ 404/.test(String(e))) retryable++;
+    }
+  }
+  if (retryable > 0) throw new Error(`${retryable} thread(s) non migré(s)`);
+  try {
+    window.localStorage.removeItem(LEGACY_BINDINGS_KEY);
+  } catch {
+    /* storage bloqué : on retentera au prochain montage */
+  }
+  return migrated;
+}
+
+export function hasLegacyTodoBindings(): boolean {
+  try {
+    return window.localStorage.getItem(LEGACY_BINDINGS_KEY) !== null;
+  } catch {
+    return false;
+  }
 }

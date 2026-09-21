@@ -23,7 +23,6 @@ import { useToast } from "@supernote/ui";
 import { createLabel, type GmailLabel, type ThreadListItem } from "@/lib/gmail";
 import type { ClassificationResult } from "@/lib/mail-autolabel";
 import {
-  MAIL_CATEGORIES,
   categoryById,
   classifyThread,
   loadSeen,
@@ -95,26 +94,11 @@ export function useMailAutoLabel({
     return undefined;
   }, []);
 
-  const autoLabelIds = useCallback((): Set<string> => {
-    const out = new Set<string>();
-    for (const c of MAIL_CATEGORIES) {
-      const id = labelIdByName(c.labelName);
-      if (id) out.add(id);
-    }
-    return out;
-  }, [labelIdByName]);
-
-  const remaining = enabled
-    ? pendingForClassification(items, loadSeen(), autoLabelIds()).length
-    : 0;
+  const remaining = enabled ? pendingForClassification(items, loadSeen()).length : 0;
 
   const run = useCallback(async () => {
     if (runningRef.current || !clientId) return;
-    const pending = pendingForClassification(
-      itemsRef.current,
-      loadSeen(),
-      autoLabelIds(),
-    ).slice(0, BATCH);
+    const pending = pendingForClassification(itemsRef.current, loadSeen()).slice(0, BATCH);
     if (pending.length === 0) return;
 
     runningRef.current = true;
@@ -183,22 +167,18 @@ export function useMailAutoLabel({
       runningRef.current = false;
       setBusy(false);
     }
-  }, [clientId, autoLabelIds, labelIdByName, onLabelCreated, toast]);
+  }, [clientId, labelIdByName, onLabelCreated, toast]);
 
   /** Passe manuelle : dit ce qu'elle fait, y compris quand il n'y a rien. */
   const runNow = useCallback(() => {
-    const pending = pendingForClassification(
-      itemsRef.current,
-      loadSeen(),
-      autoLabelIds(),
-    ).length;
+    const pending = pendingForClassification(itemsRef.current, loadSeen()).length;
     if (pending === 0) {
-      toast({ title: "Rien à classer", description: "Tous les fils ont déjà été vus." });
+      toast({ title: "Rien à classer", description: "Tous les fils sans label ont déjà été vus." });
       return;
     }
     manualRef.current = true;
     void run();
-  }, [run, autoLabelIds, toast]);
+  }, [run, toast]);
 
   // Passe automatique après stabilisation de la liste.
   useEffect(() => {

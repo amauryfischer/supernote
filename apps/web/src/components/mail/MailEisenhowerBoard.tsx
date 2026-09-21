@@ -1,39 +1,28 @@
 "use client";
 
 /**
- * MailEisenhowerBoard — grille 2×2 des emails convertis en tâches, classés par
- * quadrant d'Eisenhower. Source de vérité : les liaisons thread ↔ todo du store
- * local (`mail-todo-binding`), passées en props par la page mail.
- *
- * Chaque carte = sujet du fil + actions :
- *   - « Ouvrir »   → charge et affiche le thread dans le pane de droite.
- *   - « Fait »     → marque la tâche `done` (et retire la liaison) côté appelant.
- *   - « → quadrant » (Popover) → reclasse la carte dans un autre quadrant
- *                    (MAJ optimiste du store + des axes urgent/importance du todo).
- *
- * Purement présentational : aucune écriture (réseau / store) ici. Tout effet est
- * délégué via `onOpen` / `onDone` / `onMoveQuadrant`.
- *
- * Responsive : grille 2×2 dès `md:` (4 quadrants), empilée en 1 colonne sous
- * mobile. Hit-targets tactiles (boutons `size="sm"`, ~32px+), pas de débordement
- * horizontal (sujets tronqués / wrappés).
+ * MailEisenhowerBoard — grille 2×2 des threads de l'inbox rangés dans un label
+ * todo (cf. `mail-eisenhower`). Présentationnel : la page porte les mutations.
  */
 
 import { useState } from "react";
 import { Button, Popover } from "@heroui/react";
 import { ArrowRight, CheckCircle, EnvelopeOpen, Envelope, Sparkle } from "@phosphor-icons/react";
 import { QUADRANTS, type EisenhowerQuadrant } from "@/lib/mail-eisenhower";
-import type { MailTodoBinding } from "@/lib/mail-todo-binding";
+import type { ThreadListItem } from "@/lib/gmail";
+
+export interface MailTodoCard {
+  item: ThreadListItem;
+  quadrant: EisenhowerQuadrant;
+}
 
 export interface MailEisenhowerBoardProps {
-  /** Liaisons thread ↔ todo (toutes confondues) à répartir dans les quadrants. */
-  bindings: MailTodoBinding[];
-  /** Ouvrir le fil correspondant dans le pane de droite. */
+  cards: MailTodoCard[];
+  /** Mini-résumés IA de la liste, par threadId. */
+  summaries?: ReadonlyMap<string, string>;
   onOpen: (threadId: string) => void;
-  /** Marquer la tâche faite (done) — l'appelant retire ensuite la carte. */
-  onDone: (binding: MailTodoBinding) => void;
-  /** Déplacer la tâche vers un autre quadrant. */
-  onMoveQuadrant: (binding: MailTodoBinding, quadrant: EisenhowerQuadrant) => void;
+  onDone: (item: ThreadListItem) => void;
+  onMoveQuadrant: (item: ThreadListItem, quadrant: EisenhowerQuadrant) => void;
 }
 
 /** Sous-titre d'aide par quadrant (axes urgence/importance lisibles). */
@@ -52,41 +41,38 @@ const QUADRANT_ACCENT: Record<EisenhowerQuadrant, string> = {
   eliminate: "var(--text-muted)",
 };
 
-/** Carte d'un email-todo : sujet + actions (ouvrir / fait / déplacer). */
 function TodoCard({
-  binding,
+  card: { item, quadrant },
+  summary,
   onOpen,
   onDone,
   onMoveQuadrant,
 }: {
-  binding: MailTodoBinding;
+  card: MailTodoCard;
+  summary?: string;
   onOpen: (threadId: string) => void;
-  onDone: (binding: MailTodoBinding) => void;
-  onMoveQuadrant: (binding: MailTodoBinding, quadrant: EisenhowerQuadrant) => void;
+  onDone: (item: ThreadListItem) => void;
+  onMoveQuadrant: (item: ThreadListItem, quadrant: EisenhowerQuadrant) => void;
 }) {
   const [moveOpen, setMoveOpen] = useState(false);
-  // Quadrants de destination : tous sauf celui où la carte se trouve déjà.
-  const targets = QUADRANTS.filter((q) => q.id !== binding.quadrant);
+  const targets = QUADRANTS.filter((q) => q.id !== quadrant);
 
   return (
     <div
       className="flex flex-col gap-2 rounded-lg border p-3"
       style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-1)" }}
     >
-      {/* En-tête « c'est un email » : icône + expéditeur → lève l'ambiguïté
-          tâche/email. Aperçu compact (snippet) en dessous = vue « quelques lignes ». */}
       <div className="flex items-center gap-1.5 text-xs" style={{ color: "var(--text-muted)" }}>
         <Envelope size={13} aria-hidden style={{ color: "var(--accent)" }} />
-        <span className="truncate">{binding.fromName || binding.fromEmail || "Email"}</span>
+        <span className="truncate">{item.from.name || item.from.email || "Email"}</span>
       </div>
       <p
         className="line-clamp-2 break-words text-sm font-medium"
         style={{ color: "var(--text-primary)" }}
       >
-        {binding.subject || "Email sans sujet"}
+        {item.subject || "Email sans sujet"}
       </p>
-      {/* Aperçu compact : résumé IA si dispo (badge ✦), sinon snippet brut. */}
-      {binding.summary ? (
+      {summary ? (
         <div className="flex flex-col gap-1">
           <span
             className="sn-eyebrow sn-eyebrow--compact flex items-center gap-1"
@@ -95,13 +81,13 @@ function TodoCard({
             <Sparkle size={11} weight="fill" aria-hidden /> Résumé
           </span>
           <p className="line-clamp-4 break-words text-xs" style={{ color: "var(--text-secondary)" }}>
-            {binding.summary}
+            {summary}
           </p>
         </div>
       ) : (
-        binding.snippet && (
+        item.snippet && (
           <p className="line-clamp-3 break-words text-xs" style={{ color: "var(--text-secondary)" }}>
-            {binding.snippet}
+            {item.snippet}
           </p>
         )
       )}
@@ -109,7 +95,7 @@ function TodoCard({
         <Button
           variant="ghost"
           size="sm"
-          onPress={() => onOpen(binding.threadId)}
+          onPress={() => onOpen(item.id)}
           aria-label="Ouvrir le fil de cet email"
         >
           <EnvelopeOpen size={15} aria-hidden /> Ouvrir
@@ -117,8 +103,8 @@ function TodoCard({
         <Button
           variant="ghost"
           size="sm"
-          onPress={() => onDone(binding)}
-          aria-label="Marquer la tâche comme faite"
+          onPress={() => onDone(item)}
+          aria-label="Marquer fait : retire le label et archive"
         >
           <CheckCircle size={15} aria-hidden /> Fait
         </Button>
@@ -147,7 +133,7 @@ function TodoCard({
                     className="w-full justify-start"
                     onPress={() => {
                       setMoveOpen(false);
-                      onMoveQuadrant(binding, q.id);
+                      onMoveQuadrant(item, q.id);
                     }}
                     aria-label={`Déplacer vers ${q.label} (${QUADRANT_HINT[q.id]})`}
                   >
@@ -172,20 +158,21 @@ function TodoCard({
 }
 
 export function MailEisenhowerBoard({
-  bindings,
+  cards,
+  summaries,
   onOpen,
   onDone,
   onMoveQuadrant,
 }: MailEisenhowerBoardProps) {
-  // Regroupe les liaisons par quadrant pour un rendu O(n) sans recalcul par case.
-  const byQuadrant = new Map<EisenhowerQuadrant, MailTodoBinding[]>();
+  const byQuadrant = new Map<EisenhowerQuadrant, MailTodoCard[]>();
   for (const q of QUADRANTS) byQuadrant.set(q.id, []);
-  for (const b of bindings) byQuadrant.get(b.quadrant)?.push(b);
+  for (const c of cards) byQuadrant.get(c.quadrant)?.push(c);
 
-  if (bindings.length === 0) {
+  if (cards.length === 0) {
     return (
       <p className="px-3 py-6 text-sm" style={{ color: "var(--text-muted)" }}>
-        Aucune tâche email. Convertis un email en tâche depuis sa fiche (bouton « Todo »).
+        Aucun email à traiter. Range un email avec le bouton « Todo » de sa fiche, ou pose un
+        label « Todo/… » depuis Gmail ou Shortwave.
       </p>
     );
   }
@@ -193,7 +180,7 @@ export function MailEisenhowerBoard({
   return (
     <div className="grid grid-cols-1 gap-3 p-2 md:grid-cols-2">
       {QUADRANTS.map((q) => {
-        const cards = byQuadrant.get(q.id) ?? [];
+        const quadrantCards = byQuadrant.get(q.id) ?? [];
         return (
           <section
             key={q.id}
@@ -209,19 +196,20 @@ export function MailEisenhowerBoard({
                 {q.label}
               </span>
               <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>
-                {QUADRANT_HINT[q.id]} · {cards.length}
+                {QUADRANT_HINT[q.id]} · {quadrantCards.length}
               </span>
             </div>
-            {cards.length === 0 ? (
+            {quadrantCards.length === 0 ? (
               <p className="px-1 py-2 text-xs" style={{ color: "var(--text-muted)" }}>
                 Vide
               </p>
             ) : (
               <div className="flex flex-col gap-2">
-                {cards.map((b) => (
+                {quadrantCards.map((c) => (
                   <TodoCard
-                    key={b.threadId}
-                    binding={b}
+                    key={c.item.id}
+                    card={c}
+                    summary={summaries?.get(c.item.id)}
                     onOpen={onOpen}
                     onDone={onDone}
                     onMoveQuadrant={onMoveQuadrant}

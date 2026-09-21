@@ -4,7 +4,7 @@
  * système « zéro-inbox » : les emails portant un label routé sont SORTIS de
  * l'inbox (query `-label:…`) et regroupés dans l'onglet de leur groupe.
  *
- * Pourquoi un store local (calqué sur `mail-triage` / `mail-todo-binding`) :
+ * Pourquoi un store local (calqué sur `mail-triage`) :
  *   un groupe est une CONFIG DE VUE (préférence d'affichage), pas du contenu.
  *   Best-effort : aucune dépendance React, aucun effet réseau, jamais
  *   d'exception, tolérant à l'absence de `window` (SSR / tests node).
@@ -117,6 +117,48 @@ export function removeGroup(id: string): MailGroup[] {
 /** Renvoie un groupe par id, ou `undefined`. Lecture seule. */
 export function getGroup(id: string): MailGroup | undefined {
   return loadGroups().find((e) => e.id === id);
+}
+
+/** Split à label unique : ce label ne doit pas regrouper les fils de l'onglet. */
+export function flatLabelIdsForTab(tab: string, groups: readonly MailGroup[]): Set<string> {
+  const id = groupIdFromTab(tab);
+  const group = id === null ? undefined : groups.find((g) => g.id === id);
+  return new Set(group?.labelIds.length === 1 ? group.labelIds : []);
+}
+
+// Splits de base, posés au premier chargement tant qu'aucun groupe n'a jamais été
+// enregistré sur cette origine (le store vit dans le localStorage de chaque port
+// ou appareil). Labels retrouvés par nom, sans égard à la casse.
+const DEFAULT_GROUPS: ReadonlyArray<{ id: string; name: string; labelNames: string[] }> = [
+  {
+    id: "g_voir-avec",
+    name: "Voir avec",
+    labelNames: ["voir avec Hadrien", "voir avec aurelia", "voir avec frédéric", "voir avec paul"],
+  },
+  { id: "g_dev-urgent", name: "Dev Urgent", labelNames: ["developpement Urgent"] },
+  { id: "g_dev", name: "Dev", labelNames: ["developpement"] },
+  { id: "g_coger", name: "Coger", labelNames: ["coger"] },
+  { id: "g_perso", name: "Perso", labelNames: ["Perso"] },
+];
+
+/** Pose les splits de base si le store n'a jamais existé. Renvoie `true` si posés. */
+export function seedDefaultGroups(labelNames: ReadonlyMap<string, string>): boolean {
+  if (typeof window === "undefined" || labelNames.size === 0) return false;
+  try {
+    if (window.localStorage.getItem(MAIL_GROUPS_STORAGE_KEY) !== null) return false;
+  } catch {
+    return false;
+  }
+  const idByName = new Map([...labelNames].map(([id, name]) => [name.toLowerCase(), id]));
+  const now = Date.now();
+  saveGroups(
+    DEFAULT_GROUPS.flatMap((g) => {
+      const labelIds = g.labelNames.flatMap((n) => idByName.get(n.toLowerCase()) ?? []);
+      return labelIds.length ? [{ id: g.id, name: g.name, labelIds, createdAt: now }] : [];
+    }),
+  );
+  emitGroupsChanged();
+  return true;
 }
 
 /** Tous les labelIds routés (union de tous les groupes), dédoublonnés. */

@@ -241,7 +241,7 @@ export function useJournalExtraction(date: string): UseJournalExtractionResult {
           fields: {
             text: suggestion.action.text,
             done: false,
-            // Défaut de /todos et de useConvertToTodo : sans lui, pas de badge
+            // Défaut de /todos : sans lui, pas de badge
             // P{n} et un tri différent des autres tâches.
             priority: 5,
             // Ni `urgent` ni `importance` : `dueDate` est la seule source de

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Button, Checkbox } from "@heroui/react";
-import { Tag, Star, DotsSixVertical, Sparkle, CaretDown, Checks } from "@phosphor-icons/react";
+import { Star, DotsSixVertical, Sparkle, CaretDown, Checks } from "@phosphor-icons/react";
 import {
   DndContext,
   useDraggable,
@@ -31,6 +31,8 @@ import type { GmailLabelColor } from "@/lib/gmail";
 import { initials, avatarColor } from "@/lib/mail-avatar";
 import { formatMailDate } from "@/lib/mail-date";
 import { SwipeableRow, type SwipeAction } from "./SwipeableRow";
+import { LabelMarker, labelChipStyle } from "./LabelMarker";
+import { useSettings } from "@/components/settings/SettingsContext";
 
 /** Données partagées par toutes les lignes — évite de threader une douzaine de
  *  props à travers `MailRow`. */
@@ -139,7 +141,7 @@ export function MailOverlayList({
   selectedThreadIds?: ReadonlySet<string>;
   /** Bascule la sélection de TOUS les threads d'une ligne (single ou groupe). */
   onToggleRowSelection?: (row: OverlayRow) => void;
-  /** Clic droit : convertir une ligne single en tâche Eisenhower. */
+  /** Clic droit : ranger une ligne single dans un quadrant (label Gmail). */
   onConvertRowToTodo?: (row: OverlayRow, quadrant: EisenhowerQuadrant) => void;
   /** Clic droit : triage rapide d'une ligne single (`until` = échéance snooze). */
   onTriageRow?: (row: OverlayRow, action: TriageAction, until?: number) => void;
@@ -474,6 +476,7 @@ function MailSectionHeader({
  *  (groupe-tag). Les hooks DnD sont TOUJOURS appelés (règle des hooks) et
  *  neutralisés via `disabled` selon le type de ligne et `dndEnabled`. */
 function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: SharedRowProps }) {
+  const { labelStyle } = useSettings().settings.gmail;
   const {
     activeKey,
     onPick,
@@ -581,13 +584,9 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
         <span className="flex w-full min-w-0 items-center gap-2">
           <span
             className="inline-flex min-w-0 items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium"
-            style={
-              labelColor
-                ? { backgroundColor: labelColor.backgroundColor, color: labelColor.textColor }
-                : { backgroundColor: "var(--accent-subtle)", color: "var(--accent)" }
-            }
+            style={labelChipStyle(labelColor, labelStyle)}
           >
-            <Tag size={11} className="shrink-0" aria-hidden />
+            <LabelMarker color={labelColor} style={labelStyle} size={11} />
             <span className="truncate">{title}</span>
           </span>
           {row.kind === "group" && row.count > 1 && (

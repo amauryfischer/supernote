@@ -1,4 +1,4 @@
-import type { AppSettings } from "./types";
+import type { AppSettings, IaSettings } from "./types";
 
 export const DEFAULT_SETTINGS: AppSettings = {
   general: {
@@ -66,6 +66,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     // Unanimité par défaut : un tag faux fait SORTIR le fil de la boîte.
     autoLabelConfidence: "strict",
     listSummary: false,
+    labelStyle: "solid",
   },
 };
 
@@ -79,3 +80,12 @@ export const ACCENT_COLORS = [
   { label: "Rouge", value: "#dc2626" },
   { label: "Rose", value: "#db2777" },
 ];
+
+// SettingsProvider persiste tout l'objet au montage : un ancien défaut s'est figé dans le localStorage et masquerait le défaut courant.
+const RETIRED_DEFAULT_MODELS = new Set(["llama3.2", "qwen3.5:9b"]);
+
+export function migrateIa(ia: IaSettings): IaSettings {
+  return RETIRED_DEFAULT_MODELS.has(ia.ollamaModel)
+    ? { ...ia, ollamaModel: DEFAULT_SETTINGS.ia.ollamaModel }
+    : ia;
+}

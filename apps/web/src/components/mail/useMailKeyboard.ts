@@ -43,7 +43,8 @@ function isEditable(target: EventTarget | null): boolean {
   if (!el) return false;
   if (el.isContentEditable) return true;
   const tag = el.tagName;
-  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+  // Une modale ouverte par un composant enfant (barre de report…) ne passe pas par l'état de la page.
+  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || !!el.closest?.('[role="dialog"]');
 }
 
 /**

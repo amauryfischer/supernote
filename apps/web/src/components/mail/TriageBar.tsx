@@ -8,9 +8,8 @@
  *  - Done / Archive : retirent le thread de l'inbox (mutation `INBOX` côté
  *    Gmail via `applyTriage`). Optimiste : on désactive la barre pendant
  *    l'appel ; en cas d'échec on toast et on réactive.
- *  - Snooze : Popover HeroUI avec 3 échéances rapides (Ce soir / Demain / Lundi
- *    prochain), calculées au runtime à partir de `new Date()`. Au choix, on
- *    enregistre l'échéance dans le store local (`addSnooze`) PUIS on applique la
+ *  - Snooze : ouvre la barre `SnoozeMenu` (saisie libre 10d / 32h + échéances
+ *    rapides). Au choix, on enregistre l'échéance dans le store local (`addSnooze`) PUIS on applique la
  *    mutation Gmail. Si la mutation échoue, on annule l'échéance locale
  *    (`removeSnooze`) pour ne pas laisser un thread « snoozé » mais toujours en
  *    inbox.
@@ -19,24 +18,20 @@
  * réussi via `onTriaged(action)` pour que l'appelant retire la carte / passe au
  * thread suivant.
  *
- * UI : boutons icône-seule (h-9 ≈ 36px hit-target tactile) + `Tooltip` au survol
- * (sauf le déclencheur snooze, qui porte déjà un Popover → on garde l'aria-label
- * sans Tooltip pour ne pas perturber le trigger). Le Popover snooze reste pleine
- * largeur des options.
+ * UI : boutons icône-seule (h-9 ≈ 36px hit-target tactile) + `Tooltip` au survol.
  */
 
 import { useCallback, useState } from "react";
-import { Button, Popover } from "@heroui/react";
+import { Button } from "@heroui/react";
 import { Archive, CheckCircle, Clock, Trash } from "@phosphor-icons/react";
 import { useToast, Tooltip } from "@supernote/ui";
 import {
   addSnooze,
   applyTriage,
   removeSnooze,
-  SNOOZE_PRESETS,
-  type SnoozePreset,
   type TriageAction,
 } from "@/lib/mail-triage";
+import { SnoozeMenu } from "./SnoozeMenu";
 
 export interface TriageBarProps {
   /** OAuth client ID Google (réutilisé pour le scope gmail.modify). */
@@ -59,7 +54,6 @@ export function TriageBar({ clientId, threadId, onTriaged }: TriageBarProps) {
   const { toast } = useToast();
   // Action en cours (verrouille toute la barre pendant la mutation).
   const [pending, setPending] = useState<TriageAction | null>(null);
-  // Ouverture contrôlée du Popover snooze (pour le fermer après un choix).
   const [snoozeOpen, setSnoozeOpen] = useState(false);
   const busy = pending !== null;
 
@@ -100,10 +94,8 @@ export function TriageBar({ clientId, threadId, onTriaged }: TriageBarProps) {
   );
 
   const handleSnooze = useCallback(
-    (preset: SnoozePreset) => {
-      setSnoozeOpen(false);
+    (until: number) => {
       setPending("snooze");
-      const until = preset.computeUntil(new Date());
       // Optimiste : on note l'échéance AVANT la mutation réseau.
       addSnooze(threadId, until);
       void runMutation("snooze")
@@ -152,35 +144,20 @@ export function TriageBar({ clientId, threadId, onTriaged }: TriageBarProps) {
         </Button>
       </Tooltip>
 
-      <Popover isOpen={snoozeOpen} onOpenChange={setSnoozeOpen}>
+      <Tooltip content="Reporter (h)">
         <Button
           variant="ghost"
           size="sm"
           isIconOnly
+          onPress={() => setSnoozeOpen(true)}
           isDisabled={busy}
           className="h-9"
           aria-label="Reporter (snooze)"
         >
           <Clock size={18} aria-hidden />
         </Button>
-        <Popover.Content className="min-w-44 p-1">
-          <Popover.Dialog className="outline-none">
-            <div className="flex flex-col" aria-label="Reporter le fil à">
-              {SNOOZE_PRESETS.map((preset) => (
-                <Button
-                  key={preset.id}
-                  variant="ghost"
-                  size="sm"
-                  onPress={() => handleSnooze(preset)}
-                  className="h-9 w-full justify-start"
-                >
-                  {preset.label}
-                </Button>
-              ))}
-            </div>
-          </Popover.Dialog>
-        </Popover.Content>
-      </Popover>
+      </Tooltip>
+      <SnoozeMenu isOpen={snoozeOpen} onClose={() => setSnoozeOpen(false)} onPick={handleSnooze} />
 
       <Tooltip content="Supprimer (corbeille)">
         <Button

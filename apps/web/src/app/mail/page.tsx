@@ -20,10 +20,11 @@ import {
   Confetti,
   ArrowClockwise,
   Sparkle,
-  SquaresFour,
   ChatCircleDots,
   Funnel,
   TextAlignLeft,
+  Palette,
+  Check,
 } from "@phosphor-icons/react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useSettings } from "@/components/settings/SettingsContext";
@@ -37,7 +38,7 @@ import { MailGroupList } from "@/components/mail/MailGroupList";
 import { useCaptureEmail } from "@/components/mail/useCaptureEmail";
 import { CaptureEmailModal } from "@/components/mail/CaptureEmailModal";
 import { ComposeModal } from "@/components/mail/ComposeModal";
-import { MailEisenhowerBoard } from "@/components/mail/MailEisenhowerBoard";
+import { MailEisenhowerBoard, type MailTodoCard } from "@/components/mail/MailEisenhowerBoard";
 import { MailShortcutsHelp } from "@/components/mail/MailShortcutsHelp";
 import { MailSearchBar } from "@/components/mail/MailSearchBar";
 import { SnoozeMenu } from "@/components/mail/SnoozeMenu";
@@ -57,7 +58,9 @@ import {
   markThreadUnread,
   markThreadSpam,
   toggleStar,
+  GMAIL_LABEL_PALETTE,
   type EmailThread,
+  type GmailLabel,
   type ThreadListItem,
 } from "@/lib/gmail";
 import {
@@ -70,7 +73,6 @@ import {
   DEFAULT_SNOOZE_PRESET,
   type TriageAction,
 } from "@/lib/mail-triage";
-import { useConvertToTodo } from "@/components/mail/useConvertToTodo";
 import { buildMailOverlay, type OverlayRow } from "@/lib/mail-overlay";
 import {
   mirrorAvailable,
@@ -91,22 +93,24 @@ import {
 import { pushSearchHistory, isEmptyQuery } from "@/lib/mail-search";
 import { bumpTriaged, loadStats, MAIL_STATS_EVENT } from "@/lib/mail-stats";
 import {
-  loadBindings,
-  getBinding,
-  removeBinding,
-  updateBindingQuadrant,
-  reconcileBindings,
-  MAIL_BINDINGS_EVENT,
-  type MailTodoBinding,
-} from "@/lib/mail-todo-binding";
-import { quadrantToTodoFields, type EisenhowerQuadrant } from "@/lib/mail-eisenhower";
+  resolveTodoLabelIds,
+  todoLabelIdSet,
+  quadrantOfLabels,
+  ensureTodoLabels,
+  todoLabelChange,
+  applyLabelChange,
+  migrateLegacyTodoBindings,
+  hasLegacyTodoBindings,
+  type EisenhowerQuadrant,
+} from "@/lib/mail-eisenhower";
 import {
   loadGroups,
-  upsertGroup,
   filterInboxItems,
   filterGroupItems,
   groupTabKey,
   groupIdFromTab,
+  flatLabelIdsForTab,
+  seedDefaultGroups,
   MAIL_GROUPS_EVENT,
   type MailGroup,
 } from "@/lib/mail-groups";
@@ -133,11 +137,11 @@ import {
   suggestRules,
   MAIL_RULES_EVENT,
 } from "@/lib/mail-rules";
-import { MAIL_CATEGORIES, confidenceThreshold } from "@/lib/mail-autolabel";
-import { trpcVanillaClient } from "@/lib/trpc/client";
-import { TODO_TYPE_ID } from "@/hooks/useTodoSync";
+import { confidenceThreshold } from "@/lib/mail-autolabel";
 import { prefersReducedMotion } from "@/lib/motion";
-import { useToast, Tooltip } from "@supernote/ui";
+import { useToast, Tooltip, DropdownMenu } from "@supernote/ui";
+import { LABEL_STYLES, LabelMarker, labelChipStyle } from "@/components/mail/LabelMarker";
+import type { LabelStyle } from "@/components/settings/types";
 
 type GroupRow = Extract<OverlayRow, { kind: "group" }>;
 
@@ -155,6 +159,8 @@ const UNDO_TOAST_DURATION_MS = 6000;
 /** Fenêtre du raccourci clavier « z » (annuler la dernière action) : 10 s. */
 const UNDO_WINDOW_MS = 10000;
 
+const LABEL_STYLE_PREVIEW = GMAIL_LABEL_PALETTE[5];
+
 /**
  * Mutation mirror équivalente à une action de triage (modèle inbox zero). PAS de
  * `dropThread` : on retire seulement INBOX (le fil sort de la liste filtrée
@@ -168,7 +174,7 @@ function triageMutation(id: string, action: TriageAction): MirrorMutation {
 }
 
 export default function MailPage() {
-  const { settings } = useSettings();
+  const { settings, updateSettings } = useSettings();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const isMobile = useIsMobile();
@@ -255,29 +261,6 @@ export default function MailPage() {
     if (gid !== null && !groups.some((g) => g.id === gid)) setMailTab("inbox");
   }, [mailTab, groups]);
 
-  // Miroir local des liaisons thread ↔ todo (source de vérité = localStorage).
-  const [todoBindings, setTodoBindings] = useState<MailTodoBinding[]>([]);
-  const refreshTodoBindings = useCallback(() => setTodoBindings(loadBindings()), []);
-  useEffect(() => {
-    window.addEventListener(MAIL_BINDINGS_EVENT, refreshTodoBindings);
-    return () => window.removeEventListener(MAIL_BINDINGS_EVENT, refreshTodoBindings);
-  }, [refreshTodoBindings]);
-  // Réconciliation localStorage ↔ coffre (dans les deux sens) : reconstruit les
-  // liaisons manquantes, élague celles dont le todo est devenu `done`.
-  useEffect(() => {
-    let cancelled = false;
-    void trpcVanillaClient.entities.list
-      .query({ typeId: TODO_TYPE_ID })
-      .then((res) => {
-        if (!cancelled) reconcileBindings(res.items);
-      })
-      .catch(() => {
-        /* pas de coffre / hors-ligne — best-effort */
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [mailTab]);
 
   const [selectedGroup, setSelectedGroup] = useState<GroupRow | null>(null);
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
@@ -353,6 +336,14 @@ export default function MailPage() {
   // Recherche dans la barre du haut mobile : le champ de recherche large
   // n'existe que sur desktop, donc inaccessible au doigt.
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
+  const setLabelStyle = (labelStyle: LabelStyle) =>
+    updateSettings("gmail", { ...settings.gmail, labelStyle });
+  const labelStyleIndex = LABEL_STYLES.findIndex((s) => s.id === settings.gmail.labelStyle);
+  const cycleLabelStyle = () => {
+    const next = LABEL_STYLES[(labelStyleIndex + 1) % LABEL_STYLES.length]!;
+    setLabelStyle(next.id);
+    toast({ title: `Style des labels : ${next.name}` });
+  };
   useMobileHeaderActions(
     connected
       ? [
@@ -365,6 +356,13 @@ export default function MailPage() {
               requestAnimationFrame(() => searchInputRef.current?.focus());
             },
             active: mobileSearchOpen,
+          },
+          {
+            id: "mail-label-style",
+            icon: Palette,
+            // Le style courant dans le label force la republication : le provider fige les callbacks.
+            label: `Style des labels : ${LABEL_STYLES[labelStyleIndex]?.name ?? "Plein"}`,
+            onPress: cycleLabelStyle,
           },
           ...(settings.gmail.listSummary && aiConfigured
             ? [
@@ -380,14 +378,18 @@ export default function MailPage() {
       : [],
   );
 
+  const flatLabelIds = useCallback(
+    () => flatLabelIdsForTab(mailTabRef.current, groupsRef.current),
+    [],
+  );
+
   // Items visibles pour l'onglet ACTIF (lit des refs → callback stable).
   const computeVisible = useCallback((items: ThreadListItem[]): ThreadListItem[] => {
-    const notTodo = items.filter((it) => !getBinding(it.id));
     const groupId = groupIdFromTab(mailTabRef.current);
     if (groupId !== null) {
-      return filterGroupItems(notTodo, groupsRef.current.find((g) => g.id === groupId));
+      return filterGroupItems(items, groupsRef.current.find((g) => g.id === groupId));
     }
-    return filterInboxItems(notTodo, groupsRef.current);
+    return filterInboxItems(items, groupsRef.current);
   }, []);
 
   const resetSelection = useCallback(() => {
@@ -401,6 +403,7 @@ export default function MailPage() {
     accountId,
     selfAddresses,
     computeVisible,
+    flatLabelIds,
     onResetSelection: resetSelection,
   });
   const {
@@ -421,8 +424,8 @@ export default function MailPage() {
   } = list;
 
   // ── Sections de liste ──────────────────────────────────────────────────────
-  // La liste n'est plus un ruban : elle est découpée en « Étoilés » puis en
-  // tranches de temps, chacune avec un mini-en-tête repliable (cf. Shortwave).
+  // La liste n'est plus un ruban : elle est découpée en « Todo », « Étoilés »
+  // puis en tranches de temps, chacune avec un mini-en-tête repliable (cf. Shortwave).
   // `displayRows` est la liste RÉELLEMENT affichée — donc aussi celle que
   // parcourt le clavier : sections repliées exclues, ordre identique.
   const [collapsedSections, setCollapsedSections] =
@@ -436,9 +439,26 @@ export default function MailPage() {
       return next;
     });
   }, []);
+  useEffect(() => {
+    seedDefaultGroups(labelNames);
+  }, [labelNames]);
+
+  const todoLabelIds = useMemo(() => resolveTodoLabelIds(labelNames), [labelNames]);
   const { rows: displayRows, markers: sectionMarkers } = useMemo(
-    () => flattenSections(buildMailSections(rows, Date.now()), collapsedSections),
-    [rows, collapsedSections],
+    () =>
+      flattenSections(
+        buildMailSections(rows, Date.now(), todoLabelIdSet(todoLabelIds)),
+        collapsedSections,
+      ),
+    [rows, collapsedSections, todoLabelIds],
+  );
+  const todoCards = useMemo(
+    () =>
+      cumItems.flatMap<MailTodoCard>((item) => {
+        const quadrant = quadrantOfLabels(item.labelIds, todoLabelIds);
+        return quadrant ? [{ item, quadrant }] : [];
+      }),
+    [cumItems, todoLabelIds],
   );
 
   const { patchMirror, pushOutboxNow, commitMutation } = useMailMirror(clientId, accountId);
@@ -453,9 +473,11 @@ export default function MailPage() {
   // chargés (mirror INBOX), sans refetch réseau → instantané.
   useEffect(() => {
     if (mailTab === "todo") return;
-    setRows(buildMailOverlay(computeVisible(cumItems), labelNames, selfAddresses));
+    setRows(
+      buildMailOverlay(computeVisible(cumItems), labelNames, selfAddresses, flatLabelIds()),
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mailTab, groups, cumItems, labelNames, selfAddresses, computeVisible]);
+  }, [mailTab, groups, cumItems, labelNames, selfAddresses, computeVisible, flatLabelIds]);
 
   // Réveil auto des snoozes échus : remet en boîte les fils dont l'échéance est
   // dépassée, puis purge leur entrée. Best-effort, non bloquant.
@@ -706,6 +728,29 @@ export default function MailPage() {
     [clientId, toast, performUndo],
   );
 
+  // « Fait » vide aussi la matrice : sinon le label todo survit à l'archivage et
+  // le fil reste visible dans une vue par label (Gmail, Shortwave).
+  const stripTodoLabels = useCallback(
+    (id: string) => {
+      if (!clientId) return;
+      const todoIds = todoLabelIdSet(todoLabelIds);
+      const labelIds =
+        cumItems.find((it) => it.id === id)?.labelIds ?? (thread?.id === id ? thread.labelIds : []);
+      const removeLabelIds = labelIds.filter((l) => todoIds.has(l));
+      if (removeLabelIds.length === 0) return;
+      commitMutation({ threadId: id, kind: "modifyLabels", removeLabelIds }, () =>
+        modifyThreadLabels(clientId, id, { removeLabelIds }),
+      ).catch((err) => {
+        toast({
+          title: "Retrait du label Todo échoué",
+          description: err instanceof Error ? err.message : String(err),
+          variant: "danger",
+        });
+      });
+    },
+    [clientId, todoLabelIds, cumItems, thread, commitMutation, toast],
+  );
+
   // ── Triage : un seul cœur pour la liste, le groupe et le fil ouvert ─────────
   const triageThread = useCallback(
     (id: string, action: TriageAction, until?: number) => {
@@ -716,6 +761,7 @@ export default function MailPage() {
         const item = cumItems.find((it) => it.id === id);
         if (item) recordAction(item.from.email, "archive");
       }
+      if (action === "done") stripTodoLabels(id);
       dropThreadFromList(id);
       if (action === "snooze") {
         addSnooze(id, until ?? DEFAULT_SNOOZE_PRESET.computeUntil(new Date()));
@@ -741,7 +787,17 @@ export default function MailPage() {
           void loadList(query);
         });
     },
-    [clientId, cumItems, dropThreadFromList, commitMutation, offerUndo, toast, loadList, query],
+    [
+      clientId,
+      cumItems,
+      stripTodoLabels,
+      dropThreadFromList,
+      commitMutation,
+      offerUndo,
+      toast,
+      loadList,
+      query,
+    ],
   );
 
   const handleTriageRow = useCallback(
@@ -911,7 +967,7 @@ export default function MailPage() {
         it.id === id ? { ...it, labelIds } : it;
       setRows((rs) => {
         const items = rs.flatMap((r) => (r.kind === "single" ? [r.item] : r.items)).map(apply);
-        return buildMailOverlay(computeVisible(items), labelNames, selfAddresses);
+        return buildMailOverlay(computeVisible(items), labelNames, selfAddresses, flatLabelIds());
       });
       setCumItems((items) => items.map(apply));
       setSelectedGroup((g) =>
@@ -921,7 +977,7 @@ export default function MailPage() {
         t && t.id === id ? { ...t, labelIds, messages: t.messages.map((m) => ({ ...m })) } : t,
       );
     },
-    [labelNames, selfAddresses, computeVisible, setRows, setCumItems],
+    [labelNames, selfAddresses, computeVisible, flatLabelIds, setRows, setCumItems],
   );
 
   const handleApplyLabel = useCallback(
@@ -930,7 +986,9 @@ export default function MailPage() {
       const tagged = cumItems.find((it) => it.id === threadId);
       if (tagged) recordAction(tagged.from.email, "label", labelId);
       const rebuild = (items: ThreadListItem[]) =>
-        setRows(buildMailOverlay(computeVisible(items), labelNames, selfAddresses));
+        setRows(
+          buildMailOverlay(computeVisible(items), labelNames, selfAddresses, flatLabelIds()),
+        );
       let prev: ThreadListItem[] | null = null;
       setCumItems((items) => {
         prev = items;
@@ -979,6 +1037,7 @@ export default function MailPage() {
       toast,
       commitMutation,
       computeVisible,
+      flatLabelIds,
       setRows,
       setCumItems,
     ],
@@ -1003,38 +1062,6 @@ export default function MailPage() {
     items: cumItems,
   });
   runSummariesRef.current = listSummaries.runNow;
-
-  /**
-   * « Boîte séparée » : crée une vue par catégorie déjà rencontrée (un label de
-   * classement existe) et pas encore routée. Les fils de ces catégories sortent
-   * alors de l'inbox pour vivre dans leur onglet — mécanique de groupes
-   * existante, alimentée automatiquement.
-   */
-  const missingCategoryGroups = useMemo(() => {
-    const byName = new Map<string, string>();
-    for (const [id, name] of labelNames) byName.set(name.toLowerCase(), id);
-    const routed = new Set(groups.flatMap((g) => g.labelIds));
-    return MAIL_CATEGORIES.flatMap((c) => {
-      const labelId = byName.get(c.labelName.toLowerCase());
-      if (!labelId || routed.has(labelId)) return [];
-      return [{ category: c, labelId }];
-    });
-  }, [labelNames, groups]);
-
-  const createCategoryGroups = useCallback(() => {
-    for (const { category, labelId } of missingCategoryGroups) {
-      upsertGroup({
-        id: `auto-${category.id}`,
-        name: category.title,
-        labelIds: [labelId],
-        createdAt: Date.now(),
-      });
-    }
-    toast({
-      title: `${missingCategoryGroups.length} vue(s) créée(s)`,
-      description: "Ces emails quittent la boîte pour leur onglet.",
-    });
-  }, [missingCategoryGroups, toast]);
 
   const toggleRowStar = useCallback(
     (id: string, current: string[]) => {
@@ -1109,6 +1136,7 @@ export default function MailPage() {
           ),
           labelNames,
           selfAddresses,
+          flatLabelIds(),
         ),
       );
       setCumItems((items) => items.map(strip));
@@ -1134,6 +1162,7 @@ export default function MailPage() {
       clientId,
       commitMutation,
       computeVisible,
+      flatLabelIds,
       labelNames,
       selfAddresses,
       setRows,
@@ -1228,33 +1257,69 @@ export default function MailPage() {
     isMobile && mailTab !== "todo",
   );
 
-  // ── Menu contextuel : conversion en tâche ──────────────────────────────────
-  const { convert: convertRowToTodo } = useConvertToTodo(clientId);
+  // ── Matrice todo : 4 labels Gmail ──────────────────────────────────────────
+  const loadTodoLabels = useCallback(async () => {
+    const labels = await ensureTodoLabels(clientId, labelNames);
+    for (const l of Object.values(labels)) addLabel(l);
+    return labels;
+  }, [clientId, labelNames, addLabel]);
+
+  const assignQuadrant = useCallback(
+    (threadId: string, quadrant: EisenhowerQuadrant) => {
+      if (!clientId) return;
+      let prev: ThreadListItem[] | null = null;
+      void loadTodoLabels()
+        .then((labels) => {
+          const change = todoLabelChange(labels, quadrant);
+          setCumItems((items) => {
+            prev = items;
+            return items.map((it) =>
+              it.id === threadId ? { ...it, labelIds: applyLabelChange(it.labelIds, change) } : it,
+            );
+          });
+          setThread((t) =>
+            t && t.id === threadId ? { ...t, labelIds: applyLabelChange(t.labelIds, change) } : t,
+          );
+          return commitMutation({ threadId, kind: "modifyLabels", ...change }, () =>
+            modifyThreadLabels(clientId, threadId, change),
+          );
+        })
+        .catch((err) => {
+          if (prev) setCumItems(prev);
+          toast({
+            title: "Rangement dans la matrice échoué",
+            description: err instanceof Error ? err.message : String(err),
+            variant: "danger",
+          });
+        });
+    },
+    [clientId, loadTodoLabels, commitMutation, setCumItems, toast],
+  );
 
   const handleConvertRow = useCallback(
     (row: OverlayRow, quadrant: EisenhowerQuadrant) => {
-      if (row.kind !== "single") return;
-      const it = row.item;
-      void convertRowToTodo({
-        threadId: it.id,
-        subject: it.subject,
-        quadrant,
-        snippet: it.snippet,
-        fromName: it.from.name,
-        fromEmail: it.from.email,
-      }).then((ok) => {
-        if (!ok) return;
-        dropThreadFromList(it.id);
-        patchMirror({
-          threadId: it.id,
-          kind: "modifyLabels",
-          removeLabelIds: [INBOX_LABEL],
-          dropThread: true,
-        });
-      });
+      if (row.kind === "single") assignQuadrant(row.item.id, quadrant);
     },
-    [convertRowToTodo, dropThreadFromList, patchMirror],
+    [assignQuadrant],
   );
+
+  const migrationStartedRef = useRef(false);
+  useEffect(() => {
+    if (!connected || !clientId || migrationStartedRef.current || !hasLegacyTodoBindings()) return;
+    migrationStartedRef.current = true;
+    void loadTodoLabels()
+      .then((labels) =>
+        migrateLegacyTodoBindings(labels, (id, change) => modifyThreadLabels(clientId, id, change)),
+      )
+      .then((n) => {
+        if (n === 0) return;
+        toast({ title: `${n} email(s) déplacé(s) vers les labels Todo` });
+        void loadList(query);
+      })
+      .catch(() => {
+        migrationStartedRef.current = false;
+      });
+  }, [connected, clientId, loadTodoLabels, toast, loadList, query]);
 
   // ── Réponse envoyée : re-fetch fil + liste ─────────────────────────────────
   const handleReplied = useCallback(() => {
@@ -1285,6 +1350,7 @@ export default function MailPage() {
       setSelectedThreadId(null);
       setThread(null);
       if (!id) return;
+      if (action === "done") stripTodoLabels(id);
       dropThreadFromList(id);
       bumpTriaged();
       patchMirror(
@@ -1299,23 +1365,23 @@ export default function MailPage() {
       );
       offerUndo(id, action);
     },
-    [selectedThreadId, offerUndo, patchMirror, dropThreadFromList],
+    [selectedThreadId, stripTodoLabels, offerUndo, patchMirror, dropThreadFromList],
   );
 
-  const handleConvertedToTodo = useCallback(() => {
-    const id = selectedThreadId;
-    setSelectedThreadId(null);
-    setThread(null);
-    if (!id) return;
-    dropThreadFromList(id);
-    patchMirror({
-      threadId: id,
-      kind: "modifyLabels",
-      removeLabelIds: [INBOX_LABEL],
-      dropThread: true,
-    });
-    refreshTodoBindings();
-  }, [selectedThreadId, refreshTodoBindings, patchMirror, dropThreadFromList]);
+  // Le fil a déjà poussé Gmail et resynchronisé ses labels (onLabelsChanged).
+  const handleConvertedToTodo = useCallback(
+    (
+      threadId: string,
+      todoLabels: GmailLabel[],
+      change: { addLabelIds: string[]; removeLabelIds: string[] },
+    ) => {
+      for (const l of todoLabels) addLabel(l);
+      patchMirror({ threadId, kind: "modifyLabels", ...change });
+      setSelectedThreadId(null);
+      setThread(null);
+    },
+    [addLabel, patchMirror],
+  );
 
   // ── Onglet Todo ────────────────────────────────────────────────────────────
   const handleTodoOpen = useCallback(
@@ -1327,54 +1393,52 @@ export default function MailPage() {
   );
 
   const handleTodoDone = useCallback(
-    (binding: MailTodoBinding) => {
-      setTodoBindings((prev) => prev.filter((b) => b.threadId !== binding.threadId));
-      removeBinding(binding.threadId);
-      trpcVanillaClient.entities.update
-        .mutate({ id: binding.todoId, fields: { done: true } })
-        .then(() => {
-          toast({ title: "Tâche marquée comme faite" });
+    (item: ThreadListItem) => {
+      if (!clientId) return;
+      const quadrant = quadrantOfLabels(item.labelIds, todoLabelIds);
+      void loadTodoLabels()
+        .then(async (labels) => {
+          const change = {
+            addLabelIds: [],
+            removeLabelIds: [...todoLabelChange(labels, null).removeLabelIds, INBOX_LABEL],
+          };
+          dropThreadFromList(item.id);
+          bumpTriaged();
+          await commitMutation({ threadId: item.id, kind: "modifyLabels", ...change }, () =>
+            modifyThreadLabels(clientId, item.id, change),
+          );
+          const back = {
+            addLabelIds: quadrant ? [labels[quadrant].id, INBOX_LABEL] : [INBOX_LABEL],
+            removeLabelIds: [],
+          };
+          toast({
+            title: TRIAGE_DONE_LABEL.done,
+            duration: UNDO_TOAST_DURATION_MS,
+            action: {
+              label: "Annuler",
+              onClick: () =>
+                void commitMutation({ threadId: item.id, kind: "modifyLabels", ...back }, () =>
+                  modifyThreadLabels(clientId, item.id, back),
+                ).then(() => loadList(query)),
+            },
+          });
         })
         .catch((err) => {
           toast({
-            title: "Mise à jour de la tâche échouée",
+            title: "Action échouée",
             description: err instanceof Error ? err.message : String(err),
             variant: "danger",
           });
+          void loadList(query);
         });
     },
-    [toast],
+    [clientId, todoLabelIds, loadTodoLabels, dropThreadFromList, commitMutation, toast, loadList, query],
   );
 
   const handleTodoMoveQuadrant = useCallback(
-    (binding: MailTodoBinding, quadrant: EisenhowerQuadrant) => {
-      if (quadrant === binding.quadrant) return;
-      const prevQuadrant = binding.quadrant;
-      setTodoBindings((prev) =>
-        prev.map((b) => (b.threadId === binding.threadId ? { ...b, quadrant } : b)),
-      );
-      updateBindingQuadrant(binding.threadId, quadrant);
-      const axes = quadrantToTodoFields(quadrant);
-      trpcVanillaClient.entities.update
-        .mutate({ id: binding.todoId, fields: { urgent: axes.urgent, importance: axes.importance } })
-        .catch((err) => {
-          setTodoBindings((prev) =>
-            prev.map((b) => (b.threadId === binding.threadId ? { ...b, quadrant: prevQuadrant } : b)),
-          );
-          updateBindingQuadrant(binding.threadId, prevQuadrant);
-          toast({
-            title: "Déplacement de la tâche échoué",
-            description: err instanceof Error ? err.message : String(err),
-            variant: "danger",
-          });
-        });
-    },
-    [toast],
+    (item: ThreadListItem, quadrant: EisenhowerQuadrant) => assignQuadrant(item.id, quadrant),
+    [assignQuadrant],
   );
-
-  useEffect(() => {
-    if (mailTab === "todo") refreshTodoBindings();
-  }, [mailTab, refreshTodoBindings]);
 
   // ── Curseurs clavier ───────────────────────────────────────────────────────
   useEffect(() => {
@@ -1438,7 +1502,9 @@ export default function MailPage() {
         } else {
           // Sortie de recherche sans changer de requête : on re-dérive la boîte
           // depuis les items déjà chargés, sans refetch.
-          setRows(buildMailOverlay(computeVisible(cumItems), labelNames, selfAddresses));
+          setRows(
+      buildMailOverlay(computeVisible(cumItems), labelNames, selfAddresses, flatLabelIds()),
+    );
         }
         return;
       }
@@ -1455,6 +1521,7 @@ export default function MailPage() {
       searchLocal,
       setRows,
       computeVisible,
+      flatLabelIds,
       cumItems,
       labelNames,
       selfAddresses,
@@ -1610,6 +1677,14 @@ export default function MailPage() {
   );
 
   const keyboardHandlers = useMemo<Partial<Record<MailActionId, () => void>>>(() => {
+    const fileTodo = (quadrant: EisenhowerQuadrant) => () => {
+      if (selectedThreadId) {
+        threadRef.current?.fileTodo(quadrant);
+        return;
+      }
+      const it = targetItem();
+      if (it) assignQuadrant(it.id, quadrant);
+    };
     const triage = (action: TriageAction) => () => {
       const id = targetThreadId();
       if (id) triageThread(id, action);
@@ -1675,6 +1750,10 @@ export default function MailPage() {
         if (it) toggleRowStar(it.id, it.labelIds);
       },
       label: () => openThenIntent("label"),
+      todoDo: fileTodo("do"),
+      todoSchedule: fileTodo("schedule"),
+      todoDelegate: fileTodo("delegate"),
+      todoEliminate: fileTodo("eliminate"),
       mute: () => {
         const id = targetThreadId();
         if (!id) return;
@@ -1755,6 +1834,7 @@ export default function MailPage() {
     targetSubject,
     targetItem,
     triageThread,
+    assignQuadrant,
     handleMarkRowRead,
     toggleRowStar,
     openThenIntent,
@@ -1882,14 +1962,13 @@ export default function MailPage() {
     ) : null;
 
   // Bandeau d'onglets « Inbox » / « Todo » / [groupes].
-  const notTodoItems = cumItems.filter((it) => !getBinding(it.id));
   const tabs: { id: string; label: string; count?: number }[] = [
     { id: "inbox", label: "Inbox" },
-    { id: "todo", label: "Todo", count: todoBindings.length || undefined },
+    { id: "todo", label: "Todo", count: todoCards.length || undefined },
     ...groups.map((g) => ({
       id: groupTabKey(g.id),
       label: g.name,
-      count: filterGroupItems(notTodoItems, g).length || undefined,
+      count: filterGroupItems(cumItems, g).length || undefined,
     })),
   ];
   const tabStrip = (
@@ -2045,20 +2124,30 @@ export default function MailPage() {
           </Button>
         </Tooltip>
       )}
-      {/* Boîte séparée : une vue par catégorie déjà rencontrée. */}
-      {missingCategoryGroups.length > 0 && (
-        <Tooltip content={`Créer ${missingCategoryGroups.length} vue(s) pour les catégories détectées`}>
-          <Button
-            size="sm"
-            variant="ghost"
-            isIconOnly
-            className="shrink-0"
-            aria-label="Créer les vues des catégories détectées"
-            onPress={createCategoryGroups}
-          >
-            <SquaresFour size={16} />
-          </Button>
-        </Tooltip>
+      {!isMobile && (
+        <DropdownMenu
+          trigger={
+            <Tooltip content="Style des labels">
+              <Button size="sm" variant="ghost" isIconOnly className="shrink-0" aria-label="Style des labels">
+                <Palette size={16} />
+              </Button>
+            </Tooltip>
+          }
+          items={LABEL_STYLES.map((s) => ({
+            key: s.id,
+            label: (
+              <span
+                className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium"
+                style={labelChipStyle(LABEL_STYLE_PREVIEW, s.id)}
+              >
+                <LabelMarker color={LABEL_STYLE_PREVIEW} style={s.id} size={11} />
+                {s.name}
+              </span>
+            ),
+            endContent: settings.gmail.labelStyle === s.id ? <Check size={14} /> : undefined,
+            onPress: () => setLabelStyle(s.id),
+          }))}
+        />
       )}
       {!isMobile && (
         <Tooltip content="Raccourcis clavier (?)">
@@ -2122,7 +2211,8 @@ export default function MailPage() {
         {isMobile && tabStrip}
         <div className="flex-1 overflow-y-auto pb-4">
           <MailEisenhowerBoard
-            bindings={todoBindings}
+            cards={todoCards}
+            summaries={listSummaries.summaries}
             onOpen={handleTodoOpen}
             onDone={handleTodoDone}
             onMoveQuadrant={handleTodoMoveQuadrant}

@@ -2,10 +2,12 @@
  * mail-sections — découpe la liste d'emails en SECTIONS avec un mini-en-tête,
  * au lieu d'un long ruban indifférencié (repère : Shortwave).
  *
- * Deux natures de section, dans cet ordre :
- *  1. « Étoilés » — sorti des buckets temporels. Un fil qu'on a marqué compte
+ * Trois natures de section, dans cet ordre :
+ *  1. « Todo » — les fils rangés dans un label de la matrice (cf.
+ *     `mail-eisenhower`), repliée par défaut : ils vivent dans le split Todo.
+ *  2. « Étoilés » — sorti des buckets temporels. Un fil qu'on a marqué compte
  *     plus que sa date : le remettre à sa place chronologique, c'est le perdre.
- *  2. Les buckets temporels (aujourd'hui, hier, 7 derniers jours, 30 derniers
+ *  3. Les buckets temporels (aujourd'hui, hier, 7 derniers jours, 30 derniers
  *     jours, plus ancien), qui donnent la profondeur de l'arriéré d'un coup d'œil.
  *
  * Contrainte structurante : la NAVIGATION CLAVIER indexe une liste plate de
@@ -19,7 +21,14 @@
 
 import { rowHasStar, type OverlayRow } from "./mail-overlay";
 
-export type MailSectionId = "starred" | "today" | "yesterday" | "week" | "month" | "older";
+export type MailSectionId =
+  | "starred"
+  | "todo"
+  | "today"
+  | "yesterday"
+  | "week"
+  | "month"
+  | "older";
 
 export interface MailSection {
   id: MailSectionId;
@@ -30,6 +39,7 @@ export interface MailSection {
 /** Libellés affichés, dans l'ordre d'apparition. */
 const SECTION_TITLES: Record<MailSectionId, string> = {
   starred: "Étoilés",
+  todo: "Todo",
   today: "Aujourd'hui",
   yesterday: "Hier",
   week: "7 derniers jours",
@@ -39,6 +49,7 @@ const SECTION_TITLES: Record<MailSectionId, string> = {
 
 /** Ordre canonique des sections. */
 const SECTION_ORDER: readonly MailSectionId[] = [
+  "todo",
   "starred",
   "today",
   "yesterday",
@@ -88,20 +99,26 @@ function timeBucket(row: OverlayRow, now: number): MailSectionId {
   return "older";
 }
 
+type RowItem = Extract<OverlayRow, { kind: "group" }>["items"][number];
+
+function rowItems(row: OverlayRow): RowItem[] {
+  return row.kind === "single" ? [row.item] : row.items;
+}
+
 /**
- * Un groupe mêlant fils étoilés et non étoilés est coupé en deux : sinon une
- * seule étoile emporterait tout le groupe dans « Étoilés ». La moitié étoilée
- * garde la clé suffixée `#star` (deux lignes rendues ne partagent pas une clé).
+ * Un groupe mêlant fils étoilés (ou todo) et les autres est coupé en deux :
+ * sinon un seul fil emporterait tout le groupe dans la section. La moitié
+ * retenue garde la clé suffixée (deux lignes rendues ne partagent pas une clé).
  */
-function splitByStar(row: OverlayRow): OverlayRow[] {
+function splitRow(row: OverlayRow, test: (it: RowItem) => boolean, suffix: string): OverlayRow[] {
   if (row.kind === "single") return [row];
-  const starred = row.items.filter((it) => it.labelIds.includes("STARRED"));
-  if (starred.length === 0 || starred.length === row.items.length) return [row];
-  const rest = row.items.filter((it) => !it.labelIds.includes("STARRED"));
-  const latest = (items: typeof row.items) =>
+  const hit = row.items.filter(test);
+  if (hit.length === 0 || hit.length === row.items.length) return [row];
+  const rest = row.items.filter((it) => !test(it));
+  const latest = (items: RowItem[]) =>
     items.reduce((max, it) => (it.date > max ? it.date : max), "");
   return [
-    { ...row, key: `${row.key}#star`, items: starred, count: starred.length, date: latest(starred) },
+    { ...row, key: `${row.key}${suffix}`, items: hit, count: hit.length, date: latest(hit) },
     { ...row, items: rest, count: rest.length, date: latest(rest) },
   ];
 }
@@ -111,10 +128,23 @@ function splitByStar(row: OverlayRow): OverlayRow[] {
  * de chaque section (la liste arrive déjà triée par date). Les sections vides
  * ne sont pas rendues. PUR.
  */
-export function buildMailSections(rows: readonly OverlayRow[], now: number): MailSection[] {
+export function buildMailSections(
+  rows: readonly OverlayRow[],
+  now: number,
+  todoLabelIds: ReadonlySet<string>,
+): MailSection[] {
+  const isTodo = (it: RowItem) => it.labelIds.some((id) => todoLabelIds.has(id));
+  const isStarred = (it: RowItem) => it.labelIds.includes("STARRED");
   const buckets = new Map<MailSectionId, OverlayRow[]>();
-  for (const row of rows.flatMap(splitByStar)) {
-    const id = rowHasStar(row) ? "starred" : timeBucket(row, now);
+  const split = rows
+    .flatMap((r) => splitRow(r, isTodo, "#todo"))
+    .flatMap((r) => (rowItems(r).some(isTodo) ? [r] : splitRow(r, isStarred, "#star")));
+  for (const row of split) {
+    const id = rowItems(row).some(isTodo)
+      ? "todo"
+      : rowHasStar(row)
+        ? "starred"
+        : timeBucket(row, now);
     const arr = buckets.get(id);
     if (arr) arr.push(row);
     else buckets.set(id, [row]);
@@ -180,27 +210,38 @@ export function flattenSections(
 
 const COLLAPSED_KEY = "supernote.mail.collapsedSections";
 
+// Le stockage garde les ÉCARTS à ce défaut, pas l'état brut : une valeur
+// enregistrée avant l'ajout d'une section repliée par défaut reste valable.
+const DEFAULT_COLLAPSED: readonly MailSectionId[] = ["todo"];
+
+function flipDefaults(ids: Iterable<MailSectionId>): Set<MailSectionId> {
+  const out = new Set(DEFAULT_COLLAPSED);
+  for (const id of ids) {
+    if (out.has(id)) out.delete(id);
+    else out.add(id);
+  }
+  return out;
+}
+
 export function loadCollapsedSections(): Set<MailSectionId> {
-  if (typeof window === "undefined") return new Set();
+  if (typeof window === "undefined") return new Set(DEFAULT_COLLAPSED);
   try {
-    const raw = window.localStorage.getItem(COLLAPSED_KEY);
-    if (!raw) return new Set();
-    const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return new Set();
-    return new Set(
+    const parsed: unknown = JSON.parse(window.localStorage.getItem(COLLAPSED_KEY) ?? "[]");
+    if (!Array.isArray(parsed)) return new Set(DEFAULT_COLLAPSED);
+    return flipDefaults(
       parsed.filter((v): v is MailSectionId =>
         typeof v === "string" && (SECTION_ORDER as readonly string[]).includes(v),
       ),
     );
   } catch {
-    return new Set();
+    return new Set(DEFAULT_COLLAPSED);
   }
 }
 
 export function saveCollapsedSections(ids: ReadonlySet<MailSectionId>): void {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...ids]));
+    window.localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...flipDefaults(ids)]));
   } catch {
     /* quota — best-effort */
   }

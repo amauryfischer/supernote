@@ -242,6 +242,75 @@ export const SNOOZE_PRESETS_FULL: readonly SnoozePreset[] = [
   { id: "monday", label: "Lundi prochain (8 h)", computeUntil: nextMonday },
 ];
 
+const DAY_INDEX: Record<string, number> = {
+  dim: 0, dimanche: 0,
+  lun: 1, lundi: 1,
+  mar: 2, mardi: 2,
+  mer: 3, mercredi: 3,
+  jeu: 4, jeudi: 4,
+  ven: 5, vendredi: 5,
+  sam: 6, samedi: 6,
+};
+
+const DURATION_RE =
+  /^(\d+)\s*(m|min|minutes?|h|heures?|d|j|jours?|w|s|sem|semaines?|mo|mois)$/;
+const DAY_RE = new RegExp(`^(demain|${Object.keys(DAY_INDEX).join("|")})\\.?(?:\\s+(?:à\\s+)?(.+))?$`);
+const CLOCK_RE = /^(\d{1,2})\s*(?:h\s*(\d{2})?|:\s*(\d{2}))$/;
+
+function parseClock(s: string): { h: number; m: number } | null {
+  const c = CLOCK_RE.exec(s);
+  if (!c) return null;
+  const h = Number(c[1]);
+  const m = Number(c[2] ?? c[3] ?? 0);
+  return h < 24 && m < 60 ? { h, m } : null;
+}
+
+/**
+ * Saisie libre de la barre « Reporter à… », façon Shortwave. PUR.
+ *  - `30m` `32h` : maintenant + durée ;
+ *  - `10d`/`10j` `2w`/`2s` `3mo` : ce jour-là à 8 h (même repère que « Demain ») ;
+ *  - `lun`, `ven 14h`, `demain 9h30` : prochain jour visé, 8 h par défaut ;
+ *  - `à 14h`, `14h30`, `9:15` : aujourd'hui, demain si l'heure est passée.
+ * `14h` seul reste une durée (32h doit dire « dans 32 heures »).
+ */
+export function parseSnoozeInput(raw: string, now: Date): number | null {
+  const q = raw.trim().toLowerCase().replace(/\s+/g, " ");
+  const until = parseSnoozeTarget(q, now);
+  return until !== null && until > now.getTime() ? until : null;
+}
+
+function parseSnoozeTarget(q: string, now: Date): number | null {
+  const dur = DURATION_RE.exec(q);
+  if (dur) {
+    const n = Number(dur[1]);
+    const unit = dur[2]!;
+    if (unit.startsWith("m") && !unit.startsWith("mo")) return now.getTime() + n * 60_000;
+    if (unit.startsWith("h")) return now.getTime() + n * 3_600_000;
+    const d = atHour(now, 8);
+    if (unit.startsWith("mo")) d.setMonth(d.getMonth() + n);
+    else d.setDate(d.getDate() + n * (/^[dj]/.test(unit) ? 1 : 7));
+    return d.getTime();
+  }
+
+  const day = DAY_RE.exec(q);
+  if (day) {
+    const clock = day[2] ? parseClock(day[2]) : { h: 8, m: 0 };
+    if (!clock) return null;
+    const d = new Date(now.getTime());
+    d.setHours(clock.h, clock.m, 0, 0);
+    const target = day[1] === "demain" ? (now.getDay() + 1) % 7 : DAY_INDEX[day[1]!]!;
+    d.setDate(d.getDate() + (((target - now.getDay() + 7) % 7) || 7));
+    return d.getTime();
+  }
+
+  const clock = parseClock(q.replace(/^[àa] /, ""));
+  if (!clock) return null;
+  const d = new Date(now.getTime());
+  d.setHours(clock.h, clock.m, 0, 0);
+  if (d.getTime() <= now.getTime()) d.setDate(d.getDate() + 1);
+  return d.getTime();
+}
+
 /**
  * Échéance appliquée par le raccourci clavier `s` (report « par défaut ») :
  * demain matin. Le choix fin passe par `h` / le Popover de la TriageBar.

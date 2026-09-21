@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, forwardRef, useImperativeHandle } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, forwardRef, useImperativeHandle, type ReactNode } from "react";
 import { ArrowSquareOut, Plus, X, Tag, MagnifyingGlass, Check, PaperPlaneTilt, Quotes, Paperclip, Star, Envelope, ArrowBendUpRight, Sparkle, MagicWand, ArrowsClockwise, CaretUp, DotsThreeVertical, Copy, Image as ImageIcon, SpeakerSlash, UserMinus } from "@phosphor-icons/react";
 import { Button, Input, Spinner, Popover } from "@heroui/react";
 import { useToast, Tooltip } from "@supernote/ui";
@@ -10,6 +10,7 @@ import {
   resolveUserLabels,
   addThreadLabel,
   removeThreadLabel,
+  modifyThreadLabels,
   createLabel,
   updateLabelColor,
   GMAIL_LABEL_PALETTE,
@@ -29,6 +30,7 @@ import {
   type BubbleKind,
 } from "@/lib/gmail";
 import { parseEmailBody } from "@/lib/email-quote";
+import { senderHue } from "@/lib/mail-avatar";
 import { sanitizeEmailHtml, splitQuotedHtml } from "@/lib/mail-html";
 import {
   filesToAttachments,
@@ -58,12 +60,20 @@ import { withSignature } from "@/lib/mail-signature";
 import { loadAutoDraft, saveAutoDraft, clearAutoDraft, threadDraftKey } from "@/lib/mail-draft-store";
 import { TriageBar } from "./TriageBar";
 import { EnrichContactFromEmail } from "./EnrichContactFromEmail";
+import { LabelMarker, labelChipStyle } from "./LabelMarker";
 import { EmailToEventButton } from "./EmailToEventButton";
 import { MailEisenhowerPicker } from "./MailEisenhowerPicker";
 import { ExtractActionsButton } from "./ExtractActionsButton";
 import { type TriageAction } from "@/lib/mail-triage";
-import { type EisenhowerQuadrant } from "@/lib/mail-eisenhower";
-import { useConvertToTodo } from "./useConvertToTodo";
+import {
+  QUADRANTS,
+  ensureTodoLabels,
+  resolveTodoLabelIds,
+  quadrantOfLabels,
+  todoLabelChange,
+  applyLabelChange,
+  type EisenhowerQuadrant,
+} from "@/lib/mail-eisenhower";
 import { QuickRepliesRow } from "./QuickRepliesRow";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useMailQuickRepliesChrome } from "@/components/shell/shell-chrome-context";
@@ -81,7 +91,7 @@ import {
 const MENU_ROW =
   "flex h-auto w-full items-center justify-start gap-2.5 rounded-md px-3 py-2 text-sm";
 // Conteneur qui uniformise un COMPOSANT-action self-contained (ExtractActions,
-// MailEisenhowerPicker, EnrichContact, EmailToEvent — chacun apporte son propre
+// EnrichContact, EmailToEvent — chacun apporte son propre
 // déclencheur + overlay) en « ligne de menu » pleine largeur. Le sélecteur
 // descendant ne touche QUE le déclencheur encore dans l'arbre : le contenu de
 // l'overlay (Popover/Modal/Dropdown) est porté ailleurs via portal, donc non
@@ -105,9 +115,10 @@ const MENU_COMPONENT_ROW =
  * `gmail.modify` (consentement incrémental), avec mise à jour optimiste + rollback.
  *
  * `selfEmail` : adresse du compte connecté → détermine quels messages sont « moi »
- * (alignés à droite, violet). Les correspondants du MÊME domaine que le compte
- * connecté (collègues « internes ») reçoivent une teinte cool distincte ; les
- * externes gardent la teinte neutre. Absent → tout traité comme externe à gauche.
+ * (alignés à droite, violet). Chaque autre expéditeur reçoit une teinte
+ * déterministe (même couleur que son avatar, d'un fil à l'autre) ; les collègues
+ * du même domaine portent en plus une pastille « interne ». Absent → tout traité
+ * comme externe à gauche.
  * `enableShortcuts` : active le raccourci clavier global `l` (défaut true). Mis à
  * false dans l'embed note (`GmailMessageView`) pour ne pas capturer `l` dans
  * l'éditeur.
@@ -137,6 +148,8 @@ export interface EmailThreadHandle {
   markUnread: () => void;
   /** Pré-remplit un transfert dans le composeur (raccourci `f`). */
   forward: () => void;
+  /** Range le fil dans un quadrant de la matrice (raccourcis `1`–`4`). */
+  fileTodo: (quadrant: EisenhowerQuadrant) => void;
 }
 
 interface EmailThreadViewProps {
@@ -165,11 +178,13 @@ interface EmailThreadViewProps {
    * ComposeModal pré-rempli (objet « Fwd: … » + corps cité), destinataire vide.
    */
   onForward?: (prefill: { to?: string; subject: string; body: string }) => void;
-  /**
-   * Appelé après la conversion réussie d'un email en tâche Eisenhower — l'appelant
-   * retire le fil de la liste inbox, comme pour un triage « Fait ».
-   */
-  onConvertedToTodo?: () => void;
+  /** Fil rangé dans un label todo, Gmail déjà poussé : `change` sert au miroir,
+   *  `todoLabels` porte les labels tout juste créés. */
+  onConvertedToTodo?: (
+    threadId: string,
+    todoLabels: GmailLabel[],
+    change: { addLabelIds: string[]; removeLabelIds: string[] },
+  ) => void;
   /** Déclenche la génération des brouillons IA (gérée par le parent / la colonne). */
   onGenerateDrafts?: () => void;
   /** Génération de brouillons en cours (état du bouton 🪄). */
@@ -592,27 +607,38 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
     });
   };
 
-  // ─── Conversion email → tâche Eisenhower ──────────────────────────────────
-  // Verrou anti-double clic pendant la création de l'entité + la mutation Gmail.
-  // Conversion mutualisée (vue lecture + menu contextuel de la liste).
-  const { convert: convertEmailToTodo, busy: convertBusy } = useConvertToTodo(clientId);
+  const [convertBusy, setConvertBusy] = useState(false);
   const convertToTodo = async (quadrant: EisenhowerQuadrant) => {
-    const subject = thread.messages[0]?.subject ?? "";
-    // Correspondant + aperçu : le dernier message du correspondant (sinon le 1ᵉʳ).
-    const src =
-      [...thread.messages].reverse().find((m) => m.from.email.toLowerCase() !== (selfEmail ?? "").toLowerCase()) ??
-      thread.messages[0];
-    const ok = await convertEmailToTodo({
-      threadId: thread.id,
-      subject,
-      quadrant,
-      snippet: src?.snippet || src?.bodyText?.slice(0, 240) || "",
-      fromName: src?.from.name,
-      fromEmail: src?.from.email,
-      // Fil complet → résumé IA en arrière-plan (vue compacte de la tâche).
-      aiThread,
-    });
-    if (ok) onConvertedToTodo?.();
+    if (!clientId || convertBusy) return;
+    setConvertBusy(true);
+    const prev = labelIds;
+    try {
+      const labels = await ensureTodoLabels(
+        clientId,
+        allLabels.map((l) => [l.id, l.name] as const),
+      );
+      const todoLabels = Object.values(labels);
+      const fresh = todoLabels.filter((l) => !allLabels.some((a) => a.id === l.id));
+      if (fresh.length) setAllLabels((ls) => [...ls, ...fresh]);
+      const change = todoLabelChange(labels, quadrant);
+      const nextIds = applyLabelChange(labelIds, change);
+      setLabelIds(nextIds);
+      onLabelsChanged?.(thread.id, nextIds);
+      await modifyThreadLabels(clientId, thread.id, change);
+      const name = QUADRANTS.find((q) => q.id === quadrant)?.label ?? quadrant;
+      toast({ title: `Rangé dans « ${name} »`, variant: "success" });
+      onConvertedToTodo?.(thread.id, todoLabels, change);
+    } catch (err) {
+      setLabelIds(prev);
+      onLabelsChanged?.(thread.id, prev);
+      toast({
+        title: "Rangement dans la matrice échoué",
+        description: err instanceof Error ? err.message : String(err),
+        variant: "danger",
+      });
+    } finally {
+      setConvertBusy(false);
+    }
   };
 
   const openPicker = () => {
@@ -771,6 +797,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
       toggleStar: () => void onToggleStar(),
       markUnread: () => void onMarkUnread(),
       forward: onForwardClick,
+      fileTodo: (quadrant) => void convertToTodo(quadrant),
     }),
     // `openPicker` / `onForwardClick` / `onToggleStar` / `onMarkUnread` sont
     // recréés à chaque rendu : on ré-expose le handle à chaque rendu plutôt que
@@ -853,12 +880,23 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
               <span />
             )}
           </div>
-          {/* Boutons DIRECTS : seulement Étoile (à gauche du sujet) + TriageBar.
+          {/* Boutons DIRECTS : Étoile (à gauche du sujet), Todo + TriageBar.
               Toutes les actions SECONDAIRES sont regroupées dans le menu « Plus »
               (kebab) ci-dessous — masqué en mode embed. On garde un Popover (et
               non DropdownMenu items) car 4 actions sont des composants
               self-contained à overlay propre : on les déplace tels quels. */}
           <div className="flex shrink-0 items-center justify-end gap-1.5">
+            {clientId && (
+              <MailEisenhowerPicker
+                onConvert={(q) => void convertToTodo(q)}
+                isBusy={convertBusy}
+                suggestedQuadrant={suggestedQuadrant}
+                currentQuadrant={quadrantOfLabels(
+                  labelIds,
+                  resolveTodoLabelIds(allLabels.map((l) => [l.id, l.name] as const)),
+                )}
+              />
+            )}
             {clientId && (
               <TriageBar clientId={clientId} threadId={thread.id} onTriaged={onTriaged} />
             )}
@@ -899,7 +937,11 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
                       {clientId && aiConfigured && (
                         <Button
                           variant="ghost"
-                          onPress={() => void runSuggestQuadrant()}
+                          onPress={() => {
+                            // La suggestion ouvre le bouton Todo de la barre directe.
+                            setMoreOpen(false);
+                            void runSuggestQuadrant();
+                          }}
                           isDisabled={suggestBusy}
                           className={MENU_ROW}
                           aria-label="Suggérer un quadrant Eisenhower avec l'IA locale"
@@ -907,15 +949,6 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
                           {suggestBusy ? <Spinner size="sm" /> : <Sparkle size={16} />}
                           <span>Suggérer quadrant</span>
                         </Button>
-                      )}
-                      {clientId && (
-                        <div className={MENU_COMPONENT_ROW}>
-                          <MailEisenhowerPicker
-                            onConvert={(q) => void convertToTodo(q)}
-                            isBusy={convertBusy}
-                            suggestedQuadrant={suggestedQuadrant}
-                          />
-                        </div>
                       )}
                       {clientId && correspondentMsg && (
                         <div className={MENU_COMPONENT_ROW}>
@@ -1065,13 +1098,9 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
             <span
               key={l.id}
               className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium"
-              style={
-                l.color
-                  ? { backgroundColor: l.color.backgroundColor, color: l.color.textColor }
-                  : { backgroundColor: "var(--accent-subtle)", color: "var(--accent)" }
-              }
+              style={labelChipStyle(l.color, settings.gmail.labelStyle)}
             >
-              <Tag size={10} />
+              <LabelMarker color={l.color} style={settings.gmail.labelStyle} size={10} />
               {/* Clic sur le nom → menu de couleur (palette Gmail fixe). */}
               <Button
                 variant="ghost"
@@ -1717,15 +1746,11 @@ function ColorMenu({
   );
 }
 
-// Teinte « interne » (collègue même domaine) : dérivée du token sémantique
-// existant `--success` (oklch cool, hue ~150) via color-mix → fill subtil sans
-// toucher globals.css. Tranche avec « moi » (violet `--accent-subtle`) et
-// « externe » (`--surface-1`). NB : `--success` n'est pas redéfini par thème →
-// teinte stable ; tokeniser un `--internal` dédié si on veut une vraie variante
-// par thème plus tard.
-const INTERNAL_BG = "color-mix(in oklch, var(--success) 14%, transparent)";
-const INTERNAL_BORDER = "color-mix(in oklch, var(--success) 35%, transparent)";
-const INTERNAL_ACCENT = "var(--success)";
+// Alpha plutôt que luminosité fixe : la même teinte reste lisible en clair et en sombre.
+function senderTint(key: string): { bg: string; border: string } {
+  const h = senderHue(key);
+  return { bg: `hsl(${h} 70% 50% / 0.14)`, border: `hsl(${h} 70% 50% / 0.35)` };
+}
 
 /**
  * CSS scopé au conteneur de corps HTML d'e-mail (chemin `bodyHtml`). Injecté une
@@ -1762,6 +1787,9 @@ function MessageBubble({
 }) {
   const mine = kind === "mine";
   const internal = kind === "internal";
+  const tint = mine ? null : senderTint(message.from.email || message.from.name);
+  const files = message.attachments.filter((a) => !a.inline);
+  const inlineImages = message.attachments.filter((a) => a.inline);
   const date = message.date ? new Date(message.date).toLocaleString() : "";
   // Chemin HTML : si le mail a un corps text/html, on le rend sanitizé (DOMPurify)
   // SANS extraire citation/signature (on affiche le HTML complet, tel que conçu
@@ -1787,8 +1815,8 @@ function MessageBubble({
       <div
         className="max-w-[80%] rounded-2xl border px-3.5 py-2.5"
         style={{
-          backgroundColor: mine ? "var(--accent-subtle)" : internal ? INTERNAL_BG : "var(--surface-1)",
-          borderColor: internal ? INTERNAL_BORDER : "var(--border-subtle)",
+          backgroundColor: tint ? tint.bg : "var(--accent-subtle)",
+          borderColor: tint ? tint.border : "var(--border-subtle)",
         }}
       >
         <div className="mb-1 flex items-baseline justify-between gap-3">
@@ -1801,7 +1829,7 @@ function MessageBubble({
                 title="Collègue interne"
                 aria-label="Collègue interne"
                 className="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
-                style={{ backgroundColor: INTERNAL_ACCENT }}
+                style={{ backgroundColor: "var(--success)" }}
               />
             )}
             <span className="truncate">{mine ? "Moi" : message.from.name || message.from.email}</span>
@@ -1854,12 +1882,24 @@ function MessageBubble({
           </>
         )}
 
-        {message.attachments.length > 0 && clientId && (
+        {files.length > 0 && clientId && (
           <div className="mt-2 flex flex-wrap gap-1.5">
-            {message.attachments.map((att) => (
+            {files.map((att) => (
               <AttachmentChip key={att.attachmentId} attachment={att} clientId={clientId} />
             ))}
           </div>
+        )}
+        {inlineImages.length > 0 && clientId && (
+          <Collapsible
+            openLabel={`··· Afficher les images intégrées (${inlineImages.length})`}
+            closeLabel="Masquer les images intégrées"
+          >
+            <div className="mt-1 flex flex-wrap gap-1.5">
+              {inlineImages.map((att) => (
+                <AttachmentChip key={att.attachmentId} attachment={att} clientId={clientId} />
+              ))}
+            </div>
+          </Collapsible>
         )}
 
         {message.webLink && (
@@ -1933,74 +1973,56 @@ function AttachmentChip({
   );
 }
 
-/**
- * Bloc repliable (citation / signature). Bouton natif inline — composant
- * présentational self-contained, même esprit que le lien Gmail.
- */
-function CollapsibleBlock({
+function Collapsible({
   openLabel,
   closeLabel,
-  text,
+  children,
 }: {
   openLabel: string;
   closeLabel: string;
-  text: string;
+  children: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   return (
     <div className="mt-1.5">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="text-xs"
-        style={{ color: "var(--text-muted)", background: "none", border: "none", cursor: "pointer", padding: 0 }}
+      <Button
+        variant="ghost"
+        size="sm"
+        onPress={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="-my-1 h-8 min-h-8 bg-transparent px-0 text-xs font-normal hover:opacity-70"
+        style={{ color: "var(--text-muted)" }}
       >
         {open ? closeLabel : openLabel}
-      </button>
-      {open && (
-        <p
-          className="mt-1 whitespace-pre-wrap break-words border-l pl-2 text-sm"
-          style={{ color: "var(--text-muted)", borderColor: "var(--border-subtle)" }}
-        >
-          {text}
-        </p>
-      )}
+      </Button>
+      {open && children}
     </div>
   );
 }
 
-/**
- * Variante de `CollapsibleBlock` pour la citation du chemin HTML : rend du HTML
- * DÉJÀ sanitizé (sortie de `splitQuotedHtml(sanitizeEmailHtml(...))`).
- */
-function CollapsibleHtml({
-  openLabel,
-  closeLabel,
-  html,
-}: {
-  openLabel: string;
-  closeLabel: string;
-  html: string;
-}) {
-  const [open, setOpen] = useState(false);
+function CollapsibleBlock({ openLabel, closeLabel, text }: { openLabel: string; closeLabel: string; text: string }) {
   return (
-    <div className="mt-1.5">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="text-xs"
-        style={{ color: "var(--text-muted)", background: "none", border: "none", cursor: "pointer", padding: 0 }}
+    <Collapsible openLabel={openLabel} closeLabel={closeLabel}>
+      <p
+        className="mt-1 whitespace-pre-wrap break-words border-l pl-2 text-sm"
+        style={{ color: "var(--text-muted)", borderColor: "var(--border-subtle)" }}
       >
-        {open ? closeLabel : openLabel}
-      </button>
-      {open && (
-        <div
-          className="sn-mail-html mt-1 max-w-full overflow-x-auto break-words border-l pl-2 text-sm"
-          style={{ color: "var(--text-muted)", borderColor: "var(--border-subtle)" }}
-          // eslint-disable-next-line react/no-danger -- HTML déjà sanitizé en amont
-          dangerouslySetInnerHTML={{ __html: html }}
-        />
-      )}
-    </div>
+        {text}
+      </p>
+    </Collapsible>
+  );
+}
+
+/** `html` doit être DÉJÀ sanitizé (sortie de `splitQuotedHtml(sanitizeEmailHtml(...))`). */
+function CollapsibleHtml({ openLabel, closeLabel, html }: { openLabel: string; closeLabel: string; html: string }) {
+  return (
+    <Collapsible openLabel={openLabel} closeLabel={closeLabel}>
+      <div
+        className="sn-mail-html mt-1 max-w-full overflow-x-auto break-words border-l pl-2 text-sm"
+        style={{ color: "var(--text-muted)", borderColor: "var(--border-subtle)" }}
+        // eslint-disable-next-line react/no-danger -- HTML déjà sanitizé en amont
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
+    </Collapsible>
   );
 }

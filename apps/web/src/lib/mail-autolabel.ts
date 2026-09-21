@@ -279,13 +279,18 @@ export function clearSeen(): void {
 }
 
 /**
- * Fils restant à classer : jamais vus, et ne portant aucun label de classement.
- * PUR (les ensembles sont injectés).
+ * Fils restant à classer : jamais vus, et sans AUCUN label utilisateur — l'IA ne
+ * repasse pas derrière un rangement déjà fait, qu'il vienne d'elle ou de l'utilisateur.
+ * PUR (l'ensemble `seen` est injecté).
  */
 export function pendingForClassification<
   T extends { id: string; labelIds: string[] },
->(items: readonly T[], seen: ReadonlySet<string>, autoLabelIds: ReadonlySet<string>): T[] {
-  return items.filter(
-    (it) => !seen.has(it.id) && !it.labelIds.some((l) => autoLabelIds.has(l)),
-  );
+>(items: readonly T[], seen: ReadonlySet<string>): T[] {
+  return items.filter((it) => !seen.has(it.id) && !it.labelIds.some(isUserLabelId));
+}
+
+// Gmail préfixe les labels utilisateur par `Label_` (les système : INBOX, CATEGORY_…).
+// Préféré à la table des labels de la page, vide tant qu'elle charge.
+function isUserLabelId(id: string): boolean {
+  return id.startsWith("Label_");
 }

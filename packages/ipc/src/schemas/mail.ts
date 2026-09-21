@@ -24,6 +24,7 @@ export const EmailAttachmentSchema = z.object({
   size: z.number(),
   attachmentId: z.string(),
   messageId: z.string(),
+  inline: z.boolean().optional(),
 });
 
 // ── Row shapes (mirror → client) ────────────────────────────────────────────

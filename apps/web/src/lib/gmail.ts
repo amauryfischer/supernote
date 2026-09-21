@@ -94,6 +94,8 @@ export interface EmailAttachment {
   attachmentId: string;
   /** Id du message porteur (nécessaire pour l'appel `messages/{id}/attachments/...`). */
   messageId: string;
+  /** Image embarquée dans le corps (`Content-ID`) : logo de signature, capture collée… */
+  inline?: boolean;
 }
 
 export interface EmailMessage {
@@ -323,6 +325,7 @@ function collectAttachments(part: GmailPart | undefined, messageId: string): Ema
       size: part.body?.size ?? 0,
       attachmentId,
       messageId,
+      ...((part.mimeType ?? "").startsWith("image/") && header(part, "Content-ID") ? { inline: true } : {}),
     });
   }
   for (const sub of part.parts ?? []) {

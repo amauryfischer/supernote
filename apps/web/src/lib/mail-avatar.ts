@@ -39,12 +39,17 @@ function hashKey(key: string): number {
   return Math.abs(h);
 }
 
+/** Teinte déterministe (0–359) d'une personne, partagée avatar ↔ bulle de fil. */
+export function senderHue(key: string): number {
+  return hashKey((key ?? "").trim().toLowerCase()) % 360;
+}
+
 /**
  * Couleur déterministe et SOBRE (faible saturation) pour un monogramme, dérivée
- * d'une clé (email/nom). Teinte = hash % 360 ; fond clair, texte foncé même
- * teinte → contraste suffisant. Insensible à la casse/espaces. Pur.
+ * d'une clé (email/nom). Fond clair, texte foncé même teinte → contraste
+ * suffisant. Pur.
  */
 export function avatarColor(key: string): AvatarColor {
-  const h = hashKey((key ?? "").trim().toLowerCase()) % 360;
+  const h = senderHue(key);
   return { bg: `hsl(${h} 42% 90%)`, fg: `hsl(${h} 40% 34%)` };
 }

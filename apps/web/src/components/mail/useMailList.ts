@@ -47,6 +47,8 @@ export interface UseMailListOptions {
   selfAddresses: string[];
   /** Filtre d'onglet appliqué avant le regroupement (inbox / groupe / todo). */
   computeVisible: (items: ThreadListItem[]) => ThreadListItem[];
+  /** Labels de l'onglet actif qui ne forment pas de groupe (cf. `buildMailOverlay`). */
+  flatLabelIds: () => ReadonlySet<string>;
   /** Appelé au début d'un chargement : la page purge sa sélection. */
   onResetSelection: () => void;
 }
@@ -85,6 +87,7 @@ export function useMailList({
   accountId,
   selfAddresses,
   computeVisible,
+  flatLabelIds,
   onResetSelection,
 }: UseMailListOptions): MailListApi {
   const [rows, setRows] = useState<OverlayRow[]>([]);
@@ -100,8 +103,9 @@ export function useMailList({
   const loadReqRef = useRef(0);
 
   const rebuild = useCallback(
-    (items: ThreadListItem[]) => buildMailOverlay(computeVisible(items), labelNames, selfAddresses),
-    [computeVisible, labelNames, selfAddresses],
+    (items: ThreadListItem[]) =>
+      buildMailOverlay(computeVisible(items), labelNames, selfAddresses, flatLabelIds()),
+    [computeVisible, flatLabelIds, labelNames, selfAddresses],
   );
 
   const applyListData = useCallback(
@@ -111,9 +115,9 @@ export function useMailList({
       setLabelColors(new Map(labels.flatMap((l) => (l.color ? [[l.id, l.color] as const] : []))));
       setCumItems(items);
       setNextPageToken(nextToken);
-      setRows(buildMailOverlay(computeVisible(items), names, selfAddresses));
+      setRows(buildMailOverlay(computeVisible(items), names, selfAddresses, flatLabelIds()));
     },
-    [selfAddresses, computeVisible],
+    [selfAddresses, computeVisible, flatLabelIds],
   );
 
   const loadList = useCallback(
@@ -202,7 +206,7 @@ export function useMailList({
         setCumItems((prev) => {
           const seen = new Set(prev.map((it) => it.id));
           const merged = [...prev, ...page.items.filter((it) => !seen.has(it.id))];
-          setRows(buildMailOverlay(computeVisible(merged), labelNames, selfAddresses));
+          setRows(buildMailOverlay(computeVisible(merged), labelNames, selfAddresses, flatLabelIds()));
           return merged;
         });
         setNextPageToken(page.nextPageToken);
@@ -212,7 +216,7 @@ export function useMailList({
         setMoreLoading(false);
       }
     },
-    [clientId, nextPageToken, moreLoading, labelNames, selfAddresses, computeVisible],
+    [clientId, nextPageToken, moreLoading, labelNames, selfAddresses, computeVisible, flatLabelIds],
   );
 
   // Recherche locale : filtres analysés côté client, `label:` résolu en ids via

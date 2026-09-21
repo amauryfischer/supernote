@@ -77,6 +77,9 @@ export function buildMailOverlay(
   items: ThreadListItem[],
   userLabels: Map<string, string>,
   selfEmails?: string | readonly string[],
+  // Labels que tous les fils portent déjà (split à label unique) : les grouper
+  // n'apprendrait rien.
+  flatLabelIds?: ReadonlySet<string>,
 ): OverlayRow[] {
   const selfSet = new Set(
     (typeof selfEmails === "string" ? [selfEmails] : (selfEmails ?? []))
@@ -93,7 +96,7 @@ export function buildMailOverlay(
   for (const it of items) {
     for (const lid of it.labelIds) {
       const name = userLabels.get(lid);
-      if (name === undefined) continue;
+      if (name === undefined || flatLabelIds?.has(lid)) continue;
       if (selfSet.has(name.trim().toLowerCase())) continue;
       const arr = byLabel.get(lid);
       if (arr) arr.push(it);

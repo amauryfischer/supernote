@@ -54,6 +54,7 @@ interface TokenClient {
 interface TokenResponse {
   access_token?: string;
   expires_in?: number;
+  scope?: string;
   error?: string;
   error_description?: string;
 }
@@ -64,6 +65,7 @@ interface GoogleNamespace {
       initTokenClient: (config: {
         client_id: string;
         scope: string;
+        login_hint?: string;
         callback: (response: TokenResponse) => void;
         error_callback?: (err: { type: string; message?: string }) => void;
       }) => TokenClient;
@@ -110,30 +112,48 @@ function loadGis(): Promise<void> {
 
 // ── Token management ────────────────────────────────────────────────────────
 
-export interface CachedToken {
+interface CachedToken {
   accessToken: string;
   expiresAt: number;
   clientId: string;
-  scope: string;
+  grantedScopes: string[];
 }
 
-// Cache un token PAR (clientId, scope) : Drive et Gmail demandent des scopes
-// différents et ne doivent pas s'écraser. Clé = `${clientId} ${scope}`.
+// GIS renvoie un token couvrant TOUS les scopes déjà accordés
+// (include_granted_scopes). On sert tout token frais qui couvre la demande,
+// sinon chaque scope Gmail (lecture, tag, envoi) rouvre sa propre popup.
 const tokenCache = new Map<string, CachedToken>();
 
 const cacheKey = (clientId: string, scope: string) => `${clientId} ${scope}`;
 
-/** Exporté pour les tests — ne pas utiliser ailleurs. */
-export function __isTokenFresh(
-  token: CachedToken | null,
-  clientId: string,
-  scope: string,
-): boolean {
-  if (!token) return false;
-  if (token.clientId !== clientId) return false;
-  if (token.scope !== scope) return false;
+const covers = (token: CachedToken, scope: string) =>
+  scope.split(" ").every((s) => token.grantedScopes.includes(s));
+
+function findFreshToken(clientId: string, scope: string): CachedToken | null {
   // 60 s de marge pour ne pas utiliser un token qui expire en plein vol.
-  return token.expiresAt > Date.now() + 60_000;
+  const minExpiry = Date.now() + 60_000;
+  for (const token of tokenCache.values()) {
+    if (token.clientId === clientId && token.expiresAt > minExpiry && covers(token, scope)) {
+      return token;
+    }
+  }
+  return null;
+}
+
+// Sans login_hint, GIS affiche le sélecteur de compte à chaque token dès que
+// plusieurs comptes Google sont ouverts dans le navigateur.
+function connectedGoogleEmail(): string | undefined {
+  try {
+    const raw = window.localStorage.getItem("supernote.settings");
+    if (!raw) return undefined;
+    const settings = JSON.parse(raw) as {
+      gmail?: { connectedEmail?: string };
+      googleDrive?: { connectedEmail?: string };
+    };
+    return settings.gmail?.connectedEmail || settings.googleDrive?.connectedEmail || undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -149,10 +169,8 @@ export async function requestAccessToken(
 ): Promise<string> {
   if (!clientId) throw new Error("Google: no clientId configured");
   const scope = opts.scope ?? OAUTH_SCOPE;
-  const cached = tokenCache.get(cacheKey(clientId, scope)) ?? null;
-  if (__isTokenFresh(cached, clientId, scope)) {
-    return cached!.accessToken;
-  }
+  const cached = findFreshToken(clientId, scope);
+  if (cached) return cached.accessToken;
   await loadGis();
   const google = window.google;
   if (!google) throw new Error("GIS not available after load");
@@ -161,6 +179,7 @@ export async function requestAccessToken(
     const tokenClient = google.accounts.oauth2.initTokenClient({
       client_id: clientId,
       scope,
+      login_hint: connectedGoogleEmail(),
       callback: (response) => {
         if (response.error) {
           reject(new Error(`OAuth error: ${response.error} ${response.error_description ?? ""}`));
@@ -174,7 +193,7 @@ export async function requestAccessToken(
           accessToken: response.access_token,
           expiresAt: Date.now() + (response.expires_in ?? 3600) * 1000,
           clientId,
-          scope,
+          grantedScopes: (response.scope ?? scope).split(" "),
         });
         resolve(response.access_token);
       },
@@ -187,13 +206,13 @@ export async function requestAccessToken(
 }
 
 /**
- * Vide les tokens en cache. `scope` fourni → ne révoque/efface que ce scope
- * (ex. déconnexion Gmail sans casser Drive). Sans scope → tout.
+ * Vide les tokens en cache. `scope` fourni → n'efface que les tokens qui le
+ * couvrent. Sans scope → tout.
  */
 export function clearAccessToken(opts: { clientId?: string; scope?: string } = {}): void {
   for (const [key, token] of [...tokenCache.entries()]) {
     if (opts.clientId && token.clientId !== opts.clientId) continue;
-    if (opts.scope && token.scope !== opts.scope) continue;
+    if (opts.scope && !covers(token, opts.scope)) continue;
     tokenCache.delete(key);
     if (window.google?.accounts?.oauth2) {
       try {
@@ -207,7 +226,7 @@ export function clearAccessToken(opts: { clientId?: string; scope?: string } = {
 
 /** True si un token frais existe pour ce clientId+scope (défaut Drive). */
 export function hasValidToken(clientId: string, scope: string = OAUTH_SCOPE): boolean {
-  return __isTokenFresh(tokenCache.get(cacheKey(clientId, scope)) ?? null, clientId, scope);
+  return findFreshToken(clientId, scope) !== null;
 }
 
 // ── Drive API ────────────────────────────────────────────────────────────────
