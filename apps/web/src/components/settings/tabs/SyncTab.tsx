@@ -9,7 +9,8 @@ import { SettingRow } from "../SettingRow";
 import { SettingSection } from "../SettingSection";
 import { RangeSlider } from "../RangeSlider";
 import { useOnlineSync } from "@/lib/online-sync/OnlineSyncProvider";
-import type { OnlineSyncStatus } from "@/lib/online-sync/client";
+import { joinVault, type OnlineSyncStatus } from "@/lib/online-sync/client";
+import { normalizeVaultKey } from "@/lib/online-sync/config-storage";
 import { trpc } from "@/lib/trpc/client";
 import { ConnectVaultModal } from "@/components/notes/ConnectVaultModal";
 
@@ -29,6 +30,7 @@ function OnlineSyncSection() {
   const [serverUrl, setServerUrl] = useState("");
   const [vaultKey, setVaultKey] = useState("");
   const [token, setToken] = useState("");
+  const [joinError, setJoinError] = useState<string | null>(null);
 
   // Seed the form from the persisted config once it's available.
   useEffect(() => {
@@ -56,8 +58,18 @@ function OnlineSyncSection() {
   const meta = STATUS_META[status];
   const enabled = config.enabled;
 
-  const handleConnect = () => {
+  // Un mot de passe saisi protège le salon s'il est libre : c'est le chemin de
+  // migration des salons existants et de reconnexion d'un appareil verrouillé.
+  const handleConnect = async () => {
     if (!vaultKey.trim()) return;
+    setJoinError(null);
+    if (token.trim()) {
+      const error = await joinVault(serverUrl.trim(), normalizeVaultKey(vaultKey), token.trim());
+      if (error) {
+        setJoinError(error);
+        return;
+      }
+    }
     online.enable({
       serverUrl: serverUrl.trim(),
       vaultKey: vaultKey.trim(),
@@ -83,7 +95,7 @@ function OnlineSyncSection() {
         <Switch
           isSelected={enabled}
           onChange={(selected: boolean) => {
-            if (selected) handleConnect();
+            if (selected) void handleConnect();
             else online.disable();
           }}
           aria-label="Activer la synchronisation en ligne"
@@ -104,8 +116,8 @@ function OnlineSyncSection() {
       </SettingRow>
 
       <SettingRow
-        label="Clé de salon"
-        description="Même clé sur tous vos appareils pour les apparier."
+        label="Nom du salon"
+        description="Même nom sur tous vos appareils pour les apparier."
       >
         <Input
           type="text"
@@ -116,12 +128,18 @@ function OnlineSyncSection() {
         />
       </SettingRow>
 
-      <SettingRow label="Jeton (optionnel)" description="Si le serveur exige un secret partagé.">
+      <SettingRow
+        label="Mot de passe du salon"
+        description="Protège un salon libre et l'affiche à l'écran d'accueil de vos autres appareils. 8 caractères minimum."
+      >
         <Input
           type="password"
           placeholder="••••••••"
           value={token}
-          onChange={(e) => setToken(e.target.value)}
+          onChange={(e) => {
+            setToken(e.target.value);
+            setJoinError(null);
+          }}
           className="w-72"
         />
       </SettingRow>
@@ -130,7 +148,7 @@ function OnlineSyncSection() {
         <Button
           variant="ghost"
           size="sm"
-          onPress={handleConnect}
+          onPress={() => void handleConnect()}
           isDisabled={!vaultKey.trim()}
           className="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm"
           style={{
@@ -143,6 +161,12 @@ function OnlineSyncSection() {
           {enabled ? "Reconnecter" : "Connecter"}
         </Button>
       </SettingRow>
+
+      {joinError && (
+        <p className="mt-2 text-xs" style={{ color: "var(--danger)" }}>
+          {joinError}
+        </p>
+      )}
 
       {lastError && status === "error" && (
         <p className="mt-2 text-xs" style={{ color: "var(--danger)" }}>

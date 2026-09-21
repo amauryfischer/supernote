@@ -35,7 +35,11 @@ Cette dernière enveloppe existe parce qu'un worker n'a pas de console partagée
 
 ## Synchronisation en ligne
 
-Transport asymétrique : flux SSE descendant sur `GET /api/sync/stream`, POST montant sur `POST /api/sync/push`. Une sonde `GET /api/sync/info` précède, pour détecter si le service est actif et connaître son epoch.
+Transport asymétrique : flux SSE descendant sur `GET /api/sync/stream`, POST montant sur `POST /api/sync/push`. Une sonde `GET /api/sync/info?vault=` précède, pour détecter si le service est actif, connaître son epoch et savoir si le salon est verrouillé (`locked`).
+
+**Salons protégés.** Un salon peut porter un mot de passe. Il voyage dans le champ `token` du client, le même que `SYNC_TOKEN` (en-tête `x-sync-token`, `?token=` pour le stream, faute d'en-tête possible sur `EventSource`). `POST /api/sync/join` pose le mot de passe d'un salon libre, ou vérifie celui d'un salon protégé. `GET /api/sync/vaults` liste **uniquement les salons protégés** : un salon sans mot de passe garde le comportement historique, son nom servant de secret, et n'apparaît jamais. `/info` renvoyant `locked`, le client passe en erreur « Mot de passe requis » au lieu de boucler en reconnexion.
+
+⚠️ **Un salon libre est revendicable par quiconque connaît son nom** : `/join` y pose alors un mot de passe et verrouille les autres appareils. Pour annuler, il faut passer par SQL (`DELETE FROM sync_meta WHERE key = 'pw:<nom>'`).
 
 | Contrainte | Valeur |
 |---|---|
@@ -66,6 +70,8 @@ Un coffre peut en monter d'autres comme sous-dossiers. `MountSyncManager` tient 
 
 En développement, un middleware de `vite.config.ts` monte le même backend, à la même condition.
 
-**Back-office.** `GET /admin`, servi par `sync-backend.mjs`, rend une page HTML qui liste les espaces à partir de l'op-log groupé par `vault` (`store.listVaults()`). Le serveur ne tient aucun registre d'espaces : le nom affiché est la clé de salon, qui sert aussi de secret quand `SYNC_TOKEN` est vide. D'où un Basic Auth dédié sur `ADMIN_TOKEN`, et l'exclusion de `/admin` dans `public/sw.js` pour que la liste n'atterrisse jamais en Cache Storage.
+**Back-office.** `GET /admin`, servi par `sync-backend.mjs`, rend une page HTML qui liste tous les espaces à partir de l'op-log groupé par `vault` (`store.listVaults()`), salons libres compris. Le nom d'un salon libre étant son secret, `/admin` garde un Basic Auth dédié sur `ADMIN_TOKEN`, et `public/sw.js` exclut `/admin` et `/api/*` pour que ces listes n'atterrissent jamais en Cache Storage.
+
+**Authentification par salon.** `vaultAuthed()` garde pull, push et stream : `SYNC_TOKEN` accepté s'il est défini, sinon vérification `scrypt` du mot de passe stocké en table de méta sous `pw:<nom>` (voir [database.md](database.md)), avec un cache mémoire des vérifications réussies.
 
 Voir aussi : [architecture.md](architecture.md), [database.md](database.md).

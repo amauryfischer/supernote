@@ -12,7 +12,9 @@
  * surface, zero new failure modes.
  *
  * Endpoints (all under `/api/sync/`):
- *   GET  /info                        → { enabled, requiresToken, epoch }
+ *   GET  /info[?vault]                → { enabled, requiresToken, epoch, locked? }
+ *   GET  /vaults                      → { vaults } (salons protégés seulement)
+ *   POST /join  { vault, password }   → protège un salon libre, ou vérifie
  *   GET  /stream?vault&since&clientId  → SSE: hello, ops, ping
  *   POST /push  { vault, clientId, ops } → { headSeq, acks }
  *   GET  /pull?vault&since             → { headSeq, ops }   (SSE-less fallback)
@@ -26,19 +28,40 @@
  * changes — see the epoch guard in `online-sync/client.ts`.
  *
  * Auth: optional shared secret via `SYNC_TOKEN`. When set, every request must
- * present it (header `x-sync-token` or `?token=`).
+ * present it (header `x-sync-token` or `?token=`). Un salon protégé (mot de
+ * passe posé via `/join`) exige en plus son mot de passe dans ce même champ ;
+ * un salon libre garde le comportement historique, son nom faisant office de
+ * secret — c'est pourquoi `/vaults` ne liste que les salons protégés.
  *
  * Back-office : `GET /admin` liste les espaces (Basic Auth, mot de passe =
  * `ADMIN_TOKEN`). Sans `ADMIN_TOKEN`, la route n'existe pas.
  */
 
-import { createHash, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, scrypt, timingSafeEqual } from "node:crypto";
+import { promisify } from "node:util";
 import { createSyncStore } from "./sync-store.mjs";
 
 const HEARTBEAT_MS = 25_000;
 const REPLAY_BATCH = 500;
 const COMPACT_GRACE_MS = 7 * 24 * 60 * 60 * 1000;
 const COMPACT_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const MIN_PASSWORD_LENGTH = 8;
+
+const scryptAsync = promisify(scrypt);
+const sha256 = (s) => createHash("sha256").update(s).digest();
+
+async function hashPassword(password) {
+  const salt = randomBytes(16);
+  const hash = await scryptAsync(password, salt, 32);
+  return `${salt.toString("hex")}:${hash.toString("hex")}`;
+}
+
+async function verifyPassword(password, record) {
+  const [saltHex, hashHex] = record.split(":");
+  const expected = Buffer.from(hashHex, "hex");
+  const actual = await scryptAsync(password, Buffer.from(saltHex, "hex"), expected.length);
+  return timingSafeEqual(actual, expected);
+}
 
 /**
  * Build the sync backend. Returns `{ enabled, handle }`.
@@ -128,10 +151,37 @@ export async function createSyncBackend() {
 
   // ── helpers ──────────────────────────────────────────────────────────────
 
+  function secretOf(req, url) {
+    return String(req.headers["x-sync-token"] || url.searchParams.get("token") || "");
+  }
+
   function authed(req, url) {
-    if (!token) return true;
-    const provided = req.headers["x-sync-token"] || url.searchParams.get("token");
-    return provided === token;
+    return !token || secretOf(req, url) === token;
+  }
+
+  // Cache des vérifications réussies : scrypt coûte ~50 ms, payé à chaque push sinon.
+  // ponytail: un mot de passe retiré en SQL reste accepté jusqu'au redémarrage.
+  const verifiedSecrets = new Set();
+
+  async function vaultAuthed(req, url, vault) {
+    const provided = secretOf(req, url);
+    if (token && provided === token) return true;
+    const record = await store.getVaultPassword(vault);
+    if (!record) return !token;
+    if (!provided) return false;
+    const cacheKey = `${vault}\0${sha256(provided).toString("hex")}`;
+    if (verifiedSecrets.has(cacheKey)) return true;
+    const ok = await verifyPassword(provided, record);
+    if (ok) verifiedSecrets.add(cacheKey);
+    return ok;
+  }
+
+  async function readJson(req) {
+    try {
+      return JSON.parse(await readBody(req));
+    } catch {
+      return null;
+    }
   }
 
   function sendJson(res, status, body) {
@@ -171,8 +221,7 @@ export async function createSyncBackend() {
     const m = /^Basic (.+)$/.exec(req.headers.authorization ?? "");
     if (!m) return false;
     const password = Buffer.from(m[1], "base64").toString("utf8").split(":").slice(1).join(":");
-    const sha = (s) => createHash("sha256").update(s).digest();
-    return timingSafeEqual(sha(password), sha(adminToken));
+    return timingSafeEqual(sha256(password), sha256(adminToken));
   }
 
   async function handleAdmin(req, res) {
@@ -215,12 +264,59 @@ export async function createSyncBackend() {
     }
 
     if (path === "/api/sync/info") {
-      sendJson(res, 200, { enabled: true, requiresToken: !!token, epoch });
+      const vault = url.searchParams.get("vault");
+      const body = { enabled: true, requiresToken: !!token, epoch };
+      if (vault) body.locked = !(await vaultAuthed(req, url, vault));
+      sendJson(res, 200, body);
       return true;
     }
 
-    if (!authed(req, url)) {
-      sendJson(res, 401, { error: "unauthorized" });
+    if (path === "/api/sync/vaults" && req.method === "GET") {
+      if (!authed(req, url)) {
+        sendJson(res, 401, { error: "unauthorized" });
+        return true;
+      }
+      sendJson(res, 200, { vaults: await store.listProtectedVaults() });
+      return true;
+    }
+
+    // ponytail: aucune limite de tentatives (ici ni sur /info?vault=), seul le coût de
+    // scrypt freine la force brute ; ajouter un compteur par salon si un nom listé est visé.
+    if (path === "/api/sync/join" && req.method === "POST") {
+      const parsed = await readJson(req);
+      const vault = parsed?.vault;
+      const password = parsed?.password;
+      if (!vault || typeof vault !== "string" || typeof password !== "string") {
+        sendJson(res, 400, { error: "missing vault or password" });
+        return true;
+      }
+      // Le champ secret du client porte SYNC_TOKEN sur les serveurs qui en ont un.
+      if (token && password === token) {
+        sendJson(res, 200, { ok: true });
+        return true;
+      }
+      let record = await store.getVaultPassword(vault);
+      if (!record) {
+        if (!authed(req, url)) {
+          sendJson(res, 401, { error: "unauthorized" });
+          return true;
+        }
+        if (password.length < MIN_PASSWORD_LENGTH) {
+          sendJson(res, 400, { error: "password too short", minLength: MIN_PASSWORD_LENGTH });
+          return true;
+        }
+        if (await store.claimVaultPassword(vault, await hashPassword(password))) {
+          sendJson(res, 201, { ok: true, created: true });
+          return true;
+        }
+        // Revendication concurrente perdue : on vérifie contre le mot de passe gagnant.
+        record = await store.getVaultPassword(vault);
+      }
+      if (!record || !(await verifyPassword(password, record))) {
+        sendJson(res, 401, { error: "wrong password" });
+        return true;
+      }
+      sendJson(res, 200, { ok: true });
       return true;
     }
 
@@ -231,23 +327,29 @@ export async function createSyncBackend() {
         sendJson(res, 400, { error: "missing vault" });
         return true;
       }
+      if (!(await vaultAuthed(req, url, vault))) {
+        sendJson(res, 401, { error: "unauthorized" });
+        return true;
+      }
       const ops = await store.opsSince(vault, since, REPLAY_BATCH);
       sendJson(res, 200, { headSeq: await store.headSeq(vault), ops });
       return true;
     }
 
     if (path === "/api/sync/push" && req.method === "POST") {
-      let parsed;
-      try {
-        parsed = JSON.parse(await readBody(req));
-      } catch {
+      const parsed = await readJson(req);
+      if (!parsed) {
         sendJson(res, 400, { error: "invalid json" });
         return true;
       }
-      const vault = parsed?.vault;
-      const ops = Array.isArray(parsed?.ops) ? parsed.ops : [];
+      const vault = parsed.vault;
+      const ops = Array.isArray(parsed.ops) ? parsed.ops : [];
       if (!vault || typeof vault !== "string") {
         sendJson(res, 400, { error: "missing vault" });
+        return true;
+      }
+      if (!(await vaultAuthed(req, url, vault))) {
+        sendJson(res, 401, { error: "unauthorized" });
         return true;
       }
       const { stored, acks } = await store.insertMany(vault, ops);
@@ -261,6 +363,10 @@ export async function createSyncBackend() {
       const since = Number(url.searchParams.get("since") ?? "0") || 0;
       if (!vault) {
         sendJson(res, 400, { error: "missing vault" });
+        return true;
+      }
+      if (!(await vaultAuthed(req, url, vault))) {
+        sendJson(res, 401, { error: "unauthorized" });
         return true;
       }
       res.writeHead(200, {

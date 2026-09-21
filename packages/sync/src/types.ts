@@ -76,6 +76,8 @@ export interface SyncInfo {
    * they silently desync forever.
    */
   epoch?: string;
+  /** Présent quand `/info?vault=` est demandé : salon protégé et secret refusé. */
+  locked?: boolean;
 }
 
 /** `POST /api/sync/push` body. */

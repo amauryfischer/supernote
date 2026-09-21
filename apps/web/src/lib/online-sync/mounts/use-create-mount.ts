@@ -19,6 +19,7 @@
 import { useCallback } from "react";
 import { trpcVanillaClient } from "@/lib/trpc/client";
 import { normalizeServerUrl, normalizeVaultKey } from "../room-id";
+import { joinVault } from "../client";
 
 export interface CreateMountArgs {
   serverUrl: string;
@@ -52,6 +53,11 @@ export function useCreateMount() {
         "Le serveur n'a pas de base de données configurée — la synchronisation en ligne y est indisponible.",
       );
     }
+    const token = args.token.trim();
+    if (token) {
+      const joinError = await joinVault(serverUrl, vaultKey, token);
+      if (joinError) throw new Error(joinError);
+    }
 
     // Le worker dérive seul le chemin du fichier depuis le `defaultPath` du type
     // `vault_mount` (« VaultMounts ») : on n'a qu'à fournir typeId + fields.
@@ -60,7 +66,7 @@ export function useCreateMount() {
       fields: {
         serverUrl,
         vaultKey,
-        token: args.token.trim(),
+        token,
         label: args.label.trim() || vaultKey,
       },
     });

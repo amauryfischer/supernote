@@ -17,10 +17,16 @@
  *   headSeq(vault)                 → number
  *   compact(cutoffMs)              → number of purged rows
  *   listVaults()                   → VaultSummary[] (back-office)
+ *   getVaultPassword(vault)        → "sel:hash" | null
+ *   claimVaultPassword(vault, rec) → boolean (false si déjà protégé)
+ *   listProtectedVaults()          → string[]
  *   kind                           → "sqlite" | "postgres"
  */
 
 import { fileURLToPath } from "node:url";
+
+// Mot de passe d'un salon, rangé dans la table de méta : pas de migration de schéma.
+const PW_PREFIX = "pw:";
 
 function mintEpoch() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
@@ -122,6 +128,9 @@ async function createSqliteStore() {
         AND seq NOT IN (SELECT MAX(seq) FROM op GROUP BY vault, entityId)`,
   );
   const listVaultsStmt = db.prepare(listVaultsSql("op"));
+  const getPwStmt = db.prepare(`SELECT value FROM meta WHERE key = ?`);
+  const claimPwStmt = db.prepare(`INSERT OR IGNORE INTO meta (key, value) VALUES (?, ?)`);
+  const listPwStmt = db.prepare(`SELECT key FROM meta WHERE key LIKE '${PW_PREFIX}%' ORDER BY key`);
 
   const insertMany = db.transaction((vault, ops) => {
     const stored = [];
@@ -162,6 +171,11 @@ async function createSqliteStore() {
     headSeq: async (vault) => Number(headStmt.get(vault).head),
     compact: async (cutoffMs) => compactStmt.run(cutoffMs).changes,
     listVaults: async () => listVaultsStmt.all().map(rowToVaultSummary),
+    getVaultPassword: async (vault) => getPwStmt.get(PW_PREFIX + vault)?.value ?? null,
+    claimVaultPassword: async (vault, record) =>
+      claimPwStmt.run(PW_PREFIX + vault, record).changes > 0,
+    listProtectedVaults: async () =>
+      listPwStmt.all().map((r) => r.key.slice(PW_PREFIX.length)),
   };
 }
 
@@ -279,6 +293,23 @@ async function createPgStore(url) {
     listVaults: async () => {
       const res = await pool.query(listVaultsSql("sync_op"));
       return res.rows.map(rowToVaultSummary);
+    },
+    getVaultPassword: async (vault) => {
+      const res = await pool.query(`SELECT value FROM sync_meta WHERE key = $1`, [PW_PREFIX + vault]);
+      return res.rows[0]?.value ?? null;
+    },
+    claimVaultPassword: async (vault, record) => {
+      const res = await pool.query(
+        `INSERT INTO sync_meta (key, value) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING`,
+        [PW_PREFIX + vault, record],
+      );
+      return (res.rowCount ?? 0) > 0;
+    },
+    listProtectedVaults: async () => {
+      const res = await pool.query(
+        `SELECT key FROM sync_meta WHERE key LIKE '${PW_PREFIX}%' ORDER BY key`,
+      );
+      return res.rows.map((r) => r.key.slice(PW_PREFIX.length));
     },
   };
 }

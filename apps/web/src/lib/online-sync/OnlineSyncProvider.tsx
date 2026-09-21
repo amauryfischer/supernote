@@ -90,6 +90,9 @@ export function OnlineSyncProvider({ children }: { children: React.ReactNode }) 
           void vault.switchToVault(entry.id);
           return;
         }
+        // Même salon : le registre suit le nouveau mot de passe, sinon rouvrir ce
+        // coffre depuis la liste reprendrait l'ancien et le verrouillerait.
+        upsertCloudVault({ serverUrl: settings.serverUrl, vaultKey, token: settings.token });
       }
       // Changing connection target resets the cursor + seed so the new room
       // gets a fresh snapshot and replays from the start.

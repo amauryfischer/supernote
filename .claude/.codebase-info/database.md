@@ -1,8 +1,8 @@
 # Stockage et schéma
 
-*Last Updated: 2026-09-13*
+*Last Updated: 2026-09-21*
 
-Il n'y a pas de base de données serveur. Le coffre est un SQLite qui tourne **dans un Web Worker du navigateur**.
+Le coffre est un SQLite qui tourne **dans un Web Worker du navigateur**. La seule base côté serveur est l'op-log de la synchronisation en ligne, optionnelle (voir la dernière section).
 
 ## Moteur
 
@@ -64,5 +64,11 @@ Le classement utilise `bm25(entity_fts, 2.0, 1.0, 1.0, 1.5)` avec extraits via `
 En mode dossier local, la base est aussi miroitée vers `.supernote/index.db` dans le coffre, ce qui la rend synchronisable par Git. Voir `db-persistence.ts` et `fsa-file-io.ts`.
 
 ⚠️ Le pool SAH est **global à l'origine du navigateur**, un seul `/index.db`, alors que les fichiers de salon cloud sont nommés par salon. Un marqueur `supernote-cloud/.supernote/db-owner.json` arbitre : si le propriétaire enregistré ne correspond pas au salon visé, le worker reçoit `resetStorage: true` et reconstruit l'index. Un changement de coffre interrompu peut donc laisser une base orpheline, que le démarrage suivant répare tout seul.
+
+## Store du serveur de synchronisation
+
+`apps/web/sync-store.mjs`, monté seulement si `DATABASE_URL` est défini : SQLite (`better-sqlite3`, URL `file:`) en dev, PostgreSQL en prod Scalingo. Deux tables par moteur : l'op-log (`op` / `sync_op`, dernière op par `(vault, entité)` conservée à la compaction) et une table clé-valeur de méta (`meta` / `sync_meta`).
+
+La méta porte l'`epoch` et les **mots de passe de salon** sous la clé `pw:<nom>`, valeur `sel:hash` en hex (`scrypt`). `claimVaultPassword` insère sans écraser (`INSERT OR IGNORE` / `ON CONFLICT DO NOTHING`), ce qui arbitre deux revendications simultanées. Il n'y a pas de table des salons : un salon existe dès sa première op, et il est « protégé » dès qu'une clé `pw:` le nomme.
 
 Voir aussi : [communication.md](communication.md), [architecture.md](architecture.md).

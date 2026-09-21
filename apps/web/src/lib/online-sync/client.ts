@@ -112,7 +112,10 @@ export class OnlineSyncClient {
     this.opts.onStatus("connecting");
     let info: SyncInfo;
     try {
-      const res = await fetch(`${this.base()}/api/sync/info`, { headers: this.headers() });
+      const res = await fetch(
+        `${this.base()}/api/sync/info?${new URLSearchParams({ vault: this.opts.vaultKey })}`,
+        { headers: this.headers() },
+      );
       if (!res.ok) throw new Error(`info ${res.status}`);
       info = (await res.json()) as SyncInfo;
     } catch (err) {
@@ -124,6 +127,14 @@ export class OnlineSyncClient {
       this.opts.onStatus("error", {
         error:
           "Le serveur n'a pas de base de données configurée — la synchronisation en ligne est indisponible.",
+      });
+      return;
+    }
+    // Sans ce court-circuit, un salon protégé renverrait 401 au stream et au
+    // push, et le client bouclerait en reconnexion sans rien dire.
+    if (info.locked) {
+      this.opts.onStatus("error", {
+        error: "Mot de passe du salon requis ou incorrect — Réglages › Synchronisation.",
       });
       return;
     }
@@ -328,4 +339,41 @@ export class OnlineSyncClient {
       void this.start();
     }, delay);
   }
+}
+
+/** Noms des salons protégés du serveur : les seuls qu'il accepte de lister. */
+export async function listServerVaults(serverUrl: string, token = ""): Promise<string[]> {
+  const res = await fetch(`${serverUrl.replace(/\/+$/, "")}/api/sync/vaults`, {
+    headers: token ? { "x-sync-token": token } : {},
+  });
+  if (!res.ok) throw new Error(`vaults ${res.status}`);
+  const body = (await res.json()) as { vaults?: unknown };
+  return Array.isArray(body.vaults)
+    ? body.vaults.filter((v): v is string => typeof v === "string")
+    : [];
+}
+
+/**
+ * Protège un salon encore libre avec ce mot de passe, ou vérifie celui d'un
+ * salon déjà protégé. Renvoie un message prêt à afficher, ou null si c'est bon.
+ */
+export async function joinVault(
+  serverUrl: string,
+  vaultKey: string,
+  password: string,
+): Promise<string | null> {
+  let res: Response;
+  try {
+    res = await fetch(`${serverUrl.replace(/\/+$/, "")}/api/sync/join`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ vault: vaultKey, password }),
+    });
+  } catch (err) {
+    return `Serveur de synchronisation injoignable : ${(err as Error).message}.`;
+  }
+  if (res.ok) return null;
+  if (res.status === 400) return "Mot de passe trop court : 8 caractères minimum.";
+  if (res.status === 401) return "Mot de passe incorrect.";
+  return `Le serveur a refusé la connexion (HTTP ${res.status}).`;
 }

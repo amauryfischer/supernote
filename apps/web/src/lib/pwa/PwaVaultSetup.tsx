@@ -24,7 +24,8 @@
  */
 
 import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from "react";
-import { Button } from "@heroui/react";
+import { Button, Input } from "@heroui/react";
+import { CloudIcon, LockSimpleIcon } from "@phosphor-icons/react";
 import {
   saveVaultHandle,
   loadVaultHandle,
@@ -56,6 +57,7 @@ import {
   removeVaultSyncBinding,
 } from "@/lib/online-sync/config-storage";
 import { cloudRoomSlug } from "@/lib/online-sync/room-id";
+import { joinVault, listServerVaults } from "@/lib/online-sync/client";
 import { clearPendingOps } from "@/lib/online-sync/pendingStore";
 
 const DEGRADED_STORAGE_KEY = "supernote.degraded";
@@ -438,7 +440,11 @@ export function usePwaVaultSetup(): VaultContextValue {
     // No FSA folder picker (Android Chrome, Safari, Firefox) → only the cloud
     // (or degraded) path is possible: go straight to the welcome screen, which
     // surfaces just the cloud card.
-    if (!isPwa) { setState("prompt"); return; }
+    if (!isPwa) {
+      void refreshRecents();
+      setState("prompt");
+      return;
+    }
 
     setState("checking");
     void (async () => {
@@ -695,6 +701,14 @@ export function usePwaVaultSetup(): VaultContextValue {
       );
       setState("cloud-form");
       return;
+    }
+    if (token) {
+      const joinError = await joinVault(serverUrl, vaultKey, token);
+      if (joinError) {
+        setErrorMsg(joinError);
+        setState("cloud-form");
+        return;
+      }
     }
 
     // Stash the outgoing vault's sync config under its own id (before the cloud
@@ -1130,7 +1144,12 @@ export function PwaVaultSetup({ children }: { children: React.ReactNode }) {
     skipToDegraded,
     isPwa,
     canCloud,
+    recentVaults,
+    switchToVault,
   } = value;
+
+  // Le formulaire cloud est démonté pendant la sonde : on lui rend la saisie après une erreur.
+  const [lastCloudArgs, setLastCloudArgs] = useState<CloudSetupArgs | null>(null);
 
   const showOverlay =
     (isPwa || canCloud) &&
@@ -1220,7 +1239,11 @@ export function PwaVaultSetup({ children }: { children: React.ReactNode }) {
       overlay = (
         <PwaOverlay wide>
           <CloudSetupForm
-            onSubmit={(args) => void setupCloudVault(args)}
+            initial={lastCloudArgs}
+            onSubmit={(args) => {
+              setLastCloudArgs(args);
+              void setupCloudVault(args);
+            }}
             onCancel={cancelCloudFlow}
             errorMsg={errorMsg}
           />
@@ -1245,6 +1268,17 @@ export function PwaVaultSetup({ children }: { children: React.ReactNode }) {
               ? "Choisissez où vos notes vivront — un dossier local sur cet appareil, un dépôt Git, ou la synchronisation cloud temps réel entre tous vos appareils."
               : "Connectez-vous à la synchronisation cloud pour retrouver vos notes en temps réel depuis cet appareil et tous les autres."}
           </p>
+
+          {canCloud && (
+            <CloudVaultList
+              recents={recentVaults.filter((v) => v.kind === "cloud")}
+              isDisabled={state === "picking"}
+              onOpen={(id) => void switchToVault(id)}
+              onJoin={(vaultKey, password) =>
+                void setupCloudVault({ serverUrl: "", vaultKey, token: password })
+              }
+            />
+          )}
 
           <div className={`grid grid-cols-1 ${choiceGridCols}`} style={styles.choiceGrid}>
             {isPwa && (
@@ -1296,7 +1330,7 @@ export function PwaVaultSetup({ children }: { children: React.ReactNode }) {
                 <div style={styles.choiceTitle}>Cloud temps réel</div>
                 <div style={styles.choiceDesc}>
                   Réplique le coffre via un serveur, en direct, entre PC et
-                  téléphone. Une clé de salon partagée suffit.
+                  téléphone. Un nom de coffre et un mot de passe suffisent.
                 </div>
               </Button>
             )}
@@ -1451,16 +1485,18 @@ function GitSetupForm({
 // ── Cloud (online-sync) setup form ─────────────────────────────────────────────
 
 function CloudSetupForm({
+  initial,
   onSubmit,
   onCancel,
   errorMsg,
 }: {
+  initial: CloudSetupArgs | null;
   onSubmit: (args: CloudSetupArgs) => void;
   onCancel: () => void;
   errorMsg: string | null;
 }) {
-  const [serverUrl, setServerUrl] = useState("");
-  const [vaultKey, setVaultKey] = useState("");
+  const [serverUrl, setServerUrl] = useState(initial?.serverUrl ?? "");
+  const [vaultKey, setVaultKey] = useState(initial?.vaultKey ?? "");
   const [token, setToken] = useState("");
 
   const submit = (e: React.FormEvent) => {
@@ -1475,7 +1511,7 @@ function CloudSetupForm({
         <div style={styles.logo}>☁️</div>
         <h1 style={styles.title}>Synchronisation cloud</h1>
         <p style={{ ...styles.subtitle, marginTop: 8 }}>
-          Tous les appareils utilisant la <strong>même clé de salon</strong> sur
+          Tous les appareils utilisant le <strong>même nom de coffre</strong> sur
           le même serveur partagent un coffre, répliqué en temps réel. Sur un
           nouvel appareil, ce coffre est récupéré automatiquement depuis le
           serveur.
@@ -1503,7 +1539,7 @@ function CloudSetupForm({
       </label>
 
       <label style={styles.label}>
-        Clé de salon
+        Nom du coffre
         <input
           type="text"
           required
@@ -1517,22 +1553,27 @@ function CloudSetupForm({
           spellCheck={false}
         />
         <span style={styles.hint}>
-          La même chaîne sur votre PC et votre téléphone pour les apparier (la
-          casse est ignorée). Traitez-la comme un mot de passe : qui la connaît
-          accède au coffre.
+          Le même nom sur votre PC et votre téléphone pour les apparier (casse
+          et accents ignorés).
         </span>
       </label>
 
       <label style={styles.label}>
-        Jeton (optionnel)
+        Mot de passe
         <input
           type="password"
-          placeholder="Si le serveur exige un secret partagé"
+          placeholder="8 caractères minimum"
           value={token}
           onChange={(e) => setToken(e.target.value)}
           style={styles.input}
           autoComplete="off"
         />
+        <span style={styles.hint}>
+          Un nom encore libre est créé et protégé par ce mot de passe, puis
+          apparaît dans la liste de l&apos;écran d&apos;accueil. Sans mot de
+          passe, le coffre n&apos;est pas listé et son nom seul y donne accès :
+          traitez-le alors comme un secret.
+        </span>
       </label>
 
       <div style={styles.formActions}>
@@ -1554,6 +1595,135 @@ function CloudSetupForm({
         </Button>
       </div>
     </form>
+  );
+}
+
+// ── Cloud vault quick list (welcome screen) ────────────────────────────────────
+
+function CloudVaultList({
+  recents,
+  isDisabled,
+  onOpen,
+  onJoin,
+}: {
+  recents: RecentVault[];
+  isDisabled: boolean;
+  onOpen: (id: string) => void;
+  onJoin: (vaultKey: string, password: string) => void;
+}) {
+  const [serverVaults, setServerVaults] = useState<string[]>([]);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [password, setPassword] = useState("");
+  const [joinError, setJoinError] = useState<string | null>(null);
+  const [checking, setChecking] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    // Serveur sans base (dev statique) ou d'avant les mots de passe : pas de liste, pas d'erreur.
+    listServerVaults("")
+      .then((vaults) => {
+        if (!cancelled) setServerVaults(vaults);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const knownHere = new Set(recents.filter((r) => !r.serverUrl).map((r) => r.name));
+  const remote = serverVaults.filter((v) => !knownHere.has(v));
+  if (recents.length === 0 && remote.length === 0) return null;
+
+  // Vérifié ici plutôt que dans setupCloudVault : une erreur y renverrait vers
+  // le formulaire complet au lieu de rester sur la ligne cliquée.
+  const submit = async (e: React.FormEvent, vaultKey: string) => {
+    e.preventDefault();
+    if (!password) return;
+    setChecking(true);
+    const error = await joinVault("", vaultKey, password);
+    setChecking(false);
+    if (error) {
+      setJoinError(error);
+      return;
+    }
+    onJoin(vaultKey, password);
+  };
+
+  return (
+    <div style={styles.vaultList}>
+      <div style={styles.vaultListTitle}>Vos coffres cloud</div>
+      {recents.map((r) => (
+        <Button
+          key={r.id}
+          type="button"
+          variant="outline"
+          onPress={() => onOpen(r.id)}
+          isDisabled={isDisabled}
+          style={styles.vaultRow}
+          className="h-auto w-full"
+        >
+          <CloudIcon size={18} aria-hidden />
+          <span style={styles.vaultRowName}>{r.name}</span>
+          <span style={styles.vaultRowMeta}>
+            {r.serverUrl ? r.serverUrl.replace(/^https?:\/\//, "") : "déjà sur cet appareil"}
+          </span>
+        </Button>
+      ))}
+      {remote.map((vaultKey) =>
+        selected === vaultKey ? (
+          <form
+            key={vaultKey}
+            onSubmit={(e) => void submit(e, vaultKey)}
+            style={styles.vaultJoin}
+          >
+            <label htmlFor="cloud-vault-password" style={styles.vaultJoinLabel}>
+              <LockSimpleIcon size={16} aria-hidden /> Mot de passe de « {vaultKey} »
+            </label>
+            <div style={styles.vaultJoinRow}>
+              <Input
+                id="cloud-vault-password"
+                type="password"
+                autoFocus
+                autoComplete="current-password"
+                value={password}
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  setJoinError(null);
+                }}
+                style={{ ...styles.input, flex: "1 1 auto", minWidth: 0 }}
+              />
+              <Button
+                type="submit"
+                variant="primary"
+                isDisabled={!password || checking}
+                style={{ flexShrink: 0, padding: "10px 16px" }}
+              >
+                {checking ? "Vérification…" : "Ouvrir"}
+              </Button>
+            </div>
+            {joinError && <p style={styles.error}>{joinError}</p>}
+          </form>
+        ) : (
+          <Button
+            key={vaultKey}
+            type="button"
+            variant="outline"
+            onPress={() => {
+              setSelected(vaultKey);
+              setPassword("");
+              setJoinError(null);
+            }}
+            isDisabled={isDisabled}
+            style={styles.vaultRow}
+            className="h-auto w-full"
+          >
+            <LockSimpleIcon size={18} aria-hidden />
+            <span style={styles.vaultRowName}>{vaultKey}</span>
+            <span style={styles.vaultRowMeta}>mot de passe</span>
+          </Button>
+        ),
+      )}
+    </div>
   );
 }
 
@@ -1714,6 +1884,65 @@ const styles: Record<string, React.CSSProperties> = {
     minWidth: 0,
     width: "100%",
     whiteSpace: "normal",
+  },
+  vaultList: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 8,
+    textAlign: "left",
+  },
+  vaultListTitle: {
+    fontSize: 12,
+    fontWeight: 600,
+    letterSpacing: "0.04em",
+    textTransform: "uppercase",
+    color: "#6b7280",
+  },
+  vaultRow: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "flex-start",
+    gap: 10,
+    minHeight: 44,
+    padding: "10px 14px",
+    color: "#111827",
+  },
+  vaultRowName: {
+    fontSize: 15,
+    fontWeight: 600,
+    flex: "1 1 auto",
+    minWidth: 0,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    textAlign: "left",
+  },
+  vaultRowMeta: {
+    fontSize: 12,
+    fontWeight: 400,
+    color: "#6b7280",
+    flexShrink: 0,
+  },
+  vaultJoin: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 8,
+    border: "1px solid #d1d5db",
+    background: "#f9fafb",
+    borderRadius: 12,
+    padding: 12,
+  },
+  vaultJoinLabel: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    fontSize: 13,
+    fontWeight: 600,
+    color: "#374151",
+  },
+  vaultJoinRow: {
+    display: "flex",
+    gap: 8,
   },
   choiceIcon: {
     fontSize: 32,

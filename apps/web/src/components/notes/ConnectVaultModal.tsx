@@ -47,7 +47,7 @@ export function ConnectVaultModal({ isOpen, onOpenChange }: ConnectVaultModalPro
   const submit = async () => {
     if (submitting) return;
     if (!vaultKey.trim()) {
-      toast({ title: "Une clé de salon est requise.", variant: "danger" });
+      toast({ title: "Un nom de salon est requis.", variant: "danger" });
       return;
     }
     setSubmitting(true);
@@ -110,7 +110,7 @@ export function ConnectVaultModal({ isOpen, onOpenChange }: ConnectVaultModalPro
       >
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="connect-vault-key" required>
-            Clé de salon
+            Nom du salon
           </Label>
           <Input
             id="connect-vault-key"
@@ -132,7 +132,7 @@ export function ConnectVaultModal({ isOpen, onOpenChange }: ConnectVaultModalPro
             type="text"
             value={label}
             onChange={(e) => setLabel(e.target.value)}
-            placeholder="Optionnel — par défaut la clé de salon"
+            placeholder="Optionnel — par défaut le nom du salon"
           />
         </div>
 
@@ -151,13 +151,13 @@ export function ConnectVaultModal({ isOpen, onOpenChange }: ConnectVaultModalPro
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="connect-vault-token">Jeton</Label>
+          <Label htmlFor="connect-vault-token">Mot de passe du salon</Label>
           <Input
             id="connect-vault-token"
             type="password"
             value={token}
             onChange={(e) => setToken(e.target.value)}
-            placeholder="Optionnel"
+            placeholder="Requis si le salon est protégé"
             autoComplete="off"
           />
         </div>
