@@ -63,15 +63,21 @@ function isHandleContention(err: unknown): boolean {
 
 const POOL_RETRY_DELAYS_MS = [120, 200, 320, 500, 800, 1200];
 
+// ⚠️ Sans forceReinitIfPreviouslyFailed, sqlite-wasm renvoie l'échec mis en
+// cache au lieu de réessayer : la boucle ne relançait jamais createSyncAccessHandle.
+// Option absente du .d.ts, d'où l'objet hors littéral.
+const POOL_OPTIONS = {
+  name: DEFAULT_VFS_NAME,
+  initialCapacity: 12,
+  forceReinitIfPreviouslyFailed: true,
+};
+
 async function installPoolWithRetry(
   sqlite3: Awaited<ReturnType<typeof sqlite3InitModule>>,
 ): Promise<SAHPoolUtil> {
   for (let attempt = 0; ; attempt++) {
     try {
-      return await sqlite3.installOpfsSAHPoolVfs({
-        name: DEFAULT_VFS_NAME,
-        initialCapacity: 12,
-      });
+      return await sqlite3.installOpfsSAHPoolVfs(POOL_OPTIONS);
     } catch (err) {
       const delay = POOL_RETRY_DELAYS_MS[attempt];
       if (delay === undefined || !isHandleContention(err)) throw err;
