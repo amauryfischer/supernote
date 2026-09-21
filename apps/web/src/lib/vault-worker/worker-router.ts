@@ -308,11 +308,28 @@ function entityToDoc(r: SqlRow): EntityDoc {
 
 const MENTION_EMBED_RE = /!\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g;
 const MENTION_WIKILINK_RE = /(?<!!)\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g;
-const MENTION_AT_RE = /@([A-Za-z0-9_\-.]+)/g;
+// Jusqu'à 4 mots après l'@, lettres accentuées comprises ; pas d'@ collé à un
+// mot (adresses e-mail).
+const MENTION_AT_RE = /(?<![\p{L}\p{N}_])@([\p{L}\p{N}_.-]+(?: [\p{L}\p{N}_.-]+){0,3})/gu;
+
+// Le sérialiseur de l'éditeur écrit `@${name}` sans marquer la fin du nom :
+// « @Alice Dupont hier » peut viser « Alice Dupont » comme « Alice ». On essaie
+// du plus long au plus court, ponctuation finale retirée.
+// ponytail: heuristique par préfixe (≤4 mots) ; la vraie racine est
+// packages/editor/src/serialization/serialize.ts qui perd `props.id`.
+function atMentionCandidates(capture: string): string[] {
+  const words = capture.split(" ");
+  const out: string[] = [];
+  for (let n = words.length; n > 0; n--) {
+    const candidate = words.slice(0, n).join(" ").replace(/[.-]+$/, "");
+    if (candidate) out.push(candidate);
+  }
+  return out;
+}
 
 interface RawMentionHit {
-  /** Nom/id brut de la cible ("Alice" dans [[Alice|elle]] ou @Alice). */
-  target: string;
+  /** Cibles candidates, la première résolue gagne ("Alice" dans [[Alice|elle]]). */
+  targets: string[];
   mentionType: "EMBED" | "WIKILINK" | "MENTION_ENTITY";
   /** Ligne du body contenant le lien — aperçu affiché dans BacklinksPanel. */
   rawText: string;
@@ -328,15 +345,19 @@ function scanMentions(body: string): RawMentionHit[] {
     // Pré-filtre : la grande majorité des lignes n'a ni [[ ni @.
     if (line.includes("[[") || line.includes("@")) {
       const rawText = line.trim().slice(0, 500);
-      const collect = (re: RegExp, mentionType: RawMentionHit["mentionType"]): void => {
+      const collect = (
+        re: RegExp,
+        mentionType: RawMentionHit["mentionType"],
+        expand: (target: string) => string[] = (t) => [t],
+      ): void => {
         for (const m of line.matchAll(re)) {
           const target = m[1]?.trim();
-          if (target) out.push({ target, mentionType, rawText, offset: offset + (m.index ?? 0) });
+          if (target) out.push({ targets: expand(target), mentionType, rawText, offset: offset + (m.index ?? 0) });
         }
       };
       collect(MENTION_EMBED_RE, "EMBED");
       collect(MENTION_WIKILINK_RE, "WIKILINK");
-      collect(MENTION_AT_RE, "MENTION_ENTITY");
+      collect(MENTION_AT_RE, "MENTION_ENTITY", atMentionCandidates);
     }
     offset += line.length + 1; // +1 pour le \n consommé par le split
   }
@@ -398,7 +419,11 @@ function indexMentions(
   const ts = now();
   const seenTargets = new Set<string>();
   for (const hit of hits) {
-    const targetId = resolver(hit.target);
+    let targetId: string | null = null;
+    for (const candidate of hit.targets) {
+      targetId = resolver(candidate);
+      if (targetId) break;
+    }
     if (!targetId || targetId === sourceId || seenTargets.has(targetId)) continue;
     seenTargets.add(targetId);
     db.run(
@@ -462,25 +487,31 @@ export function buildRouter(
   // into FTS5, well under 100ms for a few thousand entities.
   ftsRebuild(db, vaultId);
 
-  // Backfill de l'index de mentions (backlinks). La table `mention` n'était
-  // historiquement jamais écrite : les vaults existants ont des corps pleins
-  // de [[wikilinks]]/@refs mais zéro ligne — panneau « Liens entrants »
-  // éternellement vide. Au premier boot dans cet état, on réindexe tout.
-  // Conditionnel (contrairement au ftsRebuild ci-dessus) : dès qu'une ligne
-  // existe, l'index est entretenu incrémentalement par create/update/delete,
-  // inutile de re-scanner tous les corps à chaque boot. Une seule transaction
-  // pour tout le batch (un commit OPFS au lieu d'un par statement).
+  // Backfill de l'index de mentions (backlinks) : rebuild complet une seule
+  // fois par version du scanner, repérée par un marqueur dans `setting`. Sans
+  // lui, un index construit par un ancien scanner (v1 : @mentions multi-mots
+  // ou accentuées jamais résolues) resterait faux jusqu'à la réécriture de
+  // chaque note. Ensuite create/update/delete l'entretiennent. Une seule
+  // transaction pour tout le batch (un commit OPFS au lieu d'un par statement).
   try {
-    const mentionCount = Number(row(db.exec(`SELECT COUNT(*) AS c FROM mention`))?.["c"] ?? 0);
-    if (mentionCount === 0) {
-      const hasBodies = !!row(db.exec(
-        `SELECT 1 FROM entity WHERE vaultId = ? AND body IS NOT NULL AND body != '' LIMIT 1`,
-        [vaultId],
-      ));
-      if (hasBodies) {
-        const scanned = runInTransaction(db, () => mentionsRebuild(db, vaultId));
-        console.info(`[backlinks] mention backfill: scanned ${scanned} entit(y/ies) with links`);
-      }
+    const versionKey = "system.mentions.indexVersion";
+    const indexVersion = "2";
+    const stored = row(db.exec(
+      `SELECT value FROM setting WHERE vaultId = ? AND key = ?`,
+      [vaultId, versionKey],
+    ))?.["value"];
+    if (stored !== indexVersion) {
+      const scanned = runInTransaction(db, () => {
+        const n = mentionsRebuild(db, vaultId);
+        const ts = now();
+        db.run(
+          `INSERT OR REPLACE INTO setting (id, vaultId, key, value, createdAt, updatedAt)
+            VALUES (?, ?, ?, ?, ?, ?)`,
+          [`${vaultId}:${versionKey}`, vaultId, versionKey, indexVersion, ts, ts],
+        );
+        return n;
+      });
+      console.info(`[backlinks] mention backfill v${indexVersion}: scanned ${scanned} entit(y/ies) with links`);
     }
   } catch (err) {
     console.warn("[backlinks] mention backfill failed (non-fatal)", err);
@@ -1775,22 +1806,32 @@ export function buildRouter(
 
   const entitiesGetBacklinks = async (input: unknown): Promise<unknown> => {
     const { id } = input as { id: string };
-    // JOIN entity pour remplir sourceFilePath (le panneau en dérive le titre
-    // de la note source) — un INNER JOIN suffit : une entité supprimée emporte
-    // ses mentions (mentionsRemove + FK ON DELETE CASCADE).
+    // Un INNER JOIN suffit : une entité supprimée emporte ses mentions
+    // (mentionsRemove + FK ON DELETE CASCADE).
     const mentionRows = rows(db.exec(
-      `SELECT m.sourceId, m.rawText AS context, e.filePath AS sourceFilePath
+      `SELECT m.sourceId, m.rawText AS context, e.filePath AS sourceFilePath,
+              e.typeId AS sourceTypeId, e.fields AS sourceFields
          FROM mention m
          JOIN entity e ON e.id = m.sourceId
         WHERE m.targetId = ?
         ORDER BY m.updatedAt DESC`,
       [id],
     ));
-    return mentionRows.map((r) => ({
-      sourceId: r["sourceId"],
-      sourceFilePath: (r["sourceFilePath"] as string) ?? "",
-      context: (r["context"] as string) ?? "",
-    }));
+    return mentionRows.map((r) => {
+      const filePath = (r["sourceFilePath"] as string) ?? "";
+      const fields = safeParseFieldsBlob((r["sourceFields"] as string) || "{}");
+      // Le nom de fichier est un slug (« plan-produit ») : titre des champs d'abord.
+      const named = ["name", "titre", "title", "nom"]
+        .map((k) => fields[k])
+        .find((v): v is string => typeof v === "string" && v.trim().length > 0);
+      return {
+        sourceId: r["sourceId"],
+        sourceFilePath: filePath,
+        sourceTypeId: (r["sourceTypeId"] as string) ?? "",
+        sourceTitle: named ?? filePath.split("/").pop()?.replace(/\.[^.]+$/, "") ?? "",
+        context: (r["context"] as string) ?? "",
+      };
+    });
   };
 
   // Nombre de backlinks par entité cible, agrégé en une passe (table mention).

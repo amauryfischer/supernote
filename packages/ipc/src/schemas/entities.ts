@@ -186,6 +186,8 @@ export type BacklinkCountsOutput = z.infer<typeof BacklinkCountsOutput>;
 export const BacklinkSchema = z.object({
   sourceId: z.string(),
   sourceFilePath: z.string(),
+  sourceTypeId: z.string(),
+  sourceTitle: z.string(),
   context: z.string().optional(),
 });
 export type Backlink = z.infer<typeof BacklinkSchema>;

@@ -31,6 +31,7 @@ import { useConfirm } from "@/lib/confirm";
 import { Cell } from "./Cell";
 import { useEntityMutations } from "./hooks";
 import { deriveCardTitle } from "./entity-summary";
+import { Backlinks } from "@/components/notes/BacklinksPanel";
 
 interface EntityPeekPanelProps {
   baseId: string;
@@ -192,6 +193,13 @@ export function EntityPeekPanel({ baseId, entityId }: EntityPeekPanelProps) {
               </div>
             ))}
           </div>
+        )}
+        {entity && (
+          <Backlinks
+            entityId={entityId}
+            onNavigate={closeEntityPeek}
+            className="mt-4 border-t border-[var(--border-subtle)] pt-3"
+          />
         )}
       </div>
 

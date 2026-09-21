@@ -1,7 +1,8 @@
 "use client";
 
-import Link from "next/link";
-import { Spinner } from "@heroui/react";
+import { useRouter } from "next/navigation";
+import { LinkSimple } from "@phosphor-icons/react";
+import { Button } from "@supernote/ui";
 import { trpc } from "@/lib/trpc/client";
 
 function stripNoise(text: string): string {
@@ -18,95 +19,90 @@ function stripNoise(text: string): string {
     .replace(/#{1,6}\s+/g, "")
     .replace(/[*_`~]/g, "")
     .trim()
-    .slice(0, 100);
+    .slice(0, 160);
 }
 
-/**
- * Nombre de liens entrants pour une note. S'appuie sur l'agrégat
- * `backlinkCounts` (une seule requête globale mise en cache) plutôt que de
- * charger la liste complète : idéal pour un badge toujours visible dans la
- * barre d'outils. Retourne 0 quand le worker est indisponible (mode démo).
- */
-export function useBacklinkCount(noteId: string): number {
-  const { data } = trpc.entities.backlinkCounts.useQuery(undefined, {
-    retry: false,
-    staleTime: 30_000,
-    gcTime: 5 * 60_000,
-  });
-  return data?.counts[noteId] ?? 0;
-}
-
-interface BacklinksListProps {
-  noteId: string;
-  /**
-   * Appelé quand l'utilisateur ouvre une source — sert à refermer le popover
-   * (desktop) ou le sheet (mobile) qui héberge la liste.
-   */
+interface BacklinksProps {
+  entityId: string;
+  /** Appelé avant d'ouvrir une source, pour refermer l'hôte (side-peek). */
   onNavigate?: () => void;
+  className?: string;
 }
 
 /**
- * Liste des notes qui mentionnent (`[[wikilink]]` / embed) la note courante.
- * Contenu pur, sans chrome : à héberger dans un popover desktop ou un
- * `MobileSheet`. La requête `getBacklinks` n'est déclenchée que lorsque ce
- * composant est monté (donc à l'ouverture du panneau).
+ * Liens entrants d'une note ou d'une entité (`[[wikilink]]`, embed, `@mention`),
+ * avec la ligne qui porte le lien. Une note source s'ouvre, une entité de base
+ * s'ouvre en side-peek. Rien n'est rendu pendant le chargement ni sans worker
+ * (mode dégradé) : le bloc vit en pied de chaque note, un spinner ou une erreur
+ * y feraient du bruit.
  */
-export function BacklinksList({ noteId, onNavigate }: BacklinksListProps) {
-  const { data, isLoading, isError } = trpc.entities.getBacklinks.useQuery(
-    { id: noteId },
-    { retry: false, staleTime: 30_000 },
+export function Backlinks({ entityId, onNavigate, className }: BacklinksProps) {
+  const router = useRouter();
+  // staleTime 0 : un lien posé depuis une autre note doit apparaître dès qu'on
+  // rouvre celle-ci, et la requête est indexée.
+  const { data } = trpc.entities.getBacklinks.useQuery(
+    { id: entityId },
+    { retry: false, staleTime: 0 },
   );
+  if (!data) return null;
 
-  if (isLoading) {
-    return (
-      <div className="flex items-center gap-2 py-2">
-        <Spinner size="sm" />
-        <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-          Chargement…
-        </span>
-      </div>
+  const open = (sourceId: string, sourceTypeId: string) => {
+    onNavigate?.();
+    if (sourceTypeId === "note") {
+      router.push(`/notes/${sourceId}`);
+      return;
+    }
+    window.dispatchEvent(
+      new CustomEvent("supernote:open-peek", {
+        detail: { baseId: sourceTypeId, entityId: sourceId },
+      }),
     );
-  }
-
-  if (isError) {
-    return (
-      <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-        Impossible de charger les liens entrants.
-      </p>
-    );
-  }
-
-  if (!data || data.length === 0) {
-    return (
-      <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-        Aucune note ne mentionne celle-ci pour le moment.
-      </p>
-    );
-  }
+  };
 
   return (
-    <ul className="flex flex-col gap-2">
-      {data.map((link) => (
-        <li key={link.sourceId} className="group flex flex-col gap-0.5">
-          <Link
-            href={`/notes/${link.sourceId}`}
-            onClick={onNavigate}
-            className="text-xs font-medium hover:underline"
-            style={{ color: "var(--accent)" }}
-          >
-            {link.sourceFilePath.split("/").pop()?.replace(/\.[^.]+$/, "") ??
-              link.sourceId}
-          </Link>
-          {link.context && (
-            <p
-              className="text-[11px] leading-snug"
-              style={{ color: "var(--text-secondary)" }}
-            >
-              {stripNoise(link.context)}
-            </p>
-          )}
-        </li>
-      ))}
-    </ul>
+    <section aria-label="Liens entrants" className={className}>
+      <div className="flex items-center gap-1.5 pb-1">
+        <LinkSimple size={12} weight="bold" aria-hidden="true" style={{ color: "var(--text-muted)" }} />
+        <span className="sn-eyebrow sn-eyebrow--compact">Liens entrants</span>
+        {data.length > 0 && (
+          <span className="text-[10.5px] tabular-nums" style={{ color: "var(--text-muted)" }}>
+            {data.length}
+          </span>
+        )}
+      </div>
+      {data.length === 0 ? (
+        <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+          Aucun lien entrant — tape @ dans une autre note pour en créer un.
+        </p>
+      ) : (
+        <ul className="-mx-2 flex flex-col">
+          {data.map((link) => (
+            <li key={link.sourceId}>
+              <Button
+                variant="ghost"
+                size="sm"
+                onPress={() => open(link.sourceId, link.sourceTypeId)}
+                className="flex h-auto min-h-8 w-full flex-col items-start gap-0.5 whitespace-normal px-2 py-1.5 text-left"
+              >
+                <span
+                  className="w-full truncate text-sm font-medium"
+                  style={{ color: "var(--text-primary)" }}
+                >
+                  {link.sourceTitle || "Sans titre"}
+                </span>
+                {link.context && (
+                  <span
+                    className="line-clamp-2 w-full text-xs font-normal leading-snug"
+                    style={{ color: "var(--text-secondary)" }}
+                  >
+                    {stripNoise(link.context)}
+                  </span>
+                )}
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }

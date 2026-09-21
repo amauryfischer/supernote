@@ -1,9 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Button, Popover, Spinner } from "@heroui/react";
+import { Button, Spinner } from "@heroui/react";
 import dynamic from "next/dynamic";
-import { CaretDown, CaretRight, Calendar, Tag, FloppyDisk, Microphone, Image, Sparkle, X, CheckCircle, WarningCircle, Presentation, FilePdf, LinkSimple, Stop, CodeSimple } from "@phosphor-icons/react";
+import { CaretDown, CaretRight, Calendar, Tag, FloppyDisk, Microphone, Image, Sparkle, X, CheckCircle, WarningCircle, Presentation, FilePdf, Stop, CodeSimple } from "@phosphor-icons/react";
 import Link from "next/link";
 import { Fragment } from "react";
 import { TagSelector } from "@/components/tags/TagSelector";
@@ -47,8 +47,7 @@ import { HtmlNoteView } from "./HtmlNoteView";
 import { createVaultFileAdapter } from "@/lib/vault-file-adapter";
 import { NoteIcon, IconButton, asIcon } from "./NoteIcon";
 import { AiMarginsPanel } from "./AiMarginsPanel";
-import { BacklinksList, useBacklinkCount } from "./BacklinksPanel";
-import { MobileSheet } from "@/components/shell/mobile/MobileSheet";
+import { Backlinks } from "./BacklinksPanel";
 import { useAiMarginsChrome } from "@/components/shell/shell-chrome-context";
 import {
   bestBlockMatchIndex,
@@ -334,11 +333,6 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
   const aiMargins = aiRuntimeAllowed && (marginsOverride ?? marginsGlobal);
   const [bodyVersion, setBodyVersion] = useState(0);
   const [presenting, setPresenting] = useState(false);
-  // Panneau « Liens entrants » : popover ancré au bouton (desktop) ou
-  // MobileSheet (mobile). Le compteur s'appuie sur l'agrégat backlinkCounts
-  // (léger, mis en cache) ; la liste n'est chargée qu'à l'ouverture.
-  const [backlinksOpen, setBacklinksOpen] = useState(false);
-  const backlinkCount = useBacklinkCount(note.id);
   // Surlignage du bloc correspondant au commentaire IA survolé (overlay hors
   // subtree ProseMirror — jamais de mutation d'attribut dans l'éditeur).
   const editorColRef = useRef<HTMLDivElement>(null);
@@ -2032,71 +2026,6 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
             PDF
           </Button>
           <ShareNotePanel note={note} resolveUrl={fileAdapter.resolveUrl} />
-          {/* Liens entrants — popover ancré au bouton sur desktop, MobileSheet
-              sur mobile (parité tactile). Le badge affiche le nombre de notes
-              qui mentionnent celle-ci ; la liste n'est chargée qu'à l'ouverture. */}
-          {isMobile ? (
-            <Button
-              variant="ghost"
-              size="sm"
-              onPress={() => setBacklinksOpen(true)}
-              className="sn-hit h-7 min-w-0 gap-1 px-2 text-xs"
-              style={{ color: "var(--text-muted)" }}
-              aria-label="Liens entrants"
-            >
-              <LinkSimple size={13} />
-              Liens entrants
-              {backlinkCount > 0 && (
-                <span
-                  className="ml-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium"
-                  style={{ background: "var(--accent-subtle)", color: "var(--accent)" }}
-                >
-                  {backlinkCount}
-                </span>
-              )}
-            </Button>
-          ) : (
-            <Popover isOpen={backlinksOpen} onOpenChange={setBacklinksOpen}>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="sn-hit h-7 min-w-0 gap-1 px-2 text-xs"
-                style={{ color: backlinksOpen ? "var(--accent)" : "var(--text-muted)" }}
-                aria-label="Liens entrants"
-              >
-                <LinkSimple size={13} />
-                Liens entrants
-                {backlinkCount > 0 && (
-                  <span
-                    className="ml-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium"
-                    style={{ background: "var(--accent-subtle)", color: "var(--accent)" }}
-                  >
-                    {backlinkCount}
-                  </span>
-                )}
-              </Button>
-              <Popover.Content className="w-72 max-w-[calc(100vw-2rem)] p-0">
-                <Popover.Dialog className="outline-none">
-                  <div className="flex flex-col gap-2 p-3" aria-label="Liens entrants">
-                    <div className="flex items-center gap-1.5">
-                      <LinkSimple size={12} weight="bold" style={{ color: "var(--text-muted)" }} />
-                      <span
-                        className="sn-eyebrow"
-                      >
-                        Liens entrants
-                      </span>
-                    </div>
-                    <div className="max-h-[50vh] overflow-y-auto">
-                      <BacklinksList
-                        noteId={note.id}
-                        onNavigate={() => setBacklinksOpen(false)}
-                      />
-                    </div>
-                  </div>
-                </Popover.Dialog>
-              </Popover.Content>
-            </Popover>
-          )}
           {/* Dictée vocale — Web Speech API du navigateur, zéro dépendance.
               Masquée si non supportée (Firefox). Le bouton pulse pendant
               l'écoute ; l'arrêt est aussi atteignable depuis la chip flottante
@@ -2267,6 +2196,10 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
         {/* Read-only summary of todos extracted from this note. Pure
             projection of the markdown body — no extra fetch, no entities. */}
         <AssociatedTodos noteId={note.id} body={note.body} />
+        {/* En pied de note plutôt que dans la barre méta repliée ou le panneau
+            droit (masquable, accaparé par les suggestions IA) : visible sous le
+            texte, sur desktop comme sur mobile. pb-16 : dégage le FAB mobile. */}
+        <Backlinks entityId={note.id} className="sn-no-print px-4 pb-16 pt-4 md:px-10 md:pb-8" />
       </div>
       <NoteFormulaModalHost
         stubBase={{ id: "_note", name: "Note", plural: "Notes", fields: [], defaultPath: "", fileNamePattern: "{name}" }}
@@ -2283,24 +2216,6 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
           title={title || "Sans titre"}
           onClose={() => setPresenting(false)}
         />
-      )}
-
-      {/* Équivalent mobile du popover backlinks : bottom sheet atteignable au
-          doigt. La liste n'est montée (et donc chargée) qu'à l'ouverture. */}
-      {isMobile && (
-        <MobileSheet
-          isOpen={backlinksOpen}
-          onClose={() => setBacklinksOpen(false)}
-          title="Liens entrants"
-          size="sm"
-        >
-          {backlinksOpen && (
-            <BacklinksList
-              noteId={note.id}
-              onNavigate={() => setBacklinksOpen(false)}
-            />
-          )}
-        </MobileSheet>
       )}
 
       {/* Couverture visible seulement à l'impression (export PDF). */}
