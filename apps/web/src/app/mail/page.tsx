@@ -43,7 +43,7 @@ import { MailSearchBar } from "@/components/mail/MailSearchBar";
 import { SnoozeMenu } from "@/components/mail/SnoozeMenu";
 import { MailRowSheet } from "@/components/mail/MailRowSheet";
 import { usePullToRefresh } from "@/components/mail/usePullToRefresh";
-import type { SwipeAction } from "@/components/mail/SwipeableRow";
+import { SwipeableRow, type SwipeAction } from "@/components/mail/SwipeableRow";
 import type { ForwardThread } from "@/lib/mail-forward";
 import { useMailKeyboard } from "@/components/mail/useMailKeyboard";
 import { useMailList, DEFAULT_MAIL_QUERY } from "@/components/mail/useMailList";
@@ -1302,18 +1302,20 @@ export default function MailPage() {
   }, [cumItems, clientId, dropThreadFromList, syncThreadLabels, commitMutation]);
 
   // ── Gestes tactiles (mobile) ───────────────────────────────────────────────
-  // Glisser une ligne : droite = archiver, gauche = reporter (choix de
-  // l'échéance, pour ne pas décider à la place de l'utilisateur).
+  // Glisser une ligne ou le fil ouvert : droite = archiver, gauche = supprimer.
+  // Reporter reste dans l'appui long et la barre d'actions du fil.
   const handleSwipeRow = useCallback(
     (row: OverlayRow, action: SwipeAction) => {
-      if (row.kind !== "single") return;
-      if (action === "archive") {
-        triageThread(row.item.id, "archive");
-        return;
-      }
-      setSnoozeTarget({ id: row.item.id, subject: row.item.subject });
+      if (row.kind === "single") triageThread(row.item.id, action);
     },
     [triageThread],
+  );
+
+  const handleSwipeThread = useCallback(
+    (action: SwipeAction) => {
+      if (selectedThreadId) triageThread(selectedThreadId, action);
+    },
+    [selectedThreadId, triageThread],
   );
 
   const handleThreadTriage = useCallback(
@@ -2600,30 +2602,37 @@ export default function MailPage() {
         >
           {captureBar}
           <div className="flex min-h-0 flex-1 overflow-hidden">
-            <div
-              ref={threadScrollRef}
-              tabIndex={-1}
-              aria-label="Contenu de l'email"
-              className="min-w-0 flex-1 overflow-y-auto px-4 outline-none"
+            <SwipeableRow
+              onSwipe={handleSwipeThread}
+              disabled={!isMobile}
+              className="relative min-w-0 flex-1 overflow-hidden"
+              innerClassName="h-full"
             >
-              <EmailThreadView
-                ref={threadRef}
-                thread={thread}
-                selfEmail={settings.gmail.connectedEmail}
-                /* La page possède le clavier (useMailKeyboard) → pas de second
-                   listener dans la vue fil. */
-                enableShortcuts={false}
-                onTriaged={handleTriaged}
-                onTriage={handleThreadTriage}
-                commitMutation={commitMutation}
-                onReplied={handleReplied}
-                onLabelsChanged={syncThreadLabels}
-                onForward={handleForward}
-                onConvertedToTodo={handleConvertedToTodo}
-                onGenerateDrafts={() => void drafts.generate()}
-                draftsBusy={drafts.busy}
-              />
-            </div>
+              <div
+                ref={threadScrollRef}
+                tabIndex={-1}
+                aria-label="Contenu de l'email"
+                className="h-full min-w-0 overflow-y-auto px-4 outline-none"
+              >
+                <EmailThreadView
+                  ref={threadRef}
+                  thread={thread}
+                  selfEmail={settings.gmail.connectedEmail}
+                  /* La page possède le clavier (useMailKeyboard) → pas de second
+                     listener dans la vue fil. */
+                  enableShortcuts={false}
+                  onTriaged={handleTriaged}
+                  onTriage={handleThreadTriage}
+                  commitMutation={commitMutation}
+                  onReplied={handleReplied}
+                  onLabelsChanged={syncThreadLabels}
+                  onForward={handleForward}
+                  onConvertedToTodo={handleConvertedToTodo}
+                  onGenerateDrafts={() => void drafts.generate()}
+                  draftsBusy={drafts.busy}
+                />
+              </div>
+            </SwipeableRow>
             {draftsOpen && !isMobile && (
               <div
                 className="sn-overlay-in h-full shrink-0 overflow-hidden border-l"

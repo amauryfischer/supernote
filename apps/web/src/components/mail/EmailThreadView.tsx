@@ -871,14 +871,15 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
     // poussé EN BAS du panneau même quand le fil est court. En embed (bloc note)
     // : hauteur naturelle, pas de composeur.
     <div className={`flex flex-col gap-3${embedded ? "" : " min-h-full"}`}>
-      {/* En-tête (sujet + actions + labels) ÉPINGLÉ en haut du panneau dès md
-          (sur téléphone il mangerait un tiers de l'écran) : reste
-          visible pendant le défilement des messages. `-mx-4 px-4` = déborde le
-          padding du conteneur scroll pour couvrir toute la largeur ; fond opaque
-          + bordure bas pour que les messages passent DERRIÈRE. Pas en embed. */}
+      {/* En-tête (sujet + actions + labels) ÉPINGLÉ en haut du panneau dès md.
+          Sur téléphone, l'en-tête entier mangerait un tiers de l'écran : il se
+          dissout (`contents`) et seule la rangée d'actions reste épinglée.
+          `-mx-4 px-4` = déborde le padding du conteneur scroll pour couvrir
+          toute la largeur ; fond opaque + bordure bas pour que les messages
+          passent DERRIÈRE. Pas en embed. */}
       <div
         className={`flex flex-col gap-2${
-          embedded ? "" : " -mx-4 border-b px-4 pb-2 pt-1 md:sticky md:top-0 md:z-10"
+          embedded ? "" : " -mx-4 border-b px-4 pb-2 pt-1 max-md:contents md:sticky md:top-0 md:z-10"
         }`}
         style={
           embedded
@@ -888,8 +889,12 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
       >
         {/* Sous md, le sujet prend toute la largeur (2 lignes) et les actions
             passent dessous : côte à côte, il ne restait que quelques lettres. */}
-        <div className="flex flex-col gap-1 md:flex-row md:items-start md:justify-between md:gap-3">
-          <div className="flex min-w-0 flex-1 items-center gap-1.5">
+        <div
+          className={`flex flex-col gap-1 md:flex-row md:items-start md:justify-between md:gap-3${
+            embedded ? "" : " max-md:contents"
+          }`}
+        >
+          <div className="flex min-w-0 items-center gap-1.5 md:flex-1">
             {clientId && (
               <Button
                 isIconOnly
@@ -920,7 +925,16 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
               (kebab) ci-dessous — masqué en mode embed. On garde un Popover (et
               non DropdownMenu items) car 4 actions sont des composants
               self-contained à overlay propre : on les déplace tels quels. */}
-          <div className="flex shrink-0 items-center gap-1.5 md:justify-end">
+          <div
+            className={`flex shrink-0 items-center gap-1.5 md:justify-end${
+              embedded ? "" : " max-md:sticky max-md:top-0 max-md:z-10 max-md:-mx-4 max-md:border-b max-md:px-4 max-md:py-1"
+            }`}
+            style={
+              embedded
+                ? undefined
+                : { background: "var(--surface-0, var(--background))", borderColor: "var(--border-subtle)" }
+            }
+          >
             {clientId && (
               <MailEisenhowerPicker
                 onConvert={(q) => void convertToTodo(q)}

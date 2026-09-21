@@ -1,13 +1,11 @@
 "use client";
 
 /**
- * SwipeableRow — gestes de triage au doigt sur une ligne de la boîte.
- *
- * Sur mobile, le triage passait obligatoirement par l'ouverture du fil : c'est
- * un aller-retour par email. Ici, un glissement suffit :
+ * Gestes de triage au doigt (mobile), sur une ligne de la boîte comme sur le
+ * fil ouvert :
  *   → vers la droite : archiver
- *   ← vers la gauche : reporter (ouvre le choix d'échéance)
- * Un appui long ouvre la feuille d'actions complète.
+ *   ← vers la gauche : supprimer (corbeille, annulable par le toast)
+ * Un appui long (lignes seulement) ouvre la feuille d'actions complète.
  *
  * Détails qui comptent : le geste ne s'engage QUE s'il est franchement
  * horizontal (sinon on bloquerait le défilement vertical), les écouteurs sont
@@ -15,8 +13,8 @@
  * animé est désactivé quand l'utilisateur a demandé moins d'animations.
  */
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Archive, Clock } from "@phosphor-icons/react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { Archive, Trash } from "@phosphor-icons/react";
 import { prefersReducedMotion } from "@/lib/motion";
 
 /** Distance à parcourir pour déclencher l'action au relâchement. */
@@ -24,30 +22,39 @@ const TRIGGER_PX = 88;
 /** Distance minimale avant d'engager le geste (anti-faux positif). */
 const ENGAGE_PX = 10;
 
-export type SwipeAction = "archive" | "snooze";
+export type SwipeAction = "archive" | "delete";
 
-export function SwipeableRow({
-  children,
+/** Un email large défile horizontalement : le doigt y appartient au contenu. */
+function ownsHorizontalTouch(target: EventTarget | null, root: HTMLElement): boolean {
+  for (let n = target instanceof Element ? target : null; n && n !== root; n = n.parentElement) {
+    if (n instanceof HTMLElement && n.isContentEditable) return true;
+    if (n.matches("input, textarea, select")) return true;
+    if (n.scrollWidth > n.clientWidth + 1) {
+      const ox = getComputedStyle(n).overflowX;
+      if (ox === "auto" || ox === "scroll") return true;
+    }
+  }
+  return false;
+}
+
+export function useSwipeGesture({
   onSwipe,
   onLongPress,
-  /** Désactive le geste (ligne non triable : groupe, mode sélection…). */
   disabled = false,
 }: {
-  children: ReactNode;
   onSwipe: (action: SwipeAction) => void;
   onLongPress?: () => void;
   disabled?: boolean;
 }) {
-  const ref = useRef<HTMLDivElement>(null);
+  // Élément en state (ref callback) : la cible peut monter après le premier rendu.
+  const [el, setEl] = useState<HTMLElement | null>(null);
   const [dx, setDx] = useState(0);
   const [animating, setAnimating] = useState(false);
-  // Le handler `touchend` est installé une fois pour toutes : il lit la dernière
-  // position via une ref (l'état `dx` y serait périmé).
+  // Le handler `touchend` lit la dernière position via une ref (l'état `dx` y serait périmé).
   const dxRef = useRef(0);
   dxRef.current = dx;
 
   useEffect(() => {
-    const el = ref.current;
     if (!el || disabled) return undefined;
 
     let startX = 0;
@@ -63,10 +70,11 @@ export function SwipeableRow({
 
     const onStart = (e: TouchEvent) => {
       const t = e.touches[0];
-      if (!t) return;
+      decided = true;
+      engaged = false;
+      if (!t || ownsHorizontalTouch(e.target, el)) return;
       startX = t.clientX;
       startY = t.clientY;
-      engaged = false;
       decided = false;
       setAnimating(false);
       if (onLongPress) {
@@ -85,7 +93,6 @@ export function SwipeableRow({
       if (!decided) {
         if (Math.abs(deltaX) < ENGAGE_PX && Math.abs(deltaY) < ENGAGE_PX) return;
         decided = true;
-        // Geste franchement horizontal → triage ; sinon on laisse défiler.
         engaged = Math.abs(deltaX) > Math.abs(deltaY);
         if (!engaged) cancelLongPress();
       }
@@ -106,8 +113,8 @@ export function SwipeableRow({
       const reached = Math.abs(dxRef.current) >= TRIGGER_PX;
       setAnimating(!prefersReducedMotion());
       if (reached) {
-        const action: SwipeAction = dxRef.current > 0 ? "archive" : "snooze";
-        // On termine la sortie avant de remonter l'action : la ligne disparaît
+        const action: SwipeAction = dxRef.current > 0 ? "archive" : "delete";
+        // On termine la sortie avant de remonter l'action : l'élément disparaît
         // dans le mouvement plutôt que de sauter.
         setDx(Math.sign(dxRef.current) * (el.offsetWidth || 320));
         setTimeout(() => {
@@ -132,48 +139,73 @@ export function SwipeableRow({
       el.removeEventListener("touchend", onEnd);
       el.removeEventListener("touchcancel", onEnd);
     };
-  }, [disabled, onSwipe, onLongPress]);
+  }, [el, disabled, onSwipe, onLongPress]);
 
-  if (disabled) return <>{children}</>;
-
-  const progress = Math.min(Math.abs(dx) / TRIGGER_PX, 1);
-  const armed = Math.abs(dx) >= TRIGGER_PX;
-
-  return (
-    <div ref={ref} className="relative overflow-hidden rounded-lg">
-      {/* Fonds révélés par le glissement. */}
-      {dx !== 0 && (
-        <div
-          aria-hidden
-          className="absolute inset-0 flex items-center justify-between px-4"
-          style={{
-            background:
-              dx > 0
-                ? `color-mix(in oklch, var(--success) ${Math.round(progress * 70)}%, transparent)`
-                : `color-mix(in oklch, #f5b300 ${Math.round(progress * 70)}%, transparent)`,
-          }}
-        >
-          <span
-            className="flex items-center gap-1.5 text-xs font-semibold"
-            style={{ color: "var(--text-primary)", opacity: dx > 0 ? 1 : 0 }}
-          >
-            <Archive size={16} weight={armed ? "fill" : "regular"} /> Archiver
-          </span>
-          <span
-            className="flex items-center gap-1.5 text-xs font-semibold"
-            style={{ color: "var(--text-primary)", opacity: dx < 0 ? 1 : 0 }}
-          >
-            Reporter <Clock size={16} weight={armed ? "fill" : "regular"} />
-          </span>
-        </div>
-      )}
-      <div
-        style={{
+  // Pas de transform au repos : il changerait le bloc conteneur des `fixed` descendants.
+  const style: CSSProperties | undefined =
+    dx !== 0 || animating
+      ? {
           transform: `translateX(${dx}px)`,
           transition: animating ? "transform var(--sn-dur-2, 160ms) var(--sn-ease-out, ease-out)" : undefined,
-          background: dx !== 0 ? "var(--surface-0, var(--background))" : undefined,
-        }}
+          background: "var(--surface-0, var(--background))",
+        }
+      : undefined;
+
+  return { ref: setEl, dx, style };
+}
+
+/** Fond révélé sous l'élément glissé ; à placer dans un parent `relative overflow-hidden`. */
+export function SwipeBackdrop({ dx }: { dx: number }) {
+  if (dx === 0) return null;
+  const progress = Math.min(Math.abs(dx) / TRIGGER_PX, 1);
+  const armed = Math.abs(dx) >= TRIGGER_PX;
+  return (
+    <div
+      aria-hidden
+      className="absolute inset-0 flex items-center justify-between px-4"
+      style={{
+        background: `color-mix(in oklch, ${dx > 0 ? "var(--success)" : "var(--danger)"} ${Math.round(progress * 70)}%, transparent)`,
+      }}
+    >
+      <span
+        className="flex items-center gap-1.5 text-xs font-semibold"
+        style={{ color: "var(--text-primary)", opacity: dx > 0 ? 1 : 0 }}
       >
+        <Archive size={16} weight={armed ? "fill" : "regular"} /> Archiver
+      </span>
+      <span
+        className="flex items-center gap-1.5 text-xs font-semibold"
+        style={{ color: "var(--text-primary)", opacity: dx < 0 ? 1 : 0 }}
+      >
+        Supprimer <Trash size={16} weight={armed ? "fill" : "regular"} />
+      </span>
+    </div>
+  );
+}
+
+export function SwipeableRow({
+  children,
+  onSwipe,
+  onLongPress,
+  /** Désactive le geste (ligne non triable : groupe, mode sélection…). */
+  disabled = false,
+  className = "relative overflow-hidden rounded-lg",
+  innerClassName,
+}: {
+  children: ReactNode;
+  onSwipe: (action: SwipeAction) => void;
+  onLongPress?: () => void;
+  disabled?: boolean;
+  className?: string;
+  innerClassName?: string;
+}) {
+  // L'état du geste vit ici : un glissement ne re-rend que ce wrapper, pas le parent.
+  const swipe = useSwipeGesture({ onSwipe, onLongPress, disabled });
+
+  return (
+    <div ref={swipe.ref} className={className}>
+      <SwipeBackdrop dx={swipe.dx} />
+      <div className={innerClassName} style={swipe.style}>
         {children}
       </div>
     </div>
