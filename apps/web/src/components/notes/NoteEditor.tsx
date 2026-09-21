@@ -563,7 +563,9 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
   const { getBindings, bindingsKey } = useEditorBindings();
 
   // ── AI inline actions wiring ───────────────────────────────────────────────
-  const aiClient = useMemo(() => createOllamaClient({}), []);
+  const aiModel = settings.ia.ollamaModel;
+  // Sans defaultModel, le client choisit seul dans PREFERRED_MODELS (llama3.2 en tête) et ignore les réglages.
+  const aiClient = useMemo(() => createOllamaClient({ defaultModel: aiModel }), [aiModel]);
   const aiPromptResolver = useCallback(
     async (id: AIActionId) => {
       const res = await trpcVanillaClient.ai.getPrompt.query({ actionId: id });

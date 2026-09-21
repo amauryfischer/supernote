@@ -85,13 +85,13 @@ export function IaOllamaTab() {
   // Auto-title toggle is persisted in localStorage (independent of the
   // in-memory AppSettings) so the editor hooks can read it without going
   // through React context — they fire from non-React debounced timers.
-  const [autoTitle, setAutoTitle] = useState(false);
+  const [autoTitle, setAutoTitle] = useState(true);
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
-      setAutoTitle(window.localStorage.getItem(AUTO_TITLE_ENABLED_KEY) === "1");
+      setAutoTitle(window.localStorage.getItem(AUTO_TITLE_ENABLED_KEY) !== "0");
     } catch {
-      /* localStorage may be unavailable (private mode) — leave default off */
+      /* localStorage indisponible (navigation privée) : on garde le défaut */
     }
   }, []);
   const toggleAutoTitle = (v: boolean) => {
@@ -105,13 +105,13 @@ export function IaOllamaTab() {
   };
 
   // Auto-tag toggle — same persistence pattern as auto-title.
-  const [autoTag, setAutoTag] = useState(false);
+  const [autoTag, setAutoTag] = useState(true);
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
-      setAutoTag(window.localStorage.getItem(AUTO_TAG_ENABLED_KEY) === "1");
+      setAutoTag(window.localStorage.getItem(AUTO_TAG_ENABLED_KEY) !== "0");
     } catch {
-      /* localStorage unavailable — leave default off */
+      /* localStorage indisponible : on garde le défaut */
     }
   }, []);
   const toggleAutoTag = (v: boolean) => {

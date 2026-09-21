@@ -10,7 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import type { AppSettings } from "./types";
-import { DEFAULT_SETTINGS } from "./defaults";
+import { DEFAULT_SETTINGS, migrateIa } from "./defaults";
 
 interface SettingsContextValue {
   settings: AppSettings;
@@ -42,7 +42,7 @@ function loadInitialSettings(): AppSettings {
       ...parsed,
       general: { ...DEFAULT_SETTINGS.general, ...(parsed.general ?? {}) },
       appearance: { ...DEFAULT_SETTINGS.appearance, ...(parsed.appearance ?? {}) },
-      ia: { ...DEFAULT_SETTINGS.ia, ...(parsed.ia ?? {}) },
+      ia: migrateIa({ ...DEFAULT_SETTINGS.ia, ...(parsed.ia ?? {}) }),
       sync: { ...DEFAULT_SETTINGS.sync, ...(parsed.sync ?? {}) },
       api: { ...DEFAULT_SETTINGS.api, ...(parsed.api ?? {}) },
       notifications: { ...DEFAULT_SETTINGS.notifications, ...(parsed.notifications ?? {}) },

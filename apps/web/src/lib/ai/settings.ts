@@ -7,7 +7,7 @@
  * (worker, UI, agent loop) without dragging React.
  */
 
-import { DEFAULT_SETTINGS } from "@/components/settings/defaults";
+import { DEFAULT_SETTINGS, migrateIa } from "@/components/settings/defaults";
 import type { IaSettings } from "@/components/settings/types";
 
 // DOIT correspondre à la clé de SettingsContext (`supernote.settings`). Un
@@ -29,7 +29,7 @@ function readPersistedIa(): IaSettings {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return DEFAULT_SETTINGS.ia;
     const parsed = JSON.parse(raw) as Partial<{ ia: Partial<IaSettings> }>;
-    return { ...DEFAULT_SETTINGS.ia, ...(parsed.ia ?? {}) };
+    return migrateIa({ ...DEFAULT_SETTINGS.ia, ...(parsed.ia ?? {}) });
   } catch {
     return DEFAULT_SETTINGS.ia;
   }

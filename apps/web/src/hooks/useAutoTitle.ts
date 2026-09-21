@@ -520,12 +520,12 @@ export function useAutoTitle(): UseAutoTitleResult {
   return { isAvailable, isProbing, suggest };
 }
 
-/** Read the user's "auto-title" toggle from localStorage. Default: false (opt-in). */
+/** Réglage « auto-titre ». Défaut : activé (opt-out, comme les marges IA). */
 export function isAutoTitleEnabled(): boolean {
   if (typeof window === "undefined") return false;
   if (!isAiRuntimeAllowed()) return false;
   try {
-    return window.localStorage.getItem(ENABLED_KEY) === "1";
+    return window.localStorage.getItem(ENABLED_KEY) !== "0";
   } catch {
     return false;
   }

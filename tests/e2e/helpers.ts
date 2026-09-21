@@ -12,5 +12,9 @@ export async function bootDegraded(page: Page): Promise<void> {
   await page.addInitScript(() => {
     localStorage.setItem("supernote.degraded", "1");
     localStorage.setItem("supernote.onboarding.completed", "true");
+    // L'IA est active par défaut : avec un Ollama local, elle renommerait ou rangerait les notes des tests.
+    for (const key of ["supernote.ai.autoTitle", "supernote.ai.autoTag", "supernote.ai.margins", "supernote.ai.inboxSort"]) {
+      localStorage.setItem(key, "0");
+    }
   });
 }
