@@ -20,6 +20,8 @@
  *   getVaultPassword(vault)        → "sel:hash" | null
  *   claimVaultPassword(vault, rec) → boolean (false si déjà protégé)
  *   listProtectedVaults()          → string[]
+ *   putBlob(vault, path, bytes)    → void (pièce jointe d'une note)
+ *   getBlob(vault, path)           → Buffer | null
  *   kind                           → "sqlite" | "postgres"
  */
 
@@ -104,6 +106,13 @@ async function createSqliteStore() {
     CREATE INDEX IF NOT EXISTS op_vault_seq ON op (vault, seq);
     CREATE INDEX IF NOT EXISTS op_vault_entity ON op (vault, entityId, seq);
     CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS blob (
+      vault     TEXT NOT NULL,
+      path      TEXT NOT NULL,
+      bytes     BLOB NOT NULL,
+      createdAt INTEGER NOT NULL,
+      PRIMARY KEY (vault, path)
+    );
   `);
 
   let epoch = db.prepare(`SELECT value FROM meta WHERE key = 'epoch'`).get()?.value;
@@ -131,6 +140,10 @@ async function createSqliteStore() {
   const getPwStmt = db.prepare(`SELECT value FROM meta WHERE key = ?`);
   const claimPwStmt = db.prepare(`INSERT OR IGNORE INTO meta (key, value) VALUES (?, ?)`);
   const listPwStmt = db.prepare(`SELECT key FROM meta WHERE key LIKE '${PW_PREFIX}%' ORDER BY key`);
+  const putBlobStmt = db.prepare(
+    `INSERT OR REPLACE INTO blob (vault, path, bytes, createdAt) VALUES (?, ?, ?, ?)`,
+  );
+  const getBlobStmt = db.prepare(`SELECT bytes FROM blob WHERE vault = ? AND path = ?`);
 
   const insertMany = db.transaction((vault, ops) => {
     const stored = [];
@@ -176,6 +189,10 @@ async function createSqliteStore() {
       claimPwStmt.run(PW_PREFIX + vault, record).changes > 0,
     listProtectedVaults: async () =>
       listPwStmt.all().map((r) => r.key.slice(PW_PREFIX.length)),
+    putBlob: async (vault, path, bytes) => {
+      putBlobStmt.run(vault, path, bytes, Date.now());
+    },
+    getBlob: async (vault, path) => getBlobStmt.get(vault, path)?.bytes ?? null,
   };
 }
 
@@ -201,6 +218,13 @@ async function createPgStore(url) {
     CREATE INDEX IF NOT EXISTS sync_op_vault_seq ON sync_op (vault, seq);
     CREATE INDEX IF NOT EXISTS sync_op_vault_entity ON sync_op (vault, entityid, seq);
     CREATE TABLE IF NOT EXISTS sync_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS sync_blob (
+      vault     TEXT NOT NULL,
+      path      TEXT NOT NULL,
+      bytes     BYTEA NOT NULL,
+      createdat BIGINT NOT NULL,
+      PRIMARY KEY (vault, path)
+    );
   `);
 
   // Mint-once epoch, race-safe across concurrent boots (ON CONFLICT keeps the
@@ -310,6 +334,20 @@ async function createPgStore(url) {
         `SELECT key FROM sync_meta WHERE key LIKE '${PW_PREFIX}%' ORDER BY key`,
       );
       return res.rows.map((r) => r.key.slice(PW_PREFIX.length));
+    },
+    putBlob: async (vault, path, bytes) => {
+      await pool.query(
+        `INSERT INTO sync_blob (vault, path, bytes, createdat) VALUES ($1, $2, $3, $4)
+         ON CONFLICT (vault, path) DO UPDATE SET bytes = EXCLUDED.bytes, createdat = EXCLUDED.createdat`,
+        [vault, path, bytes, Date.now()],
+      );
+    },
+    getBlob: async (vault, path) => {
+      const res = await pool.query(
+        `SELECT bytes FROM sync_blob WHERE vault = $1 AND path = $2`,
+        [vault, path],
+      );
+      return res.rows[0]?.bytes ?? null;
     },
   };
 }

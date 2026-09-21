@@ -858,10 +858,13 @@ export function buildRouter(
       } catch (err) {
         console.warn("[folders.rename] file move failed", oldFilePath, "→", newFilePath, err);
       }
+      const previous = await entitiesGet({ id: r["id"] as string }).catch(() => null);
       db.run(
         `UPDATE entity SET filePath = ?, updatedAt = ? WHERE id = ?`,
         [newFilePath, ts, r["id"] as string],
       );
+      // Sans le hook, aucune op de synchro : les autres appareils gardaient l'ancien dossier.
+      try { hooks.onEntityUpdated?.(await entitiesGet({ id: r["id"] as string }), previous); } catch (e) { console.warn("[hook] onEntityUpdated", e); }
     }
 
     // 2. Try to drop the now-empty old directory. Best-effort: if there are
@@ -920,6 +923,7 @@ export function buildRouter(
     for (const r of affected) {
       const id = r["id"] as string;
       const filePath = r["filePath"] as string;
+      const previous = await entitiesGet({ id }).catch(() => null);
       try {
         await deleteVaultFile(vaultHandle, filePath.split("/"));
       } catch {
@@ -929,6 +933,7 @@ export function buildRouter(
       ftsRemove(db, id);
       mentionsRemove(db, id);
       tombstoneAdd(db, id); // block reindex resurrection if the .md survived
+      try { hooks.onEntityDeleted?.(id, previous); } catch (e) { console.warn("[hook] onEntityDeleted", e); }
     }
 
     // 3. Drop the folder + every nested folder from the explicit list.
@@ -3544,12 +3549,14 @@ export function buildRouter(
     // Index existing rows by filePath so the excalidraw branch can detect
     // legacy `canvas` rows we now want to migrate to `note` virtuals.
     const rowsByPath = new Map<string, { id: string; typeId: string }>();
+    const pathById = new Map<string, string>();
     try {
       for (const r of rows(
         db.exec(`SELECT id, typeId, filePath FROM entity WHERE vaultId = ?`, [vaultId]),
       )) {
         const fp = (r["filePath"] as string | null) ?? "";
         if (fp) rowsByPath.set(fp, { id: r["id"] as string, typeId: r["typeId"] as string });
+        if (fp) pathById.set(r["id"] as string, fp);
       }
     } catch {
       // entity table not ready — leave the map empty.
@@ -3579,6 +3586,11 @@ export function buildRouter(
             // it here is the "resurrection" bug — skip the orphan. A later
             // (re)create or sync-upsert of this id clears the tombstone.
             if (isTombstoned(db, fmId)) continue;
+            // Copie périmée d'une entité dont le fichier courant est toujours sur
+            // le disque : y re-pointer la ligne ramenait l'ancien titre/dossier.
+            // Un déplacement externe, lui, fait disparaître l'ancien chemin.
+            const currentPath = pathById.get(fmId);
+            if (currentPath && currentPath !== file.relativePath && allRelativePaths.has(currentPath)) continue;
             // Supernote-native file: honour the declared type / id.
             const typeRow = row(db.exec(
               `SELECT id FROM entity_type WHERE vaultId = ? AND name = ?`, [vaultId, typeName],
@@ -3630,6 +3642,7 @@ export function buildRouter(
           const r = row(db.exec(`SELECT id, typeId, filePath, fields, body FROM entity WHERE id = ?`, [id]));
           if (r) ftsAdd(db, entityToDoc(r));
           existing.add(file.relativePath);
+          pathById.set(id, file.relativePath);
           if (typeId === "note") {
             // Reserve the sibling path so a subsequent .excalidraw in the same
             // pass doesn't get materialised as a duplicate standalone canvas.
@@ -4301,6 +4314,23 @@ export function buildRouter(
               op.entityId,
             ],
           );
+          const oldPath = (existing["filePath"] as string) ?? "";
+          // ⚠️ Renommage ou déplacement distant : l'ancien .md survivait, et le
+          // reindex (toutes les 30 s) y re-pointait l'entité — ancien titre,
+          // ancien dossier. Supprimé seulement une fois l'UPDATE passé.
+          if (
+            provenance === null &&
+            oldPath !== storedPath &&
+            isMarkdownPath(oldPath) &&
+            isMarkdownPath(storedPath)
+          ) {
+            try {
+              await deleteVaultFile(vaultHandle, oldPath.split("/"));
+            } catch {
+              /* already gone */
+            }
+            await moveExcalidrawSibling(vaultHandle, oldPath, storedPath);
+          }
         } else {
           db.run(
             `INSERT INTO entity (id, vaultId, typeId, filePath, fields, body, fileHash, sourceVaultId, createdAt, updatedAt)

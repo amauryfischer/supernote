@@ -377,3 +377,34 @@ export async function joinVault(
   if (res.status === 401) return "Mot de passe incorrect.";
   return `Le serveur a refusé la connexion (HTTP ${res.status}).`;
 }
+
+type BlobTarget = { serverUrl: string; vaultKey: string; token: string };
+
+function blobRequest(target: BlobTarget, path: string, init: RequestInit): Promise<Response> {
+  const params = new URLSearchParams({ vault: target.vaultKey, path });
+  return fetch(`${target.serverUrl.replace(/\/+$/, "")}/api/sync/blob?${params}`, {
+    ...init,
+    headers: target.token ? { "x-sync-token": target.token } : {},
+  });
+}
+
+/** Pièce jointe d'une note (image collée…) : les ops ne transportent que le markdown. */
+export async function pushBlob(target: BlobTarget, path: string, bytes: ArrayBuffer): Promise<void> {
+  const res = await blobRequest(target, path, { method: "POST", body: bytes });
+  if (!res.ok) throw new Error(`blob push ${res.status}`);
+}
+
+export async function hasBlob(target: BlobTarget, path: string): Promise<boolean> {
+  const res = await blobRequest(target, path, { method: "HEAD" });
+  if (res.status === 404) return false;
+  if (!res.ok) throw new Error(`blob head ${res.status}`);
+  return true;
+}
+
+/** null quand le serveur ne l'a pas (jamais poussée, ou salon sans elle). */
+export async function pullBlob(target: BlobTarget, path: string): Promise<ArrayBuffer | null> {
+  const res = await blobRequest(target, path, { method: "GET" });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`blob pull ${res.status}`);
+  return res.arrayBuffer();
+}

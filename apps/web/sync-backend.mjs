@@ -18,6 +18,8 @@
  *   GET  /stream?vault&since&clientId  → SSE: hello, ops, ping
  *   POST /push  { vault, clientId, ops } → { headSeq, acks }
  *   GET  /pull?vault&since             → { headSeq, ops }   (SSE-less fallback)
+ *   POST /blob?vault&path  (octets)     → { ok }  pièce jointe d'une note
+ *   GET|HEAD /blob?vault&path           → octets, 404 si absente
  *
  * Storage: see `sync-store.mjs` — SQLite for `file:` URLs (self-hosting on a
  * persistent disk), PostgreSQL for `postgres://` URLs (the durable choice on
@@ -178,7 +180,7 @@ export async function createSyncBackend() {
 
   async function readJson(req) {
     try {
-      return JSON.parse(await readBody(req));
+      return JSON.parse((await readBody(req)).toString("utf8"));
     } catch {
       return null;
     }
@@ -209,7 +211,7 @@ export async function createSyncBackend() {
         }
         chunks.push(c);
       });
-      req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+      req.on("end", () => resolve(Buffer.concat(chunks)));
       req.on("error", reject);
     });
   }
@@ -356,6 +358,42 @@ export async function createSyncBackend() {
       if (stored.length > 0) await broadcast(vault, stored);
       sendJson(res, 200, { headSeq: await store.headSeq(vault), acks });
       return true;
+    }
+
+    // Les ops ne portent que le markdown : sans cette route, une image collée
+    // dans une note n'existait que sur l'appareil qui l'avait collée.
+    if (path === "/api/sync/blob") {
+      const vault = url.searchParams.get("vault") ?? "";
+      const blobPath = url.searchParams.get("path") ?? "";
+      if (!vault || !blobPath || blobPath.length > 1024) {
+        sendJson(res, 400, { error: "missing vault or path" });
+        return true;
+      }
+      if (!(await vaultAuthed(req, url, vault))) {
+        sendJson(res, 401, { error: "unauthorized" });
+        return true;
+      }
+      if (req.method === "POST") {
+        await store.putBlob(vault, blobPath, await readBody(req));
+        sendJson(res, 200, { ok: true });
+        return true;
+      }
+      if (req.method === "GET" || req.method === "HEAD") {
+        // ponytail: HEAD relit les octets en base ; une colonne de taille si les images grossissent.
+        const bytes = await store.getBlob(vault, blobPath);
+        if (!bytes) {
+          sendJson(res, 404, { error: "not found" });
+          return true;
+        }
+        res.writeHead(200, {
+          "Content-Type": "application/octet-stream",
+          "Content-Length": bytes.length,
+          "Access-Control-Allow-Origin": "*",
+          "Cache-Control": "no-store",
+        });
+        res.end(req.method === "HEAD" ? undefined : bytes);
+        return true;
+      }
     }
 
     if (path === "/api/sync/stream" && req.method === "GET") {

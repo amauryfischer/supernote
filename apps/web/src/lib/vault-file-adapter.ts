@@ -6,11 +6,17 @@
  * `<dossier de la note>/_attachments/` et on ne stocke que ce chemin dans le
  * markdown (`![](Projets/_attachments/img-….png)`), puis on le résout en
  * `blob:` au rendu.
+ *
+ * Coffre synchronisé : les ops ne portent que ce markdown, donc les octets
+ * passent par le serveur de synchro — poussés dès qu'ils sont lus ou écrits
+ * ici, tirés quand le fichier manque localement (collé sur un autre appareil).
  */
 
 import { mimeTypeForPath } from "@/components/attachments/useAttachmentBlob";
 import { trpcVanillaClient } from "@/lib/trpc/client";
 import { ATTACHMENTS_DIR } from "@/lib/attachments-path";
+import { loadOnlineSyncConfig } from "@/lib/online-sync/config-storage";
+import { hasBlob, pullBlob, pushBlob } from "@/lib/online-sync/client";
 import type { EditorFileAdapter } from "@supernote/editor";
 
 const EXT_BY_MIME: Record<string, string> = {
@@ -34,6 +40,43 @@ const EXT_BY_MIME: Record<string, string> = {
 // illustrée re-résoudrait toutes ses images à chaque navigation). Jamais
 // révoquée volontairement — révoquer une URL encore affichée casse l'image.
 const objectUrlByPath = new Map<string, string>();
+
+// Au plus un HEAD par pièce jointe et par session. Une image collée hors ligne,
+// ou avant que la synchro ne transporte les octets, part au prochain affichage.
+const blobOnServer = new Set<string>();
+
+/** Les sous-arbres montés appartiennent à un autre salon. */
+function blobTarget(path: string) {
+  const cfg = loadOnlineSyncConfig();
+  if (!cfg.enabled || !cfg.vaultKey || path.startsWith("@mounts/")) return null;
+  return cfg;
+}
+
+function ensureBlobOnServer(path: string, bytes: ArrayBuffer): void {
+  const target = blobTarget(path);
+  if (!target || blobOnServer.has(path)) return;
+  blobOnServer.add(path);
+  void (async () => {
+    if (!(await hasBlob(target, path))) await pushBlob(target, path, bytes);
+  })().catch((err) => {
+    blobOnServer.delete(path);
+    console.warn("[attachments] envoi au serveur de synchro échoué", path, err);
+  });
+}
+
+async function pullMissingBlob(path: string): Promise<ArrayBuffer | null> {
+  const target = blobTarget(path);
+  if (!target) return null;
+  const bytes = await pullBlob(target, path).catch(() => null);
+  if (!bytes) return null;
+  blobOnServer.add(path);
+  try {
+    await trpcVanillaClient.vault.writeFile.mutate({ path, bytes });
+  } catch (err) {
+    console.warn("[attachments] copie locale échouée", path, err);
+  }
+  return bytes;
+}
 
 function extensionFor(file: File): string {
   const fromName = file.name.includes(".") ? file.name.split(".").pop() : "";
@@ -79,6 +122,7 @@ export function createVaultFileAdapter(
     const path = `${dir ? `${dir}/` : ""}${ATTACHMENTS_DIR}/${name}`;
     const bytes = await file.arrayBuffer();
     await trpcVanillaClient.vault.writeFile.mutate({ path, bytes });
+    ensureBlobOnServer(path, bytes);
     // Le bloc va demander la résolution dans la foulée : on l'alimente sans
     // relire le fichier qu'on vient d'écrire.
     objectUrlFor(path, bytes, file.type);
@@ -99,10 +143,15 @@ export function createVaultFileAdapter(
         const result = (await trpcVanillaClient.vault.readFile.query({ path })) as {
           bytes: ArrayBuffer;
         };
+        ensureBlobOnServer(path, result.bytes);
         return objectUrlFor(path, result.bytes);
       } catch {
         /* candidat suivant */
       }
+    }
+    for (const path of candidates) {
+      const bytes = await pullMissingBlob(path);
+      if (bytes) return objectUrlFor(path, bytes);
     }
     return url;
   };
