@@ -21,9 +21,10 @@
  *  - Images inline `cid:` (référencées par Content-ID dans le HTML) ne sont PAS
  *    résolues : on les laisse passer (best-effort) ; elles ne chargeront pas
  *    (URL `cid:` non gérée par le navigateur) mais ne plantent pas le rendu.
- *  - Pas de proxy d'images distantes : les pixels-espions `<img src="https://…">`
- *    peuvent charger (tracking d'ouverture). Acceptable en l'état ; un blocage
- *    images distantes serait une amélioration future.
+ *  - Ressources distantes (images, `background`, `url()` du CSS inline, `<svg
+ *    image>`) retirées par défaut : ce sont les pixels-espions qui signalent
+ *    l'ouverture. Le lecteur les réaffiche à la demande (`allowRemoteImages`),
+ *    ou pour toujours par expéditeur (`trustImageSender`).
  *  - Le CSS inline (`style="…"`) reste autorisé par défaut pour préserver la
  *    mise en forme ; il est borné côté conteneur (max-width, overflow) mais peut
  *    déborder visuellement. DOMPurify neutralise les `style` dangereux
@@ -38,6 +39,18 @@
 import DOMPurify from "dompurify";
 
 let hookRegistered = false;
+// Lus par le hook, global à DOMPurify (d'autres modules l'utilisent) : armés
+// uniquement le temps d'un `sanitizeEmailHtml`, qui est synchrone.
+let blockRemote = false;
+let blockedCount = 0;
+
+/** Tout ce qui n'est pas embarqué dans le message (`data:`) ou une pièce jointe (`cid:`). */
+function isRemoteUrl(value: string): boolean {
+  const v = value.trim();
+  return v !== "" && !/^(data|cid):/i.test(v);
+}
+
+const REMOTE_URL_ATTRS = ["src", "srcset", "poster", "background"];
 
 /**
  * Propriétés CSS de positionnement retirées inconditionnellement d'un `style`
@@ -77,6 +90,10 @@ function sanitizeLayoutStyle(style: string): string {
     const prop = decl.slice(0, idx).trim().toLowerCase();
     const value = decl.slice(idx + 1).trim();
     if (!prop || !value) continue;
+    if (blockRemote && /(url|image-set)\(\s*(?!['"]?\s*data:)/i.test(value)) {
+      blockedCount++;
+      continue;
+    }
     if (prop === "position") {
       const v = value.toLowerCase();
       if (v === "fixed" || v === "absolute" || v === "sticky") continue;
@@ -99,9 +116,20 @@ function ensureLinkHook(): void {
   hookRegistered = true;
   DOMPurify.addHook("afterSanitizeAttributes", (node) => {
     if (!(node instanceof Element)) return;
-    if (node.tagName === "A") {
+    const tag = node.tagName.toUpperCase();
+    if (tag === "A") {
       node.setAttribute("target", "_blank");
       node.setAttribute("rel", "noopener noreferrer");
+    }
+    if (blockRemote) {
+      const attrs = tag === "A" || tag === "AREA" ? REMOTE_URL_ATTRS : [...REMOTE_URL_ATTRS, "href", "xlink:href"];
+      for (const name of attrs) {
+        const value = node.getAttribute(name);
+        if (value !== null && isRemoteUrl(value)) {
+          node.removeAttribute(name);
+          blockedCount++;
+        }
+      }
     }
     if (node.hasAttribute("style")) {
       const cleaned = sanitizeLayoutStyle(node.getAttribute("style") ?? "");
@@ -223,21 +251,73 @@ export function splitSignatureHtml(html: string): { body: string; signature: str
   return { body: root.innerHTML.trim(), signature: parts.join("") };
 }
 
-export function sanitizeEmailHtml(dirty: string): string {
-  if (!dirty) return "";
+/**
+ * `blockedImages` compte les ressources distantes retirées : le lecteur ne
+ * propose « Afficher les images » que s'il y a quelque chose à afficher.
+ */
+export function sanitizeEmailHtml(
+  dirty: string,
+  { allowRemoteImages = false }: { allowRemoteImages?: boolean } = {},
+): { html: string; blockedImages: number } {
+  if (!dirty) return { html: "", blockedImages: 0 };
   ensureLinkHook();
-  return DOMPurify.sanitize(dirty, {
-    // `<script>`/`<style>` (CSS global exfiltrant) + éléments interactifs/embed
-    // qui n'ont aucun sens dans un corps de mail rendu en lecture.
-    FORBID_TAGS: ["script", "style", "form", "input", "button", "textarea", "select", "iframe", "object", "embed"],
-    // DOMPurify retire déjà tous les handlers `on*` ; on n'ajoute donc PAS
-    // `style` ici → l'attribut `style` INLINE est conservé pour la mise en forme
-    // du mail (DOMPurify neutralise les valeurs dangereuses : expression(),
-    // url(javascript:)…). Le débordement visuel est borné côté conteneur.
-    // Empêche le retour d'un TrustedHTML : on veut une string (compat React).
-    RETURN_TRUSTED_TYPE: false,
-    // Conserve le contenu textuel des éléments retirés plutôt que de tout jeter.
-    KEEP_CONTENT: true,
-    ALLOW_DATA_ATTR: false,
-  });
+  blockRemote = !allowRemoteImages;
+  blockedCount = 0;
+  let html: string;
+  try {
+    html = DOMPurify.sanitize(dirty, {
+      // `<script>`/`<style>` (CSS global exfiltrant) + éléments interactifs/embed
+      // qui n'ont aucun sens dans un corps de mail rendu en lecture.
+      FORBID_TAGS: ["script", "style", "form", "input", "button", "textarea", "select", "iframe", "object", "embed"],
+      // DOMPurify retire déjà tous les handlers `on*` ; on n'ajoute donc PAS
+      // `style` ici → l'attribut `style` INLINE est conservé pour la mise en forme
+      // du mail (DOMPurify neutralise les valeurs dangereuses : expression(),
+      // url(javascript:)…). Le débordement visuel est borné côté conteneur.
+      // Empêche le retour d'un TrustedHTML : on veut une string (compat React).
+      RETURN_TRUSTED_TYPE: false,
+      // Conserve le contenu textuel des éléments retirés plutôt que de tout jeter.
+      KEEP_CONTENT: true,
+      ALLOW_DATA_ATTR: false,
+    });
+  } finally {
+    blockRemote = false;
+  }
+  return { html, blockedImages: blockedCount };
+}
+
+// ── Expéditeurs dont les images s'affichent d'office ─────────────────────────
+const IMAGE_SENDERS_KEY = "supernote.mail.imageSenders";
+export const MAIL_IMAGE_SENDERS_EVENT = "supernote:mail-image-senders";
+let imageSenders: Set<string> | null = null;
+
+export function loadImageSenders(): Set<string> {
+  if (imageSenders) return imageSenders;
+  try {
+    const parsed: unknown = JSON.parse(window.localStorage.getItem(IMAGE_SENDERS_KEY) ?? "[]");
+    imageSenders = new Set(Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === "string") : []);
+  } catch {
+    imageSenders = new Set();
+  }
+  return imageSenders;
+}
+
+function saveImageSenders(next: Set<string>): void {
+  imageSenders = next;
+  try {
+    window.localStorage.setItem(IMAGE_SENDERS_KEY, JSON.stringify([...next]));
+  } catch {
+    /* quota / storage désactivé — le choix vaut pour la session */
+  }
+  window.dispatchEvent(new CustomEvent(MAIL_IMAGE_SENDERS_EVENT));
+}
+
+export function trustImageSender(email: string): void {
+  const key = email.trim().toLowerCase();
+  if (!key || loadImageSenders().has(key)) return;
+  saveImageSenders(new Set([...loadImageSenders(), key]));
+}
+
+export function untrustImageSender(email: string): void {
+  const next = new Set(loadImageSenders());
+  if (next.delete(email.trim().toLowerCase())) saveImageSenders(next);
 }

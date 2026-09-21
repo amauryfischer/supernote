@@ -25,6 +25,7 @@ import {
   modifyThreadLabels,
   trashThread,
   untrashThread,
+  isTransientGmailError,
   type ThreadListItem,
   type EmailThread,
   type GmailLabel,
@@ -199,6 +200,10 @@ export async function syncThreadDetail(
 // one per thread) coalesce instead of double-pushing the same outbox ops.
 const outboxInFlight = new Map<string, Promise<void>>();
 
+// Backoff par op après un refus de Gmail (4xx) : 5 s, 10 s, 20 s… plafonné à 10 min.
+const opRetryAt = new Map<string, number>();
+const opBackoffMs = (attempts: number) => Math.min(10 * 60_000, 5_000 * 2 ** attempts);
+
 /** Push pending optimistic mutations to Gmail, then ack/fail each outbox op. */
 export function flushOutbox(clientId: string, accountId: string): Promise<void> {
   if (!clientId || !accountId) return Promise.resolve();
@@ -217,7 +222,14 @@ async function flushOutboxInner(clientId: string, accountId: string): Promise<vo
   // Refresh the badge after the queue is drained / some ops fail.
   let changed = false;
   const acked: string[] = [];
+  // Un fil dont une op attend garde ses ops suivantes en file : l'ordre compte
+  // (archiver puis annuler ne doit pas s'inverser).
+  const heldThreads = new Set<string>();
   for (const op of items) {
+    if (heldThreads.has(op.threadId) || (opRetryAt.get(op.opId) ?? 0) > Date.now()) {
+      heldThreads.add(op.threadId);
+      continue;
+    }
     try {
       if (op.kind === "trash") {
         await trashThread(clientId, op.threadId);
@@ -245,8 +257,15 @@ async function flushOutboxInner(clientId: string, accountId: string): Promise<vo
         });
       }
       acked.push(op.opId);
+      opRetryAt.delete(op.opId);
     } catch (err) {
+      // Réseau, jeton ou quota : l'op n'y est pour rien, elle ne consomme pas de
+      // tentative, et les suivantes échoueraient pareil. Relance au prochain
+      // déclencheur (online, retour d'onglet, reconnexion, sync).
+      if (isTransientGmailError(err)) break;
       changed = true;
+      heldThreads.add(op.threadId);
+      opRetryAt.set(op.opId, Date.now() + opBackoffMs(op.attempts));
       await trpcVanillaClient.mail.resolveOutbox
         .mutate({
           opIds: [op.opId],

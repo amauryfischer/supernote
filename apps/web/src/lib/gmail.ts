@@ -10,10 +10,125 @@
  * client séparé de Drive) pour ne pas forcer les utilisateurs Drive-only.
  */
 
-import { requestAccessToken, hasValidToken } from "./google-drive";
+import { requestAccessToken, hasValidToken, forgetAccessToken } from "./google-drive";
 
 export const GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
 const GMAIL_API_BASE = "https://gmail.googleapis.com/gmail/v1/users/me";
+
+/** Réponse HTTP non-2xx de l'API Gmail. */
+export class GmailApiError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = "GmailApiError";
+  }
+}
+
+/** Aucun token utilisable sans geste de l'utilisateur : Gmail attend une reconnexion. */
+export class GmailAuthError extends Error {
+  constructor(detail = "") {
+    super(`Reconnexion Gmail requise${detail ? ` (${detail})` : ""}`);
+    this.name = "GmailAuthError";
+  }
+}
+
+/** Échec qui ne dit rien de l'opération elle-même : réseau, jeton, quota, serveur. */
+export function isTransientGmailError(err: unknown): boolean {
+  if (err instanceof GmailAuthError || err instanceof TypeError) return true;
+  if (err instanceof GmailApiError) {
+    // Gmail signale aussi ses quotas en 403 (`rateLimitExceeded`, `userRateLimitExceeded`).
+    return err.status === 429 || err.status >= 500 || (err.status === 403 && /rateLimit|quota/i.test(err.message));
+  }
+  return typeof navigator !== "undefined" && navigator.onLine === false;
+}
+
+// ── État « reconnexion requise », partagé par toute l'app ────────────────────
+export const GMAIL_AUTH_EVENT = "supernote:gmail-auth";
+const failedScopes = new Set<string>();
+
+function setScopeFailed(scope: string, failed: boolean): void {
+  const before = failedScopes.size;
+  if (failed) failedScopes.add(scope);
+  else failedScopes.delete(scope);
+  if ((before > 0) !== (failedScopes.size > 0) && typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent(GMAIL_AUTH_EVENT));
+  }
+}
+
+export function gmailReconnectRequired(): boolean {
+  return failedScopes.size > 0;
+}
+
+const pendingTokens = new Map<string, Promise<string>>();
+
+function acquireToken(clientId: string, scope: string): Promise<string> {
+  if (hasValidToken(clientId, scope)) return requestAccessToken(clientId, { scope, prompt: "" });
+  // Après un échec, plus de tentative automatique : GIS ne passe que par une popup,
+  // bloquée hors geste, et chaque tour de poll en rouvrirait une. On attend le clic.
+  if (failedScopes.size > 0) {
+    setScopeFailed(scope, true);
+    return Promise.reject(new GmailAuthError());
+  }
+  const key = `${clientId} ${scope}`;
+  const pending = pendingTokens.get(key);
+  if (pending) return pending;
+  const p = requestAccessToken(clientId, { scope, prompt: "" })
+    .catch((err: unknown) => {
+      setScopeFailed(scope, true);
+      throw new GmailAuthError(err instanceof Error ? err.message : String(err));
+    })
+    .finally(() => pendingTokens.delete(key));
+  pendingTokens.set(key, p);
+  return p;
+}
+
+/**
+ * Appel REST Gmail authentifié. Sur 401, le token est oublié et l'appel rejoué une
+ * fois ; un second refus bascule l'app en « reconnexion requise ».
+ */
+async function gmailRequest(
+  clientId: string,
+  scope: string,
+  path: string,
+  init: { method?: string; body?: string; json?: boolean } = {},
+  label = "Gmail API",
+): Promise<Response> {
+  for (let attempt = 0; ; attempt++) {
+    const token = await acquireToken(clientId, scope);
+    const res = await fetch(`${GMAIL_API_BASE}${path}`, {
+      method: init.method ?? "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        ...(init.json ? { "Content-Type": "application/json" } : {}),
+      },
+      ...(init.body !== undefined ? { body: init.body } : {}),
+    });
+    if (res.status === 401) {
+      forgetAccessToken(token);
+      if (attempt === 0) continue;
+      setScopeFailed(scope, true);
+      throw new GmailAuthError("401");
+    }
+    setScopeFailed(scope, false);
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new GmailApiError(res.status, `${label} ${res.status}: ${text.slice(0, 300)}`);
+    }
+    return res;
+  }
+}
+
+/**
+ * Reconnexion déclenchée par un geste (clic) : redemande d'un coup les scopes
+ * refusés, ce qui débloque tous les appels en attente.
+ */
+export async function reconnectGmail(clientId: string): Promise<void> {
+  const scopes = new Set([GMAIL_READONLY_SCOPE, ...failedScopes]);
+  await requestAccessToken(clientId, { scope: [...scopes].join(" "), prompt: "" });
+  for (const s of scopes) if (hasValidToken(clientId, s)) setScopeFailed(s, false);
+}
 
 /**
  * True si un token readonly frais est déjà en cache — sans jamais déclencher
@@ -26,26 +141,15 @@ export function hasGmailToken(clientId: string): boolean {
   return hasValidToken(clientId, GMAIL_READONLY_SCOPE);
 }
 
-/** Récupère un token Gmail (consentement incrémental, scope readonly). */
-function gmailToken(clientId: string, prompt: "" | "consent" | "none" = ""): Promise<string> {
-  return requestAccessToken(clientId, { scope: GMAIL_READONLY_SCOPE, prompt });
-}
-
 async function gmailFetch<T>(clientId: string, path: string): Promise<T> {
-  const token = await gmailToken(clientId);
-  const res = await fetch(`${GMAIL_API_BASE}${path}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`Gmail API ${res.status}: ${text.slice(0, 300)}`);
-  }
+  const res = await gmailRequest(clientId, GMAIL_READONLY_SCOPE, path);
   return (await res.json()) as T;
 }
 
 /** Lance explicitement le consentement Gmail (bouton "Connecter"). */
 export async function connectGmail(clientId: string): Promise<void> {
-  await gmailToken(clientId, "consent");
+  await requestAccessToken(clientId, { scope: GMAIL_READONLY_SCOPE, prompt: "consent" });
+  for (const s of [...failedScopes]) setScopeFailed(s, false);
 }
 
 /** Adresse du compte connecté (affichage settings). */
@@ -66,12 +170,22 @@ export async function getGmailProfile(clientId: string): Promise<string> {
  * borne à `>= 0` par prudence (un payload partiel renvoie 0 = pas de badge).
  */
 export async function getInboxUnreadCount(clientId: string): Promise<number> {
-  const json = await gmailFetch<{ threadsUnread?: number; messagesUnread?: number }>(
+  return (await getInboxCounts(clientId)).threadsUnread;
+}
+
+/** Fils en boîte de réception côté Gmail : total et non lus (même appel `labels.get`). */
+export async function getInboxCounts(
+  clientId: string,
+): Promise<{ threadsTotal: number; threadsUnread: number }> {
+  const json = await gmailFetch<{ threadsTotal?: number; threadsUnread?: number; messagesUnread?: number }>(
     clientId,
     "/labels/INBOX",
   );
-  const n = json.threadsUnread ?? json.messagesUnread ?? 0;
-  return Number.isFinite(n) && n > 0 ? n : 0;
+  const count = (n: number | undefined) => (n !== undefined && Number.isFinite(n) && n > 0 ? n : 0);
+  return {
+    threadsTotal: count(json.threadsTotal),
+    threadsUnread: count(json.threadsUnread ?? json.messagesUnread),
+  };
 }
 
 // ─── Types & parseurs purs (P1) ───────────────────────────────────────────────
@@ -484,20 +598,18 @@ export async function listHistory(
   clientId: string,
   startHistoryId: string,
 ): Promise<GmailHistoryResult> {
-  const token = await gmailToken(clientId);
   const changed = new Set<string>();
   let latest = startHistoryId;
   let pageToken: string | undefined;
   do {
     const params = new URLSearchParams({ startHistoryId });
     if (pageToken) params.set("pageToken", pageToken);
-    const res = await fetch(`${GMAIL_API_BASE}/history?${params.toString()}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (res.status === 404) return { ok: false, changedThreadIds: [] };
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      throw new Error(`Gmail API ${res.status}: ${text.slice(0, 300)}`);
+    let res: Response;
+    try {
+      res = await gmailRequest(clientId, GMAIL_READONLY_SCOPE, `/history?${params.toString()}`);
+    } catch (err) {
+      if (err instanceof GmailApiError && err.status === 404) return { ok: false, changedThreadIds: [] };
+      throw err;
     }
     const json = (await res.json()) as {
       history?: Array<{
@@ -540,7 +652,7 @@ export async function getThreadSummaries(
     try {
       return await getThreadListItem(clientId, id);
     } catch (err) {
-      if (err instanceof Error && /Gmail API 404/.test(err.message)) {
+      if (err instanceof GmailApiError && err.status === 404) {
         missing.push(id);
         return null;
       }
@@ -727,19 +839,20 @@ export async function modifyThreadLabels(
   threadId: string,
   changes: { addLabelIds?: string[]; removeLabelIds?: string[] },
 ): Promise<void> {
-  const token = await requestAccessToken(clientId, { scope: GMAIL_MODIFY_SCOPE, prompt: "" });
-  const res = await fetch(`${GMAIL_API_BASE}/threads/${encodeURIComponent(threadId)}/modify`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      addLabelIds: changes.addLabelIds ?? [],
-      removeLabelIds: changes.removeLabelIds ?? [],
-    }),
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`Gmail modify ${res.status}: ${text.slice(0, 300)}`);
-  }
+  await gmailRequest(
+    clientId,
+    GMAIL_MODIFY_SCOPE,
+    `/threads/${encodeURIComponent(threadId)}/modify`,
+    {
+      method: "POST",
+      json: true,
+      body: JSON.stringify({
+        addLabelIds: changes.addLabelIds ?? [],
+        removeLabelIds: changes.removeLabelIds ?? [],
+      }),
+    },
+    "Gmail modify",
+  );
 }
 
 /** Raccourci : ajoute un label à un thread. */
@@ -764,21 +877,22 @@ export async function createLabel(
   name: string,
   color?: GmailLabelColor,
 ): Promise<GmailLabel> {
-  const token = await requestAccessToken(clientId, { scope: GMAIL_MODIFY_SCOPE, prompt: "" });
-  const res = await fetch(`${GMAIL_API_BASE}/labels`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      name,
-      labelListVisibility: "labelShow",
-      messageListVisibility: "show",
-      ...(color ? { color } : {}),
-    }),
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`Gmail label create ${res.status}: ${text.slice(0, 300)}`);
-  }
+  const res = await gmailRequest(
+    clientId,
+    GMAIL_MODIFY_SCOPE,
+    "/labels",
+    {
+      method: "POST",
+      json: true,
+      body: JSON.stringify({
+        name,
+        labelListVisibility: "labelShow",
+        messageListVisibility: "show",
+        ...(color ? { color } : {}),
+      }),
+    },
+    "Gmail label create",
+  );
   const json = (await res.json()) as {
     id: string;
     name: string;
@@ -804,29 +918,24 @@ export async function updateLabel(
   labelId: string,
   patch: { name?: string; color?: GmailLabelColor },
 ): Promise<void> {
-  const token = await requestAccessToken(clientId, { scope: GMAIL_MODIFY_SCOPE, prompt: "" });
-  const res = await fetch(`${GMAIL_API_BASE}/labels/${encodeURIComponent(labelId)}`, {
-    method: "PATCH",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify(patch),
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`Gmail label patch ${res.status}: ${text.slice(0, 300)}`);
-  }
+  await gmailRequest(
+    clientId,
+    GMAIL_MODIFY_SCOPE,
+    `/labels/${encodeURIComponent(labelId)}`,
+    { method: "PATCH", json: true, body: JSON.stringify(patch) },
+    "Gmail label patch",
+  );
 }
 
 /** Supprime un label utilisateur (il disparaît de tous les fils, les emails restent). */
 export async function deleteLabel(clientId: string, labelId: string): Promise<void> {
-  const token = await requestAccessToken(clientId, { scope: GMAIL_MODIFY_SCOPE, prompt: "" });
-  const res = await fetch(`${GMAIL_API_BASE}/labels/${encodeURIComponent(labelId)}`, {
-    method: "DELETE",
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`Gmail label delete ${res.status}: ${text.slice(0, 300)}`);
-  }
+  await gmailRequest(
+    clientId,
+    GMAIL_MODIFY_SCOPE,
+    `/labels/${encodeURIComponent(labelId)}`,
+    { method: "DELETE" },
+    "Gmail label delete",
+  );
 }
 
 /**
@@ -909,14 +1018,19 @@ export async function getMessageHeaders(
   messageId: string,
   names: string[],
 ): Promise<Record<string, string>> {
-  const token = await requestAccessToken(clientId, { scope: GMAIL_READONLY_SCOPE, prompt: "" });
   const params = new URLSearchParams({ format: "metadata" });
   for (const n of names) params.append("metadataHeaders", n);
-  const res = await fetch(
-    `${GMAIL_API_BASE}/messages/${encodeURIComponent(messageId)}?${params.toString()}`,
-    { headers: { Authorization: `Bearer ${token}` } },
-  );
-  if (!res.ok) return {};
+  let res: Response;
+  try {
+    res = await gmailRequest(
+      clientId,
+      GMAIL_READONLY_SCOPE,
+      `/messages/${encodeURIComponent(messageId)}?${params.toString()}`,
+    );
+  } catch (err) {
+    if (err instanceof GmailApiError) return {};
+    throw err;
+  }
   const json = (await res.json()) as GmailRawMessage;
   const out: Record<string, string> = {};
   for (const h of json.payload?.headers ?? []) {
@@ -931,15 +1045,13 @@ export async function getMessageHeaders(
  * permanent (qui exigerait le scope complet `https://mail.google.com/`).
  */
 export async function trashThread(clientId: string, threadId: string): Promise<void> {
-  const token = await requestAccessToken(clientId, { scope: GMAIL_MODIFY_SCOPE, prompt: "" });
-  const res = await fetch(`${GMAIL_API_BASE}/threads/${encodeURIComponent(threadId)}/trash`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`Gmail trash ${res.status}: ${text.slice(0, 300)}`);
-  }
+  await gmailRequest(
+    clientId,
+    GMAIL_MODIFY_SCOPE,
+    `/threads/${encodeURIComponent(threadId)}/trash`,
+    { method: "POST" },
+    "Gmail trash",
+  );
 }
 
 /**
@@ -950,15 +1062,13 @@ export async function trashThread(clientId: string, threadId: string): Promise<v
  * triage côté page Mail). Sert au mécanisme « Annuler » après une suppression.
  */
 export async function untrashThread(clientId: string, threadId: string): Promise<void> {
-  const token = await requestAccessToken(clientId, { scope: GMAIL_MODIFY_SCOPE, prompt: "" });
-  const res = await fetch(`${GMAIL_API_BASE}/threads/${encodeURIComponent(threadId)}/untrash`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`Gmail untrash ${res.status}: ${text.slice(0, 300)}`);
-  }
+  await gmailRequest(
+    clientId,
+    GMAIL_MODIFY_SCOPE,
+    `/threads/${encodeURIComponent(threadId)}/untrash`,
+    { method: "POST" },
+    "Gmail untrash",
+  );
 }
 
 // ─── Primitives compose (P3) ──────────────────────────────────────────────────
@@ -1200,19 +1310,16 @@ export async function createDraft(
     attachments?: OutgoingAttachment[];
   },
 ): Promise<DraftResult> {
-  const token = await requestAccessToken(clientId, { scope: GMAIL_COMPOSE_SCOPE, prompt: "" });
   const raw = toBase64Url(buildRawMessage(input));
   const message: { raw: string; threadId?: string } = { raw };
   if (input.threadId) message.threadId = input.threadId;
-  const res = await fetch(`${GMAIL_API_BASE}/drafts`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ message }),
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`Gmail draft ${res.status}: ${text.slice(0, 300)}`);
-  }
+  const res = await gmailRequest(
+    clientId,
+    GMAIL_COMPOSE_SCOPE,
+    "/drafts",
+    { method: "POST", json: true, body: JSON.stringify({ message }) },
+    "Gmail draft",
+  );
   const json = (await res.json()) as { id?: string };
   if (!json.id) {
     throw new Error("Réponse Gmail inattendue : brouillon sans id.");
@@ -1246,17 +1353,14 @@ export async function sendReply(
     attachments?: OutgoingAttachment[];
   },
 ): Promise<void> {
-  const token = await requestAccessToken(clientId, { scope: GMAIL_COMPOSE_SCOPE, prompt: "" });
   const raw = toBase64Url(buildRawMessage(input));
-  const res = await fetch(`${GMAIL_API_BASE}/messages/send`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ raw, threadId: input.threadId }),
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`Gmail send ${res.status}: ${text.slice(0, 300)}`);
-  }
+  await gmailRequest(
+    clientId,
+    GMAIL_COMPOSE_SCOPE,
+    "/messages/send",
+    { method: "POST", json: true, body: JSON.stringify({ raw, threadId: input.threadId }) },
+    "Gmail send",
+  );
 }
 
 /**
@@ -1277,17 +1381,14 @@ export async function sendMessage(
     attachments?: OutgoingAttachment[];
   },
 ): Promise<void> {
-  const token = await requestAccessToken(clientId, { scope: GMAIL_COMPOSE_SCOPE, prompt: "" });
   const raw = toBase64Url(buildRawMessage(input));
-  const res = await fetch(`${GMAIL_API_BASE}/messages/send`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ raw }),
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`Gmail send ${res.status}: ${text.slice(0, 300)}`);
-  }
+  await gmailRequest(
+    clientId,
+    GMAIL_COMPOSE_SCOPE,
+    "/messages/send",
+    { method: "POST", json: true, body: JSON.stringify({ raw }) },
+    "Gmail send",
+  );
 }
 
 // ─── Pièces jointes (téléchargement) ──────────────────────────────────────────

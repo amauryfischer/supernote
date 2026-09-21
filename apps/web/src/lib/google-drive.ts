@@ -224,6 +224,13 @@ export function clearAccessToken(opts: { clientId?: string; scope?: string } = {
   }
 }
 
+/** Oublie un token refusé par l'API (401), sans révoquer : revoke retirerait tout le consentement. */
+export function forgetAccessToken(accessToken: string): void {
+  for (const [key, token] of [...tokenCache.entries()]) {
+    if (token.accessToken === accessToken) tokenCache.delete(key);
+  }
+}
+
 /** True si un token frais existe pour ce clientId+scope (défaut Drive). */
 export function hasValidToken(clientId: string, scope: string = OAUTH_SCOPE): boolean {
   return findFreshToken(clientId, scope) !== null;

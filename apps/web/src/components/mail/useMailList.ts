@@ -17,6 +17,7 @@
 
 import { useCallback, useRef, useState } from "react";
 import {
+  getInboxCounts,
   listThreadSummariesPage,
   listLabels,
   type GmailLabel,
@@ -66,6 +67,13 @@ export interface MailListApi {
   nextPageToken: string | undefined;
   moreLoading: boolean;
   loadList: (q: string) => Promise<void>;
+  /**
+   * Resynchronise la boîte en tâche de fond (mirror uniquement) sans toucher à
+   * la sélection ni afficher de squelette. No-op hors mirror.
+   */
+  refresh: () => Promise<void>;
+  /** Fils en boîte côté Gmail quand le mirror n'en a copié qu'une partie (constat du dernier sync) ; sinon null. */
+  truncatedTotal: number | null;
   loadMore: (q: string) => Promise<void>;
   /** Reconstruit l'overlay depuis un jeu d'items (filtre d'onglet appliqué). */
   rebuild: (items: ThreadListItem[]) => OverlayRow[];
@@ -99,6 +107,7 @@ export function useMailList({
   const [moreLoading, setMoreLoading] = useState(false);
   const [listLoading, setListLoading] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
+  const [truncatedTotal, setTruncatedTotal] = useState<number | null>(null);
   // Anti-course : une réponse réseau plus lente qu'un souhait plus récent est
   // ignorée (jeton croissant par chargement).
   const loadReqRef = useRef(0);
@@ -121,6 +130,31 @@ export function useMailList({
     [selfAddresses, computeVisible, flatLabelIds],
   );
 
+  // Sync Gmail → mirror puis relecture ; `reqId` écarte une réponse dépassée.
+  const syncAndReread = useCallback(
+    async (reqId: number) => {
+      await syncMailbox(clientId, accountId);
+      if (reqId !== loadReqRef.current) return;
+      const [items, labels] = await Promise.all([
+        mirrorListThreads(accountId, { labelId: "INBOX", limit: 500 }),
+        mirrorListLabels(accountId),
+      ]);
+      if (reqId !== loadReqRef.current) return;
+      applyListData(items, labels, undefined);
+      setListError(null);
+      void getInboxCounts(clientId)
+        .then((c) => {
+          if (reqId === loadReqRef.current) {
+            setTruncatedTotal(c.threadsTotal > items.length ? c.threadsTotal : null);
+          }
+        })
+        .catch(() => {
+          /* indicateur de troncature best-effort */
+        });
+    },
+    [clientId, accountId, applyListData],
+  );
+
   const loadList = useCallback(
     async (q: string) => {
       const reqId = ++loadReqRef.current;
@@ -128,6 +162,7 @@ export function useMailList({
       onResetSelection();
 
       const canMirror = q === DEFAULT_MAIL_QUERY && mirrorAvailable() && !!accountId;
+      if (!canMirror) setTruncatedTotal(null);
 
       if (canMirror) {
         // 1) Affichage immédiat depuis le mirror (inbox zero ⇒ liste courte).
@@ -147,16 +182,7 @@ export function useMailList({
           setListLoading(true); // mirror illisible → le sync reconstruit
         }
         // 2) Reconciliation en arrière-plan puis relecture du mirror.
-        void syncMailbox(clientId, accountId)
-          .then(async () => {
-            if (reqId !== loadReqRef.current) return;
-            const [items, labels] = await Promise.all([
-              mirrorListThreads(accountId, { labelId: "INBOX", limit: 500 }),
-              mirrorListLabels(accountId),
-            ]);
-            if (reqId !== loadReqRef.current) return;
-            applyListData(items, labels, undefined);
-          })
+        void syncAndReread(reqId)
           .catch((err) => {
             if (reqId !== loadReqRef.current) return;
             setRows((rs) => {
@@ -188,8 +214,15 @@ export function useMailList({
         if (reqId === loadReqRef.current) setListLoading(false);
       }
     },
-    [clientId, accountId, applyListData, onResetSelection],
+    [clientId, accountId, applyListData, onResetSelection, syncAndReread],
   );
+
+  const refresh = useCallback(async () => {
+    if (!mirrorAvailable() || !accountId) return;
+    await syncAndReread(++loadReqRef.current).catch(() => {
+      /* hors ligne ou jeton absent : on garde l'affichage courant */
+    });
+  }, [accountId, syncAndReread]);
 
   // Page suivante : APPEND aux items cumulés puis RECONSTRUCTION de l'overlay sur
   // l'ensemble (sinon le regroupement serait calculé page par page, donc faux).
@@ -226,6 +259,8 @@ export function useMailList({
   const searchLocal = useCallback(
     async (rawQuery: string): Promise<number | null> => {
       if (!mirrorAvailable() || !accountId) return null;
+      // Une relecture de fond encore en vol écraserait les résultats de recherche.
+      ++loadReqRef.current;
       const parsed = parseMailQuery(rawQuery);
       const nameToId = new Map<string, string>();
       for (const [id, name] of labelNames) nameToId.set(name.toLowerCase(), id);
@@ -300,6 +335,8 @@ export function useMailList({
     nextPageToken,
     moreLoading,
     loadList,
+    refresh,
+    truncatedTotal,
     loadMore,
     rebuild,
     searchLocal,

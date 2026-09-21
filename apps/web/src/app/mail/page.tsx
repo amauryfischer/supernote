@@ -52,6 +52,9 @@ import { useMailDrafts } from "@/components/mail/useMailDrafts";
 import type { MailActionId, MailContext } from "@/lib/mail-shortcuts";
 import {
   getThread,
+  hasGmailToken,
+  gmailReconnectRequired,
+  GMAIL_AUTH_EVENT,
   addThreadLabel,
   modifyThreadLabels,
   markThreadRead,
@@ -67,9 +70,9 @@ import {
   type ThreadListItem,
 } from "@/lib/gmail";
 import {
-  listDue,
   removeSnooze,
   addSnooze,
+  MAIL_SNOOZE_EVENT,
   applyTriage,
   undoTriage,
   INBOX_LABEL,
@@ -121,6 +124,8 @@ import { MailGroupsManager } from "@/components/mail/MailGroupsManager";
 import { MailOutboxBadge } from "@/components/mail/MailOutboxBadge";
 import { MailOutgoingBadge } from "@/components/mail/MailOutgoingBadge";
 import { MailFollowupBadge } from "@/components/mail/MailFollowupBadge";
+import { MailSnoozedBadge } from "@/components/mail/MailSnoozedBadge";
+import { GmailReconnectBanner } from "@/components/mail/GmailReconnectBanner";
 import { useMailAutoLabel } from "@/components/mail/useMailAutoLabel";
 import { useMailSummaries } from "@/components/mail/useMailSummaries";
 import {
@@ -436,6 +441,8 @@ export default function MailPage() {
     nextPageToken,
     moreLoading,
     loadList,
+    refresh: refreshList,
+    truncatedTotal,
     loadMore,
     searchLocal,
     addLabel,
@@ -499,23 +506,45 @@ export default function MailPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mailTab, groups, cumItems, labelNames, selfAddresses, computeVisible, flatLabelIds]);
 
-  // Réveil des snoozes échus, vérifié chaque minute : un onglet resté ouvert
-  // doit rendre le fil à l'heure dite, pas au prochain rechargement.
+  // Resynchro pendant la session : la liste suit Gmail sans rechargement. Jamais
+  // sous une recherche, une sélection multiple ou un chargement, et jamais sans
+  // jeton en cache (une acquisition ouvrirait la popup Google hors geste).
+  const refreshStateRef = useRef({ idle: false, listError, query });
+  refreshStateRef.current = {
+    idle:
+      query === DEFAULT_MAIL_QUERY &&
+      localCount === null &&
+      !remoteSearch &&
+      !listLoading &&
+      selectedThreadIds.size === 0,
+    listError,
+    query,
+  };
   useEffect(() => {
-    if (!connected || !clientId) return;
-    const wakeDue = () => {
-      for (const e of listDue(Date.now())) {
-        void modifyThreadLabels(clientId, e.threadId, { addLabelIds: [INBOX_LABEL] })
-          .then(() => removeSnooze(e.threadId))
-          .catch(() => {
-            /* réveil best-effort : retenté à la minute suivante */
-          });
-      }
+    if (!connected || !clientId) return undefined;
+    const tick = () => {
+      if (document.hidden || !refreshStateRef.current.idle || !hasGmailToken(clientId)) return;
+      void refreshList();
     };
-    wakeDue();
-    const timer = window.setInterval(wakeDue, 60_000);
-    return () => window.clearInterval(timer);
-  }, [connected, clientId]);
+    const onAuth = () => {
+      if (gmailReconnectRequired()) return;
+      const { listError: error, query: q } = refreshStateRef.current;
+      if (error) void loadList(q);
+      else tick();
+    };
+    const id = window.setInterval(tick, 120_000);
+    window.addEventListener("online", tick);
+    window.addEventListener(MAIL_SNOOZE_EVENT, tick);
+    window.addEventListener(GMAIL_AUTH_EVENT, onAuth);
+    document.addEventListener("visibilitychange", tick);
+    return () => {
+      window.clearInterval(id);
+      window.removeEventListener("online", tick);
+      window.removeEventListener(MAIL_SNOOZE_EVENT, tick);
+      window.removeEventListener(GMAIL_AUTH_EVENT, onAuth);
+      document.removeEventListener("visibilitychange", tick);
+    };
+  }, [connected, clientId, refreshList, loadList]);
 
   // ── Ouverture d'un fil ──────────────────────────────────────────────────────
   // Intention différée : `r` / `a` / `f` / `l` sur une ligne de la LISTE ouvrent
@@ -799,7 +828,11 @@ export default function MailPage() {
       if (action === "done") stripTodoLabels(id);
       dropThreadFromList(id);
       if (action === "snooze") {
-        addSnooze(id, until ?? DEFAULT_SNOOZE_PRESET.computeUntil(new Date()));
+        const item = cumItems.find((it) => it.id === id) ?? (thread?.id === id ? thread.messages[0] : undefined);
+        addSnooze(id, until ?? DEFAULT_SNOOZE_PRESET.computeUntil(new Date()), {
+          subject: item?.subject,
+          from: item ? item.from.name || item.from.email : undefined,
+        });
       }
       bumpTriaged();
       const errTitle =
@@ -825,6 +858,7 @@ export default function MailPage() {
     [
       clientId,
       cumItems,
+      thread,
       stripTodoLabels,
       dropThreadFromList,
       commitMutation,
@@ -1282,6 +1316,13 @@ export default function MailPage() {
     [triageThread],
   );
 
+  const handleThreadTriage = useCallback(
+    (action: TriageAction, until?: number) => {
+      if (selectedThreadId) triageThread(selectedThreadId, action, until);
+    },
+    [selectedThreadId, triageThread],
+  );
+
   const handleLongPressRow = useCallback((row: OverlayRow) => {
     if (row.kind !== "single") return;
     setSheetItem(row.item);
@@ -1463,19 +1504,14 @@ export default function MailPage() {
     [selectedThreadId, stripTodoLabels, offerUndo, patchMirror, dropThreadFromList],
   );
 
-  // Le fil a déjà poussé Gmail et resynchronisé ses labels (onLabelsChanged).
+  // Le fil a déjà enregistré le changement (mirror + outbox) et resynchronisé ses labels.
   const handleConvertedToTodo = useCallback(
-    (
-      threadId: string,
-      todoLabels: GmailLabel[],
-      change: { addLabelIds: string[]; removeLabelIds: string[] },
-    ) => {
+    (_threadId: string, todoLabels: GmailLabel[]) => {
       for (const l of todoLabels) addLabel(l);
-      patchMirror({ threadId, kind: "modifyLabels", ...change });
       setSelectedThreadId(null);
       setThread(null);
     },
-    [addLabel, patchMirror],
+    [addLabel],
   );
 
   // ── Onglet Todo ────────────────────────────────────────────────────────────
@@ -2202,6 +2238,7 @@ export default function MailPage() {
       <div className="ml-auto flex shrink-0 items-center gap-1">
         {/* Rappels de relance en attente. */}
         <MailFollowupBadge onOpenThread={(id) => void openThread(id)} />
+        <MailSnoozedBadge clientId={clientId} onOpenThread={(id) => void openThread(id)} />
         {/* Envois programmés / en échec (file d'envoi différé). */}
         <MailOutgoingBadge />
         {accountId ? <MailOutboxBadge accountId={accountId} clientId={clientId} /> : null}
@@ -2366,6 +2403,17 @@ export default function MailPage() {
                   </Button>
                 </div>
               )}
+              {/* Le mirror ne copie qu'une partie d'une grosse boîte : le dire
+                  plutôt que laisser croire que la liste est complète. */}
+              {mailTab === "inbox" &&
+                query === DEFAULT_MAIL_QUERY &&
+                localCount === null &&
+                truncatedTotal !== null && (
+                  <p className="px-3 pt-3 text-center text-xs" style={{ color: "var(--text-muted)" }}>
+                    Liste partielle : {truncatedTotal} fils en boîte de réception côté Gmail. Les plus
+                    anciens n&apos;apparaissent pas ici, la recherche (Entrée) les retrouve.
+                  </p>
+                )}
             </>
           )}
         </div>
@@ -2566,6 +2614,8 @@ export default function MailPage() {
                    listener dans la vue fil. */
                 enableShortcuts={false}
                 onTriaged={handleTriaged}
+                onTriage={handleThreadTriage}
+                commitMutation={commitMutation}
                 onReplied={handleReplied}
                 onLabelsChanged={syncThreadLabels}
                 onForward={handleForward}
@@ -2701,6 +2751,7 @@ export default function MailPage() {
       return (
         <AppShell>
           <div className="relative flex h-full flex-col overflow-hidden">
+            <GmailReconnectBanner clientId={clientId} />
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{pane3}</div>
             {draftsOpen && (
               <div
@@ -2720,6 +2771,7 @@ export default function MailPage() {
       return (
         <AppShell>
           <div className="flex h-full flex-col overflow-hidden">
+            <GmailReconnectBanner clientId={clientId} />
             <div className="flex-1 overflow-y-auto px-2 pb-4">
               <MailGroupList
                 title={selectedGroup.title}
@@ -2743,7 +2795,10 @@ export default function MailPage() {
 
     return (
       <AppShell>
-        <div className="flex h-full flex-col overflow-hidden">{pane1}</div>
+        <div className="flex h-full flex-col overflow-hidden">
+          <GmailReconnectBanner clientId={clientId} />
+          {pane1}
+        </div>
         {overlays}
       </AppShell>
     );
@@ -2757,6 +2812,7 @@ export default function MailPage() {
     <AppShell>
       <div className="flex h-full flex-col overflow-hidden">
         {tabStrip}
+        <GmailReconnectBanner clientId={clientId} />
         <div className="relative flex min-h-0 flex-1 overflow-hidden">
           {selectedThreadId ? (
             <>

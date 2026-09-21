@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, forwardRef, useImperativeHandle, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, forwardRef, useImperativeHandle, type ReactNode } from "react";
 import { ArrowSquareOut, Plus, X, Tag, MagnifyingGlass, Check, PaperPlaneTilt, Quotes, Paperclip, Star, Envelope, ArrowBendUpRight, Sparkle, MagicWand, ArrowsClockwise, CaretUp, DotsThreeVertical, Copy, Image as ImageIcon, SpeakerSlash, UserMinus } from "@phosphor-icons/react";
 import { Button, Chip, Input, Spinner, Popover } from "@heroui/react";
 import { useToast, Tooltip } from "@supernote/ui";
@@ -8,14 +8,9 @@ import { useSettings } from "@/components/settings/SettingsContext";
 import {
   listLabels,
   resolveUserLabels,
-  addThreadLabel,
-  removeThreadLabel,
   modifyThreadLabels,
   createLabel,
   updateLabel,
-  markThreadRead,
-  markThreadUnread,
-  toggleStar,
   createDraft,
   buildGmailDraftUrl,
   classifyBubble,
@@ -32,7 +27,14 @@ import {
 import { parseEmailBody } from "@/lib/email-quote";
 import { senderHue } from "@/lib/mail-avatar";
 import { formatMailDateTime } from "@/lib/mail-date";
-import { sanitizeEmailHtml, splitQuotedHtml, splitSignatureHtml } from "@/lib/mail-html";
+import {
+  sanitizeEmailHtml,
+  splitQuotedHtml,
+  splitSignatureHtml,
+  loadImageSenders,
+  trustImageSender,
+  MAIL_IMAGE_SENDERS_EVENT,
+} from "@/lib/mail-html";
 import {
   filesToAttachments,
   imageToInlineAttachment,
@@ -62,6 +64,7 @@ import { useMailTemplates } from "./useMailTemplates";
 import { firstName } from "@/lib/mail-snippets";
 import { muteThread, blockSender } from "@/lib/mail-mute";
 import { applyTriage } from "@/lib/mail-triage";
+import type { MailMirrorApi } from "./useMailMirror";
 import { markdownToHtml, hasMarkup } from "@/lib/mail-markdown";
 import { withSignature } from "@/lib/mail-signature";
 import { loadAutoDraft, saveAutoDraft, clearAutoDraft, threadDraftKey } from "@/lib/mail-draft-store";
@@ -172,6 +175,17 @@ interface EmailThreadViewProps {
   /** Appelé après un triage réussi (Done/Archive/Snooze) — l'appelant retire le fil de la liste. */
   onTriaged?: (action: TriageAction) => void;
   /**
+   * Remplace l'appel Gmail direct de la barre de triage : la page le route par
+   * l'outbox (et gère elle-même retrait, report et « Annuler »).
+   */
+  onTriage?: (action: TriageAction, until?: number) => void;
+  /**
+   * Chemin mirror + outbox de la page : fourni, les changements de labels
+   * (lu, étoile, labels, todo) survivent au hors-ligne. Absent (bloc note),
+   * appel Gmail direct.
+   */
+  commitMutation?: MailMirrorApi["commitMutation"];
+  /**
    * Appelé après un ENVOI de réponse réussi (mode `send` uniquement, pas le
    * brouillon) — l'appelant re-fetch le fil + la liste pour afficher la réponse.
    */
@@ -208,6 +222,8 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
       enableShortcuts = true,
       embedded = false,
       onTriaged,
+      onTriage,
+      commitMutation,
       onReplied,
       onLabelsChanged,
       onForward,
@@ -234,12 +250,19 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
     null,
   );
   const triggerRef = useRef<HTMLButtonElement>(null);
-  // Garde anti-double : 1 seul markThreadRead par thread ouvert.
+  // Garde anti-double : un seul marquage-lu par thread ouvert.
   const readMarkedRef = useRef<string | null>(null);
 
   useEffect(() => {
     setLabelIds(thread.labelIds);
   }, [thread]);
+
+  const pushLabels = (change: { addLabelIds?: string[]; removeLabelIds?: string[] }): Promise<void> => {
+    const direct = () => modifyThreadLabels(clientId, thread.id, change);
+    return commitMutation
+      ? commitMutation({ threadId: thread.id, kind: "modifyLabels", ...change }, direct).then(() => undefined)
+      : direct();
+  };
 
   // À l'ouverture d'un thread non lu : le marquer lu (optimiste + best-effort).
   // Une seule fois par thread.id ; si l'appel échoue, on resté en silence (le
@@ -250,7 +273,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
     if (!thread.labelIds.includes("UNREAD")) return;
     readMarkedRef.current = thread.id;
     setLabelIds((prev) => prev.filter((id) => id !== "UNREAD"));
-    markThreadRead(clientId, thread.id).catch(() => {
+    pushLabels({ removeLabelIds: ["UNREAD"] }).catch(() => {
       /* best-effort : pas de toast pour un marquage-lu silencieux */
     });
   }, [thread.id, thread.labelIds, clientId]);
@@ -633,7 +656,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
       const nextIds = applyLabelChange(labelIds, change);
       setLabelIds(nextIds);
       onLabelsChanged?.(thread.id, nextIds);
-      await modifyThreadLabels(clientId, thread.id, change);
+      await pushLabels(change);
       const name = QUADRANTS.find((q) => q.id === quadrant)?.label ?? quadrant;
       toast({ title: `Rangé dans « ${name} »`, variant: "success" });
       onConvertedToTodo?.(thread.id, todoLabels, change);
@@ -681,8 +704,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
     // ligne reflète le label sans rechargement.
     onLabelsChanged?.(thread.id, nextIds);
     try {
-      if (action === "add") await addThreadLabel(clientId, thread.id, labelId);
-      else await removeThreadLabel(clientId, thread.id, labelId);
+      await pushLabels(action === "add" ? { addLabelIds: [labelId] } : { removeLabelIds: [labelId] });
     } catch (err) {
       setLabelIds(prev);
       onLabelsChanged?.(thread.id, prev);
@@ -750,7 +772,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
     setLabelIds(nextIds);
     onLabelsChanged?.(thread.id, nextIds);
     try {
-      await toggleStar(clientId, thread.id, next);
+      await pushLabels(next ? { addLabelIds: ["STARRED"] } : { removeLabelIds: ["STARRED"] });
     } catch (err) {
       setLabelIds(prev);
       onLabelsChanged?.(thread.id, prev);
@@ -772,7 +794,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
     setLabelIds(nextIds);
     onLabelsChanged?.(thread.id, nextIds);
     try {
-      await markThreadUnread(clientId, thread.id);
+      await pushLabels({ addLabelIds: ["UNREAD"] });
       toast({ title: "Marqué non lu" });
     } catch (err) {
       setLabelIds(prev);
@@ -911,7 +933,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
               />
             )}
             {clientId && (
-              <TriageBar clientId={clientId} threadId={thread.id} onTriaged={onTriaged} />
+              <TriageBar clientId={clientId} threadId={thread.id} onTriaged={onTriaged} onTriage={onTriage} />
             )}
             {!embedded && (
               <Popover isOpen={moreOpen} onOpenChange={setMoreOpen}>
@@ -1810,6 +1832,11 @@ function recipientsLine(message: EmailMessage | undefined, selfEmail?: string): 
   return { text: parts("à ", "cc ", who, " · "), title: parts("À : ", "Cc : ", (a) => a.email, "\n") };
 }
 
+function subscribeImageSenders(onChange: () => void): () => void {
+  window.addEventListener(MAIL_IMAGE_SENDERS_EVENT, onChange);
+  return () => window.removeEventListener(MAIL_IMAGE_SENDERS_EVENT, onChange);
+}
+
 function MessageBubble({
   message,
   kind,
@@ -1827,13 +1854,22 @@ function MessageBubble({
   const files = message.attachments.filter((a) => !a.inline);
   const inlineImages = message.attachments.filter((a) => a.inline);
   const date = formatMailDateTime(message.date ?? "");
+  const senderEmail = message.from.email.trim().toLowerCase();
+  const senderTrusted = useSyncExternalStore(
+    subscribeImageSenders,
+    () => loadImageSenders().has(senderEmail),
+    () => false,
+  );
+  const [showImagesOnce, setShowImagesOnce] = useState(false);
+  const allowRemoteImages = senderTrusted || showImagesOnce;
   // Chemin HTML : sanitize PUIS sépare contenu neuf, signature et citation, ces deux
   // dernières repliées. Mémoïsé : la sanitization touche le DOM (template parse).
   const htmlParts = useMemo(() => {
     if (!message.bodyHtml) return null;
-    const { body, quoted } = splitQuotedHtml(sanitizeEmailHtml(message.bodyHtml));
-    return { ...splitSignatureHtml(body), quoted };
-  }, [message.bodyHtml]);
+    const { html, blockedImages } = sanitizeEmailHtml(message.bodyHtml, { allowRemoteImages });
+    const { body, quoted } = splitQuotedHtml(html);
+    return { ...splitSignatureHtml(body), quoted, blockedImages };
+  }, [message.bodyHtml, allowRemoteImages]);
   // Chemin texte (fallback historique) : parse uniquement quand pas de HTML.
   const { body, quoted, signature } = useMemo(
     () => (htmlParts ? { body: "", quoted: "", signature: "" } : parseEmailBody(message.bodyText || message.snippet)),
@@ -1877,6 +1913,23 @@ function MessageBubble({
           // retour à la ligne, images responsives. La citation (historique) est
           // séparée et repliée pour éviter les « blocs rémanents ».
           <>
+            {htmlParts.blockedImages > 0 && (
+              <div
+                className="mb-1.5 flex flex-wrap items-center gap-x-1 gap-y-0.5 text-xs"
+                style={{ color: "var(--text-muted)" }}
+              >
+                <ImageIcon size={14} aria-hidden className="shrink-0" />
+                <span className="mr-1">Images masquées (suivi d&apos;ouverture)</span>
+                <Button size="sm" variant="ghost" onPress={() => setShowImagesOnce(true)}>
+                  Afficher
+                </Button>
+                {senderEmail && (
+                  <Button size="sm" variant="ghost" onPress={() => trustImageSender(senderEmail)}>
+                    Toujours pour cet expéditeur
+                  </Button>
+                )}
+              </div>
+            )}
             {htmlParts.body && (
               <div
                 className="sn-mail-html max-w-full overflow-x-auto break-words text-sm"

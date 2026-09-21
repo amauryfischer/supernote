@@ -16,7 +16,7 @@
 import { useEffect, useRef } from "react";
 import { useToast } from "@supernote/ui";
 import { useSettings } from "@/components/settings/SettingsContext";
-import { sendMessage, sendReply } from "@/lib/gmail";
+import { GmailAuthError, sendMessage, sendReply } from "@/lib/gmail";
 import {
   dueOutgoing,
   cancelOutgoing,
@@ -82,6 +82,8 @@ export function MailOutgoingRunner() {
             toastRef.current({ title: "Message envoyé", variant: "success" });
           })
           .catch((err: unknown) => {
+            // Jamais parti : il attend la reconnexion sans brûler ses tentatives.
+            if (err instanceof GmailAuthError) return;
             const msg = err instanceof Error ? err.message : String(err);
             recordFailure(m.id, msg);
             const still = loadOutgoing().find((x) => x.id === m.id);

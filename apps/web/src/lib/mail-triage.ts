@@ -70,10 +70,15 @@ export interface SnoozeEntry {
   threadId: string;
   /** Échéance en millisecondes (Date.now()). */
   until: number;
+  /** Mémorisés au report : le fil quitte le mirror au sync suivant, la liste « Reportés » n'aurait plus rien à montrer. */
+  subject?: string;
+  from?: string;
 }
 
 /** Clé localStorage du store snooze. */
 export const SNOOZE_STORAGE_KEY = "supernote.mail.snooze";
+/** Émis à chaque changement du store snooze (report, réveil, annulation). */
+export const MAIL_SNOOZE_EVENT = "supernote:mail-snooze";
 
 /** Garde de type runtime : `v` est une `SnoozeEntry` exploitable. */
 function isSnoozeEntry(v: unknown): v is SnoozeEntry {
@@ -121,14 +126,19 @@ export function saveSnoozed(entries: SnoozeEntry[]): void {
   } catch {
     /* quota / storage désactivé — best-effort */
   }
+  window.dispatchEvent(new CustomEvent(MAIL_SNOOZE_EVENT));
 }
 
 /**
  * Ajoute (ou remplace) une échéance de snooze pour un thread, puis persiste.
  * Renvoie la liste mise à jour (utile pour les tests / l'état optimiste).
  */
-export function addSnooze(threadId: string, until: number): SnoozeEntry[] {
-  const next = [...loadSnoozed().filter((e) => e.threadId !== threadId), { threadId, until }];
+export function addSnooze(
+  threadId: string,
+  until: number,
+  meta: { subject?: string; from?: string } = {},
+): SnoozeEntry[] {
+  const next = [...loadSnoozed().filter((e) => e.threadId !== threadId), { threadId, until, ...meta }];
   saveSnoozed(next);
   return next;
 }

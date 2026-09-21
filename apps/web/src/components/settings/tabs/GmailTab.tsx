@@ -20,6 +20,8 @@ import { SettingSection } from "../SettingSection";
 import { connectGmail, getGmailProfile, GMAIL_READONLY_SCOPE } from "@/lib/gmail";
 import { clearAccessToken } from "@/lib/google-drive";
 import { clearSummaryCache } from "@/lib/mail-summary";
+import { loadImageSenders, untrustImageSender, MAIL_IMAGE_SENDERS_EVENT } from "@/lib/mail-html";
+import { useGmailReconnect } from "@/components/mail/GmailReconnectBanner";
 import { CONFIDENCE_LEVELS, DEFAULT_CONFIDENCE_LEVEL } from "@/lib/mail-autolabel";
 import { NativeSelect } from "../NativeSelect";
 import {
@@ -53,15 +55,22 @@ export function GmailTab() {
   // porte à sens unique — on les liste ici pour pouvoir les défaire.
   const [blocked, setBlocked] = useState<string[]>([]);
   const [mutedCount, setMutedCount] = useState(0);
+  const [imageSenders, setImageSenders] = useState<string[]>([]);
   useEffect(() => {
     const refresh = () => {
       setBlocked([...loadBlockedSenders()]);
       setMutedCount(loadMutedThreads().size);
+      setImageSenders([...loadImageSenders()]);
     };
     refresh();
     window.addEventListener(MAIL_MUTE_EVENT, refresh);
-    return () => window.removeEventListener(MAIL_MUTE_EVENT, refresh);
+    window.addEventListener(MAIL_IMAGE_SENDERS_EVENT, refresh);
+    return () => {
+      window.removeEventListener(MAIL_MUTE_EVENT, refresh);
+      window.removeEventListener(MAIL_IMAGE_SENDERS_EVENT, refresh);
+    };
   }, []);
+  const reconnect = useGmailReconnect(clientId);
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
 
@@ -158,7 +167,19 @@ export function GmailTab() {
           </SettingRow>
         )}
 
-        {isConnected && (
+        {isConnected && reconnect.required && (
+          <SettingRow
+            label="Reconnexion requise"
+            description={reconnect.error ?? "Google a refusé le jeton : la boîte ne se synchronise plus."}
+          >
+            <Button variant="primary" size="sm" isDisabled={reconnect.busy} onPress={reconnect.reconnect}>
+              <Plug size={14} />
+              {reconnect.busy ? "Connexion…" : "Reconnecter"}
+            </Button>
+          </SettingRow>
+        )}
+
+        {isConnected && !reconnect.required && (
           <SettingRow label="">
             <div className="flex items-center gap-2 text-xs" style={{ color: "var(--success)" }}>
               <CheckCircle size={14} />
@@ -299,7 +320,7 @@ export function GmailTab() {
         </SettingSection>
       )}
 
-      {isConnected && (blocked.length > 0 || mutedCount > 0) && (
+      {isConnected && (blocked.length > 0 || mutedCount > 0 || imageSenders.length > 0) && (
         <SettingSection
           title="Filtres locaux"
           description="Gmail n'expose ni « ignorer un fil » ni filtre de blocage : Supernote applique ces règles lui-même, à chaque rafraîchissement de la boîte. Elles vivent sur cet appareil."
@@ -352,6 +373,34 @@ export function GmailTab() {
                 >
                   Tout réactiver
                 </Button>
+              </div>
+            </SettingRow>
+          )}
+          {imageSenders.length > 0 && (
+            <SettingRow
+              label="Images toujours affichées"
+              description="Pour ces expéditeurs, les images distantes (et leurs pixels de suivi) se chargent sans demander."
+            >
+              <div className="flex w-full max-w-md flex-col gap-2">
+                {imageSenders.map((addr) => (
+                  <div
+                    key={addr}
+                    className="flex items-center justify-between gap-2 rounded-md px-3 py-1.5"
+                    style={{ background: "var(--surface-2)" }}
+                  >
+                    <span className="truncate text-sm" style={{ color: "var(--text-primary)" }}>
+                      {addr}
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      aria-label={`Masquer à nouveau les images de ${addr}`}
+                      onPress={() => untrustImageSender(addr)}
+                    >
+                      Retirer
+                    </Button>
+                  </div>
+                ))}
               </div>
             </SettingRow>
           )}

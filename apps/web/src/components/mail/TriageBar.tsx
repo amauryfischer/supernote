@@ -40,6 +40,8 @@ export interface TriageBarProps {
   threadId: string;
   /** Appelé après un triage réussi (l'appelant retire / avance le thread). */
   onTriaged?: (action: TriageAction) => void;
+  /** Délègue tout le triage à l'appelant (outbox, report, « Annuler ») à la place de l'appel Gmail direct. */
+  onTriage?: (action: TriageAction, until?: number) => void;
 }
 
 /** Libellés utilisateur des actions, pour les toasts. */
@@ -50,7 +52,7 @@ const ACTION_LABEL: Record<TriageAction, string> = {
   delete: "Supprimé",
 };
 
-export function TriageBar({ clientId, threadId, onTriaged }: TriageBarProps) {
+export function TriageBar({ clientId, threadId, onTriaged, onTriage }: TriageBarProps) {
   const { toast } = useToast();
   // Action en cours (verrouille toute la barre pendant la mutation).
   const [pending, setPending] = useState<TriageAction | null>(null);
@@ -79,6 +81,10 @@ export function TriageBar({ clientId, threadId, onTriaged }: TriageBarProps) {
 
   const handleSimple = useCallback(
     (action: "done" | "archive" | "delete") => {
+      if (onTriage) {
+        onTriage(action);
+        return;
+      }
       setPending(action);
       void runMutation(action)
         .catch((e: Error) => {
@@ -90,11 +96,15 @@ export function TriageBar({ clientId, threadId, onTriaged }: TriageBarProps) {
         })
         .finally(() => setPending(null));
     },
-    [runMutation, toast],
+    [runMutation, toast, onTriage],
   );
 
   const handleSnooze = useCallback(
     (until: number) => {
+      if (onTriage) {
+        onTriage("snooze", until);
+        return;
+      }
       setPending("snooze");
       // Optimiste : on note l'échéance AVANT la mutation réseau.
       addSnooze(threadId, until);
@@ -111,7 +121,7 @@ export function TriageBar({ clientId, threadId, onTriaged }: TriageBarProps) {
         })
         .finally(() => setPending(null));
     },
-    [threadId, runMutation, toast],
+    [threadId, runMutation, toast, onTriage],
   );
 
   return (
