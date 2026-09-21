@@ -27,8 +27,12 @@
  *
  * Auth: optional shared secret via `SYNC_TOKEN`. When set, every request must
  * present it (header `x-sync-token` or `?token=`).
+ *
+ * Back-office : `GET /admin` liste les espaces (Basic Auth, mot de passe =
+ * `ADMIN_TOKEN`). Sans `ADMIN_TOKEN`, la route n'existe pas.
  */
 
+import { createHash, timingSafeEqual } from "node:crypto";
 import { createSyncStore } from "./sync-store.mjs";
 
 const HEARTBEAT_MS = 25_000;
@@ -49,6 +53,7 @@ export async function createSyncBackend() {
   }
 
   const token = process.env.SYNC_TOKEN || "";
+  const adminToken = process.env.ADMIN_TOKEN || "";
   const store = await createSyncStore();
   const epoch = store.epoch();
 
@@ -159,11 +164,44 @@ export async function createSyncBackend() {
     });
   }
 
+  // ── back-office ──────────────────────────────────────────────────────────
+
+  // Hash des deux côtés : timingSafeEqual exige des buffers de même longueur.
+  function adminAuthed(req) {
+    const m = /^Basic (.+)$/.exec(req.headers.authorization ?? "");
+    if (!m) return false;
+    const password = Buffer.from(m[1], "base64").toString("utf8").split(":").slice(1).join(":");
+    const sha = (s) => createHash("sha256").update(s).digest();
+    return timingSafeEqual(sha(password), sha(adminToken));
+  }
+
+  async function handleAdmin(req, res) {
+    if (!adminAuthed(req)) {
+      res.writeHead(401, {
+        "WWW-Authenticate": 'Basic realm="Supernote admin", charset="UTF-8"',
+        "Content-Type": "text/plain; charset=utf-8",
+        "Cache-Control": "no-store",
+      });
+      res.end("Authentification requise");
+      return true;
+    }
+    const vaults = await store.listVaults();
+    res.writeHead(200, {
+      "Content-Type": "text/html; charset=utf-8",
+      "Cache-Control": "no-store",
+      "X-Robots-Tag": "noindex",
+      "X-Frame-Options": "DENY",
+    });
+    res.end(renderAdminPage(vaults, store.kind));
+    return true;
+  }
+
   // ── request handler ────────────────────────────────────────────────────────
 
   async function handle(req, res) {
     const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
     const path = url.pathname;
+    if (adminToken && path === "/admin") return handleAdmin(req, res);
     if (!path.startsWith("/api/sync/")) return false;
 
     if (req.method === "OPTIONS") {
@@ -267,4 +305,69 @@ export async function createSyncBackend() {
   }
 
   return { enabled: true, handle };
+}
+
+const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+
+function formatBytes(n) {
+  if (n < 1024) return `${n} o`;
+  if (n < 1024 * 1024) return `${Math.round(n / 1024)} Ko`;
+  return `${(n / (1024 * 1024)).toFixed(1)} Mo`;
+}
+
+const formatDate = (ms) =>
+  new Date(ms).toLocaleString("fr-FR", {
+    timeZone: "Europe/Paris",
+    dateStyle: "short",
+    timeStyle: "short",
+  });
+
+function renderAdminPage(vaults, engine) {
+  const rows = vaults
+    .map(
+      (v) => `<tr>
+        <td>${escapeHtml(v.vault)}</td>
+        <td class="n">${v.entities}</td>
+        <td class="n">${v.devices}</td>
+        <td>${formatDate(v.lastActivity)}</td>
+        <td class="n">${formatBytes(v.bytes)}</td>
+      </tr>`,
+    )
+    .join("");
+  const body =
+    vaults.length === 0
+      ? `<p>Aucun espace synchronisé.</p>`
+      : `<div class="wrap"><table>
+          <thead><tr>
+            <th>Espace</th><th class="n">Entités</th><th class="n">Appareils</th>
+            <th>Dernière activité</th><th class="n">Volume</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table></div>`;
+  return `<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Supernote · Admin</title>
+<style>
+  :root { color-scheme: light dark; font: 14px/1.5 system-ui, sans-serif; }
+  body { max-width: 960px; margin: 0 auto; padding: 24px 16px; }
+  h1 { font-size: 18px; margin: 0; }
+  .meta { margin: 4px 0 20px; opacity: 0.65; }
+  .wrap { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { padding: 8px 12px; text-align: left; white-space: nowrap;
+    border-bottom: 1px solid color-mix(in srgb, currentColor 15%, transparent); }
+  th { font-weight: 600; opacity: 0.7; }
+  .n { text-align: right; font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+<h1>Espaces synchronisés</h1>
+<p class="meta">${vaults.length} espace(s) · base ${escapeHtml(engine)} · ${formatDate(Date.now())}</p>
+${body}
+</body>
+</html>`;
 }

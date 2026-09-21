@@ -51,8 +51,6 @@ function onlineSyncDevServer() {
         const backend = await createSyncBackend();
         if (!backend.enabled) return;
         server.middlewares.use((req, res, next) => {
-          const url = (req as { url?: string }).url ?? "";
-          if (!url.startsWith("/api/sync/")) return next();
           void Promise.resolve(backend.handle(req as never, res as never))
             .then((handled: boolean) => {
               if (!handled) next();
@@ -60,7 +58,7 @@ function onlineSyncDevServer() {
             .catch(() => next());
         });
         // eslint-disable-next-line no-console
-        console.log("[vite] online sync dev backend mounted at /api/sync/*");
+        console.log("[vite] online sync dev backend mounted at /api/sync/* (+ /admin)");
       } catch (err) {
         // eslint-disable-next-line no-console
         console.error("[vite] online sync dev backend failed to load", err);

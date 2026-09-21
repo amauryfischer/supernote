@@ -131,8 +131,8 @@ function send(res, status, body, headers = {}) {
 
 const server = createServer(async (req, res) => {
   try {
-    // Realtime sync routes take precedence over static serving.
-    if (syncBackend.enabled && (req.url ?? "").startsWith("/api/sync/")) {
+    // Realtime sync routes (+ /admin) take precedence over static serving.
+    if (syncBackend.enabled) {
       const handled = await syncBackend.handle(req, res);
       if (handled) return;
     }

@@ -16,6 +16,7 @@
  *   opsSince(vault, since, limit)  → StoredOp[]
  *   headSeq(vault)                 → number
  *   compact(cutoffMs)              → number of purged rows
+ *   listVaults()                   → VaultSummary[] (back-office)
  *   kind                           → "sqlite" | "postgres"
  */
 
@@ -34,6 +35,29 @@ function rowToStoredOp(r) {
     entityId: r.entityId ?? r.entityid,
     ts: Number(r.ts),
     payload: r.payload ? JSON.parse(r.payload) : undefined,
+  };
+}
+
+// Entités vivantes = celles dont la dernière op n'est pas une suppression.
+// Tout en minuscules : Postgres replie les identifiants non quotés, SQLite ignore la casse.
+function listVaultsSql(table) {
+  return `SELECT vault,
+       SUM(CASE WHEN kind = 'upsert'
+                 AND seq IN (SELECT MAX(seq) FROM ${table} GROUP BY vault, entityid)
+            THEN 1 ELSE 0 END) AS entities,
+       COUNT(DISTINCT clientid) AS devices,
+       MAX(createdat) AS lastactivity,
+       COALESCE(SUM(LENGTH(payload)), 0) AS bytes
+     FROM ${table} GROUP BY vault ORDER BY lastactivity DESC`;
+}
+
+function rowToVaultSummary(r) {
+  return {
+    vault: r.vault,
+    entities: Number(r.entities),
+    devices: Number(r.devices),
+    lastActivity: Number(r.lastactivity),
+    bytes: Number(r.bytes),
   };
 }
 
@@ -97,6 +121,7 @@ async function createSqliteStore() {
       WHERE createdAt < ?
         AND seq NOT IN (SELECT MAX(seq) FROM op GROUP BY vault, entityId)`,
   );
+  const listVaultsStmt = db.prepare(listVaultsSql("op"));
 
   const insertMany = db.transaction((vault, ops) => {
     const stored = [];
@@ -136,6 +161,7 @@ async function createSqliteStore() {
       sinceStmt.all(vault, since, limit).map(rowToStoredOp),
     headSeq: async (vault) => Number(headStmt.get(vault).head),
     compact: async (cutoffMs) => compactStmt.run(cutoffMs).changes,
+    listVaults: async () => listVaultsStmt.all().map(rowToVaultSummary),
   };
 }
 
@@ -249,6 +275,10 @@ async function createPgStore(url) {
         [cutoffMs],
       );
       return res.rowCount ?? 0;
+    },
+    listVaults: async () => {
+      const res = await pool.query(listVaultsSql("sync_op"));
+      return res.rows.map(rowToVaultSummary);
     },
   };
 }
