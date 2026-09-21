@@ -94,10 +94,25 @@ export function saveGroups(groups: MailGroup[]): void {
   }
 }
 
-/** Ajoute (ou remplace) un groupe, persiste, notifie. Renvoie la liste à jour. */
+/** Ajoute (ou remplace sur place, l'ordre est celui des onglets) un groupe, persiste, notifie. */
 export function upsertGroup(g: MailGroup): MailGroup[] {
   if (!isGroup(g)) return loadGroups();
-  const next = [...loadGroups().filter((e) => e.id !== g.id), g];
+  const current = loadGroups();
+  const next = current.some((e) => e.id === g.id)
+    ? current.map((e) => (e.id === g.id ? g : e))
+    : [...current, g];
+  saveGroups(next);
+  emitGroupsChanged();
+  return next;
+}
+
+/** Décale un groupe d'un cran (`-1` vers le haut), persiste, notifie. Renvoie la liste. */
+export function moveGroup(id: string, delta: -1 | 1): MailGroup[] {
+  const next = loadGroups();
+  const from = next.findIndex((e) => e.id === id);
+  const to = from + delta;
+  if (from < 0 || to < 0 || to >= next.length) return next;
+  next.splice(to, 0, ...next.splice(from, 1));
   saveGroups(next);
   emitGroupsChanged();
   return next;

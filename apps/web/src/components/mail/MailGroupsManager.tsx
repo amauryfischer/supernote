@@ -1,12 +1,23 @@
 "use client";
 
-import { useState } from "react";
-import { Modal, Button, Input, Checkbox, useToast } from "@supernote/ui";
-import { Plus, PencilSimple, Trash, Tag, X, MagnifyingGlass } from "@phosphor-icons/react";
+import { useEffect, useState } from "react";
+import { Modal, Button, Input, Checkbox, Tooltip, useToast } from "@supernote/ui";
+import {
+  Plus,
+  PencilSimple,
+  Trash,
+  Tag,
+  X,
+  MagnifyingGlass,
+  ArrowUp,
+  ArrowDown,
+} from "@phosphor-icons/react";
 import {
   loadGroups,
   upsertGroup,
   removeGroup,
+  moveGroup,
+  MAIL_GROUPS_EVENT,
   type MailGroup,
 } from "@/lib/mail-groups";
 import { normalize } from "@/lib/unified-search";
@@ -21,7 +32,7 @@ function newGroupId(): string {
 }
 
 /**
- * Gestionnaire des « groupes mail » (système zéro-inbox) : créer / renommer /
+ * Gestionnaire des « groupes mail » (système zéro-inbox) : créer / renommer / réordonner /
  * supprimer des vues alimentées par des labels Gmail. Les emails portant un
  * label routé quittent l'inbox et s'affichent dans l'onglet du groupe.
  *
@@ -44,7 +55,12 @@ export function MailGroupsManager({
   const [editing, setEditing] = useState<MailGroup | null>(null);
   const [labelQuery, setLabelQuery] = useState("");
 
-  const refresh = () => setGroups(loadGroups());
+  // Toujours monté : sans abonnement, les splits de base posés après le montage n'apparaîtraient pas.
+  useEffect(() => {
+    const refresh = () => setGroups(loadGroups());
+    window.addEventListener(MAIL_GROUPS_EVENT, refresh);
+    return () => window.removeEventListener(MAIL_GROUPS_EVENT, refresh);
+  }, []);
 
   const startCreate = () => {
     setLabelQuery("");
@@ -80,13 +96,11 @@ export function MailGroupsManager({
       return;
     }
     upsertGroup({ ...editing, name });
-    refresh();
     setEditing(null);
   };
 
   const del = (id: string) => {
     removeGroup(id);
-    refresh();
     if (editing?.id === id) setEditing(null);
   };
 
@@ -193,7 +207,7 @@ export function MailGroupsManager({
             </p>
           ) : (
             <div className="flex flex-col gap-2">
-              {groups.map((g) => (
+              {groups.map((g, i) => (
                 <div
                   key={g.id}
                   className="flex items-center justify-between gap-2 rounded-lg border p-2.5"
@@ -216,9 +230,33 @@ export function MailGroupsManager({
                       ))}
                     </div>
                   </div>
-                  <div className="flex shrink-0 items-center gap-1">
+                  <div className="flex shrink-0 items-center gap-0.5">
+                    <Tooltip content="Monter">
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        isIconOnly
+                        isDisabled={i === 0}
+                        onPress={() => moveGroup(g.id, -1)}
+                        aria-label={`Monter le groupe ${g.name}`}
+                      >
+                        <ArrowUp size={15} />
+                      </Button>
+                    </Tooltip>
+                    <Tooltip content="Descendre">
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        isIconOnly
+                        isDisabled={i === groups.length - 1}
+                        onPress={() => moveGroup(g.id, 1)}
+                        aria-label={`Descendre le groupe ${g.name}`}
+                      >
+                        <ArrowDown size={15} />
+                      </Button>
+                    </Tooltip>
                     <Button
-                      size="sm"
+                      size="icon"
                       variant="ghost"
                       isIconOnly
                       onPress={() => startEdit(g)}
@@ -227,7 +265,7 @@ export function MailGroupsManager({
                       <PencilSimple size={15} />
                     </Button>
                     <Button
-                      size="sm"
+                      size="icon"
                       variant="ghost"
                       isIconOnly
                       onPress={() => del(g.id)}
