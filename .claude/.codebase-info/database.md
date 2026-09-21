@@ -1,6 +1,6 @@
 # Stockage et schéma
 
-*Last Updated: 2026-09-21*
+*Last Updated: 2026-09-22*
 
 Le coffre est un SQLite qui tourne **dans un Web Worker du navigateur**. La seule base côté serveur est l'op-log de la synchronisation en ligne, optionnelle (voir la dernière section).
 
@@ -22,7 +22,7 @@ Le DDL vit dans `apps/web/src/lib/vault-worker/db-schema.ts`. Il reproduit en SQ
 | Modèle | `entity_type`, `entity`, `deleted_entity` |
 | Relations | `relation_type`, `relation_edge`, `mention` |
 | Étiquettes | `tag`, `entity_tag` |
-| Bases et vues | `view`, `variable`, `template` |
+| Bases et vues | `view`, `variable`, `template` (⚠️ jamais utilisée, voir ci-dessous) |
 | Automatisations | `automation`, `automation_run` |
 | Miroir courriel | `mail_thread`, `mail_message`, `mail_label`, `mail_sync_state`, `mail_outbox` |
 | Recherche | `entity_fts` (table virtuelle FTS5) |
@@ -41,11 +41,15 @@ C'est la décision de conception qui explique le plus de comportements surprenan
 
 Conséquence directe : le worker est un **pass-through**. Ajouter une propriété de champ ne demande aucune modification du worker, il sérialise ce qu'on lui donne. En revanche le schéma zod de sortie IPC, lui, **strippe toute clé qu'il ne déclare pas**. Voir [patterns.md](patterns.md), c'est le piège le plus coûteux du dépôt.
 
+## Modèles de notes : des entités, pas la table `template`
+
+Les modèles sont des entités du type système `template` (`TEMPLATE_TYPE_ID` dans `seed-default-types.ts`), rangées sous `Modèles/`, sur le même principe que `vault_mount`. Ils héritent ainsi du miroir `.md`, de la recherche et de la synchro cloud. Routes `templates.list`, `templates.save`, `templates.delete` dans `worker-router.ts`, `templates.seedDefaults` appelée par `worker.ts` avant `VAULT_READY`. Les deux modèles de départ ont des ids fixes et une date en 2000 pour que toute édition ou suppression gagne en LWW, et sont exclus du snapshot tant qu'ils sont intacts. La table SQL `template` n'est lue par rien.
+
 ## Migrations
 
 Il n'existe **pas de système de migration versionné**. Toutes les évolutions de schéma sont des opérations idempotentes exécutées au démarrage du worker, dans `worker.ts`, et détectées par `PRAGMA table_info`.
 
-Ce qui est fait ainsi aujourd'hui : recréation de `entity_fts` si sa forme a changé, recréation de `view` si `typeId` manque, ajout ciblé des colonnes `view.summarize`, `view.conditionalFormats` et `view.chartConfig`, ajout de `entity.sourceVaultId` pour la provenance des entités montées.
+Ce qui est fait ainsi aujourd'hui : recréation de `entity_fts` si sa forme a changé, réindexation complète de la table `mention` quand le réglage `system.mentions.indexVersion` diffère de la version du code (`worker-router.ts`, backlinks), recréation de `view` si `typeId` manque, ajout ciblé des colonnes `view.summarize`, `view.conditionalFormats` et `view.chartConfig`, ajout de `entity.sourceVaultId` pour la provenance des entités montées.
 
 ⚠️ C'est fragile dès que deux migrations touchent la même colonne : rien ne garantit leur ordre. `CREATE TABLE IF NOT EXISTS` n'ajoute jamais une colonne à une table existante, d'où les `ALTER TABLE` explicites.
 

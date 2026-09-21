@@ -1,6 +1,6 @@
 # Arborescence
 
-*Last Updated: 2026-09-21*
+*Last Updated: 2026-09-22*
 
 Monorepo pnpm workspaces, orchestré par Turborepo. Le principe d'organisation est **par domaine**, pas par couche : chaque paquet possède un sujet, pas un étage technique.
 
@@ -34,7 +34,7 @@ supernote/
 │       │   └── i18n/           chargement des messages, bloquant
 │       ├── server.mjs          serveur statique de production, sans dépendance
 │       └── vite.config.ts      React, Tailwind, PWA, shims, worker ES
-├── packages/                   24 paquets, voir modules.md
+├── packages/                   15 paquets, voir modules.md
 ├── tests/e2e/                  suite Playwright chromium
 ├── docs/
 │   ├── dev/                    ⚠️ périmé, décrit l'ère Electron

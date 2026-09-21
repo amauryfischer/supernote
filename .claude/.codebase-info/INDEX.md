@@ -1,8 +1,8 @@
 # Carte du codebase — Supernote
 
-*Last Updated: 2026-09-13*
+*Last Updated: 2026-09-22*
 
-**Système de connaissance et CRM personnel local-first**, livré comme PWA. Monorepo pnpm de 854 fichiers source. Pas de serveur applicatif : la base SQLite tourne dans un **Web Worker**, dans le navigateur. Une seule application, `apps/web`, et 23 paquets dont un tiers dort.
+**Système de connaissance et CRM personnel local-first**, livré comme PWA. Monorepo pnpm de 854 fichiers source. Pas de serveur applicatif : la base SQLite tourne dans un **Web Worker**, dans le navigateur. Une seule application, `apps/web`, et 15 paquets dont deux dorment.
 
 Trois choses à savoir avant de toucher au code :
 
@@ -31,7 +31,7 @@ Trois choses à savoir avant de toucher au code :
 
 ## Utiliser cette carte
 
-Lis le document qui répond à ta question **avant** d'explorer l'arbre. Une exploration à l'aveugle sur 24 paquets coûte cher et rate les frontières. Chaque document cite des chemins réels, vérifiés à la date ci-dessus.
+Lis le document qui répond à ta question **avant** d'explorer l'arbre. Une exploration à l'aveugle sur 15 paquets coûte cher et rate les frontières. Chaque document cite des chemins réels, vérifiés à la date ci-dessus.
 
 ## Maintenir cette carte
 

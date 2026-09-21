@@ -1,8 +1,8 @@
 # Paquets
 
-*Last Updated: 2026-09-21*
+*Last Updated: 2026-09-22*
 
-Vingt-trois paquets dans `packages/`, plus l'application `apps/web`. **Tous ne sont pas vivants.** Vérifie cette page avant d'aller lire du code : plus d'un tiers n'est importé nulle part.
+Quinze paquets dans `packages/`, plus l'application `apps/web`. **Deux dorment** (`db`, `crypto`) : vérifie cette page avant d'aller lire du code.
 
 Tous les paquets sont consommés par leur `dist/`. Voir le cycle de build dans [patterns.md](patterns.md).
 
@@ -28,20 +28,10 @@ Tous les paquets sont consommés par leur `dist/`. Voir le cycle de build dans [
 
 | Paquet | Ce qu'il contient | Pourquoi il dort |
 |---|---|---|
-| `@supernote/finance` | moteur de prix, `yahoo-finance2` | ⚠️ voir ci-dessous |
-| `@supernote/git` | enveloppe `isomorphic-git`, API complète | en attente du chantier flux |
-| `@supernote/import` | importeurs de données | |
-| `@supernote/plugin-sdk` | SDK de greffons, exemples dans `examples/plugins/` | |
-| `@supernote/cli` | interface en ligne de commande | |
-| `@supernote/api` | surface d'API | |
-| `@supernote/voice` | voix | |
-| `@supernote/ocr` | reconnaissance de texte | |
-| `@supernote/db` | schéma Prisma, source du DDL recopié dans le worker | 2 références seulement |
+| `@supernote/db` | schéma Prisma, source du DDL recopié dans le worker | 2 références seulement, client généré en CI |
 | `@supernote/crypto` | chiffrement | 1 référence seulement |
 
-⚠️ **`@supernote/finance` dort, mais la fonctionnalité finance est bien vivante.** Le paquet est déclaré dans `apps/web/package.json` et n'est importé par aucun fichier. Tout le code finance utilisé vit dans `apps/web/src/components/finance/` et `apps/web/src/app/finance/`. Ne supprime pas les pages en croyant retirer une fonctionnalité morte.
-
-⚠️ **`@supernote/git` n'est pas un vestige.** Il dort aujourd'hui, mais il correspond à la direction retenue pour la synchronisation par git, commit automatique et fusion à trois voies. Son API init, commit, diff, push, pull est complète.
+⚠️ **Finance et synchro git n'ont pas de paquet.** La finance vit entièrement dans `apps/web/src/components/finance/`, `apps/web/src/app/finance/` et `apps/web/src/lib/finance/`. La synchro git du shell (`apps/web/src/lib/git/`) importe `isomorphic-git` directement.
 
 ## `packages/views` n'existe pas
 
@@ -64,7 +54,7 @@ Les vues de bases réelles vivent dans `apps/web/src/components/bases/`.
 | Service | Appelé depuis | Configuration |
 |---|---|---|
 | Ollama | `@supernote/ai` | aucune, adresse locale en dur |
-| Yahoo Finance | `@supernote/finance` | aucune clé requise |
+| Yahoo Finance, Stooq | `apps/web/src/lib/finance/price-fetch.ts` | aucune clé requise |
 | Unsplash | `apps/web` | `VITE_UNSPLASH_ACCESS_KEY` |
 | Google Drive, Gmail | `apps/web` | identifiant client saisi dans les réglages |
 

@@ -1,6 +1,6 @@
 # Communication
 
-*Last Updated: 2026-09-21*
+*Last Updated: 2026-09-22*
 
 Trois canaux : le thread principal parle au worker, le worker parle au thread principal, et l'application parle au serveur de synchronisation.
 
@@ -59,6 +59,12 @@ La configuration vit entièrement en `localStorage`, jamais en IndexedDB, pour n
 | `supernote.onlineSync.bindings` | liaison par coffre |
 | `supernote.onlineSync.vaults` | registre des coffres cloud connus |
 | `supernote.onlineSync.clientId` | identifiant d'appareil, filtre les échos |
+
+## Gmail
+
+Appels REST directs depuis le navigateur, token GIS mis en cache par couverture de scopes. Tout passe par `gmailRequest` (`apps/web/src/lib/gmail.ts`) : sur 401 le token est oublié (`forgetAccessToken`, jamais `clearAccessToken` qui révoque tout le consentement) et l'appel rejoué une fois ; au second échec, l'état « reconnexion requise » est levé (`gmailReconnectRequired()`, événement `GMAIL_AUTH_EVENT`) et plus rien ne retente seul. `reconnectGmail` doit partir d'un geste utilisateur, les popups GIS sont bloquées sinon.
+
+Les écritures (triage, labels, étoile, lu) passent par l'outbox `mail_outbox` : échec réseau, jeton, 429 ou 5xx ne comptent pas comme tentative, un refus 4xx attend avec backoff. Pas de poll : la vidange part sur `MAIL_OUTBOX_EVENT` (`lib/mail-mirror.ts`), `online`, `visibilitychange`, la reconnexion et le vault prêt. `MailFollowupRunner`, monté dans toute l'app, porte aussi le réveil des reports et les relances.
 
 ## Montages de coffres
 
