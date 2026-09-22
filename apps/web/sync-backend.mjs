@@ -48,6 +48,8 @@ const REPLAY_BATCH = 500;
 const COMPACT_GRACE_MS = 7 * 24 * 60 * 60 * 1000;
 const COMPACT_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const MIN_PASSWORD_LENGTH = 8;
+const MAX_FAILED_ATTEMPTS = 10;
+const LOCKOUT_MS = 15 * 60 * 1000;
 
 const scryptAsync = promisify(scrypt);
 const sha256 = (s) => createHash("sha256").update(s).digest();
@@ -162,8 +164,45 @@ export async function createSyncBackend() {
   }
 
   // Cache des vérifications réussies : scrypt coûte ~50 ms, payé à chaque push sinon.
-  // ponytail: un mot de passe retiré en SQL reste accepté jusqu'au redémarrage.
+  // ponytail: un mot de passe retiré en SQL direct reste accepté jusqu'au redémarrage ;
+  // le changement et le retrait par l'API purgent le cache.
   const verifiedSecrets = new Set();
+  const verifiedKey = (vault, secret) => `${vault}\0${sha256(secret).toString("hex")}`;
+
+  function forgetVerifiedSecrets(vault) {
+    for (const key of verifiedSecrets) if (key.startsWith(`${vault}\0`)) verifiedSecrets.delete(key);
+  }
+
+  // ponytail: compteur en mémoire, par conteneur et remis à zéro au redémarrage ;
+  // passer par le store si l'app tourne un jour sur plusieurs conteneurs.
+  const failures = new Map();
+
+  // Dernier saut de X-Forwarded-For : ajouté par le routeur, le client ne peut pas le falsifier.
+  function clientIp(req) {
+    const hops = String(req.headers["x-forwarded-for"] ?? "").split(",").map((h) => h.trim()).filter(Boolean);
+    return hops.at(-1) || req.socket?.remoteAddress || "";
+  }
+
+  // "ok" | "wrong" | "locked" : après MAX_FAILED_ATTEMPTS échecs d'une même adresse sur
+  // un salon, plus aucune vérification jusqu'à LOCKOUT_MS après le premier échec.
+  async function checkVaultPassword(req, vault, provided, record) {
+    const key = `${vault}\0${clientIp(req)}`;
+    const now = Date.now();
+    const entry = failures.get(key);
+    if (entry && now - entry.since > LOCKOUT_MS) failures.delete(key);
+    else if (entry && entry.count >= MAX_FAILED_ATTEMPTS) return "locked";
+    if (await verifyPassword(provided, record)) {
+      failures.delete(key);
+      return "ok";
+    }
+    const current = failures.get(key);
+    if (current) current.count += 1;
+    else failures.set(key, { count: 1, since: now });
+    if (failures.size > 10_000) {
+      for (const [k, v] of failures) if (now - v.since > LOCKOUT_MS) failures.delete(k);
+    }
+    return "wrong";
+  }
 
   async function vaultAuthed(req, url, vault) {
     const provided = secretOf(req, url);
@@ -171,11 +210,23 @@ export async function createSyncBackend() {
     const record = await store.getVaultPassword(vault);
     if (!record) return !token;
     if (!provided) return false;
-    const cacheKey = `${vault}\0${sha256(provided).toString("hex")}`;
+    const cacheKey = verifiedKey(vault, provided);
     if (verifiedSecrets.has(cacheKey)) return true;
-    const ok = await verifyPassword(provided, record);
+    const ok = (await checkVaultPassword(req, vault, provided, record)) === "ok";
     if (ok) verifiedSecrets.add(cacheKey);
     return ok;
+  }
+
+  // Coupe les flux ouverts : les appareils restés sur l'ancien mot de passe
+  // repassent par /info, y lisent `locked` et s'arrêtent au lieu de boucler.
+  function dropSubscribers(vault) {
+    for (const res of subscribers.get(vault) ?? []) res.end();
+  }
+
+  async function replaceVaultPassword(vault, record) {
+    await store.setVaultPassword(vault, record);
+    forgetVerifiedSecrets(vault);
+    dropSubscribers(vault);
   }
 
   async function readJson(req) {
@@ -236,14 +287,49 @@ export async function createSyncBackend() {
       res.end("Authentification requise");
       return true;
     }
+    const url = new URL(req.url ?? "/admin", "http://admin");
+    if (url.pathname === "/admin/reset-password") {
+      // Basic Auth est rejouée par le navigateur sur un POST venu d'un autre site :
+      // on n'accepte que les formulaires de la page admin elle-même.
+      const site = req.headers["sec-fetch-site"];
+      const origin = req.headers.origin;
+      let sameOrigin = site ? site === "same-origin" : !origin;
+      if (!site && origin) {
+        try {
+          sameOrigin = new URL(origin).host === req.headers.host;
+        } catch {
+          sameOrigin = false;
+        }
+      }
+      if (req.method !== "POST" || !sameOrigin) {
+        res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" });
+        res.end("Refusé");
+        return true;
+      }
+      const vault = new URLSearchParams((await readBody(req)).toString("utf8")).get("vault");
+      if (vault) {
+        await replaceVaultPassword(vault, null);
+        console.log(`[sync] admin: mot de passe retiré du salon ${vault}`);
+      }
+      res.writeHead(303, { Location: "/admin", "Cache-Control": "no-store" });
+      res.end();
+      return true;
+    }
     const vaults = await store.listVaults();
+    const protectedVaults = new Set(await store.listProtectedVaults());
+    // Un salon protégé sans aucune op n'est pas dans l'op-log : sans ça, son mot de passe serait inretirable.
+    for (const name of protectedVaults) {
+      if (!vaults.some((v) => v.vault === name)) {
+        vaults.push({ vault: name, entities: 0, devices: 0, lastActivity: null, bytes: 0 });
+      }
+    }
     res.writeHead(200, {
       "Content-Type": "text/html; charset=utf-8",
       "Cache-Control": "no-store",
       "X-Robots-Tag": "noindex",
       "X-Frame-Options": "DENY",
     });
-    res.end(renderAdminPage(vaults, store.kind));
+    res.end(renderAdminPage(vaults, protectedVaults, store.kind));
     return true;
   }
 
@@ -252,7 +338,7 @@ export async function createSyncBackend() {
   async function handle(req, res) {
     const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
     const path = url.pathname;
-    if (adminToken && path === "/admin") return handleAdmin(req, res);
+    if (adminToken && (path === "/admin" || path === "/admin/reset-password")) return handleAdmin(req, res);
     if (!path.startsWith("/api/sync/")) return false;
 
     if (req.method === "OPTIONS") {
@@ -282,8 +368,6 @@ export async function createSyncBackend() {
       return true;
     }
 
-    // ponytail: aucune limite de tentatives (ici ni sur /info?vault=), seul le coût de
-    // scrypt freine la force brute ; ajouter un compteur par salon si un nom listé est visé.
     if (path === "/api/sync/join" && req.method === "POST") {
       const parsed = await readJson(req);
       const vault = parsed?.vault;
@@ -314,10 +398,42 @@ export async function createSyncBackend() {
         // Revendication concurrente perdue : on vérifie contre le mot de passe gagnant.
         record = await store.getVaultPassword(vault);
       }
-      if (!record || !(await verifyPassword(password, record))) {
-        sendJson(res, 401, { error: "wrong password" });
+      const verdict = record ? await checkVaultPassword(req, vault, password, record) : "wrong";
+      if (verdict !== "ok") {
+        sendJson(res, verdict === "locked" ? 429 : 401, { error: verdict === "locked" ? "too many attempts" : "wrong password" });
         return true;
       }
+      sendJson(res, 200, { ok: true });
+      return true;
+    }
+
+    if (path === "/api/sync/password" && req.method === "POST") {
+      const parsed = await readJson(req);
+      const vault = parsed?.vault;
+      const current = parsed?.current;
+      const next = parsed?.next;
+      if (!vault || typeof vault !== "string" || typeof current !== "string" || typeof next !== "string") {
+        sendJson(res, 400, { error: "missing vault, current or next" });
+        return true;
+      }
+      if (next.length < MIN_PASSWORD_LENGTH) {
+        sendJson(res, 400, { error: "password too short", minLength: MIN_PASSWORD_LENGTH });
+        return true;
+      }
+      const record = await store.getVaultPassword(vault);
+      if (!record) {
+        sendJson(res, 409, { error: "vault not protected" });
+        return true;
+      }
+      const verdict = await checkVaultPassword(req, vault, current, record);
+      if (verdict !== "ok") {
+        sendJson(res, verdict === "locked" ? 429 : 401, { error: verdict === "locked" ? "too many attempts" : "wrong password" });
+        return true;
+      }
+      await replaceVaultPassword(vault, await hashPassword(next));
+      // L'appareil qui change le mot de passe ne doit pas repayer scrypt ni tomber
+      // sous un blocage déclenché par un autre appareil resté sur l'ancien.
+      verifiedSecrets.add(verifiedKey(vault, next));
       sendJson(res, 200, { ok: true });
       return true;
     }
@@ -466,15 +582,24 @@ const formatDate = (ms) =>
     timeStyle: "short",
   });
 
-function renderAdminPage(vaults, engine) {
+function renderAdminPage(vaults, protectedVaults, engine) {
   const rows = vaults
     .map(
       (v) => `<tr>
         <td>${escapeHtml(v.vault)}</td>
         <td class="n">${v.entities}</td>
         <td class="n">${v.devices}</td>
-        <td>${formatDate(v.lastActivity)}</td>
+        <td>${v.lastActivity ? formatDate(v.lastActivity) : "—"}</td>
         <td class="n">${formatBytes(v.bytes)}</td>
+        <td>${
+          protectedVaults.has(v.vault)
+            ? `<form method="post" action="/admin/reset-password"
+                onsubmit="return confirm('Retirer ce mot de passe ? Le salon redevient ouvert à quiconque connaît son nom.')">
+                <input type="hidden" name="vault" value="${escapeHtml(v.vault)}">
+                <button type="submit">Retirer</button>
+              </form>`
+            : "—"
+        }</td>
       </tr>`,
     )
     .join("");
@@ -484,7 +609,7 @@ function renderAdminPage(vaults, engine) {
       : `<div class="wrap"><table>
           <thead><tr>
             <th>Espace</th><th class="n">Entités</th><th class="n">Appareils</th>
-            <th>Dernière activité</th><th class="n">Volume</th>
+            <th>Dernière activité</th><th class="n">Volume</th><th>Mot de passe</th>
           </tr></thead>
           <tbody>${rows}</tbody>
         </table></div>`;
@@ -506,6 +631,8 @@ function renderAdminPage(vaults, engine) {
     border-bottom: 1px solid color-mix(in srgb, currentColor 15%, transparent); }
   th { font-weight: 600; opacity: 0.7; }
   .n { text-align: right; font-variant-numeric: tabular-nums; }
+  form { margin: 0; }
+  button { font: inherit; padding: 6px 12px; min-height: 32px; cursor: pointer; }
 </style>
 </head>
 <body>

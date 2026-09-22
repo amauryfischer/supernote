@@ -54,8 +54,8 @@ Les salons existants (`amaury`, `strategie`, `linh`…) restent ouverts et non l
 ## Limites assumées
 
 - Le mot de passe passe dans l'URL du stream (`EventSource` ne pose pas d'en-tête), donc dans les logs du routeur. C'est déjà le cas de `SYNC_TOKEN`.
-- Pas de limite de tentatives : `scrypt` (~50 ms) plus 8 caractères minimum. À ajouter si un salon est attaqué.
-- Pas de changement ni de réinitialisation du mot de passe dans l'UI. Réinitialisation par SQL : `DELETE FROM sync_meta WHERE key = 'pw:<nom>'`.
+- Limite de tentatives en mémoire du conteneur : 10 échecs par salon et par adresse (dernier saut `X-Forwarded-For`) bloquent 15 min, un secret déjà vérifié passe toujours. Remise à zéro au redémarrage.
+- Changement du mot de passe : `POST /api/sync/password { vault, current, next }`, depuis Réglages › Synchronisation ; coupe les flux ouverts du salon. Réinitialisation : bouton « Retirer » du back-office `/admin` (ou SQL).
 - Un salon non protégé reste revendicable par quiconque connaît son nom (qui pouvait déjà le lire et l'effacer).
 - Le partage de notes (`share-backend.mjs`) compare toujours `x-sync-token` à `SYNC_TOKEN` seul. Sans effet en prod (pas de `SYNC_TOKEN`).
 - Serveur avec `SYNC_TOKEN` : un seul champ secret côté client, donc impossible d'y revendiquer un salon depuis l'UI.

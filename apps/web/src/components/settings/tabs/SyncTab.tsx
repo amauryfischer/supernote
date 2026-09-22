@@ -9,7 +9,7 @@ import { SettingRow } from "../SettingRow";
 import { SettingSection } from "../SettingSection";
 import { RangeSlider } from "../RangeSlider";
 import { useOnlineSync } from "@/lib/online-sync/OnlineSyncProvider";
-import { joinVault, type OnlineSyncStatus } from "@/lib/online-sync/client";
+import { changeVaultPassword, joinVault, type OnlineSyncStatus } from "@/lib/online-sync/client";
 import { normalizeVaultKey } from "@/lib/online-sync/config-storage";
 import { trpc } from "@/lib/trpc/client";
 import { ConnectVaultModal } from "@/components/notes/ConnectVaultModal";
@@ -31,6 +31,8 @@ function OnlineSyncSection() {
   const [vaultKey, setVaultKey] = useState("");
   const [token, setToken] = useState("");
   const [joinError, setJoinError] = useState<string | null>(null);
+  const [nextPassword, setNextPassword] = useState("");
+  const [passwordNotice, setPasswordNotice] = useState<{ ok: boolean; text: string } | null>(null);
 
   // Seed the form from the persisted config once it's available.
   useEffect(() => {
@@ -74,6 +76,26 @@ function OnlineSyncSection() {
       serverUrl: serverUrl.trim(),
       vaultKey: vaultKey.trim(),
       token: token.trim(),
+    });
+  };
+
+  const handleChangePassword = async () => {
+    setPasswordNotice(null);
+    const error = await changeVaultPassword(
+      config.serverUrl,
+      normalizeVaultKey(config.vaultKey),
+      config.token,
+      nextPassword,
+    );
+    if (error) {
+      setPasswordNotice({ ok: false, text: error });
+      return;
+    }
+    online.enable({ serverUrl: config.serverUrl, vaultKey: config.vaultKey, token: nextPassword });
+    setNextPassword("");
+    setPasswordNotice({
+      ok: true,
+      text: "Mot de passe changé. Vos autres appareils le redemanderont dans Réglages › Synchronisation.",
     });
   };
 
@@ -161,6 +183,43 @@ function OnlineSyncSection() {
           {enabled ? "Reconnecter" : "Connecter"}
         </Button>
       </SettingRow>
+
+      {enabled && config.token && (
+        <SettingRow
+          label="Changer le mot de passe"
+          description="Les autres appareils du salon devront saisir le nouveau. 8 caractères minimum."
+        >
+          <div className="flex max-w-full flex-wrap items-center gap-2">
+            <Input
+              type="password"
+              aria-label="Nouveau mot de passe du salon"
+              placeholder="Nouveau mot de passe"
+              value={nextPassword}
+              onChange={(e) => {
+                setNextPassword(e.target.value);
+                setPasswordNotice(null);
+              }}
+              className="w-72 max-w-full"
+            />
+            <Button
+              variant="ghost"
+              size="sm"
+              onPress={() => void handleChangePassword()}
+              isDisabled={nextPassword.length < 8}
+              className="rounded-md border px-3 py-1.5 text-sm"
+              style={{ borderColor: "var(--border)" }}
+            >
+              Changer
+            </Button>
+          </div>
+        </SettingRow>
+      )}
+
+      {passwordNotice && (
+        <p className="mt-2 text-xs" style={{ color: passwordNotice.ok ? "var(--success)" : "var(--danger)" }}>
+          {passwordNotice.text}
+        </p>
+      )}
 
       {joinError && (
         <p className="mt-2 text-xs" style={{ color: "var(--danger)" }}>

@@ -19,6 +19,7 @@
  *   listVaults()                   → VaultSummary[] (back-office)
  *   getVaultPassword(vault)        → "sel:hash" | null
  *   claimVaultPassword(vault, rec) → boolean (false si déjà protégé)
+ *   setVaultPassword(vault, rec)   → void (rec null = salon rendu libre)
  *   listProtectedVaults()          → string[]
  *   putBlob(vault, path, bytes)    → void (pièce jointe d'une note)
  *   getBlob(vault, path)           → Buffer | null
@@ -139,6 +140,8 @@ async function createSqliteStore() {
   const listVaultsStmt = db.prepare(listVaultsSql("op"));
   const getPwStmt = db.prepare(`SELECT value FROM meta WHERE key = ?`);
   const claimPwStmt = db.prepare(`INSERT OR IGNORE INTO meta (key, value) VALUES (?, ?)`);
+  const setPwStmt = db.prepare(`INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)`);
+  const clearPwStmt = db.prepare(`DELETE FROM meta WHERE key = ?`);
   const listPwStmt = db.prepare(`SELECT key FROM meta WHERE key LIKE '${PW_PREFIX}%' ORDER BY key`);
   const putBlobStmt = db.prepare(
     `INSERT OR REPLACE INTO blob (vault, path, bytes, createdAt) VALUES (?, ?, ?, ?)`,
@@ -187,6 +190,10 @@ async function createSqliteStore() {
     getVaultPassword: async (vault) => getPwStmt.get(PW_PREFIX + vault)?.value ?? null,
     claimVaultPassword: async (vault, record) =>
       claimPwStmt.run(PW_PREFIX + vault, record).changes > 0,
+    setVaultPassword: async (vault, record) => {
+      if (record) setPwStmt.run(PW_PREFIX + vault, record);
+      else clearPwStmt.run(PW_PREFIX + vault);
+    },
     listProtectedVaults: async () =>
       listPwStmt.all().map((r) => r.key.slice(PW_PREFIX.length)),
     putBlob: async (vault, path, bytes) => {
@@ -328,6 +335,17 @@ async function createPgStore(url) {
         [PW_PREFIX + vault, record],
       );
       return (res.rowCount ?? 0) > 0;
+    },
+    setVaultPassword: async (vault, record) => {
+      if (record) {
+        await pool.query(
+          `INSERT INTO sync_meta (key, value) VALUES ($1, $2)
+           ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+          [PW_PREFIX + vault, record],
+        );
+      } else {
+        await pool.query(`DELETE FROM sync_meta WHERE key = $1`, [PW_PREFIX + vault]);
+      }
     },
     listProtectedVaults: async () => {
       const res = await pool.query(

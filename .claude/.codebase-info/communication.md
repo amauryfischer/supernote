@@ -43,7 +43,9 @@ Transport asymétrique : flux SSE descendant sur `GET /api/sync/stream`, POST mo
 
 **Salons protégés.** Un salon peut porter un mot de passe. Il voyage dans le champ `token` du client, le même que `SYNC_TOKEN` (en-tête `x-sync-token`, `?token=` pour le stream, faute d'en-tête possible sur `EventSource`). `POST /api/sync/join` pose le mot de passe d'un salon libre, ou vérifie celui d'un salon protégé. `GET /api/sync/vaults` liste **uniquement les salons protégés** : un salon sans mot de passe garde le comportement historique, son nom servant de secret, et n'apparaît jamais. `/info` renvoyant `locked`, le client passe en erreur « Mot de passe requis » au lieu de boucler en reconnexion.
 
-⚠️ **Un salon libre est revendicable par quiconque connaît son nom** : `/join` y pose alors un mot de passe et verrouille les autres appareils. Pour annuler, il faut passer par SQL (`DELETE FROM sync_meta WHERE key = 'pw:<nom>'`).
+⚠️ **Un salon libre est revendicable par quiconque connaît son nom** : `/join` y pose alors un mot de passe et verrouille les autres appareils. Pour annuler : bouton « Retirer » du back-office `/admin` (`POST /admin/reset-password`, même origine exigée contre le CSRF de Basic Auth).
+
+**Changement et blocage.** `POST /api/sync/password { vault, current, next }` remplace le mot de passe, purge le cache des secrets vérifiés et coupe les flux ouverts du salon : les appareils restés sur l'ancien relisent `locked` sur `/info` et s'arrêtent. `checkVaultPassword` (`sync-backend.mjs`) bloque 15 min après 10 échecs par salon et par adresse ; un secret déjà en cache passe toujours. Compteur en mémoire, par conteneur.
 
 | Contrainte | Valeur |
 |---|---|

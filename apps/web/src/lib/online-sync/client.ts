@@ -372,10 +372,37 @@ export async function joinVault(
   } catch (err) {
     return `Serveur de synchronisation injoignable : ${(err as Error).message}.`;
   }
+  return passwordError(res);
+}
+
+function passwordError(res: Response): string | null {
   if (res.ok) return null;
   if (res.status === 400) return "Mot de passe trop court : 8 caractères minimum.";
   if (res.status === 401) return "Mot de passe incorrect.";
+  if (res.status === 429) return "Trop de tentatives : réessayez dans 15 minutes.";
   return `Le serveur a refusé la connexion (HTTP ${res.status}).`;
+}
+
+/** Change le mot de passe d'un salon protégé ; renvoie un message d'erreur ou null. */
+export async function changeVaultPassword(
+  serverUrl: string,
+  vaultKey: string,
+  current: string,
+  next: string,
+): Promise<string | null> {
+  let res: Response;
+  try {
+    res = await fetch(`${serverUrl.replace(/\/+$/, "")}/api/sync/password`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ vault: vaultKey, current, next }),
+    });
+  } catch (err) {
+    return `Serveur de synchronisation injoignable : ${(err as Error).message}.`;
+  }
+  if (res.status === 401) return "Mot de passe actuel refusé : reconnectez ce coffre avec le bon mot de passe.";
+  if (res.status === 409) return "Ce salon n'a pas encore de mot de passe : saisissez-en un puis « Connecter ».";
+  return passwordError(res);
 }
 
 type BlobTarget = { serverUrl: string; vaultKey: string; token: string };
