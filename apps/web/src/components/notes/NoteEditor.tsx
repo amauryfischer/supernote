@@ -61,7 +61,6 @@ import {
 import { blockSnippet, useAiMargins } from "@/hooks/useAiMargins";
 import { isAiRuntimeAllowed } from "@/lib/ai/ai-runtime";
 import { PresentationMode } from "./PresentationMode";
-import { ShareNotePanel } from "./ShareNotePanel";
 import { ContextMenu, useContextMenu, Tooltip, type ContextMenuItemDef } from "@supernote/ui";
 import { useVoiceDictation } from "@/hooks/useVoiceDictation";
 import { MoveNoteModal } from "./MoveNoteModal";
@@ -2025,7 +2024,6 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
             <FilePdf size={13} />
             PDF
           </Button>
-          <ShareNotePanel note={note} resolveUrl={fileAdapter.resolveUrl} />
           {/* Dictée vocale — Web Speech API du navigateur, zéro dépendance.
               Masquée si non supportée (Firefox). Le bouton pulse pendant
               l'écoute ; l'arrêt est aussi atteignable depuis la chip flottante
