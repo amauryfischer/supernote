@@ -193,4 +193,33 @@ test.describe("04 — agenda", () => {
       await expect(page.getByRole("button", { name: "Rejoindre" })).toBeVisible();
     });
   });
+
+  test.describe("téléphone 360 px", () => {
+    test.use({ viewport: { width: 360, height: 780 }, hasTouch: true, isMobile: true });
+
+    test("planifier une tâche depuis l'en-tête, premier créneau libre", async ({ page }) => {
+      test.setTimeout(120_000);
+      const posted: Record<string, unknown>[] = [];
+      await withGoogleCalendar(page, posted);
+      await createTodo(page, "Rédiger le compte rendu", true);
+
+      await page.goto("/agenda");
+      await page.getByRole("button", { name: /Reprendre|Connecter Google Agenda/ }).first().click({ timeout: 45_000 });
+      await expect(page.getByRole("button", { name: /Point équipe/ })).toBeVisible({ timeout: 30_000 });
+
+      await page.getByRole("button", { name: "Planifier une tâche" }).click();
+      await page.getByRole("button", { name: "Rédiger le compte rendu" }).click();
+      const slots = page.getByRole("group", { name: "Prochains créneaux libres" });
+      await expect(slots.getByRole("button").first()).toBeVisible();
+      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflow).toBeLessThanOrEqual(0);
+
+      await slots.getByRole("button").first().click();
+      await expect.poll(() => posted.length, { timeout: 15_000 }).toBe(1);
+      expect(posted[0]).toMatchObject({
+        summary: "Rédiger le compte rendu",
+        extendedProperties: { private: { supernoteRef: expect.stringMatching(/^todo:\S+$/) } },
+      });
+    });
+  });
 });

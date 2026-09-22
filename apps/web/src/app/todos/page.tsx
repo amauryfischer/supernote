@@ -47,6 +47,7 @@ import {
   DotsSixVertical,
   DotsThree,
   CalendarBlank,
+  CalendarPlus,
   List,
   Checks,
   Sparkle,
@@ -95,6 +96,9 @@ import { EditTodoModal, type EditTodoValues } from "@/components/todos/EditTodoM
 import { TodoCalendarView } from "@/components/todos/TodoCalendarView";
 import { TodoMatrix } from "@/components/todos/TodoMatrix";
 import { useMailTodos, mailThreadIdOf } from "@/components/todos/useMailTodos";
+import { ScheduleTaskSheet, type TaskTarget } from "@/components/agenda/ScheduleTaskSheet";
+import { useScheduledBlocks } from "@/components/agenda/useScheduledBlocks";
+import { taskRefOf, withScheduledAt } from "@/lib/agenda/task-ref";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { GridFour } from "@phosphor-icons/react";
 import {
@@ -220,6 +224,7 @@ export default function TodosPage() {
   const [migrationDismissed, setMigrationDismissed] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [editing, setEditing] = useState<UiTodoRow | null>(null);
+  const [scheduling, setScheduling] = useState<TaskTarget | null>(null);
   // Optimistic quadrant override for the Eisenhower matrix — applied instantly
   // on drop so the card jumps to the target quadrant without waiting for the
   // mutation + refetch round-trip. Cleared once the data settles (the refetched
@@ -391,6 +396,7 @@ export default function TodosPage() {
   const navigate = useNavigate();
   const { rows: noteRows, isLoading: notesLoading } = useNoteChecklistTodos();
   const mailTodos = useMailTodos(showToast);
+  const { blocks } = useScheduledBlocks();
   const openMailThread = useCallback(
     (row: TodoRowData) => navigate(`/mail?thread=${encodeURIComponent(row.sourceThreadId ?? "")}`),
     [navigate],
@@ -459,8 +465,8 @@ export default function TodosPage() {
   }, [searchParams, setSearchParams, todosQuery.data, standaloneRows]);
 
   const allTodos: UiTodoRow[] = useMemo(
-    () => [...noteRows, ...standaloneRows],
-    [noteRows, standaloneRows],
+    () => withScheduledAt([...noteRows, ...standaloneRows], blocks),
+    [noteRows, standaloneRows, blocks],
   );
 
   const availableTags = useMemo(() => {
@@ -984,6 +990,12 @@ export default function TodosPage() {
           icon: <Pencil size={14} />,
           onPress: () => setEditing(row),
         },
+        {
+          key: "schedule",
+          label: "Planifier…",
+          icon: <CalendarPlus size={14} />,
+          onPress: () => setScheduling({ ref: taskRefOf(row), title: row.text }),
+        },
         { key: "sep2", label: "", separator: true },
         {
           key: "delete",
@@ -997,6 +1009,21 @@ export default function TodosPage() {
       ctxMenu.open(e, items);
     },
     [ctxMenu, handleQuickImportance, handleToggle, handleDelete],
+  );
+
+  const openMailContextMenu = useCallback(
+    (e: React.MouseEvent, row: TodoRowData) => {
+      ctxMenu.open(e, [
+        {
+          key: "schedule",
+          label: "Planifier…",
+          icon: <CalendarPlus size={14} />,
+          onPress: () => setScheduling({ ref: taskRefOf(row), title: row.text }),
+        },
+        { key: "open", label: "Ouvrir le fil", icon: <Envelope size={14} />, onPress: () => openMailThread(row) },
+      ]);
+    },
+    [ctxMenu, openMailThread],
   );
 
   const toMailable = useCallback(
@@ -1520,7 +1547,7 @@ export default function TodosPage() {
               </div>
             ) : (
               <TodoMatrix
-                todos={tagFilter.size > 0 ? matrixTodos : [...matrixTodos, ...mailTodos.rows]}
+                todos={tagFilter.size > 0 ? matrixTodos : [...matrixTodos, ...withScheduledAt(mailTodos.rows, blocks)]}
                 onMove={(row, target) =>
                   mailThreadIdOf(row.id)
                     ? mailTodos.move(row.id, target)
@@ -1537,9 +1564,9 @@ export default function TodosPage() {
                 onEmail={(row) =>
                   mailThreadIdOf(row.id) ? openMailThread(row) : handleEmailOne(row as UiTodoRow)
                 }
-                onContextMenu={(e, row) => {
-                  if (!mailThreadIdOf(row.id)) openTodoContextMenu(e, row as UiTodoRow);
-                }}
+                onContextMenu={(e, row) =>
+                  mailThreadIdOf(row.id) ? openMailContextMenu(e, row) : openTodoContextMenu(e, row as UiTodoRow)
+                }
               />
             )}
           </div>
@@ -1837,10 +1864,16 @@ export default function TodosPage() {
           onSave={(next) => void handleSaveEdit(editing, next)}
           onCancel={() => setEditing(null)}
           onDelete={editing.kind === "standalone" ? () => void handleDelete(editing) : undefined}
+          onSchedule={() => {
+            setScheduling({ ref: taskRefOf(editing), title: editing.text });
+            setEditing(null);
+          }}
         />
       )}
 
       <ContextMenu state={ctxMenu.state} onClose={ctxMenu.close} />
+
+      {scheduling && <ScheduleTaskSheet task={scheduling} onClose={() => setScheduling(null)} />}
 
       <TodoBulkActionBar
         selectedCount={selectedIds.size}
