@@ -40,6 +40,7 @@ export interface GcalEventResource {
   organizer?: { self?: boolean };
   etag?: string;
   colorId?: string;
+  extendedProperties?: { private?: Record<string, string> };
 }
 
 export interface GcalEventBody {
@@ -49,6 +50,7 @@ export interface GcalEventBody {
   start?: GcalTime;
   end?: GcalTime;
   attendees?: Array<{ email: string; responseStatus?: string }>;
+  extendedProperties?: { private?: Record<string, string> };
 }
 
 async function json<T>(res: Response): Promise<T> {
@@ -220,5 +222,6 @@ export function toEventInput(calendarId: string, ev: GcalEventResource): CalEven
     selfResponse: self?.responseStatus ?? (ev.organizer?.self ? "accepted" : ""),
     etag: ev.etag ?? "",
     colorId: ev.colorId ?? "",
+    sourceRef: ev.extendedProperties?.private?.["supernoteRef"] ?? "",
   };
 }

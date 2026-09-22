@@ -1,10 +1,20 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent as ReactDragEvent,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import type { CalCalendarRow, CalEventRow } from "@supernote/ipc";
 import { DAY_MS, addDays, dateKey, isSameDay, minutesOfDay } from "@/lib/agenda/dates";
 import { layoutDay } from "@/lib/agenda/layout";
-import { EventBlock, calendarColor, canEditCalendar, eventTint } from "./EventBlock";
+import { TASK_DRAG_MIME } from "@/lib/agenda/task-ref";
+import { SLOT_MIN } from "@/lib/agenda/free-slots";
+import { EventBlock, calendarColor, canEditCalendar, eventTint, isTaskClosed } from "./EventBlock";
 import { OverlayChip } from "./OverlayChip";
 import type { AgendaOverlay } from "./useAgendaData";
 
@@ -19,11 +29,15 @@ export interface GridProps {
   events: CalEventRow[];
   calendars: CalCalendarRow[];
   overlays: AgendaOverlay[];
+  /** Références des tâches ouvertes ; `null` tant qu'elles chargent (rien n'est barré). */
+  openTaskRefs: ReadonlySet<string> | null;
   /** Glisser pour créer, déplacer, redimensionner : ordinateur seulement. */
   interactive: boolean;
   onSelectEvent: (ev: CalEventRow, anchor: HTMLElement) => void;
   onCreateAt: (startAt: number, endAt: number, allDay: boolean) => void;
   onMoveEvent: (ev: CalEventRow, startAt: number, endAt: number) => void;
+  /** Dépôt d'une tâche du tiroir (glisser HTML5), ordinateur seulement. */
+  onDropTask?: (ref: string, startAt: number) => void;
 }
 
 type Drag =
@@ -37,13 +51,25 @@ function overlapsDay(ev: CalEventRow, day: number): boolean {
   return ev.startAt < day + DAY_MS && ev.endAt > day;
 }
 
-export function TimeGrid({ days, events, calendars, overlays, interactive, onSelectEvent, onCreateAt, onMoveEvent }: GridProps) {
+export function TimeGrid({
+  days,
+  events,
+  calendars,
+  overlays,
+  openTaskRefs,
+  interactive,
+  onSelectEvent,
+  onCreateAt,
+  onMoveEvent,
+  onDropTask,
+}: GridProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const columnsRef = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<Drag | null>(null);
   const dragRef = useRef<Drag | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  const [dropAt, setDropAt] = useState<{ day: number; min: number } | null>(null);
 
   useEffect(() => {
     const id = window.setInterval(() => setNow(Date.now()), 60_000);
@@ -72,6 +98,10 @@ export function TimeGrid({ days, events, calendars, overlays, interactive, onSel
     if (!rect) return 0;
     return Math.min(days.length - 1, Math.max(0, Math.floor(((clientX - rect.left) / rect.width) * days.length)));
   };
+  const dropSlot = (e: ReactDragEvent<HTMLElement>) => ({
+    day: pointerDay(e.clientX),
+    min: Math.min(snap(pointerMinute(e.clientY)), 24 * 60 - SLOT_MIN),
+  });
 
   const update = (next: Drag | null) => {
     dragRef.current = next;
@@ -192,6 +222,7 @@ export function TimeGrid({ days, events, calendars, overlays, interactive, onSel
                   event={ev}
                   compact
                   color={calendarColor(calendars, ev.calendarId)}
+                  taskClosed={isTaskClosed(ev, openTaskRefs)}
                   onSelect={(el) => onSelectEvent(ev, el)}
                 />
               ))}
@@ -221,6 +252,24 @@ export function TimeGrid({ days, events, calendars, overlays, interactive, onSel
             ref={columnsRef}
             className="relative grid"
             style={{ gridColumn: `2 / span ${days.length}`, gridTemplateColumns: `repeat(${days.length}, minmax(0, 1fr))` }}
+            onDragOver={(e) => {
+              if (!onDropTask || !e.dataTransfer.types.includes(TASK_DRAG_MIME)) return;
+              e.preventDefault();
+              e.dataTransfer.dropEffect = "copy";
+              const next = dropSlot(e);
+              setDropAt((prev) => (prev?.day === next.day && prev.min === next.min ? prev : next));
+            }}
+            onDragLeave={(e) => {
+              if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropAt(null);
+            }}
+            onDrop={(e) => {
+              const ref = e.dataTransfer.getData(TASK_DRAG_MIME);
+              setDropAt(null);
+              if (!onDropTask || !ref) return;
+              e.preventDefault();
+              const slot = dropSlot(e);
+              onDropTask(ref, (days[slot.day] ?? firstDay) + slot.min * 60_000);
+            }}
           >
             <div ref={bodyRef} className="pointer-events-none absolute inset-0" aria-hidden>
               {HOURS.map((h) => (
@@ -267,6 +316,7 @@ export function TimeGrid({ days, events, calendars, overlays, interactive, onSel
                           compact={p.height < 36}
                           color={calendarColor(calendars, p.item.calendarId)}
                           style={{ height: "100%" }}
+                          taskClosed={isTaskClosed(p.item, openTaskRefs)}
                           onSelect={(el) => onSelectEvent(p.item, el)}
                           {...(editable
                             ? {
@@ -296,6 +346,16 @@ export function TimeGrid({ days, events, calendars, overlays, interactive, onSel
                         ...eventTint("var(--accent)"),
                         top: Math.min(drag.fromMin, drag.toMin) * PX_PER_MIN,
                         height: Math.max(Math.abs(drag.toMin - drag.fromMin), SNAP_MIN) * PX_PER_MIN,
+                      }}
+                    />
+                  )}
+                  {dropAt?.day === dayIndex && (
+                    <div
+                      className="pointer-events-none absolute inset-x-0.5 rounded-md"
+                      style={{
+                        ...eventTint("var(--accent)", true),
+                        top: dropAt.min * PX_PER_MIN,
+                        height: SLOT_MIN * PX_PER_MIN,
                       }}
                     />
                   )}

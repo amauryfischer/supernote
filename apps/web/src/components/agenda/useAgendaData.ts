@@ -10,6 +10,7 @@ import { loadSnoozed, MAIL_SNOOZE_EVENT } from "@/lib/mail-triage";
 import { loadFollowups, MAIL_FOLLOWUP_EVENT } from "@/lib/mail-followup";
 import { trpc } from "@/lib/trpc/client";
 import { dateKey } from "@/lib/agenda/dates";
+import { taskRefOf } from "@/lib/agenda/task-ref";
 import { useNoteChecklistTodos } from "@/components/todos/useNoteChecklistTodos";
 
 export interface AgendaOverlay {
@@ -87,8 +88,10 @@ export function useAgendaData(range: { from: number; to: number }, opts: { check
     const from = dateKey(range.from);
     const to = dateKey(range.to);
     const inRange = (key: string) => key >= from && key <= to;
+    const blockRefs = new Set((events.data ?? NO_EVENTS).map((e) => e.sourceRef).filter(Boolean));
     const out: AgendaOverlay[] = [];
     for (const item of overlayQuery.data?.items ?? []) {
+      if (item.kind === "todo" && blockRefs.has(`todo:${item.entityId}`)) continue;
       out.push({
         key: `${item.kind}:${item.entityId}:${item.fieldLabel}`,
         kind: item.kind,
@@ -106,7 +109,7 @@ export function useAgendaData(range: { from: number; to: number }, opts: { check
     }
     for (const row of checklists) {
       const date = (row.dueDate ?? row.startDate ?? "").slice(0, 10);
-      if (row.done || !date || !inRange(date) || !row.sourceNoteId) continue;
+      if (row.done || !date || !inRange(date) || !row.sourceNoteId || blockRefs.has(taskRefOf(row))) continue;
       const noteId = row.sourceNoteId;
       out.push({ key: `checklist:${row.id}`, kind: "checklist", title: row.text, date, atMs: null, onOpen: () => navigate(`/notes/${noteId}`) });
     }
@@ -120,7 +123,7 @@ export function useAgendaData(range: { from: number; to: number }, opts: { check
       out.push({ key: `followup:${f.threadId}`, kind: "followup", title: `Relance : ${f.subject || "sans objet"}`, date: dateKey(f.dueAt), atMs: f.dueAt, onOpen: openThread(f.threadId) });
     }
     return out;
-  }, [overlayQuery.data, checklists, timers, range.from, range.to, navigate]);
+  }, [overlayQuery.data, checklists, timers, range.from, range.to, navigate, events.data]);
 
   useEffect(() => {
     const refresh = () => void qc.invalidateQueries({ queryKey: ["calendar"] });

@@ -63,6 +63,7 @@ export interface NotificationSettings {
   sounds: boolean;
   persistence: boolean;
   toastDuration: number;
+  pushSubscribed: boolean;
 }
 
 export interface GoogleDriveSettings {

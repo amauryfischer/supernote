@@ -58,7 +58,7 @@ Le seuil est `MOBILE_MAX_WIDTH = 767` dans `hooks/useIsMobile.ts`, aligné sur l
 
 ## Serveur de production
 
-`apps/web/server.mjs`, lancé par le `Procfile`. Sert le `dist/` prébuild avec repli history-API et les types MIME corrects pour le wasm, les modules et les polices. Monte `/api/sync/*` uniquement si `DATABASE_URL` est défini, plus le back-office `/admin` si `ADMIN_TOKEN` l'est aussi.
+`apps/web/server.mjs`, lancé par le `Procfile`. Sert le `dist/` prébuild avec repli history-API et les types MIME corrects pour le wasm, les modules et les polices. Monte `/api/sync/*` uniquement si `DATABASE_URL` est défini, plus le back-office `/admin` si `ADMIN_TOKEN` l'est aussi, et `/api/push/*` avec son planificateur si les clés VAPID le sont.
 
 ## Build et scripts
 

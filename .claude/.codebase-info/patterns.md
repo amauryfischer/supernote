@@ -112,9 +112,11 @@ Côté Ollama, tout `createOllamaClient` doit recevoir `defaultModel` (`settings
 
 ## Vérification
 
-Pas de test unitaire, c'est une décision. `pnpm typecheck` plus `pnpm test:e2e`, dix-huit tests Playwright chromium.
+Pas de test unitaire, c'est une décision. `pnpm typecheck` plus `pnpm test:e2e`, vingt-quatre tests Playwright chromium (dont un ignoré sans `DATABASE_URL` local). `07-push.spec.ts` pousse dans le service worker par CDP (`ServiceWorker.deliverPushMessage`) et exige `channel: "chromium"` : le headless shell refuse `showNotification`.
 
 Deux amorces dans `tests/e2e/helpers.ts`. `bootDegraded` pose `supernote.degraded` : pas de worker, rendu seulement. `bootCloud(page, { googleAccount? })` ouvre un coffre cloud neuf sur un **vrai worker OPFS** (seul mode où miroirs, modèles et routes worker tournent) et remplace GIS par un faux ; `mockGoogleApis(page, handler)` intercepte `www.googleapis.com` et rend le journal des appels. Tout nouveau scénario worker ou Google va là (`04-agenda.spec.ts`, `05-templates.spec.ts`, `06-mail.spec.ts`), pas dans un banc jetable. Gmail n'est pas sur `www.googleapis.com` : `06-mail.spec.ts` route lui-même `gmail.googleapis.com` pour servir une boîte d'un fil. Le serveur de test tourne sur le port 3277 en `--strictPort`, parce que le 3100 est tenu par un service Windows invisible depuis WSL.
+
+⚠️ `reuseExistingServer: true` sur ce port fixe : deux worktrees qui lancent leurs e2e en même temps partagent le serveur Vite du premier, donc testent **le code de l'autre** ou perdent la connexion (`ERR_CONNECTION_REFUSED`). Sérialiser les e2e entre worktrees. Sur un worktree neuf, le premier passage échoue souvent par timeout (compilation Vite à froid) : relancer avant de conclure à une régression.
 
 ⚠️ Les fichiers de `tests/` n'appartiennent à aucun workspace, donc `pnpm typecheck` **ne les couvre pas**, et Playwright transpile sans vérifier les types.
 
