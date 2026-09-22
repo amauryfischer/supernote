@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Copy, LockSimple, Trash } from "@phosphor-icons/react";
 import { Badge, Button, Input, Modal, Switch, Tooltip } from "@supernote/ui";
 import { MobileSheet } from "@/components/shell";
@@ -98,17 +98,18 @@ export function ShareDialog({ isOpen, onClose, kind, title, owned, onStart, onSt
   const createFb = useActionFeedback();
   const stopFb = useActionFeedback();
 
-  const guard = useCallback(
-    async <T,>(fn: () => Promise<T>): Promise<T> => {
-      try {
-        return await fn();
-      } catch (err) {
-        if (err instanceof ShareGoneError) onGone();
-        throw err;
-      }
-    },
-    [onGone],
-  );
+  // `onGone` change à chaque render du parent : passer par une ref garde `guard`
+  // stable pour que l'effet de listing ci-dessous ne refetch pas en boucle.
+  const onGoneRef = useRef(onGone);
+  onGoneRef.current = onGone;
+  const guard = useCallback(async <T,>(fn: () => Promise<T>): Promise<T> => {
+    try {
+      return await fn();
+    } catch (err) {
+      if (err instanceof ShareGoneError) onGoneRef.current();
+      throw err;
+    }
+  }, []);
 
   useEffect(() => {
     if (!isOpen || !owned) return setLinks([]);
@@ -221,12 +222,13 @@ export function ShareDialog({ isOpen, onClose, kind, title, owned, onStart, onSt
       {note && <p className="text-xs text-[var(--text-muted)]">{note}</p>}
 
       {owned && (
-        <Tooltip content={stopFb.error ?? "Arrêter le partage"}>
+        <div className="flex flex-col items-start gap-1">
           <Button variant="ghost" className="self-start text-[var(--color-danger)]" onPress={() => void stop()}>
             <FeedbackIcon state={stopFb.state} error={stopFb.error} idle={null} />
             Arrêter le partage
           </Button>
-        </Tooltip>
+          {stopFb.error && <p role="alert" className="text-sm text-[var(--color-danger)]">{stopFb.error}</p>}
+        </div>
       )}
     </div>
   );
