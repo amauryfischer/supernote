@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Button, Spinner } from "@heroui/react";
 import dynamic from "next/dynamic";
-import { CaretDown, CaretRight, Calendar, Tag, FloppyDisk, Microphone, Image, Sparkle, X, CheckCircle, WarningCircle, Presentation, FilePdf, Stop, CodeSimple } from "@phosphor-icons/react";
+import { CaretDown, CaretRight, Calendar, Tag, FloppyDisk, Microphone, Image, Sparkle, X, CheckCircle, WarningCircle, Presentation, FilePdf, Stop, CodeSimple, ShareNetwork } from "@phosphor-icons/react";
 import Link from "next/link";
 import { Fragment } from "react";
 import { TagSelector } from "@/components/tags/TagSelector";
@@ -69,6 +69,18 @@ import { useRouter } from "next/navigation";
 import { useSettings } from "@/components/settings/SettingsContext";
 import { useDateFormat } from "@/lib/dateFormat";
 import { useEditorBindings } from "@/lib/editor-shortcuts/useEditorBindings";
+import { markdownToYUpdate, yFragmentToMarkdown } from "@supernote/editor";
+import { ShareDialog } from "@/components/share/ShareDialog";
+import { NOTE_SHARE_EVENT, colorFor } from "@/lib/share/collab";
+import { publishNoteImages } from "@/lib/share/noteImages";
+import {
+  createShareResource,
+  deleteShareResource,
+  renameShareResource,
+  seedShareDoc,
+  shareBackendEnabled,
+} from "@/lib/share/shareApi";
+import { collabDbName, useNoteCollab } from "./useNoteCollab";
 
 // Dynamic import to avoid SSR issues — BlockNote uses browser-only APIs
 const SupernoteEditor = dynamic<SupernoteEditorProps>(
@@ -241,6 +253,12 @@ function isImage(name: string): boolean {
   return IMAGE_EXTENSIONS.has(fileExt(name));
 }
 
+function readShare(fields: Record<string, unknown> | undefined): { id: string; key: string } | null {
+  const id = typeof fields?.["shareId"] === "string" ? fields["shareId"] : "";
+  const key = typeof fields?.["shareKey"] === "string" ? fields["shareKey"] : "";
+  return id && key ? { id, key } : null;
+}
+
 export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
   useRegisterOpenNote(note.id); // le tri auto de l'inbox ne déplace pas une note ouverte
   // Mobile focus mode: drop the editor's formatting toolbar while the keyboard
@@ -258,6 +276,11 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
   const [cover, setCover] = useState<string | null>(() => asCover(note.fields?.["cover"]));
   const coverActive = Boolean(cover) && !hideToolbarForKeyboard;
   const [icon, setIcon] = useState<string | null>(() => asIcon(note.fields?.["icon"]));
+  const [share, setShare] = useState(() => readShare(note.fields));
+  const shareRef = useRef(share);
+  shareRef.current = share;
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shareEnabled, setShareEnabled] = useState(false);
   // Mode HTML : le corps reste du markdown, seul l'affichage change (l'artefact
   // occupe tout le cadre au lieu de vivre dans un bloc au fil du texte).
   const [htmlMode, setHtmlMode] = useState(() => note.fields?.["mode"] === "html");
@@ -363,6 +386,9 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
   const autoTitleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoTagTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const bodyRef = useRef<string>(note.body);
+  const publishedImagesRef = useRef(new Set<string>());
+  const imagesTimerRef = useRef<number | undefined>(undefined);
+  const purgeShareRef = useRef<string | null>(null);
   // Note réellement affichée, lisible depuis une closure survivante (le toast
   // « Annuler » vit dans un portail et peut être cliqué après un changement de
   // note, alors que sa closure, elle, a figé l'ancienne).
@@ -712,6 +738,9 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
     setTypo(asTypo(note.fields?.["typo"]));
     setCover(asCover(note.fields?.["cover"]));
     setIcon(asIcon(note.fields?.["icon"]));
+    setShare(readShare(note.fields));
+    publishedImagesRef.current = new Set();
+    window.clearTimeout(imagesTimerRef.current);
     setMarginsOverride(parseAiMarginsOverride(note.fields?.["aiMargins"]));
     // Relire le réglage global ici évite un remount après un aller-retour
     // dans les réglages IA.
@@ -727,6 +756,8 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
   // bump `externalBodyVersion` to force BlockNote to remount with the new
   // content (BlockNote's `initialContent` is read only at mount).
   useEffect(() => {
+    // En co-édition, Yjs fait foi. Lu par ref : relancer l'effet à l'arrêt du partage comparerait un note.body pas encore refetché.
+    if (shareRef.current) return;
     // While the user is mid-edit (debounce armed OR a save in flight) any
     // "external" body must be stale by definition — the worker can't have a
     // newer copy than what's already in `bodyRef`. Skipping the remount here
@@ -1262,8 +1293,14 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
       scheduleAutoTag(markdown);
       // Tick léger pour réveiller les marges IA (debounce côté panneau).
       if (marginsOn) setBodyVersion((v) => v + 1);
+      if (share) {
+        window.clearTimeout(imagesTimerRef.current);
+        imagesTimerRef.current = window.setTimeout(() => {
+          void publishNoteImages({ resourceId: share.id, ownerKey: share.key }, markdown, fileAdapter.resolveUrl, publishedImagesRef.current).catch(() => {});
+        }, 2000);
+      }
     },
-    [triggerAutoSave, title, scheduleAutoTitle, scheduleAutoTag, marginsOn],
+    [share, triggerAutoSave, title, scheduleAutoTitle, scheduleAutoTag, marginsOn, fileAdapter],
   );
 
   // Mode HTML : autosave seule — laisser l'auto-titre ou l'auto-tag lire du
@@ -1310,7 +1347,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
   );
 
   const handleManualSave = useCallback(
-    async (md: string) => {
+    async (md: string): Promise<boolean> => {
       if (debounceRef.current) {
         clearTimeout(debounceRef.current);
         debounceRef.current = null;
@@ -1321,13 +1358,102 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
         await updateNote(note.id, title, md);
         setSaveStatus("saved");
         setTimeout(() => setSaveStatus("idle"), 2000);
+        return true;
       } catch {
         // Persistent until the next save attempt — see triggerAutoSave.
         setSaveStatus("error");
+        return false;
       }
     },
     [note.id, title, updateNote],
   );
+
+  const handleShareGone = useCallback(() => {
+    const gone = shareRef.current;
+    if (!gone) return;
+    purgeShareRef.current = gone.id;
+    // Le cache tRPC n'est pas encore rafraîchi : l'éditeur normal repart du contenu courant.
+    setPendingBody(bodyRef.current);
+    setShare(null);
+    // Un échec laisse une clé morte : le prochain `gone` la réessaie.
+    void trpcVanillaClient.entities.update
+      .mutate({ id: note.id, fields: { shareId: "", shareKey: "" } })
+      .then(() => utilsForTags.entities.get.invalidate({ id: note.id }))
+      .catch((err) => console.error("[NoteEditor] share key cleanup failed", err));
+  }, [note.id, utilsForTags]);
+
+  const ownerName = settings.gmail.connectedEmail.split("@")[0] || "Propriétaire";
+  const collab = useNoteCollab(share, { name: ownerName, color: colorFor(ownerName) }, handleShareGone);
+  const ownedShare = useMemo(() => (share ? { resourceId: share.id, ownerKey: share.key } : null), [share]);
+
+  // Monté sur un fragment déjà synchronisé, l'éditeur n'émet aucun onChange : sans ceci, un .md en retard sur Yjs serait réécrit tel quel à l'arrêt du partage.
+  useEffect(() => {
+    const fragment = collab.collaboration?.fragment;
+    if (!fragment) return;
+    const md = yFragmentToMarkdown(fragment);
+    if (normalizeEol(md).trimEnd() !== normalizeEol(bodyRef.current).trimEnd()) handleEditorChange(md);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [collab.collaboration]);
+
+  useEffect(() => {
+    void shareBackendEnabled().then(setShareEnabled);
+  }, []);
+
+  useEffect(() => {
+    if (!shareEnabled) return undefined;
+    // Plusieurs NoteEditor peuvent être montés (colonnes empilées) : seul le bon s'ouvre.
+    const open = (e: Event) => {
+      if ((e as CustomEvent<{ noteId: string }>).detail?.noteId === note.id) setShareOpen(true);
+    };
+    window.addEventListener(NOTE_SHARE_EVENT, open);
+    return () => window.removeEventListener(NOTE_SHARE_EVENT, open);
+  }, [note.id, shareEnabled]);
+
+  // Après la destruction du provider et de la persistance (cleanups du même commit), jamais avant.
+  useEffect(() => {
+    const id = purgeShareRef.current;
+    if (share || !id) return;
+    purgeShareRef.current = null;
+    indexedDB.deleteDatabase(collabDbName(id));
+  }, [share]);
+
+  useEffect(() => {
+    if (!share) return undefined;
+    const timer = window.setTimeout(() => {
+      void renameShareResource({ resourceId: share.id, ownerKey: share.key }, title).catch(() => {});
+    }, 1000);
+    return () => window.clearTimeout(timer);
+  }, [share, title]);
+
+  const startShare = async () => {
+    // Avant toute création : un markdown inconvertible ne laisse pas de ressource orpheline.
+    const seed = markdownToYUpdate(bodyRef.current);
+    const owned = await createShareResource("note", title);
+    try {
+      await seedShareDoc(owned, seed);
+      await trpcVanillaClient.entities.update.mutate({
+        id: note.id,
+        fields: { shareId: owned.resourceId, shareKey: owned.ownerKey },
+      });
+    } catch (err) {
+      void deleteShareResource(owned).catch(() => {});
+      throw err;
+    }
+    await publishNoteImages(owned, bodyRef.current, fileAdapter.resolveUrl, publishedImagesRef.current).catch(() => {});
+    void utilsForTags.entities.get.invalidate({ id: note.id });
+    setShare({ id: owned.resourceId, key: owned.ownerKey });
+    return owned;
+  };
+
+  const stopShare = async () => {
+    if (!share) return;
+    if (!(await handleManualSave(bodyRef.current))) {
+      throw new Error("La note n'a pas pu être enregistrée : le partage reste actif.");
+    }
+    await deleteShareResource({ resourceId: share.id, ownerKey: share.key });
+    handleShareGone();
+    setShareOpen(false);
+  };
 
   const insertMarkdown = useCallback((md: string) => {
     if (editorInsertRef.current) {
@@ -1464,6 +1590,11 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
    * réécrivait le mauvais bloc quand la note en contient deux identiques.
    */
   const handleApplyFix = useCallback((block: NoteBlock, newText: string) => {
+    // commitBody remonte l'éditeur sur le markdown : en co-édition, Yjs l'écraserait à la frappe suivante.
+    if (shareRef.current) {
+      rejectFix("Note partagée : applique la correction directement dans le texte.");
+      return;
+    }
     const body = normalizeEol(bodyRef.current);
     // On cherche parmi les UNITÉS d'analyse, pas les blocs bruts : une carte
     // peut porter sur un groupe de lignes courtes, dont le hash et les offsets
@@ -1899,6 +2030,35 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
             </Button>
           )}
             </div>
+            {(shareEnabled || collab.peers.length > 0) && (
+              <div className="mt-1 flex flex-wrap items-center gap-2">
+                {shareEnabled && (
+                  <Tooltip content={share ? "Partagée · gérer les liens" : "Partager"}>
+                    <Button
+                      isIconOnly
+                      variant="ghost"
+                      size="sm"
+                      aria-label="Partager"
+                      className="h-8 w-8 min-w-8"
+                      style={{ color: share ? "var(--accent)" : "var(--text-muted)" }}
+                      onPress={() => setShareOpen(true)}
+                    >
+                      <ShareNetwork size={15} weight={share ? "fill" : "regular"} />
+                    </Button>
+                  </Tooltip>
+                )}
+                {collab.peers.length > 0 && (
+                  <div role="group" className="flex flex-wrap items-center gap-1.5 text-xs text-[var(--text-muted)]" aria-label="Personnes connectées">
+                    {collab.peers.map((p, i) => (
+                      <span key={`${p.name}-${i}`} className="inline-flex items-center gap-1">
+                        <span className="h-2 w-2 rounded-full" style={{ background: p.color }} aria-hidden />
+                        {p.name}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
@@ -2136,15 +2296,23 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
                 }}
               />
             )}
-            {htmlMode ? (
+            {/* Partagée, la note s'édite toujours via Yjs : la vue HTML écrirait le .md sans passer par le document commun. */}
+            {htmlMode && !share ? (
             <HtmlNoteView
               key={`${note.id}:${externalBodyVersion}:html`}
               body={pendingBody ?? note.body}
               onChange={handleHtmlBodyChange}
             />
+            ) : share && collab.status !== "ready" ? (
+            <p className="py-6 text-sm text-[var(--text-muted)]">
+              {collab.status === "offline"
+                ? "Hors ligne : la note partagée s'ouvrira à la reconnexion."
+                : "Connexion au partage…"}
+            </p>
             ) : (
             <SupernoteEditor
-              key={`${note.id}:${externalBodyVersion}:${bindingsKey}`}
+              key={share ? `${note.id}:collab:${share.id}` : `${note.id}:${externalBodyVersion}:${bindingsKey}`}
+              collaboration={share ? collab.collaboration : undefined}
               initialMarkdown={pendingBody ?? note.body}
               onChange={handleEditorChange}
               onSave={handleManualSave}
@@ -2251,6 +2419,19 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
         isOpen={cheatOpen}
         onClose={() => setCheatOpen(false)}
       />
+      {shareEnabled && (
+        <ShareDialog
+          isOpen={shareOpen}
+          onClose={() => setShareOpen(false)}
+          kind="note"
+          title={title}
+          owned={ownedShare}
+          onStart={startShare}
+          onStop={stopShare}
+          onGone={handleShareGone}
+          note="La clé de gestion du partage est enregistrée dans la note : un coffre git publié en public l'expose. Tant que la note est partagée, une modification du fichier .md hors de Supernote est écrasée."
+        />
+      )}
       <ContextMenu state={ctxMenu.state} onClose={ctxMenu.close} />
     </div>
   );

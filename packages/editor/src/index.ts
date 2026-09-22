@@ -17,7 +17,7 @@ export type {
 } from "./types.js";
 
 // Collaboration Yjs
-export { COLLAB_FRAGMENT, markdownToYUpdate } from "./collab.js";
+export { COLLAB_FRAGMENT, markdownToYUpdate, yFragmentToMarkdown } from "./collab.js";
 
 // Schema (for advanced usage)
 export { supernoteSchema } from "./schema.js";

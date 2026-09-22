@@ -46,7 +46,9 @@ import {
 } from "@/components/shell/shell-chrome-context";
 import { useShortcuts } from "@/lib/keyboard";
 import { useIsMobile } from "@/hooks/useIsMobile";
-import { Article, Plus, SquareSplitHorizontal } from "@phosphor-icons/react";
+import { Article, Plus, ShareNetwork, SquareSplitHorizontal } from "@phosphor-icons/react";
+import { NOTE_SHARE_EVENT } from "@/lib/share/collab";
+import { shareBackendEnabled } from "@/lib/share/shareApi";
 import { useCreateDraft } from "@/components/notes/useCreateDraft";
 import { useGmailConnected } from "@/hooks/useGmailConnected";
 import { useToast } from "@supernote/ui";
@@ -554,6 +556,10 @@ function NoteDetailContent() {
       ? (note.fields["name"] as string)
       : "Note";
   useMobileTitle(isMobile ? mobileTitle : null, isMobile && folderName ? folderName : null);
+  const [shareEnabled, setShareEnabled] = useState(false);
+  useEffect(() => {
+    void shareBackendEnabled().then(setShareEnabled);
+  }, []);
   const mobileActions: MobileHeaderAction[] = isMobile
     ? [
         {
@@ -569,6 +575,16 @@ function NoteDetailContent() {
                 icon: EnvelopeSimple,
                 label: "Emailer",
                 onPress: () => void handleEmailNote(),
+              } satisfies MobileHeaderAction,
+            ]
+          : []),
+        ...(shareEnabled && note && viewMode === "note"
+          ? [
+              {
+                id: "share-note",
+                icon: ShareNetwork,
+                label: "Partager",
+                onPress: () => window.dispatchEvent(new CustomEvent(NOTE_SHARE_EVENT, { detail: { noteId: params.id } })),
               } satisfies MobileHeaderAction,
             ]
           : []),
