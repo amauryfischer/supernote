@@ -34,6 +34,12 @@ test.describe("07 — notifications push", () => {
     const deliver = (payload: Record<string, string>) =>
       cdp.send("ServiceWorker.deliverPushMessage", { origin, registrationId, data: JSON.stringify(payload) });
 
+    // Démarrage à froid de Vite : attendre que la coquille (et donc
+    // AutomationNotificationBridge, monté dans RootLayout) soit rendue avant
+    // de livrer le push — sinon le postMessage part avant que l'écouteur
+    // React ne soit attaché et se perd (postMessage n'est pas rejouable).
+    await expect(page.getByText("vault · aucun changement")).toBeVisible({ timeout: 30000 });
+
     await deliver({ title: "Pas de réponse", body: "Devis mairie de Lyon", url: "/mail?thread=t1", tag: "followup:t1", joinUrl: "" });
     await page.getByRole("button", { name: "Ouvrir le centre de notifications" }).click();
     await expect(page.getByText("Devis mairie de Lyon")).toBeVisible();
@@ -51,29 +57,33 @@ test.describe("07 — notifications push", () => {
       .poll(() =>
         sw.evaluate(async () => {
           const reg = (globalThis as unknown as { registration: ServiceWorkerRegistration }).registration;
-          return (await reg.getNotifications()).map((n) => ({
-            title: n.title,
-            body: n.body,
-            tag: n.tag,
-            data: n.data as unknown,
-            actions: (n as unknown as { actions: Array<{ action: string }> }).actions.map((a) => a.action),
-          }));
+          const notifications = await reg.getNotifications();
+          // L'ordre de getNotifications() n'est pas garanti par le standard : on trie par tag.
+          return notifications
+            .map((n) => ({
+              title: n.title,
+              body: n.body,
+              tag: n.tag,
+              data: n.data as unknown,
+              actions: (n as unknown as { actions: Array<{ action: string }> }).actions.map((a) => a.action),
+            }))
+            .sort((a, b) => a.tag.localeCompare(b.tag));
         }),
       )
       .toEqual([
-        {
-          title: "Pas de réponse",
-          body: "Devis mairie de Lyon",
-          tag: "followup:t1",
-          data: { url: "/mail?thread=t1", joinUrl: "" },
-          actions: [],
-        },
         {
           title: "Dans 10 min · 14:00",
           body: "Point équipe",
           tag: "event:primary:ev1",
           data: { url: "/", joinUrl: "https://meet.google.com/abc-defg-hij" },
           actions: ["join"],
+        },
+        {
+          title: "Pas de réponse",
+          body: "Devis mairie de Lyon",
+          tag: "followup:t1",
+          data: { url: "/mail?thread=t1", joinUrl: "" },
+          actions: [],
         },
       ]);
   });
