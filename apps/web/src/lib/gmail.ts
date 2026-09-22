@@ -10,114 +10,41 @@
  * client séparé de Drive) pour ne pas forcer les utilisateurs Drive-only.
  */
 
-import { requestAccessToken, hasValidToken, forgetAccessToken } from "./google-drive";
+import { requestAccessToken, hasValidToken } from "./google-drive";
+import {
+  GOOGLE_AUTH_EVENT,
+  GoogleApiError,
+  GoogleAuthError,
+  failedScopesOf,
+  googleReconnectRequired,
+  googleRequest,
+  isTransientGoogleError,
+  markScopeRecovered,
+} from "./google-api";
+
+export {
+  GoogleApiError as GmailApiError,
+  GoogleAuthError as GmailAuthError,
+  isTransientGoogleError as isTransientGmailError,
+};
 
 export const GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
 const GMAIL_API_BASE = "https://gmail.googleapis.com/gmail/v1/users/me";
 
-/** Réponse HTTP non-2xx de l'API Gmail. */
-export class GmailApiError extends Error {
-  constructor(
-    readonly status: number,
-    message: string,
-  ) {
-    super(message);
-    this.name = "GmailApiError";
-  }
-}
-
-/** Aucun token utilisable sans geste de l'utilisateur : Gmail attend une reconnexion. */
-export class GmailAuthError extends Error {
-  constructor(detail = "") {
-    super(`Reconnexion Gmail requise${detail ? ` (${detail})` : ""}`);
-    this.name = "GmailAuthError";
-  }
-}
-
-/** Échec qui ne dit rien de l'opération elle-même : réseau, jeton, quota, serveur. */
-export function isTransientGmailError(err: unknown): boolean {
-  if (err instanceof GmailAuthError || err instanceof TypeError) return true;
-  if (err instanceof GmailApiError) {
-    // Gmail signale aussi ses quotas en 403 (`rateLimitExceeded`, `userRateLimitExceeded`).
-    return err.status === 429 || err.status >= 500 || (err.status === 403 && /rateLimit|quota/i.test(err.message));
-  }
-  return typeof navigator !== "undefined" && navigator.onLine === false;
-}
-
-// ── État « reconnexion requise », partagé par toute l'app ────────────────────
-export const GMAIL_AUTH_EVENT = "supernote:gmail-auth";
-const failedScopes = new Set<string>();
-
-function setScopeFailed(scope: string, failed: boolean): void {
-  const before = failedScopes.size;
-  if (failed) failedScopes.add(scope);
-  else failedScopes.delete(scope);
-  if ((before > 0) !== (failedScopes.size > 0) && typeof window !== "undefined") {
-    window.dispatchEvent(new CustomEvent(GMAIL_AUTH_EVENT));
-  }
-}
+export const GMAIL_AUTH_EVENT = GOOGLE_AUTH_EVENT;
 
 export function gmailReconnectRequired(): boolean {
-  return failedScopes.size > 0;
+  return googleReconnectRequired("gmail");
 }
 
-const pendingTokens = new Map<string, Promise<string>>();
-
-function acquireToken(clientId: string, scope: string): Promise<string> {
-  if (hasValidToken(clientId, scope)) return requestAccessToken(clientId, { scope, prompt: "" });
-  // Après un échec, plus de tentative automatique : GIS ne passe que par une popup,
-  // bloquée hors geste, et chaque tour de poll en rouvrirait une. On attend le clic.
-  if (failedScopes.size > 0) {
-    setScopeFailed(scope, true);
-    return Promise.reject(new GmailAuthError());
-  }
-  const key = `${clientId} ${scope}`;
-  const pending = pendingTokens.get(key);
-  if (pending) return pending;
-  const p = requestAccessToken(clientId, { scope, prompt: "" })
-    .catch((err: unknown) => {
-      setScopeFailed(scope, true);
-      throw new GmailAuthError(err instanceof Error ? err.message : String(err));
-    })
-    .finally(() => pendingTokens.delete(key));
-  pendingTokens.set(key, p);
-  return p;
-}
-
-/**
- * Appel REST Gmail authentifié. Sur 401, le token est oublié et l'appel rejoué une
- * fois ; un second refus bascule l'app en « reconnexion requise ».
- */
-async function gmailRequest(
+function gmailRequest(
   clientId: string,
   scope: string,
   path: string,
   init: { method?: string; body?: string; json?: boolean } = {},
   label = "Gmail API",
 ): Promise<Response> {
-  for (let attempt = 0; ; attempt++) {
-    const token = await acquireToken(clientId, scope);
-    const res = await fetch(`${GMAIL_API_BASE}${path}`, {
-      method: init.method ?? "GET",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        ...(init.json ? { "Content-Type": "application/json" } : {}),
-      },
-      ...(init.body !== undefined ? { body: init.body } : {}),
-    });
-    if (res.status === 401) {
-      forgetAccessToken(token);
-      if (attempt === 0) continue;
-      setScopeFailed(scope, true);
-      throw new GmailAuthError("401");
-    }
-    setScopeFailed(scope, false);
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      throw new GmailApiError(res.status, `${label} ${res.status}: ${text.slice(0, 300)}`);
-    }
-    return res;
-  }
+  return googleRequest(clientId, scope, `${GMAIL_API_BASE}${path}`, init, label);
 }
 
 /**
@@ -125,9 +52,9 @@ async function gmailRequest(
  * refusés, ce qui débloque tous les appels en attente.
  */
 export async function reconnectGmail(clientId: string): Promise<void> {
-  const scopes = new Set([GMAIL_READONLY_SCOPE, ...failedScopes]);
+  const scopes = new Set([GMAIL_READONLY_SCOPE, ...failedScopesOf("gmail")]);
   await requestAccessToken(clientId, { scope: [...scopes].join(" "), prompt: "" });
-  for (const s of scopes) if (hasValidToken(clientId, s)) setScopeFailed(s, false);
+  for (const s of scopes) if (hasValidToken(clientId, s)) markScopeRecovered(s);
 }
 
 /**
@@ -149,7 +76,7 @@ async function gmailFetch<T>(clientId: string, path: string): Promise<T> {
 /** Lance explicitement le consentement Gmail (bouton "Connecter"). */
 export async function connectGmail(clientId: string): Promise<void> {
   await requestAccessToken(clientId, { scope: GMAIL_READONLY_SCOPE, prompt: "consent" });
-  for (const s of [...failedScopes]) setScopeFailed(s, false);
+  for (const s of failedScopesOf("gmail")) markScopeRecovered(s);
 }
 
 /** Adresse du compte connecté (affichage settings). */
@@ -608,7 +535,7 @@ export async function listHistory(
     try {
       res = await gmailRequest(clientId, GMAIL_READONLY_SCOPE, `/history?${params.toString()}`);
     } catch (err) {
-      if (err instanceof GmailApiError && err.status === 404) return { ok: false, changedThreadIds: [] };
+      if (err instanceof GoogleApiError && err.status === 404) return { ok: false, changedThreadIds: [] };
       throw err;
     }
     const json = (await res.json()) as {
@@ -652,7 +579,7 @@ export async function getThreadSummaries(
     try {
       return await getThreadListItem(clientId, id);
     } catch (err) {
-      if (err instanceof GmailApiError && err.status === 404) {
+      if (err instanceof GoogleApiError && err.status === 404) {
         missing.push(id);
         return null;
       }
@@ -1028,7 +955,7 @@ export async function getMessageHeaders(
       `/messages/${encodeURIComponent(messageId)}?${params.toString()}`,
     );
   } catch (err) {
-    if (err instanceof GmailApiError) return {};
+    if (err instanceof GoogleApiError) return {};
     throw err;
   }
   const json = (await res.json()) as GmailRawMessage;

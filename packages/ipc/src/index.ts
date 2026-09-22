@@ -47,6 +47,7 @@ export { gitRouter, type GitRouter } from "./router/git.router.js";
 export { searchRouter, type SearchRouter } from "./router/search.router.js";
 export { systemRouter, type SystemRouter } from "./router/system.router.js";
 export { mailRouter, type MailRouter } from "./router/mail.router.js";
+export { calendarRouter, type CalendarRouter } from "./router/calendar.router.js";
 
 // ── Errors ────────────────────────────────────────────────────────────────────
 export {
@@ -84,3 +85,4 @@ export * from "./schemas/git.js";
 export * from "./schemas/search.js";
 export * from "./schemas/system.js";
 export * from "./schemas/mail.js";
+export * from "./schemas/calendar.js";

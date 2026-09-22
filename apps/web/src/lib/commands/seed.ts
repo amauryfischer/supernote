@@ -41,7 +41,25 @@ export function buildSeedCommands(deps: SeedCommandDeps): Command[] {
       run: newNoteFromTemplate,
     },
 
+    {
+      id: "event.create",
+      label: "Nouvel événement",
+      description: "Créer un événement dans Google Agenda",
+      icon: "calendar",
+      group: "creation",
+      keywords: ["agenda", "calendrier", "rendez-vous", "réunion", "event", "meeting", "rdv"],
+      run: () => navigate("/agenda?new=1"),
+    },
+
     // ---- Navigation --------------------------------------------------------
+    {
+      id: "nav.agenda",
+      label: "Aller à l'agenda",
+      icon: "calendar",
+      group: "navigation",
+      keywords: ["agenda", "calendrier", "calendar", "semaine", "aujourd'hui"],
+      run: () => navigate("/agenda"),
+    },
     {
       id: "nav.notes",
       label: "Aller aux Notes",

@@ -32,6 +32,7 @@ import { FreezeReportBanner } from "@/lib/diagnostics/FreezeReportBanner";
 import { InboxAutoSort } from "@/lib/ai/InboxAutoSort";
 import { MailOutgoingRunner } from "@/components/mail/MailOutgoingRunner";
 import { MailFollowupRunner } from "@/components/mail/MailFollowupRunner";
+import { CalendarRunner } from "@/components/agenda/CalendarRunner";
 
 export function RootLayout() {
   return (
@@ -70,6 +71,8 @@ export function RootLayout() {
                 {/* Rappels de relance : un fil sans réponse revient en boîte à
                     l'échéance, même si on n'est pas sur /mail. */}
                 <MailFollowupRunner />
+                {/* Miroir de l'agenda : synchro et file d'écriture, hors de /agenda aussi. */}
+                <CalendarRunner />
                 {/* Vault auto-init status banner (only meaningful in Electron;
                     in PWA mode it stays silent). */}
                 <VaultInitBanner />

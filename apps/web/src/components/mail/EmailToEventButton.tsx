@@ -1,24 +1,35 @@
 "use client";
 
+import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   Button,
   DropdownMenu,
   type DropdownMenuItem,
   type ButtonProps,
 } from "@supernote/ui";
-import { CalendarPlus, GoogleLogo, DownloadSimple } from "@phosphor-icons/react";
+import { CalendarBlank, CalendarPlus, GoogleLogo, DownloadSimple } from "@phosphor-icons/react";
+import { useSettings } from "@/components/settings/SettingsContext";
+import { useIsMobile } from "@/hooks/useIsMobile";
+import { EventEditorModal } from "@/components/agenda/EventEditorModal";
+import { useEventWrites } from "@/components/agenda/useEventWrites";
+import { calListCalendars } from "@/lib/calendar-mirror";
+import { calendarAccount, isCalendarConnected } from "@/lib/calendar-sync";
+import { mirrorAvailable } from "@/lib/mail-mirror";
 import type { EmailMessage } from "@/lib/gmail";
 import {
   buildGoogleCalendarUrl,
   buildIcs,
+  buildEventDraft,
 } from "@/lib/email-to-event";
 import { useActionFeedback, FeedbackIcon } from "@/lib/action-feedback";
 
 /**
  * EmailToEventButton — transforme un email en évènement de calendrier.
  *
- * Self-contained, aucun scope OAuth : on ne crée rien côté serveur, on ouvre
- * simplement Google Agenda pré-rempli (`window.open`) ou on télécharge un .ics.
+ * Agenda connecté : l'éditeur d'événement s'ouvre pré-rempli et l'événement
+ * part par la file d'écriture de l'agenda. Sinon, sans scope OAuth : Google
+ * Agenda pré-rempli (`window.open`) ou un .ics.
  * La date/heure est détectée best-effort dans le corps (cf. email-to-event.ts)
  * et pré-remplit la plage. Sinon l'utilisateur la choisit dans Google/son
  * agenda.
@@ -38,6 +49,19 @@ export function EmailToEventButton({
   size?: "sm" | "md";
 }) {
   const fb = useActionFeedback();
+  const isMobile = useIsMobile();
+  const { settings } = useSettings();
+  const accountId = calendarAccount(settings)?.accountId ?? "";
+  const agendaReady = !!accountId && isCalendarConnected() && mirrorAvailable();
+  const [editorOpen, setEditorOpen] = useState(false);
+  const writes = useEventWrites(accountId);
+  const calendars = useQuery({
+    queryKey: ["calendar", "calendars", accountId],
+    queryFn: () => calListCalendars(accountId),
+    enabled: agendaReady && editorOpen,
+  });
+
+  const draft = useMemo(() => buildEventDraft(message), [message]);
 
   const openGoogleCalendar = () => {
     const url = buildGoogleCalendarUrl(message);
@@ -70,6 +94,16 @@ export function EmailToEventButton({
   };
 
   const items: DropdownMenuItem[] = [
+    ...(agendaReady
+      ? [
+          {
+            key: "agenda",
+            label: "Créer dans l'agenda",
+            startContent: <CalendarBlank size={16} />,
+            onPress: () => setEditorOpen(true),
+          },
+        ]
+      : []),
     {
       key: "gcal",
       label: "Ajouter à Google Agenda",
@@ -84,7 +118,29 @@ export function EmailToEventButton({
     },
   ];
 
+  const start = draft.start?.getTime() ?? Math.ceil(Date.now() / 1_800_000) * 1_800_000;
+
   return (
+    <>
+    {editorOpen && (
+      <EventEditorModal
+        isOpen
+        isMobile={isMobile}
+        mode="create"
+        calendars={calendars.data ?? []}
+        initial={{
+          summary: draft.title,
+          description: draft.details,
+          startAt: start,
+          endAt: draft.end?.getTime() ?? start + 3_600_000,
+        }}
+        onClose={() => setEditorOpen(false)}
+        onSave={async (d) => {
+          await writes.create(d);
+          fb.succeed();
+        }}
+      />
+    )}
     <DropdownMenu
       trigger={
         <Button
@@ -103,5 +159,6 @@ export function EmailToEventButton({
       }
       items={items}
     />
+    </>
   );
 }

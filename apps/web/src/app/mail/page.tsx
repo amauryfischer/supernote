@@ -23,10 +23,12 @@ import {
   Funnel,
   TextAlignLeft,
   Tag,
+  CalendarBlank,
 } from "@phosphor-icons/react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useSettings } from "@/components/settings/SettingsContext";
-import { AppShell, useMobileTitle, useMobileFab, useMobileHeaderActions, useMobileBack } from "@/components/shell";
+import { AppShell, MobileSheet, useMobileTitle, useMobileFab, useMobileHeaderActions, useMobileBack } from "@/components/shell";
+import { TodayPanel } from "@/components/agenda/TodayPanel";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useGmailConnected } from "@/hooks/useGmailConnected";
 import { useConfirm } from "@/hooks/usePrompt";
@@ -183,6 +185,23 @@ export default function MailPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const isMobile = useIsMobile();
+  const [todayOpen, setTodayOpen] = useState(() => {
+    try {
+      return window.localStorage.getItem("supernote.mail.todayPanel") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const [todaySheet, setTodaySheet] = useState(false);
+  const toggleToday = () =>
+    setTodayOpen((open) => {
+      try {
+        window.localStorage.setItem("supernote.mail.todayPanel", open ? "0" : "1");
+      } catch {
+        /* préférence valable pour la session */
+      }
+      return !open;
+    });
   useMobileTitle(isMobile ? "Mail" : null);
 
   const clientId = settings.googleDrive.clientId.trim();
@@ -388,6 +407,12 @@ export default function MailPage() {
             icon: Tag,
             label: "Gérer les labels",
             onPress: () => setLabelsManagerOpen(true),
+          },
+          {
+            id: "mail-today",
+            icon: CalendarBlank,
+            label: "Aujourd'hui",
+            onPress: () => setTodaySheet(true),
           },
           ...(settings.gmail.listSummary && aiConfigured
             ? [
@@ -2037,6 +2062,21 @@ export default function MailPage() {
           <Faders size={16} />
         </Button>
       </Tooltip>
+      {!isMobile && (
+        <Tooltip content={todayOpen ? "Masquer la journée" : "Voir la journée (agenda)"}>
+          <Button
+            size="sm"
+            variant="ghost"
+            isIconOnly
+            onPress={toggleToday}
+            aria-label="Panneau Aujourd'hui"
+            aria-pressed={todayOpen}
+            className="hidden shrink-0 xl:inline-flex"
+          >
+            <CalendarBlank size={16} weight={todayOpen ? "fill" : "regular"} />
+          </Button>
+        </Tooltip>
+      )}
       {/* Classement automatique : état et déclenchement manuel. */}
       {settings.gmail.autoLabel && aiConfigured && (
         <Tooltip
@@ -2607,6 +2647,11 @@ export default function MailPage() {
   // Surfaces globales (modales, annonces) montées quel que soit le layout.
   const overlays = (
     <>
+      {isMobile && todaySheet && (
+        <MobileSheet isOpen onClose={() => setTodaySheet(false)} title="Aujourd'hui" size="lg">
+          <TodayPanel />
+        </MobileSheet>
+      )}
       <CaptureEmailModal
         isOpen={captureOpen}
         message={thread?.messages[0] ?? null}
@@ -2763,7 +2808,8 @@ export default function MailPage() {
       <div className="flex h-full flex-col overflow-hidden">
         {tabStrip}
         <GmailReconnectBanner clientId={clientId} />
-        <div className="relative flex min-h-0 flex-1 overflow-hidden">
+        <div className="flex min-h-0 flex-1 overflow-hidden">
+        <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
           {selectedThreadId ? (
             <>
               <div className="absolute inset-0 overflow-hidden">{pane1}</div>
@@ -2834,6 +2880,16 @@ export default function MailPage() {
               <div className="h-full min-w-0 flex-1 overflow-hidden">{pane3}</div>
             </>
           )}
+        </div>
+        {todayOpen && !isMobile && (
+          <aside
+            className="hidden h-full w-[300px] shrink-0 border-l xl:block"
+            style={{ borderColor: "var(--border-subtle)", background: "var(--surface-0)" }}
+            aria-label="Aujourd'hui"
+          >
+            <TodayPanel onClose={toggleToday} />
+          </aside>
+        )}
         </div>
       </div>
       {overlays}

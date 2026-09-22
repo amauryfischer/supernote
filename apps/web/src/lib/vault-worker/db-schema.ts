@@ -327,6 +327,73 @@ CREATE INDEX IF NOT EXISTS "idx_entity_source" ON "entity" ("sourceVaultId");
 CREATE INDEX IF NOT EXISTS "idx_variable_name" ON "variable" ("name");
 CREATE INDEX IF NOT EXISTS "idx_automation_run_automationId_createdAt"
     ON "automation_run" ("automationId", "createdAt" DESC);
+-- Miroir Google Agenda, local à l'appareil (hors op-log) comme le miroir mail.
+-- isPrimary et non primary : mot réservé SQL.
+CREATE TABLE IF NOT EXISTS "cal_calendar" (
+    "accountId" TEXT NOT NULL,
+    "id" TEXT NOT NULL,
+    "summary" TEXT NOT NULL DEFAULT '',
+    "backgroundColor" TEXT NOT NULL DEFAULT '',
+    "foregroundColor" TEXT NOT NULL DEFAULT '',
+    "selected" INTEGER NOT NULL DEFAULT 1,
+    "isPrimary" INTEGER NOT NULL DEFAULT 0,
+    "accessRole" TEXT NOT NULL DEFAULT 'reader',
+    "updatedAt" INTEGER NOT NULL,
+    PRIMARY KEY ("accountId", "id")
+);
+
+CREATE TABLE IF NOT EXISTS "cal_event" (
+    "accountId" TEXT NOT NULL,
+    "calendarId" TEXT NOT NULL,
+    "id" TEXT NOT NULL,
+    "summary" TEXT NOT NULL DEFAULT '',
+    "description" TEXT NOT NULL DEFAULT '',
+    "location" TEXT NOT NULL DEFAULT '',
+    "startAt" INTEGER NOT NULL,
+    "endAt" INTEGER NOT NULL,
+    "allDay" INTEGER NOT NULL DEFAULT 0,
+    "startDate" TEXT NOT NULL DEFAULT '',
+    "endDate" TEXT NOT NULL DEFAULT '',
+    "status" TEXT NOT NULL DEFAULT 'confirmed',
+    "recurringEventId" TEXT NOT NULL DEFAULT '',
+    "htmlLink" TEXT NOT NULL DEFAULT '',
+    "meetUrl" TEXT NOT NULL DEFAULT '',
+    "attendeesJson" TEXT NOT NULL DEFAULT '[]',
+    "selfResponse" TEXT NOT NULL DEFAULT '',
+    "etag" TEXT NOT NULL DEFAULT '',
+    "colorId" TEXT NOT NULL DEFAULT '',
+    "updatedAt" INTEGER NOT NULL,
+    PRIMARY KEY ("accountId", "calendarId", "id")
+);
+
+CREATE TABLE IF NOT EXISTS "cal_sync_state" (
+    "accountId" TEXT NOT NULL,
+    "calendarId" TEXT NOT NULL,
+    "updatedMin" TEXT NOT NULL DEFAULT '',
+    "windowStart" INTEGER NOT NULL DEFAULT 0,
+    "windowEnd" INTEGER NOT NULL DEFAULT 0,
+    "lastFullSyncAt" INTEGER NOT NULL DEFAULT 0,
+    "lastSyncAt" INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY ("accountId", "calendarId")
+);
+
+CREATE TABLE IF NOT EXISTS "cal_outbox" (
+    "opId" TEXT NOT NULL PRIMARY KEY,
+    "accountId" TEXT NOT NULL,
+    "calendarId" TEXT NOT NULL,
+    "eventId" TEXT NOT NULL,
+    "kind" TEXT NOT NULL,
+    "payloadJson" TEXT NOT NULL DEFAULT '{}',
+    "createdAt" INTEGER NOT NULL,
+    "attempts" INTEGER NOT NULL DEFAULT 0,
+    "nextAttemptAt" INTEGER NOT NULL DEFAULT 0,
+    "status" TEXT NOT NULL DEFAULT 'pending',
+    "lastError" TEXT
+);
+
+CREATE INDEX IF NOT EXISTS "cal_event_account_start_idx" ON "cal_event" ("accountId", "startAt");
+CREATE INDEX IF NOT EXISTS "cal_outbox_account_status_idx" ON "cal_outbox" ("accountId", "status");
+
 CREATE INDEX IF NOT EXISTS "mail_thread_account_date_idx"
     ON "mail_thread" ("accountId", "lastInternalDate" DESC);
 CREATE INDEX IF NOT EXISTS "mail_message_thread_idx"
