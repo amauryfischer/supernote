@@ -1,6 +1,8 @@
 import { useCallback, useMemo } from "react";
 import type { CalEventInput, CalEventRow } from "@supernote/ipc";
-import { calApplyLocalMutation, newCalendarOpId } from "@/lib/calendar-mirror";
+import { calApplyLocalMutation, calListCalendars, newCalendarOpId } from "@/lib/calendar-mirror";
+import { taskSourceUrl } from "@/lib/agenda/task-ref";
+import { canEditCalendar } from "./EventBlock";
 import type { GcalEventBody } from "@/lib/gcal";
 import { addDays, dateKey } from "@/lib/agenda/dates";
 
@@ -14,9 +16,17 @@ export interface EventDraft {
   endAt: number;
   attendees: string[];
   meet: boolean;
+  sourceRef?: string;
 }
 
 export type RsvpResponse = "accepted" | "tentative" | "declined";
+
+export interface TaskSchedule {
+  ref: string;
+  title: string;
+  startAt: number;
+  endAt: number;
+}
 
 const TZ = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
@@ -49,6 +59,8 @@ function bodyOf(d: EventDraft, base?: CalEventRow): GcalEventBody {
       return known ? { email, responseStatus: known.responseStatus } : { email };
     });
   }
+  // Google fusionne extendedProperties au PATCH : l'envoyer à la création suffit, un déplacement ne l'efface pas.
+  if (!base && d.sourceRef) body.extendedProperties = { private: { supernoteRef: d.sourceRef } };
   return body;
 }
 
@@ -86,6 +98,7 @@ function rowOf(base: Partial<CalEventInput>, d: EventDraft, id: string): CalEven
     selfResponse: base.selfResponse ?? "accepted",
     etag: base.etag ?? "",
     colorId: base.colorId ?? "",
+    sourceRef: d.sourceRef ?? base.sourceRef ?? "",
   };
 }
 
@@ -180,5 +193,30 @@ export function useEventWrites(accountId: string) {
     [accountId],
   );
 
-  return useMemo(() => ({ create, update, move, remove, rsvp }), [create, update, move, remove, rsvp]);
+  const scheduleTask = useCallback(
+    async (t: TaskSchedule) => {
+      const calendars = await calListCalendars(accountId);
+      const writable = calendars.filter((c) => canEditCalendar(calendars, c.id));
+      const calendar = writable.find((c) => c.primary) ?? writable[0];
+      if (!calendar) throw new Error("Aucun agenda où tu peux écrire.");
+      await create({
+        calendarId: calendar.id,
+        summary: t.title,
+        description: taskSourceUrl(t.ref),
+        location: "",
+        allDay: false,
+        startAt: t.startAt,
+        endAt: t.endAt,
+        attendees: [],
+        meet: false,
+        sourceRef: t.ref,
+      });
+    },
+    [accountId, create],
+  );
+
+  return useMemo(
+    () => ({ create, update, move, remove, rsvp, scheduleTask }),
+    [create, update, move, remove, rsvp, scheduleTask],
+  );
 }

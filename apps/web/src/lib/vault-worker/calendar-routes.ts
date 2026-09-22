@@ -23,21 +23,21 @@ const MAX_ATTEMPTS = 5;
 
 const UPSERT_EVENT = `INSERT INTO cal_event
   (accountId, calendarId, id, summary, description, location, startAt, endAt, allDay, startDate, endDate,
-   status, recurringEventId, htmlLink, meetUrl, attendeesJson, selfResponse, etag, colorId, updatedAt)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+   status, recurringEventId, htmlLink, meetUrl, attendeesJson, selfResponse, etag, colorId, sourceRef, updatedAt)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   ON CONFLICT(accountId, calendarId, id) DO UPDATE SET
     summary = excluded.summary, description = excluded.description, location = excluded.location,
     startAt = excluded.startAt, endAt = excluded.endAt, allDay = excluded.allDay,
     startDate = excluded.startDate, endDate = excluded.endDate, status = excluded.status,
     recurringEventId = excluded.recurringEventId, htmlLink = excluded.htmlLink, meetUrl = excluded.meetUrl,
     attendeesJson = excluded.attendeesJson, selfResponse = excluded.selfResponse, etag = excluded.etag,
-    colorId = excluded.colorId, updatedAt = excluded.updatedAt`;
+    colorId = excluded.colorId, sourceRef = excluded.sourceRef, updatedAt = excluded.updatedAt`;
 
 function eventParams(accountId: string, e: CalEventInput, ts: number): (string | number)[] {
   return [
     accountId, e.calendarId, e.id, e.summary, e.description, e.location, e.startAt, e.endAt,
     e.allDay ? 1 : 0, e.startDate, e.endDate, e.status, e.recurringEventId, e.htmlLink, e.meetUrl,
-    JSON.stringify(e.attendees), e.selfResponse, e.etag, e.colorId, ts,
+    JSON.stringify(e.attendees), e.selfResponse, e.etag, e.colorId, e.sourceRef, ts,
   ];
 }
 
@@ -70,6 +70,7 @@ function toEventRow(r: SqlRow): CalEventRow {
     selfResponse: String(r["selfResponse"] ?? ""),
     etag: String(r["etag"] ?? ""),
     colorId: String(r["colorId"] ?? ""),
+    sourceRef: String(r["sourceRef"] ?? ""),
     pending: Number(r["pending"]) === 1,
     noteId: typeof r["noteId"] === "string" ? r["noteId"] : null,
   };

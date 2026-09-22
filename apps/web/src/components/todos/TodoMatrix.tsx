@@ -37,7 +37,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { TodoRow, isImportant, type TodoRowData } from "./TodoRow";
 
-type QuadrantKey = "do" | "schedule" | "delegate" | "eliminate";
+export type QuadrantKey = "do" | "schedule" | "delegate" | "eliminate";
 
 interface QuadrantDef {
   key: QuadrantKey;
@@ -49,7 +49,7 @@ interface QuadrantDef {
 }
 
 // Reading order = grid order (2 columns): urgent column first.
-const QUADRANTS: QuadrantDef[] = [
+export const QUADRANTS: QuadrantDef[] = [
   { key: "do", title: "Faire", hint: "Urgent + important — traiter maintenant", urgent: true, important: true, accent: "#EF4444" },
   { key: "schedule", title: "Planifier", hint: "Important, pas urgent — programmer", urgent: false, important: true, accent: "#3B82F6" },
   { key: "delegate", title: "Déléguer", hint: "Urgent, pas important — déléguer", urgent: true, important: false, accent: "#F59E0B" },
@@ -80,7 +80,7 @@ function isUrgent(row: TodoRowData): boolean {
   return days <= URGENT_WITHIN_DAYS;
 }
 
-function quadrantOf(row: TodoRowData): QuadrantKey {
+export function quadrantOf(row: TodoRowData): QuadrantKey {
   const urg = isUrgent(row);
   const imp = isImportant(row.importance);
   if (urg && imp) return "do";

@@ -48,6 +48,8 @@ export const CalEventInputSchema = z.object({
   selfResponse: z.string(),
   etag: z.string(),
   colorId: z.string(),
+  /** Tâche liée au bloc (`todo:<id>`, `mail:<threadId>`, `checklist:<noteId>:<hash>`), sinon vide. */
+  sourceRef: z.string(),
 });
 export type CalEventInput = z.infer<typeof CalEventInputSchema>;
 
