@@ -15,14 +15,15 @@ const buttonVariants = cva(
         // règle non layerée bat TOUJOURS un utilitaire Tailwind (`@layer
         // utilities`). Sans important, `.button--ghost` — la variante passée au
         // HeroButton sous-jacent — repeignait le bouton en transparent et le
-        // primaire n'existait tout simplement pas. Les autres variantes portent
-        // le même défaut, non corrigé ici faute de revue visuelle.
+        // primaire n'existait tout simplement pas. Même traitement pour secondary et
+        // tertiary, qui s'affichaient en ghost. Pas pour ghost/outline : leur fond est
+        // déjà transparent, et `!` écraserait les couleurs passées en `style`.
         primary:
           "bg-[var(--btn-primary-bg)]! text-[var(--btn-primary-fg)]! hover:bg-[var(--btn-primary-bg-hover)]! active:bg-[var(--btn-primary-bg-hover)]!",
         secondary:
-          "bg-[var(--surface-2)] text-[var(--text-primary)] hover:bg-[var(--surface-3)]",
+          "bg-[var(--surface-2)]! text-[var(--text-primary)]! hover:bg-[var(--surface-3)]!",
         tertiary:
-          "bg-[var(--accent-subtle)] text-[var(--accent)] hover:brightness-90",
+          "bg-[var(--accent-subtle)]! text-[var(--accent)]! hover:brightness-90",
         outline:
           "border border-[var(--border)] bg-transparent text-[var(--text-primary)] hover:bg-[var(--surface-2)]",
         ghost:
@@ -38,7 +39,8 @@ const buttonVariants = cva(
       },
     },
     defaultVariants: {
-      variant: "secondary",
+      // Rendu réel des boutons sans variante avant le correctif `!` ci-dessus.
+      variant: "ghost",
       size: "md",
     },
   }
