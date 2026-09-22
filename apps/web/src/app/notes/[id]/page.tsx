@@ -48,7 +48,7 @@ import { useShortcuts } from "@/lib/keyboard";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { Article, Plus, ShareNetwork, SquareSplitHorizontal } from "@phosphor-icons/react";
 import { NOTE_SHARE_EVENT } from "@/lib/share/collab";
-import { shareBackendEnabled } from "@/lib/share/shareApi";
+import { useShareEnabled } from "@/lib/share/shareApi";
 import { useCreateDraft } from "@/components/notes/useCreateDraft";
 import { useGmailConnected } from "@/hooks/useGmailConnected";
 import { useToast } from "@supernote/ui";
@@ -556,10 +556,7 @@ function NoteDetailContent() {
       ? (note.fields["name"] as string)
       : "Note";
   useMobileTitle(isMobile ? mobileTitle : null, isMobile && folderName ? folderName : null);
-  const [shareEnabled, setShareEnabled] = useState(false);
-  useEffect(() => {
-    void shareBackendEnabled().then(setShareEnabled);
-  }, []);
+  const shareEnabled = useShareEnabled();
   const mobileActions: MobileHeaderAction[] = isMobile
     ? [
         {

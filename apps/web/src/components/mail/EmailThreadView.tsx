@@ -7,7 +7,7 @@ import { useToast, Tooltip } from "@supernote/ui";
 import { useActionFeedback, FeedbackIcon } from "@/lib/action-feedback";
 import { useSettings } from "@/components/settings/SettingsContext";
 import { ShareDialog } from "@/components/share/ShareDialog";
-import { createShareResource, deleteShareResource, shareBackendEnabled, type OwnedShare } from "@/lib/share/shareApi";
+import { createShareResource, deleteShareResource, useShareEnabled, type OwnedShare } from "@/lib/share/shareApi";
 import { emailSnapshot, getEmailShare, setEmailShare } from "@/lib/share/emailShares";
 import {
   listLabels,
@@ -252,11 +252,8 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
   const [moreOpen, setMoreOpen] = useState(false);
   const shareAccount = selfEmail || settings.gmail.connectedEmail;
   const [shareOpen, setShareOpen] = useState(false);
-  const [shareEnabled, setShareEnabled] = useState(false);
+  const shareEnabled = useShareEnabled();
   const [emailShare, setEmailShareState] = useState<OwnedShare | null>(null);
-  useEffect(() => {
-    void shareBackendEnabled().then(setShareEnabled);
-  }, []);
   useEffect(() => {
     setEmailShareState(shareAccount ? getEmailShare(shareAccount, thread.id) : null);
   }, [shareAccount, thread.id]);

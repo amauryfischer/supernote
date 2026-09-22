@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import type { EmailSnapshot, ShareKind, ShareMode } from "./types";
 
 export interface OwnedShare {
@@ -38,6 +39,14 @@ export function shareBackendEnabled(): Promise<boolean> {
     .then((body: { enabled?: boolean }) => body.enabled === true)
     .catch(() => false);
   return enabled;
+}
+
+export function useShareEnabled(): boolean {
+  const [on, setOn] = useState(false);
+  useEffect(() => {
+    void shareBackendEnabled().then(setOn);
+  }, []);
+  return on;
 }
 
 export async function createShareResource(kind: ShareKind, title: string, snapshot?: EmailSnapshot): Promise<OwnedShare> {

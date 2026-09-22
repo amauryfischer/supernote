@@ -4,7 +4,7 @@ import { HocuspocusProvider } from "@hocuspocus/provider";
 import { Button, Input } from "@supernote/ui";
 import { Spinner } from "@heroui/react";
 import { COLLAB_FRAGMENT, SupernoteEditor } from "@supernote/editor";
-import { collabUrl, colorFor } from "@/lib/share/collab";
+import { collabUrl, colorFor, sanitizePeerAwareness } from "@/lib/share/collab";
 import { fetchBlobUrl, fetchMeta, type Access } from "./guest-api";
 
 const NAME_KEY = "supernote.share.guestName";
@@ -68,11 +68,14 @@ export function GuestNote({
     });
     // Un lecteur ne diffuse jamais son curseur.
     if (!writable) provider.awareness?.setLocalState(null);
-    return { doc, provider };
+    // Avant le montage de l'éditeur : les écouteurs lib0 passent dans l'ordre d'inscription, le plugin de curseur lit l'état après nous.
+    const unsanitize = provider.awareness ? sanitizePeerAwareness(provider.awareness) : () => {};
+    return { doc, provider, unsanitize };
   }, [joined, slug, access.resourceId, access.accessToken, onLost, writable]);
 
   useEffect(
     () => () => {
+      session?.unsanitize();
       session?.provider.destroy();
       session?.doc.destroy();
     },

@@ -1,15 +1,20 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import * as Y from "yjs";
 import { HocuspocusProvider } from "@hocuspocus/provider";
 import { IndexeddbPersistence } from "y-indexeddb";
 import { COLLAB_FRAGMENT, type EditorCollaboration } from "@supernote/editor";
-import { collabUrl } from "@/lib/share/collab";
+import { collabUrl, sanitizePeerAwareness } from "@/lib/share/collab";
 
 export interface Peer { name: string; color: string }
 export interface NoteCollab {
   status: "off" | "connecting" | "offline" | "ready";
   collaboration?: EditorCollaboration;
   peers: Peer[];
+}
+
+export interface NoteCollabHandle extends NoteCollab {
+  /** Faux hors connexion : l'état serveur (frappes des invités) n'est alors pas garanti présent. */
+  isSynced: () => boolean;
 }
 
 const OFFLINE_GRACE_MS = 3000;
@@ -22,8 +27,9 @@ export function useNoteCollab(
   share: { id: string; key: string } | null,
   user: Peer,
   onGone: () => void,
-): NoteCollab {
+): NoteCollabHandle {
   const [state, setState] = useState<NoteCollab>({ status: "off", peers: [] });
+  const providerRef = useRef<HocuspocusProvider | null>(null);
   const onGoneRef = useRef(onGone);
   onGoneRef.current = onGone;
   const userRef = useRef(user);
@@ -48,6 +54,9 @@ export function useNoteCollab(
         if (reason === "gone") onGoneRef.current();
       },
     });
+    providerRef.current = provider;
+    // Avant tout montage d'éditeur : les écouteurs lib0 passent dans l'ordre d'inscription, le plugin de curseur lit l'état après nous.
+    const unsanitize = provider.awareness ? sanitizePeerAwareness(provider.awareness) : () => {};
     const fragment = doc.getXmlFragment(COLLAB_FRAGMENT);
     let ready = false;
     const markReady = () => {
@@ -75,10 +84,7 @@ export function useNoteCollab(
       const peers: Peer[] = [];
       awareness.getStates().forEach((s, clientId) => {
         const u = (s as { user?: Peer }).user;
-        // L'awareness d'un invité n'est pas fiable : une couleur hors hex irait telle quelle dans `style`.
-        if (clientId !== awareness.clientID && typeof u?.name === "string" && u.name) {
-          peers.push({ name: u.name.slice(0, 40), color: /^#[0-9a-f]{3,8}$/i.test(u.color) ? u.color : "#888" });
-        }
+        if (clientId !== awareness.clientID && u) peers.push({ name: u.name, color: u.color });
       });
       // `change` part à chaque déplacement de curseur : ne re-rendre la note que si la liste bouge.
       const key = JSON.stringify(peers);
@@ -92,11 +98,14 @@ export function useNoteCollab(
       alive = false;
       window.clearTimeout(timer);
       awareness?.off("change", onAwareness);
+      unsanitize();
+      providerRef.current = null;
       provider.destroy();
       void local.destroy();
       doc.destroy();
     };
   }, [share?.id, share?.key]);
 
-  return state;
+  const isSynced = useCallback(() => providerRef.current?.synced ?? false, []);
+  return { ...state, isSynced };
 }

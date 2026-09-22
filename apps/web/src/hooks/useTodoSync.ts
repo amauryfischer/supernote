@@ -46,6 +46,9 @@ export async function toggleTodoDone(args: {
   const { sourceNoteId, text, line, done } = args;
 
   const note = await trpcVanillaClient.entities.get.query({ id: sourceNoteId });
+  // En co-édition, Yjs réécrirait le corps et effacerait la coche.
+  const shareId = note.fields["shareId"];
+  if (typeof shareId === "string" && shareId) throw new Error("Note partagée : coche la tâche dans la note.");
   const next = toggleChecklistLine(note.body, { line, text }, done);
   if (next === null) {
     throw new Error("Ligne source introuvable dans la note — todo désynchronisée");

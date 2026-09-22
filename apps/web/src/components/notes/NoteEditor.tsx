@@ -78,7 +78,7 @@ import {
   deleteShareResource,
   renameShareResource,
   seedShareDoc,
-  shareBackendEnabled,
+  useShareEnabled,
 } from "@/lib/share/shareApi";
 import { collabDbName, useNoteCollab } from "./useNoteCollab";
 
@@ -280,7 +280,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
   const shareRef = useRef(share);
   shareRef.current = share;
   const [shareOpen, setShareOpen] = useState(false);
-  const [shareEnabled, setShareEnabled] = useState(false);
+  const shareEnabled = useShareEnabled();
   // Mode HTML : le corps reste du markdown, seul l'affichage change (l'artefact
   // occupe tout le cadre au lieu de vivre dans un bloc au fil du texte).
   const [htmlMode, setHtmlMode] = useState(() => note.fields?.["mode"] === "html");
@@ -1375,7 +1375,9 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
     // Le cache tRPC n'est pas encore rafraîchi : l'éditeur normal repart du contenu courant.
     setPendingBody(bodyRef.current);
     // La copie locale Yjs va être effacée : le .md doit porter le dernier état.
-    if (bodyRef.current !== lastSavedBodyRef.current) triggerAutoSave(bodyRef.current, titleRef.current);
+    if (bodyRef.current !== lastSavedBodyRef.current || saveStatusRef.current === "error") {
+      triggerAutoSave(bodyRef.current, titleRef.current);
+    }
     setShare(null);
     // Un échec laisse une clé morte : le prochain `gone` la réessaie.
     void trpcVanillaClient.entities.update
@@ -1397,10 +1399,6 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
     if (normalizeEol(md).trimEnd() !== normalizeEol(bodyRef.current).trimEnd()) handleEditorChange(md);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [collab.collaboration]);
-
-  useEffect(() => {
-    void shareBackendEnabled().then(setShareEnabled);
-  }, []);
 
   useEffect(() => {
     if (!shareEnabled) return undefined;
@@ -1451,6 +1449,9 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
 
   const stopShare = async () => {
     if (!share) return;
+    if (!collab.isSynced()) {
+      throw new Error("Partage injoignable : impossible d'arrêter sans récupérer les modifications des invités.");
+    }
     if (!(await handleManualSave(bodyRef.current))) {
       throw new Error("La note n'a pas pu être enregistrée : le partage reste actif.");
     }
