@@ -44,6 +44,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     sounds: false,
     persistence: false,
     toastDuration: 4,
+    pushSubscribed: false,
   },
   googleDrive: {
     clientId: "",

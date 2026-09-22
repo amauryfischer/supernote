@@ -60,7 +60,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: "about", labelKey: "settings.tabs.about", icon: Info },
 ];
 
-function TabContent({ active }: { active: SettingsTab }) {
+function TabContent({ active, onOpenSync }: { active: SettingsTab; onOpenSync: () => void }) {
   switch (active) {
     case "general": return <GeneralTab />;
     case "appearance": return <AppearanceTab />;
@@ -68,7 +68,7 @@ function TabContent({ active }: { active: SettingsTab }) {
     case "sync": return <SyncTab />;
     case "plugins": return <PluginsTab />;
     case "shortcuts": return <ShortcutsTab />;
-    case "notifications": return <NotificationsTab />;
+    case "notifications": return <NotificationsTab onOpenSync={onOpenSync} />;
     case "templates": return <TemplatesTab />;
     case "schemas": return <SchemasTab />;
     case "google-drive": return <GoogleDriveTab />;
@@ -168,7 +168,7 @@ function SettingsContent() {
 
         {/* Scrollable content */}
         <div className="flex-1 overflow-y-auto px-3 py-4 md:px-6 md:py-5">
-          <TabContent active={activeTab} />
+          <TabContent active={activeTab} onOpenSync={() => setActiveTab("sync")} />
         </div>
       </div>
     </div>
