@@ -192,8 +192,9 @@ Le déplacement manuel reste ce qu'il est aujourd'hui, partout, sans changement.
   que ce soit.
 - Dossiers imbriqués proposés par l'IA (un seul niveau à la fois).
 - Réorganisation rétroactive des notes hors inbox.
-- Apprentissage à partir des corrections manuelles de l'utilisateur (phase 2 :
-  une correction est un signal, mais il faut d'abord que le tri existe).
+- ~~Apprentissage à partir des corrections~~ : fait. Une annulation ou un
+  déplacement manuel d'une note rangée par l'IA devient un refus et un exemple
+  rejoué dans le prompt (`recordSortCorrection`, 8 exemples max).
 - Embeddings / RAG : les marges IA s'en passent aujourd'hui, ce chantier aussi.
 
 ## Ordre d'exécution

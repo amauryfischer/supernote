@@ -69,6 +69,8 @@ const MAX_BODY_CHARS = 1_200;
 /** Au-delà, on refuse de classer : une liste tronquée ferait choisir le modèle
  *  parmi les survivants, confiance intacte et rangement franchement faux. */
 const MAX_FOLDERS = 80;
+/** Corrections rejouées dans le prompt : assez pour dessiner la taxonomie, pas pour noyer la note. */
+const MAX_EXAMPLES = 8;
 const CACHE_MAX_ENTRIES = 200;
 /** En deçà, la note n'a pas assez de matière pour être classée honnêtement. */
 const MIN_TEXT_CHARS = 40;
@@ -196,11 +198,34 @@ export function parseFolderAnswer(
   return { folder: canonical, confidence };
 }
 
+/** Rangement corrigé par l'utilisateur (`folder` vide = laissée dans l'inbox). */
+export interface SortExample {
+  title: string;
+  folder: string;
+  rejected: string;
+}
+
+function examplesBlock(examples: readonly SortExample[], folders: readonly string[]): string {
+  const known = new Set(folders);
+  const lines = examples
+    .filter((e) => e.folder === "" || known.has(e.folder))
+    .slice(0, MAX_EXAMPLES)
+    .map((e) => {
+      const title = e.title.replace(/\s+/g, " ").slice(0, 80);
+      const target = e.folder || "laissée dans la boîte de réception";
+      return `- « ${title} » → ${target} (pas ${e.rejected})`;
+    });
+  return lines.length > 0
+    ? `\n\nCORRECTIONS DE L'UTILISATEUR — sa façon de ranger, à suivre pour des notes semblables :\n${lines.join("\n")}`
+    : "";
+}
+
 function buildPrompt(
   title: string,
   body: string,
   tags: readonly string[],
   folders: readonly string[],
+  examples: string,
 ): string {
   const list = folders.map((f) => `- ${f}`).join("\n");
   const tagLine = tags.length > 0 ? `\nTAGS : ${tags.join(", ")}` : "";
@@ -212,7 +237,7 @@ RÈGLES STRICTES :
 - "confidence" est ta certitude réelle entre 0 et 1. Sois honnête : en dessous de ${CONFIDENCE_THRESHOLD}, la note ne bougera pas.
 
 DOSSIERS DISPONIBLES :
-${list}
+${list}${examples}
 
 Réponds UNIQUEMENT par du JSON valide, rien d'autre :
 {"folder":"<chemin exact d'un dossier de la liste, ou vide>","confidence":<nombre entre 0 et 1>}
@@ -428,6 +453,8 @@ export interface ClassifyInput {
   tags: readonly string[];
   /** Dossiers candidats, déjà filtrés (ni Inbox, ni dossiers système). */
   folders: readonly string[];
+  /** Corrections récentes de l'utilisateur, les plus récentes d'abord. */
+  examples?: readonly SortExample[];
   signal?: AbortSignal;
 }
 
@@ -443,7 +470,9 @@ export async function classifyNoteFolder(
   if (folders.length === 0 || folders.length > MAX_FOLDERS) return null;
   if (!isSortable(input.title, input.body)) return null;
 
+  const examples = examplesBlock(input.examples ?? [], folders);
   const key = cacheKey([
+    examples,
     input.model,
     [...folders].sort().join("|"),
     input.title,
@@ -458,7 +487,7 @@ export async function classifyNoteFolder(
       await askFolder(
         input.host,
         input.model,
-        buildPrompt(input.title, input.body, input.tags, folders),
+        buildPrompt(input.title, input.body, input.tags, folders, examples),
         input.signal,
       ),
       folders,
@@ -472,7 +501,7 @@ export async function classifyNoteFolder(
       await askFolder(
         input.host,
         input.model,
-        buildPrompt(input.title, input.body, input.tags, [...folders].reverse()),
+        buildPrompt(input.title, input.body, input.tags, [...folders].reverse(), examples),
         input.signal,
       ),
       folders,

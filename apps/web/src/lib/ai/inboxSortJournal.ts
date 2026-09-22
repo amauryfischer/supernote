@@ -75,6 +75,8 @@ const MAX_PROPOSALS = 20;
 const REFUSALS_KEY_PREFIX = "supernote.ai.inboxSort.refused.";
 const REFUSED_FOLDERS_KEY_PREFIX = "supernote.ai.inboxSort.refusedFolders.";
 const PROPOSALS_KEY_PREFIX = "supernote.ai.inboxSort.proposals.";
+const CORRECTIONS_KEY_PREFIX = "supernote.ai.inboxSort.corrections.";
+const MAX_CORRECTIONS = 30;
 
 let moves: readonly SortMove[] = [];
 const listeners = new Set<() => void>();
@@ -400,6 +402,7 @@ export function bindSortJournalToVault(nextVaultId: string | null): void {
   loadRefusals();
   loadRefusedFolders();
   loadProposals();
+  loadCorrections();
   emit();
 }
 
@@ -413,6 +416,60 @@ export function refuseDestination(noteId: string, folder: string): void {
     refusals.delete(oldest);
   }
   persistRefusals();
+}
+
+// ── Corrections ──────────────────────────────────────────────────────────────
+// Ce que l'utilisateur a fait d'un rangement de l'IA : annulé, ou déplacé
+// ailleurs à la main. Rejouées en exemples dans le prompt, elles apprennent au
+// tri la taxonomie réelle du coffre plutôt que l'idée du modèle.
+
+export interface SortCorrection {
+  title: string;
+  /** Dossier où l'IA l'avait rangée. */
+  rejected: string;
+  /** Dossier choisi par l'utilisateur, `""` = laissée dans l'inbox. */
+  folder: string;
+  at: number;
+}
+
+let corrections: readonly SortCorrection[] = [];
+
+export function getSortCorrections(): readonly SortCorrection[] {
+  return corrections;
+}
+
+export function recordSortCorrection(correction: SortCorrection): void {
+  corrections = [
+    correction,
+    ...corrections.filter((c) => c.title !== correction.title),
+  ].slice(0, MAX_CORRECTIONS);
+  if (typeof window === "undefined" || !vaultKey) return;
+  try {
+    window.localStorage.setItem(CORRECTIONS_KEY_PREFIX + vaultKey, JSON.stringify(corrections));
+  } catch {
+    /* quota plein ou stockage refusé : la correction reste valable en mémoire */
+  }
+}
+
+function loadCorrections(): void {
+  corrections = [];
+  if (typeof window === "undefined" || !vaultKey) return;
+  try {
+    const parsed: unknown = JSON.parse(
+      window.localStorage.getItem(CORRECTIONS_KEY_PREFIX + vaultKey) ?? "[]",
+    );
+    if (!Array.isArray(parsed)) return;
+    corrections = parsed.filter(
+      (c): c is SortCorrection =>
+        typeof c === "object" &&
+        c !== null &&
+        typeof (c as SortCorrection).title === "string" &&
+        typeof (c as SortCorrection).rejected === "string" &&
+        typeof (c as SortCorrection).folder === "string",
+    );
+  } catch {
+    /* contenu illisible : on repart sans exemples */
+  }
 }
 
 export function isDestinationRefused(noteId: string, folder: string): boolean {

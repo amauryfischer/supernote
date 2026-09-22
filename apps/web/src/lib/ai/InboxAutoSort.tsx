@@ -63,12 +63,14 @@ import {
   getInboxSortStatus,
   getProposedFolders,
   getRefusedFolderNames,
+  getSortCorrections,
   getSortMoves,
   hasAnyRefusal,
   isConclusivePhase,
   isDestinationRefused,
   noteInboxSortPass,
   pendingSortMoves,
+  recordSortCorrection,
   refuseDestination,
   setInboxSortPhase,
   updateProposedFolders,
@@ -324,6 +326,7 @@ export function InboxAutoSort() {
       // une note qu'on n'a pas su remettre reste une note que l'utilisateur ne
       // veut pas voir rangée là.
       refuseDestination(move.noteId, move.folder);
+      recordSortCorrection({ title: move.title, rejected: move.folder, folder: "", at: Date.now() });
       try {
         // staleTime/gcTime 0 — le QueryClient global garde 30 s de fraîcheur, et
         // un filePath périmé ferait passer le déplacement pour un geste de
@@ -486,6 +489,27 @@ export function InboxAutoSort() {
       // la proposition. Sans ça, un coffre neuf ne pouvait RIEN faire, à vie.
       noCandidates = candidates.length === 0;
 
+      // Une note rangée par l'IA puis déplacée à la main est une correction : elle
+      // devient un exemple du prompt, et le dossier de l'IA un refus, sans quoi une
+      // note ramenée dans l'inbox serait rangée de nouveau à la passe suivante.
+      for (const move of pendingSortMoves()) {
+        const current = await utils.entities.get
+          .fetch({ id: move.noteId }, { staleTime: 0, gcTime: 0 })
+          .catch(() => null);
+        if (current?.filePath === move.toFilePath) continue;
+        markMove(move, { stale: true, failed: false });
+        if (!current) continue;
+        refuseDestination(move.noteId, move.folder);
+        recordSortCorrection({
+          title: move.title,
+          rejected: move.folder,
+          folder: isInboxPath(current.filePath)
+            ? ""
+            : current.filePath.slice(0, current.filePath.lastIndexOf("/")),
+          at: Date.now(),
+        });
+      }
+
       const inbox = await fetchInboxNotes();
       inboxSnapshotRef.current = { ids: inbox.map((n) => n.id), at: Date.now() };
 
@@ -563,6 +587,7 @@ export function InboxAutoSort() {
           body: note.body,
           tags: note.tags,
           folders: candidates,
+          examples: getSortCorrections(),
           signal: abort.signal,
         });
         if (interrupted()) break;
