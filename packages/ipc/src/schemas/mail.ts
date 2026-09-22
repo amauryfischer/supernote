@@ -37,6 +37,13 @@ export const MailThreadRowSchema = z.object({
   date: z.string(),
   snippet: z.string(),
   labelIds: z.array(z.string()),
+  aiCategory: z.string().nullable().optional(),
+  aiCategoryConfidence: z.number().nullable().optional(),
+  aiCategoryRuns: z.number().nullable().optional(),
+  aiCategoryAt: z.number().nullable().optional(),
+  aiSummary: z.string().nullable().optional(),
+  aiSummaryFp: z.string().nullable().optional(),
+  aiSummaryAt: z.number().nullable().optional(),
 });
 export type MailThreadRow = z.infer<typeof MailThreadRowSchema>;
 
@@ -231,6 +238,64 @@ export const SyncUpsertOutput = z.object({
   removed: z.number().int().nonnegative(),
 });
 export type SyncUpsertOutput = z.infer<typeof SyncUpsertOutput>;
+
+// ── mail.setAiCategory ─────────────────────────────────────────────────────
+// Store an AI classification result on a mail thread AND persist it as an
+// email_ai_cache entity for cross-device sync.
+
+export const SetAiCategoryInput = z.object({
+  accountId: z.string(),
+  threadId: z.string(),
+  category: z.string(),
+  confidence: z.number().min(0).max(1),
+  runs: z.number().int().positive(),
+});
+export type SetAiCategoryInput = z.infer<typeof SetAiCategoryInput>;
+
+export const SetAiCategoryOutput = z.object({ ok: z.boolean() });
+export type SetAiCategoryOutput = z.infer<typeof SetAiCategoryOutput>;
+
+// ── mail.setAiSummary ──────────────────────────────────────────────────────
+// Store an AI summary on a mail thread AND persist it as an email_ai_cache
+// entity for cross-device sync.
+
+export const SetAiSummaryInput = z.object({
+  accountId: z.string(),
+  threadId: z.string(),
+  summary: z.string(),
+  fingerprint: z.string(),
+});
+export type SetAiSummaryInput = z.infer<typeof SetAiSummaryInput>;
+
+export const SetAiSummaryOutput = z.object({ ok: z.boolean() });
+export type SetAiSummaryOutput = z.infer<typeof SetAiSummaryOutput>;
+
+// ── mail.getAiCache ────────────────────────────────────────────────────────
+// Bulk read AI classification + summary for a list of threads (used by hooks
+// to hydrate on mount without a full listThreads call).
+
+export const GetAiCacheInput = z.object({
+  accountId: z.string(),
+  threadIds: z.array(z.string()),
+});
+export type GetAiCacheInput = z.infer<typeof GetAiCacheInput>;
+
+export const AiCacheEntrySchema = z.object({
+  threadId: z.string(),
+  aiCategory: z.string().nullable(),
+  aiCategoryConfidence: z.number().nullable(),
+  aiCategoryRuns: z.number().nullable(),
+  aiCategoryAt: z.number().nullable(),
+  aiSummary: z.string().nullable(),
+  aiSummaryFp: z.string().nullable(),
+  aiSummaryAt: z.number().nullable(),
+});
+export type AiCacheEntry = z.infer<typeof AiCacheEntrySchema>;
+
+export const GetAiCacheOutput = z.object({
+  items: z.array(AiCacheEntrySchema),
+});
+export type GetAiCacheOutput = z.infer<typeof GetAiCacheOutput>;
 
 // ── mail.applyLocalMutation ─────────────────────────────────────────────────
 // Optimistic label change: patches the mirror AND enqueues an outbox op atomically.

@@ -236,16 +236,15 @@ export async function classifyThread(
 }
 
 // ── Registre des fils déjà vus ──────────────────────────────────────────────
-// Sans lui, un fil que l'utilisateur a dé-labellisé serait re-classé en boucle.
+// Un fil est « vu » quand `aiCategoryAt` est renseigné sur la row mail_thread
+// (via mail.setAiCategory). Plus de localStorage — le résultat vit dans SQLite
+// et se synchronise entre devices via l'entity email_ai_cache.
 
-const SEEN_KEY = "supernote.mail.autolabelSeen";
-/** Au-delà, on oublie les plus anciens (le registre n'est pas un historique). */
-const SEEN_MAX = 2000;
-
-export function loadSeen(): Set<string> {
+/** @deprecated Conservée pour la migration one-shot (vidage localStorage). */
+export function loadSeenLegacy(): Set<string> {
   if (typeof window === "undefined") return new Set();
   try {
-    const raw = window.localStorage.getItem(SEEN_KEY);
+    const raw = window.localStorage.getItem("supernote.mail.autolabelSeen");
     if (!raw) return new Set();
     const parsed: unknown = JSON.parse(raw);
     return Array.isArray(parsed)
@@ -256,40 +255,26 @@ export function loadSeen(): Set<string> {
   }
 }
 
-export function markSeen(threadIds: string[]): void {
-  if (typeof window === "undefined" || threadIds.length === 0) return;
-  const set = loadSeen();
-  for (const id of threadIds) set.add(id);
-  const arr = [...set].slice(-SEEN_MAX);
-  try {
-    window.localStorage.setItem(SEEN_KEY, JSON.stringify(arr));
-  } catch {
-    /* quota — best-effort */
-  }
-}
-
-/** Oublie tout le registre (re-classement complet au prochain passage). */
-export function clearSeen(): void {
+/** @deprecated Supprime l'ancienne clé localStorage après migration. */
+export function clearSeenLegacy(): void {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.removeItem(SEEN_KEY);
-  } catch {
-    /* best-effort */
-  }
+    window.localStorage.removeItem("supernote.mail.autolabelSeen");
+  } catch { /* best-effort */ }
 }
 
 /**
- * Fils restant à classer : jamais vus, et sans AUCUN label utilisateur — l'IA ne
- * repasse pas derrière un rangement déjà fait, qu'il vienne d'elle ou de l'utilisateur.
- * `ignoredLabelIds` ne comptent pas comme rangement (cf. `selfLabelIds`).
- * PUR (l'ensemble `seen` est injecté).
+ * Fils restant à classer : sans `aiCategoryAt` (jamais passés par l'IA), et
+ * sans AUCUN label utilisateur — l'IA ne repasse pas derrière un rangement déjà
+ * fait, qu'il vienne d'elle ou de l'utilisateur. `ignoredLabelIds` ne comptent
+ * pas comme rangement (cf. `selfLabelIds`). PUR.
  */
 export function pendingForClassification<
-  T extends { id: string; labelIds: string[] },
->(items: readonly T[], seen: ReadonlySet<string>, ignoredLabelIds?: ReadonlySet<string>): T[] {
+  T extends { id: string; labelIds: string[]; aiCategoryAt?: number | null },
+>(items: readonly T[], ignoredLabelIds?: ReadonlySet<string>): T[] {
   return items.filter(
     (it) =>
-      !seen.has(it.id) && !it.labelIds.some((id) => isUserLabelId(id) && !ignoredLabelIds?.has(id)),
+      !it.aiCategoryAt && !it.labelIds.some((id) => isUserLabelId(id) && !ignoredLabelIds?.has(id)),
   );
 }
 

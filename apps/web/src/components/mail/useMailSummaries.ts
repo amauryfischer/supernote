@@ -15,16 +15,14 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ThreadListItem } from "@/lib/gmail";
-import { mirrorAvailable, mirrorGetThread } from "@/lib/mail-mirror";
+import { mirrorAvailable, mirrorGetThread, mirrorSetAiSummary } from "@/lib/mail-mirror";
 import { isNoteToSelf } from "@/lib/mail-ai";
 import {
   buildThreadBody,
   cachedSummary,
-  loadSummaryCache,
   pendingForSummary,
   summarizeForList,
   threadFingerprint,
-  writeSummaries,
 } from "@/lib/mail-summary";
 
 /** Fils résumés par passe (borne le coût d'un premier chargement). */
@@ -77,16 +75,14 @@ export function useMailSummaries({
   const itemsRef = useRef(items);
   itemsRef.current = items;
 
-  // Hydratation depuis le cache : un fil déjà résumé s'affiche sans appel IA,
-  // y compris après un rechargement de page.
+  // Hydratation depuis les colonnes AI de mail_thread (arrivées via listThreads).
   useEffect(() => {
     if (!enabled) return;
-    const cache = loadSummaryCache();
     setSummaries((prev) => {
       const next = new Map(prev);
       let changed = false;
       for (const it of items) {
-        const hit = cachedSummary(cache, it);
+        const hit = cachedSummary(it);
         if (hit !== undefined && next.get(it.id) !== hit) {
           next.set(it.id, hit);
           changed = true;
@@ -121,14 +117,13 @@ export function useMailSummaries({
     if (Date.now() < cooldownUntilRef.current) return;
     const pending = pendingForSummary(
       itemsRef.current,
-      loadSummaryCache(),
       failedRef.current,
     ).slice(0, BATCH);
     if (pending.length === 0) return;
 
     runningRef.current = true;
     setBusy(true);
-    const written: { id: string; fp: string; text: string }[] = [];
+    const useMirror = mirrorAvailable();
     try {
       for (const item of pending) {
         let text: string;
@@ -140,9 +135,6 @@ export function useMailSummaries({
             ...(await resolveBody(item)),
           });
         } catch (err) {
-          // Ollama injoignable ou modèle absent : on arrête la passe et on
-          // patiente. Les fils ne sont PAS marqués en échec — ils repasseront
-          // après le délai. L'erreur s'affiche sur le bouton de la barre mail.
           cooldownUntilRef.current = Date.now() + COOLDOWN_MS;
           const message = err instanceof Error ? err.message : String(err);
           errorRef.current = message;
@@ -152,19 +144,21 @@ export function useMailSummaries({
         errorRef.current = null;
         setError(null);
         if (!text) {
-          // Réponse inexploitable : le fil garde son snippet, on n'insiste pas.
           failedRef.current.add(item.id);
           continue;
         }
-        written.push({ id: item.id, fp: threadFingerprint(item), text });
         setSummaries((prev) => new Map(prev).set(item.id, text));
+        if (useMirror && accountId) {
+          try {
+            await mirrorSetAiSummary(accountId, item.id, text, threadFingerprint(item));
+          } catch { /* best-effort */ }
+        }
       }
     } finally {
-      writeSummaries(written);
       runningRef.current = false;
       setBusy(false);
     }
-  }, [resolveBody, selfEmails]);
+  }, [resolveBody, selfEmails, accountId]);
 
   /** Passe manuelle : réessaye aussi les fils en échec. */
   const runNow = useCallback(() => {

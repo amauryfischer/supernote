@@ -239,6 +239,13 @@ CREATE TABLE IF NOT EXISTS "mail_thread" (
     "lastInternalDate" INTEGER NOT NULL DEFAULT 0,
     "labelIds" TEXT NOT NULL DEFAULT '[]',
     "messagesLoaded" INTEGER NOT NULL DEFAULT 0,
+    "aiCategory" TEXT,
+    "aiCategoryConfidence" REAL,
+    "aiCategoryRuns" INTEGER,
+    "aiCategoryAt" INTEGER,
+    "aiSummary" TEXT,
+    "aiSummaryFp" TEXT,
+    "aiSummaryAt" INTEGER,
     "updatedAt" INTEGER NOT NULL,
     PRIMARY KEY ("accountId", "id")
 );

@@ -50,7 +50,7 @@ import { resolveMountWrite, crossProvenanceCollision, isMountedPath } from "./mo
 import { resolveFileNameStem } from "./entity-filename";
 import { decodeTagPaths } from "./tag-paths";
 import { sanitizePath, stripPathSlashes, sanitizeFolderPath, derivePath } from "./path-utils";
-import { TEMPLATE_TYPE_ID, TEMPLATE_FOLDER, TEMPLATE_SEED_TS } from "./seed-default-types";
+import { TEMPLATE_TYPE_ID, TEMPLATE_FOLDER, TEMPLATE_SEED_TS, EMAIL_AI_CACHE_TYPE_ID } from "./seed-default-types";
 import { SEED_TEMPLATES } from "@supernote/templates/seeds";
 
 
@@ -4370,6 +4370,39 @@ export function buildRouter(
           path: derivePath(storedPath),
         });
         indexMentions(db, vaultId, op.entityId, payload.body ?? "");
+
+        // Dénormalisation sync → mail_thread : quand un email_ai_cache arrive
+        // d'un autre device, écrire les résultats AI dans la ligne mail_thread
+        // correspondante pour que listThreads les expose sans jointure.
+        if (payload.typeId === EMAIL_AI_CACHE_TYPE_ID) {
+          const tid = fields["eac_thread_id"] as string | undefined;
+          const acct = fields["eac_account_email"] as string | undefined;
+          if (tid && acct) {
+            db.run(
+              `UPDATE mail_thread
+                 SET aiCategory          = COALESCE(?, aiCategory),
+                     aiCategoryConfidence = COALESCE(?, aiCategoryConfidence),
+                     aiCategoryRuns       = COALESCE(?, aiCategoryRuns),
+                     aiCategoryAt         = COALESCE(?, aiCategoryAt),
+                     aiSummary            = COALESCE(?, aiSummary),
+                     aiSummaryFp          = COALESCE(?, aiSummaryFp),
+                     aiSummaryAt          = COALESCE(?, aiSummaryAt)
+               WHERE accountId = ? AND id = ?`,
+              [
+                (fields["eac_category"] as SqlValue) ?? null,
+                (fields["eac_category_confidence"] as SqlValue) ?? null,
+                (fields["eac_category_runs"] as SqlValue) ?? null,
+                (fields["eac_category_at"] as SqlValue) ?? null,
+                (fields["eac_summary"] as SqlValue) ?? null,
+                (fields["eac_summary_fp"] as SqlValue) ?? null,
+                (fields["eac_summary_at"] as SqlValue) ?? null,
+                acct,
+                tid,
+              ],
+            );
+          }
+        }
+
         applied++;
       } catch (err) {
         console.warn(`[sync.applyOps] op ${op.opId} failed (non-fatal)`, err);
@@ -4572,6 +4605,13 @@ export function buildRouter(
     date: (r["lastDate"] as string) ?? "",
     snippet: (r["snippet"] as string) ?? "",
     labelIds: parseStrArr(r["labelIds"]),
+    aiCategory: (r["aiCategory"] as string | null) ?? null,
+    aiCategoryConfidence: r["aiCategoryConfidence"] != null ? Number(r["aiCategoryConfidence"]) : null,
+    aiCategoryRuns: r["aiCategoryRuns"] != null ? Number(r["aiCategoryRuns"]) : null,
+    aiCategoryAt: r["aiCategoryAt"] != null ? Number(r["aiCategoryAt"]) : null,
+    aiSummary: (r["aiSummary"] as string | null) ?? null,
+    aiSummaryFp: (r["aiSummaryFp"] as string | null) ?? null,
+    aiSummaryAt: r["aiSummaryAt"] != null ? Number(r["aiSummaryAt"]) : null,
   });
 
   const mailListThreads = async (input: unknown): Promise<unknown> => {
@@ -4601,7 +4641,9 @@ export function buildRouter(
     );
     const total = totalRow ? Number(totalRow["c"]) : 0;
     const res = db.exec(
-      `SELECT id, subject, fromName, fromEmail, snippet, lastDate, labelIds
+      `SELECT id, subject, fromName, fromEmail, snippet, lastDate, labelIds,
+              aiCategory, aiCategoryConfidence, aiCategoryRuns, aiCategoryAt,
+              aiSummary, aiSummaryFp, aiSummaryAt
          FROM mail_thread WHERE ${whereSql}
         ORDER BY lastInternalDate DESC
         LIMIT ? OFFSET ?`,
@@ -4708,7 +4750,9 @@ export function buildRouter(
     );
     const total = totalRow ? Number(totalRow["c"]) : 0;
     const res = db.exec(
-      `SELECT t.id, t.subject, t.fromName, t.fromEmail, t.snippet, t.lastDate, t.labelIds
+      `SELECT t.id, t.subject, t.fromName, t.fromEmail, t.snippet, t.lastDate, t.labelIds,
+              t.aiCategory, t.aiCategoryConfidence, t.aiCategoryRuns, t.aiCategoryAt,
+              t.aiSummary, t.aiSummaryFp, t.aiSummaryAt
          FROM mail_thread t WHERE ${whereSql}
         ORDER BY t.lastInternalDate DESC
         LIMIT ? OFFSET ?`,
@@ -4844,6 +4888,113 @@ export function buildRouter(
       pendingOutbox: ob ? Number(ob["c"]) : 0,
       failedOutbox: fb ? Number(fb["c"]) : 0,
     };
+  };
+
+  // ── email AI cache: entity id = deterministic from accountId + threadId ──
+  const emailAiCacheEntityId = (accountId: string, threadId: string): string =>
+    `eac_${accountId.replace(/[^a-zA-Z0-9]/g, "_")}_${threadId}`;
+
+  const upsertEmailAiCacheEntity = (
+    accountId: string,
+    threadId: string,
+    patch: Record<string, unknown>,
+  ): void => {
+    const entityId = emailAiCacheEntityId(accountId, threadId);
+    const existing = row(db.exec(`SELECT id, fields FROM entity WHERE id = ?`, [entityId]));
+    const ts = now();
+    if (existing) {
+      const oldFields: Record<string, unknown> = (() => {
+        try { return JSON.parse((existing["fields"] as string) || "{}"); } catch { return {}; }
+      })();
+      const merged = { ...oldFields, ...patch };
+      db.run(
+        `UPDATE entity SET fields = ?, updatedAt = ? WHERE id = ?`,
+        [JSON.stringify(merged), ts, entityId],
+      );
+      const full = { id: entityId, typeId: EMAIL_AI_CACHE_TYPE_ID, fields: merged, updatedAt: ts };
+      try { hooks.onEntityUpdated?.(full, { ...full, fields: oldFields }); } catch (e) { console.warn("[hook] onEntityUpdated (email_ai_cache)", e); }
+    } else {
+      const fields: Record<string, unknown> = {
+        eac_thread_id: threadId,
+        eac_account_email: accountId,
+        ...patch,
+      };
+      const filePath = `@system/email-ai/${threadId}`;
+      db.run(
+        `INSERT OR IGNORE INTO entity
+           (id, vaultId, typeId, filePath, fields, body, createdAt, updatedAt)
+         VALUES (?, ?, ?, ?, ?, '', ?, ?)`,
+        [entityId, vaultId, EMAIL_AI_CACHE_TYPE_ID, filePath, JSON.stringify(fields), ts, ts],
+      );
+      const full = { id: entityId, typeId: EMAIL_AI_CACHE_TYPE_ID, typeName: "email_ai_cache", fields, filePath, body: "", createdAt: ts, updatedAt: ts };
+      try { hooks.onEntityCreated?.(full); } catch (e) { console.warn("[hook] onEntityCreated (email_ai_cache)", e); }
+    }
+  };
+
+  const mailSetAiCategory = async (input: unknown): Promise<unknown> => {
+    const { accountId, threadId, category, confidence, runs } = input as {
+      accountId: string; threadId: string; category: string; confidence: number; runs: number;
+    };
+    if (!accountId || !threadId) return { ok: false };
+    const ts = Date.now();
+    db.run(
+      `UPDATE mail_thread
+         SET aiCategory = ?, aiCategoryConfidence = ?, aiCategoryRuns = ?, aiCategoryAt = ?
+       WHERE accountId = ? AND id = ?`,
+      [category, confidence, runs, ts, accountId, threadId],
+    );
+    upsertEmailAiCacheEntity(accountId, threadId, {
+      eac_category: category,
+      eac_category_confidence: confidence,
+      eac_category_runs: runs,
+      eac_category_at: ts,
+    });
+    return { ok: true };
+  };
+
+  const mailSetAiSummary = async (input: unknown): Promise<unknown> => {
+    const { accountId, threadId, summary, fingerprint } = input as {
+      accountId: string; threadId: string; summary: string; fingerprint: string;
+    };
+    if (!accountId || !threadId) return { ok: false };
+    const ts = Date.now();
+    db.run(
+      `UPDATE mail_thread
+         SET aiSummary = ?, aiSummaryFp = ?, aiSummaryAt = ?
+       WHERE accountId = ? AND id = ?`,
+      [summary, fingerprint, ts, accountId, threadId],
+    );
+    upsertEmailAiCacheEntity(accountId, threadId, {
+      eac_summary: summary,
+      eac_summary_fp: fingerprint,
+      eac_summary_at: ts,
+    });
+    return { ok: true };
+  };
+
+  const mailGetAiCache = async (input: unknown): Promise<unknown> => {
+    const { accountId, threadIds } = input as { accountId: string; threadIds: string[] };
+    if (!accountId || !threadIds?.length) return { items: [] };
+    const items: Array<Record<string, unknown>> = [];
+    for (const tid of threadIds) {
+      const r = row(db.exec(
+        `SELECT aiCategory, aiCategoryConfidence, aiCategoryRuns, aiCategoryAt,
+                aiSummary, aiSummaryFp, aiSummaryAt
+           FROM mail_thread WHERE accountId = ? AND id = ?`,
+        [accountId, tid],
+      ));
+      items.push({
+        threadId: tid,
+        aiCategory: r ? (r["aiCategory"] as string | null) ?? null : null,
+        aiCategoryConfidence: r?.["aiCategoryConfidence"] != null ? Number(r["aiCategoryConfidence"]) : null,
+        aiCategoryRuns: r?.["aiCategoryRuns"] != null ? Number(r["aiCategoryRuns"]) : null,
+        aiCategoryAt: r?.["aiCategoryAt"] != null ? Number(r["aiCategoryAt"]) : null,
+        aiSummary: r ? (r["aiSummary"] as string | null) ?? null : null,
+        aiSummaryFp: r ? (r["aiSummaryFp"] as string | null) ?? null : null,
+        aiSummaryAt: r?.["aiSummaryAt"] != null ? Number(r["aiSummaryAt"]) : null,
+      });
+    }
+    return { items };
   };
 
   const mailSyncUpsert = async (input: unknown): Promise<unknown> => {
@@ -5249,6 +5400,9 @@ export function buildRouter(
     "mail.getThread": mailGetThread,
     "mail.getLabels": mailGetLabels,
     "mail.getState": mailGetState,
+    "mail.setAiCategory": mailSetAiCategory,
+    "mail.setAiSummary": mailSetAiSummary,
+    "mail.getAiCache": mailGetAiCache,
     "mail.syncUpsert": mailSyncUpsert,
     "mail.applyLocalMutation": mailApplyLocalMutation,
     "mail.listOutbox": mailListOutbox,

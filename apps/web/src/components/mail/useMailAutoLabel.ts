@@ -24,11 +24,10 @@ import type { ClassificationResult } from "@/lib/mail-autolabel";
 import {
   categoryById,
   classifyThread,
-  loadSeen,
-  markSeen,
   pendingForClassification,
   selfLabelIds,
 } from "@/lib/mail-autolabel";
+import { mirrorAvailable, mirrorSetAiCategory } from "@/lib/mail-mirror";
 
 /** Bilan de la dernière passe — ce qui a été posé, ce qui a été écarté. */
 export interface AutoLabelPass {
@@ -45,6 +44,7 @@ const IDLE_MS = 4000;
 export interface UseMailAutoLabelOptions {
   enabled: boolean;
   clientId: string;
+  accountId: string;
   /**
    * Confiance minimale (0..1) pour qu'un tag soit réellement posé. En dessous,
    * le fil est laissé tel quel. Cf. `confidenceThreshold` côté réglages.
@@ -65,6 +65,7 @@ export interface UseMailAutoLabelOptions {
 export function useMailAutoLabel({
   enabled,
   clientId,
+  accountId,
   minConfidence,
   items,
   labelNames,
@@ -75,10 +76,8 @@ export function useMailAutoLabel({
   const [busy, setBusy] = useState(false);
   const [lastPass, setLastPass] = useState<AutoLabelPass | null>(null);
   const runningRef = useRef(false);
-  // Lu dans la passe (qui ne doit pas se recréer quand le seuil change).
   const minConfidenceRef = useRef(minConfidence);
   minConfidenceRef.current = minConfidence;
-  // Lus dans la passe : évite de la relancer à chaque rendu.
   const itemsRef = useRef(items);
   itemsRef.current = items;
   const labelNamesRef = useRef(labelNames);
@@ -87,6 +86,8 @@ export function useMailAutoLabel({
   selfAddressesRef.current = selfAddresses;
   const applyRef = useRef(applyLabel);
   applyRef.current = applyLabel;
+  const accountIdRef = useRef(accountId);
+  accountIdRef.current = accountId;
 
   // Nom → id, reconstruit à chaque accès (la table change après une création).
   const labelIdByName = useCallback((name: string): string | undefined => {
@@ -97,26 +98,23 @@ export function useMailAutoLabel({
   }, []);
 
   const remaining = enabled
-    ? pendingForClassification(items, loadSeen(), selfLabelIds(labelNames, selfAddresses)).length
+    ? pendingForClassification(items, selfLabelIds(labelNames, selfAddresses)).length
     : 0;
 
   const run = useCallback(async () => {
     if (runningRef.current || !clientId) return;
     const pending = pendingForClassification(
       itemsRef.current,
-      loadSeen(),
       selfLabelIds(labelNamesRef.current, selfAddressesRef.current),
     ).slice(0, BATCH);
     if (pending.length === 0) return;
 
     runningRef.current = true;
     setBusy(true);
-    const done: string[] = [];
     let labeled = 0;
     let skipped = 0;
-    // Cache local des labels créés pendant la passe : sans lui, deux fils de la
-    // même catégorie créeraient deux fois le label (409 côté Gmail).
     const createdIds = new Map<string, string>();
+    const useMirror = mirrorAvailable();
     try {
       for (const it of pending) {
         let verdict: ClassificationResult;
@@ -127,15 +125,21 @@ export function useMailAutoLabel({
             snippet: it.snippet,
           });
         } catch {
-          // Ollama injoignable : on arrête la passe, sans marquer les fils vus
-          // (ils seront reproposés).
           break;
         }
-        done.push(it.id);
+
+        // Persister le résultat (y compris "humain") dans SQLite + entity sync.
+        if (useMirror && accountIdRef.current) {
+          try {
+            await mirrorSetAiCategory(
+              accountIdRef.current, it.id,
+              verdict.category, verdict.confidence, verdict.runs,
+            );
+          } catch { /* best-effort — le classement continue */ }
+        }
+
         const cat = categoryById(verdict.category);
-        if (!cat) continue; // "humain" → on ne range rien, c'est le défaut
-        // Modèle pas assez d'accord avec lui-même : on ne pose RIEN. Le fil est
-        // tout de même marqué vu — le rejouer rendrait le même verdict.
+        if (!cat) continue;
         if (verdict.confidence < minConfidenceRef.current) {
           skipped++;
           continue;
@@ -149,16 +153,13 @@ export function useMailAutoLabel({
             createdIds.set(cat.labelName, created.id);
             onLabelCreated?.(created);
           } catch {
-            continue; // création impossible → on n'insiste pas sur ce fil
+            continue;
           }
         }
         applyRef.current(it.id, labelId);
         labeled++;
       }
     } finally {
-      markSeen(done);
-      // Ce qui a été ÉCARTÉ doit se voir (infobulle du bouton) : sans ça,
-      // « rien ne s'est passé » ressemble à une panne alors que c'est le seuil.
       setLastPass({ labeled, skipped });
       runningRef.current = false;
       setBusy(false);

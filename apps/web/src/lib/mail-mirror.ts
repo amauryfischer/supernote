@@ -167,6 +167,31 @@ export async function mirrorApplyMutation(
   return opId;
 }
 
+// ── AI cache writes (→ mail_thread + email_ai_cache entity) ────────────────
+
+export async function mirrorSetAiCategory(
+  accountId: string,
+  threadId: string,
+  category: string,
+  confidence: number,
+  runs: number,
+): Promise<void> {
+  await trpcVanillaClient.mail.setAiCategory.mutate({
+    accountId, threadId, category, confidence, runs,
+  });
+}
+
+export async function mirrorSetAiSummary(
+  accountId: string,
+  threadId: string,
+  summary: string,
+  fingerprint: string,
+): Promise<void> {
+  await trpcVanillaClient.mail.setAiSummary.mutate({
+    accountId, threadId, summary, fingerprint,
+  });
+}
+
 /**
  * Cancel pending outbox ops (e.g. on Undo, before they reach Gmail). Acking
  * deletes the rows; if an op was already pushed, the delete is a harmless no-op

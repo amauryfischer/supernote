@@ -199,6 +199,32 @@ async function initSqlite(handle: FileSystemDirectoryHandle): Promise<Database> 
     console.warn("[vault-worker] entity.sourceVaultId migration failed (non-fatal)", e);
   }
 
+  // Migration : ajoute les colonnes IA sur mail_thread (résultats de
+  // classification et résumé, synchros via entité email_ai_cache). Idempotent.
+  try {
+    const cols = database.exec(`PRAGMA table_info("mail_thread")`);
+    const names: string[] =
+      cols.length > 0 ? cols[0]!.values.map((row) => row[1] as string) : [];
+    const add = (col: string, ddl: string) => {
+      if (!names.includes(col)) {
+        try {
+          database.run(`ALTER TABLE "mail_thread" ADD COLUMN ${ddl};`);
+        } catch (e) {
+          console.warn(`[vault-worker] mail_thread.${col} add column failed`, e);
+        }
+      }
+    };
+    add("aiCategory", `"aiCategory" TEXT`);
+    add("aiCategoryConfidence", `"aiCategoryConfidence" REAL`);
+    add("aiCategoryRuns", `"aiCategoryRuns" INTEGER`);
+    add("aiCategoryAt", `"aiCategoryAt" INTEGER`);
+    add("aiSummary", `"aiSummary" TEXT`);
+    add("aiSummaryFp", `"aiSummaryFp" TEXT`);
+    add("aiSummaryAt", `"aiSummaryAt" INTEGER`);
+  } catch (e) {
+    console.warn("[vault-worker] mail_thread AI columns migration failed (non-fatal)", e);
+  }
+
   console.info("[init.sqlite] running SCHEMA_SQL (base + FTS5)");
   database.run(SCHEMA_SQL);
   console.info("[init.sqlite] done");

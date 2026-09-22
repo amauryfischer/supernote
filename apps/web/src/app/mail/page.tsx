@@ -1101,6 +1101,7 @@ export default function MailPage() {
   const autoLabel = useMailAutoLabel({
     enabled: Boolean(settings.gmail.autoLabel) && aiConfigured,
     clientId,
+    accountId,
     minConfidence: confidenceThreshold(settings.gmail.autoLabelConfidence),
     items: cumItems,
     labelNames,
