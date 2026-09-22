@@ -59,8 +59,7 @@ export function MailShortcutsHelp({
           return (
             <section key={group} className="min-w-0">
               <h3
-                className="mb-2 text-xs font-semibold uppercase tracking-wide"
-                style={{ color: "var(--text-muted)" }}
+                className="sn-eyebrow sn-eyebrow--compact mb-2"
               >
                 {group}
               </h3>

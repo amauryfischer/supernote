@@ -171,8 +171,7 @@ export function MailAssistantPanel({
             {result.sources.length > 0 && (
               <div className="flex flex-col gap-1">
                 <span
-                  className="text-[11px] font-semibold uppercase tracking-wide"
-                  style={{ color: "var(--text-muted)" }}
+                  className="sn-eyebrow sn-eyebrow--compact"
                 >
                   Fils utilisés
                 </span>

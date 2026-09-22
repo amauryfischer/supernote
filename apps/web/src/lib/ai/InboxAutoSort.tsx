@@ -902,7 +902,7 @@ export function InboxAutoSort() {
     >
       {proposals.length > 0 && (
         <section className="mb-4 flex flex-col gap-2">
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)]">
+          <h3 className="sn-eyebrow sn-eyebrow--compact">
             Dossiers proposés — à confirmer
           </h3>
           {proposals.map((p) => (

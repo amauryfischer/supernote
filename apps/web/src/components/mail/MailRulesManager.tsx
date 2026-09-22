@@ -96,8 +96,7 @@ export function MailRulesManager({
         {suggestions.length > 0 && (
           <section className="flex flex-col gap-2">
             <h3
-              className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide"
-              style={{ color: "var(--text-muted)" }}
+              className="sn-eyebrow sn-eyebrow--compact flex items-center gap-1.5"
             >
               <Lightning size={13} aria-hidden /> Propositions
             </h3>
@@ -143,8 +142,7 @@ export function MailRulesManager({
         <section className="flex flex-col gap-2">
           <div className="flex items-center justify-between">
             <h3
-              className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide"
-              style={{ color: "var(--text-muted)" }}
+              className="sn-eyebrow sn-eyebrow--compact flex items-center gap-1.5"
             >
               <Funnel size={13} aria-hidden /> Règles
             </h3>

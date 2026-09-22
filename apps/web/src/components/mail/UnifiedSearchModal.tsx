@@ -334,7 +334,7 @@ export function UnifiedSearchModal({ isOpen, onClose }: UnifiedSearchModalProps)
                       )}
                     </span>
                     <span
-                      className="flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide"
+                      className="flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium"
                       style={{ backgroundColor: "var(--surface-3)", color: "var(--text-muted)" }}
                     >
                       {SOURCE_LABEL[r.source]}

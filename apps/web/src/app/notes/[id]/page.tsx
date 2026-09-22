@@ -747,11 +747,10 @@ function CollapsedColumnStrip({ label, icon, onExpand }: CollapsedColumnStripPro
       <CaretDoubleRight size={12} />
       {icon}
       <span
-        className="select-none text-[10px] font-semibold uppercase tracking-widest"
+        className="select-none text-[11px] font-semibold"
         style={{
           writingMode: "vertical-rl",
           transform: "rotate(180deg)",
-          letterSpacing: "0.15em",
         }}
       >
         {label}

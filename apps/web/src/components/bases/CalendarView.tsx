@@ -145,7 +145,7 @@ export function CalendarView({ base, view }: CalendarViewProps) {
 
       {/* Day headers */}
       <div
-        className="grid grid-cols-7 text-center text-[10px] font-semibold uppercase tracking-wide"
+        className="grid grid-cols-7 text-center text-[11px] font-semibold"
         style={{
           backgroundColor: "var(--surface-1)",
           color: "var(--text-muted)",

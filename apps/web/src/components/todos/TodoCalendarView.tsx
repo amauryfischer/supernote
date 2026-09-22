@@ -478,7 +478,7 @@ export function TodoCalendarView({ todos, onEdit, onUpdateDates }: TodoCalendarV
             {weekDays.map((d) => (
               <div
                 key={d}
-                className="py-1 text-center text-[11px] font-medium uppercase tracking-wide"
+                className="py-1 text-center text-[11px] font-medium"
                 style={{ color: "var(--text-muted)" }}
               >
                 {d}

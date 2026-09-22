@@ -996,7 +996,7 @@ function RelationChip({ label }: { label: string }) {
   return (
     <span
       className="rounded px-1.5 py-0.5 text-xs"
-      style={{ backgroundColor: "var(--accent)" + "22", color: "var(--accent)" }}
+      style={{ backgroundColor: "color-mix(in srgb, var(--accent) 13%, transparent)", color: "var(--accent)" }}
     >
       ↔ {label}
     </span>

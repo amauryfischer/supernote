@@ -193,8 +193,7 @@ export function MailSearchBar({
         >
           <div className="flex items-center justify-between px-2 py-1">
             <span
-              className="inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide"
-              style={{ color: "var(--text-muted)" }}
+              className="sn-eyebrow sn-eyebrow--compact inline-flex items-center gap-1"
             >
               <ClockCounterClockwise size={12} aria-hidden /> Recherches récentes
             </span>

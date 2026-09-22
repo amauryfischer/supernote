@@ -461,7 +461,7 @@ export function NoteListItem({ note, isActive, onClick, onHover, getPreview, onD
             <div className="mt-2 flex flex-wrap gap-1">
               {attachmentBadge && (
                 <span
-                  className="rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
+                  className="rounded px-1.5 py-0.5 text-[10px] font-semibold"
                   style={{
                     backgroundColor: attachmentBadge.bg,
                     color: attachmentBadge.fg,

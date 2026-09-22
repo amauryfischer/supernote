@@ -147,7 +147,7 @@ export function RelationPicker({ field, value, onCommit, onCancel }: RelationPic
               <span
                 key={id}
                 className="flex items-center gap-1 rounded-full px-2 py-0.5 text-xs"
-                style={{ backgroundColor: "var(--accent)" + "22", color: "var(--accent)" }}
+                style={{ backgroundColor: "color-mix(in srgb, var(--accent) 13%, transparent)", color: "var(--accent)" }}
               >
                 {label}
                 <Button

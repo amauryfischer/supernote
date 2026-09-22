@@ -127,8 +127,7 @@ function FinanceDashboard() {
         />
       ) : (
         // Registre : la liste des comptes est le héros, le total la coiffe en
-        // en-tête (chiffre tabulaire aligné à droite) — plus de carte
-        // hero-metric flottante (eyebrow uppercase + sous-stat).
+        // en-tête (chiffre tabulaire aligné à droite).
         <div
           className="overflow-hidden rounded-xl border"
           style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-1)" }}

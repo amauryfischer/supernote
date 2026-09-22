@@ -197,7 +197,7 @@ export function FolderProposalCard({
       <div className="mb-2 flex items-center gap-1.5">
         <FolderPlus size={13} weight="fill" style={{ color: "var(--accent)" }} />
         <span
-          className="text-[11px] font-semibold uppercase tracking-wide"
+          className="sn-eyebrow sn-eyebrow--compact"
           style={{ color: "var(--accent)" }}
         >
           Nouveau dossier
