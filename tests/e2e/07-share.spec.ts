@@ -153,8 +153,16 @@ test.describe("07 — partage", () => {
     await owner.getByRole("button", { name: "Partager", exact: true }).first().click();
     await owner.getByRole("button", { name: "Arrêter le partage" }).last().click();
     await owner.getByRole("button", { name: "Arrêter le partage" }).last().click();
+    // Les deux modales (panneau + confirmation) sont fermées : `stopShare()` a
+    // résolu sans lever (sinon la modale resterait ouverte sur son `role="alert"`).
+    await expect(owner.getByRole("dialog")).toHaveCount(0);
 
     await expect(owner.locator('.bn-editor[contenteditable="true"]')).toBeVisible();
     await expect(owner.locator(".bn-editor")).toContainText("Pendant l'absence.");
+
+    // Le texte doit être dans le .md persisté, pas seulement en mémoire : un
+    // rechargement rouvre le même coffre (bootCloud) et relit le corps sauvé.
+    await owner.reload();
+    await expect(owner.locator(".bn-editor").first()).toContainText("Pendant l'absence.");
   });
 });
