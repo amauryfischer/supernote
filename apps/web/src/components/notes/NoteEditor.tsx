@@ -1374,13 +1374,15 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
     purgeShareRef.current = gone.id;
     // Le cache tRPC n'est pas encore rafraîchi : l'éditeur normal repart du contenu courant.
     setPendingBody(bodyRef.current);
+    // La copie locale Yjs va être effacée : le .md doit porter le dernier état.
+    if (bodyRef.current !== lastSavedBodyRef.current) triggerAutoSave(bodyRef.current, titleRef.current);
     setShare(null);
     // Un échec laisse une clé morte : le prochain `gone` la réessaie.
     void trpcVanillaClient.entities.update
       .mutate({ id: note.id, fields: { shareId: "", shareKey: "" } })
       .then(() => utilsForTags.entities.get.invalidate({ id: note.id }))
       .catch((err) => console.error("[NoteEditor] share key cleanup failed", err));
-  }, [note.id, utilsForTags]);
+  }, [note.id, utilsForTags, triggerAutoSave]);
 
   const ownerName = settings.gmail.connectedEmail.split("@")[0] || "Propriétaire";
   const collab = useNoteCollab(share, { name: ownerName, color: colorFor(ownerName) }, handleShareGone);
@@ -1389,7 +1391,8 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
   // Monté sur un fragment déjà synchronisé, l'éditeur n'émet aucun onChange : sans ceci, un .md en retard sur Yjs serait réécrit tel quel à l'arrêt du partage.
   useEffect(() => {
     const fragment = collab.collaboration?.fragment;
-    if (!fragment) return;
+    // Un document amorcé a toujours au moins un bloc : vide, il écraserait le corps.
+    if (!fragment || fragment.length === 0) return;
     const md = yFragmentToMarkdown(fragment);
     if (normalizeEol(md).trimEnd() !== normalizeEol(bodyRef.current).trimEnd()) handleEditorChange(md);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1426,6 +1429,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
   }, [share, title]);
 
   const startShare = async () => {
+    publishedImagesRef.current = new Set();
     // Avant toute création : un markdown inconvertible ne laisse pas de ressource orpheline.
     const seed = markdownToYUpdate(bodyRef.current);
     const owned = await createShareResource("note", title);
