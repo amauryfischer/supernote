@@ -72,7 +72,7 @@ function rowToVaultSummary(r) {
 
 // ── SQLite engine ─────────────────────────────────────────────────────────────
 
-function resolveSqlitePath() {
+export function resolveSqlitePath() {
   if (process.env.SYNC_DB_PATH) return process.env.SYNC_DB_PATH;
   const url = process.env.DATABASE_URL ?? "";
   if (url.startsWith("file:")) {
