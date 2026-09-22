@@ -92,8 +92,13 @@ export function createCollabServer({ store, authenticate }) {
           },
         });
         if (hocuspocus.getDocumentsCount() === 0) resolve();
-        hocuspocus.closeConnections();
-        hocuspocus.flushPendingStores();
+        for (const step of [() => hocuspocus.closeConnections(), () => hocuspocus.flushPendingStores()]) {
+          try {
+            step();
+          } catch (err) {
+            console.error("[collab] flush", err);
+          }
+        }
       });
     },
   };
