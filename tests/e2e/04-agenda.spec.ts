@@ -34,10 +34,19 @@ const EVENTS = () => [
   },
   { id: "ev-revue", status: "confirmed", summary: "Revue design", etag: '"1"', start: { dateTime: atHour(0, 10, 30) }, end: { dateTime: atHour(0, 12) } },
   { id: "ev-salon", status: "confirmed", summary: "Salon VivaTech", etag: '"1"', start: { date: dayKey(1) }, end: { date: dayKey(4) } },
+  {
+    id: "ev-tache",
+    status: "confirmed",
+    summary: "Préparer la démo",
+    etag: '"1"',
+    start: { dateTime: atHour(1, 16) },
+    end: { dateTime: atHour(1, 16, 30) },
+    extendedProperties: { private: { supernoteRef: "todo:ancien" } },
+  },
 ];
 
 /** Un compte avec son agenda principal et un agenda de jours fériés en lecture seule. */
-async function withGoogleCalendar(page: Page): Promise<string[]> {
+async function withGoogleCalendar(page: Page, posted: Record<string, unknown>[] = []): Promise<string[]> {
   await bootCloud(page, { googleAccount: ME });
   await page.addInitScript((until) => {
     localStorage.setItem("supernote.calendar.connected", "1");
@@ -58,7 +67,10 @@ async function withGoogleCalendar(page: Page): Promise<string[]> {
       return { items: path.includes("/calendars/primary/") ? EVENTS() : [] };
     }
     const body = (req.postDataJSON() ?? {}) as Record<string, unknown>;
-    if (req.method() === "POST") return { ...body, id: "g-nouveau", status: "confirmed", etag: '"2"' };
+    if (req.method() === "POST") {
+      posted.push(body);
+      return { ...body, id: "g-nouveau", status: "confirmed", etag: '"2"' };
+    }
     if (req.method() === "PATCH") {
       const id = path.split("/events/")[1] ?? "";
       return { ...(EVENTS().find((e) => e.id === id) ?? {}), ...body, id, etag: '"3"' };
@@ -68,6 +80,14 @@ async function withGoogleCalendar(page: Page): Promise<string[]> {
 }
 
 const count = (calls: string[], method: string) => calls.filter((c) => c.startsWith(method)).length;
+
+async function createTodo(page: Page, text: string, mobile = false): Promise<void> {
+  await page.goto("/todos");
+  await page.getByRole("button", { name: mobile ? "Nouvelle tâche" : "Nouvelle", exact: true }).first().click({ timeout: 45_000 });
+  await page.getByPlaceholder("Texte de la tâche").fill(text);
+  await page.getByRole("button", { name: "Créer", exact: true }).click();
+  await expect(page.getByText(text).first()).toBeVisible({ timeout: 20_000 });
+}
 
 test.describe("04 — agenda", () => {
   test("connexion, semaine, réponse, création et déplacement", async ({ page }) => {
@@ -127,6 +147,36 @@ test.describe("04 — agenda", () => {
     await page.getByRole("button", { name: /^Point équipe, / }).click({ timeout: 20_000 });
     await page.getByRole("complementary", { name: "Détail de l'événement" }).getByRole("button", { name: "Note de réunion" }).click();
     await expect.poll(() => page.url().split("?")[0], { timeout: 20_000 }).toBe(noteUrl);
+  });
+
+  test("un todo glissé du tiroir devient un bloc lié", async ({ page }) => {
+    test.setTimeout(120_000);
+    const posted: Record<string, unknown>[] = [];
+    await withGoogleCalendar(page, posted);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await createTodo(page, "Rédiger le compte rendu");
+
+    await page.goto("/agenda");
+    await page.getByRole("button", { name: /Reprendre|Connecter Google Agenda/ }).first().click({ timeout: 45_000 });
+    await page.keyboard.press("j");
+    await page.getByRole("button", { name: "Période suivante" }).click();
+
+    // Un événement Google porteur de supernoteRef s'affiche comme une tâche.
+    const bloc = page.getByRole("button", { name: /^Tâche : Préparer la démo/ });
+    await expect(bloc).toBeVisible({ timeout: 30_000 });
+
+    const drawer = page.getByRole("complementary", { name: "À planifier" });
+    const task = drawer.getByRole("button", { name: "Rédiger le compte rendu" });
+    await task.dragTo(bloc);
+
+    await expect.poll(() => posted.length, { timeout: 15_000 }).toBe(1);
+    expect(posted[0]).toMatchObject({
+      summary: "Rédiger le compte rendu",
+      description: expect.stringContaining("/todos?edit="),
+      extendedProperties: { private: { supernoteRef: expect.stringMatching(/^todo:\S+$/) } },
+    });
+    await expect(task).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /^Tâche : Rédiger le compte rendu/ })).toBeVisible();
   });
 
   test.describe("mobile", () => {

@@ -20,6 +20,7 @@ import {
   syncCalendars,
 } from "@/lib/calendar-sync";
 import { stepAnchor, viewRange, type AgendaView } from "@/lib/agenda/dates";
+import { SLOT_MIN } from "@/lib/agenda/free-slots";
 import { AgendaToolbar } from "@/components/agenda/AgendaToolbar";
 import { AgendaList } from "@/components/agenda/AgendaList";
 import { EventDetail } from "@/components/agenda/EventDetail";
@@ -29,6 +30,8 @@ import { TimeGrid } from "@/components/agenda/TimeGrid";
 import { canEditCalendar } from "@/components/agenda/EventBlock";
 import { overlaySource, useAgendaData, type OverlaySource } from "@/components/agenda/useAgendaData";
 import { useEventWrites, type EventDraft } from "@/components/agenda/useEventWrites";
+import { useSchedulableTasks } from "@/components/agenda/useSchedulableTasks";
+import { TaskDrawer } from "@/components/agenda/TaskDrawer";
 
 const VIEW_KEY = "supernote.agenda.view";
 const SOURCES_KEY = "supernote.agenda.sources";
@@ -80,11 +83,14 @@ export default function AgendaPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editor, setEditor] = useState<EditorState | null>(null);
   const [sources, setSources] = useState(readSources);
+  const [scheduling, setScheduling] = useState<{ task: { ref: string; title: string } | null } | null>(null);
   const reconnectRequired = useSyncExternalStore(subscribeAuth, () => googleReconnectRequired("calendar"), () => false);
 
   const range = useMemo(() => viewRange(view, anchor), [view, anchor]);
   const data = useAgendaData(range);
   const writes = useEventWrites(accountId);
+  const { tasks, openRefs } = useSchedulableTasks();
+  const toPlan = useMemo(() => tasks.filter((t) => !t.block), [tasks]);
   const selected = data.events.find((e) => e.id === selectedId) ?? null;
   const overlays = useMemo(() => data.overlays.filter((o) => sources[overlaySource(o.kind)]), [data.overlays, sources]);
   const toggleSource = (s: OverlaySource) =>
@@ -238,11 +244,27 @@ export default function AgendaPage() {
     void writes.move(ev, startAt, endAt);
   };
 
+  const dropTask = (ref: string, startAt: number) => {
+    const task = tasks.find((t) => t.ref === ref);
+    if (!task) return;
+    // Après un lâcher il n'y a plus de contrôle pour porter l'erreur : toast.
+    writes
+      .scheduleTask({ ref, title: task.title, startAt, endAt: startAt + SLOT_MIN * 60_000 })
+      .catch((err: unknown) =>
+        toast({
+          title: "Planification impossible",
+          description: err instanceof Error ? err.message : String(err),
+          variant: "danger",
+        }),
+      );
+  };
+
   const gridProps = {
     days: range.days,
     events: data.events,
     calendars: data.calendars,
     overlays,
+    openTaskRefs: openRefs,
     onSelectEvent: (ev: CalEventRow) => setSelectedId(ev.id),
     onCreateAt: (startAt: number, endAt: number, allDay: boolean) => openCreate(startAt, endAt, allDay),
   };
@@ -288,7 +310,7 @@ export default function AgendaPage() {
     ) : view === "list" ? (
       <AgendaList {...gridProps} />
     ) : (
-      <TimeGrid {...gridProps} interactive={!isMobile} onMoveEvent={move} />
+      <TimeGrid {...gridProps} interactive={!isMobile} onMoveEvent={move} onDropTask={isMobile ? undefined : dropTask} />
     );
 
   const detail = selected && (
@@ -299,6 +321,10 @@ export default function AgendaPage() {
       onEdit={() => setEditor({ mode: "edit", event: selected })}
       onDelete={() => void remove(selected)}
       onRsvp={(r) => void writes.rsvp(selected, r)}
+      onUnschedule={() => {
+        void writes.remove(selected);
+        setSelectedId(null);
+      }}
     />
   );
 
@@ -327,6 +353,9 @@ export default function AgendaPage() {
               <div className="flex min-h-0 min-w-0 flex-1 flex-col" {...swipeHandlers}>
                 {gridView}
               </div>
+              {!isMobile && (view === "day" || view === "week") && (
+                <TaskDrawer tasks={toPlan} onPick={(t) => setScheduling({ task: { ref: t.ref, title: t.title } })} />
+              )}
               {!isMobile && detail && (
                 <aside
                   className="w-[340px] shrink-0 overflow-y-auto border-l"
