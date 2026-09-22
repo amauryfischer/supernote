@@ -44,7 +44,7 @@ Conséquence directe : le worker est un **pass-through**. Ajouter une propriét�
 
 ## Miroir Google Agenda
 
-Tables `cal_*`, locales à l'appareil comme le miroir mail (hors op-log). Routes dans un module à part, `lib/vault-worker/calendar-routes.ts`, branché par `buildCalendarRoutes` dans la map de `worker-router.ts` ; les helpers SQL partagés (`row`, `rows`, `runInTransaction`) vivent dans `lib/vault-worker/sql.ts`. `calendar.listEvents` rejoint `entity` pour renvoyer la note de réunion liée (`fields.gcalEventId`), seul lien qui voyage entre appareils. Une écriture en file (`cal_outbox`, id provisoire `local-…`) survit à une synchro complète ; son acquittement remplace l'id provisoire et rafraîchit l'etag des ops suivantes du même événement (sinon 412). `calendar.overlay` lit les todos datés et les champs `date` de toutes les bases.
+Tables `cal_*`, locales à l'appareil comme le miroir mail (hors op-log). Routes dans un module à part, `lib/vault-worker/calendar-routes.ts`, branché par `buildCalendarRoutes` dans la map de `worker-router.ts` ; les helpers SQL partagés (`row`, `rows`, `runInTransaction`) vivent dans `lib/vault-worker/sql.ts`. `calendar.listEvents` rejoint `entity` pour renvoyer la note de réunion liée (`fields.gcalEventId`), seul lien qui voyage entre appareils. Une écriture en file (`cal_outbox`, id provisoire `local-…`) survit à une synchro complète ; son acquittement remplace l'id provisoire et rafraîchit l'etag des ops suivantes du même événement (sinon 412). `calendar.overlay` lit les todos datés et les champs `date` de toutes les bases. `cal_event.sourceRef` (migration `ALTER TABLE` dans `worker.ts`) recopie `extendedProperties.private.supernoteRef` : la référence de la tâche qu'un bloc planifie (voir [communication.md](communication.md)).
 
 ## Modèles de notes : des entités, pas la table `template`
 
@@ -79,5 +79,7 @@ En mode dossier local, la base est aussi miroitée vers `.supernote/index.db` da
 `apps/web/sync-store.mjs`, monté seulement si `DATABASE_URL` est défini : SQLite (`better-sqlite3`, URL `file:`) en dev, PostgreSQL en prod Scalingo. Trois tables par moteur : l'op-log (`op` / `sync_op`, dernière op par `(vault, entité)` conservée à la compaction), une table clé-valeur de méta (`meta` / `sync_meta`) et les pièces jointes des notes (`blob` / `sync_blob`, clé `(vault, path)`, créée au démarrage, jamais purgée).
 
 La méta porte l'`epoch` et les **mots de passe de salon** sous la clé `pw:<nom>`, valeur `sel:hash` en hex (`scrypt`). `claimVaultPassword` insère sans écraser (`INSERT OR IGNORE` / `ON CONFLICT DO NOTHING`), ce qui arbitre deux revendications simultanées. Il n'y a pas de table des salons : un salon existe dès sa première op, et il est « protégé » dès qu'une clé `pw:` le nomme.
+
+`apps/web/push-store.mjs`, même double moteur, ajoute `push_subscription` (clé `endpoint`, salon, appareil, clés de chiffrement) et `push_schedule` (échéances à venir par salon, catégorie, appareil, index unique `(vault, key, fireat)`, `sentat` posé à la réservation, lignes envoyées purgées au bout de 7 jours). Le texte des notifications, objets de mail compris, y est en clair jusqu'à la purge.
 
 Voir aussi : [communication.md](communication.md), [architecture.md](architecture.md).
