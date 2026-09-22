@@ -32,6 +32,9 @@ pnpm-debug.log*
 # Dev online-sync SQLite (DATABASE_URL=file:./sync-dev.db)
 apps/web/sync-dev.db*
 
+# Base e2e du partage (DATABASE_URL=file:./e2e-share.db, playwright.config.ts)
+apps/web/e2e-share.db*
+
 # Claude Code local runtime
 .claude/scheduled_tasks.lock
 

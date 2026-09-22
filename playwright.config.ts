@@ -26,6 +26,7 @@ export default defineConfig({
     url: BASE_URL,
     reuseExistingServer: !process.env["CI"],
     timeout: 180_000,
+    env: { DATABASE_URL: "file:./e2e-share.db" },
   },
 
   outputDir: path.join(__dirname, "tests/e2e/results"),

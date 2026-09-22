@@ -87,3 +87,52 @@ export async function mockGoogleApis(
   });
   return calls;
 }
+
+const BODY =
+  "Bonjour,\n\nVoici le compte rendu de la réunion de ce matin.\n- budget validé\n- planning décalé\n\nAlice";
+
+export const MESSAGE = {
+  id: "m1",
+  threadId: "t1",
+  labelIds: ["INBOX", "UNREAD"],
+  snippet: "Voici le compte rendu",
+  internalDate: String(Date.now() - 3_600_000),
+  historyId: "10",
+  payload: {
+    mimeType: "text/plain",
+    headers: [
+      { name: "From", value: "Alice Dupont <alice@exemple.fr>" },
+      { name: "To", value: "moi@exemple.fr" },
+      { name: "Subject", value: "Compte rendu réunion" },
+      { name: "Date", value: new Date().toUTCString() },
+      { name: "Message-ID", value: "<m1@exemple.fr>" },
+    ],
+    body: { size: BODY.length, data: Buffer.from(BODY, "utf8").toString("base64url") },
+  },
+};
+
+/** Boîte Gmail d'un seul fil ; Agenda et Drive vides. */
+export async function withInbox(page: Page): Promise<void> {
+  await bootCloud(page, { googleAccount: "moi@exemple.fr" });
+  await page.route("https://gmail.googleapis.com/**", (route) => {
+    const path = new URL(route.request().url()).pathname.replace("/gmail/v1/users/me", "");
+    if (path === "/threads") return route.fulfill({ json: { threads: [{ id: "t1", snippet: MESSAGE.snippet }] } });
+    if (path.startsWith("/threads/")) return route.fulfill({ json: { id: "t1", historyId: "10", messages: [MESSAGE] } });
+    if (path.startsWith("/messages/")) return route.fulfill({ json: MESSAGE });
+    if (path === "/profile") return route.fulfill({ json: { emailAddress: "moi@exemple.fr", historyId: "10" } });
+    if (path.startsWith("/labels/")) return route.fulfill({ json: { id: "INBOX", threadsTotal: 1, threadsUnread: 1 } });
+    if (path === "/labels") return route.fulfill({ json: { labels: [] } });
+    return route.fulfill({ json: {} });
+  });
+  await page.route("https://www.googleapis.com/**", (route) => route.fulfill({ json: { items: [] } }));
+}
+
+/** Crée une note dans un coffre cloud neuf, lui donne un titre, attend l'éditeur prêt. */
+export async function openNewNote(page: Page, title: string): Promise<void> {
+  await bootCloud(page);
+  await page.goto("/notes");
+  // Correspondance partielle : "Nouvelle note" matche aussi "Nouvelle note depuis un modèle" du TopBar.
+  await page.getByRole("button", { name: "Nouvelle note", exact: true }).first().click();
+  await page.locator(".bn-editor").first().waitFor();
+  await page.getByLabel("Titre de la note").fill(title);
+}
