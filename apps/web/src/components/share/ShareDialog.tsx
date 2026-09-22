@@ -111,9 +111,21 @@ export function ShareDialog({ isOpen, onClose, kind, title, owned, onStart, onSt
     }
   }, []);
 
+  // Course avec l'ajout optimiste de `create()` : chaque fetch capture le compteur
+  // au lancement et n'applique son résultat que s'il est toujours le dernier.
+  const fetchIdRef = useRef(0);
+
   useEffect(() => {
     if (!isOpen || !owned) return setLinks([]);
-    void guard(() => listShareLinks(owned)).then(setLinks, () => setLinks([]));
+    const id = ++fetchIdRef.current;
+    void guard(() => listShareLinks(owned)).then(
+      (fetched) => {
+        if (fetchIdRef.current === id) setLinks(fetched);
+      },
+      () => {
+        if (fetchIdRef.current === id) setLinks([]);
+      },
+    );
   }, [isOpen, owned, guard]);
 
   const expiresAt = (): number | null => {
@@ -133,7 +145,8 @@ export function ShareDialog({ isOpen, onClose, kind, title, owned, onStart, onSt
           label: label.trim() || undefined,
         }),
       );
-      setLinks((prev) => [...prev, link]);
+      fetchIdRef.current++;
+      setLinks((prev) => (prev.some((l) => l.slug === link.slug) ? prev : [...prev, link]));
       setPassword("");
       setLabel("");
     });
@@ -175,7 +188,7 @@ export function ShareDialog({ isOpen, onClose, kind, title, owned, onStart, onSt
         {kind === "note" && (
           <div className="flex gap-1" role="group" aria-label="Droits">
             {(["read", "write"] as const).map((m) => (
-              <Button key={m} size="sm" variant={mode === m ? "primary" : "ghost"} aria-pressed={mode === m} onPress={() => setMode(m)}>
+              <Button key={m} size="sm" className="h-8" variant={mode === m ? "primary" : "ghost"} aria-pressed={mode === m} onPress={() => setMode(m)}>
                 {m === "read" ? "Lecture" : "Écriture"}
               </Button>
             ))}
@@ -197,7 +210,7 @@ export function ShareDialog({ isOpen, onClose, kind, title, owned, onStart, onSt
         )}
         <div className="flex flex-wrap gap-1" role="group" aria-label="Durée">
           {DURATIONS.map((d) => (
-            <Button key={d.id} size="sm" variant={duration === d.id ? "primary" : "ghost"} aria-pressed={duration === d.id} onPress={() => setDuration(d.id)}>
+            <Button key={d.id} size="sm" className="h-8" variant={duration === d.id ? "primary" : "ghost"} aria-pressed={duration === d.id} onPress={() => setDuration(d.id)}>
               {d.label}
             </Button>
           ))}
