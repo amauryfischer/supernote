@@ -39,33 +39,17 @@
  * `ADMIN_TOKEN`). Sans `ADMIN_TOKEN`, la route n'existe pas.
  */
 
-import { createHash, randomBytes, scrypt, timingSafeEqual } from "node:crypto";
-import { promisify } from "node:util";
+import { createHash, timingSafeEqual } from "node:crypto";
 import { createSyncStore } from "./sync-store.mjs";
+import { hashPassword, verifyPassword, createPasswordChecker } from "./password.mjs";
 
 const HEARTBEAT_MS = 25_000;
 const REPLAY_BATCH = 500;
 const COMPACT_GRACE_MS = 7 * 24 * 60 * 60 * 1000;
 const COMPACT_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const MIN_PASSWORD_LENGTH = 8;
-const MAX_FAILED_ATTEMPTS = 10;
-const LOCKOUT_MS = 15 * 60 * 1000;
 
-const scryptAsync = promisify(scrypt);
 const sha256 = (s) => createHash("sha256").update(s).digest();
-
-async function hashPassword(password) {
-  const salt = randomBytes(16);
-  const hash = await scryptAsync(password, salt, 32);
-  return `${salt.toString("hex")}:${hash.toString("hex")}`;
-}
-
-async function verifyPassword(password, record) {
-  const [saltHex, hashHex] = record.split(":");
-  const expected = Buffer.from(hashHex, "hex");
-  const actual = await scryptAsync(password, Buffer.from(saltHex, "hex"), expected.length);
-  return timingSafeEqual(actual, expected);
-}
 
 /**
  * Build the sync backend. Returns `{ enabled, handle }`.
@@ -173,35 +157,10 @@ export async function createSyncBackend() {
     for (const key of verifiedSecrets) if (key.startsWith(`${vault}\0`)) verifiedSecrets.delete(key);
   }
 
-  // ponytail: compteur en mémoire, par conteneur et remis à zéro au redémarrage ;
-  // passer par le store si l'app tourne un jour sur plusieurs conteneurs.
-  const failures = new Map();
+  const checkPassword = createPasswordChecker();
 
-  // Dernier saut de X-Forwarded-For : ajouté par le routeur, le client ne peut pas le falsifier.
-  function clientIp(req) {
-    const hops = String(req.headers["x-forwarded-for"] ?? "").split(",").map((h) => h.trim()).filter(Boolean);
-    return hops.at(-1) || req.socket?.remoteAddress || "";
-  }
-
-  // "ok" | "wrong" | "locked" : après MAX_FAILED_ATTEMPTS échecs d'une même adresse sur
-  // un salon, plus aucune vérification jusqu'à LOCKOUT_MS après le premier échec.
   async function checkVaultPassword(req, vault, provided, record) {
-    const key = `${vault}\0${clientIp(req)}`;
-    const now = Date.now();
-    const entry = failures.get(key);
-    if (entry && now - entry.since > LOCKOUT_MS) failures.delete(key);
-    else if (entry && entry.count >= MAX_FAILED_ATTEMPTS) return "locked";
-    if (await verifyPassword(provided, record)) {
-      failures.delete(key);
-      return "ok";
-    }
-    const current = failures.get(key);
-    if (current) current.count += 1;
-    else failures.set(key, { count: 1, since: now });
-    if (failures.size > 10_000) {
-      for (const [k, v] of failures) if (now - v.since > LOCKOUT_MS) failures.delete(k);
-    }
-    return "wrong";
+    return checkPassword(vault, req, provided, record);
   }
 
   async function vaultAuthed(req, url, vault) {
