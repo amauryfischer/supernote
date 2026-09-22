@@ -1,11 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, forwardRef, useImperativeHandle, type ReactNode } from "react";
-import { ArrowSquareOut, Plus, X, Tag, MagnifyingGlass, Check, PaperPlaneTilt, Quotes, Paperclip, Star, Envelope, ArrowBendUpRight, Sparkle, MagicWand, ArrowsClockwise, CaretUp, DotsThreeVertical, Copy, Image as ImageIcon, SpeakerSlash, UserMinus, UserPlus, WarningCircle } from "@phosphor-icons/react";
+import { ArrowSquareOut, Plus, X, Tag, MagnifyingGlass, Check, PaperPlaneTilt, Quotes, Paperclip, Star, Envelope, ArrowBendUpRight, Sparkle, MagicWand, ArrowsClockwise, CaretUp, DotsThreeVertical, Copy, Image as ImageIcon, SpeakerSlash, UserMinus, UserPlus, WarningCircle, ShareNetwork } from "@phosphor-icons/react";
 import { Button, Chip, Input, Spinner, Popover } from "@heroui/react";
 import { useToast, Tooltip } from "@supernote/ui";
 import { useActionFeedback, FeedbackIcon } from "@/lib/action-feedback";
 import { useSettings } from "@/components/settings/SettingsContext";
+import { ShareDialog } from "@/components/share/ShareDialog";
+import { createShareResource, deleteShareResource, shareBackendEnabled, type OwnedShare } from "@/lib/share/shareApi";
+import { emailSnapshot, getEmailShare, setEmailShare } from "@/lib/share/emailShares";
 import {
   listLabels,
   resolveUserLabels,
@@ -247,6 +250,20 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
   const [pickerOpen, setPickerOpen] = useState(false);
   // Ouverture du menu overflow « Plus » (actions secondaires regroupées).
   const [moreOpen, setMoreOpen] = useState(false);
+  const shareAccount = selfEmail || settings.gmail.connectedEmail;
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shareEnabled, setShareEnabled] = useState(false);
+  const [emailShare, setEmailShareState] = useState<OwnedShare | null>(null);
+  useEffect(() => {
+    void shareBackendEnabled().then(setShareEnabled);
+  }, []);
+  useEffect(() => {
+    setEmailShareState(shareAccount ? getEmailShare(shareAccount, thread.id) : null);
+  }, [shareAccount, thread.id]);
+  const rememberEmailShare = (share: OwnedShare | null) => {
+    setEmailShare(shareAccount, thread.id, share);
+    setEmailShareState(share);
+  };
   const [contactOpen, setContactOpen] = useState(false);
   const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
   // Éditeur de couleur d'un label appliqué : id du label ciblé + ancre du badge.
@@ -1094,6 +1111,20 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
                           <span>Transférer</span>
                         </Button>
                       )}
+                      {shareEnabled && shareAccount && (
+                        <Button
+                          variant="ghost"
+                          className={MENU_ROW}
+                          aria-label="Partager par lien"
+                          onPress={() => {
+                            setMoreOpen(false);
+                            setShareOpen(true);
+                          }}
+                        >
+                          <ShareNetwork size={16} />
+                          <span>Partager par lien</span>
+                        </Button>
+                      )}
                       {clientId && (
                         <Button
                           variant="ghost"
@@ -1165,6 +1196,27 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
               </span>
             )}
           </div>
+        )}
+        {!embedded && (
+          <ShareDialog
+            isOpen={shareOpen}
+            onClose={() => setShareOpen(false)}
+            kind="email"
+            title={subject ?? ""}
+            owned={emailShare}
+            onStart={async () => {
+              const share = await createShareResource("email", subject ?? "", emailSnapshot(thread));
+              rememberEmailShare(share);
+              return share;
+            }}
+            onStop={async () => {
+              if (emailShare) await deleteShareResource(emailShare);
+              rememberEmailShare(null);
+              setShareOpen(false);
+            }}
+            onGone={() => rememberEmailShare(null)}
+            note="Le fil est publié tel qu'il est maintenant, sans pièces jointes. Les réponses suivantes n'y apparaîtront pas."
+          />
         )}
         <div className="flex flex-wrap items-center gap-1.5">
           {current.map((l) => (
