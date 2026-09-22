@@ -1266,6 +1266,10 @@ export function buildGmailDraftUrl(draftId: string): string {
   return `https://mail.google.com/mail/u/0/#drafts?compose=${encodeURIComponent(draftId)}`;
 }
 
+export function buildGmailThreadUrl(threadId: string): string {
+  return `https://mail.google.com/mail/u/0/#all/${threadId}`;
+}
+
 /**
  * Envoie un message (réponse) DANS un thread via `messages.send`. Scope
  * `gmail.compose` (qui autorise l'envoi). ⚠️ IRRÉVERSIBLE : le mail part

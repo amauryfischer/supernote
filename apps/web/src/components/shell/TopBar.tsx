@@ -21,6 +21,7 @@ import { GitSyncIndicator } from "@/lib/git/GitSyncIndicator";
 import { OnlineSyncIndicator } from "@/lib/online-sync/OnlineSyncIndicator";
 import { AiStatusIndicator } from "./AiStatusIndicator";
 import { InboxSortJournalButton } from "@/lib/ai/InboxSortJournalEntry";
+import { MailSyncAge } from "@/components/mail/MailSyncAge";
 
 // ── Route label map for static segments ──────────────────────────────────────
 
@@ -147,16 +148,19 @@ const Breadcrumb = memo(function Breadcrumb() {
   if (segments.length === 0) return null;
 
   return (
-    <nav aria-label="Fil d'Ariane" className="flex items-center gap-1">
-      {segments.map((seg, i) => (
-        <span key={seg.href ?? seg.label} className="flex items-center gap-1">
-          {i > 0 && (
-            <CaretRight size={11} style={{ color: "var(--text-muted)", flexShrink: 0 }} />
-          )}
-          <BreadcrumbSegmentItem segment={seg} isLast={i === segments.length - 1} />
-        </span>
-      ))}
-    </nav>
+    <>
+      <nav aria-label="Fil d'Ariane" className="flex items-center gap-1">
+        {segments.map((seg, i) => (
+          <span key={seg.href ?? seg.label} className="flex items-center gap-1">
+            {i > 0 && (
+              <CaretRight size={11} style={{ color: "var(--text-muted)", flexShrink: 0 }} />
+            )}
+            <BreadcrumbSegmentItem segment={seg} isLast={i === segments.length - 1} />
+          </span>
+        ))}
+      </nav>
+      {segments[0]?.href === "/mail" && <MailSyncAge />}
+    </>
   );
 });
 

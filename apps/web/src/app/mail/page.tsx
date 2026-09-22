@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Button, Input, Spinner, Checkbox } from "@heroui/react";
-import { EmptyState, Skeleton } from "@supernote/ui";
+import { Badge, EmptyState, Skeleton } from "@supernote/ui";
 import {
   FilePlus,
   Database,
@@ -27,6 +27,7 @@ import {
 } from "@phosphor-icons/react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useSettings } from "@/components/settings/SettingsContext";
+import { useMailSyncAge } from "@/components/mail/MailSyncAge";
 import { AppShell, MobileSheet, useMobileTitle, useMobileFab, useMobileHeaderActions, useMobileBack } from "@/components/shell";
 import { TodayPanel } from "@/components/agenda/TodayPanel";
 import { useIsMobile } from "@/hooks/useIsMobile";
@@ -202,7 +203,8 @@ export default function MailPage() {
       }
       return !open;
     });
-  useMobileTitle(isMobile ? "Mail" : null);
+  const syncAge = useMailSyncAge();
+  useMobileTitle(isMobile ? "Mail" : null, isMobile ? syncAge : null);
 
   const clientId = settings.googleDrive.clientId.trim();
   // Compte Gmail connecté = clé de scoping du mirror local (mail_* tables).
@@ -2004,15 +2006,25 @@ export default function MailPage() {
       </div>
     ) : null;
 
-  // Bandeau d'onglets « Inbox » / « Todo » / [groupes].
-  const tabs: { id: string; label: string; count?: number }[] = [
-    { id: "inbox", label: "Inbox" },
-    { id: "todo", label: "Todo", count: todoCards.length || undefined },
-    ...groups.map((g) => ({
-      id: groupTabKey(g.id),
-      label: g.name,
-      count: filterGroupItems(cumItems, g).length || undefined,
-    })),
+  const unreadOf = (items: readonly { labelIds: string[] }[]) =>
+    items.filter((it) => it.labelIds.includes("UNREAD")).length;
+  const tabs: { id: string; label: string; count?: number; unread: number }[] = [
+    { id: "inbox", label: "Inbox", unread: unreadOf(filterInboxItems(cumItems, groups)) },
+    {
+      id: "todo",
+      label: "Todo",
+      count: todoCards.length || undefined,
+      unread: unreadOf(todoCards.map((c) => c.item)),
+    },
+    ...groups.map((g) => {
+      const items = filterGroupItems(cumItems, g);
+      return {
+        id: groupTabKey(g.id),
+        label: g.name,
+        count: items.length || undefined,
+        unread: unreadOf(items),
+      };
+    }),
   ];
   const tabStrip = (
     <div
@@ -2047,6 +2059,16 @@ export default function MailPage() {
             >
               {t.label}
               {t.count ? ` · ${t.count}` : ""}
+              {t.unread > 0 && (
+                <Badge
+                  size="sm"
+                  className="min-w-[1.125rem] justify-center tabular-nums"
+                  style={{ background: "var(--accent)", color: "var(--accent-foreground)" }}
+                >
+                  {t.unread}
+                  <span className="sr-only"> non lus</span>
+                </Badge>
+              )}
             </Button>
           );
         })}

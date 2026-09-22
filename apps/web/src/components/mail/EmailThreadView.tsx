@@ -14,6 +14,7 @@ import {
   updateLabel,
   createDraft,
   buildGmailDraftUrl,
+  buildGmailThreadUrl,
   classifyBubble,
   downloadAttachment,
   formatBytes,
@@ -87,6 +88,7 @@ import {
 } from "@/lib/mail-eisenhower";
 import { QuickRepliesRow } from "./QuickRepliesRow";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { useKeyboardViewport } from "@/hooks/useKeyboardOpen";
 import { useMailQuickRepliesChrome } from "@/components/shell/shell-chrome-context";
 import {
   isAiConfigured,
@@ -347,6 +349,16 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
   // brouillons IA sont gérés par le parent (colonne dédiée) → `loadDraft` y
   // injecte le texte choisi.
   const replyTaRef = useRef<HTMLTextAreaElement>(null);
+  const isMobile = useIsMobile();
+  // Mobile, clavier ouvert depuis la réponse : le composeur couvre la zone visible
+  // au-dessus du clavier, jusqu'à ce qu'il se referme (pas au blur : un tap sur
+  // « Envoyer » déplacerait le bouton sous le doigt avant le relâchement).
+  const replyKeyboard = useKeyboardViewport(isMobile && !embedded);
+  const [replyEngaged, setReplyEngaged] = useState(false);
+  useEffect(() => {
+    if (!replyKeyboard) setReplyEngaged(false);
+  }, [replyKeyboard]);
+  const replyOverlay = replyEngaged ? replyKeyboard : null;
   // ─── IA locale (Ollama) : résumé du fil + brouillon de réponse ─────────────
   // États dédiés ; resynchronisés au changement de fil (le résumé d'un fil ne
   // doit pas « fuiter » sur le suivant).
@@ -412,8 +424,9 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
     const ta = replyTaRef.current;
     if (!ta) return;
     ta.style.height = "auto";
+    if (replyOverlay) return;
     ta.style.height = `${Math.min(ta.scrollHeight, 260)}px`;
-  }, [replyBody]);
+  }, [replyBody, replyOverlay]);
 
   // Gate d'affichage des features IA : visibles seulement si un modèle Ollama
   // est configuré dans les réglages. Réactif au modèle des réglages.
@@ -456,7 +469,6 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [thread.id, embedded, aiConfigured, clientId, quickDismissed, lastFromMe]);
 
-  const isMobile = useIsMobile();
   const composerCompact =
     isMobile && !replyOpen && !replyBody.trim() && replyAttachments.length === 0;
   const quickRepliesShown =
@@ -920,13 +932,13 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
               <span />
             )}
           </div>
-          {/* Boutons DIRECTS : Étoile (à gauche du sujet), Todo + TriageBar.
+          {/* Boutons DIRECTS : Étoile (à gauche du sujet), Todo, TriageBar, Gmail.
               Toutes les actions SECONDAIRES sont regroupées dans le menu « Plus »
               (kebab) ci-dessous — masqué en mode embed. On garde un Popover (et
               non DropdownMenu items) car 4 actions sont des composants
               self-contained à overlay propre : on les déplace tels quels. */}
           <div
-            className={`flex shrink-0 items-center gap-1.5 md:justify-end${
+            className={`flex shrink-0 items-center justify-end gap-1.5${
               embedded ? "" : " max-md:sticky max-md:top-0 max-md:z-10 max-md:-mx-4 max-md:border-b max-md:px-4 max-md:py-1"
             }`}
             style={
@@ -948,6 +960,20 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
             )}
             {clientId && (
               <TriageBar clientId={clientId} threadId={thread.id} onTriaged={onTriaged} onTriage={onTriage} />
+            )}
+            {!embedded && (
+              <Tooltip content="Ouvrir dans Gmail">
+                <Button
+                  isIconOnly
+                  variant="ghost"
+                  size="sm"
+                  onPress={() => window.open(buildGmailThreadUrl(thread.id), "_blank", "noopener")}
+                  aria-label="Ouvrir le fil dans Gmail"
+                  className="h-9"
+                >
+                  <ArrowSquareOut size={18} aria-hidden />
+                </Button>
+              </Tooltip>
             )}
             {!embedded && (
               <Popover isOpen={moreOpen} onOpenChange={setMoreOpen}>
@@ -1294,8 +1320,12 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
 
       {!embedded && clientId && replyParams.to && (
         <div
-          className="sticky bottom-0 mt-1 border-t px-1 pb-2 pt-2"
-          style={{ background: "var(--surface-1)", borderColor: "var(--border-subtle)" }}
+          className={
+            replyOverlay
+              ? "fixed inset-x-0 z-[var(--z-sticky)] flex flex-col border-t px-4 pb-2 pt-[calc(env(safe-area-inset-top)+0.5rem)]"
+              : "sticky bottom-0 mt-1 border-t px-1 pb-2 pt-2"
+          }
+          style={{ background: "var(--surface-1)", borderColor: "var(--border-subtle)", ...replyOverlay }}
         >
           {quickRepliesShown && composerCompact && (
             <QuickRepliesRow {...quickRepliesConfig} className="mb-1.5" />
@@ -1320,12 +1350,13 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
           {/* textarea natif justifié : composeur inline (envoi ⌘/Ctrl+↵).
               Auto-resize (cf. effet) → grandit avec le contenu, `min-height` =
               base confortable (~3 lignes) pour qu'on voie ce qu'on écrit. */}
-          <div className="relative">
+          <div className={replyOverlay ? "relative flex min-h-0 flex-1 flex-col" : "relative"}>
             {snippets.open && (
               <SnippetPopup
                 matches={snippets.matches}
                 index={snippets.index}
                 onPick={snippets.accept}
+                placement={replyOverlay ? "bottom-2 left-2" : undefined}
               />
             )}
           <textarea
@@ -1345,7 +1376,11 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
             }}
             onKeyUp={snippets.refresh}
             onClick={snippets.refresh}
-            onFocus={() => setReplyOpen(true)}
+            onFocus={() => {
+              setReplyOpen(true);
+              setReplyEngaged(true);
+            }}
+            onPointerDown={() => setReplyEngaged(true)}
             onBlur={snippets.close}
             onPaste={(e) => {
               // Coller une capture d'écran l'insère DANS la réponse.
@@ -1371,10 +1406,10 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
               }
             }}
             placeholder={`Répondre à ${replyParams.to}…`}
-            className="w-full resize-none overflow-y-auto rounded-lg border px-3 py-2 text-sm outline-none"
+            className={`w-full resize-none overflow-y-auto rounded-lg border px-3 py-2 text-sm outline-none${replyOverlay ? " flex-1" : ""}`}
             style={{
               minHeight: composerCompact ? "2.5rem" : "4.75rem",
-              maxHeight: "260px",
+              maxHeight: replyOverlay ? undefined : "260px",
               borderColor: "var(--border-subtle)",
               background: "var(--surface-0, var(--background))",
               color: "var(--text-primary)",
@@ -2068,17 +2103,6 @@ function MessageBubble({
           </Collapsible>
         )}
 
-        {message.webLink && (
-          <a
-            href={message.webLink}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-2 inline-flex items-center gap-1 text-xs"
-            style={{ color: "var(--accent)", textDecoration: "none" }}
-          >
-            Ouvrir dans Gmail <ArrowSquareOut size={12} />
-          </a>
-        )}
         {forwardNotes && forwardNotes.length > 0 && (
           <div className="mt-1.5 flex flex-wrap gap-1">
             {forwardNotes.map((note) => (

@@ -205,16 +205,16 @@ export function EventDetail({ event, calendars, onClose, onEdit, onDelete, onRsv
             Modifier
           </Button>
         )}
-        {editable && (
-          <Button variant="ghost" size="sm" onPress={onDelete}>
-            <Trash size={14} aria-hidden />
-            Supprimer
-          </Button>
-        )}
         {event.htmlLink && (
           <Button variant="ghost" size="sm" onPress={() => window.open(event.htmlLink, "_blank", "noopener")}>
             <ArrowSquareOut size={14} aria-hidden />
             Ouvrir dans Google Agenda
+          </Button>
+        )}
+        {editable && (
+          <Button variant="ghost" size="sm" onPress={onDelete} className="ml-auto">
+            <Trash size={14} aria-hidden />
+            Supprimer
           </Button>
         )}
       </div>

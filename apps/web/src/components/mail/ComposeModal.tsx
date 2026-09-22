@@ -24,6 +24,7 @@ import {
   WarningCircle,
 } from "@phosphor-icons/react";
 import { useActionFeedback, FeedbackIcon } from "@/lib/action-feedback";
+import { useKeyboardOpen } from "@/hooks/useKeyboardOpen";
 import { applyTemplate, type MailTemplate } from "@/lib/mail-templates";
 import { dedupeEmails, parseRecipientInput } from "@/lib/mail-recipients";
 import { useCreateDraft } from "@/components/notes/useCreateDraft";
@@ -110,6 +111,8 @@ export function ComposeModal({
   const [orgOpen, setOrgOpen] = useState(false);
   const toFieldId = useId();
   const subjectFieldId = useId();
+  // Clavier ouvert, la zone de geste iOS est sous le clavier : sa marge serait perdue.
+  const keyboardOpen = useKeyboardOpen();
 
   // Ouverture : on restaure le brouillon auto-sauvegardé s'il y en a un et que
   // l'appelant n'impose pas de contenu (transfert, modèle…). Sinon champs
@@ -321,7 +324,7 @@ export function ComposeModal({
   };
 
   const fieldRow =
-    "flex gap-3 border-b border-[var(--border-subtle)] py-2 transition-colors focus-within:border-[var(--border-focus)]";
+    "flex gap-3 border-b border-[var(--border-subtle)] py-1 md:py-2 transition-colors focus-within:border-[var(--border-focus)]";
   const fieldLabel = "w-12 shrink-0 text-sm text-[var(--text-muted)]";
   const bareInput =
     "h-8 rounded-none border-0 bg-transparent px-0 py-0 shadow-none focus:border-0 focus:ring-0 focus-visible:outline-none! [&::-webkit-calendar-picker-indicator]:opacity-0!";
@@ -335,7 +338,8 @@ export function ComposeModal({
         }}
       >
         <ModalBackdrop isDismissable={false} className="fixed inset-0 z-[var(--z-overlay)]">
-          <ModalContainer size="full" className="fixed inset-0 z-[var(--z-modal)] flex h-dvh w-full p-0">
+          {/* ⚠️ pas de h-dvh sous md : dvh ignore le clavier virtuel, la hauteur native HeroUI (--visual-viewport-height) le suit. */}
+          <ModalContainer size="full" className="fixed inset-0 z-[var(--z-modal)] flex w-full p-0 md:h-dvh">
             <ModalDialog className="flex h-full w-full max-w-none flex-col rounded-none border-0 bg-[var(--surface-1)] p-0 text-[var(--text-primary)] shadow-none">
               <header className="box-content flex h-14 shrink-0 items-center gap-1.5 border-b border-[var(--border-subtle)] px-2 pt-[env(safe-area-inset-top)] md:px-4">
                 <Tooltip content="Fermer (Échap)">
@@ -485,7 +489,7 @@ export function ComposeModal({
                     </div>
                   </div>
 
-                  <div className="relative flex min-h-64 flex-1 flex-col py-5 [&>div]:flex-1">
+                  <div className="relative flex min-h-40 flex-1 flex-col py-3 md:min-h-64 md:py-5 [&>div]:flex-1">
                     {snippets.open && (
                       <SnippetPopup matches={snippets.matches} index={snippets.index} onPick={snippets.accept} />
                     )}
@@ -542,7 +546,9 @@ export function ComposeModal({
                 </div>
               </div>
 
-              <footer className="shrink-0 border-t border-[var(--border-subtle)] pb-[env(safe-area-inset-bottom)]">
+              <footer
+                className={`shrink-0 border-t border-[var(--border-subtle)] ${keyboardOpen ? "" : "pb-[env(safe-area-inset-bottom)]"}`}
+              >
                 <div className="mx-auto flex h-12 w-full max-w-3xl items-center gap-0.5 overflow-x-auto px-2 md:px-6">
                   <div className="shrink-0">
                     <ComposerToolbar

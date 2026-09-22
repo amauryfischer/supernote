@@ -23,6 +23,7 @@ import { useState } from "react";
 import { Button, Tooltip } from "@supernote/ui";
 import Link from "next/link";
 import { useGitSync } from "./GitSyncProvider";
+import { formatAgo } from "@/lib/dateFormat";
 
 /** Libellé d'état, partagé avec la carte « État » du drawer mobile. */
 export function gitSyncLabel(sync: {
@@ -35,7 +36,7 @@ export function gitSyncLabel(sync: {
       return "Synchronisation en cours…";
     case "ok":
       return sync.lastSyncAt
-        ? `Synchronisé · ${formatRelative(sync.lastSyncAt)}`
+        ? `Synchronisé · ${formatAgo(Date.parse(sync.lastSyncAt))}`
         : "Synchronisé";
     case "idle":
       return "En attente";
@@ -215,18 +216,4 @@ export function GitSyncIndicator({ size = "sm" }: { size?: "sm" | "md" }) {
       )}
     </div>
   );
-}
-
-function formatRelative(iso: string): string {
-  const t = new Date(iso).getTime();
-  if (!Number.isFinite(t)) return iso;
-  const delta = Date.now() - t;
-  const s = Math.round(delta / 1000);
-  if (s < 60) return "à l'instant";
-  const m = Math.round(s / 60);
-  if (m < 60) return `il y a ${m} min`;
-  const h = Math.round(m / 60);
-  if (h < 24) return `il y a ${h} h`;
-  const d = Math.round(h / 24);
-  return `il y a ${d} j`;
 }

@@ -27,34 +27,58 @@ function isEditableElementFocused(): boolean {
   return el instanceof HTMLTextAreaElement || (el instanceof HTMLElement && el.isContentEditable);
 }
 
+function isKeyboardUp(vv: VisualViewport): boolean {
+  return window.innerHeight - vv.height > KEYBOARD_MIN_SHRINK_PX;
+}
+
+// Focus moves re-evaluate too: tapping out of the editor (keyboard may still be
+// animating down) clears focus mode; tapping into it re-enters.
+function subscribeViewport(vv: VisualViewport, onChange: () => void): () => void {
+  vv.addEventListener("resize", onChange);
+  vv.addEventListener("scroll", onChange);
+  document.addEventListener("focusin", onChange);
+  document.addEventListener("focusout", onChange);
+  onChange();
+  return () => {
+    vv.removeEventListener("resize", onChange);
+    vv.removeEventListener("scroll", onChange);
+    document.removeEventListener("focusin", onChange);
+    document.removeEventListener("focusout", onChange);
+  };
+}
+
 export function useKeyboardOpen(): boolean {
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const vv = window.visualViewport;
-    if (!vv) return;
-
-    const recompute = () => {
-      const keyboardUp = window.innerHeight - vv.height > KEYBOARD_MIN_SHRINK_PX;
-      setOpen(keyboardUp && isEditableElementFocused());
-    };
-
-    vv.addEventListener("resize", recompute);
-    vv.addEventListener("scroll", recompute);
-    // Re-evaluate on focus moves: tapping out of the editor (keyboard may still
-    // be animating down) clears focus mode; tapping into it re-enters.
-    document.addEventListener("focusin", recompute);
-    document.addEventListener("focusout", recompute);
-    recompute();
-
-    return () => {
-      vv.removeEventListener("resize", recompute);
-      vv.removeEventListener("scroll", recompute);
-      document.removeEventListener("focusin", recompute);
-      document.removeEventListener("focusout", recompute);
-    };
+    const vv = typeof window === "undefined" ? null : window.visualViewport;
+    if (!vv) return undefined;
+    return subscribeViewport(vv, () => setOpen(isKeyboardUp(vv) && isEditableElementFocused()));
   }, []);
 
   return open;
+}
+
+export interface KeyboardViewport {
+  top: number;
+  height: number;
+}
+
+/**
+ * Zone visible au-dessus du clavier virtuel, `null` clavier fermé. `top` suit
+ * iOS, qui fait glisser le viewport visuel pour montrer le champ focalisé.
+ */
+export function useKeyboardViewport(enabled: boolean): KeyboardViewport | null {
+  const [box, setBox] = useState<KeyboardViewport | null>(null);
+
+  useEffect(() => {
+    const vv = enabled && typeof window !== "undefined" ? window.visualViewport : null;
+    if (!vv) return undefined;
+    return subscribeViewport(vv, () => {
+      const next = isKeyboardUp(vv) ? { top: vv.offsetTop, height: vv.height } : null;
+      setBox((prev) => (prev?.top === next?.top && prev?.height === next?.height ? prev : next));
+    });
+  }, [enabled]);
+
+  return enabled ? box : null;
 }

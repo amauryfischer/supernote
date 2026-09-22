@@ -118,15 +118,17 @@ export function SnippetPopup({
   matches,
   index,
   onPick,
+  placement = "bottom-full left-0 mb-1",
 }: {
   matches: MailTemplate[];
   index: number;
   onPick: (t: MailTemplate) => void;
+  placement?: string | undefined;
 }) {
   if (matches.length === 0) return null;
   return (
     <div
-      className="absolute bottom-full left-0 z-30 mb-1 w-72 rounded-lg border p-1 shadow-lg"
+      className={`absolute z-30 w-72 rounded-lg border p-1 shadow-lg ${placement}`}
       style={{ background: "var(--surface-0)", borderColor: "var(--border-subtle)" }}
       role="listbox"
       aria-label="Modèles"
