@@ -19,10 +19,13 @@ const PEER_COLOR = /^#[0-9a-f]{6}$/i;
 
 /** Réécrit en place `user` des pairs (couleur, nom) : les plugins de curseur l'injectent tel quel dans `style`. Renvoie la désinscription. */
 export function sanitizePeerAwareness(awareness: Awareness): () => void {
+  // Ne doit jamais lever : l'état vient brut du réseau (primitive possible), et une levée laisserait les pairs suivants non assainis.
   const clean = () => {
-    awareness.getStates().forEach((state, clientId) => {
-      if (clientId === awareness.clientID || !("user" in state)) return;
-      const user: unknown = state["user"];
+    awareness.getStates().forEach((raw: unknown, clientId) => {
+      if (clientId === awareness.clientID || !raw || typeof raw !== "object") return;
+      const state = raw as Record<string, unknown>;
+      if (!("user" in state)) return;
+      const user = state["user"];
       const u: Record<string, unknown> = user && typeof user === "object" ? (user as Record<string, unknown>) : {};
       if (typeof u["color"] !== "string" || !PEER_COLOR.test(u["color"])) u["color"] = "#888888";
       u["name"] = typeof u["name"] === "string" && u["name"] ? u["name"].slice(0, 40) : "Invité";
