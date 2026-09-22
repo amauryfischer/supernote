@@ -55,11 +55,16 @@ export function NavProgress() {
       }
       arm();
     }
+    // Un pop sans changement de chemin (retour d'une vue empilée) ne vide
+    // jamais la barre : elle resterait 10 s.
+    function onPop() {
+      if (window.location.pathname !== pathnameRef.current) arm();
+    }
     document.addEventListener("click", onClick, true);
-    window.addEventListener("popstate", arm);
+    window.addEventListener("popstate", onPop);
     return () => {
       document.removeEventListener("click", onClick, true);
-      window.removeEventListener("popstate", arm);
+      window.removeEventListener("popstate", onPop);
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
     };
   }, []);

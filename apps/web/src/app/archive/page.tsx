@@ -108,7 +108,7 @@ export default function ArchivePage() {
         : `${archived.length} note${archived.length !== 1 ? "s" : ""}`
       : null,
   );
-  useMobileBack(isMobile ? () => router.push("/notes") : null);
+  useMobileBack(isMobile ? () => router.push("/notes") : null, { systemBack: false });
 
   const handleUnarchiveGroup = async (ids: string[]) => {
     try {

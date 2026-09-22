@@ -84,5 +84,26 @@ test.describe("06 — mail", () => {
       expect(overflow).toBeLessThanOrEqual(0);
       if (process.env["SHOTS"]) await page.screenshot({ path: `${process.env["SHOTS"]}/compose-mobile.png` });
     });
+
+    test("le retour système ferme le fil au lieu de quitter /mail", async ({ page }) => {
+      await withInbox(page);
+      await page.goto("/notes");
+      await page.goto("/mail");
+      const copy = page.getByRole("button", { name: "Copier le message" });
+
+      await page.getByText("Compte rendu réunion").first().click();
+      await expect(copy).toBeVisible();
+      await page.goBack();
+      await expect(copy).toBeHidden();
+      await expect(page).toHaveURL(/\/mail$/);
+
+      await page.getByText("Compte rendu réunion").first().click();
+      await expect(copy).toBeVisible();
+      await page.getByRole("button", { name: "Retour" }).click();
+      await expect(copy).toBeHidden();
+      // La flèche du haut retire l'entrée : le retour suivant quitte bien /mail.
+      await page.goBack();
+      await expect(page).toHaveURL(/\/notes/);
+    });
   });
 });

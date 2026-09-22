@@ -588,16 +588,24 @@ export function useMobileFab(config: MobileFabConfig | null | false): void {
   }, [key]);
 }
 
+const BACK_SENTINEL = "snMobileBack";
+
 /**
  * Publie un retour pour la barre du haut mobile tant que `handler` est non nul
  * — pour les vues empilées sans route propre (fil ouvert dans /mail). Seule la
  * transition nul/non nul republie ; le dernier handler est lu via une ref.
+ * Le geste retour du système est capté aussi, sauf `systemBack: false` : une
+ * page qui publie une simple cible de retour n'est pas une vue empilée.
  */
-export function useMobileBack(handler: (() => void) | null): void {
+export function useMobileBack(
+  handler: (() => void) | null,
+  { systemBack = true }: { systemBack?: boolean } = {},
+): void {
   const ctx = useContext(ShellChromeContext);
   const ref = useRef(handler);
   ref.current = handler;
   const active = handler !== null;
+  const [pops, setPops] = useState(0);
   useEffect(() => {
     if (!ctx) return warnMissingProvider("useMobileBack");
     if (!active) return;
@@ -605,6 +613,24 @@ export function useMobileBack(handler: (() => void) | null): void {
     return () => ctx.setMobileBack(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active]);
+
+  // Sans entrée à nous, le geste retour dépile la route. L'entrée copie l'état
+  // du routeur : react-router y lit son `idx`, le copier le garde synchronisé.
+  useEffect(() => {
+    if (!active || !systemBack) return;
+    window.history.pushState({ ...window.history.state, [BACK_SENTINEL]: true }, "");
+    const onPop = () => {
+      ref.current?.();
+      // Vue encore ouverte (pile imbriquée, fermeture refusée) → réempiler.
+      setPops((n) => n + 1);
+    };
+    window.addEventListener("popstate", onPop);
+    return () => {
+      window.removeEventListener("popstate", onPop);
+      // ponytail: quitter la route vue ouverte laisse l'entrée → un retour « mort » plus tard ; la retirer au remontage si ça gêne.
+      if (window.history.state?.[BACK_SENTINEL]) window.history.back();
+    };
+  }, [active, systemBack, pops]);
 }
 
 /**
