@@ -210,15 +210,77 @@ async function handlePeriodicSync() {
   }
 }
 
-self.addEventListener("notificationclick", (event) => {
-  if (event.notification.data?.reason !== "periodic-sync") return;
-  event.notification.close();
+// ── Web Push ──────────────────────────────────────────────────────────────────
+
+// Revérifiés ici : le SW ouvre des fenêtres avec ces valeurs.
+function internalPath(url) {
+  try {
+    const u = new URL(url, self.location.origin);
+    return u.origin === self.location.origin ? u.pathname + u.search + u.hash : "/";
+  } catch {
+    return "/";
+  }
+}
+
+function httpsUrl(url) {
+  try {
+    return new URL(url).protocol === "https:" ? url : "";
+  } catch {
+    return "";
+  }
+}
+
+const text = (v) => (typeof v === "string" ? v : "");
+
+self.addEventListener("push", (event) => {
+  let data = {};
+  try {
+    const parsed = event.data ? event.data.json() : null;
+    if (parsed && typeof parsed === "object") data = parsed;
+  } catch {
+    /* charge illisible : notification générique */
+  }
+  const payload = {
+    title: text(data.title) || "Supernote",
+    body: text(data.body),
+    url: internalPath(text(data.url) || "/"),
+    tag: text(data.tag),
+    joinUrl: httpsUrl(text(data.joinUrl)),
+  };
   event.waitUntil(
     (async () => {
-      const clientsList = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
-      const existing = clientsList.find((c) => c.url.includes(self.location.origin));
-      if (existing) return existing.focus();
-      return self.clients.openWindow("/");
+      const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+      const visible = windows.find((c) => c.visibilityState === "visible");
+      if (visible) visible.postMessage({ type: "PUSH_RECEIVED", payload });
+      // Toujours afficher : Safari révoque la permission d'un site qui reçoit un push sans notification.
+      await self.registration.showNotification(payload.title, {
+        body: payload.body,
+        tag: payload.tag || undefined,
+        icon: "/icons/icon-192.png",
+        data: { url: payload.url, joinUrl: payload.joinUrl },
+        actions: payload.joinUrl ? [{ action: "join", title: "Rejoindre" }] : [],
+      });
+    })(),
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  const data = event.notification.data ?? {};
+  event.notification.close();
+  if (event.action === "join") {
+    const joinUrl = httpsUrl(text(data.joinUrl));
+    if (joinUrl) event.waitUntil(self.clients.openWindow(joinUrl));
+    return;
+  }
+  // periodic-sync : ramener l'app sans changer de page.
+  const target = data.reason === "periodic-sync" ? null : internalPath(text(data.url) || "/");
+  event.waitUntil(
+    (async () => {
+      const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+      const existing = windows.find((c) => c.url.startsWith(self.location.origin));
+      if (!existing) return self.clients.openWindow(target ?? "/");
+      await existing.focus();
+      if (target) await existing.navigate(target).catch(() => self.clients.openWindow(target));
     })(),
   );
 });
