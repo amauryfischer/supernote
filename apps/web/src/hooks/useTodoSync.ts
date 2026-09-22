@@ -31,6 +31,12 @@ import {
 /** Entity type id — still used for standalone todos (no source note). */
 export const TODO_TYPE_ID = "todo";
 
+// En co-édition, Yjs réécrit le corps et effacerait la modification.
+function refuseIfShared(fields: Record<string, unknown>, message: string): void {
+  const shareId = fields["shareId"];
+  if (typeof shareId === "string" && shareId) throw new Error(message);
+}
+
 /**
  * Toggle a todo's done state. For notes-derived todos, rewrites the
  * `[ ]`↔`[x]` in the source note's markdown. Returns the new `done` value
@@ -46,9 +52,7 @@ export async function toggleTodoDone(args: {
   const { sourceNoteId, text, line, done } = args;
 
   const note = await trpcVanillaClient.entities.get.query({ id: sourceNoteId });
-  // En co-édition, Yjs réécrirait le corps et effacerait la coche.
-  const shareId = note.fields["shareId"];
-  if (typeof shareId === "string" && shareId) throw new Error("Note partagée : coche la tâche dans la note.");
+  refuseIfShared(note.fields, "Note partagée : coche la tâche dans la note.");
   const next = toggleChecklistLine(note.body, { line, text }, done);
   if (next === null) {
     throw new Error("Ligne source introuvable dans la note — todo désynchronisée");
@@ -81,6 +85,7 @@ export async function updateTodoMetadata(args: {
   const { sourceNoteId, cleanText, line, priority, importance, urgent, startDate, dueDate } = args;
 
   const note = await trpcVanillaClient.entities.get.query({ id: sourceNoteId });
+  refuseIfShared(note.fields, "Note partagée : modifie la tâche dans la note.");
   const nextRawText = formatInlineMetadata(cleanText, {
     priority,
     importance,
