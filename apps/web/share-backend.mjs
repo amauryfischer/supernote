@@ -1,131 +1,85 @@
 /**
- * share-backend — public read-only note shares.
+ * share-backend — partage par lien v2 (spec 2026-09-22-partage-liens-collab).
  *
- * Mounted by `server.mjs` under `/api/share/*` (write/status endpoints) and
- * `/s/*` (the public page) only when `DATABASE_URL` is set — mirrors the
- * optional `sync-backend.mjs`/`coda-backend.mjs` mounts, same "zero surface
- * when unconfigured" guarantee.
- *
- * The client renders the note to HTML itself (BlockNote `blocksToHTMLLossy`,
- * enriched with live formula values and base tables — see
- * `src/lib/share/exportNoteHtml.ts`) and PUSHes that markup here. The server
- * never trusts it as-is: every publish re-sanitizes with DOMPurify running
- * over a jsdom window (same belt-and-suspenders approach as the DocxViewer
- * fix — untrusted HTML in, allowlisted HTML out) before it ever touches the
- * store or a response. `jsdom`/`dompurify` are lazy-imported here, so a
- * plain static deployment (no `DATABASE_URL`) never pulls them in.
- *
- * Auth: publishing/unpublishing/reading status reuses the same `SYNC_TOKEN`
- * shared secret as the sync backend (when set) — one secret to configure,
- * not two. `GET /s/:slug` is deliberately open: that's the public link.
- *
- * Endpoints:
- *   GET    /api/share/_info        → { enabled, requiresToken }
- *   GET    /api/share/:entityId    → { published, slug?, updatedAt? }
- *   PUT    /api/share/:entityId    { title, html } → { slug, updatedAt }
- *   DELETE /api/share/:entityId    → { ok }
- *   GET    /s/:slug                → public HTML page (no auth)
+ * Monté par `server.mjs` et le middleware de dev seulement si `DATABASE_URL`
+ * est défini. Propriétaire : en-tête `x-share-owner` (clé de 32 octets dont
+ * seul le SHA-256 est stocké). Invité : jeton HMAC obtenu par `unlock`, en
+ * `Authorization: Bearer`, revérifié à chaque appel contre l'état du lien.
  */
 
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { createShareStore } from "./share-store.mjs";
+import { createPasswordChecker, hashPassword } from "./password.mjs";
 
-const MAX_BODY_BYTES = 8 * 1024 * 1024;
+const MAX_JSON_BYTES = 4 * 1024 * 1024;
+const MAX_BLOB_BYTES = 10 * 1024 * 1024;
+const MAX_DOC_BYTES = 5 * 1024 * 1024;
+const TOKEN_TTL_MS = 12 * 60 * 60 * 1000;
+const MIN_PASSWORD_LENGTH = 6;
+const SWEEP_MS = 60_000;
 
-const ALLOWED_TAGS = [
-  "p", "br", "hr", "strong", "em", "u", "s", "del", "mark", "sub", "sup",
-  "code", "pre",
-  "h1", "h2", "h3", "h4", "h5", "h6",
-  "ul", "ol", "li",
-  "blockquote",
-  "table", "thead", "tbody", "tr", "th", "td",
-  "a", "img", "span", "div", "figure", "figcaption",
-];
-const ALLOWED_ATTR = [
-  "href", "src", "alt", "title", "class", "style", "colspan", "rowspan",
-  "data-formula", "data-output-kind", "data-display", "data-base-id", "data-view-id",
-];
+const IMAGE_TYPES = {
+  png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif",
+  webp: "image/webp", avif: "image/avif", svg: "image/svg+xml",
+};
 
-export async function createShareBackend() {
-  const enabled = !!process.env.DATABASE_URL;
-  if (!enabled) {
-    return { enabled: false, handle: () => false };
-  }
+const newId = (bytes) => randomBytes(bytes).toString("base64url");
+const sha256hex = (s) => createHash("sha256").update(s).digest("hex");
 
-  const token = process.env.SYNC_TOKEN || "";
-  const store = await createShareStore();
+function sameString(a, b) {
+  const x = Buffer.from(String(a));
+  const y = Buffer.from(String(b));
+  return x.length === y.length && timingSafeEqual(x, y);
+}
 
-  // jsdom + DOMPurify only ever load when a share is actually published —
-  // most deployments with DATABASE_URL will use it for cloud-vault sync and
-  // never touch sharing at all.
-  let purify;
-  async function sanitize(html) {
-    if (!purify) {
-      const [{ JSDOM }, createDOMPurify] = await Promise.all([
-        import("jsdom"),
-        import("dompurify").then((m) => m.default),
-      ]);
-      const { window } = new JSDOM("");
-      purify = createDOMPurify(window);
-    }
-    return purify.sanitize(html, {
-      ALLOWED_TAGS,
-      ALLOWED_ATTR,
-      ALLOW_DATA_ATTR: false,
-    });
-  }
+function linkState(link) {
+  if (!link) return "missing";
+  if (link.revokedAt) return "revoked";
+  if (link.expiresAt != null && link.expiresAt <= Date.now()) return "expired";
+  return "ok";
+}
 
-  console.log(`[share] public note sharing ENABLED (${store.kind} store at ${store.label})`);
+function publicLink(link) {
+  return {
+    slug: link.slug,
+    mode: link.mode,
+    hasPassword: !!link.passwordHash,
+    expiresAt: link.expiresAt,
+    label: link.label,
+    createdAt: link.createdAt,
+    revokedAt: link.revokedAt,
+  };
+}
 
-  function authed(req, url) {
-    if (!token) return true;
-    const provided = req.headers["x-sync-token"] || url.searchParams.get("token");
-    return provided === token;
-  }
+function cleanSnapshot(raw) {
+  if (!raw || typeof raw !== "object" || !Array.isArray(raw.messages) || raw.messages.length > 200) return null;
+  const str = (v, max) => (typeof v === "string" ? v.slice(0, max) : "");
+  return {
+    subject: str(raw.subject, 500),
+    messages: raw.messages.map((m) => ({
+      from: str(m?.from, 500),
+      to: str(m?.to, 2000),
+      date: str(m?.date, 40),
+      bodyText: str(m?.bodyText, 200_000),
+    })),
+  };
+}
 
-  function sendJson(res, status, body) {
-    res.writeHead(status, {
-      "Content-Type": "application/json; charset=utf-8",
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Headers": "content-type, x-sync-token",
-      "Access-Control-Allow-Methods": "GET, PUT, DELETE, OPTIONS",
-      "Cache-Control": "no-store",
-    });
-    res.end(JSON.stringify(body));
-  }
+// `null` = retirer ; `undefined` = ne pas toucher ; sinon un instant futur.
+function parseExpiry(v) {
+  if (v === undefined) return undefined;
+  if (v === null) return null;
+  return typeof v === "number" && Number.isFinite(v) && v > Date.now() ? v : NaN;
+}
 
-  function readBody(req) {
-    return new Promise((resolve, reject) => {
-      const chunks = [];
-      let size = 0;
-      req.on("data", (c) => {
-        size += c.length;
-        if (size > MAX_BODY_BYTES) {
-          reject(new Error("payload too large"));
-          req.destroy();
-          return;
-        }
-        chunks.push(c);
-      });
-      req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
-      req.on("error", reject);
-    });
-  }
+function escapeHtml(s) {
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
 
-  function escapeHtml(s) {
-    return String(s)
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
-  }
-
-  function publicPage({ title, html, updatedAt }) {
-    const safeTitle = escapeHtml(title || "Note partagée");
-    const date = new Date(updatedAt).toLocaleString("fr-FR", {
-      dateStyle: "long",
-      timeStyle: "short",
-    });
-    return `<!doctype html>
+function legacyPage({ title, html, updatedAt }) {
+  const safeTitle = escapeHtml(title || "Note partagée");
+  const date = new Date(updatedAt).toLocaleString("fr-FR", { dateStyle: "long", timeStyle: "short" });
+  return `<!doctype html>
 <html lang="fr">
 <head>
 <meta charset="utf-8">
@@ -140,17 +94,10 @@ export async function createShareBackend() {
   main { max-width: 720px; margin: 0 auto; padding: 56px 24px 80px; }
   h1.sn-share-title { font-size: 28px; font-weight: 700; margin: 0 0 4px; }
   .sn-share-meta { color: var(--muted); font-size: 13px; margin: 0 0 40px; }
-  h1, h2, h3, h4 { line-height: 1.3; margin: 1.6em 0 0.5em; }
-  p { margin: 0.9em 0; }
   img { max-width: 100%; border-radius: 6px; }
   pre { background: var(--code-bg); padding: 12px 14px; border-radius: 8px; overflow-x: auto; }
-  code { background: var(--code-bg); padding: 0.1em 0.35em; border-radius: 4px; font-size: 0.9em; }
-  pre code { background: none; padding: 0; }
-  blockquote { border-left: 3px solid var(--border); margin: 1em 0; padding: 0.2em 1em; color: var(--muted); }
   table { border-collapse: collapse; width: 100%; margin: 1em 0; font-size: 0.92em; }
   th, td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; }
-  a { color: inherit; }
-  footer.sn-share-footer { margin-top: 64px; padding-top: 16px; border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; }
 </style>
 </head>
 <body>
@@ -158,26 +105,273 @@ export async function createShareBackend() {
   <h1 class="sn-share-title">${safeTitle}</h1>
   <p class="sn-share-meta">Mis à jour le ${escapeHtml(date)}</p>
   <article>${html}</article>
-  <footer class="sn-share-footer">Partagé en lecture seule depuis Supernote.</footer>
 </main>
 </body>
 </html>`;
+}
+
+export async function createShareBackend() {
+  if (!process.env.DATABASE_URL) return { enabled: false, handle: async () => false };
+
+  const store = await createShareStore();
+  const checkPassword = createPasswordChecker();
+  const secret = process.env.SHARE_SECRET || (await store.ensureMeta("signing-secret", () => newId(32)));
+  const hmac = (payload) => createHmac("sha256", secret).update(payload).digest("base64url");
+  const passwordVersion = (link) => createHash("sha256").update(link.passwordHash ?? "").digest("base64url").slice(0, 8);
+
+  console.log(`[share] partage par lien ACTIF (${store.kind} : ${store.label})`);
+
+  function signToken(link) {
+    const exp = Math.min(link.expiresAt ?? Number.MAX_SAFE_INTEGER, Date.now() + TOKEN_TTL_MS);
+    const payload = `${link.slug}.${exp}.${passwordVersion(link)}`;
+    return `${payload}.${hmac(payload)}`;
   }
+
+  async function linkFromToken(token) {
+    const parts = String(token ?? "").split(".");
+    if (parts.length !== 4) return null;
+    const [slug, exp, pv, sig] = parts;
+    if (!sameString(sig, hmac(`${slug}.${exp}.${pv}`)) || Number(exp) <= Date.now()) return null;
+    const link = await store.getLink(slug);
+    if (linkState(link) !== "ok" || passwordVersion(link) !== pv) return null;
+    return link;
+  }
+
+  const ownerMatches = (key, resource) => !!key && !!resource && sameString(sha256hex(key), resource.ownerKeyHash);
+
+  // Branché en Task 4 (collab-server.mjs) ; sans lui, rien à couper.
+  let collab = { closeLink() {}, closeResource() {}, sweep: async () => {} };
+
+  function send(res, status, body, headers = {}) {
+    res.writeHead(status, {
+      "Content-Type": "application/json; charset=utf-8",
+      "Cache-Control": "no-store",
+      "X-Content-Type-Options": "nosniff",
+      ...headers,
+    });
+    res.end(JSON.stringify(body));
+  }
+
+  function readBody(req, limit) {
+    return new Promise((resolve, reject) => {
+      const chunks = [];
+      let size = 0;
+      req.on("data", (c) => {
+        size += c.length;
+        if (size > limit) {
+          reject(Object.assign(new Error("payload too large"), { status: 413 }));
+          req.destroy();
+          return;
+        }
+        chunks.push(c);
+      });
+      req.on("end", () => resolve(Buffer.concat(chunks)));
+      req.on("error", reject);
+    });
+  }
+
+  async function readJson(req) {
+    const buf = await readBody(req, MAX_JSON_BYTES);
+    try {
+      return buf.length ? JSON.parse(buf.toString("utf8")) : {};
+    } catch {
+      throw Object.assign(new Error("invalid json"), { status: 400 });
+    }
+  }
+
+  async function ownedResource(req, id) {
+    const resource = await store.getResource(id);
+    if (!resource) throw Object.assign(new Error("not found"), { status: 404 });
+    if (!ownerMatches(req.headers["x-share-owner"], resource)) throw Object.assign(new Error("forbidden"), { status: 403 });
+    return resource;
+  }
+
+  async function ownedLink(req, slug) {
+    const link = await store.getLink(slug);
+    if (!link) throw Object.assign(new Error("not found"), { status: 404 });
+    const resource = await ownedResource(req, link.resourceId);
+    return { link, resource };
+  }
+
+  async function accessLink(req, slug) {
+    const bearer = String(req.headers.authorization ?? "").replace(/^Bearer /, "");
+    const link = await linkFromToken(bearer);
+    if (!link || link.slug !== slug) throw Object.assign(new Error("unauthorized"), { status: 401 });
+    return link;
+  }
+
+  async function passwordHashFrom(value) {
+    if (value == null || value === "") return null;
+    if (typeof value !== "string" || value.length < MIN_PASSWORD_LENGTH || value.length > 200) {
+      throw Object.assign(new Error(`password must be ${MIN_PASSWORD_LENGTH}-200 chars`), { status: 400 });
+    }
+    return hashPassword(value);
+  }
+
+  async function authenticateCollab(resourceId, token) {
+    const resource = await store.getResource(resourceId);
+    if (!resource || resource.kind !== "note") throw new Error("unknown document");
+    if (String(token).startsWith("owner:")) {
+      if (ownerMatches(String(token).slice(6), resource)) return { slug: null, readOnly: false };
+      throw new Error("forbidden");
+    }
+    const link = await linkFromToken(token);
+    if (!link || link.resourceId !== resourceId) throw new Error("forbidden");
+    return { slug: link.slug, readOnly: link.mode !== "write" };
+  }
+
+  const routes = [
+    ["GET", /^\/api\/share\/_info$/, async (_req, res) => send(res, 200, { enabled: true })],
+
+    ["POST", /^\/api\/share\/resources$/, async (req, res) => {
+      const body = await readJson(req);
+      const kind = body.kind === "email" ? "email" : body.kind === "note" ? "note" : null;
+      if (!kind) return send(res, 400, { error: "kind must be note or email" });
+      const snapshot = kind === "email" ? cleanSnapshot(body.snapshot) : null;
+      if (kind === "email" && !snapshot) return send(res, 400, { error: "invalid snapshot" });
+      const id = newId(16);
+      const ownerKey = newId(32);
+      const title = typeof body.title === "string" ? body.title.slice(0, 300) : "";
+      await store.createResource({ id, kind, ownerKeyHash: sha256hex(ownerKey), title, snapshot });
+      send(res, 201, { id, ownerKey });
+    }],
+
+    ["PATCH", /^\/api\/share\/resources\/([\w-]+)$/, async (req, res, [id]) => {
+      await ownedResource(req, id);
+      const body = await readJson(req);
+      if (typeof body.title !== "string") return send(res, 400, { error: "missing title" });
+      await store.renameResource(id, body.title.slice(0, 300));
+      send(res, 200, { ok: true });
+    }],
+
+    ["DELETE", /^\/api\/share\/resources\/([\w-]+)$/, async (req, res, [id]) => {
+      await ownedResource(req, id);
+      await store.deleteResource(id);
+      collab.closeResource(id);
+      send(res, 200, { ok: true });
+    }],
+
+    ["PUT", /^\/api\/share\/resources\/([\w-]+)\/doc$/, async (req, res, [id]) => {
+      const resource = await ownedResource(req, id);
+      if (resource.kind !== "note") return send(res, 400, { error: "not a note" });
+      const bytes = await readBody(req, MAX_DOC_BYTES);
+      const seeded = await store.seedDoc(id, bytes);
+      send(res, seeded ? 201 : 409, seeded ? { ok: true } : { error: "already seeded" });
+    }],
+
+    ["GET", /^\/api\/share\/resources\/([\w-]+)\/links$/, async (req, res, [id]) => {
+      await ownedResource(req, id);
+      send(res, 200, { links: (await store.listLinks(id)).map(publicLink) });
+    }],
+
+    ["POST", /^\/api\/share\/resources\/([\w-]+)\/links$/, async (req, res, [id]) => {
+      const resource = await ownedResource(req, id);
+      const body = await readJson(req);
+      const mode = body.mode === "write" ? "write" : "read";
+      if (mode === "write" && resource.kind !== "note") return send(res, 400, { error: "write links are notes-only" });
+      const expiresAt = parseExpiry(body.expiresAt ?? null);
+      if (Number.isNaN(expiresAt)) return send(res, 400, { error: "expiresAt must be in the future" });
+      const link = {
+        slug: newId(12),
+        resourceId: id,
+        mode,
+        passwordHash: await passwordHashFrom(body.password),
+        expiresAt,
+        label: typeof body.label === "string" && body.label.trim() ? body.label.trim().slice(0, 80) : null,
+      };
+      await store.createLink(link);
+      send(res, 201, { link: publicLink(await store.getLink(link.slug)) });
+    }],
+
+    ["PUT", /^\/api\/share\/resources\/([\w-]+)\/blob$/, async (req, res, [id], url) => {
+      const resource = await ownedResource(req, id);
+      const path = url.searchParams.get("path") ?? "";
+      if (resource.kind !== "note" || !path || path.length > 500) return send(res, 400, { error: "invalid path" });
+      await store.putBlob(id, path, await readBody(req, MAX_BLOB_BYTES));
+      send(res, 200, { ok: true });
+    }],
+
+    ["PATCH", /^\/api\/share\/links\/([\w-]+)$/, async (req, res, [slug]) => {
+      const { link } = await ownedLink(req, slug);
+      const body = await readJson(req);
+      const patch = {};
+      if ("password" in body) patch.passwordHash = await passwordHashFrom(body.password);
+      if ("expiresAt" in body) {
+        const expiresAt = parseExpiry(body.expiresAt);
+        if (Number.isNaN(expiresAt)) return send(res, 400, { error: "expiresAt must be in the future" });
+        patch.expiresAt = expiresAt;
+      }
+      if ("label" in body) patch.label = typeof body.label === "string" && body.label.trim() ? body.label.trim().slice(0, 80) : null;
+      await store.updateLink(slug, patch);
+      if ("passwordHash" in patch || "expiresAt" in patch) collab.closeLink(link.resourceId, slug);
+      send(res, 200, { link: publicLink(await store.getLink(slug)) });
+    }],
+
+    ["DELETE", /^\/api\/share\/links\/([\w-]+)$/, async (req, res, [slug]) => {
+      const { link } = await ownedLink(req, slug);
+      await store.revokeLink(slug);
+      collab.closeLink(link.resourceId, slug);
+      send(res, 200, { ok: true });
+    }],
+
+    ["GET", /^\/api\/share\/links\/([\w-]+)\/meta$/, async (_req, res, [slug]) => {
+      const link = await store.getLink(slug);
+      const state = linkState(link);
+      if (state === "missing") return send(res, 404, { reason: "missing" });
+      if (state !== "ok") return send(res, 410, { reason: state });
+      const resource = await store.getResource(link.resourceId);
+      if (!resource) return send(res, 404, { reason: "missing" });
+      send(res, 200, { kind: resource.kind, mode: link.mode, title: resource.title, needsPassword: !!link.passwordHash });
+    }],
+
+    ["POST", /^\/api\/share\/links\/([\w-]+)\/unlock$/, async (req, res, [slug]) => {
+      const link = await store.getLink(slug);
+      const state = linkState(link);
+      if (state === "missing") return send(res, 404, { reason: "missing" });
+      if (state !== "ok") return send(res, 410, { reason: state });
+      if (link.passwordHash) {
+        const body = await readJson(req);
+        const provided = typeof body.password === "string" ? body.password : "";
+        const verdict = provided ? await checkPassword(`share:${slug}`, req, provided, link.passwordHash) : "wrong";
+        if (verdict === "locked") return send(res, 429, { reason: "locked" });
+        if (verdict !== "ok") return send(res, 401, { reason: "wrong" });
+      }
+      const resource = await store.getResource(link.resourceId);
+      if (!resource) return send(res, 404, { reason: "missing" });
+      send(res, 200, { accessToken: signToken(link), resourceId: resource.id, kind: resource.kind, mode: link.mode });
+    }],
+
+    ["GET", /^\/api\/share\/links\/([\w-]+)\/content$/, async (req, res, [slug]) => {
+      const link = await accessLink(req, slug);
+      const resource = await store.getResource(link.resourceId);
+      if (!resource || resource.kind !== "email") return send(res, 404, { reason: "missing" });
+      send(res, 200, { title: resource.title, snapshot: resource.snapshot });
+    }],
+
+    ["GET", /^\/api\/share\/links\/([\w-]+)\/blob$/, async (req, res, [slug], url) => {
+      const link = await accessLink(req, slug);
+      const path = url.searchParams.get("path") ?? "";
+      const bytes = path ? await store.getBlob(link.resourceId, path) : null;
+      if (!bytes) return send(res, 404, { reason: "missing" });
+      const ext = path.split(".").pop()?.toLowerCase() ?? "";
+      res.writeHead(200, {
+        "Content-Type": IMAGE_TYPES[ext] ?? "application/octet-stream",
+        "Cache-Control": "private, max-age=300",
+        "X-Content-Type-Options": "nosniff",
+        // Un SVG ouvert directement ne doit rien exécuter sur l'origine de l'app.
+        "Content-Security-Policy": "sandbox; default-src 'none'; style-src 'unsafe-inline'",
+      });
+      res.end(bytes);
+    }],
+  ];
 
   async function handle(req, res) {
     const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
     const path = url.pathname;
 
-    // Public page — not under /api, no auth.
-    if (path.startsWith("/s/") && req.method === "GET") {
-      const slug = path.slice(3);
-      if (!slug) return false;
-      const share = await store.getBySlug(slug);
-      if (!share) {
-        res.writeHead(404, { "Content-Type": "text/html; charset=utf-8" });
-        res.end("<!doctype html><title>Introuvable</title><p>Ce lien de partage n'existe pas ou a été retiré.</p>");
-        return true;
-      }
+    if (req.method === "GET" && path.startsWith("/s/")) {
+      const legacy = await store.legacyBySlug(path.slice(3));
+      if (!legacy) return false;
       res.writeHead(200, {
         "Content-Type": "text/html; charset=utf-8",
         "Cache-Control": "no-cache",
@@ -185,88 +379,37 @@ export async function createShareBackend() {
         "X-Frame-Options": "DENY",
         "X-Content-Type-Options": "nosniff",
         "Referrer-Policy": "strict-origin-when-cross-origin",
-        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
       });
-      res.end(publicPage(share));
+      res.end(legacyPage(legacy));
       return true;
     }
 
     if (!path.startsWith("/api/share/")) return false;
-
-    if (req.method === "OPTIONS") {
-      res.writeHead(204, {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Headers": "content-type, x-sync-token",
-        "Access-Control-Allow-Methods": "GET, PUT, DELETE, OPTIONS",
-      });
-      res.end();
-      return true;
-    }
-
-    const sub = path.slice("/api/share/".length);
-
-    if (sub === "_info" && req.method === "GET") {
-      sendJson(res, 200, { enabled: true, requiresToken: !!token });
-      return true;
-    }
-
-    if (!authed(req, url)) {
-      sendJson(res, 401, { error: "unauthorized" });
-      return true;
-    }
-
-    const entityId = decodeURIComponent(sub);
-    if (!entityId) {
-      sendJson(res, 400, { error: "missing entityId" });
-      return true;
-    }
-
-    if (req.method === "GET") {
-      const share = await store.get(entityId);
-      if (!share) {
-        sendJson(res, 200, { published: false });
-        return true;
-      }
-      sendJson(res, 200, { published: true, slug: share.slug, updatedAt: share.updatedAt });
-      return true;
-    }
-
-    if (req.method === "PUT") {
-      let parsed;
+    for (const [method, re, fn] of routes) {
+      const match = req.method === method ? path.match(re) : null;
+      if (!match) continue;
       try {
-        parsed = JSON.parse(await readBody(req));
-      } catch {
-        sendJson(res, 400, { error: "invalid json" });
-        return true;
-      }
-      const title = typeof parsed?.title === "string" ? parsed.title.slice(0, 300) : "";
-      const rawHtml = typeof parsed?.html === "string" ? parsed.html : "";
-      if (!rawHtml.trim()) {
-        sendJson(res, 400, { error: "missing html" });
-        return true;
-      }
-      let html;
-      try {
-        html = await sanitize(rawHtml);
+        await fn(req, res, match.slice(1), url);
       } catch (err) {
-        console.error("[share] sanitize failed:", err);
-        sendJson(res, 500, { error: "sanitize failed" });
-        return true;
+        const status = err?.status ?? 500;
+        if (status === 500) console.error("[share]", err);
+        if (!res.headersSent) send(res, status, { error: status === 500 ? "internal error" : err.message });
       }
-      const { slug, updatedAt } = await store.upsert(entityId, { title, html });
-      sendJson(res, 200, { slug, updatedAt });
       return true;
     }
-
-    if (req.method === "DELETE") {
-      await store.remove(entityId);
-      sendJson(res, 200, { ok: true });
-      return true;
-    }
-
-    sendJson(res, 405, { error: "method not allowed" });
+    send(res, 404, { error: "not found" });
     return true;
   }
 
-  return { enabled: true, handle };
+  return {
+    enabled: true,
+    handle,
+    // Task 4 remplace ces deux membres.
+    attachCollab: (c) => {
+      collab = c;
+      setInterval(() => void collab.sweep(async (slug) => linkState(await store.getLink(slug)) === "ok"), SWEEP_MS).unref();
+    },
+    authenticateCollab,
+    store,
+  };
 }

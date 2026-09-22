@@ -96,7 +96,7 @@ self.addEventListener("fetch", (event) => {
   if (url.origin !== self.location.origin) return;
 
   // /admin : jamais en cache (liste des espaces) et prompt Basic Auth natif.
-  if (url.pathname.startsWith("/api/") || url.pathname === "/admin") return;
+  if (url.pathname.startsWith("/api/") || url.pathname === "/admin" || url.pathname.startsWith("/s/")) return;
   // Defense-in-depth: never touch Vite dev server modules. If a stale install
   // ever races with `pnpm dev` on the same origin, we must not cache or serve
   // these — they only exist while the dev server is running.

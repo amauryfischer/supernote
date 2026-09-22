@@ -85,8 +85,11 @@ function shareDevServer() {
           const url = (req as { url?: string }).url ?? "";
           if (!url.startsWith("/api/share/") && !url.startsWith("/s/")) return next();
           void Promise.resolve(backend.handle(req as never, res as never))
-            .then((handled: boolean) => {
-              if (!handled) next();
+            .then((handled) => {
+              if (handled) return;
+              const r = req as { url?: string };
+              if (r.url?.startsWith("/s/")) r.url = "/share.html";
+              next();
             })
             .catch(() => next());
         });

@@ -153,7 +153,8 @@ const server = createServer(async (req, res) => {
     }
 
     const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
-    let pathname = decodeURIComponent(url.pathname);
+    // Lien de partage v2 : l'entrée invitée, sans coffre ni worker.
+    let pathname = url.pathname.startsWith("/s/") ? "/share.html" : decodeURIComponent(url.pathname);
     if (pathname.endsWith("/")) pathname += "index.html";
 
     // Resolve against DIST and reject path traversal.
