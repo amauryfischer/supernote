@@ -1,5 +1,5 @@
-import { test, expect } from "@playwright/test";
-import { bootDegraded } from "./helpers";
+import { test, expect, type Page } from "@playwright/test";
+import { bootCloud, bootDegraded } from "./helpers";
 
 // Le headless shell refuse showNotification dans le SW ; le Chromium complet l'accepte.
 test.use({ channel: "chromium" });
@@ -8,6 +8,30 @@ interface Registration {
   registrationId: string;
   scopeURL: string;
   isDeleted: boolean;
+}
+
+async function createTodo(page: Page, fields: Record<string, unknown>): Promise<string> {
+  await page.waitForFunction(() => "__supernoteWorker" in window);
+  return page.evaluate(async (todoFields) => {
+    const worker = (window as unknown as { __supernoteWorker: Worker }).__supernoteWorker;
+    const call = (id: string) =>
+      new Promise<{ ok: boolean; result?: { id: string } }>((resolve) => {
+        const onMessage = (e: MessageEvent) => {
+          if ((e.data as { id?: string } | null)?.id !== id) return;
+          worker.removeEventListener("message", onMessage);
+          resolve(e.data as { ok: boolean; result?: { id: string } });
+        };
+        worker.addEventListener("message", onMessage);
+        worker.postMessage({ id, type: "mutation", path: "entities.create", input: { typeId: "todo", fields: todoFields } });
+      });
+    // Le coffre répond « Vault not initialized » tant qu'il n'est pas prêt.
+    for (let attempt = 0; attempt < 60; attempt++) {
+      const res = await call(`e2e-todo-${attempt}`);
+      if (res.ok && res.result) return res.result.id;
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    throw new Error("coffre jamais prêt");
+  }, fields);
 }
 
 test.describe("07 — notifications push", () => {
@@ -86,5 +110,55 @@ test.describe("07 — notifications push", () => {
           actions: [],
         },
       ]);
+  });
+
+  test("un rappel créé part dans les échéances du salon", async ({ page }) => {
+    const info = await page.request.get("/api/sync/info");
+    const syncReady =
+      (info.headers()["content-type"] ?? "").includes("json") &&
+      !((await info.json()) as { requiresToken?: boolean }).requiresToken;
+    test.skip(!syncReady, "synchro de dev absente ou sous SYNC_TOKEN (apps/web/.env.local)");
+    await bootCloud(page);
+    await page.addInitScript(() => {
+      const configKey = "supernote.onlineSync.config";
+      const config = JSON.parse(localStorage.getItem(configKey) ?? "{}") as { enabled?: boolean };
+      if (!config.enabled) {
+        localStorage.setItem(configKey, JSON.stringify({ ...config, enabled: true, token: "e2e-mot-de-passe" }));
+      }
+      const settings = JSON.parse(localStorage.getItem("supernote.settings") ?? "{}") as { notifications?: object };
+      localStorage.setItem(
+        "supernote.settings",
+        JSON.stringify({ ...settings, notifications: { ...settings.notifications, pushSubscribed: true } }),
+      );
+    });
+    const schedules: string[] = [];
+    await page.route("**/api/push/**", async (route) => {
+      if (route.request().method() === "PUT") schedules.push(route.request().postData() ?? "");
+      await route.fulfill({ json: { ok: true, accepted: 0 } });
+    });
+    await page.goto("/todos");
+    const todoId = await createTodo(page, {
+      text: "Appeler la mairie",
+      reminderAt: new Date(Date.now() + 3_600_000).toISOString(),
+    });
+    const withTodo = () => schedules.find((b) => b.includes(`"reminder:${todoId}"`));
+    await expect.poll(() => Boolean(withTodo()), { timeout: 45_000 }).toBe(true);
+    const body = JSON.parse(withTodo()!) as { categories: { reminder: Array<Record<string, unknown>> } };
+    expect(body.categories.reminder).toContainEqual(
+      expect.objectContaining({ key: `reminder:${todoId}`, title: "Rappel", body: "Appeler la mairie", url: "/todos", joinUrl: "" }),
+    );
+  });
+
+  test("le réglage tient sur un téléphone de 360 px", async ({ page }) => {
+    await bootCloud(page);
+    await page.setViewportSize({ width: 360, height: 740 });
+    await page.goto("/parametres");
+    await page.getByRole("button", { name: "Notifications", exact: true }).click();
+    await expect(page.getByRole("switch", { name: "Notifications app fermée" })).toBeDisabled();
+    await expect(page.getByText("Active la synchronisation en ligne pour recevoir les notifications.")).toBeVisible();
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow).toBeLessThanOrEqual(0);
+    await page.getByRole("button", { name: "Configurer le salon" }).click();
+    await expect(page.getByText("Nom du salon")).toBeVisible();
   });
 });

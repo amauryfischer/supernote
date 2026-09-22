@@ -33,6 +33,7 @@ import { InboxAutoSort } from "@/lib/ai/InboxAutoSort";
 import { MailOutgoingRunner } from "@/components/mail/MailOutgoingRunner";
 import { MailFollowupRunner } from "@/components/mail/MailFollowupRunner";
 import { CalendarRunner } from "@/components/agenda/CalendarRunner";
+import { PushScheduleRunner } from "@/lib/push/PushScheduleRunner";
 
 export function RootLayout() {
   return (
@@ -83,6 +84,8 @@ export function RootLayout() {
                 <PwaVaultSetup>
                   <GitSyncProvider>
                     <OnlineSyncProvider>
+                      {/* Échéances vers le serveur de push : lit l'état de la synchro, donc sous son provider. */}
+                      <PushScheduleRunner />
                       <MountSyncProvider>
                         {/* Chrome du shell (mode focus, panneaux, titre/FAB/
                             actions mobiles) monté AU-DESSUS des routes : les

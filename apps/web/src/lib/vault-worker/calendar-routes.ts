@@ -14,6 +14,9 @@ import type {
   CalEventInput,
   CalEventRow,
   CalOverlayItem,
+  PushUpcomingEvent,
+  PushUpcomingInput,
+  PushUpcomingReminder,
 } from "@supernote/ipc";
 import type { Database } from "./sqlite-adapter";
 import type { RouteHandler } from "./worker-router";
@@ -338,6 +341,50 @@ export function buildCalendarRoutes(db: Database, vaultId: string): Record<strin
     return { items };
   };
 
+  const pushUpcoming = async (input: unknown): Promise<unknown> => {
+    const { from, to, accountId } = input as PushUpcomingInput;
+    const reminders: PushUpcomingReminder[] = [];
+    const todos = rows(db.exec(
+      `SELECT id, fields FROM entity WHERE vaultId = ? AND typeId = 'todo'
+         AND COALESCE(json_extract(fields, '$.reminderAt'), '') != ''
+         AND COALESCE(json_extract(fields, '$.reminderFiredAt'), '') = ''`,
+      [vaultId],
+    ));
+    for (const t of todos) {
+      const f = parseJson<Record<string, unknown>>(t["fields"], {});
+      if (f["done"] === true || f["done"] === "true") continue;
+      // datetime-local sans fuseau : lu à l'heure locale de l'appareil.
+      const reminderAt = new Date(String(f["reminderAt"])).getTime();
+      if (!(reminderAt >= from && reminderAt <= to)) continue;
+      reminders.push({
+        todoId: String(t["id"]),
+        reminderAt,
+        text: typeof f["text"] === "string" ? f["text"] : "",
+        reminderText: typeof f["reminderText"] === "string" ? f["reminderText"].trim() : "",
+      });
+    }
+    reminders.sort((a, b) => a.reminderAt - b.reminderAt);
+    // e.* : `sourceRef` n'existe qu'après la migration de « Planifier ses todos ».
+    const events: PushUpcomingEvent[] = accountId
+      ? rows(db.exec(
+          `SELECT e.* FROM cal_event e
+             JOIN cal_calendar c ON c.accountId = e.accountId AND c.id = e.calendarId
+            WHERE e.accountId = ? AND c.selected = 1 AND e.status != 'cancelled' AND e.allDay = 0
+              AND e.selfResponse != 'declined' AND e.startAt >= ? AND e.startAt <= ?
+            ORDER BY e.startAt ASC`,
+          [accountId, from, to],
+        )).map((e) => ({
+          calendarId: String(e["calendarId"]),
+          eventId: String(e["id"]),
+          summary: String(e["summary"] ?? ""),
+          startAt: Number(e["startAt"]),
+          meetUrl: String(e["meetUrl"] ?? ""),
+          sourceRef: String(e["sourceRef"] ?? ""),
+        }))
+      : [];
+    return { reminders, events };
+  };
+
   return {
     "calendar.syncUpsert": syncUpsert,
     "calendar.listEvents": listEvents,
@@ -348,5 +395,6 @@ export function buildCalendarRoutes(db: Database, vaultId: string): Record<strin
     "calendar.resolveOutbox": resolveOutbox,
     "calendar.clear": clear,
     "calendar.overlay": overlay,
+    "push.upcoming": pushUpcoming,
   };
 }

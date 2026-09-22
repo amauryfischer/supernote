@@ -56,8 +56,12 @@ export function AutomationNotificationBridge() {
       });
       push(payload);
 
+      // Abonné : le push affiche déjà la notification système des rappels (titre de buildReminderAutomation, worker.ts).
+      const pushShowsIt = settings.notifications.pushSubscribed && detail.title === "Rappel todo";
+
       if (
         settings.notifications.osNotifications &&
+        !pushShowsIt &&
         typeof window !== "undefined" &&
         "Notification" in window
       ) {
@@ -92,7 +96,7 @@ export function AutomationNotificationBridge() {
 
     window.addEventListener("supernote:automation-notification", handler);
     return () => window.removeEventListener("supernote:automation-notification", handler);
-  }, [push, settings.notifications.osNotifications, settings.notifications.sounds]);
+  }, [push, settings.notifications.osNotifications, settings.notifications.sounds, settings.notifications.pushSubscribed]);
 
   useEffect(() => {
     if (!("serviceWorker" in navigator)) return undefined;
