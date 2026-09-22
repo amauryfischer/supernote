@@ -1850,20 +1850,64 @@ export function buildRouter(
     });
   };
 
-  // Nombre de backlinks par entité cible, agrégé en une passe (table mention).
-  // Sert la vue Jardin : O(1) au lieu de N appels getBacklinks.
-  const entitiesBacklinkCounts = async (): Promise<unknown> => {
-    const countRows = rows(db.exec(
-      `SELECT targetId, COUNT(*) as c FROM mention
-        WHERE targetId IS NOT NULL
-        GROUP BY targetId`,
+  // Carte des connaissances : les liens réels ([[…]] et @mentions) entre entités.
+  // ponytail: plafond de 5 000 arêtes, les plus citées d'abord ; filtrer par type côté worker si un coffre le dépasse.
+  const entitiesGraph = async (): Promise<unknown> => {
+    const MAX_EDGES = 5000;
+    const edgeRows = rows(db.exec(
+      `SELECT m.sourceId AS source, m.targetId AS target, COUNT(*) AS weight
+         FROM mention m
+         JOIN entity s ON s.id = m.sourceId AND s.vaultId = ?
+         JOIN entity t ON t.id = m.targetId AND t.vaultId = ?
+        WHERE m.targetId IS NOT NULL AND m.sourceId != m.targetId
+        GROUP BY m.sourceId, m.targetId
+        ORDER BY weight DESC
+        LIMIT ?`,
+      [vaultId, vaultId, MAX_EDGES + 1],
     ));
-    const counts: Record<string, number> = {};
-    for (const r of countRows) {
-      const tid = r["targetId"];
-      if (typeof tid === "string") counts[tid] = (r["c"] as number) ?? 0;
+    const truncated = edgeRows.length > MAX_EDGES;
+    const edges = edgeRows.slice(0, MAX_EDGES).map((r) => ({
+      source: String(r["source"]),
+      target: String(r["target"]),
+      weight: Number(r["weight"]) || 1,
+    }));
+    const degree = new Map<string, number>();
+    for (const e of edges) {
+      degree.set(e.source, (degree.get(e.source) ?? 0) + 1);
+      degree.set(e.target, (degree.get(e.target) ?? 0) + 1);
     }
-    return { counts };
+    const ids = [...degree.keys()];
+    const nodes: Array<{ id: string; typeId: string; title: string; tags: string[]; degree: number }> = [];
+    // Par paquets : SQLite borne le nombre de paramètres liés.
+    for (let i = 0; i < ids.length; i += 500) {
+      const chunk = ids.slice(i, i + 500);
+      const marks = chunk.map(() => "?").join(",");
+      const tagRows = rows(db.exec(
+        `SELECT et.entityId AS id, t.path AS path FROM entity_tag et JOIN tag t ON t.id = et.tagId
+          WHERE et.entityId IN (${marks})`,
+        chunk,
+      ));
+      const tagsById = new Map<string, string[]>();
+      for (const r of tagRows) {
+        const list = tagsById.get(String(r["id"])) ?? [];
+        list.push(String(r["path"]));
+        tagsById.set(String(r["id"]), list);
+      }
+      for (const r of rows(db.exec(`SELECT id, typeId, filePath, fields FROM entity WHERE id IN (${marks})`, chunk))) {
+        const id = String(r["id"]);
+        const fields = safeParseFieldsBlob(String(r["fields"] ?? ""));
+        const fromFile = String(r["filePath"] ?? "").split("/").pop()?.replace(/\.md$/, "") ?? id;
+        const title = [fields["title"], fields["name"], fields["per_name"]].find((v) => typeof v === "string" && v.trim());
+        nodes.push({
+          id,
+          typeId: String(r["typeId"]),
+          title: typeof title === "string" ? title.trim() : fromFile,
+          tags: tagsById.get(id) ?? [],
+          degree: degree.get(id) ?? 0,
+        });
+      }
+    }
+    return { nodes, edges, truncated };
   };
 
   // ── schemas.* ─────────────────────────────────────────────────────────────
@@ -5188,7 +5232,7 @@ export function buildRouter(
     "entities.delete": entitiesDelete,
     "entities.search": entitiesSearch,
     "entities.listByDateRange": entitiesListByDateRange,
-    "entities.backlinkCounts": entitiesBacklinkCounts,
+    "entities.graph": entitiesGraph,
     "entities.getRelated": entitiesGetRelated,
     "entities.getBacklinks": entitiesGetBacklinks,
 

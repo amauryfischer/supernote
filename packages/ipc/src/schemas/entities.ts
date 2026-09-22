@@ -177,11 +177,22 @@ export const SearchEntitiesOutput = z.object({
 });
 export type SearchEntitiesOutput = z.infer<typeof SearchEntitiesOutput>;
 
-/** Nombre de backlinks par entité cible (clé = entityId). */
-export const BacklinkCountsOutput = z.object({
-  counts: z.record(z.string(), z.number().int().nonnegative()),
+/** Graphe des liens réels entre entités (table `mention`), pour la carte des connaissances. */
+export const EntityGraphOutput = z.object({
+  nodes: z.array(
+    z.object({
+      id: z.string(),
+      typeId: z.string(),
+      title: z.string(),
+      tags: z.array(z.string()),
+      degree: z.number().int().nonnegative(),
+    }),
+  ),
+  edges: z.array(z.object({ source: z.string(), target: z.string(), weight: z.number().int().positive() })),
+  /** Vrai quand le plafond d'arêtes a coupé le graphe. */
+  truncated: z.boolean(),
 });
-export type BacklinkCountsOutput = z.infer<typeof BacklinkCountsOutput>;
+export type EntityGraphOutput = z.infer<typeof EntityGraphOutput>;
 
 export const BacklinkSchema = z.object({
   sourceId: z.string(),

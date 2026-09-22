@@ -17,7 +17,7 @@ import {
   GetBacklinksInput,
   GetBacklinksOutput,
   ListByDateRangeInput,
-  BacklinkCountsOutput,
+  EntityGraphOutput,
   CountEntitiesInput,
   CountEntitiesOutput,
 } from "../schemas/entities.js";
@@ -124,6 +124,13 @@ export const entitiesRouter = router({
     }),
 
   /** Get all entities that wikilink or embed the given entity. */
+  /** Liens réels entre entités, pour la carte des connaissances. */
+  graph: publicProcedure
+    .output(EntityGraphOutput)
+    .query(() => {
+      throw notImplemented("entities.graph");
+    }),
+
   getBacklinks: publicProcedure
     .input(GetBacklinksInput)
     .output(GetBacklinksOutput)
@@ -131,12 +138,6 @@ export const entitiesRouter = router({
       throw notImplemented("entities.getBacklinks");
     }),
 
-  /** Backlink count per target entity, aggregated in one pass. */
-  backlinkCounts: publicProcedure
-    .output(BacklinkCountsOutput)
-    .query(() => {
-      throw notImplemented("entities.backlinkCounts");
-    }),
 });
 
 export type EntitiesRouter = typeof entitiesRouter;

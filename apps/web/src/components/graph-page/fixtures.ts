@@ -1,4 +1,4 @@
-// Knowledge graph fixtures — 50 nodes / 80 edges
+// Types et palette de la carte des connaissances.
 
 export type NodeType =
   | "contact"
@@ -24,12 +24,6 @@ export interface GraphEdge {
   target: string;
   label: string;
 }
-
-// Default: empty — graph populates from real user data.
-// Use demo-fixtures.ts for demo data.
-export const GRAPH_NODES: GraphNode[] = [];
-
-export const GRAPH_EDGES: GraphEdge[] = [];
 
 /** All distinct node types */
 export const ALL_NODE_TYPES: NodeType[] = [
