@@ -29,7 +29,8 @@
     "@supernote/ai": "workspace:*",
     "@supernote/core": "workspace:*",
     "@tiptap/core": "3.22.5",
-    "shiki": "^3.23.0"
+    "shiki": "^3.23.0",
+    "yjs": "^13.6.30"
   },
   "peerDependencies": {
     "react": ">=18.0.0",

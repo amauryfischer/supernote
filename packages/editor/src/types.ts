@@ -1,10 +1,15 @@
 // Editor public types
 
-import type { Block as BNBlock } from "@blocknote/core";
+import type { Block as BNBlock, BlockNoteEditorOptions, BlockSchema, InlineContentSchema, StyleSchema } from "@blocknote/core";
 import type { GmailEmbedApi } from "./blocks/gmailMessage.js";
 
 // Re-export Block for consumers
 export type { Block } from "@blocknote/core";
+
+/** Co-édition Yjs : fragment partagé, provider (awareness des curseurs) et identité affichée. */
+export type EditorCollaboration = NonNullable<
+  BlockNoteEditorOptions<BlockSchema, InlineContentSchema, StyleSchema>["collaboration"]
+>;
 
 /** Lightweight reference to a vault entity */
 export interface EntityRef {
@@ -185,4 +190,6 @@ export interface SupernoteEditorProps {
   files?: EditorFileAdapter;
   /** Map résolue combo->actionId pour les raccourcis éditeur. Défaut : registre. */
   getKeymapBindings?: () => Record<string, string>;
+  /** Co-édition : le document vient de Yjs, `initialMarkdown` est ignoré. Lu au montage seulement. */
+  collaboration?: EditorCollaboration;
 }

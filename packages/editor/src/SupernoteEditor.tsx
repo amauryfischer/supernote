@@ -92,6 +92,7 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
     smartTypography = true,
     getKeymapBindings,
     files,
+    collaboration,
   } = props;
 
   // Adaptateur fichiers lu par référence : les options BlockNote sont figées
@@ -169,7 +170,8 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
   const editor = useCreateBlockNote(
     {
       schema: supernoteSchema,
-      initialContent: initialBlocks,
+      initialContent: collaboration ? undefined : initialBlocks,
+      ...(collaboration ? { collaboration } : {}),
       dictionary,
       // Sans `uploadFile`, BlockNote ignore purement et simplement le collage
       // et le dépôt de fichiers ; sans `resolveFileUrl`, le bloc image affiche
@@ -237,6 +239,8 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
   // tout clic sous le bloc — l'utilisateur ne peut pas créer de nouveau
   // contenu en dessous de la base.
   useEffect(() => {
+    // En co-édition, chaque client l'ajouterait : doublons.
+    if (collaboration) return;
     const NON_EDITABLE_TRAILING = new Set(["databaseView", "googleSheet", "gmailMessage"]);
     const ensureTrailingParagraph = () => {
       const doc = editor.document as Block[];
@@ -255,7 +259,7 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
     };
     ensureTrailingParagraph();
     return editor.onChange(ensureTrailingParagraph);
-  }, [editor]);
+  }, [editor, collaboration]);
 
   // Flash freshly inserted blocks (accent tint fading out) so the user sees
   // exactly what just landed — used by both the one-shot insert below and

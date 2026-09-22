@@ -13,7 +13,11 @@ export type {
   CalloutVariant,
   Block,
   StreamingInsertHandle,
+  EditorCollaboration,
 } from "./types.js";
+
+// Collaboration Yjs
+export { COLLAB_FRAGMENT, markdownToYUpdate } from "./collab.js";
 
 // Schema (for advanced usage)
 export { supernoteSchema } from "./schema.js";
