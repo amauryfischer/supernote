@@ -68,6 +68,17 @@ export async function bootCloud(page: Page, opts: { googleAccount?: string } = {
   );
 }
 
+/** Routes principales de l'app et le titre attendu au premier rendu. */
+export const NAV_ROUTES: { path: string; heading: string }[] = [
+  { path: "/notes", heading: "Sélectionnez une note ou créez-en une" },
+  { path: "/todos", heading: "Todos" },
+  { path: "/contacts", heading: "Contacts" },
+  { path: "/finance", heading: "Finance" },
+  // Mode dégradé : pas de coffre, donc l'état vide de l'agenda.
+  { path: "/agenda", heading: "Ouvre un coffre pour utiliser l'agenda" },
+  { path: "/carte", heading: "Ouvre un coffre pour voir la carte" },
+];
+
 /**
  * Intercepte les API REST Google. `handler` rend le corps JSON de la réponse,
  * `undefined` pour un 204. Renvoie le journal des appels (« METHODE chemin »).
