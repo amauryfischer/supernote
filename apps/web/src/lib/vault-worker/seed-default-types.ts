@@ -270,6 +270,20 @@ const habitFields: SeedField[] = [
   { id: "habit_updated_at", name: "updatedAt", label: "Modifié le", kind: "updatedAt" },
 ];
 
+export const EMAIL_AI_CACHE_TYPE_ID = "email_ai_cache";
+
+const emailAiCacheFields: SeedField[] = [
+  { id: "eac_thread_id", name: "threadId", label: "Gmail thread ID", kind: "text", required: true },
+  { id: "eac_account_email", name: "accountEmail", label: "Compte Gmail", kind: "email" },
+  { id: "eac_category", name: "aiCategory", label: "Catégorie IA", kind: "text" },
+  { id: "eac_category_confidence", name: "aiCategoryConfidence", label: "Confiance", kind: "number" },
+  { id: "eac_category_runs", name: "aiCategoryRuns", label: "Passes IA", kind: "number" },
+  { id: "eac_category_at", name: "aiCategoryAt", label: "Classifié le", kind: "number" },
+  { id: "eac_summary", name: "aiSummary", label: "Résumé IA", kind: "text" },
+  { id: "eac_summary_fp", name: "aiSummaryFp", label: "Fingerprint résumé", kind: "text" },
+  { id: "eac_summary_at", name: "aiSummaryAt", label: "Résumé le", kind: "number" },
+];
+
 const vaultMountFields: SeedField[] = [
   { id: "vm_label", name: "label", label: "Nom affiché", kind: "text", required: true },
   { id: "vm_server_url", name: "serverUrl", label: "URL du serveur", kind: "text", required: true },
@@ -323,6 +337,7 @@ export const DEFAULT_ENTITY_TYPES: SeedEntityType[] = [
   { id: "todo", name: "Todo", plural: "Todos", icon: "CheckSquare", color: "#22C55E", fields: todoFields, defaultPath: "Todos", fileNamePattern: "{text}" },
   { id: "habit", name: "Habitude", plural: "Habitudes", icon: "GridNine", color: "#8B5CF6", fields: habitFields, defaultPath: "Habitudes", fileNamePattern: "{name}" },
   { id: "vault_mount", name: "vault_mount", plural: "vault_mounts", icon: "Plugs", color: "#8b5cf6", fields: vaultMountFields, defaultPath: "VaultMounts", fileNamePattern: "{label}" },
+  { id: EMAIL_AI_CACHE_TYPE_ID, name: "email_ai_cache", plural: "email_ai_cache", icon: "Brain", color: "#6366F1", fields: emailAiCacheFields, defaultPath: "@system/email-ai", fileNamePattern: "{threadId}" },
   { id: TEMPLATE_TYPE_ID, name: "Modèle", plural: "Modèles", icon: "FileDashed", color: "#64748B", fields: templateFields, defaultPath: TEMPLATE_FOLDER, fileNamePattern: "{name}" },
 ];
 

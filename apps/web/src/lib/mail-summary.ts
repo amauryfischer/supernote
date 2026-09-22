@@ -162,24 +162,10 @@ export async function summarizeForList(thread: SummarizableThread): Promise<stri
   return parseListSummary(raw);
 }
 
-// ── Cache local ─────────────────────────────────────────────────────────────
-
-// v2 : les résumés antérieurs ignoraient qui est « moi » (fingerprint = date seule).
-const CACHE_KEY = "supernote.mail.listSummaries.v2";
-/** Au-delà, on oublie les entrées les moins récemment écrites. */
-const CACHE_MAX = 600;
-/** Une entrée plus vieille que ça n'a plus de valeur (le fil est enterré). */
-const CACHE_TTL_MS = 60 * 24 * 60 * 60 * 1000;
-
-export interface CachedSummary {
-  /** Empreinte du fil au moment du résumé (cf. `threadFingerprint`). */
-  fp: string;
-  text: string;
-  /** Horodatage d'écriture (ms). Sert à la purge. */
-  at: number;
-}
-
-export type SummaryCache = Record<string, CachedSummary>;
+// ── Cache : résumés stockés sur mail_thread (SQLite + entity sync) ─────────
+// Plus de localStorage — les résumés vivent dans les colonnes aiSummary /
+// aiSummaryFp / aiSummaryAt de mail_thread, synchronisées entre devices via
+// l'entity email_ai_cache.
 
 /**
  * Empreinte d'un fil : sa date la plus récente. Dès qu'un message arrive, la
@@ -190,77 +176,29 @@ export function threadFingerprint(item: { date: string }): string {
   return item.date ?? "";
 }
 
-export function loadSummaryCache(): SummaryCache {
-  if (typeof window === "undefined") return {};
-  try {
-    const raw = window.localStorage.getItem(CACHE_KEY);
-    if (!raw) return {};
-    const parsed: unknown = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
-    const out: SummaryCache = {};
-    const cutoff = Date.now() - CACHE_TTL_MS;
-    for (const [id, value] of Object.entries(parsed as Record<string, unknown>)) {
-      if (!value || typeof value !== "object") continue;
-      const v = value as Record<string, unknown>;
-      if (typeof v["fp"] !== "string" || typeof v["text"] !== "string") continue;
-      const at = typeof v["at"] === "number" ? v["at"] : 0;
-      if (at < cutoff) continue;
-      out[id] = { fp: v["fp"], text: v["text"], at };
-    }
-    return out;
-  } catch {
-    return {};
-  }
-}
-
-/** Purge les entrées les plus anciennes au-delà de `CACHE_MAX`. PUR. */
-export function pruneCache(cache: SummaryCache): SummaryCache {
-  const entries = Object.entries(cache);
-  if (entries.length <= CACHE_MAX) return cache;
-  entries.sort((a, b) => b[1].at - a[1].at);
-  return Object.fromEntries(entries.slice(0, CACHE_MAX));
-}
-
-/** Écrit un lot de résumés dans le cache (best-effort, quota toléré). */
-export function writeSummaries(entries: { id: string; fp: string; text: string }[]): void {
-  if (typeof window === "undefined" || entries.length === 0) return;
-  const cache = loadSummaryCache();
-  const at = Date.now();
-  for (const e of entries) cache[e.id] = { fp: e.fp, text: e.text, at };
-  try {
-    window.localStorage.setItem(CACHE_KEY, JSON.stringify(pruneCache(cache)));
-  } catch {
-    /* quota — le résumé reste en mémoire pour la session */
-  }
-}
-
-export function clearSummaryCache(): void {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.removeItem(CACHE_KEY);
-  } catch {
-    /* best-effort */
-  }
-}
-
-/** Résumé en cache pour un fil, si l'empreinte correspond toujours. PUR. */
+/** Résumé déjà stocké sur l'item, si l'empreinte correspond toujours. PUR. */
 export function cachedSummary(
-  cache: SummaryCache,
-  item: { id: string; date: string },
+  item: { date: string; aiSummary?: string | null; aiSummaryFp?: string | null },
 ): string | undefined {
-  const hit = cache[item.id];
-  if (!hit || hit.fp !== threadFingerprint(item)) return undefined;
-  return hit.text;
+  if (!item.aiSummary || !item.aiSummaryFp) return undefined;
+  if (item.aiSummaryFp !== threadFingerprint(item)) return undefined;
+  return item.aiSummary;
 }
 
 /**
- * Fils restant à résumer : pas de résumé à jour en cache, et pas déjà tentés en
- * échec pendant cette session. PUR (les ensembles sont injectés).
+ * Fils restant à résumer : pas de résumé à jour, et pas déjà tentés en échec
+ * pendant cette session. PUR.
  */
-export function pendingForSummary<T extends { id: string; date: string }>(
-  items: readonly T[],
-  cache: SummaryCache,
-  failed: ReadonlySet<string>,
-): T[] {
-  return items.filter((it) => !failed.has(it.id) && cachedSummary(cache, it) === undefined);
+export function pendingForSummary<
+  T extends { id: string; date: string; aiSummary?: string | null; aiSummaryFp?: string | null },
+>(items: readonly T[], failed: ReadonlySet<string>): T[] {
+  return items.filter((it) => !failed.has(it.id) && cachedSummary(it) === undefined);
+}
+
+/** @deprecated Conservée pour la migration one-shot (vidage localStorage). */
+export function clearSummaryCacheLegacy(): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem("supernote.mail.listSummaries.v2");
+  } catch { /* best-effort */ }
 }

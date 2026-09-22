@@ -19,7 +19,7 @@ import { Textarea, useToast, Switch } from "@supernote/ui";
 import { SettingSection } from "../SettingSection";
 import { connectGmail, getGmailProfile, GMAIL_READONLY_SCOPE } from "@/lib/gmail";
 import { clearAccessToken } from "@/lib/google-drive";
-import { clearSummaryCache } from "@/lib/mail-summary";
+import { clearSummaryCacheLegacy } from "@/lib/mail-summary";
 import { loadImageSenders, untrustImageSender, MAIL_IMAGE_SENDERS_EVENT } from "@/lib/mail-html";
 import { useGmailReconnect } from "@/components/mail/GmailReconnectBanner";
 import { CONFIDENCE_LEVELS, DEFAULT_CONFIDENCE_LEVEL } from "@/lib/mail-autolabel";
@@ -305,7 +305,7 @@ export function GmailTab() {
                   variant="ghost"
                   size="sm"
                   onPress={() => {
-                    clearSummaryCache();
+                    clearSummaryCacheLegacy();
                     toast({
                       title: "Résumés effacés",
                       description: "Ils seront régénérés au prochain passage sur la boîte.",

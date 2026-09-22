@@ -600,6 +600,13 @@ export interface ThreadListItem {
   date: string;
   snippet: string;
   labelIds: string[];
+  aiCategory?: string | null;
+  aiCategoryConfidence?: number | null;
+  aiCategoryRuns?: number | null;
+  aiCategoryAt?: number | null;
+  aiSummary?: string | null;
+  aiSummaryFp?: string | null;
+  aiSummaryAt?: number | null;
 }
 
 /**
