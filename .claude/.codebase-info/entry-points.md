@@ -67,7 +67,7 @@ Le seuil est `MOBILE_MAX_WIDTH = 767` dans `hooks/useIsMobile.ts`, aligné sur l
 | `pnpm dev` | serveur Vite sur le port 3100 |
 | `pnpm build:packages` | compile les paquets vers leur `dist/` |
 | `pnpm typecheck` | `tsc --noEmit` par workspace, via Turborepo |
-| `pnpm test:e2e` | Playwright chromium, serveur de dev sur 3277 |
+| `pnpm test:e2e` | Playwright chromium, serveur de dev sur un port dérivé du worktree (3200-3599), routes préchauffées par `tests/e2e/global-setup.ts` |
 | `pnpm scalingo-postbuild` | build de production, `@supernote/web` seul |
 
 Voir aussi : [architecture.md](architecture.md), [communication.md](communication.md), [onboarding.md](onboarding.md).

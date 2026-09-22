@@ -42,7 +42,7 @@ Le service worker est **désactivé en développement** (`devOptions: { enabled:
 | `packages/tsconfig/base.json` | TypeScript strict, `noUncheckedIndexedAccess`, cible ES2022 |
 | `.prettierrc.json` | 100 colonnes, guillemets simples, plugin de tri Tailwind |
 | `.npmrc` | `auto-install-peers`, liste `onlyBuiltDependencies` |
-| `playwright.config.ts` | suite e2e chromium, serveur de dev sur le port 3277 |
+| `playwright.config.ts` | suite e2e chromium, port dérivé du worktree (3200-3599, `--strictPort`), `globalSetup` de préchauffage |
 | `Procfile` | `node apps/web/server.mjs` en production |
 
 ## Déploiement
