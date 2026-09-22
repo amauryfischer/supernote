@@ -76,7 +76,7 @@ export function AssociatedTodos({ noteId, body }: AssociatedTodosProps) {
 
   return (
     <div
-      className="mx-10 my-6 rounded-lg"
+      className="mx-4 my-6 rounded-lg md:mx-10"
       style={{
         backgroundColor: "var(--surface-1)",
         border: "1px solid var(--border-subtle)",

@@ -78,8 +78,6 @@ import {
   updateTodoMetadata,
   TODO_TYPE_ID,
 } from "@/hooks/useTodoSync";
-import { extractChecklists } from "@/lib/todos/extractChecklists";
-import { filterChecklistsHeuristic } from "@/lib/todos/heuristicFilter";
 import { migrateLegacyTodos, type MigrationOutcome } from "@/lib/todos/migration";
 import {
   allSelectedDone,
@@ -91,6 +89,7 @@ import {
 } from "@/lib/todos/bulkSelection";
 import { PromptModal } from "@/components/shell/PromptModal";
 import { TodoRow, type TodoImportance, type TodoRowData } from "@/components/todos/TodoRow";
+import { useNoteChecklistTodos, type UiTodoRow } from "@/components/todos/useNoteChecklistTodos";
 import { TodoBulkActionBar } from "@/components/todos/TodoBulkActionBar";
 import { EditTodoModal, type EditTodoValues } from "@/components/todos/EditTodoModal";
 import { TodoCalendarView } from "@/components/todos/TodoCalendarView";
@@ -119,19 +118,6 @@ const COMPLETED_COLLAPSE_MS = 260;
 /** Garde localStorage du son de célébration inbox-zéro — max 1×/jour. */
 const CELEBRATED_AT_KEY = "supernote.todos.celebratedAt";
 
-interface UiTodoRow extends TodoRowData {
-  /** "note" → row materialized from a checklist line in a note's body.
-   *  "standalone" → row backed by a `todo` entity with no source note. */
-  kind: "note" | "standalone";
-  /** Source note title, when applicable. */
-  sourceNoteTitle: string | null;
-  /** Source note's tags — used by the tag filter. */
-  sourceNoteTags: string[];
-  /** Sort/group key — `note:${noteId}:${blockId}` or the entity id. */
-  createdAt: string;
-  /** Manual sort position — only populated for standalone todos. */
-  sortOrder: number | null;
-}
 
 /** Returns true if the ISO date string is within the current calendar week
  *  (Mon–Sun). */
@@ -370,10 +356,6 @@ export default function TodosPage() {
   // Notes carry the bodies we project todos from. We bump the limit because
   // the whole point of /todos is a global view; 5000 is plenty for a personal
   // vault and avoids a follow-up `entities.get` round-trip per note.
-  const notesQuery = trpc.entities.list.useQuery(
-    { typeId: "note", limit: 5000, offset: 0 },
-    { staleTime: 30_000, refetchOnMount: "always" },
-  );
   // Standalones — entities of type `todo`. These survive the new model and
   // are still toggled/edited via `entities.update`.
   const todosQuery = trpc.entities.list.useQuery(
@@ -407,61 +389,13 @@ export default function TodosPage() {
   }, []);
 
   const navigate = useNavigate();
+  const { rows: noteRows, isLoading: notesLoading } = useNoteChecklistTodos();
   const mailTodos = useMailTodos(showToast);
   const openMailThread = useCallback(
     (row: TodoRowData) => navigate(`/mail?thread=${encodeURIComponent(row.sourceThreadId ?? "")}`),
     [navigate],
   );
 
-  /**
-   * Materialize one UiTodoRow per checklist line across every note. Pure
-   * projection; cheap to recompute (a single string scan per note + a sort).
-   */
-  const noteRows: UiTodoRow[] = useMemo(() => {
-    const notes = notesQuery.data?.items ?? [];
-    const out: UiTodoRow[] = [];
-    for (const n of notes) {
-      // Skip archived notes — their checklists are out of scope until the
-      // user explicitly restores them. Mirrors the NoteList default and
-      // keeps "stale" projects from cluttering the active todo board.
-      const archivedAt = n.fields?.["archivedAt"];
-      if (typeof archivedAt === "string" && archivedAt.length > 0) continue;
-      const body = typeof n.body === "string" ? n.body : "";
-      if (!body || !body.includes("[")) continue;
-      const items = extractChecklists(body);
-      if (items.length === 0) continue;
-      const kept = filterChecklistsHeuristic(body, items);
-      if (kept.length === 0) continue;
-      const title =
-        typeof n.fields?.["title"] === "string"
-          ? (n.fields["title"] as string)
-          : n.filePath.split("/").pop()?.replace(/\.md$/, "") ?? "Sans titre";
-      const tags = Array.isArray((n as { tags?: unknown }).tags)
-        ? ((n as { tags: unknown[] }).tags.filter((t) => typeof t === "string") as string[])
-        : [];
-      for (const it of kept) {
-        out.push({
-          kind: "note",
-          id: `note:${n.id}:${it.blockId}`,
-          text: it.text,
-          done: it.done,
-          sourceNoteId: n.id,
-          line: it.line,
-          blockId: it.blockId,
-          startDate: it.startDate,
-          dueDate: it.dueDate,
-          priority: it.priority,
-          importance: it.importance,
-          urgent: it.urgent,
-          sourceNoteTitle: title,
-          sourceNoteTags: tags,
-          createdAt: n.updatedAt,
-          sortOrder: null,
-        });
-      }
-    }
-    return out;
-  }, [notesQuery.data]);
 
   const standaloneRows: UiTodoRow[] = useMemo(() => {
     const items = todosQuery.data?.items ?? [];
@@ -1173,7 +1107,7 @@ export default function TodosPage() {
   // sa sortie animée est terminée), petit arpège « celebrate » — max 1×/jour
   // (garde localStorage) et uniquement après un check dans la session (jamais
   // au simple chargement d'une liste déjà vide).
-  const queriesLoaded = !notesQuery.isLoading && !todosQuery.isLoading;
+  const queriesLoaded = !notesLoading && !todosQuery.isLoading;
   useEffect(() => {
     const inboxZero =
       queriesLoaded && totalAll > 0 && totalPending === 0 && justCompletedIds.size === 0;
@@ -1563,7 +1497,7 @@ export default function TodosPage() {
         {/* Matrix view (Eisenhower) */}
         {viewMode === "matrix" && (
           <div className="flex-1 overflow-y-auto px-4 py-6 md:px-8">
-            {notesQuery.isLoading || todosQuery.isLoading ? (
+            {notesLoading || todosQuery.isLoading ? (
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                 {Array.from({ length: 4 }).map((_, i) => (
                   <div
@@ -1663,7 +1597,7 @@ export default function TodosPage() {
                 </ul>
               </section>
             )}
-          {notesQuery.isLoading || todosQuery.isLoading ? (
+          {notesLoading || todosQuery.isLoading ? (
             <div className="mx-auto max-w-3xl space-y-2">
               {Array.from({ length: 4 }).map((_, i) => (
                 <div
