@@ -3,9 +3,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useSearchParams } from "react-router-dom";
 import type { CalEventRow } from "@supernote/ipc";
-import { CalendarBlank, Plus } from "@phosphor-icons/react";
+import { CalendarBlank, CalendarPlus, Plus } from "@phosphor-icons/react";
 import { EmptyState, useToast } from "@supernote/ui";
-import { AppShell, MobileSheet, useMobileFab, useMobileTitle } from "@/components/shell";
+import { AppShell, MobileSheet, useMobileFab, useMobileHeaderActions, useMobileTitle } from "@/components/shell";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useSettings } from "@/components/settings/SettingsContext";
 import { useWorkerReady } from "@/components/notes/hooks";
@@ -32,6 +32,7 @@ import { overlaySource, useAgendaData, type OverlaySource } from "@/components/a
 import { useEventWrites, type EventDraft } from "@/components/agenda/useEventWrites";
 import { useSchedulableTasks } from "@/components/agenda/useSchedulableTasks";
 import { TaskDrawer } from "@/components/agenda/TaskDrawer";
+import { ScheduleTaskSheet } from "@/components/agenda/ScheduleTaskSheet";
 
 const VIEW_KEY = "supernote.agenda.view";
 const SOURCES_KEY = "supernote.agenda.sources";
@@ -113,6 +114,11 @@ export default function AgendaPage() {
     setEditor({ mode: "create", initial: { startAt: start, endAt: endAt ?? start + 3_600_000, allDay } });
   }, []);
   useMobileFab(connected ? { icon: Plus, label: "Nouvel événement", onPress: () => openCreate() } : null);
+  useMobileHeaderActions(
+    isMobile && connected
+      ? [{ id: "schedule-task", icon: CalendarPlus, label: "Planifier une tâche", onPress: () => setScheduling({ task: null }) }]
+      : [],
+  );
 
   const setView = (v: AgendaView) => {
     setViewState(v);
@@ -399,6 +405,10 @@ export default function AgendaPage() {
           onClose={() => setEditor(null)}
           onSave={save}
         />
+      )}
+
+      {scheduling && (
+        <ScheduleTaskSheet task={scheduling.task} pickFrom={toPlan} onClose={() => setScheduling(null)} />
       )}
     </AppShell>
   );

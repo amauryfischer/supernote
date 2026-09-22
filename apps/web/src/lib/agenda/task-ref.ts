@@ -1,3 +1,4 @@
+import type { CalEventRow } from "@supernote/ipc";
 import { buildGmailThreadUrl } from "@/lib/gmail";
 
 export const TASK_DRAG_MIME = "application/x-supernote-task";
@@ -31,4 +32,15 @@ export function taskSourceUrl(ref: string): string {
   if (ref.startsWith("mail:")) return buildGmailThreadUrl(ref.slice("mail:".length));
   const path = taskSourcePath(ref);
   return path ? `${window.location.origin}${path}` : "";
+}
+
+export function withScheduledAt<T extends TaskRow & { scheduledAt?: number | null }>(
+  rows: T[],
+  blocks: ReadonlyMap<string, CalEventRow>,
+): T[] {
+  if (blocks.size === 0) return rows;
+  return rows.map((r) => {
+    const block = blocks.get(taskRefOf(r));
+    return block ? { ...r, scheduledAt: block.startAt } : r;
+  });
 }
