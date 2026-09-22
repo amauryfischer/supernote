@@ -14,7 +14,6 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useToast } from "@supernote/ui";
 import type { ThreadListItem } from "@/lib/gmail";
 import { mirrorAvailable, mirrorGetThread } from "@/lib/mail-mirror";
 import { isNoteToSelf } from "@/lib/mail-ai";
@@ -66,7 +65,6 @@ export function useMailSummaries({
   selfEmails,
   items,
 }: UseMailSummariesOptions): UseMailSummariesResult {
-  const { toast } = useToast();
   const [summaries, setSummaries] = useState<ReadonlyMap<string, string>>(new Map());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -144,12 +142,9 @@ export function useMailSummaries({
         } catch (err) {
           // Ollama injoignable ou modèle absent : on arrête la passe et on
           // patiente. Les fils ne sont PAS marqués en échec — ils repasseront
-          // après le délai. Toast au premier échec seulement (passes en boucle).
+          // après le délai. L'erreur s'affiche sur le bouton de la barre mail.
           cooldownUntilRef.current = Date.now() + COOLDOWN_MS;
           const message = err instanceof Error ? err.message : String(err);
-          if (errorRef.current === null) {
-            toast({ title: "Résumés IA indisponibles", description: message, variant: "danger" });
-          }
           errorRef.current = message;
           setError(message);
           break;
@@ -169,19 +164,14 @@ export function useMailSummaries({
       runningRef.current = false;
       setBusy(false);
     }
-  }, [resolveBody, selfEmails, toast]);
+  }, [resolveBody, selfEmails]);
 
-  /** Passe manuelle : réessaye aussi les fils en échec, et dit ce qu'elle fait. */
+  /** Passe manuelle : réessaye aussi les fils en échec. */
   const runNow = useCallback(() => {
     failedRef.current = new Set();
     cooldownUntilRef.current = 0;
-    const pending = pendingForSummary(itemsRef.current, loadSummaryCache(), new Set()).length;
-    if (pending === 0) {
-      toast({ title: "Rien à résumer", description: "Tous les fils visibles ont un résumé." });
-      return;
-    }
     void run();
-  }, [run, toast]);
+  }, [run]);
 
   // Passe automatique après stabilisation de la liste, puis en chaîne tant
   // qu'il reste des fils (le lot est borné, pas la boîte).

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Modal, Button, Input, Checkbox, Tooltip, useToast } from "@supernote/ui";
+import { Modal, Button, Input, Checkbox, Tooltip } from "@supernote/ui";
 import {
   Plus,
   PencilSimple,
@@ -21,6 +21,7 @@ import {
   type MailGroup,
 } from "@/lib/mail-groups";
 import { normalize } from "@/lib/unified-search";
+import { useActionFeedback } from "@/lib/action-feedback";
 
 /** Génère un id de groupe stable, robuste si `crypto.randomUUID` absent. */
 function newGroupId(): string {
@@ -49,7 +50,7 @@ export function MailGroupsManager({
   onClose: () => void;
   labelNames: Map<string, string>;
 }) {
-  const { toast } = useToast();
+  const saveFb = useActionFeedback();
   const [groups, setGroups] = useState<MailGroup[]>(() => loadGroups());
   // Édition courante : `null` = liste ; objet = formulaire (création ou édition).
   const [editing, setEditing] = useState<MailGroup | null>(null);
@@ -88,11 +89,11 @@ export function MailGroupsManager({
     if (!editing) return;
     const name = editing.name.trim();
     if (!name) {
-      toast({ title: "Nom du groupe requis", variant: "danger" });
+      saveFb.fail(new Error("Nom du groupe requis"));
       return;
     }
     if (editing.labelIds.length === 0) {
-      toast({ title: "Choisis au moins un label", variant: "danger" });
+      saveFb.fail(new Error("Choisis au moins un label"));
       return;
     }
     upsertGroup({ ...editing, name });
@@ -189,6 +190,11 @@ export function MailGroupsManager({
           </div>
 
           <div className="flex items-center justify-end gap-2">
+            {saveFb.error && (
+              <span role="alert" className="mr-auto text-xs" style={{ color: "var(--color-danger)" }}>
+                {saveFb.error}
+              </span>
+            )}
             <Button variant="ghost" onPress={() => setEditing(null)}>
               Annuler
             </Button>

@@ -147,11 +147,12 @@ import {
 } from "@/lib/mail-rules";
 import { confidenceThreshold } from "@/lib/mail-autolabel";
 import { prefersReducedMotion } from "@/lib/motion";
+import { useActionFeedback, FeedbackIcon } from "@/lib/action-feedback";
 import { useToast, Tooltip } from "@supernote/ui";
 
 type GroupRow = Extract<OverlayRow, { kind: "group" }>;
 
-/** Libellé du toast de confirmation par action de triage. */
+/** Libellé annoncé aux lecteurs d'écran par action de triage. */
 const TRIAGE_DONE_LABEL: Record<TriageAction, string> = {
   done: "Email marqué comme fait",
   archive: "Email archivé",
@@ -159,7 +160,7 @@ const TRIAGE_DONE_LABEL: Record<TriageAction, string> = {
   delete: "Email supprimé",
 };
 
-/** Durée du toast « Annuler » : assez longue pour cliquer, sans gêner (6 s). */
+/** Durée du toast « Annuler » d'une suppression : assez longue pour cliquer (6 s). */
 const UNDO_TOAST_DURATION_MS = 6000;
 
 /** Fenêtre du raccourci clavier « z » (annuler la dernière action) : 10 s. */
@@ -211,6 +212,7 @@ export default function MailPage() {
   );
 
   const { captureToNote } = useCaptureEmail();
+  const captureFb = useActionFeedback();
   const { toast } = useToast();
   const confirm = useConfirm();
 
@@ -732,7 +734,7 @@ export default function MailPage() {
     [setRows, setCumItems],
   );
 
-  // ── Annuler (toast + raccourci `z`) ─────────────────────────────────────────
+  // ── Annuler (raccourci `z` ; toast en plus pour une suppression) ────────────
   const lastUndoableRef = useRef<{
     id: string;
     action: TriageAction;
@@ -762,7 +764,6 @@ export default function MailPage() {
         .then(() => {
           void loadList(query);
           setLiveMessage("Triage annulé");
-          toast({ title: "Triage annulé", variant: "success" });
         })
         .catch((err) => {
           toast({
@@ -778,11 +779,9 @@ export default function MailPage() {
   const offerUndo = useCallback(
     (id: string, action: TriageAction, opId?: string | null) => {
       setLiveMessage(TRIAGE_DONE_LABEL[action]);
-      if (!clientId) {
-        toast({ title: TRIAGE_DONE_LABEL[action] });
-        return;
-      }
+      if (!clientId) return;
       lastUndoableRef.current = { id, action, opId: opId ?? null, at: Date.now() };
+      if (action !== "delete") return;
       toast({
         title: TRIAGE_DONE_LABEL[action],
         duration: UNDO_TOAST_DURATION_MS,
@@ -835,23 +834,12 @@ export default function MailPage() {
         });
       }
       bumpTriaged();
-      const errTitle =
-        action === "delete"
-          ? "Suppression échouée"
-          : action === "snooze"
-            ? "Report échoué"
-            : action === "done"
-              ? "Action échouée"
-              : "Archivage échoué";
+      // Échec : le rechargement fait réapparaître le fil, c'est le retour visible.
       commitMutation(triageMutation(id, action), () => applyTriage(clientId, id, action))
         .then((opId) => offerUndo(id, action, opId))
         .catch((err) => {
+          console.error(err);
           if (action === "snooze") removeSnooze(id);
-          toast({
-            title: errTitle,
-            description: err instanceof Error ? err.message : String(err),
-            variant: "danger",
-          });
           void loadList(query);
         });
     },
@@ -863,7 +851,6 @@ export default function MailPage() {
       dropThreadFromList,
       commitMutation,
       offerUndo,
-      toast,
       loadList,
       query,
     ],
@@ -923,13 +910,8 @@ export default function MailPage() {
               ? `${ids.length} email(s) supprimé(s)`
               : `${ids.length} email(s) archivé(s)`;
         setLiveMessage(title);
-        toast({ title });
       } catch (err) {
-        toast({
-          title: "Action groupée partiellement échouée",
-          description: err instanceof Error ? err.message : String(err),
-          variant: "danger",
-        });
+        console.error(err);
       } finally {
         setSelectedThreadIds(new Set());
         setBulkBusy(false);
@@ -941,7 +923,6 @@ export default function MailPage() {
       selectedThreadIds,
       bulkBusy,
       dropThreadFromList,
-      toast,
       loadList,
       query,
       commitMutation,
@@ -976,21 +957,14 @@ export default function MailPage() {
             ),
           ),
         );
-        toast({
-          title: `${ids.length} email${ids.length > 1 ? "s" : ""} supprimé${ids.length > 1 ? "s" : ""}`,
-        });
       } catch (err) {
-        toast({
-          title: "Suppression partiellement échouée",
-          description: err instanceof Error ? err.message : String(err),
-          variant: "danger",
-        });
+        console.error(err);
       } finally {
         setBulkBusy(false);
         void loadList(query);
       }
     },
-    [clientId, bulkBusy, confirm, dropThreadFromList, toast, loadList, query, commitMutation],
+    [clientId, bulkBusy, confirm, dropThreadFromList, loadList, query, commitMutation],
   );
 
   const markGroupRead = useCallback(
@@ -1014,19 +988,12 @@ export default function MailPage() {
             ),
           ),
         );
-        toast({
-          title: `${ids.length} marqué${ids.length > 1 ? "s" : ""} comme lu${ids.length > 1 ? "s" : ""}`,
-        });
       } catch (err) {
-        toast({
-          title: "Marquage « lu » partiellement échoué",
-          description: err instanceof Error ? err.message : String(err),
-          variant: "danger",
-        });
+        console.error(err);
         void loadList(query);
       }
     },
-    [clientId, toast, loadList, query, commitMutation, setRows],
+    [clientId, loadList, query, commitMutation, setRows],
   );
 
   // ── Resynchronisation des labels optimistes ────────────────────────────────
@@ -1076,34 +1043,27 @@ export default function MailPage() {
       );
       void commitMutation({ threadId, kind: "modifyLabels", addLabelIds: [labelId] }, () =>
         addThreadLabel(clientId, threadId, labelId),
-      )
-        .then(() => toast({ title: "Tag appliqué" }))
-        .catch((err) => {
-          if (prev) {
-            const restored = prev;
-            setCumItems(() => {
-              rebuild(restored);
-              return restored;
-            });
-          }
-          setThread((t) =>
-            t && t.id === threadId
-              ? { ...t, labelIds: t.labelIds.filter((l) => l !== labelId) }
-              : t,
-          );
-          toast({
-            title: "Ajout du tag échoué",
-            description: err instanceof Error ? err.message : String(err),
-            variant: "danger",
+      ).catch((err) => {
+        console.error(err);
+        if (prev) {
+          const restored = prev;
+          setCumItems(() => {
+            rebuild(restored);
+            return restored;
           });
-        });
+        }
+        setThread((t) =>
+          t && t.id === threadId
+            ? { ...t, labelIds: t.labelIds.filter((l) => l !== labelId) }
+            : t,
+        );
+      });
     },
     [
       clientId,
       cumItems,
       labelNames,
       selfAddresses,
-      toast,
       commitMutation,
       computeVisible,
       flatLabelIds,
@@ -1148,15 +1108,11 @@ export default function MailPage() {
         },
         () => toggleStar(clientId, id, next),
       ).catch((err) => {
+        console.error(err);
         syncThreadLabels(id, current);
-        toast({
-          title: next ? "Ajout de l'étoile échoué" : "Retrait de l'étoile échoué",
-          description: err instanceof Error ? err.message : String(err),
-          variant: "danger",
-        });
       });
     },
-    [clientId, syncThreadLabels, toast, commitMutation],
+    [clientId, syncThreadLabels, commitMutation],
   );
 
   const handleMarkRowRead = useCallback(
@@ -1174,15 +1130,11 @@ export default function MailPage() {
         },
         () => (read ? markThreadRead(clientId, id) : markThreadUnread(clientId, id)),
       ).catch((err) => {
+        console.error(err);
         syncThreadLabels(id, current);
-        toast({
-          title: read ? "Marquage « lu » échoué" : "Marquage « non lu » échoué",
-          description: err instanceof Error ? err.message : String(err),
-          variant: "danger",
-        });
       });
     },
-    [clientId, syncThreadLabels, toast, commitMutation],
+    [clientId, syncThreadLabels, commitMutation],
   );
 
   /**
@@ -1221,11 +1173,7 @@ export default function MailPage() {
           ),
         ),
       ).catch((err) => {
-        toast({
-          title: "Marquage « lu » partiellement échoué",
-          description: err instanceof Error ? err.message : String(err),
-          variant: "danger",
-        });
+        console.error(err);
         void loadList(query);
       });
     },
@@ -1238,7 +1186,6 @@ export default function MailPage() {
       selfAddresses,
       setRows,
       setCumItems,
-      toast,
       loadList,
       query,
     ],
@@ -1337,11 +1284,11 @@ export default function MailPage() {
     isMobile && mailTab !== "todo",
   );
 
-  const labelError = useCallback(
-    (title: string, err: unknown) =>
-      toast({ title, description: err instanceof Error ? err.message : String(err), variant: "danger" }),
-    [toast],
-  );
+  const [labelsError, setLabelsError] = useState<string | null>(null);
+  const labelError = useCallback((title: string, err: unknown) => {
+    console.error(err);
+    setLabelsError(`${title} : ${err instanceof Error ? err.message : String(err)}`);
+  }, []);
 
   const patchLabel = useCallback(
     async (id: string, patch: { name?: string; color?: GmailLabelColor }) => {
@@ -1352,16 +1299,17 @@ export default function MailPage() {
       try {
         await updateLabel(clientId, id, patch);
       } catch (err) {
+        console.error(err);
         addLabel({ id, name, color });
-        labelError(patch.name ? "Renommage du label échoué" : "Couleur du label échouée", err);
       }
     },
-    [clientId, labelNames, labelColors, addLabel, labelError],
+    [clientId, labelNames, labelColors, addLabel],
   );
 
   const createUserLabel = useCallback(
     async (name: string) => {
       if (!clientId) return false;
+      setLabelsError(null);
       try {
         addLabel(await createLabel(clientId, name));
         return true;
@@ -1384,6 +1332,7 @@ export default function MailPage() {
         confirmLabel: "Supprimer",
       });
       if (!ok) return;
+      setLabelsError(null);
       try {
         await deleteLabel(clientId, id);
         removeLabel(id);
@@ -1423,15 +1372,11 @@ export default function MailPage() {
           );
         })
         .catch((err) => {
+          console.error(err);
           if (prev) setCumItems(prev);
-          toast({
-            title: "Rangement dans la matrice échoué",
-            description: err instanceof Error ? err.message : String(err),
-            variant: "danger",
-          });
         });
     },
-    [clientId, loadTodoLabels, commitMutation, setCumItems, toast],
+    [clientId, loadTodoLabels, commitMutation, setCumItems],
   );
 
   const handleConvertRow = useCallback(
@@ -1450,14 +1395,12 @@ export default function MailPage() {
         migrateLegacyTodoBindings(labels, (id, change) => modifyThreadLabels(clientId, id, change)),
       )
       .then((n) => {
-        if (n === 0) return;
-        toast({ title: `${n} email(s) déplacé(s) vers les labels Todo` });
-        void loadList(query);
+        if (n > 0) void loadList(query);
       })
       .catch(() => {
         migrationStartedRef.current = false;
       });
-  }, [connected, clientId, loadTodoLabels, toast, loadList, query]);
+  }, [connected, clientId, loadTodoLabels, loadList, query]);
 
   // ── Réponse envoyée : re-fetch fil + liste ─────────────────────────────────
   const handleReplied = useCallback(() => {
@@ -1844,7 +1787,6 @@ export default function MailPage() {
         if (!id) return;
         muteThread(id);
         triageThread(id, "archive");
-        toast({ title: "Fil ignoré", description: "Ses prochains messages seront archivés." });
       },
       spam: () => {
         const id = targetThreadId();
@@ -1859,14 +1801,9 @@ export default function MailPage() {
               dropThread: true,
             });
             setLiveMessage("Email signalé comme spam");
-            toast({ title: "Signalé comme spam" });
           })
           .catch((err) => {
-            toast({
-              title: "Signalement échoué",
-              description: err instanceof Error ? err.message : String(err),
-              variant: "danger",
-            });
+            console.error(err);
             void loadList(query);
           });
       },
@@ -1932,7 +1869,6 @@ export default function MailPage() {
     clientId,
     dropThreadFromList,
     patchMirror,
-    toast,
   ]);
 
   // Clavier actif sur desktop uniquement, et jamais par-dessus une modale.
@@ -1970,17 +1906,13 @@ export default function MailPage() {
   const handleCaptureNote = async () => {
     const msg = thread?.messages[0];
     if (!msg) return;
-    try {
-      const id = await captureToNote(msg);
-      toast({ title: "Note créée depuis l'email", description: "Dans Inbox." });
-      navigate(`/notes/${id}`);
-    } catch (err) {
-      toast({
-        title: "Échec de la capture",
-        description: err instanceof Error ? err.message : String(err),
-        variant: "danger",
-      });
-    }
+    await captureFb.run(
+      async () => navigate(`/notes/${await captureToNote(msg)}`),
+      // Sur mobile l'action vit dans l'en-tête, sans bouton pour porter l'échec.
+      isMobile
+        ? (message) => toast({ title: "Échec de la capture", description: message, variant: "danger" })
+        : undefined,
+    );
   };
 
   // Volet liste actif : le groupe ouvert perd son surlignage, sinon il masquerait
@@ -2247,9 +2179,13 @@ export default function MailPage() {
       </div>
       <MailLabelsManager
         isOpen={labelsManagerOpen}
-        onClose={() => setLabelsManagerOpen(false)}
+        onClose={() => {
+          setLabelsManagerOpen(false);
+          setLabelsError(null);
+        }}
         labelNames={labelNames}
         labelColors={labelColors}
+        error={labelsError}
         onCreate={createUserLabel}
         onRename={(id, name) => void patchLabel(id, { name })}
         onDelete={(id) => void deleteUserLabel(id)}
@@ -2457,16 +2393,17 @@ export default function MailPage() {
       <span className="text-xs" style={{ color: "var(--text-muted)" }}>
         Capturer :
       </span>
-      <Tooltip content="Capturer en note">
+      <Tooltip content={captureFb.error ?? "Capturer en note"}>
         <Button
           variant="ghost"
           size="sm"
           isIconOnly
           aria-label="Capturer en note"
           className="h-7"
+          isDisabled={captureFb.isPending}
           onPress={() => void handleCaptureNote()}
         >
-          <FilePlus size={14} />
+          <FeedbackIcon state={captureFb.state} idle={<FilePlus size={14} />} size={14} error={captureFb.error} />
         </Button>
       </Tooltip>
       <Tooltip content="Capturer dans une base">
@@ -2486,7 +2423,7 @@ export default function MailPage() {
   ) : null;
 
   // Colonne « Brouillons IA ».
-  const draftsOpen = aiConfigured && (drafts.busy || drafts.variants.length > 0);
+  const draftsOpen = aiConfigured && (drafts.busy || drafts.variants.length > 0 || drafts.error !== null);
   const draftsPanel = (
     <div className="flex h-full flex-col overflow-hidden">
       <div
@@ -2576,6 +2513,11 @@ export default function MailPage() {
           >
             <Spinner size="sm" /> Génération en cours…
           </div>
+        )}
+        {drafts.error && (
+          <p role="alert" className="px-1 py-2 text-xs" style={{ color: "var(--color-danger)" }}>
+            Brouillon IA impossible : {drafts.error}
+          </p>
         )}
       </div>
     </div>
@@ -2691,7 +2633,6 @@ export default function MailPage() {
         onMute={(id) => {
           muteThread(id);
           triageThread(id, "archive");
-          toast({ title: "Fil ignoré", description: "Ses prochains messages seront archivés." });
         }}
       />
       <SnoozeMenu

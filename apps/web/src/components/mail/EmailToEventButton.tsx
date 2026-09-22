@@ -1,10 +1,8 @@
 "use client";
 
-import { useMemo } from "react";
 import {
   Button,
   DropdownMenu,
-  useToast,
   type DropdownMenuItem,
   type ButtonProps,
 } from "@supernote/ui";
@@ -13,8 +11,8 @@ import type { EmailMessage } from "@/lib/gmail";
 import {
   buildGoogleCalendarUrl,
   buildIcs,
-  buildEventDraft,
 } from "@/lib/email-to-event";
+import { useActionFeedback, FeedbackIcon } from "@/lib/action-feedback";
 
 /**
  * EmailToEventButton — transforme un email en évènement de calendrier.
@@ -39,24 +37,12 @@ export function EmailToEventButton({
   variant?: ButtonProps["variant"];
   size?: "sm" | "md";
 }) {
-  const { toast } = useToast();
-
-  // Détecte une date pour informer l'utilisateur (toast) + label.
-  const draft = useMemo(() => buildEventDraft(message), [message]);
-  const hasDetectedDate = draft.start !== null;
+  const fb = useActionFeedback();
 
   const openGoogleCalendar = () => {
     const url = buildGoogleCalendarUrl(message);
     const win = window.open(url, "_blank", "noopener,noreferrer");
-    if (!win) {
-      toast({ title: "Impossible d'ouvrir Google Agenda (popup bloquée ?)", variant: "danger" });
-      return;
-    }
-    toast({
-      title: hasDetectedDate
-        ? "Google Agenda ouvert (date pré-remplie)"
-        : "Google Agenda ouvert",
-    });
+    if (!win) fb.fail(new Error("Popup bloquée"));
   };
 
   const downloadIcs = () => {
@@ -77,9 +63,9 @@ export function EmailToEventButton({
       a.remove();
       // Libère l'URL objet après le clic (laisse le temps au download).
       setTimeout(() => URL.revokeObjectURL(url), 1000);
-      toast({ title: "Fichier .ics téléchargé" });
+      fb.succeed();
     } catch {
-      toast({ title: "Échec de génération du fichier .ics", variant: "danger" });
+      fb.fail(new Error("Échec du fichier .ics"));
     }
   };
 
@@ -106,8 +92,13 @@ export function EmailToEventButton({
           size={size}
           aria-label="Créer un évènement à partir de cet email"
         >
-          <CalendarPlus size={size === "sm" ? 14 : 16} />
-          <span className="ml-1.5">Créer un évènement</span>
+          <FeedbackIcon
+            state={fb.state}
+            error={fb.error}
+            size={size === "sm" ? 14 : 16}
+            idle={<CalendarPlus size={size === "sm" ? 14 : 16} />}
+          />
+          <span className="ml-1.5">{fb.state === "error" ? fb.error : "Créer un évènement"}</span>
         </Button>
       }
       items={items}

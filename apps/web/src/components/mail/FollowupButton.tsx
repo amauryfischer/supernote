@@ -11,7 +11,6 @@
 import { useEffect, useState } from "react";
 import { Button, Popover, Input } from "@heroui/react";
 import { BellRinging } from "@phosphor-icons/react";
-import { useToast } from "@supernote/ui";
 import {
   addFollowup,
   removeFollowup,
@@ -43,7 +42,6 @@ export function FollowupButton({
   defaultDays: number;
   className?: string;
 }) {
-  const { toast } = useToast();
   const [open, setOpen] = useState(false);
   const [existing, setExisting] = useState<FollowupEntry | null>(() => getFollowup(threadId));
   const [custom, setCustom] = useState(() =>
@@ -60,14 +58,6 @@ export function FollowupButton({
   const place = (dueAt: number) => {
     addFollowup({ threadId, subject, messageCount, dueAt });
     setOpen(false);
-    const when = new Date(dueAt);
-    toast({
-      title: "Rappel posé",
-      description: `Si personne n'a répondu d'ici le ${when.toLocaleDateString()} à ${when.toLocaleTimeString(
-        [],
-        { hour: "2-digit", minute: "2-digit" },
-      )}, le fil revient en boîte.`,
-    });
   };
 
   const customTs = Date.parse(custom);
@@ -98,7 +88,6 @@ export function FollowupButton({
                 onPress={() => {
                   removeFollowup(threadId);
                   setOpen(false);
-                  toast({ title: "Rappel retiré" });
                 }}
               >
                 Retirer le rappel

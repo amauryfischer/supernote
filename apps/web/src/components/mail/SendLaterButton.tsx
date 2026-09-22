@@ -7,9 +7,9 @@
  * date libre) avec ses propres propositions : l'utilisateur n'a pas deux
  * grammaires de dates à apprendre.
  *
- * Limite affichée honnêtement par le toast de confirmation : l'envoi part à
- * l'heure dite SI l'app est ouverte, sinon à la première ouverture suivante —
- * il n'y a pas de serveur Supernote pour poster à notre place.
+ * Limite affichée honnêtement dans l'infobulle : l'envoi part à l'heure dite
+ * SI l'app est ouverte, sinon à la première ouverture suivante — il n'y a pas
+ * de serveur Supernote pour poster à notre place.
  */
 
 import { useState } from "react";
@@ -46,7 +46,7 @@ export function SendLaterButton({
   const [open, setOpen] = useState(false);
   return (
     <>
-      <Tooltip content="Envoyer plus tard">
+      <Tooltip content="Envoyer plus tard (l'app doit être ouverte à l'heure dite)">
         <Button
           variant="ghost"
           size="sm"

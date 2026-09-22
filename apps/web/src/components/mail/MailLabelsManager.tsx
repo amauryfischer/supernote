@@ -15,6 +15,7 @@ export function MailLabelsManager({
   onRename,
   onDelete,
   onPick,
+  error,
 }: {
   isOpen: boolean;
   onClose: () => void;
@@ -24,6 +25,7 @@ export function MailLabelsManager({
   onRename: (labelId: string, name: string) => void;
   onDelete: (labelId: string) => void;
   onPick: (labelId: string, color: GmailLabelColor) => void;
+  error?: string | null;
 }) {
   const [editing, setEditing] = useState<string | null>(null);
   const [draftName, setDraftName] = useState("");
@@ -72,6 +74,11 @@ export function MailLabelsManager({
           <Plus size={14} /> Créer
         </Button>
       </form>
+      {error && (
+        <p role="alert" className="-mt-1 mb-3 text-xs" style={{ color: "var(--color-danger)" }}>
+          {error}
+        </p>
+      )}
 
       {labels.length === 0 ? (
         <p className="text-sm" style={{ color: "var(--text-muted)" }}>

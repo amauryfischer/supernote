@@ -1,8 +1,29 @@
 "use client";
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { Modal, Button, Input, Textarea, useToast } from "@supernote/ui";
-import { Gear, ArrowSquareOut, X, Paperclip, PaperPlaneTilt, Image as ImageIcon, FloppyDisk } from "@phosphor-icons/react";
+import {
+  ModalRoot,
+  ModalBackdrop,
+  ModalContainer,
+  ModalDialog,
+  ModalHeading,
+  Button,
+  Input,
+  Textarea,
+  Tooltip,
+} from "@supernote/ui";
+import {
+  Gear,
+  X,
+  Paperclip,
+  PaperPlaneTilt,
+  Image as ImageIcon,
+  FloppyDisk,
+  UsersThree,
+  FileArrowUp,
+  WarningCircle,
+} from "@phosphor-icons/react";
+import { useActionFeedback, FeedbackIcon } from "@/lib/action-feedback";
 import { applyTemplate, type MailTemplate } from "@/lib/mail-templates";
 import { dedupeEmails, parseRecipientInput } from "@/lib/mail-recipients";
 import { useCreateDraft } from "@/components/notes/useCreateDraft";
@@ -39,11 +60,12 @@ import { TemplatePicker } from "./TemplatePicker";
 import { TemplateManager } from "./TemplateManager";
 import { OrgRecipientPicker } from "./OrgRecipientPicker";
 
+const SUCCESS_BEFORE_CLOSE_MS = 600;
+
 /**
- * Mini compose : objet + corps + insertion rapide de modèles. Deux issues :
- * « Créer le brouillon » (ouvre le brouillon dans Gmail) ou « Envoyer »
- * (⚠️ IRRÉVERSIBLE : part immédiatement, destinataire requis). Héberge le
- * picker et le gestionnaire de modèles.
+ * Composeur plein écran. Deux issues : « Créer le brouillon » (ouvre le
+ * brouillon dans Gmail) ou « Envoyer » (⚠️ IRRÉVERSIBLE : part immédiatement,
+ * destinataire requis).
  */
 export function ComposeModal({
   isOpen,
@@ -64,7 +86,6 @@ export function ComposeModal({
   /** Expéditeurs déjà vus (liste mail chargée), proposés en autocomplétion. */
   correspondents?: EmailAddress[];
 }) {
-  const { toast } = useToast();
   const { settings } = useSettings();
   const signature = settings.gmail.signature ?? "";
   const { createDraft } = useCreateDraft();
@@ -75,14 +96,20 @@ export function ComposeModal({
   const [toInput, setToInput] = useState("");
   const [subject, setSubject] = useState(initialSubject);
   const [body, setBody] = useState(initialBody);
-  const [busy, setBusy] = useState<"send" | "draft" | null>(null);
+  const draftFb = useActionFeedback();
+  const sendFb = useActionFeedback();
+  // « success » bloque aussi : la coche reste visible avant la fermeture, sans double envoi.
+  const busy = draftFb.state === "pending" || draftFb.state === "success" || sendFb.state === "pending" || sendFb.state === "success";
+  const [notice, setNotice] = useState<{ tone: "danger" | "warning"; text: string } | null>(null);
   const [managerOpen, setManagerOpen] = useState(false);
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const bodyRef = useRef<HTMLTextAreaElement>(null);
-  // Brouillon auto-sauvegardé restauré à l'ouverture (bandeau informatif).
   const [restored, setRestored] = useState(false);
+  const [orgOpen, setOrgOpen] = useState(false);
+  const toFieldId = useId();
+  const subjectFieldId = useId();
 
   // Ouverture : on restaure le brouillon auto-sauvegardé s'il y en a un et que
   // l'appelant n'impose pas de contenu (transfert, modèle…). Sinon champs
@@ -104,6 +131,8 @@ export function ComposeModal({
     }
     setToInput("");
     setAttachments([]);
+    setOrgOpen(false);
+    setNotice(null);
   }, [isOpen, initialTo, initialSubject, initialBody, signature]);
 
   // Sauvegarde automatique pendant la frappe : fermer la fenêtre ou recharger
@@ -157,20 +186,15 @@ export function ComposeModal({
       setAttachments((prev) => {
         const next = [...prev, ...added];
         if (exceedsAttachmentLimit(next)) {
-          toast({
-            title: "Pièces jointes volumineuses",
-            description: `Total ${formatBytes(totalAttachmentsSize(next))} > ${formatBytes(MAX_ATTACHMENTS_BYTES)} : l'envoi Gmail risque d'échouer.`,
-            variant: "warning",
+          setNotice({
+            tone: "warning",
+            text: `Pièces jointes : ${formatBytes(totalAttachmentsSize(next))} au total, au-delà de ${formatBytes(MAX_ATTACHMENTS_BYTES)} l'envoi Gmail risque d'échouer.`,
           });
         }
         return next;
       });
     } catch (err) {
-      toast({
-        title: "Lecture du fichier échouée",
-        description: err instanceof Error ? err.message : String(err),
-        variant: "danger",
-      });
+      setNotice({ tone: "danger", text: `Lecture du fichier échouée : ${errorText(err)}` });
     }
   };
   const removeAttachment = (index: number) => {
@@ -221,349 +245,388 @@ export function ComposeModal({
 
   const submitDraft = async () => {
     if (!subject.trim() && !body.trim()) {
-      toast({ title: "Objet ou corps requis", variant: "danger" });
+      setNotice({ tone: "danger", text: "Objet ou corps requis." });
       return;
     }
     // Inclut une adresse tapée mais non encore validée (pas de perte silencieuse).
     const allTo = dedupeEmails([...recipients, ...parseRecipientInput(toInput)]);
-    setBusy("draft");
-    try {
-      const text = finalBody();
-      const html = finalHtml(text);
-      const { url } = await createDraft({
-        to: allTo.length ? allTo : undefined,
-        subject,
-        body: text,
-        ...(html ? { html } : {}),
-        ...thread,
-        attachments: attachments.length ? toOutgoing(attachments) : undefined,
-      });
-      clearAutoDraft(COMPOSE_DRAFT_KEY);
-      toast({ title: "Brouillon créé dans Gmail" });
-      window.open(url, "_blank", "noopener,noreferrer");
-      onClose();
-    } catch (err) {
-      toast({
-        title: "Échec du brouillon",
-        description: err instanceof Error ? err.message : String(err),
-        variant: "danger",
-      });
-    } finally {
-      setBusy(null);
-    }
+    setNotice(null);
+    const url = await draftFb.run(
+      async () => {
+        const text = finalBody();
+        const html = finalHtml(text);
+        const res = await createDraft({
+          to: allTo.length ? allTo : undefined,
+          subject,
+          body: text,
+          ...(html ? { html } : {}),
+          ...thread,
+          attachments: attachments.length ? toOutgoing(attachments) : undefined,
+        });
+        return res.url;
+      },
+      (message) => setNotice({ tone: "danger", text: `Échec du brouillon : ${message}` }),
+    );
+    if (!url) return;
+    clearAutoDraft(COMPOSE_DRAFT_KEY);
+    window.open(url, "_blank", "noopener,noreferrer");
+    await new Promise((resolve) => setTimeout(resolve, SUCCESS_BEFORE_CLOSE_MS));
+    onClose();
   };
 
   // ⚠️ Envoi IRRÉVERSIBLE : le mail part immédiatement. Destinataire requis
-  // (contrairement au brouillon, optionnel). Confirmation avant départ.
+  // (contrairement au brouillon, optionnel).
   const submitSend = async (sendAt?: number) => {
     const allTo = dedupeEmails([...recipients, ...parseRecipientInput(toInput)]);
     if (allTo.length === 0) {
-      toast({ title: "Destinataire requis pour envoyer", variant: "danger" });
+      setNotice({ tone: "danger", text: "Ajoute au moins un destinataire pour envoyer." });
+      document.getElementById(toFieldId)?.focus();
       return;
     }
     if (!subject.trim() && !body.trim()) {
-      toast({ title: "Objet ou corps requis", variant: "danger" });
+      setNotice({ tone: "danger", text: "Objet ou corps requis." });
       return;
     }
-    // Avec une fenêtre d'annulation (ou un envoi programmé, annulable jusqu'à
-    // l'heure dite), la confirmation modale n'a plus lieu d'être : le
-    // rattrapage est DANS le toast, sans bloquer la frappe.
+    // Sans fenêtre d'annulation ni date d'envoi, rien ne rattrape un envoi : on confirme.
     if (undoSeconds <= 0 && sendAt === undefined) {
       const who = allTo.length === 1 ? allTo[0] : `${allTo.length} destinataires`;
       if (!window.confirm(`Envoyer ce message à ${who} ? Cette action est immédiate.`)) {
         return;
       }
     }
-    setBusy("send");
-    try {
-      const text = finalBody();
-      const html = finalHtml(text);
-      await scheduleSend(
-        {
-          kind: thread ? "reply" : "message",
-          ...thread,
-          to: allTo,
-          subject,
-          body: text,
-          ...(html ? { html } : {}),
-          ...(attachments.length ? { attachments: toOutgoing(attachments) } : {}),
-        },
-        sendAt !== undefined ? { sendAt } : {},
-      );
-      clearAutoDraft(COMPOSE_DRAFT_KEY);
-      onClose();
-    } catch (err) {
-      toast({
-        title: "Échec de l'envoi",
-        description: err instanceof Error ? err.message : String(err),
-        variant: "danger",
-      });
-    } finally {
-      setBusy(null);
-    }
+    setNotice(null);
+    const result = await sendFb.run(
+      () => {
+        const text = finalBody();
+        const html = finalHtml(text);
+        return scheduleSend(
+          {
+            kind: thread ? "reply" : "message",
+            ...thread,
+            to: allTo,
+            subject,
+            body: text,
+            ...(html ? { html } : {}),
+            ...(attachments.length ? { attachments: toOutgoing(attachments) } : {}),
+          },
+          sendAt !== undefined ? { sendAt } : {},
+        );
+      },
+      (message) => setNotice({ tone: "danger", text: `Échec de l'envoi : ${message}` }),
+    );
+    if (!result) return;
+    clearAutoDraft(COMPOSE_DRAFT_KEY);
+    await new Promise((resolve) => setTimeout(resolve, SUCCESS_BEFORE_CLOSE_MS));
+    onClose();
   };
+
+  const fieldRow =
+    "flex gap-3 border-b border-[var(--border-subtle)] py-2 transition-colors focus-within:border-[var(--border-focus)]";
+  const fieldLabel = "w-12 shrink-0 text-sm text-[var(--text-muted)]";
+  const bareInput =
+    "h-8 rounded-none border-0 bg-transparent px-0 py-0 shadow-none focus:border-0 focus:ring-0 focus-visible:outline-none! [&::-webkit-calendar-picker-indicator]:opacity-0!";
 
   return (
     <>
-      <Modal
+      <ModalRoot
         isOpen={isOpen}
         onOpenChange={(o) => {
           if (!o) onClose();
         }}
-        title="Nouveau message"
-        size="lg"
       >
-        <div className="flex flex-col gap-3">
-          {restored && (
-            <div
-              className="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-xs"
-              style={{ background: "var(--accent-subtle)", color: "var(--accent)" }}
-            >
-              <FloppyDisk size={13} aria-hidden />
-              Brouillon restauré depuis ta dernière saisie.
-              <Button
-                size="sm"
-                variant="ghost"
-                className="ml-auto h-6 min-h-6 px-1.5 text-xs"
-                onPress={() => {
-                  clearAutoDraft(COMPOSE_DRAFT_KEY);
-                  setRecipients([]);
-                  setSubject("");
-                  setBody(withSignature("", signature));
-                  setRestored(false);
-                }}
-              >
-                Repartir de zéro
-              </Button>
-            </div>
-          )}
-          <div className="flex flex-col gap-1.5">
-            <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-              Destinataires (optionnel)
-            </span>
-            {recipients.length > 0 && (
-              <div className="flex flex-wrap gap-1.5">
-                {recipients.map((r) => (
-                  <span
-                    key={r}
-                    className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs"
-                    style={{
-                      borderColor: "var(--border-subtle)",
-                      backgroundColor: "var(--surface-2)",
-                      color: "var(--text-primary)",
-                    }}
+        <ModalBackdrop isDismissable={false} className="fixed inset-0 z-[var(--z-overlay)]">
+          <ModalContainer size="full" className="fixed inset-0 z-[var(--z-modal)] flex h-dvh w-full p-0">
+            <ModalDialog className="flex h-full w-full max-w-none flex-col rounded-none border-0 bg-[var(--surface-1)] p-0 text-[var(--text-primary)] shadow-none">
+              <header className="box-content flex h-14 shrink-0 items-center gap-1.5 border-b border-[var(--border-subtle)] px-2 pt-[env(safe-area-inset-top)] md:px-4">
+                <Tooltip content="Fermer (Échap)">
+                  <Button variant="ghost" isIconOnly aria-label="Fermer" onPress={onClose}>
+                    <X size={18} />
+                  </Button>
+                </Tooltip>
+                <ModalHeading className="min-w-0 flex-1 truncate text-base font-semibold">
+                  {thread ? "Transférer" : "Nouveau message"}
+                </ModalHeading>
+                <Tooltip content="Créer le brouillon dans Gmail">
+                  <Button
+                    variant="ghost"
+                    isIconOnly
+                    aria-label="Créer le brouillon dans Gmail"
+                    isDisabled={busy}
+                    onPress={() => void submitDraft()}
                   >
-                    <span className="max-w-[200px] truncate">{r}</span>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      isIconOnly
-                      onPress={() => removeRecipient(r)}
-                      aria-label={`Retirer ${r}`}
-                      className="-my-1.5 ml-0.5 inline-flex h-8 min-h-8 w-8 min-w-8 shrink-0 items-center justify-center p-0 hover:opacity-70"
-                    >
-                      <X size={11} />
-                    </Button>
-                  </span>
-                ))}
-              </div>
-            )}
-            <Input
-              type="email"
-              value={toInput}
-              list={suggestionsId}
-              autoComplete="off"
-              onChange={(e) => setToInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === ",") {
-                  e.preventDefault();
-                  commitManual();
-                }
-              }}
-              onBlur={commitManual}
-              placeholder="nom@exemple.com — Entrée pour ajouter"
-            />
-            <RecipientSuggestions id={suggestionsId} correspondents={correspondents} />
-            <OrgRecipientPicker onAdd={addRecipients} />
-          </div>
-
-          <div className="flex flex-col gap-1">
-            <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-              Objet
-            </span>
-            <Input value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="Objet" />
-          </div>
-
-          <div className="flex flex-col gap-1">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-                Message
-              </span>
-              <div className="flex items-center gap-1">
-                <TemplatePicker templates={templates} onInsert={insert} />
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onPress={() => setManagerOpen(true)}
-                  isIconOnly
-                  aria-label="Gérer les modèles"
-                >
-                  <Gear size={14} />
-                </Button>
-              </div>
-            </div>
-            <ComposerToolbar
-              textareaRef={bodyRef}
-              value={body}
-              onChange={setBody}
-              trailing={
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  isIconOnly
-                  aria-label="Insérer une image dans le message"
-                  className="h-8 min-h-8 w-8 min-w-8"
-                  onPress={() => imageInputRef.current?.click()}
-                >
-                  <ImageIcon size={15} aria-hidden />
-                </Button>
-              }
-            />
-            <div className="relative">
-              {snippets.open && (
-                <SnippetPopup
-                  matches={snippets.matches}
-                  index={snippets.index}
-                  onPick={snippets.accept}
+                    <FeedbackIcon state={draftFb.state} error={draftFb.error} size={18} idle={<FileArrowUp size={18} />} />
+                  </Button>
+                </Tooltip>
+                <SendLaterButton
+                  iconOnly
+                  isDisabled={busy}
+                  onPick={(sendAt) => void submitSend(sendAt)}
                 />
-              )}
-            <Textarea
-              ref={bodyRef}
-              value={body}
-              onChange={(e) => setBody(e.target.value)}
-              onKeyDown={(e) => snippets.handleKeyDown(e)}
-              onKeyUp={snippets.refresh}
-              onClick={snippets.refresh}
-              onBlur={snippets.close}
-              rows={10}
-              placeholder="Votre message…  **gras**, _italique_, - liste"
-              onPaste={(e) => {
-                // Coller une capture d'écran l'insère DANS le message plutôt
-                // que de ne rien faire.
-                const files = Array.from(e.clipboardData?.files ?? []);
-                if (files.length === 0) return;
-                void insertInlineImages(files).then((handled) => {
-                  if (!handled) void onPickFiles(e.clipboardData?.files ?? null);
-                });
-                e.preventDefault();
-              }}
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={(e) => {
-                const files = Array.from(e.dataTransfer?.files ?? []);
-                if (files.length === 0) return;
-                e.preventDefault();
-                const images = files.filter((f) => isInlineImage(f.type));
-                const others = files.filter((f) => !isInlineImage(f.type));
-                if (images.length) void insertInlineImages(images);
-                if (others.length) {
-                  void filesToAttachments(others).then((added) =>
-                    setAttachments((prev) => [...prev, ...added]),
-                  );
-                }
-              }}
-            />
-            </div>
-            {/* input image natif (exception justifiée : pas d'équivalent HeroUI). */}
-            <input
-              ref={imageInputRef}
-              type="file"
-              accept="image/*"
-              multiple
-              className="hidden"
-              onChange={(e) => {
-                void insertInlineImages(Array.from(e.target.files ?? []));
-                e.target.value = "";
-              }}
-            />
-          </div>
+                <Button
+                  variant="primary"
+                  className="ml-1 flex items-center gap-1.5"
+                  isDisabled={busy}
+                  onPress={() => void submitSend()}
+                >
+                  <FeedbackIcon state={sendFb.state} error={sendFb.error} idle={<PaperPlaneTilt size={15} />} />
+                  Envoyer
+                </Button>
+              </header>
 
-          <div className="flex flex-col gap-1.5">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-                Pièces jointes
-                {attachments.length > 0 && ` · ${formatBytes(totalAttachmentsSize(attachments))}`}
-              </span>
-              <Button size="sm" variant="ghost" onPress={() => fileInputRef.current?.click()}>
-                <Paperclip size={14} /> Joindre
-              </Button>
-            </div>
-            {/* input file natif (exception justifiée : pas d'équivalent HeroUI). */}
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              className="hidden"
-              onChange={(e) => {
-                void onPickFiles(e.target.files);
-                e.target.value = "";
-              }}
-            />
-            {attachments.length > 0 && (
-              <div className="flex flex-wrap gap-1.5">
-                {attachments.map((att, i) => (
-                  <span
-                    key={`${att.filename}-${i}`}
-                    className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs"
-                    style={{
-                      borderColor: "var(--border-subtle)",
-                      backgroundColor: "var(--surface-2)",
-                      color: "var(--text-primary)",
-                    }}
-                  >
-                    <Paperclip size={11} />
-                    <span className="max-w-[220px] truncate">{attachmentLabel(att)}</span>
+              <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+                <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col px-4 md:px-8">
+                  {restored && (
+                    <div
+                      className="mt-4 flex items-center gap-2 rounded-md py-1 pl-3 pr-1 text-xs"
+                      style={{ background: "var(--accent-subtle)", color: "var(--accent)" }}
+                    >
+                      <FloppyDisk size={13} aria-hidden />
+                      Brouillon restauré depuis ta dernière saisie.
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="ml-auto h-7 min-h-7 px-2 text-xs"
+                        onPress={() => {
+                          clearAutoDraft(COMPOSE_DRAFT_KEY);
+                          setRecipients([]);
+                          setSubject("");
+                          setBody(withSignature("", signature));
+                          setRestored(false);
+                        }}
+                      >
+                        Repartir de zéro
+                      </Button>
+                    </div>
+                  )}
+
+                  {notice && (
+                    <div
+                      role="alert"
+                      className="mt-4 flex items-center gap-2 rounded-md py-1 pl-3 pr-1 text-xs"
+                      style={{
+                        background: `var(--color-${notice.tone}-50)`,
+                        color: `var(--color-${notice.tone}-700)`,
+                      }}
+                    >
+                      <WarningCircle size={13} weight="bold" aria-hidden />
+                      <span className="min-w-0 flex-1">{notice.text}</span>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        isIconOnly
+                        aria-label="Masquer le message"
+                        className="sn-hit h-6 min-h-6 w-6 min-w-6"
+                        onPress={() => setNotice(null)}
+                      >
+                        <X size={11} />
+                      </Button>
+                    </div>
+                  )}
+
+                  <div className={`${fieldRow} items-start`}>
+                    <label htmlFor={toFieldId} className={`${fieldLabel} pt-1.5`}>
+                      À
+                    </label>
+                    <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+                      {recipients.map((r) => (
+                        <Pill key={r} label={r} removeLabel={`Retirer ${r}`} onRemove={() => removeRecipient(r)} />
+                      ))}
+                      <div className="min-w-24 flex-1">
+                        <Input
+                          id={toFieldId}
+                          type="email"
+                          value={toInput}
+                          list={suggestionsId}
+                          autoComplete="off"
+                          className={bareInput}
+                          onChange={(e) => setToInput(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === ",") {
+                              e.preventDefault();
+                              commitManual();
+                            }
+                          }}
+                          onBlur={commitManual}
+                          placeholder={recipients.length ? "" : "nom@exemple.com, Entrée pour valider"}
+                        />
+                      </div>
+                    </div>
+                    <Tooltip content="Envoyer à une organisation">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        isIconOnly
+                        aria-label="Envoyer à une organisation"
+                        aria-pressed={orgOpen}
+                        onPress={() => setOrgOpen((o) => !o)}
+                      >
+                        <UsersThree size={16} />
+                      </Button>
+                    </Tooltip>
+                    <RecipientSuggestions id={suggestionsId} correspondents={correspondents} />
+                  </div>
+                  {orgOpen && (
+                    <div className="border-b border-[var(--border-subtle)] py-2 md:pl-[3.75rem]">
+                      <OrgRecipientPicker onAdd={addRecipients} />
+                    </div>
+                  )}
+
+                  <div className={`${fieldRow} items-center`}>
+                    <label htmlFor={subjectFieldId} className={fieldLabel}>
+                      Objet
+                    </label>
+                    <div className="min-w-0 flex-1">
+                      <Input
+                        id={subjectFieldId}
+                        value={subject}
+                        className={`${bareInput} text-base font-medium`}
+                        onChange={(e) => setSubject(e.target.value)}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="relative flex min-h-64 flex-1 flex-col py-5 [&>div]:flex-1">
+                    {snippets.open && (
+                      <SnippetPopup matches={snippets.matches} index={snippets.index} onPick={snippets.accept} />
+                    )}
+                    <Textarea
+                      ref={bodyRef}
+                      aria-label="Message"
+                      value={body}
+                      className="flex-1 resize-none rounded-none border-0 bg-transparent p-0 text-[15px] leading-7 shadow-none focus:border-0 focus:ring-0"
+                      onChange={(e) => setBody(e.target.value)}
+                      onKeyDown={(e) => snippets.handleKeyDown(e)}
+                      onKeyUp={snippets.refresh}
+                      onClick={snippets.refresh}
+                      onBlur={snippets.close}
+                      placeholder="Votre message…  **gras**, _italique_, - liste"
+                      onPaste={(e) => {
+                        // Une capture d'écran collée va DANS le message, pas en pièce jointe.
+                        const files = Array.from(e.clipboardData?.files ?? []);
+                        if (files.length === 0) return;
+                        void insertInlineImages(files).then((handled) => {
+                          if (!handled) void onPickFiles(e.clipboardData?.files ?? null);
+                        });
+                        e.preventDefault();
+                      }}
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={(e) => {
+                        const files = Array.from(e.dataTransfer?.files ?? []);
+                        if (files.length === 0) return;
+                        e.preventDefault();
+                        const images = files.filter((f) => isInlineImage(f.type));
+                        const others = files.filter((f) => !isInlineImage(f.type));
+                        if (images.length) void insertInlineImages(images);
+                        if (others.length) {
+                          void filesToAttachments(others).then((added) =>
+                            setAttachments((prev) => [...prev, ...added]),
+                          );
+                        }
+                      }}
+                    />
+                  </div>
+
+                  {attachments.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 border-t border-[var(--border-subtle)] py-3">
+                      {attachments.map((att, i) => (
+                        <Pill
+                          key={`${att.filename}-${i}`}
+                          icon={<Paperclip size={12} aria-hidden />}
+                          label={attachmentLabel(att)}
+                          removeLabel={`Retirer ${att.filename}`}
+                          onRemove={() => removeAttachment(i)}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <footer className="shrink-0 border-t border-[var(--border-subtle)] pb-[env(safe-area-inset-bottom)]">
+                <div className="mx-auto flex h-12 w-full max-w-3xl items-center gap-0.5 overflow-x-auto px-2 md:px-6">
+                  <div className="shrink-0">
+                    <ComposerToolbar
+                      textareaRef={bodyRef}
+                      value={body}
+                      onChange={setBody}
+                      trailing={
+                        <Tooltip content="Insérer une image">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            isIconOnly
+                            aria-label="Insérer une image dans le message"
+                            className="h-8 min-h-8 w-8 min-w-8"
+                            onPress={() => imageInputRef.current?.click()}
+                          >
+                            <ImageIcon size={15} aria-hidden />
+                          </Button>
+                        </Tooltip>
+                      }
+                    />
+                  </div>
+                  <span aria-hidden className="mx-1.5 h-5 w-px shrink-0 bg-[var(--border-subtle)]" />
+                  <Tooltip content="Joindre un fichier">
                     <Button
                       size="sm"
                       variant="ghost"
                       isIconOnly
-                      onPress={() => removeAttachment(i)}
-                      aria-label={`Retirer ${att.filename}`}
-                      className="-my-1.5 ml-0.5 inline-flex h-8 min-h-8 w-8 min-w-8 shrink-0 items-center justify-center p-0 hover:opacity-70"
+                      aria-label="Joindre un fichier"
+                      className="h-8 min-h-8 w-8 min-w-8 shrink-0"
+                      onPress={() => fileInputRef.current?.click()}
                     >
-                      <X size={11} />
+                      <Paperclip size={15} aria-hidden />
                     </Button>
-                  </span>
-                ))}
-              </div>
-            )}
-          </div>
+                  </Tooltip>
+                  <div className="shrink-0">
+                    <TemplatePicker templates={templates} onInsert={insert} />
+                  </div>
+                  <Tooltip content="Gérer les modèles">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      isIconOnly
+                      aria-label="Gérer les modèles"
+                      className="h-8 min-h-8 w-8 min-w-8 shrink-0"
+                      onPress={() => setManagerOpen(true)}
+                    >
+                      <Gear size={15} aria-hidden />
+                    </Button>
+                  </Tooltip>
+                  {attachments.length > 0 && (
+                    <span className="ml-auto shrink-0 pl-3 text-xs tabular-nums text-[var(--text-muted)]">
+                      {attachments.length} PJ · {formatBytes(totalAttachmentsSize(attachments))}
+                    </span>
+                  )}
+                </div>
+              </footer>
 
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            <Button variant="ghost" onPress={onClose}>
-              Annuler
-            </Button>
-            <Button
-              variant="ghost"
-              isDisabled={busy !== null}
-              onPress={() => void submitDraft()}
-            >
-              {busy === "draft" ? "Création…" : "Créer le brouillon"}
-              {busy === null && <ArrowSquareOut size={14} />}
-            </Button>
-            <SendLaterButton
-              isDisabled={busy !== null}
-              onPick={(sendAt) => void submitSend(sendAt)}
-            />
-            <Button
-              variant="primary"
-              isDisabled={busy !== null}
-              onPress={() => void submitSend()}
-            >
-              <PaperPlaneTilt size={14} /> {busy === "send" ? "Envoi…" : "Envoyer"}
-            </Button>
-          </div>
-        </div>
-      </Modal>
+              {/* inputs file natifs pilotés par ref.click() : pas d'équivalent HeroUI. */}
+              <input
+                ref={imageInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                className="hidden"
+                onChange={(e) => {
+                  void insertInlineImages(Array.from(e.target.files ?? []));
+                  e.target.value = "";
+                }}
+              />
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                className="hidden"
+                onChange={(e) => {
+                  void onPickFiles(e.target.files);
+                  e.target.value = "";
+                }}
+              />
+            </ModalDialog>
+          </ModalContainer>
+        </ModalBackdrop>
+      </ModalRoot>
 
       <TemplateManager
         isOpen={managerOpen}
@@ -573,6 +636,39 @@ export function ComposeModal({
         onRemove={remove}
       />
     </>
+  );
+}
+
+function errorText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+function Pill({
+  label,
+  removeLabel,
+  onRemove,
+  icon,
+}: {
+  label: string;
+  removeLabel: string;
+  onRemove: () => void;
+  icon?: React.ReactNode;
+}) {
+  return (
+    <span className="inline-flex h-7 items-center gap-1 rounded-full border border-[var(--border-subtle)] bg-[var(--surface-2)] pl-2.5 pr-0.5 text-xs text-[var(--text-primary)]">
+      {icon}
+      <span className="max-w-[220px] truncate">{label}</span>
+      <Button
+        size="sm"
+        variant="ghost"
+        isIconOnly
+        onPress={onRemove}
+        aria-label={removeLabel}
+        className="sn-hit h-6 min-h-6 w-6 min-w-6 shrink-0 rounded-full p-0"
+      >
+        <X size={11} />
+      </Button>
+    </span>
   );
 }
 

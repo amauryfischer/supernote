@@ -10,9 +10,10 @@
 import { useEffect, useState } from "react";
 import { Button, Popover } from "@heroui/react";
 import { ArrowUUpLeft, Clock } from "@phosphor-icons/react";
-import { Tooltip, useToast } from "@supernote/ui";
+import { Tooltip } from "@supernote/ui";
 import { modifyThreadLabels } from "@/lib/gmail";
 import { INBOX_LABEL, loadSnoozed, removeSnooze, MAIL_SNOOZE_EVENT, type SnoozeEntry } from "@/lib/mail-triage";
+import { useActionFeedback, FeedbackIcon } from "@/lib/action-feedback";
 
 const UNTIL_FORMAT: Intl.DateTimeFormatOptions = {
   weekday: "short",
@@ -29,7 +30,7 @@ export function MailSnoozedBadge({
   clientId: string;
   onOpenThread?: (id: string) => void;
 }) {
-  const { toast } = useToast();
+  const fb = useActionFeedback();
   const [entries, setEntries] = useState<SnoozeEntry[]>(() => loadSnoozed());
   const [open, setOpen] = useState(false);
   const [waking, setWaking] = useState<string | null>(null);
@@ -45,19 +46,10 @@ export function MailSnoozedBadge({
 
   const wake = (e: SnoozeEntry) => {
     setWaking(e.threadId);
-    modifyThreadLabels(clientId, e.threadId, { addLabelIds: [INBOX_LABEL] })
-      .then(() => {
-        removeSnooze(e.threadId);
-        toast({ title: "Email remis dans la boîte", variant: "success" });
-      })
-      .catch((err: unknown) =>
-        toast({
-          title: "Réveil impossible",
-          description: err instanceof Error ? err.message : String(err),
-          variant: "danger",
-        }),
-      )
-      .finally(() => setWaking(null));
+    void fb.run(async () => {
+      await modifyThreadLabels(clientId, e.threadId, { addLabelIds: [INBOX_LABEL] });
+      removeSnooze(e.threadId);
+    });
   };
 
   const label = `${entries.length} email${entries.length > 1 ? "s" : ""} reporté${entries.length > 1 ? "s" : ""}`;
@@ -92,17 +84,25 @@ export function MailSnoozedBadge({
                     {e.from ? `${e.from} · ` : ""}revient {new Date(e.until).toLocaleString(undefined, UNTIL_FORMAT)}
                   </span>
                 </Button>
-                <Tooltip content="Remettre dans la boîte maintenant">
+                <Tooltip
+                  content={
+                    waking === e.threadId && fb.error ? fb.error : "Remettre dans la boîte maintenant"
+                  }
+                >
                   <Button
                     size="sm"
                     variant="ghost"
                     isIconOnly
                     aria-label="Remettre dans la boîte maintenant"
                     className="h-8 min-h-8 w-8 min-w-8 shrink-0"
-                    isDisabled={waking === e.threadId}
+                    isDisabled={waking === e.threadId && fb.isPending}
                     onPress={() => wake(e)}
                   >
-                    <ArrowUUpLeft size={14} />
+                    {waking === e.threadId ? (
+                      <FeedbackIcon state={fb.state} error={fb.error} size={14} idle={<ArrowUUpLeft size={14} />} />
+                    ) : (
+                      <ArrowUUpLeft size={14} />
+                    )}
                   </Button>
                 </Tooltip>
               </div>

@@ -12,7 +12,7 @@
 import { useEffect, useState } from "react";
 import { Button, Popover } from "@heroui/react";
 import { Clock, WarningCircle, PaperPlaneTilt, X } from "@phosphor-icons/react";
-import { Tooltip, useToast } from "@supernote/ui";
+import { Tooltip } from "@supernote/ui";
 import {
   loadOutgoing,
   scheduledOutgoing,
@@ -37,7 +37,6 @@ function formatWhen(ts: number): string {
 }
 
 export function MailOutgoingBadge() {
-  const { toast } = useToast();
   const [items, setItems] = useState<OutgoingMessage[]>(() => loadOutgoing());
   const [open, setOpen] = useState(false);
 
@@ -116,7 +115,6 @@ export function MailOutgoingBadge() {
                     onPress={() => {
                       cancelOutgoing(m.id);
                       setItems(loadOutgoing());
-                      toast({ title: "Envoi abandonné" });
                     }}
                   >
                     Abandonner
@@ -162,7 +160,6 @@ export function MailOutgoingBadge() {
                     onPress={() => {
                       cancelOutgoing(m.id);
                       setItems(loadOutgoing());
-                      toast({ title: "Envoi programmé annulé" });
                     }}
                   >
                     <X size={14} />

@@ -15,7 +15,7 @@
 
 import { useEffect, useState } from "react";
 import { Button, Input } from "@heroui/react";
-import { Modal, useToast, Switch } from "@supernote/ui";
+import { Modal, Switch } from "@supernote/ui";
 import { Plus, Trash, Lightning, Funnel } from "@phosphor-icons/react";
 import { NativeSelect } from "@/components/settings/NativeSelect";
 import {
@@ -41,7 +41,6 @@ export function MailRulesManager({
   /** Labels Gmail (id → nom) pour les listes déroulantes. */
   labelNames: Map<string, string>;
 }) {
-  const { toast } = useToast();
   const [rules, setRules] = useState<MailRule[]>([]);
   const [suggestions, setSuggestions] = useState<RuleSuggestion[]>([]);
 
@@ -119,7 +118,6 @@ export function MailRulesManager({
                     );
                     forgetActions(s.from);
                     refresh();
-                    toast({ title: "Règle créée" });
                   }}
                 >
                   Créer la règle

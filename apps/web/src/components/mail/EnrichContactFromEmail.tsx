@@ -12,8 +12,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Button, Chip, Input, Spinner } from "@heroui/react";
 import { UserPlus } from "@phosphor-icons/react";
-import { Modal, Tooltip, useToast } from "@supernote/ui";
-import { useRouter } from "next/navigation";
+import { Modal, Tooltip } from "@supernote/ui";
 import { trpc } from "@/lib/trpc/client";
 import { useEntityMutations } from "@/components/bases/hooks";
 import { contactFormToEntityFields, entityToContact } from "@/components/contacts/entityAdapter";
@@ -36,6 +35,7 @@ import {
 } from "@/lib/contact-from-email";
 import type { EmailMessage } from "@/lib/gmail";
 import type { EntitySummary, FieldValue } from "@supernote/ipc";
+import { useActionFeedback, FeedbackIcon } from "@/lib/action-feedback";
 
 export interface EnrichContactFromEmailProps {
   /** Message dont on lit l'expéditeur et la signature (`bodyText`). */
@@ -49,6 +49,7 @@ const LABEL = "Créer / compléter le contact";
 
 /** Bouton icône (à côté de l'adresse du correspondant) et sa modale. */
 export function EnrichContactFromEmail({ message, open, onOpenChange }: EnrichContactFromEmailProps) {
+  const fb = useActionFeedback();
   if (!message.from.email) return null;
 
   return (
@@ -62,7 +63,7 @@ export function EnrichContactFromEmail({ message, open, onOpenChange }: EnrichCo
           className="sn-hit h-6 min-h-6 w-6 min-w-6 shrink-0"
           onPress={() => onOpenChange(true)}
         >
-          <UserPlus size={13} />
+          <FeedbackIcon state={fb.state} size={13} idle={<UserPlus size={13} />} />
         </Button>
       </Tooltip>
       <Modal
@@ -72,7 +73,9 @@ export function EnrichContactFromEmail({ message, open, onOpenChange }: EnrichCo
         size="lg"
         className="max-h-[calc(100dvh-2rem)] overflow-y-auto"
       >
-        {open && <ContactForm message={message} onDone={() => onOpenChange(false)} />}
+        {open && (
+          <ContactForm message={message} onSaved={fb.succeed} onDone={() => onOpenChange(false)} />
+        )}
       </Modal>
     </>
   );
@@ -104,9 +107,16 @@ function text(v: unknown): string {
   return typeof v === "string" ? v.trim() : "";
 }
 
-function ContactForm({ message, onDone }: { message: EmailMessage; onDone: () => void }) {
-  const { toast } = useToast();
-  const router = useRouter();
+function ContactForm({
+  message,
+  onSaved,
+  onDone,
+}: {
+  message: EmailMessage;
+  onSaved: () => void;
+  onDone: () => void;
+}) {
+  const saveFb = useActionFeedback();
   const idPrefix = useId();
   const guess = useMemo(
     () => guessContactFromEmail(message.from, message.bodyText ?? ""),
@@ -127,7 +137,6 @@ function ContactForm({ message, onDone }: { message: EmailMessage; onDone: () =>
   const [baseSuggestions, setBaseSuggestions] = useState<Partial<ContactDraft>>({});
   const [aiSuggestions, setAiSuggestions] = useState<Partial<ContactDraft>>({});
   const [ai, setAi] = useState<"off" | "running" | "done" | "failed">("off");
-  const [busy, setBusy] = useState(false);
   // Champs à ne plus écraser : saisis par l'utilisateur, déjà renseignés sur le contact, ou org trouvée au coffre.
   const locked = useRef(new Set<keyof ContactDraft>());
   const alive = useRef(true);
@@ -211,11 +220,10 @@ function ContactForm({ message, onDone }: { message: EmailMessage; onDone: () =>
   const save = async () => {
     const name = joinName(draft) || draft.email.trim();
     if (!name) {
-      toast({ title: "Il faut au moins un nom ou un email", variant: "danger" });
+      saveFb.fail(new Error("Il faut au moins un nom ou un email"));
       return;
     }
-    setBusy(true);
-    try {
+    const done = await saveFb.run(async () => {
       let orgId = linkedOrg?.id;
       if (createsOrg) {
         const website = draft.website.trim();
@@ -227,41 +235,25 @@ function ContactForm({ message, onDone }: { message: EmailMessage; onDone: () =>
         orgId = org?.id;
       }
       const company = linkedOrg ? entityName(linkedOrg) : orgName;
-      let id: string | undefined;
       if (match && initial) {
         const patch = contactPatch(match.row, draft, initial, { name, orgId, company, guess });
-        if (Object.keys(patch).length === 0) {
-          toast({ title: "Contact déjà à jour" });
-          onDone();
-          return;
-        }
+        // Contact déjà à jour : rien à écrire.
+        if (Object.keys(patch).length === 0) return true;
         await personMut.update.mutateAsync({ id: match.row.id, fields: patch });
-        id = match.row.id;
       } else {
-        const created = await personMut.create.mutateAsync({
+        await personMut.create.mutateAsync({
           typeId: "personne",
           fields: newContactFields(draft, { name, orgId, company, guess }),
           body: "",
         });
-        id = created?.id;
       }
       void utils.entities.get.invalidate();
       void utils.entities.listSummaries.invalidate();
-      toast({
-        title: match ? "Contact complété" : "Contact créé",
-        description: name,
-        ...(id ? { action: { label: "Ouvrir", onClick: () => router.push(`/contacts/${id}`) } } : {}),
-      });
-      onDone();
-    } catch (err) {
-      toast({
-        title: "Enregistrement impossible",
-        description: err instanceof Error ? err.message : String(err),
-        variant: "danger",
-      });
-    } finally {
-      if (alive.current) setBusy(false);
-    }
+      return true;
+    });
+    if (!done) return;
+    onSaved();
+    onDone();
   };
 
   return (
@@ -357,11 +349,16 @@ function ContactForm({ message, onDone }: { message: EmailMessage; onDone: () =>
       </div>
 
       <div className="flex flex-wrap items-center justify-end gap-2">
-        <Button variant="ghost" size="sm" onPress={onDone} isDisabled={busy}>
+        {saveFb.error && (
+          <span role="alert" className="mr-auto text-xs" style={{ color: "var(--color-danger)" }}>
+            {saveFb.error}
+          </span>
+        )}
+        <Button variant="ghost" size="sm" onPress={onDone} isDisabled={saveFb.isPending}>
           Annuler
         </Button>
-        <Button variant="primary" size="sm" onPress={() => void save()} isDisabled={busy}>
-          {busy ? "Enregistrement…" : match ? "Compléter le contact" : "Créer le contact"}
+        <Button variant="primary" size="sm" onPress={() => void save()} isDisabled={saveFb.isPending}>
+          {saveFb.isPending ? "Enregistrement…" : match ? "Compléter le contact" : "Créer le contact"}
         </Button>
       </div>
     </div>

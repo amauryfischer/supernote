@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Modal, Button, useToast } from "@supernote/ui";
+import { Modal, Button } from "@supernote/ui";
 import { trpc } from "@/lib/trpc/client";
 import { isCodaBase } from "@/lib/coda/bindings";
 import {
@@ -15,6 +15,7 @@ import { NativeSelect } from "@/components/settings/NativeSelect";
 import { useCaptureEmail } from "./useCaptureEmail";
 import type { EmailMessage } from "@/lib/gmail";
 import type { FieldValue } from "@supernote/ipc";
+import { useActionFeedback, FeedbackIcon } from "@/lib/action-feedback";
 
 const SOURCE_OPTIONS: Array<{ value: string; label: string }> = [
   { value: "", label: "— (ignorer)" },
@@ -38,10 +39,9 @@ export function CaptureEmailModal({
     { enabled: isOpen },
   );
   const { captureToBase } = useCaptureEmail();
-  const { toast } = useToast();
+  const fb = useActionFeedback();
   const [typeId, setTypeId] = useState<string>("");
   const [mapping, setMapping] = useState<Record<string, EmailFieldSource | "">>({});
-  const [busy, setBusy] = useState(false);
 
   const targets = useMemo(
     () =>
@@ -77,25 +77,16 @@ export function CaptureEmailModal({
 
   const submit = async () => {
     if (!selected || !message) return;
-    setBusy(true);
-    try {
+    const done = await fb.run(async () => {
       const fields: Record<string, FieldValue> = {};
       for (const f of capturableFields) {
         const src = mapping[f.name];
         if (src) fields[f.name] = emailSourceValue(message, src);
       }
       await captureToBase(selected.id, fields);
-      toast({ title: `Ligne créée dans « ${selected.name} »` });
-      onClose();
-    } catch (err) {
-      toast({
-        title: "Échec de la capture",
-        description: err instanceof Error ? err.message : String(err),
-        variant: "danger",
-      });
-    } finally {
-      setBusy(false);
-    }
+      return true;
+    });
+    if (done) onClose();
   };
 
   return (
@@ -158,14 +149,22 @@ export function CaptureEmailModal({
                 />
               </div>
             ))}
-            <Button
-              variant="primary"
-              isDisabled={busy || capturableFields.length === 0}
-              onPress={() => void submit()}
-              className="mt-2 self-end"
-            >
-              {busy ? "Création…" : "Créer la ligne"}
-            </Button>
+            <div className="mt-2 flex items-center justify-end gap-2">
+              {fb.error && (
+                <span role="alert" className="text-xs" style={{ color: "var(--color-danger)" }}>
+                  Échec de la capture : {fb.error}
+                </span>
+              )}
+              <Button
+                variant="primary"
+                isDisabled={fb.isPending || capturableFields.length === 0}
+                onPress={() => void submit()}
+                className="flex items-center gap-1.5"
+              >
+                <FeedbackIcon state={fb.state} error={fb.error} size={14} idle={null} />
+                {fb.isPending ? "Création…" : "Créer la ligne"}
+              </Button>
+            </div>
           </div>
         )}
       </div>

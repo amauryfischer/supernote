@@ -7,9 +7,10 @@
  *
  *  - fenêtre d'annulation > 0 → le message est mis en FILE et part à
  *    l'expiration ; un toast propose « Annuler » pendant tout le délai ;
- *  - date explicite (`sendAt`) → mise en file jusqu'à cette date ;
+ *  - date explicite (`sendAt`) → mise en file jusqu'à cette date, visible et
+ *    annulable dans `MailOutgoingBadge` ;
  *  - délai nul, ou charge trop lourde pour le stockage local (grosses pièces
- *    jointes) → envoi immédiat, et on le DIT plutôt que de faire semblant.
+ *    jointes) → envoi immédiat, confirmé par le bouton de l'appelant.
  *
  * L'envoi réel est fait par `MailOutgoingRunner`, monté dans le shell : quitter
  * la page Mail n'annule rien.
@@ -37,7 +38,7 @@ export interface DeferredSendInput {
 export interface DeferredSendOptions {
   /** Date d'envoi explicite (« envoyer plus tard »). */
   sendAt?: number;
-  /** Libellé du toast de confirmation (défaut : « Message envoyé »). */
+  /** Libellé du toast d'annulation (défaut : « Message envoyé »). */
   label?: string;
 }
 
@@ -102,22 +103,15 @@ export function useDeferredSend() {
         sendAt: Date.now() + delayMs,
       };
 
-      // Délai nul : rien à rattraper, on part tout de suite (chemin historique).
       if (delayMs <= 0) {
         await sendNow(input);
-        toast({ title: opts.label ?? "Message envoyé", variant: "success" });
         return "sent";
       }
 
-      // Charge trop lourde pour la file locale : on envoie et on le dit — mieux
-      // vaut un envoi non annulable qu'un message perdu au rechargement.
+      // Charge trop lourde pour la file locale : mieux vaut un envoi non
+      // annulable qu'un message perdu au rechargement.
       if (queueTooLarge(entry)) {
         await sendNow(input);
-        toast({
-          title: opts.label ?? "Message envoyé",
-          description: "Pièces jointes volumineuses : envoi immédiat, sans fenêtre d'annulation.",
-          variant: "success",
-        });
         return "sent";
       }
 
@@ -125,28 +119,10 @@ export function useDeferredSend() {
       if (!id) {
         // Stockage indisponible (quota, navigation privée) → envoi direct.
         await sendNow(input);
-        toast({ title: opts.label ?? "Message envoyé", variant: "success" });
         return "sent";
       }
 
-      if (explicit) {
-        const when = new Date(entry.sendAt);
-        toast({
-          title: "Envoi programmé",
-          description: `Départ le ${when.toLocaleDateString()} à ${when.toLocaleTimeString([], {
-            hour: "2-digit",
-            minute: "2-digit",
-          })}. L'app doit être ouverte à ce moment-là.`,
-          duration: 6000,
-          action: {
-            label: "Annuler",
-            onClick: () => {
-              if (cancelOutgoing(id)) toast({ title: "Envoi programmé annulé" });
-            },
-          },
-        });
-        return "queued";
-      }
+      if (explicit) return "queued";
 
       toast({
         title: opts.label ?? "Message envoyé",

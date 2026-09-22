@@ -19,7 +19,6 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useToast } from "@supernote/ui";
 import { createLabel, type GmailLabel, type ThreadListItem } from "@/lib/gmail";
 import type { ClassificationResult } from "@/lib/mail-autolabel";
 import {
@@ -73,12 +72,9 @@ export function useMailAutoLabel({
   applyLabel,
   onLabelCreated,
 }: UseMailAutoLabelOptions) {
-  const { toast } = useToast();
   const [busy, setBusy] = useState(false);
   const [lastPass, setLastPass] = useState<AutoLabelPass | null>(null);
   const runningRef = useRef(false);
-  /** Passe déclenchée à la main : seule celle-là rend des comptes par toast. */
-  const manualRef = useRef(false);
   // Lu dans la passe (qui ne doit pas se recréer quand le seuil change).
   const minConfidenceRef = useRef(minConfidence);
   minConfidenceRef.current = minConfidence;
@@ -132,7 +128,7 @@ export function useMailAutoLabel({
           });
         } catch {
           // Ollama injoignable : on arrête la passe, sans marquer les fils vus
-          // (ils seront reproposés) ni assommer l'utilisateur de toasts.
+          // (ils seront reproposés).
           break;
         }
         done.push(it.id);
@@ -161,40 +157,17 @@ export function useMailAutoLabel({
       }
     } finally {
       markSeen(done);
+      // Ce qui a été ÉCARTÉ doit se voir (infobulle du bouton) : sans ça,
+      // « rien ne s'est passé » ressemble à une panne alors que c'est le seuil.
       setLastPass({ labeled, skipped });
-      // Ce qui a été ÉCARTÉ doit se voir : sans ça, « rien ne s'est passé »
-      // ressemble à une panne alors que c'est le seuil qui a joué.
-      if (manualRef.current) {
-        manualRef.current = false;
-        const title = labeled > 0 ? `${labeled} email(s) rangé(s)` : "Aucun tag posé";
-        toast(
-          skipped > 0
-            ? {
-                title,
-                description: `${skipped} fil(s) écarté(s) : le modèle n'était pas assez sûr.`,
-              }
-            : { title },
-        );
-      }
       runningRef.current = false;
       setBusy(false);
     }
-  }, [clientId, labelIdByName, onLabelCreated, toast]);
+  }, [clientId, labelIdByName, onLabelCreated]);
 
-  /** Passe manuelle : dit ce qu'elle fait, y compris quand il n'y a rien. */
   const runNow = useCallback(() => {
-    const pending = pendingForClassification(
-      itemsRef.current,
-      loadSeen(),
-      selfLabelIds(labelNamesRef.current, selfAddressesRef.current),
-    ).length;
-    if (pending === 0) {
-      toast({ title: "Rien à classer", description: "Tous les fils sans label ont déjà été vus." });
-      return;
-    }
-    manualRef.current = true;
     void run();
-  }, [run, toast]);
+  }, [run]);
 
   // Passe automatique après stabilisation de la liste.
   useEffect(() => {

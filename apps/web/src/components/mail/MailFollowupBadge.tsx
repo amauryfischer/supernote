@@ -10,7 +10,7 @@
 import { useEffect, useState } from "react";
 import { Button, Popover } from "@heroui/react";
 import { BellRinging, X } from "@phosphor-icons/react";
-import { Tooltip, useToast } from "@supernote/ui";
+import { Tooltip } from "@supernote/ui";
 import {
   loadFollowups,
   pendingFollowups,
@@ -20,7 +20,6 @@ import {
 } from "@/lib/mail-followup";
 
 export function MailFollowupBadge({ onOpenThread }: { onOpenThread?: (id: string) => void }) {
-  const { toast } = useToast();
   const [entries, setEntries] = useState<FollowupEntry[]>(() => loadFollowups());
   const [open, setOpen] = useState(false);
 
@@ -75,10 +74,7 @@ export function MailFollowupBadge({ onOpenThread }: { onOpenThread?: (id: string
                     isIconOnly
                     aria-label="Retirer le rappel"
                     className="h-8 min-h-8 w-8 min-w-8"
-                    onPress={() => {
-                      removeFollowup(e.threadId);
-                      toast({ title: "Rappel retiré" });
-                    }}
+                    onPress={() => removeFollowup(e.threadId)}
                   >
                     <X size={14} />
                   </Button>

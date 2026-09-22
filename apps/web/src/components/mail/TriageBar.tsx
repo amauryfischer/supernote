@@ -6,8 +6,8 @@
  *
  * Comportement :
  *  - Done / Archive : retirent le thread de l'inbox (mutation `INBOX` côté
- *    Gmail via `applyTriage`). Optimiste : on désactive la barre pendant
- *    l'appel ; en cas d'échec on toast et on réactive.
+ *    Gmail via `applyTriage`). On désactive la barre pendant l'appel ; le
+ *    bouton passe en chargement puis succès, ou en erreur (message en infobulle).
  *  - Snooze : ouvre la barre `SnoozeMenu` (saisie libre 10d / 32h + échéances
  *    rapides). Au choix, on enregistre l'échéance dans le store local (`addSnooze`) PUIS on applique la
  *    mutation Gmail. Si la mutation échoue, on annule l'échéance locale
@@ -21,16 +21,17 @@
  * UI : boutons icône-seule (h-9 ≈ 36px hit-target tactile) + `Tooltip` au survol.
  */
 
-import { useCallback, useState } from "react";
+import { useCallback, useState, type ReactNode } from "react";
 import { Button } from "@heroui/react";
 import { Archive, CheckCircle, Clock, Trash } from "@phosphor-icons/react";
-import { useToast, Tooltip } from "@supernote/ui";
+import { Tooltip } from "@supernote/ui";
 import {
   addSnooze,
   applyTriage,
   removeSnooze,
   type TriageAction,
 } from "@/lib/mail-triage";
+import { useActionFeedback, FeedbackIcon } from "@/lib/action-feedback";
 import { SnoozeMenu } from "./SnoozeMenu";
 
 export interface TriageBarProps {
@@ -44,39 +45,20 @@ export interface TriageBarProps {
   onTriage?: (action: TriageAction, until?: number) => void;
 }
 
-/** Libellés utilisateur des actions, pour les toasts. */
-const ACTION_LABEL: Record<TriageAction, string> = {
-  done: "Fait",
-  archive: "Archivé",
-  snooze: "Reporté",
-  delete: "Supprimé",
-};
-
 export function TriageBar({ clientId, threadId, onTriaged, onTriage }: TriageBarProps) {
-  const { toast } = useToast();
-  // Action en cours (verrouille toute la barre pendant la mutation).
-  const [pending, setPending] = useState<TriageAction | null>(null);
+  const fb = useActionFeedback();
+  // Action dont le bouton porte le retour (chargement, succès, erreur).
+  const [target, setTarget] = useState<TriageAction | null>(null);
   const [snoozeOpen, setSnoozeOpen] = useState(false);
-  const busy = pending !== null;
+  const busy = fb.isPending;
+  const withFeedback = fb.run;
 
   const runMutation = useCallback(
     async (action: TriageAction) => {
-      try {
-        await applyTriage(clientId, threadId, action);
-        // Quand un parent gère le post-triage (`onTriaged`), il prend en charge
-        // la notification — et propose l'« Annuler » (toast-action) côté page
-        // Mail. On évite donc un double toast ici ; le toast de confirmation
-        // local ne sert qu'aux usages autonomes de la barre (sans `onTriaged`).
-        if (onTriaged) {
-          onTriaged(action);
-        } else {
-          toast({ title: ACTION_LABEL[action], variant: "success" });
-        }
-      } catch (e) {
-        throw e instanceof Error ? e : new Error(String(e));
-      }
+      await applyTriage(clientId, threadId, action);
+      onTriaged?.(action);
     },
-    [clientId, threadId, onTriaged, toast],
+    [clientId, threadId, onTriaged],
   );
 
   const handleSimple = useCallback(
@@ -85,18 +67,10 @@ export function TriageBar({ clientId, threadId, onTriaged, onTriage }: TriageBar
         onTriage(action);
         return;
       }
-      setPending(action);
-      void runMutation(action)
-        .catch((e: Error) => {
-          toast({
-            title: "Échec du triage",
-            description: e.message,
-            variant: "danger",
-          });
-        })
-        .finally(() => setPending(null));
+      setTarget(action);
+      void withFeedback(() => runMutation(action));
     },
-    [runMutation, toast, onTriage],
+    [runMutation, onTriage, withFeedback],
   );
 
   const handleSnooze = useCallback(
@@ -105,28 +79,26 @@ export function TriageBar({ clientId, threadId, onTriaged, onTriage }: TriageBar
         onTriage("snooze", until);
         return;
       }
-      setPending("snooze");
-      // Optimiste : on note l'échéance AVANT la mutation réseau.
+      setTarget("snooze");
+      // Optimiste : on note l'échéance AVANT la mutation réseau, et on l'annule
+      // si Gmail refuse — le thread toujours en inbox ne doit pas rester « snoozé ».
       addSnooze(threadId, until);
-      void runMutation("snooze")
-        .catch((e: Error) => {
-          // Rollback de l'échéance locale : la mutation Gmail a échoué, le
-          // thread est toujours en inbox → il ne doit pas rester « snoozé ».
-          removeSnooze(threadId);
-          toast({
-            title: "Échec du report",
-            description: e.message,
-            variant: "danger",
-          });
-        })
-        .finally(() => setPending(null));
+      void withFeedback(
+        () => runMutation("snooze"),
+        () => removeSnooze(threadId),
+      );
     },
-    [threadId, runMutation, toast, onTriage],
+    [threadId, runMutation, onTriage, withFeedback],
   );
+
+  const icon = (action: TriageAction, idle: ReactNode) =>
+    target === action ? <FeedbackIcon state={fb.state} error={fb.error} size={18} idle={idle} /> : idle;
+  const tip = (action: TriageAction, label: string) =>
+    target === action && fb.error ? fb.error : label;
 
   return (
     <div className="flex items-center gap-1" role="group" aria-label="Triage du fil">
-      <Tooltip content="Marquer comme fait">
+      <Tooltip content={tip("done", "Marquer comme fait")}>
         <Button
           variant="ghost"
           size="sm"
@@ -136,11 +108,11 @@ export function TriageBar({ clientId, threadId, onTriaged, onTriage }: TriageBar
           className="h-9"
           aria-label="Marquer comme fait"
         >
-          <CheckCircle size={18} weight="bold" aria-hidden />
+          {icon("done", <CheckCircle size={18} weight="bold" aria-hidden />)}
         </Button>
       </Tooltip>
 
-      <Tooltip content="Archiver">
+      <Tooltip content={tip("archive", "Archiver")}>
         <Button
           variant="ghost"
           size="sm"
@@ -150,11 +122,11 @@ export function TriageBar({ clientId, threadId, onTriaged, onTriage }: TriageBar
           className="h-9"
           aria-label="Archiver"
         >
-          <Archive size={18} aria-hidden />
+          {icon("archive", <Archive size={18} aria-hidden />)}
         </Button>
       </Tooltip>
 
-      <Tooltip content="Reporter (h)">
+      <Tooltip content={tip("snooze", "Reporter (h)")}>
         <Button
           variant="ghost"
           size="sm"
@@ -164,12 +136,12 @@ export function TriageBar({ clientId, threadId, onTriaged, onTriage }: TriageBar
           className="h-9"
           aria-label="Reporter (snooze)"
         >
-          <Clock size={18} aria-hidden />
+          {icon("snooze", <Clock size={18} aria-hidden />)}
         </Button>
       </Tooltip>
       <SnoozeMenu isOpen={snoozeOpen} onClose={() => setSnoozeOpen(false)} onPick={handleSnooze} />
 
-      <Tooltip content="Supprimer (corbeille)">
+      <Tooltip content={tip("delete", "Supprimer (corbeille)")}>
         <Button
           variant="ghost"
           size="sm"
@@ -179,7 +151,7 @@ export function TriageBar({ clientId, threadId, onTriaged, onTriage }: TriageBar
           className="h-9"
           aria-label="Supprimer (corbeille)"
         >
-          <Trash size={18} aria-hidden />
+          {icon("delete", <Trash size={18} aria-hidden />)}
         </Button>
       </Tooltip>
     </div>

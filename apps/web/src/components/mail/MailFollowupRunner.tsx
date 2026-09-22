@@ -8,8 +8,7 @@
  * À l'échéance, le fil est vérifié côté Gmail (source de vérité) :
  *  - quelqu'un a répondu → le rappel s'efface, en silence. C'est le cas le plus
  *    fréquent, et c'est exactement le bruit qu'on veut éviter ;
- *  - toujours sans réponse → le fil REVIENT en boîte de réception, avec un
- *    toast qui dit pourquoi il est là.
+ *  - toujours sans réponse → le fil REVIENT en boîte de réception.
  */
 
 import { useEffect, useRef } from "react";
@@ -37,8 +36,6 @@ export function MailFollowupRunner() {
   const accountId = settings.gmail.connectedEmail;
   const connected = Boolean(accountId);
   const inFlightRef = useRef<Set<string>>(new Set());
-  const toastRef = useRef(toast);
-  toastRef.current = toast;
   const reconnect = useGmailReconnect(clientId);
   const reconnectRef = useRef(reconnect.reconnect);
   reconnectRef.current = reconnect.reconnect;
@@ -62,11 +59,6 @@ export function MailFollowupRunner() {
               addLabelIds: [INBOX_LABEL],
             });
             removeFollowup(entry.threadId);
-            toastRef.current({
-              title: "Relance à faire",
-              description: `Toujours pas de réponse : « ${entry.subject || "(sans objet)"} »`,
-              duration: 8000,
-            });
           })
           .catch(() => {
             /* fil illisible (réseau, droits) : on retentera au prochain tour */

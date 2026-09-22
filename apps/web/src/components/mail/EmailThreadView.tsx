@@ -1,9 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, forwardRef, useImperativeHandle, type ReactNode } from "react";
-import { ArrowSquareOut, Plus, X, Tag, MagnifyingGlass, Check, PaperPlaneTilt, Quotes, Paperclip, Star, Envelope, ArrowBendUpRight, Sparkle, MagicWand, ArrowsClockwise, CaretUp, DotsThreeVertical, Copy, Image as ImageIcon, SpeakerSlash, UserMinus, UserPlus } from "@phosphor-icons/react";
+import { ArrowSquareOut, Plus, X, Tag, MagnifyingGlass, Check, PaperPlaneTilt, Quotes, Paperclip, Star, Envelope, ArrowBendUpRight, Sparkle, MagicWand, ArrowsClockwise, CaretUp, DotsThreeVertical, Copy, Image as ImageIcon, SpeakerSlash, UserMinus, UserPlus, WarningCircle } from "@phosphor-icons/react";
 import { Button, Chip, Input, Spinner, Popover } from "@heroui/react";
 import { useToast, Tooltip } from "@supernote/ui";
+import { useActionFeedback, FeedbackIcon } from "@/lib/action-feedback";
 import { useSettings } from "@/components/settings/SettingsContext";
 import {
   listLabels,
@@ -258,6 +259,22 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
     setLabelIds(thread.labelIds);
   }, [thread]);
 
+  // Archivage après « ignorer » / « bloquer » : via l'outbox de la page (hors ligne,
+  // « Annuler ») quand elle est là ; appel Gmail direct dans un bloc de note.
+  const archiveThen = (done: () => void) => {
+    if (onTriage) {
+      onTriage("archive");
+      done();
+      return;
+    }
+    void applyTriage(clientId, thread.id, "archive")
+      .then(() => {
+        onTriaged?.("archive");
+        done();
+      })
+      .catch(() => toast({ title: "Archivage échoué", variant: "danger" }));
+  };
+
   const pushLabels = (change: { addLabelIds?: string[]; removeLabelIds?: string[] }): Promise<void> => {
     const direct = () => modifyThreadLabels(clientId, thread.id, change);
     return commitMutation
@@ -311,7 +328,11 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
   // « Répondre à tous » : tous les participants du fil sauf soi (Cc inclus à l'envoi).
   const replyAll = useMemo(() => pickReplyAll(thread, selfEmail), [thread, selfEmail]);
   const [replyBody, setReplyBody] = useState("");
-  const [replyBusy, setReplyBusy] = useState<"send" | "draft" | null>(null);
+  const replySendFb = useActionFeedback();
+  const replyDraftFb = useActionFeedback();
+  const replyBusy = replySendFb.isPending || replyDraftFb.isPending;
+  const copyRecipientFb = useActionFeedback();
+  const [replyNotice, setReplyNotice] = useState<{ tone: "danger" | "warning"; text: string } | null>(null);
   // Mobile : le composeur reste une ligne tant qu'on n'y a pas touché — déplié
   // d'office, il mangeait un tiers de l'écran au-dessus du fil.
   const [replyOpen, setReplyOpen] = useState(false);
@@ -332,6 +353,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
   const [summary, setSummary] = useState<string | null>(null);
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [summaryBusy, setSummaryBusy] = useState(false);
+  const [summaryError, setSummaryError] = useState<string | null>(null);
   // Quadrant Eisenhower suggéré par l'IA (best-effort) → pré-sélectionné dans le
   // MailEisenhowerPicker (ouvre le Popover sur la cellule). Réinitialisé par fil.
   const [suggestedQuadrant, setSuggestedQuadrant] = useState<EisenhowerQuadrant | null>(null);
@@ -459,15 +481,12 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
     if (summaryBusy) return;
     setSummaryOpen(true);
     setSummaryBusy(true);
+    setSummaryError(null);
     try {
       const text = await summarizeThread(aiThread);
       setSummary(text);
     } catch (e) {
-      toast({
-        title: "Résumé impossible",
-        description: e instanceof Error ? e.message : "Ollama injoignable",
-        variant: "danger",
-      });
+      setSummaryError(e instanceof Error ? e.message : "Ollama injoignable");
     } finally {
       setSummaryBusy(false);
     }
@@ -510,19 +529,17 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
       setReplyAttachments((prev) => {
         const next = [...prev, ...added];
         if (exceedsAttachmentLimit(next)) {
-          toast({
-            title: "Pièces jointes volumineuses",
-            description: `Total ${formatBytes(totalAttachmentsSize(next))} > ${formatBytes(MAX_ATTACHMENTS_BYTES)} : l'envoi Gmail risque d'échouer.`,
-            variant: "warning",
+          setReplyNotice({
+            tone: "warning",
+            text: `Pièces jointes : ${formatBytes(totalAttachmentsSize(next))} au total, au-delà de ${formatBytes(MAX_ATTACHMENTS_BYTES)} l'envoi Gmail risque d'échouer.`,
           });
         }
         return next;
       });
     } catch (e) {
-      toast({
-        title: "Lecture du fichier échouée",
-        description: e instanceof Error ? e.message : String(e),
-        variant: "danger",
+      setReplyNotice({
+        tone: "danger",
+        text: `Lecture du fichier échouée : ${e instanceof Error ? e.message : String(e)}`,
       });
     }
   };
@@ -575,55 +592,58 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
     const body = withSignature(typed, signature);
     const inline = replyAttachments.some((a) => a.contentId);
     const html = hasMarkup(body) || inline ? markdownToHtml(body) : undefined;
-    setReplyBusy(mode);
-    try {
-      if (mode === "send") {
-        // Passe par la file d'envoi différé : « Annuler l'envoi » pendant la
-        // fenêtre configurée, puis départ réel (cf. MailOutgoingRunner).
-        await scheduleSend(
-          {
-            kind: "reply",
-            threadId: replyParams.threadId,
-            to: replyParams.to ? [replyParams.to] : [],
-            ...(cc?.length ? { cc } : {}),
-            subject: replyParams.subject,
-            body,
-            ...(html ? { html } : {}),
-            ...(replyParams.inReplyTo ? { inReplyTo: replyParams.inReplyTo } : {}),
-            ...(replyParams.references ? { references: replyParams.references } : {}),
-            ...(attachments?.length ? { attachments } : {}),
-          },
-          sendAt !== undefined ? { sendAt, label: "Réponse envoyée" } : { label: "Réponse envoyée" },
-        );
-        clearAutoDraft(threadDraftKey(thread.id));
-        setReplyBody("");
-        setReplyAttachments([]);
-        // Re-fetch fil + liste côté appelant pour faire apparaître la réponse.
-        onReplied?.();
-        return;
-      } else {
-        const { draftId } = await createDraft(clientId, {
+    setReplyNotice(null);
+    const fail = (message: string) =>
+      setReplyNotice({
+        tone: "danger",
+        text: `${mode === "send" ? "Échec de l'envoi" : "Échec du brouillon"} : ${message}`,
+      });
+    if (mode === "send") {
+      // File d'envoi différé : « Annuler l'envoi » pendant la fenêtre configurée,
+      // puis départ réel (cf. MailOutgoingRunner).
+      const result = await replySendFb.run(
+        () =>
+          scheduleSend(
+            {
+              kind: "reply",
+              threadId: replyParams.threadId,
+              to: replyParams.to ? [replyParams.to] : [],
+              ...(cc?.length ? { cc } : {}),
+              subject: replyParams.subject,
+              body,
+              ...(html ? { html } : {}),
+              ...(replyParams.inReplyTo ? { inReplyTo: replyParams.inReplyTo } : {}),
+              ...(replyParams.references ? { references: replyParams.references } : {}),
+              ...(attachments?.length ? { attachments } : {}),
+            },
+            sendAt !== undefined ? { sendAt, label: "Réponse envoyée" } : { label: "Réponse envoyée" },
+          ),
+        fail,
+      );
+      if (!result) return;
+      clearAutoDraft(threadDraftKey(thread.id));
+      setReplyBody("");
+      setReplyAttachments([]);
+      // Re-fetch fil + liste côté appelant pour faire apparaître la réponse.
+      onReplied?.();
+      return;
+    }
+    const draft = await replyDraftFb.run(
+      () =>
+        createDraft(clientId, {
           ...replyParams,
           cc,
           body,
           ...(html ? { html } : {}),
           attachments,
-        });
-        clearAutoDraft(threadDraftKey(thread.id));
-        window.open(buildGmailDraftUrl(draftId), "_blank", "noopener");
-        toast({ title: "Brouillon créé", description: "Ouvert dans Gmail." });
-      }
-      setReplyBody("");
-      setReplyAttachments([]);
-    } catch (e) {
-      toast({
-        title: mode === "send" ? "Échec de l'envoi" : "Échec du brouillon",
-        description: e instanceof Error ? e.message : String(e),
-        variant: "danger",
-      });
-    } finally {
-      setReplyBusy(null);
-    }
+        }),
+      fail,
+    );
+    if (!draft) return;
+    clearAutoDraft(threadDraftKey(thread.id));
+    window.open(buildGmailDraftUrl(draft.draftId), "_blank", "noopener");
+    setReplyBody("");
+    setReplyAttachments([]);
   };
 
   // Transférer : pré-remplit le compose à partir du dernier message du fil
@@ -658,8 +678,6 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
       setLabelIds(nextIds);
       onLabelsChanged?.(thread.id, nextIds);
       await pushLabels(change);
-      const name = QUADRANTS.find((q) => q.id === quadrant)?.label ?? quadrant;
-      toast({ title: `Rangé dans « ${name} »`, variant: "success" });
       onConvertedToTodo?.(thread.id, todoLabels, change);
     } catch (err) {
       setLabelIds(prev);
@@ -707,13 +725,9 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
     try {
       await pushLabels(action === "add" ? { addLabelIds: [labelId] } : { removeLabelIds: [labelId] });
     } catch (err) {
+      console.error(err);
       setLabelIds(prev);
       onLabelsChanged?.(thread.id, prev);
-      toast({
-        title: action === "add" ? "Ajout du label échoué" : "Retrait du label échoué",
-        description: err instanceof Error ? err.message : String(err),
-        variant: "danger",
-      });
     }
   };
 
@@ -753,12 +767,8 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
     try {
       await updateLabel(clientId, labelId, { color });
     } catch (err) {
+      console.error(err);
       setAllLabels(prev);
-      toast({
-        title: "Couleur du label échouée",
-        description: err instanceof Error ? err.message : String(err),
-        variant: "danger",
-      });
     }
   };
 
@@ -775,13 +785,9 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
     try {
       await pushLabels(next ? { addLabelIds: ["STARRED"] } : { removeLabelIds: ["STARRED"] });
     } catch (err) {
+      console.error(err);
       setLabelIds(prev);
       onLabelsChanged?.(thread.id, prev);
-      toast({
-        title: next ? "Ajout de l'étoile échoué" : "Retrait de l'étoile échoué",
-        description: err instanceof Error ? err.message : String(err),
-        variant: "danger",
-      });
     }
   };
 
@@ -796,7 +802,6 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
     onLabelsChanged?.(thread.id, nextIds);
     try {
       await pushLabels({ addLabelIds: ["UNREAD"] });
-      toast({ title: "Marqué non lu" });
     } catch (err) {
       setLabelIds(prev);
       onLabelsChanged?.(thread.id, prev);
@@ -856,14 +861,8 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
   // pickReplyTo) → affichée + copiable dans l'en-tête.
   const recipientEmail = replyParams.to || correspondentMsg?.from.email || "";
   const lastRecipients = recipientsLine(thread.messages[thread.messages.length - 1], selfEmail);
-  const copyRecipient = async () => {
-    if (!recipientEmail) return;
-    try {
-      await navigator.clipboard.writeText(recipientEmail);
-      toast({ title: "Adresse copiée", description: recipientEmail });
-    } catch {
-      toast({ title: "Copie impossible", variant: "danger" });
-    }
+  const copyRecipient = () => {
+    if (recipientEmail) void copyRecipientFb.run(() => navigator.clipboard.writeText(recipientEmail));
   };
 
   return (
@@ -1009,11 +1008,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
                             {...(onForward ? { onCompose: onForward } : {})}
                             onBlockAndArchive={() => {
                               blockSender(correspondentMsg.from.email);
-                              void applyTriage(clientId, thread.id, "archive")
-                                .then(() => onTriaged?.("archive"))
-                                .catch(() => {
-                                  toast({ title: "Archivage échoué", variant: "danger" });
-                                });
+                              archiveThen(() => undefined);
                             }}
                           />
                         </div>
@@ -1026,17 +1021,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
                           onPress={() => {
                             setMoreOpen(false);
                             muteThread(thread.id);
-                            void applyTriage(clientId, thread.id, "archive")
-                              .then(() => {
-                                onTriaged?.("archive");
-                                toast({
-                                  title: "Fil ignoré",
-                                  description: "Ses prochains messages seront archivés.",
-                                });
-                              })
-                              .catch(() => {
-                                toast({ title: "Archivage échoué", variant: "danger" });
-                              });
+                            archiveThen(() => undefined);
                           }}
                         >
                           <SpeakerSlash size={16} />
@@ -1051,17 +1036,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
                           onPress={() => {
                             setMoreOpen(false);
                             blockSender(correspondentMsg.from.email);
-                            void applyTriage(clientId, thread.id, "archive")
-                              .then(() => {
-                                onTriaged?.("archive");
-                                toast({
-                                  title: "Expéditeur bloqué",
-                                  description: `Les prochains emails de ${correspondentMsg.from.email} seront archivés.`,
-                                });
-                              })
-                              .catch(() => {
-                                toast({ title: "Archivage échoué", variant: "danger" });
-                              });
+                            archiveThen(() => undefined);
                           }}
                         >
                           <UserMinus size={16} />
@@ -1139,16 +1114,16 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
             <span className="max-w-[45%] shrink-0 truncate text-xs" style={{ color: "var(--text-muted)" }}>
               {recipientEmail}
             </span>
-            <Tooltip content="Copier l'adresse">
+            <Tooltip content={copyRecipientFb.state === "success" ? "Copiée" : (copyRecipientFb.error ?? "Copier l'adresse")}>
               <Button
                 isIconOnly
                 variant="ghost"
                 size="sm"
                 aria-label="Copier l'adresse"
-                className="h-6 min-h-6 w-6 min-w-6 shrink-0"
-                onPress={() => void copyRecipient()}
+                className="sn-hit h-6 min-h-6 w-6 min-w-6 shrink-0"
+                onPress={copyRecipient}
               >
-                <Copy size={12} />
+                <FeedbackIcon state={copyRecipientFb.state} error={copyRecipientFb.error} size={12} idle={<Copy size={12} />} />
               </Button>
             </Tooltip>
             {correspondentMsg && (
@@ -1262,6 +1237,10 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
               <span className="flex items-center gap-2 text-sm" style={{ color: "var(--text-muted)" }}>
                 <Spinner size="sm" /> Génération du résumé…
               </span>
+            ) : summaryError ? (
+              <p role="alert" className="text-sm" style={{ color: "var(--color-danger)" }}>
+                Résumé impossible : {summaryError}
+              </p>
             ) : summary ? (
               <p
                 className="whitespace-pre-wrap break-words text-sm"
@@ -1424,6 +1403,29 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
               e.target.value = "";
             }}
           />
+          {replyNotice && (
+            <div
+              role="alert"
+              className="mt-1.5 flex items-center gap-2 rounded-md py-1 pl-3 pr-1 text-xs"
+              style={{
+                background: `var(--color-${replyNotice.tone}-50)`,
+                color: `var(--color-${replyNotice.tone}-700)`,
+              }}
+            >
+              <WarningCircle size={13} weight="bold" aria-hidden />
+              <span className="min-w-0 flex-1">{replyNotice.text}</span>
+              <Button
+                size="sm"
+                variant="ghost"
+                isIconOnly
+                aria-label="Masquer le message"
+                className="sn-hit h-6 min-h-6 w-6 min-w-6"
+                onPress={() => setReplyNotice(null)}
+              >
+                <X size={11} />
+              </Button>
+            </div>
+          )}
           {replyAttachments.length > 0 && (
             <div className="mt-1.5 flex flex-wrap gap-1.5">
               {replyAttachments.map((att, i) => (
@@ -1470,7 +1472,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
                     size="sm"
                     isIconOnly
                     onPress={() => onGenerateDrafts?.()}
-                    isDisabled={draftsBusy || replyBusy !== null}
+                    isDisabled={draftsBusy || replyBusy}
                     aria-label="Proposer plusieurs brouillons de réponse avec l'IA locale"
                   >
                     {draftsBusy ? <Spinner size="sm" /> : <MagicWand size={14} />}
@@ -1512,24 +1514,30 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
               </Tooltip>
               <SendLaterButton
                 iconOnly
-                isDisabled={!replyBody.trim() || replyBusy !== null}
+                isDisabled={!replyBody.trim() || replyBusy}
                 onPick={(sendAt) => void submitReply("send", sendAt)}
               />
               <Button
                 variant="ghost"
                 size="sm"
+                className="flex items-center gap-1.5"
                 onPress={() => void submitReply("draft")}
-                isDisabled={!replyBody.trim() || replyBusy !== null}
+                isDisabled={(!replyBody.trim() && replyDraftFb.state === "idle") || replyBusy}
               >
+                {replyDraftFb.state !== "idle" && (
+                  <FeedbackIcon state={replyDraftFb.state} error={replyDraftFb.error} size={14} idle={null} />
+                )}
                 Brouillon
               </Button>
               <Button
                 variant="primary"
                 size="sm"
+                className="flex items-center gap-1.5"
                 onPress={() => void submitReply("send")}
-                isDisabled={!replyBody.trim() || replyBusy !== null}
+                isDisabled={(!replyBody.trim() && replySendFb.state === "idle") || replyBusy}
               >
-                <PaperPlaneTilt size={14} /> {replyBusy === "send" ? "Envoi…" : "Envoyer"}
+                <FeedbackIcon state={replySendFb.state} error={replySendFb.error} size={14} idle={<PaperPlaneTilt size={14} />} />
+                Envoyer
               </Button>
             </div>
           </div>}
@@ -1907,10 +1915,33 @@ function MessageBubble({
   useEffect(() => {
     if (htmlParts) ensureMailHtmlStyle();
   }, [htmlParts]);
+  const copyFb = useActionFeedback();
+  // Copie le contenu neuf (sans citation ni signature) ; en HTML, garde la mise en forme au collage.
+  const copyMessage = () =>
+    void copyFb.run(async () => {
+      if (!htmlParts?.body) {
+        await navigator.clipboard.writeText(body);
+        return;
+      }
+      const plain = message.bodyText
+        ? parseEmailBody(message.bodyText).body
+        : (new DOMParser().parseFromString(htmlParts.body, "text/html").body.textContent ?? "");
+      if (typeof ClipboardItem === "undefined") {
+        await navigator.clipboard.writeText(plain);
+        return;
+      }
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          "text/html": new Blob([htmlParts.body], { type: "text/html" }),
+          "text/plain": new Blob([plain], { type: "text/plain" }),
+        }),
+      ]);
+    });
+  const canCopy = Boolean(htmlParts?.body || body);
   return (
-    <div className={`flex ${mine ? "justify-end" : "justify-start"}`}>
+    <div className="flex">
       <div
-        className="max-w-[80%] rounded-2xl border px-3.5 py-2.5"
+        className="w-full min-w-0 rounded-2xl border px-3.5 py-2.5"
         style={{
           backgroundColor: tint ? tint.bg : "var(--accent-subtle)",
           borderColor: tint ? tint.border : "var(--border-subtle)",
@@ -1931,8 +1962,22 @@ function MessageBubble({
             )}
             <span className="truncate">{mine ? "Moi" : message.from.name || message.from.email}</span>
           </span>
-          <span className="shrink-0 text-[11px]" style={{ color: "var(--text-muted)" }}>
+          <span className="flex shrink-0 items-center gap-1 text-[11px]" style={{ color: "var(--text-muted)" }}>
             {date}
+            {canCopy && (
+              <Tooltip content={copyFb.state === "success" ? "Copié" : (copyFb.error ?? "Copier le message")}>
+                <Button
+                  isIconOnly
+                  variant="ghost"
+                  size="sm"
+                  aria-label="Copier le message"
+                  className="sn-hit -my-1 -mr-1.5 h-6 min-h-6 w-6 min-w-6"
+                  onPress={copyMessage}
+                >
+                  <FeedbackIcon state={copyFb.state} error={copyFb.error} size={13} idle={<Copy size={13} />} />
+                </Button>
+              </Tooltip>
+            )}
           </span>
         </div>
 
@@ -2062,28 +2107,16 @@ function AttachmentChip({
   attachment: EmailAttachment;
   clientId: string;
 }) {
-  const { toast } = useToast();
-  const [busy, setBusy] = useState(false);
-  const onDownload = async () => {
-    if (busy) return;
-    setBusy(true);
-    try {
-      await downloadAttachment(clientId, attachment);
-    } catch (e) {
-      toast({
-        title: "Téléchargement échoué",
-        description: e instanceof Error ? e.message : String(e),
-        variant: "danger",
-      });
-    } finally {
-      setBusy(false);
-    }
+  const fb = useActionFeedback();
+  const busy = fb.isPending;
+  const onDownload = () => {
+    if (!busy) void fb.run(() => downloadAttachment(clientId, attachment));
   };
   return (
     <Button
       variant="ghost"
       size="sm"
-      onPress={() => void onDownload()}
+      onPress={onDownload}
       isDisabled={busy}
       aria-label={`Télécharger ${attachment.filename}${attachment.size ? ` (${formatBytes(attachment.size)})` : ""}`}
       className="flex h-auto min-h-8 max-w-full items-center gap-1.5 rounded-full px-2.5 py-1 text-xs"
@@ -2093,11 +2126,16 @@ function AttachmentChip({
         color: "var(--text-secondary)",
       }}
     >
-      <Paperclip size={13} className="shrink-0" style={{ color: "var(--text-muted)" }} />
+      <FeedbackIcon
+        state={fb.state}
+        error={fb.error}
+        size={13}
+        idle={<Paperclip size={13} className="shrink-0" style={{ color: "var(--text-muted)" }} />}
+      />
       <span className="min-w-0 truncate">{attachment.filename}</span>
       {attachment.size > 0 && (
         <span className="shrink-0" style={{ color: "var(--text-muted)" }}>
-          {busy ? "…" : formatBytes(attachment.size)}
+          {fb.state === "error" ? "Échec" : formatBytes(attachment.size)}
         </span>
       )}
     </Button>

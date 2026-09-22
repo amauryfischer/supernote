@@ -15,9 +15,7 @@
  * presque toujours la suite voulue, mais elle reste un choix.
  */
 
-import { useState } from "react";
 import { Button } from "@heroui/react";
-import { Spinner } from "@heroui/react";
 import { useToast } from "@supernote/ui";
 import { ProhibitInset } from "@phosphor-icons/react";
 import { getMessageHeaders, type EmailMessage } from "@/lib/gmail";
@@ -27,6 +25,7 @@ import {
   postOneClickUnsubscribe,
   type UnsubscribeTargets,
 } from "@/lib/mail-unsubscribe";
+import { useActionFeedback, FeedbackIcon } from "@/lib/action-feedback";
 
 export function UnsubscribeButton({
   message,
@@ -44,7 +43,7 @@ export function UnsubscribeButton({
   onBlockAndArchive?: () => void;
 }) {
   const { toast } = useToast();
-  const [busy, setBusy] = useState(false);
+  const fb = useActionFeedback();
 
   const offerCleanup = () => {
     if (!onBlockAndArchive) return;
@@ -56,10 +55,8 @@ export function UnsubscribeButton({
     });
   };
 
-  const run = async () => {
-    if (busy) return;
-    setBusy(true);
-    try {
+  const run = () =>
+    fb.run(async () => {
       // L'en-tête n'est pas mirroré : on le lit au moment d'agir.
       let targets: UnsubscribeTargets | null = null;
       try {
@@ -76,26 +73,12 @@ export function UnsubscribeButton({
       }
       targets ??= unsubscribeFromBody(message.bodyHtml);
 
-      if (!targets) {
-        toast({
-          title: "Aucun lien de désabonnement",
-          description: "Ce message n'en annonce pas. Tu peux bloquer l'expéditeur à la place.",
-          variant: "warning",
-        });
-        return;
-      }
+      if (!targets) throw new Error("Aucun lien de désabonnement");
 
       if (targets.oneClick && targets.url) {
         const sent = await postOneClickUnsubscribe(targets.url);
-        if (sent) {
-          toast({
-            title: "Demande de désabonnement envoyée",
-            description: "La confirmation dépend de l'expéditeur : elle n'est pas vérifiable ici.",
-          });
-          offerCleanup();
-        } else {
-          window.open(targets.url, "_blank", "noopener,noreferrer");
-        }
+        if (sent) offerCleanup();
+        else window.open(targets.url, "_blank", "noopener,noreferrer");
         return;
       }
 
@@ -113,21 +96,18 @@ export function UnsubscribeButton({
         });
         offerCleanup();
       }
-    } finally {
-      setBusy(false);
-    }
-  };
+    });
 
   return (
     <Button
       variant="ghost"
       className={className}
       onPress={() => void run()}
-      isDisabled={busy}
+      isDisabled={fb.isPending}
       aria-label="Se désabonner de cet expéditeur"
     >
-      {busy ? <Spinner size="sm" /> : <ProhibitInset size={16} />}
-      <span>Se désabonner</span>
+      <FeedbackIcon state={fb.state} error={fb.error} size={16} idle={<ProhibitInset size={16} />} />
+      <span>{fb.state === "error" ? fb.error : "Se désabonner"}</span>
     </Button>
   );
 }

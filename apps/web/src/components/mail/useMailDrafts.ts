@@ -10,7 +10,6 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useToast } from "@supernote/ui";
 import {
   draftReplyVariants,
   toMailAiThread,
@@ -23,6 +22,7 @@ import type { EmailThread } from "@/lib/gmail";
 export interface MailDraftsApi {
   variants: ReplyVariant[];
   busy: boolean;
+  error: string | null;
   useNotes: boolean;
   setUseNotes: (v: boolean) => void;
   generate: () => Promise<void>;
@@ -36,9 +36,9 @@ export function useMailDrafts(
   selfEmail: string,
   selfEmails: readonly string[],
 ): MailDraftsApi {
-  const { toast } = useToast();
   const [variants, setVariants] = useState<ReplyVariant[]>([]);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [useNotes, setUseNotes] = useState(false);
 
   const aiThread = useMemo<MailAiThread | null>(
@@ -66,6 +66,7 @@ export function useMailDrafts(
     if (!aiThread || busy) return;
     setBusy(true);
     setVariants([]);
+    setError(null);
     try {
       await draftReplyVariants(
         aiThread,
@@ -73,24 +74,24 @@ export function useMailDrafts(
         (v) => setVariants((prev) => [...prev, v]),
       );
     } catch (e) {
-      toast({
-        title: "Brouillon IA impossible",
-        description: e instanceof Error ? e.message : "Ollama injoignable",
-        variant: "danger",
-      });
+      setError(e instanceof Error ? e.message : "Ollama injoignable");
     } finally {
       setBusy(false);
     }
-  }, [aiThread, busy, useNotes, recipientLabel, toast]);
+  }, [aiThread, busy, useNotes, recipientLabel]);
 
-  const clear = useCallback(() => setVariants([]), []);
+  const clear = useCallback(() => {
+    setVariants([]);
+    setError(null);
+  }, []);
 
   // Pas de « fuite » d'un fil à l'autre.
   const threadId = thread?.id ?? null;
   useEffect(() => {
     setVariants([]);
     setBusy(false);
+    setError(null);
   }, [threadId]);
 
-  return { variants, busy, useNotes, setUseNotes, generate, clear, aiThread };
+  return { variants, busy, error, useNotes, setUseNotes, generate, clear, aiThread };
 }

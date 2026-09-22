@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Modal, Button, Input, Textarea, useToast } from "@supernote/ui";
+import { Modal, Button, Input, Textarea } from "@supernote/ui";
 import { Trash, Plus, EnvelopeSimple, Signature } from "@phosphor-icons/react";
 import {
   createTemplate,
@@ -9,6 +9,7 @@ import {
   type MailTemplateKind,
 } from "@/lib/mail-templates";
 import { SNIPPET_VARIABLES } from "@/lib/mail-snippets";
+import { useActionFeedback, FeedbackIcon } from "@/lib/action-feedback";
 
 /**
  * Gestion CRUD des modèles d'email (modal). Contrôlé : l'état des templates vit
@@ -28,7 +29,7 @@ export function TemplateManager({
   onUpsert: (t: MailTemplate) => void;
   onRemove: (id: string) => void;
 }) {
-  const { toast } = useToast();
+  const saveFb = useActionFeedback();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draft, setDraft] = useState<MailTemplate | null>(null);
 
@@ -51,11 +52,11 @@ export function TemplateManager({
   const handleSave = () => {
     if (!draft) return;
     if (!draft.name.trim()) {
-      toast({ title: "Donne un nom au modèle", variant: "danger" });
+      saveFb.fail(new Error("Donne un nom au modèle"));
       return;
     }
     onUpsert(draft);
-    toast({ title: "Modèle enregistré" });
+    saveFb.succeed();
   };
 
   const handleDelete = (id: string) => {
@@ -202,9 +203,17 @@ export function TemplateManager({
                 >
                   <Trash size={14} /> Supprimer
                 </Button>
-                <Button variant="primary" onPress={handleSave}>
-                  Enregistrer
-                </Button>
+                <div className="flex items-center gap-2">
+                  {saveFb.error && (
+                    <span role="alert" className="text-xs" style={{ color: "var(--color-danger)" }}>
+                      {saveFb.error}
+                    </span>
+                  )}
+                  <Button variant="primary" className="flex items-center gap-1.5" onPress={handleSave}>
+                    <FeedbackIcon state={saveFb.state} error={saveFb.error} size={14} idle={null} />
+                    Enregistrer
+                  </Button>
+                </div>
               </div>
             </div>
           )}
