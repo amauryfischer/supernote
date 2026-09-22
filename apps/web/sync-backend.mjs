@@ -41,7 +41,7 @@
 
 import { createHash, timingSafeEqual } from "node:crypto";
 import { createSyncStore } from "./sync-store.mjs";
-import { hashPassword, verifyPassword, createPasswordChecker } from "./password.mjs";
+import { hashPassword, createPasswordChecker } from "./password.mjs";
 
 const HEARTBEAT_MS = 25_000;
 const REPLAY_BATCH = 500;
