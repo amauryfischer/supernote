@@ -21,6 +21,12 @@ import {
   ResolveOutboxOutput,
   RetryFailedInput,
   RetryFailedOutput,
+  SetAiCategoryInput,
+  SetAiCategoryOutput,
+  SetAiSummaryInput,
+  SetAiSummaryOutput,
+  GetAiCacheInput,
+  GetAiCacheOutput,
 } from "../schemas/mail.js";
 
 /**
@@ -111,6 +117,30 @@ export const mailRouter = router({
     .output(RetryFailedOutput)
     .mutation(() => {
       throw notImplemented("mail.retryFailed");
+    }),
+
+  /** Store an AI classification on a thread (+ email_ai_cache entity for sync). */
+  setAiCategory: publicProcedure
+    .input(SetAiCategoryInput)
+    .output(SetAiCategoryOutput)
+    .mutation(() => {
+      throw notImplemented("mail.setAiCategory");
+    }),
+
+  /** Store an AI summary on a thread (+ email_ai_cache entity for sync). */
+  setAiSummary: publicProcedure
+    .input(SetAiSummaryInput)
+    .output(SetAiSummaryOutput)
+    .mutation(() => {
+      throw notImplemented("mail.setAiSummary");
+    }),
+
+  /** Bulk read AI classification + summary for a set of threads. */
+  getAiCache: publicProcedure
+    .input(GetAiCacheInput)
+    .output(GetAiCacheOutput)
+    .query(() => {
+      throw notImplemented("mail.getAiCache");
     }),
 });
 
