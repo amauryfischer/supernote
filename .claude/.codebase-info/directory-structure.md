@@ -1,6 +1,6 @@
 # Arborescence
 
-*Last Updated: 2026-09-22*
+*Last Updated: 2026-09-23*
 
 Monorepo pnpm workspaces, orchestré par Turborepo. Le principe d'organisation est **par domaine**, pas par couche : chaque paquet possède un sujet, pas un étage technique.
 
@@ -21,11 +21,13 @@ supernote/
 │       │   │   ├── notes/      arbre de fichiers, listes, éditeur de note
 │       │   │   ├── schemas/    édition des types d'entité, adapters core↔IPC
 │       │   │   └── ...
+│       │   ├── share/          page invité (2ᵉ entrée Vite, sans coffre ni worker)
 │       │   ├── hooks/          hooks partagés (useIsMobile, usePluginEnabled…)
 │       │   ├── lib/
 │       │   │   ├── vault-worker/   le coffre : worker, routeur, SQLite
 │       │   │   ├── trpc/           pont navigateur↔worker
 │       │   │   ├── online-sync/    synchronisation, journal, montages
+│       │   │   ├── share/          partage par lien, client propriétaire, awareness
 │       │   │   ├── pwa/            choix du coffre, modes dégradés
 │       │   │   ├── diagnostics/    watchdog anti-gel
 │       │   │   ├── motion/         moteur d'animation continue
@@ -33,6 +35,8 @@ supernote/
 │       │   │   └── next-shims/     compat pour les imports next/* résiduels
 │       │   └── i18n/           chargement des messages, bloquant
 │       ├── server.mjs          serveur statique de production, sans dépendance
+│       ├── share-backend.mjs  share-store.mjs  collab-server.mjs  partage et co-édition (sharing.md)
+│       ├── share.html          entrée de la page invité, servie sur /s/*
 │       └── vite.config.ts      React, Tailwind, PWA, shims, worker ES
 ├── packages/                   15 paquets, voir modules.md
 ├── tests/e2e/                  suite Playwright chromium

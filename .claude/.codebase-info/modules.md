@@ -1,6 +1,6 @@
 # Paquets
 
-*Last Updated: 2026-09-22*
+*Last Updated: 2026-09-23*
 
 Quinze paquets dans `packages/`, plus l'application `apps/web`. **Deux dorment** (`db`, `crypto`) : vérifie cette page avant d'aller lire du code.
 
@@ -11,8 +11,8 @@ Tous les paquets sont consommés par leur `dist/`. Voir le cycle de build dans [
 | Paquet | Rôle | Note |
 |---|---|---|
 | `@supernote/core` | types du domaine, schémas zod, type `Result`, chemins, ulid | zod **v3** |
-| `@supernote/ipc` | contrats tRPC partagés worker ↔ client | zod **v4**, c'est lui qui strippe |
-| `@supernote/editor` | BlockNote 0.50 sur ProseMirror, 13 blocs personnalisés | importé par 13 fichiers |
+| `@supernote/ipc` | contrats tRPC partagés worker ↔ client | zod **v4**, typage seulement : le routeur ne s'exécute pas |
+| `@supernote/editor` | BlockNote 0.50 sur ProseMirror, 13 blocs personnalisés, co-édition Yjs (prop `collaboration`, `collab.ts`) | importé par 13 fichiers |
 | `@supernote/formulas` | parseur, évaluateur, bibliothèque, dialecte Coda | |
 | `@supernote/ui` | composants partagés, une quinzaine enveloppent HeroUI v3 | largement contourné |
 | `@supernote/canvas` | canvas Excalidraw et pont de sérialisation | importé par 3 fichiers |

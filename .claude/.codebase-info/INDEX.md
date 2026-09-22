@@ -1,13 +1,13 @@
 # Carte du codebase — Supernote
 
-*Last Updated: 2026-09-22*
+*Last Updated: 2026-09-23*
 
 **Système de connaissance et CRM personnel local-first**, livré comme PWA. Monorepo pnpm de 854 fichiers source. Pas de serveur applicatif : la base SQLite tourne dans un **Web Worker**, dans le navigateur. Une seule application, `apps/web`, et 15 paquets dont deux dorment.
 
 Trois choses à savoir avant de toucher au code :
 
 1. Les paquets `@supernote/*` sont consommés par leur **`dist/`**. Modifier leur source sans `pnpm build:packages` ne fait rien.
-2. Le schéma zod de sortie IPC **strippe toute clé non déclarée**. C'est la cause n°1 de « ça ne persiste pas ».
+2. Une propriété de champ qui « ne persiste pas » se perd dans les **adaptateurs écrits à la main** (`components/schemas/adapters.ts`), pas dans zod : le routeur tRPC de `@supernote/ipc` n'est qu'un type, le worker est une table de routes qui ne valide rien à l'exécution.
 3. Il y a **trois sources de coffre** aux comportements différents, dont un mode dégradé sans worker. Beaucoup de bugs viennent de les confondre.
 
 ## Documents
@@ -18,12 +18,13 @@ Trois choses à savoir avant de toucher au code :
 | [entry-points.md](entry-points.md) | savoir par où l'exécution commence |
 | [directory-structure.md](directory-structure.md) | se repérer dans l'arborescence |
 | [modules.md](modules.md) | **vérifier si un paquet est vivant avant d'y lire du code** |
-| [patterns.md](patterns.md) | **les pièges, dont la chaîne zod et ProseMirror** |
+| [patterns.md](patterns.md) | **les pièges, dont les adaptateurs de champs et ProseMirror** |
 | [database.md](database.md) | tables, JSON dans les colonnes, recherche plein texte |
 | [communication.md](communication.md) | pont worker, protocole, synchronisation en ligne |
 | [coding-style.md](coding-style.md) | conventions, formatage, commentaires |
 | [tech-landscape.md](tech-landscape.md) | versions, configuration, déploiement |
 | [onboarding.md](onboarding.md) | démarrer, vérifier, tâches courantes |
+| [sharing.md](sharing.md) | partage par lien, page invité, co-édition Yjs `/collab` |
 
 ## Documentation qui ment
 

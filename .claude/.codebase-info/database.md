@@ -1,8 +1,8 @@
 # Stockage et schéma
 
-*Last Updated: 2026-09-22*
+*Last Updated: 2026-09-23*
 
-Le coffre est un SQLite qui tourne **dans un Web Worker du navigateur**. La seule base côté serveur est l'op-log de la synchronisation en ligne, optionnelle (voir la dernière section).
+Le coffre est un SQLite qui tourne **dans un Web Worker du navigateur**. Côté serveur, une base optionnelle porte l'op-log de la synchronisation en ligne, les abonnements push et le partage par lien (voir la dernière section).
 
 ## Moteur
 
@@ -40,7 +40,7 @@ C'est la décision de conception qui explique le plus de comportements surprenan
 | `automation.trigger`, `.conditions`, `.actions` | JSON |
 | `relation_edge.fields`, `template.defaultFields` | JSON |
 
-Conséquence directe : le worker est un **pass-through**. Ajouter une propriété de champ ne demande aucune modification du worker, il sérialise ce qu'on lui donne. En revanche le schéma zod de sortie IPC, lui, **strippe toute clé qu'il ne déclare pas**. Voir [patterns.md](patterns.md), c'est le piège le plus coûteux du dépôt.
+Conséquence directe : le worker est un **pass-through**. Ajouter une propriété de champ ne demande aucune modification du worker, il sérialise ce qu'on lui donne. En revanche les adaptateurs écrits à la main de `components/schemas/adapters.ts` recopient une liste fixe de propriétés, et une clé qu'ils ignorent disparaît (zod ne s'exécute pas). Voir [patterns.md](patterns.md), c'est le piège le plus coûteux du dépôt.
 
 ## Miroir Google Agenda
 
@@ -81,5 +81,7 @@ En mode dossier local, la base est aussi miroitée vers `.supernote/index.db` da
 La méta porte l'`epoch` et les **mots de passe de salon** sous la clé `pw:<nom>`, valeur `sel:hash` en hex (`scrypt`). `claimVaultPassword` insère sans écraser (`INSERT OR IGNORE` / `ON CONFLICT DO NOTHING`), ce qui arbitre deux revendications simultanées. Il n'y a pas de table des salons : un salon existe dès sa première op, et il est « protégé » dès qu'une clé `pw:` le nomme.
 
 `apps/web/push-store.mjs`, même double moteur, ajoute `push_subscription` (clé `endpoint`, salon, appareil, clés de chiffrement) et `push_schedule` (échéances à venir par salon, catégorie, appareil, index unique `(vault, key, fireat)`, `sentat` posé à la réservation, lignes envoyées purgées au bout de 7 jours). Le texte des notifications, objets de mail compris, y est en clair jusqu'à la purge.
+
+`apps/web/share-store.mjs`, même double moteur (adaptateur SQL qui réécrit `?` en `$n` pour Postgres), porte le partage par lien : `share_resource` (note ou mail, hash de la clé propriétaire, titre, instantané du fil), `share_link` (slug, mode, hash de mot de passe et sa version, expiration, révocation douce), `collab_doc` (état Yjs d'une note, écrit par Hocuspocus), `share_blob` (images publiées) et `share_meta` (secret de signature quand `SHARE_SECRET` manque). L'ancienne table `share` (liens v1, HTML figé) est encore lue. Voir [sharing.md](sharing.md).
 
 Voir aussi : [communication.md](communication.md), [architecture.md](architecture.md).

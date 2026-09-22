@@ -1,6 +1,6 @@
 # Communication
 
-*Last Updated: 2026-09-22*
+*Last Updated: 2026-09-23*
 
 Trois canaux : le thread principal parle au worker, le worker parle au thread principal, et l'application parle au serveur de synchronisation.
 
@@ -77,6 +77,10 @@ Les écritures (triage, labels, étoile, lu) passent par l'outbox `mail_outbox` 
 Même mécanique de jeton que Gmail via `googleRequest`, état de reconnexion suivi par famille de scopes (`googleReconnectRequired("calendar")`). Scopes `calendar.events` et `calendar.calendarlist.readonly`. `lib/gcal.ts` parle à l'API v3 ; `lib/calendar-sync.ts` vide `cal_outbox` puis tire une fenêtre glissante J−60 → J+180 par agenda coché : complète une fois par jour, delta par `updatedMin` + `showDeleted` sinon. ⚠️ Pas de `syncToken` : Google l'interdit avec `timeMin`/`timeMax`. `CalendarRunner` (monté dans `RootLayout.tsx`) synchronise toutes les 5 min et au retour sur l'onglet, **seulement avec un jeton en cache** : sans jeton, `/agenda` affiche « Synchro en pause · Reprendre » (le clic est le geste qui autorise la popup GIS). Une demande de synchro pendant un tour en cours en relance un seul derrière lui. Les écritures passent `sendUpdates=all` (invités prévenus), sauf le glisser dans la grille (`sendUpdates: "none"` dans le payload de l'outbox).
 
 **Blocs de tâche.** Planifier un todo, un email todo ou une tâche de note crée un événement Google dont `extendedProperties.private.supernoteRef` porte la référence de la tâche (`todo:<id>`, `mail:<threadId>`, `checklist:<noteId>:<djb2>`, voir `lib/agenda/task-ref.ts`). La propriété n'est envoyée qu'au POST : un PATCH fusionne les objets côté Google et la garde. Le lien voyage donc entre appareils par Google, et « planifié » se dérive des blocs à venir (`useScheduledBlocks`), sans rien stocker sur la tâche.
+
+## Partage par lien et co-édition
+
+REST sur `/api/share/*` : propriétaire authentifié par l'en-tête `x-share-owner`, invité par un jeton `Bearer` signé en HMAC, obtenu par `POST /api/share/links/:slug/unlock`. Co-édition Yjs par WebSocket sur `/collab` (Hocuspocus 4.7.0 via `crossws`) ; la lecture seule y est imposée côté serveur, et un refus arrive au client avec une raison `gone`, `forbidden` ou `unavailable`. Détail, modèle et pièges dans [sharing.md](sharing.md).
 
 ## Montages de coffres
 

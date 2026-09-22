@@ -1,6 +1,6 @@
 # Paysage technique
 
-*Last Updated: 2026-09-22*
+*Last Updated: 2026-09-23*
 
 Supernote est un **système de connaissance et CRM personnel local-first**, livré comme une PWA. Il n'y a pas de serveur applicatif : le coffre de données tourne dans un Web Worker, dans le navigateur.
 
@@ -30,6 +30,7 @@ Supernote est un **système de connaissance et CRM personnel local-first**, livr
 | Canvas | Excalidraw | `packages/canvas/` |
 | Base de données | `@sqlite.org/sqlite-wasm` 3.53, VFS OPFS | worker, voir `database.md` |
 | PWA | `vite-plugin-pwa`, stratégie injectManifest | `apps/web/vite.config.ts` |
+| Co-édition | Yjs 13.6, Hocuspocus 4.7.0 (serveur et provider), `crossws`, `y-indexeddb` | `apps/web/collab-server.mjs`, voir `sharing.md` |
 
 Le service worker est **désactivé en développement** (`devOptions: { enabled: false }`), donc aucun cache périmé ne pollue une session de dev ou un test.
 
@@ -49,7 +50,7 @@ Le service worker est **désactivé en développement** (`devOptions: { enabled:
 
 Hébergé sur Scalingo. Le build de production est piloté par `pnpm scalingo-postbuild`, qui ne construit que `@supernote/web` avec `--max-old-space-size=4096`.
 
-Le serveur de production est `apps/web/server.mjs`. Il sert le `dist/` prébuild avec repli history-API, et reste **sans dépendance** sur ce chemin pour survivre à l'élagage des devDependencies. Quand `DATABASE_URL` est défini, il monte en plus un backend de synchronisation temps réel sous `/api/sync/*`, qui charge `better-sqlite3` paresseusement. Avec les trois variables VAPID en plus, il monte `/api/push/*`, qui charge `web-push` paresseusement.
+Le serveur de production est `apps/web/server.mjs`. Il sert le `dist/` prébuild avec repli history-API, et reste **sans dépendance** sur ce chemin pour survivre à l'élagage des devDependencies. Quand `DATABASE_URL` est défini, il monte en plus un backend de synchronisation temps réel sous `/api/sync/*`, qui charge `better-sqlite3` paresseusement. Avec les trois variables VAPID en plus, il monte `/api/push/*`, qui charge `web-push` paresseusement. Avec `DATABASE_URL`, il monte aussi le partage `/api/share/*` et le WebSocket `/collab`, qui charge Hocuspocus paresseusement.
 
 ## Variables d'environnement
 
@@ -59,6 +60,7 @@ Le serveur de production est `apps/web/server.mjs`. Il sert le `dist/` prébuild
 | `VITE_SOURCEMAP` | émission des sourcemaps au build | pas de sourcemaps |
 | `DATABASE_URL` | active la synchronisation en ligne, en dev comme en prod | l'app reste purement locale |
 | `ADMIN_TOKEN` | active le back-office `/admin` (mot de passe Basic Auth), exige `DATABASE_URL` | `/admin` sert le shell SPA |
+| `SHARE_SECRET` | secret HMAC des jetons d'accès invité au partage | un secret est généré et gardé dans `share_meta` |
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | active les notifications push (`/api/push/*`), exige `DATABASE_URL` ; clés générées par `npx web-push generate-vapid-keys`, en changer invalide tous les abonnements | l'interrupteur « Notifications app fermée » reste indisponible |
 
 Les valeurs vivent dans `apps/web/.env.local`, qui n'est pas versionné. Ne jamais recopier une valeur ici.

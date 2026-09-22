@@ -1,32 +1,31 @@
 # Motifs et pièges
 
-*Last Updated: 2026-09-22*
+*Last Updated: 2026-09-23*
 
-Les motifs récurrents du dépôt, et surtout les contraintes que le code ne dit pas tout seul. Commence par la section « La chaîne zod » si tu touches aux champs, c'est le piège le plus coûteux.
+Les motifs récurrents du dépôt, et surtout les contraintes que le code ne dit pas tout seul. Commence par la section sur les propriétés de champ qui disparaissent si tu touches aux champs, c'est le piège le plus coûteux. Les pièges de la co-édition sont dans [sharing.md](sharing.md).
 
 ## Result plutôt qu'exception
 
 `@supernote/core/result` fournit `ok(v)` et `err(e)`. Le projet préfère un retour explicite au `throw` pour tout ce qui peut échouer de façon attendue. Les exceptions restent pour l'inattendu.
 
-## ⚠️ La chaîne zod : pourquoi une propriété de champ disparaît au rechargement
+## ⚠️ Pourquoi une propriété de champ disparaît au rechargement
 
 C'est le piège numéro un. Le symptôme est cruel : la valeur est bien écrite, elle disparaît au rechargement, et **rien n'erreur**.
 
-La cause tient en deux faits qui se contredisent.
+1. Le worker est un **pass-through**. `schemasList` et `schemasCreate` (`worker-router.ts`) sérialisent `entity_type.fields` en JSON brut, sans validation.
+2. **Zod ne s'exécute pas à l'exécution.** Le routeur tRPC de `@supernote/ipc` n'est importé que comme type (`AppRouter`, dans `lib/trpc/browser-link.ts`). Le worker est une table de routes, et aucun `createCaller` n'existe dans l'app. Les schémas zod, `FieldDefinitionSchema` et `FieldValueSchema` compris, contraignent seulement le typage.
+3. La clé se perd dans les **adaptateurs écrits à la main** : `ipcFieldToCore` et `coreFieldToIpc` recopient une liste fixe de propriétés.
 
-1. Le worker est un **pass-through**. `entitiesCreate` et `schemasCreate` sérialisent `entity_type.fields` en JSON brut. Ajouter une clé ne demande donc aucune modification du worker.
-2. Mais le schéma zod de sortie IPC **strippe toute clé qu'il ne déclare pas**. Si `FieldDefinitionSchema`, dans `packages/ipc/src/schemas/schemas.ts`, ignore la clé, alors `schemas.list` et `schemas.get` la perdent à la lecture.
-
-Les quatre couches à toucher, dans l'ordre :
+Les couches à toucher, dans l'ordre :
 
 | Étape | Fichier | Action |
 |---|---|---|
 | 1 | worker | rien, il passe déjà la clé |
-| 2 | `packages/ipc/src/schemas/schemas.ts` | déclarer la clé dans `FieldDefinitionSchema` |
-| 3 | `apps/web/src/components/schemas/adapters.ts` | `ipcFieldToCore` **et** `coreFieldToIpc` |
+| 2 | `packages/ipc/src/schemas/schemas.ts` | déclarer la clé dans `FieldDefinitionSchema`, pour le typage |
+| 3 | `apps/web/src/components/schemas/adapters.ts` | `ipcFieldToCore` **et** `coreFieldToIpc` : c'est là qu'elle disparaît |
 | 4 | `ColumnEditorSidebar.tsx` | `FieldEditForm`, état, rendu, sauvegarde |
 
-⚠️ `@supernote/ipc` est consommé via **dist**. Après l'étape 2, `pnpm --filter @supernote/ipc build`, sinon rien ne change.
+⚠️ `@supernote/ipc` est consommé via **dist**. Après l'étape 2, `pnpm --filter @supernote/ipc build`, sinon le typage ne voit pas la clé.
 
 ## Deux vocabulaires, un traducteur
 
@@ -112,7 +111,7 @@ Côté Ollama, tout `createOllamaClient` doit recevoir `defaultModel` (`settings
 
 ## Vérification
 
-Pas de test unitaire, c'est une décision. `pnpm typecheck` plus `pnpm test:e2e`, vingt-quatre tests Playwright chromium (dont un ignoré sans `DATABASE_URL` local). `07-push.spec.ts` pousse dans le service worker par CDP (`ServiceWorker.deliverPushMessage`) et exige `channel: "chromium"` : le headless shell refuse `showNotification`.
+Pas de test unitaire, c'est une décision. `pnpm typecheck` plus `pnpm test:e2e`, trente-deux tests Playwright chromium. Le `webServer` reçoit `DATABASE_URL=file:./e2e-share.db` (ignoré par git), donc la synchro, le push et le partage tournent en e2e. `07-share.spec.ts` joue propriétaire et invité dans deux contextes. `07-push.spec.ts` pousse dans le service worker par CDP (`ServiceWorker.deliverPushMessage`) et exige `channel: "chromium"` : le headless shell refuse `showNotification`.
 
 Deux amorces dans `tests/e2e/helpers.ts`. `bootDegraded` pose `supernote.degraded` : pas de worker, rendu seulement. `bootCloud(page, { googleAccount? })` ouvre un coffre cloud neuf sur un **vrai worker OPFS** (seul mode où miroirs, modèles et routes worker tournent) et remplace GIS par un faux ; `mockGoogleApis(page, handler)` intercepte `www.googleapis.com` et rend le journal des appels. Tout nouveau scénario worker ou Google va là (`04-agenda.spec.ts`, `05-templates.spec.ts`, `06-mail.spec.ts`), pas dans un banc jetable. Gmail n'est pas sur `www.googleapis.com` : `06-mail.spec.ts` route lui-même `gmail.googleapis.com` pour servir une boîte d'un fil. Le serveur de test tourne sur un port dérivé du chemin du worktree (`sha256(__dirname)`, plage 3200-3599) en `--strictPort` et sans `reuseExistingServer` : chaque worktree a son serveur Vite, et le 3100, tenu par un service Windows invisible depuis WSL, reste évité. `NAV_ROUTES` (helpers) liste les routes testées par `03-navigate`.
 

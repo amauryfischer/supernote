@@ -3,7 +3,7 @@
   "tool": "codebase-mapper",
   "version": "2.15.8",
   "mappedAt": "2026-09-22",
-  "gitCommit": "7d379cc9e3427c45f2496339d43183e953ce2027",
+  "gitCommit": "b84c015985638e6d83bca36708272f94f8c3ce4b",
   "documents": [
     "architecture.md",
     "coding-style.md",
@@ -14,19 +14,21 @@
     "modules.md",
     "onboarding.md",
     "patterns.md",
+    "sharing.md",
     "tech-landscape.md"
   ],
   "hashes": {
-    "INDEX.md": "79e82646686c32ad5c956234cfe5f2380cdcf22751dc4a04519206e7baacaca1",
+    "INDEX.md": "98e383e845f49ba923f7119c2666fe6e57463801c4f21542abed7d42446e4faa",
     "architecture.md": "53ab6889e909021b339ecc3c7d8837db9753eb4f0858b198695fc38fbb8d3a9a",
     "coding-style.md": "0e52c34d4b74f81fab7581efa90b2045c1a098c398ef069448e0d80ae631d028",
-    "communication.md": "67e8fe1070daf31e60b81a26e3ded8dc4c5700df9e3c6f647621d2ed4faebb7c",
-    "database.md": "d00238a2c4be5f59b010737c3155645c3343624f40cfed89ae44febf8e52e295",
-    "directory-structure.md": "3db64759d0c1cc718ecd6c8e7e336d4821bcb0fa93c3234e21371c64e2f8f83e",
-    "entry-points.md": "9deaa154e5e28b20c8bc14754f5f2729045fc30e62973ad3d20916f43b38d782",
-    "modules.md": "60ab36d8bda13caf274d07a58999c450461fb270a23fb42f35d8626be915aeff",
-    "onboarding.md": "55ccff5d2ea100ba267eb03f1550dd3391b813536bca7ba867a2e29968b53b45",
-    "patterns.md": "89502e21efe60283088eb3c98950c8b718457d18964b436459ac25bd1c997f83",
-    "tech-landscape.md": "3caf5c42b70e082ac4f0931690bfbaf33be7cfba8807c7bb55a4b72aaebfc024"
+    "communication.md": "8dd6503df52868eb3f328f37c1f9e3a0fa320b4337eb34ea835ed2555b48776f",
+    "database.md": "ab7044f3ddcaeb2deba2f7aeef53f30799179703d2c130d81285715463823f1c",
+    "directory-structure.md": "11c1b3d8d7a92ac5f770a00d2ee121e89151fd58dff83073fe46429d61d50097",
+    "entry-points.md": "d876eb7c34715b83bf6278e98ee326cc1140ee60d91038d87b9374bd9def2e68",
+    "modules.md": "9d89bb33a758c926439dcbe395526b1604c7a20a3436294984cdc780c45402ce",
+    "onboarding.md": "dfb3181390e13cecfa0d032dc3f9ea9554f72505269d84b6dda55143dc680df7",
+    "patterns.md": "bc2b16d1a8dadd2b0ce1f25729e6f9097d94ab7550b1c456e99b8a5d8b9d9372",
+    "sharing.md": "f65a7739c8f8b45834f0c94c8122ca8ce7c92be331ff406896087e526f12da25",
+    "tech-landscape.md": "954d1d42076a4bce63ff1b2f65f60c1a5fb3e0621614ba2c353a26b015ab5c1e"
   }
 }

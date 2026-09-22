@@ -1,6 +1,6 @@
 # Points d'entrée
 
-*Last Updated: 2026-09-22*
+*Last Updated: 2026-09-23*
 
 ## Démarrage du navigateur
 
@@ -59,6 +59,12 @@ Le seuil est `MOBILE_MAX_WIDTH = 767` dans `hooks/useIsMobile.ts`, aligné sur l
 ## Serveur de production
 
 `apps/web/server.mjs`, lancé par le `Procfile`. Sert le `dist/` prébuild avec repli history-API et les types MIME corrects pour le wasm, les modules et les polices. Monte `/api/sync/*` uniquement si `DATABASE_URL` est défini, plus le back-office `/admin` si `ADMIN_TOKEN` l'est aussi, et `/api/push/*` avec son planificateur si les clés VAPID le sont.
+
+Avec `DATABASE_URL`, il monte aussi le partage : `/api/share/*`, `/s/<slug>` réécrit vers `share.html`, et l'événement `upgrade` du serveur HTTP, dont seul `/collab` est accepté (WebSocket Hocuspocus), le reste étant détruit. Un `process.once("SIGTERM")` vide les stockages Yjs en attente, 8 s au plus, puis sort. Voir [sharing.md](sharing.md).
+
+## Deuxième entrée : la page invité
+
+`apps/web/share.html` → `src/share/main.tsx` → `ShareApp`. C'est une entrée Vite à part (`build.rollupOptions.input`), sans coffre, sans worker, sans routeur, sans service worker. `public/sw.js` exclut `/s/`. En dev, le middleware de `vite.config.ts` (`shareDevServer`) réécrit `/s/*` vers `share.html` et branche `/collab`.
 
 ## Build et scripts
 

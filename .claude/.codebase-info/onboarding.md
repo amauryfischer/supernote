@@ -1,6 +1,6 @@
 # Prise en main
 
-*Last Updated: 2026-09-22*
+*Last Updated: 2026-09-23*
 
 ## Démarrer
 
@@ -32,7 +32,7 @@ Il n'y a **pas de test unitaire** et c'est une décision. Ne crée pas de `*.tes
 pnpm --filter @supernote/editor build
 ```
 
-**Ajouter une propriété de champ persistée.** Quatre couches, et l'étape zod est celle qu'on oublie. Voir [patterns.md](patterns.md), section « La chaîne zod ».
+**Ajouter une propriété de champ persistée.** Quatre couches, et les adaptateurs écrits à la main sont ceux qu'on oublie. Voir [patterns.md](patterns.md), section « Pourquoi une propriété de champ disparaît au rechargement ».
 
 **Déboguer le coffre.** En développement, le worker est exposé sous `window.__supernoteWorker`. Ses journaux sont réémis vers la console de l'onglet.
 
