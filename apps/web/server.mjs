@@ -202,6 +202,12 @@ server.on("upgrade", (req, socket, head) => {
   socket.destroy();
 });
 
+// Scalingo envoie SIGTERM à chaque déploiement : écrire les éditions collab encore en attente.
+process.on("SIGTERM", async () => {
+  await Promise.race([shareBackend.flush?.(), new Promise((resolve) => setTimeout(resolve, 8000))]);
+  process.exit(0);
+});
+
 server.listen(PORT, HOST, () => {
   console.log(`[server] serving ${DIST} on http://${HOST}:${PORT}`);
 });

@@ -221,15 +221,17 @@ export async function createShareBackend() {
     return hashPassword(value);
   }
 
+  const refusal = (reason) => Object.assign(new Error(reason), { reason });
+
   async function authenticateCollab(resourceId, token) {
     const resource = await store.getResource(resourceId);
-    if (!resource || resource.kind !== "note") throw new Error("unknown document");
+    if (!resource || resource.kind !== "note") throw refusal("gone");
     if (String(token).startsWith("owner:")) {
       if (ownerMatches(String(token).slice(6), resource)) return { slug: null, readOnly: false };
-      throw new Error("forbidden");
+      throw refusal("forbidden");
     }
     const link = await linkFromToken(token);
-    if (!link || link.resourceId !== resourceId) throw new Error("forbidden");
+    if (!link || link.resourceId !== resourceId) throw refusal("forbidden");
     return { slug: link.slug, readOnly: link.mode !== "write" };
   }
 
@@ -421,5 +423,5 @@ export async function createShareBackend() {
   collab = createCollabServer({ store, authenticate: authenticateCollab });
   setInterval(() => void collab.sweep(async (slug) => linkState(await store.getLink(slug)) === "ok"), SWEEP_MS).unref();
 
-  return { enabled: true, handle, handleUpgrade: collab.handleUpgrade };
+  return { enabled: true, handle, handleUpgrade: collab.handleUpgrade, flush: collab.flush };
 }

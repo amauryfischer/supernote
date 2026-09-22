@@ -24,7 +24,12 @@ export function createCollabServer({ store, authenticate }) {
       }),
     ],
     async onAuthenticate({ documentName, token, connectionConfig }) {
-      const access = await authenticate(documentName, token);
+      // Le client ne lit que `reason` : une panne ne doit pas passer pour un refus définitif.
+      const access = await authenticate(documentName, token).catch((err) => {
+        if (err?.reason) throw err;
+        console.error("[collab] onAuthenticate", err);
+        throw Object.assign(new Error("unavailable"), { reason: "unavailable" });
+      });
       if (access.readOnly) connectionConfig.readOnly = true;
       return { slug: access.slug };
     },
@@ -71,9 +76,25 @@ export function createCollabServer({ store, authenticate }) {
       for (const [resourceId] of hocuspocus.documents) {
         for (const c of connectionsOf(resourceId)) {
           const slug = c.context?.slug;
-          if (slug && !(await isValid(slug))) cut(c);
+          try {
+            if (slug && !(await isValid(slug))) cut(c);
+          } catch (err) {
+            console.error("[collab] sweep", err);
+          }
         }
       }
+    },
+    flush() {
+      return new Promise((resolve) => {
+        hocuspocus.configuration.extensions.push({
+          async afterUnloadDocument() {
+            if (hocuspocus.getDocumentsCount() === 0) resolve();
+          },
+        });
+        if (hocuspocus.getDocumentsCount() === 0) resolve();
+        hocuspocus.closeConnections();
+        hocuspocus.flushPendingStores();
+      });
     },
   };
 }
