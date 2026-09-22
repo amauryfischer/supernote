@@ -68,9 +68,13 @@ La configuration vit entièrement en `localStorage`, jamais en IndexedDB, pour n
 
 ## Gmail
 
-Appels REST directs depuis le navigateur, token GIS mis en cache par couverture de scopes. Tout passe par `gmailRequest` (`apps/web/src/lib/gmail.ts`) : sur 401 le token est oublié (`forgetAccessToken`, jamais `clearAccessToken` qui révoque tout le consentement) et l'appel rejoué une fois ; au second échec, l'état « reconnexion requise » est levé (`gmailReconnectRequired()`, événement `GMAIL_AUTH_EVENT`) et plus rien ne retente seul. `reconnectGmail` doit partir d'un geste utilisateur, les popups GIS sont bloquées sinon.
+Appels REST directs depuis le navigateur, token GIS mis en cache par couverture de scopes. Tout passe par `googleRequest` (`apps/web/src/lib/google-api.ts`, partagé avec l'agenda ; `gmailRequest` n'en est qu'un préfixe d'URL) : sur 401 le token est oublié (`forgetAccessToken`, jamais `clearAccessToken` qui révoque tout le consentement) et l'appel rejoué une fois ; au second échec, l'état « reconnexion requise » est levé (`gmailReconnectRequired()`, événement `GMAIL_AUTH_EVENT`) et plus rien ne retente seul. `reconnectGmail` doit partir d'un geste utilisateur, les popups GIS sont bloquées sinon.
 
 Les écritures (triage, labels, étoile, lu) passent par l'outbox `mail_outbox` : échec réseau, jeton, 429 ou 5xx ne comptent pas comme tentative, un refus 4xx attend avec backoff. Pas de poll : la vidange part sur `MAIL_OUTBOX_EVENT` (`lib/mail-mirror.ts`), `online`, `visibilitychange`, la reconnexion et le vault prêt. `MailFollowupRunner`, monté dans toute l'app, porte aussi le réveil des reports et les relances.
+
+## Google Agenda
+
+Même mécanique de jeton que Gmail via `googleRequest`, état de reconnexion suivi par famille de scopes (`googleReconnectRequired("calendar")`). Scopes `calendar.events` et `calendar.calendarlist.readonly`. `lib/gcal.ts` parle à l'API v3 ; `lib/calendar-sync.ts` vide `cal_outbox` puis tire une fenêtre glissante J−60 → J+180 par agenda coché : complète une fois par jour, delta par `updatedMin` + `showDeleted` sinon. ⚠️ Pas de `syncToken` : Google l'interdit avec `timeMin`/`timeMax`. `CalendarRunner` (monté dans `RootLayout.tsx`) synchronise toutes les 5 min et au retour sur l'onglet, **seulement avec un jeton en cache** : sans jeton, `/agenda` affiche « Synchro en pause · Reprendre » (le clic est le geste qui autorise la popup GIS). Une demande de synchro pendant un tour en cours en relance un seul derrière lui. Les écritures passent `sendUpdates=all` (invités prévenus), sauf le glisser dans la grille (`sendUpdates: "none"` dans le payload de l'outbox).
 
 ## Montages de coffres
 

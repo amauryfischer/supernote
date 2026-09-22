@@ -25,6 +25,7 @@ Le DDL vit dans `apps/web/src/lib/vault-worker/db-schema.ts`. Il reproduit en SQ
 | Bases et vues | `view`, `variable`, `template` (⚠️ jamais utilisée, voir ci-dessous) |
 | Automatisations | `automation`, `automation_run` |
 | Miroir courriel | `mail_thread`, `mail_message`, `mail_label`, `mail_sync_state`, `mail_outbox` |
+| Miroir agenda | `cal_calendar`, `cal_event`, `cal_sync_state`, `cal_outbox` |
 | Recherche | `entity_fts` (table virtuelle FTS5) |
 
 ## Le point structurant : les champs sont du JSON, pas des colonnes
@@ -40,6 +41,10 @@ C'est la décision de conception qui explique le plus de comportements surprenan
 | `relation_edge.fields`, `template.defaultFields` | JSON |
 
 Conséquence directe : le worker est un **pass-through**. Ajouter une propriété de champ ne demande aucune modification du worker, il sérialise ce qu'on lui donne. En revanche le schéma zod de sortie IPC, lui, **strippe toute clé qu'il ne déclare pas**. Voir [patterns.md](patterns.md), c'est le piège le plus coûteux du dépôt.
+
+## Miroir Google Agenda
+
+Tables `cal_*`, locales à l'appareil comme le miroir mail (hors op-log). Routes dans un module à part, `lib/vault-worker/calendar-routes.ts`, branché par `buildCalendarRoutes` dans la map de `worker-router.ts` ; les helpers SQL partagés (`row`, `rows`, `runInTransaction`) vivent dans `lib/vault-worker/sql.ts`. `calendar.listEvents` rejoint `entity` pour renvoyer la note de réunion liée (`fields.gcalEventId`), seul lien qui voyage entre appareils. Une écriture en file (`cal_outbox`, id provisoire `local-…`) survit à une synchro complète ; son acquittement remplace l'id provisoire et rafraîchit l'etag des ops suivantes du même événement (sinon 412). `calendar.overlay` lit les todos datés et les champs `date` de toutes les bases.
 
 ## Modèles de notes : des entités, pas la table `template`
 

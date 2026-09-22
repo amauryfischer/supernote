@@ -1,6 +1,6 @@
 # Points d'entrée
 
-*Last Updated: 2026-09-21*
+*Last Updated: 2026-09-22*
 
 ## Démarrage du navigateur
 
@@ -37,6 +37,10 @@ ThemeProvider → ToastProvider → ConfirmProvider → NotificationsProvider
 ⚠️ Ce rechargement automatique peut surprendre pendant un débogage d'import.
 
 La boîte mail est l'accueil : `/` et le repli `*` redirigent vers `/mail` par un `loader` `redirect`. Il n'y a pas de composant 404 dédié.
+
+`/carte` (`app/carte/page.tsx`) : carte des liens, `KnowledgeGraph` sur `entities.graph` (arêtes de la table `mention`, plafond 5 000).
+
+`/agenda` (`app/agenda/page.tsx`) : vues jour, semaine, mois, liste, sur le miroir Google Agenda ; `?new=1` ouvre l'éditeur (commande de palette « Nouvel événement »). Le panneau « Aujourd'hui » de `/mail` (`components/agenda/TodayPanel.tsx`) n'y charge pas les checklists des notes, pour ne pas lire toutes les notes sur l'accueil.
 
 ## Les portes de navigation ne protègent rien
 

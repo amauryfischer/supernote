@@ -64,6 +64,8 @@ Deux façons de déclarer, selon le besoin :
 
 Un bloc qui dépend de données d'exécution reçoit son renderer par contexte, via un provider, plutôt que par import direct.
 
+Mentions dans le markdown : l'éditeur écrit `@[Nom complet](entity:ID)` (`serialization/serialize.ts`), relit aussi l'ancien `@nom` sur un seul mot (`parse.ts`), et le scanner de backlinks du worker (`MENTION_REF_RE`) résout l'id avant le nom. Un `@Nom Prénom` nu était coupé au rechargement et perdait sa cible.
+
 ## Mouvement
 
 Toute animation passe par les tokens `--sn-*` de `apps/web/src/globals.css` et par le moteur de `apps/web/src/lib/motion/`. **Jamais** framer-motion, react-spring, ni cubic-bezier ad hoc.
@@ -82,6 +84,14 @@ Le mode de saisie se décide **au pointeur, jamais à la largeur** : `.sn-reveal
 | `@supernote/ui` | 83 |
 
 `CLAUDE.md` impose HeroUI v3, et c'est respecté. Mais le paquet `@supernote/ui`, qui enveloppe une quinzaine de ces composants, est contourné presque deux fois sur trois. Si tu ajoutes un composant, vérifie d'abord si `@supernote/ui` le fournit déjà.
+
+⚠️ Le `Button` de `@supernote/ui` rend toujours un `HeroButton variant="ghost"`, dont `.button--ghost` (hors `@layer`) écrase les fonds Tailwind. Seules primary, secondary, tertiary et danger portent `!` ; ghost (défaut) et outline n'en ont pas, pour que les couleurs passées en `style` inline gagnent.
+
+⚠️ La règle globale `:focus-visible` de `globals.css` est hors `@layer` : elle bat `focus-visible:outline-none`. Un champ « nu » qui signale son focus autrement (soulignement de la ligne, cf. `ComposeModal.tsx`) doit écrire `focus-visible:outline-none!`.
+
+## Retour d'action : le bouton, pas le toast
+
+L'utilisateur refuse les toasts de confirmation. `apps/web/src/lib/action-feedback.tsx` porte le retour sur le bouton : `useActionFeedback()` rend `run(fn, onError?)`, qui ne lève jamais, et `<FeedbackIcon>` montre spinner, coche ou avertissement à la place de l'icône. Succès déjà visible dans l'UI : rien. Erreur d'un bouton : message dans son `Tooltip`, ou bandeau `role="alert"` dans un composeur ou une modale. Un `toast` ne reste que pour un échec sans contrôle d'origine ni rollback visible, ou pour « Annuler » une action destructrice (corbeille, fenêtre d'annulation d'envoi de `useDeferredSend`). Le module mail est migré ; le reste de l'app ne l'est pas encore.
 
 ## ⚠️ Deux versions de zod coexistent
 
@@ -102,9 +112,9 @@ Côté Ollama, tout `createOllamaClient` doit recevoir `defaultModel` (`settings
 
 ## Vérification
 
-Pas de test unitaire, c'est une décision. `pnpm typecheck` plus `pnpm test:e2e`, neuf tests Playwright chromium.
+Pas de test unitaire, c'est une décision. `pnpm typecheck` plus `pnpm test:e2e`, dix-huit tests Playwright chromium.
 
-La suite amorce l'app en **mode dégradé** en posant `supernote.degraded` et `supernote.onboarding.completed` dans le stockage local avant chargement, ce qui évite le sélecteur de dossier et la visite guidée. Le serveur de test tourne sur le port 3277 en `--strictPort`, parce que le 3100 est tenu par un service Windows invisible depuis WSL.
+Deux amorces dans `tests/e2e/helpers.ts`. `bootDegraded` pose `supernote.degraded` : pas de worker, rendu seulement. `bootCloud(page, { googleAccount? })` ouvre un coffre cloud neuf sur un **vrai worker OPFS** (seul mode où miroirs, modèles et routes worker tournent) et remplace GIS par un faux ; `mockGoogleApis(page, handler)` intercepte `www.googleapis.com` et rend le journal des appels. Tout nouveau scénario worker ou Google va là (`04-agenda.spec.ts`, `05-templates.spec.ts`, `06-mail.spec.ts`), pas dans un banc jetable. Gmail n'est pas sur `www.googleapis.com` : `06-mail.spec.ts` route lui-même `gmail.googleapis.com` pour servir une boîte d'un fil. Le serveur de test tourne sur le port 3277 en `--strictPort`, parce que le 3100 est tenu par un service Windows invisible depuis WSL.
 
 ⚠️ Les fichiers de `tests/` n'appartiennent à aucun workspace, donc `pnpm typecheck` **ne les couvre pas**, et Playwright transpile sans vérifier les types.
 
