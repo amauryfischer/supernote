@@ -194,6 +194,14 @@ const server = createServer(async (req, res) => {
   }
 });
 
+server.on("upgrade", (req, socket, head) => {
+  if (shareBackend.handleUpgrade && (req.url ?? "").split("?")[0] === "/collab") {
+    shareBackend.handleUpgrade(req, socket, head);
+    return;
+  }
+  socket.destroy();
+});
+
 server.listen(PORT, HOST, () => {
   console.log(`[server] serving ${DIST} on http://${HOST}:${PORT}`);
 });

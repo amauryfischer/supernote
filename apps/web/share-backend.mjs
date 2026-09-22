@@ -147,7 +147,7 @@ export async function createShareBackend() {
 
   const ownerMatches = (key, resource) => !!key && !!resource && sameString(sha256hex(key), resource.ownerKeyHash);
 
-  // Branché en Task 4 (collab-server.mjs) ; sans lui, rien à couper.
+  // Remplacé par le serveur Yjs une fois créé (fin de fonction).
   let collab = { closeLink() {}, closeResource() {}, sweep: async () => {} };
 
   function send(res, status, body, headers = {}) {
@@ -417,15 +417,9 @@ export async function createShareBackend() {
     return true;
   }
 
-  return {
-    enabled: true,
-    handle,
-    // Task 4 remplace ces deux membres.
-    attachCollab: (c) => {
-      collab = c;
-      setInterval(() => void collab.sweep(async (slug) => linkState(await store.getLink(slug)) === "ok"), SWEEP_MS).unref();
-    },
-    authenticateCollab,
-    store,
-  };
+  const { createCollabServer } = await import("./collab-server.mjs");
+  collab = createCollabServer({ store, authenticate: authenticateCollab });
+  setInterval(() => void collab.sweep(async (slug) => linkState(await store.getLink(slug)) === "ok"), SWEEP_MS).unref();
+
+  return { enabled: true, handle, handleUpgrade: collab.handleUpgrade };
 }

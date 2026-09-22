@@ -75,12 +75,19 @@ function onlineSyncDevServer() {
 function shareDevServer() {
   return {
     name: "supernote-share-dev",
-    async configureServer(server: { middlewares: { use: (fn: (req: unknown, res: unknown, next: () => void) => void) => void } }) {
+    async configureServer(server: {
+      middlewares: { use: (fn: (req: unknown, res: unknown, next: () => void) => void) => void };
+      httpServer: import("node:http").Server | null;
+    }) {
       if (!process.env.DATABASE_URL) return;
       try {
         const { createShareBackend } = await import("./share-backend.mjs");
         const backend = await createShareBackend();
         if (!backend.enabled) return;
+        // Le serveur HMR de Vite partage ce `upgrade` : ne toucher qu'à /collab.
+        server.httpServer?.on("upgrade", (req, socket, head) => {
+          if (req.url?.split("?")[0] === "/collab") backend.handleUpgrade?.(req, socket, head);
+        });
         server.middlewares.use((req, res, next) => {
           const url = (req as { url?: string }).url ?? "";
           if (!url.startsWith("/api/share/") && !url.startsWith("/s/")) return next();
@@ -154,6 +161,8 @@ export default defineConfig({
       "prosemirror-gapcursor",
       "yjs",
       "y-prosemirror",
+      "y-protocols",
+      "lib0",
       "react",
       "react-dom",
     ],
