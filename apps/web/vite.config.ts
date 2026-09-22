@@ -259,6 +259,10 @@ export default defineConfig({
     // `VITE_SOURCEMAP=true` pour débugger un bundle de prod.
     sourcemap: process.env["VITE_SOURCEMAP"] === "true",
     rollupOptions: {
+      input: {
+        main: fileURLToPath(new URL("./index.html", import.meta.url)),
+        share: fileURLToPath(new URL("./share.html", import.meta.url)),
+      },
       // Plafonne le nombre de fichiers que Rollup transforme/écrit en
       // parallèle (défaut 20). Sur un gros bundle, chaque opération garde son
       // AST + source en mémoire ; 20 en parallèle fait exploser le pic et
