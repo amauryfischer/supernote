@@ -85,8 +85,17 @@ function parseInlineText(text: string): AnyInlineItem[] {
       continue;
     }
 
-    // Mention: @name (word chars and dots)
-    const mentionMatch = /^@([\w.]+)/.exec(remaining);
+    // Mention écrite par l'éditeur : @[Nom complet](entity:ID), l'id est facultatif.
+    const refMatch = /^@\[([^\]]+)\](?:\(entity:([^)\s]+)\))?/.exec(remaining);
+    if (refMatch) {
+      items.push({ type: "mention", props: { id: refMatch[2] ?? "", name: refMatch[1] ?? "", entityType: "" } });
+      remaining = remaining.slice(refMatch[0].length);
+      continue;
+    }
+
+    // Ancien format : @nom sur un seul mot ; point ou tiret seulement entre deux lettres
+    // (sinon le point final d'une phrase entrait dans le nom).
+    const mentionMatch = /^@([\p{L}\p{N}_]+(?:[.-][\p{L}\p{N}_]+)*)/u.exec(remaining);
     if (mentionMatch) {
       const name = mentionMatch[1] ?? "";
       items.push({ type: "mention", props: { id: "", name, entityType: "" } });

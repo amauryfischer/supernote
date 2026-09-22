@@ -313,6 +313,8 @@ const MENTION_WIKILINK_RE = /(?<!!)\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g;
 // Jusqu'à 4 mots après l'@, lettres accentuées comprises ; pas d'@ collé à un
 // mot (adresses e-mail).
 const MENTION_AT_RE = /(?<![\p{L}\p{N}_])@([\p{L}\p{N}_.-]+(?: [\p{L}\p{N}_.-]+){0,3})/gu;
+// Forme écrite par l'éditeur : `@[Nom complet](entity:ID)` ; l'id se résout en premier.
+const MENTION_REF_RE = /@\[([^\]]+)\](?:\(entity:([^)\s]+)\))?/g;
 
 // Le sérialiseur de l'éditeur écrit `@${name}` sans marquer la fin du nom :
 // « @Alice Dupont hier » peut viser « Alice Dupont » comme « Alice ». On essaie
@@ -360,6 +362,12 @@ function scanMentions(body: string): RawMentionHit[] {
       collect(MENTION_EMBED_RE, "EMBED");
       collect(MENTION_WIKILINK_RE, "WIKILINK");
       collect(MENTION_AT_RE, "MENTION_ENTITY", atMentionCandidates);
+      for (const m of line.matchAll(MENTION_REF_RE)) {
+        const name = m[1]?.trim();
+        const id = m[2]?.trim();
+        const targets = [id, name].filter((t): t is string => !!t);
+        if (targets.length) out.push({ targets, mentionType: "MENTION_ENTITY", rawText, offset: offset + (m.index ?? 0) });
+      }
     }
     offset += line.length + 1; // +1 pour le \n consommé par le split
   }

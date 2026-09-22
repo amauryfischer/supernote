@@ -71,7 +71,12 @@ function serializeInlineContent(content: AnyInlineItem): string {
       }
 
       if (item.type === "mention") {
-        return `@${item.props?.name ?? ""}`;
+        // `@[Nom](entity:ID)` borne le nom et garde la cible : un `@Nom` nu coupait
+        // les noms à plusieurs mots au rechargement et perdait l'entité.
+        const name = String(item.props?.name ?? "").replace(/[\]\n]/g, " ").trim();
+        const id = String(item.props?.id ?? "");
+        if (id) return `@[${name}](entity:${id})`;
+        return /^[\p{L}\p{N}_]+(?:[.-][\p{L}\p{N}_]+)*$/u.test(name) ? `@${name}` : `@[${name}]`;
       }
 
       if (item.type === "tag") {
