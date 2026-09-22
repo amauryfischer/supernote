@@ -7,6 +7,9 @@ const ROUTES = [
   { path: "/todos", heading: "Todos" },
   { path: "/contacts", heading: "Contacts" },
   { path: "/finance", heading: "Finance" },
+  // Mode dégradé : pas de coffre, donc l'état vide de l'agenda.
+  { path: "/agenda", heading: "Ouvre un coffre pour utiliser l'agenda" },
+  { path: "/carte", heading: "Ouvre un coffre pour voir la carte" },
 ];
 
 test.describe("03 — navigation", () => {

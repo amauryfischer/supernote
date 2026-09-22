@@ -27,6 +27,8 @@ import { InboxSortJournalButton } from "@/lib/ai/InboxSortJournalEntry";
 const ROUTE_LABELS: Record<string, string> = {
   notes: "Notes",
   mail: "Mail",
+  agenda: "Agenda",
+  carte: "Carte des liens",
   archive: "Archive",
   todos: "Todos",
   habits: "Habitudes",
@@ -39,7 +41,7 @@ const ROUTE_LABELS: Record<string, string> = {
   vues: "Vues",
   routines: "Routines",
   variables: "Variables",
-  templates: "Templates",
+  templates: "Modèles",
   recherche: "Recherche",
   parametres: "Paramètres",
   comptes: "Comptes",

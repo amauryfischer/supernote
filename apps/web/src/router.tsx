@@ -93,6 +93,8 @@ export const router: any = createBrowserRouter([
 
       // ── Mail (Gmail) ──────────────────────────────────────────────────
       { path: "mail", lazy: lazyPage(() => import("./app/mail/page")) },
+      { path: "agenda", lazy: lazyPage(() => import("./app/agenda/page")) },
+      { path: "carte", lazy: lazyPage(() => import("./app/carte/page")) },
 
       // ── Todos (added by parallel agent — keep entry alongside notes) ──
       { path: "todos", lazy: lazyPage(() => import("./app/todos/page")) },

@@ -18,12 +18,14 @@
  */
 
 import {
+  CalendarBlank,
   CheckSquare,
   EnvelopeSimple,
   FileDashed,
   FileText,
   Function,
   Gear,
+  Graph,
   GridNine,
   Lightning,
   Robot,
@@ -68,12 +70,14 @@ export const NAV_HEADERLESS_GROUPS: ReadonlySet<NavGroupId> = new Set<NavGroupId
 /** Items de la nav principale (scrollable), dans l'ordre. */
 export const NAV_ITEMS: readonly NavItem[] = [
   { href: "/mail", labelKey: "nav.mail", icon: EnvelopeSimple, group: "navigation" },
+  { href: "/agenda", labelKey: "nav.agenda", icon: CalendarBlank, group: "navigation" },
   { href: "/ai", labelKey: "nav.ai", icon: Robot, group: "navigation" },
 
   { href: "/notes", labelKey: "nav.notes", icon: FileText, group: "knowledge" },
   { href: "/todos", labelKey: "nav.todos", icon: CheckSquare, group: "knowledge" },
   { href: "/habits", labelKey: "nav.habits", icon: GridNine, group: "knowledge" },
   { href: "/contacts", labelKey: "nav.contacts", icon: Users, group: "knowledge" },
+  { href: "/carte", labelKey: "nav.graph", icon: Graph, group: "knowledge" },
   { href: "/finance", labelKey: "nav.finance", icon: Wallet, group: "knowledge" },
 
   { href: "/tags", labelKey: "nav.tags", icon: Tag, group: "tools" },
