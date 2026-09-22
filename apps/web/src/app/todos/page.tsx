@@ -248,18 +248,7 @@ export default function TodosPage() {
       const v = window.localStorage.getItem("supernote.todos.viewMode");
       if (v === "calendar" || v === "list" || v === "matrix") return v;
     } catch {
-      /* stockage indisponible → on retombe sur le défaut par largeur */
-    }
-    // Défaut par défaut d'écran : la matrice d'Eisenhower ne vaut que par sa
-    // grille 2×2 (le sens vient de la POSITION du quadrant). Sous 768px elle
-    // s'empile en quatre blocs verticaux : la métaphore disparaît et il faut
-    // trois écrans de défilement avant d'atteindre la première tâche. La
-    // liste est le bon premier écran au doigt ; le sélecteur de vue reste là
-    // pour ceux qui veulent la matrice, et le choix est mémorisé.
-    try {
-      if (window.matchMedia("(max-width: 767px)").matches) return "list";
-    } catch {
-      /* matchMedia indisponible → matrice */
+      /* stockage indisponible → matrice */
     }
     return "matrix";
   });
