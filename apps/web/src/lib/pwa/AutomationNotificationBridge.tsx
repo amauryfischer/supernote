@@ -7,6 +7,7 @@
  *   1. The in-app notification drawer (via NotificationsProvider.push).
  *   2. The OS native Notification API when the user has granted permission
  *      AND enabled `osNotifications` in settings.
+ *   3. Relaie au tiroir les push reçus pendant qu'une fenêtre est visible (message SW `PUSH_RECEIVED`).
  *
  * Mounted once under NotificationsProvider + SettingsProvider. Never renders.
  */
@@ -20,6 +21,14 @@ interface AutomationNotificationDetail {
   body: string;
   level?: "info" | "warning" | "error";
   timestamp: string;
+}
+
+interface PushPayload {
+  title: string;
+  body: string;
+  url: string;
+  tag: string;
+  joinUrl: string;
 }
 
 function mapLevel(level: AutomationNotificationDetail["level"]): "info" | "warning" | "danger" {
@@ -47,8 +56,12 @@ export function AutomationNotificationBridge() {
       });
       push(payload);
 
+      // Abonné : le push affiche déjà la notification système des rappels (titre de buildReminderAutomation, worker.ts).
+      const pushShowsIt = settings.notifications.pushSubscribed && detail.title === "Rappel todo";
+
       if (
         settings.notifications.osNotifications &&
+        !pushShowsIt &&
         typeof window !== "undefined" &&
         "Notification" in window
       ) {
@@ -83,7 +96,27 @@ export function AutomationNotificationBridge() {
 
     window.addEventListener("supernote:automation-notification", handler);
     return () => window.removeEventListener("supernote:automation-notification", handler);
-  }, [push, settings.notifications.osNotifications, settings.notifications.sounds]);
+  }, [push, settings.notifications.osNotifications, settings.notifications.sounds, settings.notifications.pushSubscribed]);
+
+  useEffect(() => {
+    if (!("serviceWorker" in navigator)) return undefined;
+    const onMessage = (event: MessageEvent) => {
+      const data = event.data as { type?: unknown; payload?: PushPayload } | null;
+      if (data?.type !== "PUSH_RECEIVED" || !data.payload) return;
+      // Le moteur local a déjà posé ce rappel dans le tiroir.
+      if (data.payload.tag.startsWith("reminder:")) return;
+      push(
+        buildNotification({
+          level: "info",
+          title: data.payload.title,
+          body: data.payload.body,
+          source: "push",
+        }),
+      );
+    };
+    navigator.serviceWorker.addEventListener("message", onMessage);
+    return () => navigator.serviceWorker.removeEventListener("message", onMessage);
+  }, [push]);
 
   return null;
 }

@@ -58,7 +58,7 @@ Le seuil est `MOBILE_MAX_WIDTH = 767` dans `hooks/useIsMobile.ts`, aligné sur l
 
 ## Serveur de production
 
-`apps/web/server.mjs`, lancé par le `Procfile`. Sert le `dist/` prébuild avec repli history-API et les types MIME corrects pour le wasm, les modules et les polices. Monte `/api/sync/*` uniquement si `DATABASE_URL` est défini, plus le back-office `/admin` si `ADMIN_TOKEN` l'est aussi.
+`apps/web/server.mjs`, lancé par le `Procfile`. Sert le `dist/` prébuild avec repli history-API et les types MIME corrects pour le wasm, les modules et les polices. Monte `/api/sync/*` uniquement si `DATABASE_URL` est défini, plus le back-office `/admin` si `ADMIN_TOKEN` l'est aussi, et `/api/push/*` avec son planificateur si les clés VAPID le sont.
 
 ## Build et scripts
 
@@ -67,7 +67,7 @@ Le seuil est `MOBILE_MAX_WIDTH = 767` dans `hooks/useIsMobile.ts`, aligné sur l
 | `pnpm dev` | serveur Vite sur le port 3100 |
 | `pnpm build:packages` | compile les paquets vers leur `dist/` |
 | `pnpm typecheck` | `tsc --noEmit` par workspace, via Turborepo |
-| `pnpm test:e2e` | Playwright chromium, serveur de dev sur 3277 |
+| `pnpm test:e2e` | Playwright chromium, serveur de dev sur un port dérivé du worktree (3200-3599), routes préchauffées par `tests/e2e/global-setup.ts` |
 | `pnpm scalingo-postbuild` | build de production, `@supernote/web` seul |
 
 Voir aussi : [architecture.md](architecture.md), [communication.md](communication.md), [onboarding.md](onboarding.md).

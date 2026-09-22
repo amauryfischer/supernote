@@ -33,6 +33,17 @@ if (process.env.DATABASE_URL) {
   }
 }
 
+// Push : l'identité est le salon de synchro, donc seulement avec le backend de synchro.
+let pushBackend = { enabled: false, handle: () => false };
+if (syncBackend.enabled) {
+  try {
+    const { createPushBackend } = await import("./push-backend.mjs");
+    pushBackend = await createPushBackend(syncBackend);
+  } catch (err) {
+    console.error("[server] push backend failed to load (static serving continues):", err);
+  }
+}
+
 // Optional read-only Coda importer proxy. Mounted only when CODA_API_TOKEN is
 // set; keeps the token server-side and bypasses Coda's lack of CORS. A load
 // failure must never take down static serving.
@@ -134,6 +145,11 @@ const server = createServer(async (req, res) => {
     // Realtime sync routes (+ /admin) take precedence over static serving.
     if (syncBackend.enabled) {
       const handled = await syncBackend.handle(req, res);
+      if (handled) return;
+    }
+
+    if (pushBackend.enabled && (req.url ?? "").startsWith("/api/push/")) {
+      const handled = await pushBackend.handle(req, res);
       if (handled) return;
     }
 

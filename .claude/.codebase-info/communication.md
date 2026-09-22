@@ -76,6 +76,8 @@ Les écritures (triage, labels, étoile, lu) passent par l'outbox `mail_outbox` 
 
 Même mécanique de jeton que Gmail via `googleRequest`, état de reconnexion suivi par famille de scopes (`googleReconnectRequired("calendar")`). Scopes `calendar.events` et `calendar.calendarlist.readonly`. `lib/gcal.ts` parle à l'API v3 ; `lib/calendar-sync.ts` vide `cal_outbox` puis tire une fenêtre glissante J−60 → J+180 par agenda coché : complète une fois par jour, delta par `updatedMin` + `showDeleted` sinon. ⚠️ Pas de `syncToken` : Google l'interdit avec `timeMin`/`timeMax`. `CalendarRunner` (monté dans `RootLayout.tsx`) synchronise toutes les 5 min et au retour sur l'onglet, **seulement avec un jeton en cache** : sans jeton, `/agenda` affiche « Synchro en pause · Reprendre » (le clic est le geste qui autorise la popup GIS). Une demande de synchro pendant un tour en cours en relance un seul derrière lui. Les écritures passent `sendUpdates=all` (invités prévenus), sauf le glisser dans la grille (`sendUpdates: "none"` dans le payload de l'outbox).
 
+**Blocs de tâche.** Planifier un todo, un email todo ou une tâche de note crée un événement Google dont `extendedProperties.private.supernoteRef` porte la référence de la tâche (`todo:<id>`, `mail:<threadId>`, `checklist:<noteId>:<djb2>`, voir `lib/agenda/task-ref.ts`). La propriété n'est envoyée qu'au POST : un PATCH fusionne les objets côté Google et la garde. Le lien voyage donc entre appareils par Google, et « planifié » se dérive des blocs à venir (`useScheduledBlocks`), sans rien stocker sur la tâche.
+
 ## Montages de coffres
 
 Un coffre peut en monter d'autres comme sous-dossiers. `MountSyncManager` tient un client de synchronisation par montage. La provenance d'une entité montée est portée par la colonne `entity.sourceVaultId`.
@@ -89,5 +91,12 @@ En développement, un middleware de `vite.config.ts` monte le même backend, à 
 **Back-office.** `GET /admin`, servi par `sync-backend.mjs`, rend une page HTML qui liste tous les espaces à partir de l'op-log groupé par `vault` (`store.listVaults()`), salons libres compris. Le nom d'un salon libre étant son secret, `/admin` garde un Basic Auth dédié sur `ADMIN_TOKEN`, et `public/sw.js` exclut `/admin` et `/api/*` pour que ces listes n'atterrissent jamais en Cache Storage.
 
 **Authentification par salon.** `vaultAuthed()` garde pull, push et stream : `SYNC_TOKEN` accepté s'il est défini, sinon vérification `scrypt` du mot de passe stocké en table de méta sous `pw:<nom>` (voir [database.md](database.md)), avec un cache mémoire des vérifications réussies.
+
+**Notifications push.** `push-backend.mjs` est monté si la synchro l'est **et** que `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` et `VAPID_SUBJECT` sont définis. Il charge `web-push` paresseusement. Routes `GET /api/push/key`, `POST /api/push/subscribe|unsubscribe`, `PUT /api/push/schedule`. Toutes, sauf `key` et `unsubscribe`, passent par `vaultAuthed` puis `vaultProtected` : un salon sans mot de passe est refusé, car son nom suffirait à t'envoyer des notifications. Chaque appareil abonné calcule ses échéances à 7 jours et les envoie (`lib/push/PushScheduleRunner.tsx`, route worker `push.upcoming`, relances et reports lus en localStorage). Deux régimes de remplacement :
+
+- catégories partagées (`reminder`, `event`) : le dernier envoi remplace tout le salon ;
+- catégories locales (`followup`, `snooze`) : remplacement par appareil.
+
+Un planificateur de 30 s réserve les échéances dues par `UPDATE … RETURNING` et pousse vers tous les abonnements du salon. `public/sw.js` affiche **toujours** la notification (Safari révoque la permission d'un push silencieux) et la relaie en plus au tiroir si une fenêtre est visible (`PUSH_RECEIVED`).
 
 Voir aussi : [architecture.md](architecture.md), [database.md](database.md).

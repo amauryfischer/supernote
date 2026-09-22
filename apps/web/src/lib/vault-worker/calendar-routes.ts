@@ -14,6 +14,9 @@ import type {
   CalEventInput,
   CalEventRow,
   CalOverlayItem,
+  PushUpcomingEvent,
+  PushUpcomingInput,
+  PushUpcomingReminder,
 } from "@supernote/ipc";
 import type { Database } from "./sqlite-adapter";
 import type { RouteHandler } from "./worker-router";
@@ -23,21 +26,21 @@ const MAX_ATTEMPTS = 5;
 
 const UPSERT_EVENT = `INSERT INTO cal_event
   (accountId, calendarId, id, summary, description, location, startAt, endAt, allDay, startDate, endDate,
-   status, recurringEventId, htmlLink, meetUrl, attendeesJson, selfResponse, etag, colorId, updatedAt)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+   status, recurringEventId, htmlLink, meetUrl, attendeesJson, selfResponse, etag, colorId, sourceRef, updatedAt)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   ON CONFLICT(accountId, calendarId, id) DO UPDATE SET
     summary = excluded.summary, description = excluded.description, location = excluded.location,
     startAt = excluded.startAt, endAt = excluded.endAt, allDay = excluded.allDay,
     startDate = excluded.startDate, endDate = excluded.endDate, status = excluded.status,
     recurringEventId = excluded.recurringEventId, htmlLink = excluded.htmlLink, meetUrl = excluded.meetUrl,
     attendeesJson = excluded.attendeesJson, selfResponse = excluded.selfResponse, etag = excluded.etag,
-    colorId = excluded.colorId, updatedAt = excluded.updatedAt`;
+    colorId = excluded.colorId, sourceRef = excluded.sourceRef, updatedAt = excluded.updatedAt`;
 
 function eventParams(accountId: string, e: CalEventInput, ts: number): (string | number)[] {
   return [
     accountId, e.calendarId, e.id, e.summary, e.description, e.location, e.startAt, e.endAt,
     e.allDay ? 1 : 0, e.startDate, e.endDate, e.status, e.recurringEventId, e.htmlLink, e.meetUrl,
-    JSON.stringify(e.attendees), e.selfResponse, e.etag, e.colorId, ts,
+    JSON.stringify(e.attendees), e.selfResponse, e.etag, e.colorId, e.sourceRef, ts,
   ];
 }
 
@@ -70,6 +73,7 @@ function toEventRow(r: SqlRow): CalEventRow {
     selfResponse: String(r["selfResponse"] ?? ""),
     etag: String(r["etag"] ?? ""),
     colorId: String(r["colorId"] ?? ""),
+    sourceRef: String(r["sourceRef"] ?? ""),
     pending: Number(r["pending"]) === 1,
     noteId: typeof r["noteId"] === "string" ? r["noteId"] : null,
   };
@@ -337,6 +341,50 @@ export function buildCalendarRoutes(db: Database, vaultId: string): Record<strin
     return { items };
   };
 
+  const pushUpcoming = async (input: unknown): Promise<unknown> => {
+    const { from, to, accountId } = input as PushUpcomingInput;
+    const reminders: PushUpcomingReminder[] = [];
+    const todos = rows(db.exec(
+      `SELECT id, fields FROM entity WHERE vaultId = ? AND typeId = 'todo'
+         AND COALESCE(json_extract(fields, '$.reminderAt'), '') != ''
+         AND COALESCE(json_extract(fields, '$.reminderFiredAt'), '') = ''`,
+      [vaultId],
+    ));
+    for (const t of todos) {
+      const f = parseJson<Record<string, unknown>>(t["fields"], {});
+      if (f["done"] === true || f["done"] === "true") continue;
+      // datetime-local sans fuseau : lu à l'heure locale de l'appareil.
+      const reminderAt = new Date(String(f["reminderAt"])).getTime();
+      if (!(reminderAt >= from && reminderAt <= to)) continue;
+      reminders.push({
+        todoId: String(t["id"]),
+        reminderAt,
+        text: typeof f["text"] === "string" ? f["text"] : "",
+        reminderText: typeof f["reminderText"] === "string" ? f["reminderText"].trim() : "",
+      });
+    }
+    reminders.sort((a, b) => a.reminderAt - b.reminderAt);
+    // e.* : `sourceRef` n'existe qu'après la migration de « Planifier ses todos ».
+    const events: PushUpcomingEvent[] = accountId
+      ? rows(db.exec(
+          `SELECT e.* FROM cal_event e
+             JOIN cal_calendar c ON c.accountId = e.accountId AND c.id = e.calendarId
+            WHERE e.accountId = ? AND c.selected = 1 AND e.status != 'cancelled' AND e.allDay = 0
+              AND e.selfResponse != 'declined' AND e.startAt >= ? AND e.startAt <= ?
+            ORDER BY e.startAt ASC`,
+          [accountId, from, to],
+        )).map((e) => ({
+          calendarId: String(e["calendarId"]),
+          eventId: String(e["id"]),
+          summary: String(e["summary"] ?? ""),
+          startAt: Number(e["startAt"]),
+          meetUrl: String(e["meetUrl"] ?? ""),
+          sourceRef: String(e["sourceRef"] ?? ""),
+        }))
+      : [];
+    return { reminders, events };
+  };
+
   return {
     "calendar.syncUpsert": syncUpsert,
     "calendar.listEvents": listEvents,
@@ -347,5 +395,6 @@ export function buildCalendarRoutes(db: Database, vaultId: string): Record<strin
     "calendar.resolveOutbox": resolveOutbox,
     "calendar.clear": clear,
     "calendar.overlay": overlay,
+    "push.upcoming": pushUpcoming,
   };
 }

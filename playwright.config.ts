@@ -1,13 +1,16 @@
 import { defineConfig, devices } from "@playwright/test";
+import { createHash } from "node:crypto";
 import path from "node:path";
 
-// 3277 et pas 3100 : le port de dev par défaut est tenu par un service Windows
-// invisible depuis WSL, et vite dérive alors silencieusement sur 3101.
-const PORT = 3277;
+// Port dérivé du worktree pour éviter qu'un worktree parallèle réutilise le
+// serveur d'un autre. Plage 3200-3599 : à l'écart de 3100 (service Windows
+// invisible depuis WSL, vite y dérive silencieusement sur 3101).
+const PORT = 3200 + (createHash("sha256").update(__dirname).digest().readUInt16BE(0) % 400);
 const BASE_URL = `http://localhost:${PORT}`;
 
 export default defineConfig({
   testDir: "./tests/e2e",
+  globalSetup: path.join(__dirname, "tests/e2e/global-setup.ts"),
   retries: process.env["CI"] ? 1 : 0,
   timeout: 60_000,
   reporter: [["list"]],
@@ -24,7 +27,10 @@ export default defineConfig({
   webServer: {
     command: `pnpm --filter @supernote/web dev --port ${PORT} --strictPort`,
     url: BASE_URL,
-    reuseExistingServer: !process.env["CI"],
+    // false partout : avec un port dérivé, "reuse" ne profite jamais qu'à une
+    // collision de hash — --strictPort la fait alors échouer fort plutôt que
+    // de faire tourner les tests sur le serveur d'un autre worktree.
+    reuseExistingServer: false,
     timeout: 180_000,
     env: { DATABASE_URL: "file:./e2e-share.db" },
   },

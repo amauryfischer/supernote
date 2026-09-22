@@ -1,8 +1,6 @@
 import { expect, test, type Browser, type Page } from "@playwright/test";
 import { openNewNote, withInbox } from "./helpers";
 
-const BASE_URL = "http://localhost:3277";
-
 async function createLink(owner: Page, opts: { write?: boolean; password?: string } = {}): Promise<string> {
   await owner.getByRole("button", { name: "Partager", exact: true }).first().click();
   if (opts.write) await owner.getByRole("button", { name: "Écriture" }).click();
@@ -22,7 +20,7 @@ async function createLink(owner: Page, opts: { write?: boolean; password?: strin
 
 async function guestPage(browser: Browser, url: string, viewport?: { width: number; height: number }): Promise<Page> {
   const ctx = await browser.newContext({
-    baseURL: BASE_URL,
+    baseURL: test.info().project.use.baseURL,
     ...(viewport ? { viewport, isMobile: true, hasTouch: true } : {}),
   });
   const page = await ctx.newPage();

@@ -225,6 +225,18 @@ async function initSqlite(handle: FileSystemDirectoryHandle): Promise<Database> 
     console.warn("[vault-worker] mail_thread AI columns migration failed (non-fatal)", e);
   }
 
+  // Coffres d'avant la planification des tâches ; une table absente est créée complète par SCHEMA_SQL.
+  try {
+    const cols = database.exec(`PRAGMA table_info("cal_event")`);
+    const names: string[] =
+      cols.length > 0 ? cols[0]!.values.map((row) => row[1] as string) : [];
+    if (names.length > 0 && !names.includes("sourceRef")) {
+      database.run(`ALTER TABLE "cal_event" ADD COLUMN "sourceRef" TEXT NOT NULL DEFAULT '';`);
+    }
+  } catch (e) {
+    console.warn("[vault-worker] cal_event.sourceRef migration failed (non-fatal)", e);
+  }
+
   console.info("[init.sqlite] running SCHEMA_SQL (base + FTS5)");
   database.run(SCHEMA_SQL);
   console.info("[init.sqlite] done");

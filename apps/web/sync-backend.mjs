@@ -176,6 +176,11 @@ export async function createSyncBackend() {
     return ok;
   }
 
+  // Sur un salon libre, le nom suffit à passer vaultAuthed : le push exige un mot de passe.
+  async function vaultProtected(vault) {
+    return !!(await store.getVaultPassword(vault));
+  }
+
   // Coupe les flux ouverts : les appareils restés sur l'ancien mot de passe
   // repassent par /info, y lisent `locked` et s'arrêtent au lieu de boucler.
   function dropSubscribers(vault) {
@@ -523,7 +528,7 @@ export async function createSyncBackend() {
     return true;
   }
 
-  return { enabled: true, handle };
+  return { enabled: true, handle, vaultAuthed, vaultProtected };
 }
 
 const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);

@@ -15,7 +15,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { Button, Checkbox } from "@heroui/react";
-import { FileText, Envelope, Bell } from "@phosphor-icons/react";
+import { FileText, Envelope, Bell, Clock } from "@phosphor-icons/react";
 import { useDateFormat } from "@/lib/dateFormat";
 import { InlineMarkdown } from "@/lib/inlineMarkdown";
 import { useLongPress } from "@/hooks/useLongPress";
@@ -50,6 +50,8 @@ export interface TodoRowData {
   /** Aperçu compact de l'email source (résumé IA si dispo, sinon snippet) →
    *  vue « quelques lignes » sous la tâche. */
   sourceSummary?: string | null;
+  /** Début du prochain bloc d'agenda réservé pour la tâche. */
+  scheduledAt?: number | null;
 }
 
 interface TodoRowProps {
@@ -89,6 +91,8 @@ const IMPORTANCE_LABEL: Record<TodoImportance, string> = {
   high: "Haute",
   critical: "Critique",
 };
+
+const SCHEDULED_FMT = new Intl.DateTimeFormat("fr-FR", { weekday: "short", hour: "2-digit", minute: "2-digit" });
 
 export function importanceColor(level: TodoImportance | null): string {
   return level ? IMPORTANCE_COLOR[level] : IMPORTANCE_COLOR.medium;
@@ -350,6 +354,19 @@ export function TodoRow({
         >
           <Bell size={10} weight="fill" />
           {formatCompactDate(row.reminderAt)}
+        </span>
+      )}
+
+      {/* Puce « planifié » — bloc d'agenda lié en attente. */}
+      {row.scheduledAt && !row.done && (
+        <span
+          className="flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium tabular-nums"
+          style={{ backgroundColor: "var(--accent-subtle)", color: "var(--accent)" }}
+          title={`Planifié : ${new Date(row.scheduledAt).toLocaleString("fr-FR")}`}
+        >
+          <Clock size={10} weight="bold" aria-hidden />
+          <span className="sr-only">Planifié </span>
+          {SCHEDULED_FMT.format(row.scheduledAt)}
         </span>
       )}
 

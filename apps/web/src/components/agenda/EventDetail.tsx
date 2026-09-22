@@ -3,13 +3,14 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { CalCalendarRow, CalEventRow } from "@supernote/ipc";
-import { ArrowSquareOut, MapPin, NotePencil, PencilSimple, Trash, VideoCamera, X } from "@phosphor-icons/react";
+import { ArrowSquareOut, CalendarX, CheckSquare, MapPin, NotePencil, PencilSimple, Trash, VideoCamera, X } from "@phosphor-icons/react";
 import { Button, Tooltip, useToast } from "@supernote/ui";
 import { trpc } from "@/lib/trpc/client";
 import { findContactMatch } from "@/lib/contact-from-email";
 import { buildMeetingNote } from "@/lib/meeting-note";
 import { emitCalendarChanged } from "@/lib/calendar-mirror";
 import { formatDayLong, formatSpan } from "@/lib/agenda/dates";
+import { taskSourcePath } from "@/lib/agenda/task-ref";
 import { calendarColor, canEditCalendar } from "./EventBlock";
 import type { RsvpResponse } from "./useEventWrites";
 
@@ -27,15 +28,18 @@ interface EventDetailProps {
   onEdit: () => void;
   onDelete: () => void;
   onRsvp: (response: RsvpResponse) => void;
+  /** Bloc de tâche : remplace « Supprimer ». */
+  onUnschedule?: () => void;
 }
 
-export function EventDetail({ event, calendars, onClose, onEdit, onDelete, onRsvp }: EventDetailProps) {
+export function EventDetail({ event, calendars, onClose, onEdit, onDelete, onRsvp, onUnschedule }: EventDetailProps) {
   const navigate = useNavigate();
   const calendar = calendars.find((c) => c.id === event.calendarId);
   const editable = canEditCalendar(calendars, event.calendarId);
   const self = event.attendees.find((a) => a.self);
   const invited = !!self && !self.organizer;
   const others = event.attendees.filter((a) => !a.self);
+  const taskPath = event.sourceRef ? taskSourcePath(event.sourceRef) : null;
 
   const contactsQuery = trpc.entities.listSummaries.useQuery(
     { typeId: "personne", limit: 2000, offset: 0 },
@@ -126,6 +130,12 @@ export function EventDetail({ event, calendars, onClose, onEdit, onDelete, onRsv
             Note de réunion
           </Button>
         </Tooltip>
+        {taskPath && (
+          <Button variant="outline" size="sm" onPress={() => navigate(taskPath)}>
+            <CheckSquare size={16} aria-hidden />
+            Ouvrir la tâche
+          </Button>
+        )}
       </div>
 
       {event.location && (
@@ -211,12 +221,18 @@ export function EventDetail({ event, calendars, onClose, onEdit, onDelete, onRsv
             Ouvrir dans Google Agenda
           </Button>
         )}
-        {editable && (
-          <Button variant="ghost" size="sm" onPress={onDelete} className="ml-auto">
-            <Trash size={14} aria-hidden />
-            Supprimer
-          </Button>
-        )}
+        {editable &&
+          (event.sourceRef && onUnschedule ? (
+            <Button variant="ghost" size="sm" onPress={onUnschedule} className="ml-auto">
+              <CalendarX size={14} aria-hidden />
+              Retirer du planning
+            </Button>
+          ) : (
+            <Button variant="ghost" size="sm" onPress={onDelete} className="ml-auto">
+              <Trash size={14} aria-hidden />
+              Supprimer
+            </Button>
+          ))}
       </div>
     </div>
   );

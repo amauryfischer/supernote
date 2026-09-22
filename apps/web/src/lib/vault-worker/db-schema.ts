@@ -369,6 +369,7 @@ CREATE TABLE IF NOT EXISTS "cal_event" (
     "selfResponse" TEXT NOT NULL DEFAULT '',
     "etag" TEXT NOT NULL DEFAULT '',
     "colorId" TEXT NOT NULL DEFAULT '',
+    "sourceRef" TEXT NOT NULL DEFAULT '',
     "updatedAt" INTEGER NOT NULL,
     PRIMARY KEY ("accountId", "calendarId", "id")
 );

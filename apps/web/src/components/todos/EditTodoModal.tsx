@@ -12,6 +12,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
+import { CalendarPlus } from "@phosphor-icons/react";
 import { Switch } from "@supernote/ui";
 import { Button, Input, Checkbox } from "@heroui/react";
 import type { TodoImportance } from "./TodoRow";
@@ -43,6 +44,8 @@ interface EditTodoModalProps {
   onSave: (next: EditTodoValues) => void;
   onCancel: () => void;
   onDelete?: () => void;
+  /** Ouvre la feuille « Planifier » ; rendu seulement quand fourni (téléphone). */
+  onSchedule?: () => void;
 }
 
 const IMPORTANCE_OPTIONS: Array<{ value: TodoImportance; label: string }> = [
@@ -59,6 +62,7 @@ export function EditTodoModal({
   onSave,
   onCancel,
   onDelete,
+  onSchedule,
 }: EditTodoModalProps) {
   const [text, setText] = useState(initial.text);
   const [done, setDone] = useState(initial.done);
@@ -364,6 +368,16 @@ export function EditTodoModal({
             <span />
           )}
           <div className="flex gap-2">
+            {onSchedule && (
+              <Button
+                variant="secondary"
+                onPress={onSchedule}
+                className="rounded-md px-3 py-1.5 text-sm font-medium"
+              >
+                <CalendarPlus size={16} aria-hidden />
+                Planifier…
+              </Button>
+            )}
             <Button
               variant="outline"
               onPress={onCancel}
