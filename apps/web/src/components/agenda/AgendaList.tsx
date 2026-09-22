@@ -1,16 +1,16 @@
 "use client";
 
-import { CalendarBlank } from "@phosphor-icons/react";
+import { CalendarBlank, CheckSquare } from "@phosphor-icons/react";
 import { EmptyState } from "@supernote/ui";
 import { DAY_MS, dateKey, formatDayLong, formatSpan, isSameDay } from "@/lib/agenda/dates";
-import { calendarColor } from "./EventBlock";
+import { calendarColor, isTaskClosed } from "./EventBlock";
 import { OverlayChip } from "./OverlayChip";
 import type { GridProps } from "./TimeGrid";
 
 type ListProps = Omit<GridProps, "interactive" | "onMoveEvent" | "onCreateAt">;
 
 /** Vue par défaut au téléphone : jours qui ont quelque chose, lignes de 44 px. */
-export function AgendaList({ days, events, calendars, overlays, onSelectEvent }: ListProps) {
+export function AgendaList({ days, events, calendars, overlays, openTaskRefs, onSelectEvent }: ListProps) {
   const now = Date.now();
   const groups = days
     .map((day) => {
@@ -64,10 +64,16 @@ export function AgendaList({ days, events, calendars, overlays, onSelectEvent }:
                   />
                   <span className="min-w-0 flex-1">
                     <span
-                      className={`block truncate text-sm ${ev.selfResponse === "declined" ? "line-through" : ""}`}
+                      className={`flex min-w-0 items-center gap-1 text-sm ${ev.selfResponse === "declined" || isTaskClosed(ev, openTaskRefs) ? "line-through" : ""}`}
                       style={{ color: "var(--text-primary)" }}
                     >
-                      {ev.summary}
+                      {ev.sourceRef && (
+                        <>
+                          <CheckSquare size={14} aria-hidden className="shrink-0" />
+                          <span className="sr-only">Tâche : </span>
+                        </>
+                      )}
+                      <span className="truncate">{ev.summary}</span>
                     </span>
                     {ev.location && (
                       <span className="block truncate text-xs" style={{ color: "var(--text-muted)" }}>

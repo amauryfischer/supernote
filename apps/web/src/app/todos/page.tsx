@@ -95,7 +95,7 @@ import { EditTodoModal, type EditTodoValues } from "@/components/todos/EditTodoM
 import { TodoCalendarView } from "@/components/todos/TodoCalendarView";
 import { TodoMatrix } from "@/components/todos/TodoMatrix";
 import { useMailTodos, mailThreadIdOf } from "@/components/todos/useMailTodos";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { GridFour } from "@phosphor-icons/react";
 import {
   composeTodoMailto,
@@ -446,6 +446,17 @@ export default function TodosPage() {
         };
       });
   }, [todosQuery.data]);
+
+  const [searchParams, setSearchParams] = useSearchParams();
+  // `?edit=<id>` : « Ouvrir la tâche » depuis un bloc de l'agenda.
+  useEffect(() => {
+    const id = searchParams.get("edit");
+    if (!id || !todosQuery.data) return;
+    const row = standaloneRows.find((r) => r.id === id);
+    if (row) setEditing(row);
+    searchParams.delete("edit");
+    setSearchParams(searchParams, { replace: true });
+  }, [searchParams, setSearchParams, todosQuery.data, standaloneRows]);
 
   const allTodos: UiTodoRow[] = useMemo(
     () => [...noteRows, ...standaloneRows],

@@ -1,7 +1,7 @@
 "use client";
 
 import { DAY_MS, dateKey, isSameDay } from "@/lib/agenda/dates";
-import { EventBlock, calendarColor } from "./EventBlock";
+import { EventBlock, calendarColor, isTaskClosed } from "./EventBlock";
 import { OverlayChip } from "./OverlayChip";
 import type { GridProps } from "./TimeGrid";
 
@@ -14,7 +14,7 @@ interface MonthGridProps extends Omit<GridProps, "interactive" | "onMoveEvent"> 
   onPickDay: (day: number) => void;
 }
 
-export function MonthGrid({ days, events, calendars, overlays, month, onSelectEvent, onCreateAt, onPickDay }: MonthGridProps) {
+export function MonthGrid({ days, events, calendars, overlays, openTaskRefs, month, onSelectEvent, onCreateAt, onPickDay }: MonthGridProps) {
   const now = Date.now();
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -32,7 +32,7 @@ export function MonthGrid({ days, events, calendars, overlays, month, onSelectEv
             ...events
               .filter((ev) => ev.startAt < day + DAY_MS && ev.endAt > day)
               .map((ev) => ({ key: `e:${ev.id}`, node: (
-                <EventBlock key={ev.id} event={ev} compact color={calendarColor(calendars, ev.calendarId)} onSelect={(el) => onSelectEvent(ev, el)} />
+                <EventBlock key={ev.id} event={ev} compact color={calendarColor(calendars, ev.calendarId)} taskClosed={isTaskClosed(ev, openTaskRefs)} onSelect={(el) => onSelectEvent(ev, el)} />
               ) })),
             ...overlays
               .filter((o) => o.date === key)
