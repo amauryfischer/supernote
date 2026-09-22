@@ -34,7 +34,7 @@ Décisions de cadrage (validées) :
 
 | Option | Pour | Contre |
 |---|---|---|
-| **Hocuspocus** (retenue) | Serveur WebSocket Yjs MIT, se greffe sur le `http.Server` existant (`upgrade` → `handleConnection`, adaptateur `crossws`), hooks `onAuthenticate` (lecture seule **imposée côté serveur** via `connection.readOnly`), extension Database pour stocker l'état. Même conteneur, même Postgres. | Un process de plus à surveiller dans le conteneur. |
+| **Hocuspocus 4** (retenue) | Serveur WebSocket Yjs MIT, se greffe sur le `http.Server` existant (`upgrade` → adaptateur `crossws/adapters/node` → `handleConnection`), hook `onAuthenticate` (lecture seule **imposée côté serveur** via `connectionConfig.readOnly`), extension Database pour stocker l'état. Même conteneur, même Postgres. | Un process de plus à surveiller dans le conteneur. |
 | y-websocket brut | Minimal | Auth, lecture seule, persistance, fermeture sur révocation : tout à écrire à la main. |
 | SaaS (Liveblocks, Y-Sweet, PartyKit) | Zéro serveur | Dépendance externe payante, contenu des notes hors de notre infra. |
 
@@ -69,7 +69,13 @@ Nouveau `share-store` à double moteur (SQLite `file:` / Postgres), même forme 
 
 **`collab_doc`** — état Yjs d'une note partagée : `resourceId` PK, `state` (binaire, `Y.encodeStateAsUpdate`), `updatedAt`. Écrit par l'extension Database de Hocuspocus (debounce natif).
 
-**Secret serveur** : `SHARE_SECRET` (env) signe les jetons d'accès ; à défaut, généré au premier démarrage et stocké dans la table méta de `sync-store` (`meta` en SQLite, `sync_meta` en Postgres) pour survivre aux redéploiements.
+**`share_blob`** — images publiées d'une note : (`resourceId`, `path`) PK, `bytes`, `createdAt`. Supprimées avec la ressource.
+
+**`share_meta`** — clé/valeur du store de partage.
+
+**Secret serveur** : `SHARE_SECRET` (env) signe les jetons d'accès ; à défaut, généré au premier démarrage et stocké dans `share_meta` pour survivre aux redéploiements.
+
+Noms de colonnes en `snake_case` minuscule dans les deux moteurs (Postgres replie les identifiants non quotés en minuscules).
 
 ## API serveur
 
@@ -81,7 +87,7 @@ Montée par `server.mjs` et le middleware de dev `vite.config.ts`, seulement si 
 |---|---|
 | `POST /api/share/resources` `{ kind, title, snapshot? }` | crée la ressource → `{ id, ownerKey }` (seule fois où la clé sort) |
 | `PUT /api/share/resources/:id/doc` (binaire) | amorce le document Yjs d'une note (refusé si déjà amorcé) |
-| `PATCH /api/share/resources/:id` `{ title }` | renomme |
+| `PATCH /api/share/resources/:id` `{ title }` | renomme (appelé, débouncé, quand le titre de la note change pendant le partage) |
 | `DELETE /api/share/resources/:id` | arrête le partage : supprime ressource, liens, document ; coupe les connexions |
 | `GET /api/share/resources/:id/links` | liste des liens (sans hash) |
 | `POST /api/share/resources/:id/links` `{ mode, password?, expiresAt?, label? }` | crée un lien → `{ slug }` |
@@ -93,20 +99,20 @@ Montée par `server.mjs` et le middleware de dev `vite.config.ts`, seulement si 
 
 | Route | Rôle |
 |---|---|
-| `GET /api/share/links/:slug/meta` | `{ kind, mode, title, needsPassword, resourceId }`, ou `410 { reason: "expired" \| "revoked" }`, `404` |
-| `POST /api/share/links/:slug/unlock` `{ password? }` | vérifie le mot de passe (vide si lien public) → `{ accessToken }` |
+| `GET /api/share/links/:slug/meta` | `{ kind, mode, title, needsPassword }`, ou `410 { reason: "expired" \| "revoked" }`, `404` |
+| `POST /api/share/links/:slug/unlock` `{ password? }` | vérifie le mot de passe (vide si lien public) → `{ accessToken, resourceId, kind, mode }` |
 | `GET /api/share/links/:slug/content` | fil d'email figé (jeton d'accès requis) |
 | `GET /api/share/links/:slug/blob?path=` | image de la note (jeton d'accès requis) |
 
-**Jeton d'accès** : HMAC-SHA256(`SHARE_SECRET`) sur `slug + exp`, `exp = min(expiresAt du lien, maintenant + 12 h)`. Porté en `Authorization: Bearer` (HTTP) et en `token` (Hocuspocus). Revérifié à chaque usage contre l'état du lien (révoqué, expiré).
+**Jeton d'accès** : HMAC-SHA256(`SHARE_SECRET`) sur `slug + exp + pv`, `exp = min(expiresAt du lien, maintenant + 12 h)`, `pv` = empreinte courte du hash de mot de passe (changer le mot de passe invalide les jetons émis). Porté en `Authorization: Bearer` (HTTP) et en `token` (Hocuspocus). Revérifié à chaque usage contre l'état du lien (révoqué, expiré).
 
-**Anti-force brute** : même garde que `checkVaultPassword` (`sync-backend.mjs`), 10 échecs par lien et par adresse → blocage 15 min. Code factorisé plutôt que dupliqué.
+**Anti-force brute** : même garde que `checkVaultPassword` (`sync-backend.mjs`), 10 échecs par lien et par adresse → blocage 15 min. Hachage scrypt, vérification, `clientIp` et compteur d'échecs sont extraits dans `apps/web/password.mjs`, importé par les deux backends.
 
 **WebSocket** `wss://<hôte>/collab` → Hocuspocus. `onAuthenticate({ documentName, token })` :
 
 - `owner:<ownerKey>` → accepté si le hash correspond à la ressource `documentName` ;
-- sinon jeton d'accès → lien valide, non révoqué, non expiré, rattaché à `documentName` ; `connection.readOnly = mode === "read"` ;
-- contexte retourné `{ slug }` pour pouvoir couper les connexions d'un lien.
+- sinon jeton d'accès → lien valide, non révoqué, non expiré, rattaché à `documentName` ; `connectionConfig.readOnly = mode === "read"` ;
+- contexte retourné `{ slug }` : une révocation parcourt `documents.get(resourceId).connections` et ferme celles dont `context.slug` correspond.
 
 Révocation, modification de mot de passe et suppression ferment immédiatement les connexions concernées. Un balayage toutes les 60 s ferme celles dont le lien a expiré. Taille de message WebSocket plafonnée (`maxPayload` 5 Mo).
 
@@ -114,16 +120,14 @@ Révocation, modification de mot de passe et suppression ferment immédiatement 
 
 ### Où vit la clé propriétaire
 
-- **Note** : champ de frontmatter `share: { id, key }`, donc synchronisé vers les autres appareils du propriétaire par la synchro de coffre existante (cloud ou git). Nécessaire : chaque appareil doit ouvrir la note en mode co-édition avec les droits propriétaire. ⚠️ Un coffre git poussé sur un dépôt public expose la clé ; c'est documenté dans le panneau de partage.
-- **Email** : table locale du worker `mail_share (accountId, threadId, resourceId, ownerKey)`. Un partage d'email se gère depuis l'appareil qui l'a créé (le miroir mail est déjà local à l'appareil).
-
-La persistance du champ `share` traverse la chaîne worker → IPC zod → adapters : le plan doit vérifier qu'aucun schéma ne le strippe (piège n°2 de la carte du code).
+- **Note** : deux champs de frontmatter texte, `shareId` et `shareKey`, effacés par `""`. Les champs d'entité n'acceptent pas d'objet (`FieldValueSchema`), deux chaînes évitent de toucher au contrat IPC. Ils suivent la synchro de coffre existante (cloud ou git) vers les autres appareils du propriétaire, ce qui est nécessaire : chaque appareil doit ouvrir la note en co-édition avec les droits propriétaire. La clé transite donc aussi par le journal de synchro en ligne, sur le même serveur. ⚠️ Un coffre git poussé sur un dépôt public expose la clé ; le panneau de partage le signale.
+- **Email** : `localStorage` `supernote.share.email`, table `"<accountId>:<threadId>"` → `{ resourceId, ownerKey }`. Le miroir mail est un cache jetable (un effacement le resynchronise depuis Gmail) : la clé n'y survivrait pas. Un partage d'email se gère depuis l'appareil qui l'a créé.
 
 ### Panneau « Partager »
 
 Un composant commun `SharePanel` (HeroUI v3, `Popover` sur desktop, `MobileSheet` sous 768 px), ouvert depuis :
 
-- l'en-tête de note (remplace `ShareNotePanel`) ;
+- l'en-tête de note (remplace `ShareNotePanel`), et une action « Partager » dans la top bar mobile de la note (`useMobileHeaderActions` de `app/notes/[id]/page.tsx`) ;
 - la barre d'actions du fil mail (bouton icône + Tooltip), et le menu « Plus » sur mobile.
 
 Contenu :
@@ -136,13 +140,13 @@ Retour d'action porté par les boutons (`lib/action-feedback.tsx`), pas de toast
 
 ### Note en mode co-édition
 
-Déclenché quand la note porte `share.id` :
+Déclenché quand la note porte un `shareId` non vide :
 
-1. **Premier lien d'une note** : `POST /resources` → `blocksToYDoc(editor, blocks, "document-store")` → `PUT /resources/:id/doc` → écriture du frontmatter `share`.
-2. `SupernoteEditor` gagne une prop optionnelle `collaboration` (fragment, provider, user) passée à `useCreateBlockNote`. L'éditeur est **remonté** (clé) au passage en mode co-édition, `useCreateBlockNote` ayant des dépendances vides. Rebuild du dist `@supernote/editor` requis.
-3. `HocuspocusProvider` (`/collab`, `name = share.id`, `token = owner:<key>`) + **`y-indexeddb`** : les modifications hors ligne du propriétaire sont gardées localement et fusionnées (CRDT) à la reconnexion.
+1. **Premier lien d'une note** : `POST /resources` → `markdownToYUpdate(body)` (éditeur headless + `blocksToYDoc`, fragment `"document-store"`) → `PUT /resources/:id/doc` → écriture de `shareId` et `shareKey`.
+2. `SupernoteEditor` gagne une prop optionnelle `collaboration` (fragment, provider, user) passée à `useCreateBlockNote`. L'éditeur est **remonté** (clé) au passage en mode co-édition, `useCreateBlockNote` ayant des dépendances vides. Rebuild du dist `@supernote/editor` requis. En co-édition, `initialContent` n'est pas passé (le document vient de Yjs) et l'ajout automatique d'un paragraphe après un bloc de base est coupé (chaque client l'ajouterait, d'où des doublons). L'éditeur n'est monté qu'après la première synchro du provider (ou le chargement `y-indexeddb` hors ligne), pour ne jamais taper dans un document vide.
+3. `HocuspocusProvider` (`/collab`, `name = shareId`, `token = owner:<shareKey>`) + **`y-indexeddb`** : les modifications hors ligne du propriétaire sont gardées localement et fusionnées (CRDT) à la reconnexion.
 4. Le markdown reste dérivé : le `onChange` existant continue d'écrire le fichier `.md`. Le fichier reflète donc toujours la dernière version connue, y compris les modifications des invités dès que le propriétaire ouvre la note.
-5. Tant qu'un partage existe, **le document Yjs fait foi**. Une modification du `.md` hors de Supernote (éditeur externe, commit git) est écrasée à la prochaine ouverture. Limite documentée.
+5. Tant qu'un partage existe, **le document Yjs fait foi** : le remontage de l'éditeur sur changement externe du body (`NoteEditor.tsx`, `externalBodyVersion`) est coupé en co-édition. Une modification du `.md` hors de Supernote (éditeur externe, commit git) est écrasée à la prochaine ouverture. Limite documentée.
 6. Le titre reste hors co-édition (champ de l'en-tête, propriétaire seul).
 7. Présence : pastilles des personnes connectées dans l'en-tête de note (awareness), desktop et top bar mobile.
 8. « Arrêter le partage » : suppression serveur, retrait du frontmatter, éditeur remonté en mode normal sur le markdown courant.
@@ -153,7 +157,7 @@ Déclenché quand la note porte `share.id` :
 
 ## Côté invité
 
-**Entrée Vite dédiée** `share.html` → `src/share/main.tsx`, servie par le serveur pour `/s/*` quand le slug appartient à `share_link` (sinon ancienne page `share`, sinon 404). Aucun coffre, aucun worker, aucun service worker : un bundle éditeur + provider, chargé en quelques centaines de ko. `public/sw.js` exclut `/s/`. En-têtes `noindex`, CSP `script-src 'self'`, `connect-src 'self' wss:`.
+**Entrée Vite dédiée** `share.html` → `src/share/main.tsx`, servie par le serveur pour `/s/*` quand le slug appartient à `share_link` (sinon ancienne page `share`, sinon 404). Aucun coffre, aucun worker, aucun service worker : un bundle éditeur + provider, chargé en quelques centaines de ko. `public/sw.js` exclut `/s/`. `<meta name="robots" content="noindex">` ; la CSP (Report-Only) des pages HTML statiques s'applique, `connect-src 'self'` couvrant le WebSocket de même origine.
 
 Parcours :
 
@@ -163,16 +167,17 @@ Parcours :
 4. **Note** : `SupernoteEditor` en mode co-édition (`token = jeton d'accès`), `editable = mode === "write"`.
    - Écriture : pseudo demandé à la première visite (`localStorage`), couleur dérivée du pseudo, curseur et libellé visibles des autres.
    - Lecture : pas de pseudo, pas de curseur diffusé ; voit les curseurs des éditeurs.
-   - Blocs dépendants du coffre (vue de base, formule, mention d'entité) : rendus en encart « Contenu lié au coffre, non disponible » via leurs Providers, **sans modifier leurs props** (le nœud Yjs reste intact pour le propriétaire).
+   - Blocs dépendants du coffre : vue de base et formule reçoivent des props `renderDatabaseView` / `renderFormula` invitées qui rendent l'encart « Contenu lié au coffre, non disponible » (sans elles, `SupernoteEditor` rend un bloc vide). Intégration de note, croquis et email Gmail ont déjà leur carte de repli. Les props des blocs ne sont jamais modifiées : le nœud Yjs reste intact pour le propriétaire.
+   - Liens internes (mention, wikilink) : la page invitée neutralise les clics sur les liens relatifs dans l'éditeur, qui mèneraient vers l'app du propriétaire.
    - Envoi d'images par l'invité : non (hors périmètre).
 5. **Email** : `content` → fil rendu en texte (échappement React), un bloc par message.
 6. Déconnexion serveur (révocation, expiration) → bandeau « Accès retiré », éditeur verrouillé.
 
-Mobile d'emblée : page invitée pleine largeur, `px-4 md:px-10`, zone d'édition au-dessus du clavier (même mécanisme que le composeur mail, `useKeyboardViewport`).
+Mobile d'emblée : page invitée pleine largeur, `px-4 md:px-10`, défilement natif sans barre fixe en bas (le navigateur amène le curseur au-dessus du clavier, rien à gérer).
 
 ### Images
 
-Les images d'une note référencent des chemins de coffre, illisibles pour un invité. À la création du partage et à chaque image ajoutée ensuite, le propriétaire publie les octets (`PUT /resources/:id/blob`, limite 10 Mo par image, stockage dans le magasin de blobs de `sync-store` (`blob` / `sync_blob`), clé `share/<id>/<path>`). L'éditeur invité résout `resolveFileUrl` vers `GET /links/:slug/blob`.
+Les images d'une note référencent des chemins de coffre, illisibles pour un invité. À la création du partage et à chaque image ajoutée ensuite, le propriétaire publie les octets (`PUT /resources/:id/blob`, limite 10 Mo par image, stockage dans `share_blob`). L'éditeur invité résout `resolveFileUrl` vers `GET /links/:slug/blob`.
 
 ## Erreurs et cas limites
 
@@ -206,7 +211,7 @@ Pas de test unitaire (politique du projet).
 4. **App propriétaire** : `SharePanel`, mode co-édition des notes (frontmatter, provider, `y-indexeddb`, présence), partage d'email, images.
 5. **e2e** `07-share.spec.ts`, puis déploiement (WebSocket Scalingo vérifié en prod).
 
-Nouvelles dépendances : `@hocuspocus/server`, `@hocuspocus/extension-database`, `@hocuspocus/provider`, `crossws`, `y-indexeddb`.
+Nouvelles dépendances : `@hocuspocus/server`, `@hocuspocus/extension-database`, `@hocuspocus/provider` (4.7), `crossws`, `y-indexeddb` ; `yjs` ajouté à `@supernote/editor` pour l'amorçage.
 
 ## Hors périmètre
 
