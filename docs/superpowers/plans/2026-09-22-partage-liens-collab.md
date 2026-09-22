@@ -21,6 +21,7 @@
 - Commentaires : quasi aucun, en français, une ligne, seulement le POURQUOI non déductible. Aucun commentaire de narration.
 - TypeScript strict, pas de `any`.
 - Aucun formateur global (pas de `npx prettier` : la config trouvée n'est pas celle du dépôt et reformate tout).
+- Arbre partagé : une autre session a des modifications non commitées (au moins `apps/web/src/components/todos/TodoMatrix.tsx`, `apps/web/src/lib/gmail.ts`, `apps/web/src/lib/mail-mirror.ts`). Une erreur de typecheck dans un fichier que la tâche ne touche pas n'est pas la tienne : la signaler, ne pas la corriger, ne pas stager ces fichiers.
 - Commits conventionnels français (`feat(share): …`), terminés par les lignes d'attribution de la session. Ne stager **que** ses propres fichiers (l'arbre est partagé avec d'autres sessions : `git add <chemins>`, jamais `git add -A`).
 - Valeurs fixées par la spec : slug 12 octets base64url, id de ressource 16 octets, clé propriétaire 32 octets ; jeton ≤ 12 h ; 10 échecs / 15 min ; WebSocket `maxPayload` 5 Mo ; image 10 Mo ; balayage d'expiration 60 s ; fragment Yjs `"document-store"`.
 
@@ -1065,6 +1066,10 @@ et, après la création du backend (et le `if (!backend.enabled) return;` exista
       });
 ```
 
+- [ ] **Step 6 bis : une seule copie d'`Awareness`**
+
+Dans `apps/web/vite.config.ts`, `resolve.dedupe` (l.~152, qui contient déjà `"yjs"` et `"y-prosemirror"`) : ajouter `"y-protocols"` et `"lib0"`. Le provider Hocuspocus et le plugin de curseurs de y-prosemirror doivent partager la même classe `Awareness` ; deux copies donnent des `instanceof` faux et des curseurs muets.
+
 - [ ] **Step 7 : fumée Yjs (scratchpad)**
 
 `<scratchpad>/t4.mjs` (lancé depuis `apps/web` pour résoudre les paquets) :
@@ -1511,7 +1516,7 @@ import { HocuspocusProvider } from "@hocuspocus/provider";
 import { Button, Input, Spinner } from "@supernote/ui";
 import { COLLAB_FRAGMENT, SupernoteEditor } from "@supernote/editor";
 import { collabUrl, colorFor } from "@/lib/share/collab";
-import { fetchBlobUrl, type Access } from "./guest-api";
+import { fetchBlobUrl, fetchMeta, type Access } from "./guest-api";
 
 const NAME_KEY = "supernote.share.guestName";
 
@@ -1547,9 +1552,16 @@ export function GuestNote({ slug, title, access, onLost }: { slug: string; title
       token: access.accessToken,
       onSynced: () => setSynced(true),
       onAuthenticationFailed: () => onLost(),
+      // Une coupure serveur (révocation, expiration) peut ne pas relancer d'authentification :
+      // on revérifie le lien à chaque déconnexion.
+      onDisconnect: () => {
+        void fetchMeta(slug).then((meta) => {
+          if (typeof meta === "string") onLost();
+        });
+      },
     });
     return { doc, provider };
-  }, [joined, access.resourceId, access.accessToken, onLost]);
+  }, [joined, slug, access.resourceId, access.accessToken, onLost]);
 
   useEffect(() => () => session?.provider.destroy(), [session]);
 
@@ -2286,10 +2298,13 @@ Repères (lire les zones avant d'éditer) : init des champs l.259-261, réinit s
     void shareBackendEnabled().then(setShareEnabled);
   }, []);
   useEffect(() => {
-    const open = () => setShareOpen(true);
+    // Plusieurs NoteEditor peuvent être montés (colonnes empilées) : seul le bon s'ouvre.
+    const open = (e: Event) => {
+      if ((e as CustomEvent<{ noteId: string }>).detail?.noteId === note.id) setShareOpen(true);
+    };
     window.addEventListener(NOTE_SHARE_EVENT, open);
     return () => window.removeEventListener(NOTE_SHARE_EVENT, open);
-  }, []);
+  }, [note.id]);
 ```
   - Effet de remontage sur body externe (l.730-756) : première ligne du callback `if (share) return;` (et `share` dans ses dépendances) — en co-édition, Yjs fait foi.
   - Démarrer / arrêter :
@@ -2310,11 +2325,13 @@ Repères (lire les zones avant d'éditer) : init des champs l.259-261, réinit s
     await handleManualSave();
     if (share) await deleteShareResource({ resourceId: share.id, ownerKey: share.key });
     await trpcVanillaClient.entities.update.mutate({ id: note.id, fields: { shareId: "", shareKey: "" } });
+    // Le cache tRPC n'est pas encore rafraîchi : l'éditeur normal repart du contenu courant.
+    setPendingBody(bodyRef.current);
     setShare(null);
     setShareOpen(false);
   };
 ```
-  (`handleManualSave` doit être déclaré avant ou être appelé via une ref si l'ordre des déclarations l'impose ; `publishedImagesRef = useRef(new Set<string>())`, remis à `new Set()` au changement de note.)
+  (`setPendingBody` est le setter de l'état `pendingBody` déjà passé en `initialMarkdown={pendingBody ?? note.body}` — vérifier son nom exact dans le fichier ; `handleManualSave` doit être déclaré avant ou être appelé via une ref si l'ordre des déclarations l'impose ; `publishedImagesRef = useRef(new Set<string>())`, remis à `new Set()` au changement de note.)
   - Images ajoutées pendant le partage : dans `handleEditorChange` (l.1257-1268), après `triggerAutoSave(md, title)` :
 ```tsx
     if (share) {
@@ -2347,7 +2364,7 @@ Envelopper le `<SupernoteEditor … />` existant :
 ```
 
 - [ ] **Step 5 : bouton, présence, dialogue**
-  - Dans la rangée méta, à la place de l'ancien `<ShareNotePanel … />` (l.2028) :
+  - **Hors de la rangée méta repliable** (elle est repliée par défaut via `metaOpen`, l.1908 : un bouton dedans est invisible). Placer le bouton et la présence dans une même ligne toujours visible, juste sous le titre de la note (bloc « hero », l.1844-1906), visible aussi sur mobile. L'ancien emplacement (l.2028) reste vide. Bouton :
 ```tsx
 {shareEnabled && (
   <Tooltip content={share ? "Partagée · gérer les liens" : "Partager"}>
@@ -2364,7 +2381,7 @@ Envelopper le `<SupernoteEditor … />` existant :
   </Tooltip>
 )}
 ```
-  - Présence, sous le titre (hors rangée repliable, visible sur mobile) :
+  - Présence, dans la même ligne que le bouton :
 ```tsx
 {collab.peers.length > 0 && (
   <div className="flex flex-wrap items-center gap-1.5 text-xs text-[var(--text-muted)]" aria-label="Personnes connectées">
@@ -2400,10 +2417,10 @@ Ajouter à la liste passée à `useMobileHeaderActions` :
   id: "share-note",
   icon: ShareNetwork,
   label: "Partager",
-  onPress: () => window.dispatchEvent(new CustomEvent(NOTE_SHARE_EVENT)),
+  onPress: () => window.dispatchEvent(new CustomEvent(NOTE_SHARE_EVENT, { detail: { noteId: params.id } })),
 },
 ```
-(imports `ShareNetwork` et `NOTE_SHARE_EVENT`).
+(imports `ShareNetwork` et `NOTE_SHARE_EVENT` ; `params.id` est l'identifiant de note déjà utilisé par la page pour `useNote(params.id)`).
 
 - [ ] **Step 7 : typecheck + vérif manuelle à deux navigateurs**
 
@@ -2476,19 +2493,19 @@ test.describe("07 — partage", () => {
     const guest = await guestPage(browser, url);
     await guest.getByLabel("Ton nom").fill("Paul");
     await guest.getByRole("button", { name: "Rejoindre" }).click();
-    await guest.locator(".bn-editor").click();
+    await guest.locator(".bn-editor").first().click();
     await guest.keyboard.type("Bonjour depuis l'invité");
-    await expect(owner.locator(".bn-editor")).toContainText("Bonjour depuis l'invité");
+    await expect(owner.locator(".bn-editor").first()).toContainText("Bonjour depuis l'invité");
     await expect(owner.getByLabel("Personnes connectées")).toContainText("Paul");
   });
 
   test("lien lecture : l'invité voit le texte sans pouvoir éditer", async ({ page: owner, browser }) => {
     await openNewNote(owner, "Note lecture e2e");
-    await owner.locator(".bn-editor").click();
+    await owner.locator(".bn-editor").first().click();
     await owner.keyboard.type("Texte du propriétaire");
     const url = await createLink(owner);
     const guest = await guestPage(browser, url);
-    await expect(guest.locator(".bn-editor")).toContainText("Texte du propriétaire");
+    await expect(guest.locator(".bn-editor").first()).toContainText("Texte du propriétaire");
     await expect(guest.locator('.bn-editor[contenteditable="true"]')).toHaveCount(0);
   });
 
@@ -2501,7 +2518,7 @@ test.describe("07 — partage", () => {
     await expect(guest.getByRole("alert")).toContainText("Mot de passe incorrect");
     await guest.getByLabel("Mot de passe").fill("secret-e2e");
     await guest.getByRole("button", { name: "Ouvrir" }).click();
-    await expect(guest.locator(".bn-editor")).toBeVisible();
+    await expect(guest.locator(".bn-editor").first()).toBeVisible();
   });
 
   test("lien expiré et lien révoqué", async ({ page, request }) => {
@@ -2527,7 +2544,7 @@ test.describe("07 — partage", () => {
     const guest = await guestPage(browser, url);
     await guest.getByLabel("Ton nom").fill("Léa");
     await guest.getByRole("button", { name: "Rejoindre" }).click();
-    await expect(guest.locator(".bn-editor")).toBeVisible();
+    await expect(guest.locator(".bn-editor").first()).toBeVisible();
     await owner.getByRole("button", { name: "Partager" }).first().click();
     await owner.getByRole("button", { name: "Retirer ce lien" }).last().click();
     await expect(guest.getByText("Accès retiré")).toBeVisible({ timeout: 15_000 });
@@ -2558,7 +2575,7 @@ test.describe("07 — partage", () => {
     await openNewNote(owner, "Note mobile e2e");
     const url = await createLink(owner);
     const guest = await guestPage(browser, url, { width: 390, height: 844 });
-    await expect(guest.locator(".bn-editor")).toBeVisible();
+    await expect(guest.locator(".bn-editor").first()).toBeVisible();
     expect(await guest.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   });
 });
