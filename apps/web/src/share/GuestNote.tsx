@@ -25,6 +25,9 @@ function Unavailable() {
   );
 }
 
+const isExternalUrl = (url: string) => /^(https?:|blob:|data:)/i.test(url);
+const blobUrlByPath = new Map<string, string>();
+
 export function GuestNote({
   slug,
   title,
@@ -63,20 +66,35 @@ export function GuestNote({
           .catch(() => {});
       },
     });
+    // Un lecteur ne diffuse jamais son curseur.
+    if (!writable) provider.awareness?.setLocalState(null);
     return { doc, provider };
-  }, [joined, slug, access.resourceId, access.accessToken, onLost]);
+  }, [joined, slug, access.resourceId, access.accessToken, onLost, writable]);
 
-  useEffect(() => () => session?.provider.destroy(), [session]);
-
-  // Un lecteur voit les curseurs des autres sans diffuser le sien.
-  useEffect(() => {
-    if (session && synced && !writable) session.provider.awareness?.setLocalState(null);
-  }, [session, synced, writable]);
+  useEffect(
+    () => () => {
+      session?.provider.destroy();
+      session?.doc.destroy();
+    },
+    [session],
+  );
 
   const files = useMemo(
     () => ({
       upload: () => Promise.reject(new Error("L'ajout d'images est réservé au propriétaire.")),
-      resolveUrl: (path: string) => fetchBlobUrl(slug, access.accessToken, path).catch(() => path),
+      resolveUrl: async (path: string) => {
+        if (!path || isExternalUrl(path)) return path;
+        const cached = blobUrlByPath.get(path);
+        if (cached) return cached;
+        try {
+          const url = await fetchBlobUrl(slug, access.accessToken, path);
+          blobUrlByPath.set(path, url);
+          return url;
+        } catch {
+          // Le chemin de coffre brut résoudrait vers share.html (fallback SPA) : mieux vaut une image cassée qu'un <img src> en HTML.
+          return "";
+        }
+      },
     }),
     [slug, access.accessToken],
   );
@@ -95,7 +113,7 @@ export function GuestNote({
           setJoined(true);
         }}
       >
-        <h1 className="text-lg font-semibold">{title || "Note partagée"}</h1>
+        <h1 className="break-words text-lg font-semibold">{title || "Note partagée"}</h1>
         <label htmlFor="guest-name" className="text-sm text-[var(--text-secondary)]">
           Ton nom
         </label>
@@ -123,7 +141,7 @@ export function GuestNote({
   const userName = writable ? name.trim() : "Lecteur";
   return (
     <div className="flex flex-col gap-4" onClickCapture={blockInternalLinks}>
-      <h1 className="text-2xl font-semibold [text-wrap:balance]">{title || "Note partagée"}</h1>
+      <h1 className="break-words text-2xl font-semibold [text-wrap:balance]">{title || "Note partagée"}</h1>
       <SupernoteEditor
         readOnly={!writable}
         collaboration={{

@@ -26,20 +26,29 @@ export async function fetchMeta(slug: string): Promise<LinkMeta | Closed> {
   return body.reason ?? "missing";
 }
 
+// Statuts serveur : 200 ok, 400 mot de passe trop long, 401 faux, 404/410 lien fermé, 429 verrouillé ; tout le reste lève.
 export async function unlock(slug: string, password?: string): Promise<Access | "wrong" | "locked" | Closed> {
   const res = await fetch(`${base(slug)}/unlock`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(password ? { password } : {}),
   });
-  const body = (await res.json().catch(() => ({}))) as Access & { reason?: "wrong" | "locked" | Closed };
-  if (!res.ok) return body.reason ?? "missing";
-  try {
-    sessionStorage.setItem(tokenKey(slug), JSON.stringify(body));
-  } catch {
-    /* session privée : on redemandera le mot de passe */
+  if (res.ok) {
+    const body = (await res.json()) as Access;
+    try {
+      sessionStorage.setItem(tokenKey(slug), JSON.stringify(body));
+    } catch {
+      /* session privée : on redemandera le mot de passe */
+    }
+    return body;
   }
-  return body;
+  if (res.status === 400 || res.status === 401) return "wrong";
+  if (res.status === 429) return "locked";
+  if (res.status === 404 || res.status === 410) {
+    const body = (await res.json().catch(() => ({}))) as { reason?: Closed };
+    return body.reason ?? "missing";
+  }
+  throw new Error(`unlock ${res.status}`);
 }
 
 export function cachedAccess(slug: string): Access | null {
@@ -61,8 +70,9 @@ export function forgetAccess(slug: string): void {
 
 export async function fetchEmail(slug: string, token: string): Promise<EmailSnapshot | null> {
   const res = await fetch(`${base(slug)}/content`, { headers: { authorization: `Bearer ${token}` } });
-  if (!res.ok) return null;
-  return ((await res.json()) as { snapshot: EmailSnapshot }).snapshot;
+  if (res.ok) return ((await res.json()) as { snapshot: EmailSnapshot }).snapshot;
+  if (res.status === 401 || res.status === 404) return null;
+  throw new Error(`content ${res.status}`);
 }
 
 export async function fetchBlobUrl(slug: string, token: string, path: string): Promise<string> {

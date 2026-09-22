@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Button, Input } from "@supernote/ui";
 import { Spinner } from "@heroui/react";
 import { LockSimple } from "@phosphor-icons/react";
@@ -24,9 +24,11 @@ export function ShareApp({ slug }: { slug: string }) {
   const [view, setView] = useState<View>({ kind: "loading" });
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
+  // Deux pertes en moins de 10 s ne sont pas un jeton qui expire (12 h) : on ferme plutôt que de reboucler indéfiniment.
+  const lastRetryRef = useRef(0);
 
-  useEffect(() => {
-    void (async () => {
+  const load = useCallback(
+    async (useCache: boolean) => {
       let meta: LinkMeta | Closed;
       try {
         meta = await fetchMeta(slug);
@@ -35,33 +37,48 @@ export function ShareApp({ slug }: { slug: string }) {
       }
       if (typeof meta === "string") return setView({ kind: "closed", reason: meta });
       document.title = meta.title || "Partage · Supernote";
-      const cached = cachedAccess(slug);
+      const cached = useCache ? cachedAccess(slug) : null;
       if (cached) return setView({ kind: "open", meta, access: cached });
       if (meta.needsPassword) return setView({ kind: "password", meta, error: null });
-      const access = await unlock(slug);
-      setView(
-        typeof access === "string"
-          ? { kind: "closed", reason: access === "wrong" || access === "locked" ? "missing" : access }
-          : { kind: "open", meta, access },
-      );
-    })();
-  }, [slug]);
+      let access: Access | "wrong" | "locked" | Closed;
+      try {
+        access = await unlock(slug);
+      } catch {
+        return setView({ kind: "closed", reason: "unavailable" });
+      }
+      if (access === "wrong" || access === "locked") return setView({ kind: "password", meta, error: null });
+      if (typeof access === "string") return setView({ kind: "closed", reason: access });
+      setView({ kind: "open", meta, access });
+    },
+    [slug],
+  );
+
+  useEffect(() => {
+    void load(true);
+  }, [load]);
 
   const submitPassword = async (meta: LinkMeta) => {
     setBusy(true);
-    const access = await unlock(slug, password);
-    setBusy(false);
-    if (access === "wrong") return setView({ kind: "password", meta, error: "Mot de passe incorrect." });
-    if (access === "locked") return setView({ kind: "password", meta, error: "Trop d'essais. Réessaie dans 15 minutes." });
-    if (typeof access === "string") return setView({ kind: "closed", reason: access });
-    setView({ kind: "open", meta, access });
+    try {
+      const access = await unlock(slug, password);
+      if (access === "wrong") return setView({ kind: "password", meta, error: "Mot de passe incorrect." });
+      if (access === "locked") return setView({ kind: "password", meta, error: "Trop d'essais. Réessaie dans 15 minutes." });
+      if (typeof access === "string") return setView({ kind: "closed", reason: access });
+      setView({ kind: "open", meta, access });
+    } catch {
+      setView({ kind: "password", meta, error: "Serveur indisponible, réessaie dans un instant." });
+    } finally {
+      setBusy(false);
+    }
   };
 
-  // Stable : GuestNote recrée sa connexion Yjs si cette fonction change.
+  // Passée à GuestNote/GuestEmail : une perte de connexion revérifie le lien avant de conclure à un retrait.
   const lose = useCallback(() => {
     forgetAccess(slug);
-    setView({ kind: "closed", reason: "lost" });
-  }, [slug]);
+    if (Date.now() - lastRetryRef.current < 10_000) return setView({ kind: "closed", reason: "lost" });
+    lastRetryRef.current = Date.now();
+    void load(false);
+  }, [slug, load]);
 
   return (
     <main className="mx-auto flex min-h-dvh w-full max-w-3xl flex-col px-4 py-6 md:px-10 md:py-12">
@@ -81,7 +98,7 @@ export function ShareApp({ slug }: { slug: string }) {
             void submitPassword(view.meta);
           }}
         >
-          <h1 className="flex items-center gap-2 text-lg font-semibold">
+          <h1 className="flex items-center gap-2 text-lg font-semibold [overflow-wrap:anywhere]">
             <LockSimple size={18} aria-hidden /> {view.meta.title || "Partage protégé"}
           </h1>
           <label htmlFor="share-password" className="text-sm text-[var(--text-secondary)]">
