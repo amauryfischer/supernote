@@ -36,13 +36,16 @@ export function createPasswordChecker() {
     const entry = failures.get(key);
     if (entry && now - entry.since > LOCKOUT_MS) failures.delete(key);
     else if (entry && entry.count >= MAX_FAILED_ATTEMPTS) return "locked";
+    // Réserve la tentative avant l'await : sous 50 requêtes parallèles, chaque
+    // préfixe synchrone s'exécute avant le prochain, donc le compteur bloque
+    // au-delà de MAX_FAILED_ATTEMPTS au lieu de laisser tout passer.
+    const reserved = failures.get(key);
+    if (reserved) reserved.count += 1;
+    else failures.set(key, { count: 1, since: now });
     if (await verifyPassword(provided, record)) {
       failures.delete(key);
       return "ok";
     }
-    const current = failures.get(key);
-    if (current) current.count += 1;
-    else failures.set(key, { count: 1, since: now });
     if (failures.size > 10_000) {
       for (const [k, v] of failures) if (now - v.since > LOCKOUT_MS) failures.delete(k);
     }

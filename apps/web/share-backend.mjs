@@ -20,7 +20,7 @@ const SWEEP_MS = 60_000;
 
 const IMAGE_TYPES = {
   png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif",
-  webp: "image/webp", avif: "image/avif", svg: "image/svg+xml",
+  webp: "image/webp", avif: "image/avif",
 };
 
 const newId = (bytes) => randomBytes(bytes).toString("base64url");
@@ -69,7 +69,7 @@ function cleanSnapshot(raw) {
 function parseExpiry(v) {
   if (v === undefined) return undefined;
   if (v === null) return null;
-  return typeof v === "number" && Number.isFinite(v) && v > Date.now() ? v : NaN;
+  return typeof v === "number" && Number.isSafeInteger(v) && v > Date.now() ? v : NaN;
 }
 
 function escapeHtml(s) {
@@ -94,10 +94,17 @@ function legacyPage({ title, html, updatedAt }) {
   main { max-width: 720px; margin: 0 auto; padding: 56px 24px 80px; }
   h1.sn-share-title { font-size: 28px; font-weight: 700; margin: 0 0 4px; }
   .sn-share-meta { color: var(--muted); font-size: 13px; margin: 0 0 40px; }
+  h1, h2, h3, h4 { line-height: 1.3; margin: 1.6em 0 0.5em; }
+  p { margin: 0.9em 0; }
   img { max-width: 100%; border-radius: 6px; }
   pre { background: var(--code-bg); padding: 12px 14px; border-radius: 8px; overflow-x: auto; }
+  code { background: var(--code-bg); padding: 0.1em 0.35em; border-radius: 4px; font-size: 0.9em; }
+  pre code { background: none; padding: 0; }
+  blockquote { border-left: 3px solid var(--border); margin: 1em 0; padding: 0.2em 1em; color: var(--muted); }
   table { border-collapse: collapse; width: 100%; margin: 1em 0; font-size: 0.92em; }
   th, td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; }
+  a { color: inherit; }
+  footer.sn-share-footer { margin-top: 64px; padding-top: 16px; border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; }
 </style>
 </head>
 <body>
@@ -105,6 +112,7 @@ function legacyPage({ title, html, updatedAt }) {
   <h1 class="sn-share-title">${safeTitle}</h1>
   <p class="sn-share-meta">Mis à jour le ${escapeHtml(date)}</p>
   <article>${html}</article>
+  <footer class="sn-share-footer">Partagé en lecture seule depuis Supernote.</footer>
 </main>
 </body>
 </html>`;
@@ -172,11 +180,16 @@ export async function createShareBackend() {
 
   async function readJson(req) {
     const buf = await readBody(req, MAX_JSON_BYTES);
+    let parsed;
     try {
-      return buf.length ? JSON.parse(buf.toString("utf8")) : {};
+      parsed = buf.length ? JSON.parse(buf.toString("utf8")) : {};
     } catch {
       throw Object.assign(new Error("invalid json"), { status: 400 });
     }
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      throw Object.assign(new Error("invalid json"), { status: 400 });
+    }
+    return parsed;
   }
 
   async function ownedResource(req, id) {
@@ -255,6 +268,7 @@ export async function createShareBackend() {
       const resource = await ownedResource(req, id);
       if (resource.kind !== "note") return send(res, 400, { error: "not a note" });
       const bytes = await readBody(req, MAX_DOC_BYTES);
+      if (bytes.length === 0) return send(res, 400, { error: "empty body" });
       const seeded = await store.seedDoc(id, bytes);
       send(res, seeded ? 201 : 409, seeded ? { ok: true } : { error: "already seeded" });
     }],
@@ -286,7 +300,9 @@ export async function createShareBackend() {
     ["PUT", /^\/api\/share\/resources\/([\w-]+)\/blob$/, async (req, res, [id], url) => {
       const resource = await ownedResource(req, id);
       const path = url.searchParams.get("path") ?? "";
-      if (resource.kind !== "note" || !path || path.length > 500) return send(res, 400, { error: "invalid path" });
+      if (resource.kind !== "note" || !path || path.length > 500 || /\.svg$/i.test(path)) {
+        return send(res, 400, { error: "invalid path" });
+      }
       await store.putBlob(id, path, await readBody(req, MAX_BLOB_BYTES));
       send(res, 200, { ok: true });
     }],
@@ -332,6 +348,7 @@ export async function createShareBackend() {
       if (link.passwordHash) {
         const body = await readJson(req);
         const provided = typeof body.password === "string" ? body.password : "";
+        if (provided.length > 200) return send(res, 400, { error: "password too long" });
         const verdict = provided ? await checkPassword(`share:${slug}`, req, provided, link.passwordHash) : "wrong";
         if (verdict === "locked") return send(res, 429, { reason: "locked" });
         if (verdict !== "ok") return send(res, 401, { reason: "wrong" });
@@ -358,7 +375,6 @@ export async function createShareBackend() {
         "Content-Type": IMAGE_TYPES[ext] ?? "application/octet-stream",
         "Cache-Control": "private, max-age=300",
         "X-Content-Type-Options": "nosniff",
-        // Un SVG ouvert directement ne doit rien exécuter sur l'origine de l'app.
         "Content-Security-Policy": "sandbox; default-src 'none'; style-src 'unsafe-inline'",
       });
       res.end(bytes);
