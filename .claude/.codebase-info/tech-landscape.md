@@ -62,6 +62,7 @@ Le serveur de production est `apps/web/server.mjs`. Il sert le `dist/` prébuild
 | `ADMIN_TOKEN` | active le back-office `/admin` (mot de passe Basic Auth), exige `DATABASE_URL` | `/admin` sert le shell SPA |
 | `SHARE_SECRET` | secret HMAC des jetons d'accès invité au partage | un secret est généré et gardé dans `share_meta` |
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | active les notifications push (`/api/push/*`), exige `DATABASE_URL` ; clés générées par `npx web-push generate-vapid-keys`, en changer invalide tous les abonnements | l'interrupteur « Notifications app fermée » reste indisponible |
+| `GMAIL_PUBSUB_TOPIC`, `GMAIL_PUSH_SECRET` | active les notifications de nouveau mail (`/api/push/gmail`, `/api/push/mail-watch`) ; topic Pub/Sub `projects/<id>/topics/<nom>` publiable par `gmail-api-push@system.gserviceaccount.com`, abonnement push vers `/api/push/gmail?key=<secret>` | pas de notification de nouveau mail, le reste du push fonctionne |
 
 Les valeurs vivent dans `apps/web/.env.local`, qui n'est pas versionné. Ne jamais recopier une valeur ici.
 

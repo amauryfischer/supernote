@@ -103,4 +103,10 @@ En développement, un middleware de `vite.config.ts` monte le même backend, à 
 
 Un planificateur de 30 s réserve les échéances dues par `UPDATE … RETURNING` et pousse vers tous les abonnements du salon. `public/sw.js` affiche **toujours** la notification (Safari révoque la permission d'un push silencieux) et la relaie en plus au tiroir si une fenêtre est visible (`PUSH_RECEIVED`).
 
+**Nouveau mail en push.** Actif seulement si `GMAIL_PUBSUB_TOPIC` et `GMAIL_PUSH_SECRET` sont définis (`GET /api/push/key` renvoie alors `gmailTopic`). Chaîne : la page renouvelle toutes les 24 h un `users.watch` Gmail sur `INBOX` (`lib/mail-push-watch.ts`, appelé par `PushScheduleRunner`, jamais d'acquisition de jeton hors geste), puis `POST /api/push/mail-watch` prouve la propriété de l'adresse par un `getProfile` avec le jeton de l'utilisateur, jeton ni stocké ni journalisé. Google Pub/Sub appelle `POST /api/push/gmail?key=<secret>` (clé en temps constant, 204 immédiat), le serveur coalesce 30 s par salon × adresse et pousse `{ kind: "mail", historyId }` **sans contenu**. Le SW enrichit lui-même : jeton Gmail valide dans IndexedDB → `history.list` + métadonnées → expéditeur, objet, actions Archiver/Lu exécutées en fond ; sinon « Du nouveau dans ta boîte » et `/mail?thread=…&action=archive|read`, que la page rejoue par l'outbox.
+
+⚠️ **Le watch notifie tout changement de l'INBOX, lectures et archivages compris.** Seul le SW avec un jeton frais sait filtrer les vrais ajouts. Jeton expiré : notification générique, parfois à tort.
+
+**Pont page ↔ SW.** Base IndexedDB **dédiée** `supernote-sw` (v1, store `kv`, `lib/sw-kv.ts`), jamais celle des handles de coffre : `gmailToken` (recopié par `google-drive.ts` quand il couvre `gmail.modify`, effacé sur oubli ou révocation), `mailHistoryId` (écrit en fin de `syncMailbox`), `badgeCount` (badge d'icône, `setAppBadge`).
+
 Voir aussi : [architecture.md](architecture.md), [database.md](database.md).

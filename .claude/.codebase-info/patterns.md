@@ -107,6 +107,8 @@ Les API de zod 3 et 4 diffèrent. Un schéma copié d'un paquet à l'autre ne se
 
 Pour retirer un ancien défaut, ajoute-le à une migration du type `migrateIa` (`defaults.ts`, `RETIRED_DEFAULT_MODELS`), appliquée par **les deux** lecteurs de la clé : `loadInitialSettings` dans `SettingsContext.tsx` et `readPersistedIa` dans `lib/ai/settings.ts`. Le second lit le stockage sans attendre le Provider, et les effets des composants enfants passent avant l'écriture de celui-ci.
 
+Pour **forcer** un nouveau défaut une seule fois, pose un drapeau et lis-le dans le JSON **brut**, pas dans l'objet fusionné avec les défauts (qui porte déjà le drapeau à `true`) : `migrateNotifications(n, parsed.notifications?.pushDefaultApplied === true)` réactive `pushSubscribed` une fois par appareil, puis respecte le choix de l'utilisateur.
+
 Côté Ollama, tout `createOllamaClient` doit recevoir `defaultModel` (`settings.ia.ollamaModel` ou `getAiSettings().model`). Sans lui, le client choisit seul dans `PREFERRED_MODELS` de `@supernote/ai`, `llama3.2:3b` en tête, et ignore les réglages.
 
 ## Vérification

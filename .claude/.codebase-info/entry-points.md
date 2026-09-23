@@ -66,6 +66,12 @@ Avec `DATABASE_URL`, il monte aussi le partage : `/api/share/*`, `/s/<slug>` ré
 
 `apps/web/share.html` → `src/share/main.tsx` → `ShareApp`. C'est une entrée Vite à part (`build.rollupOptions.input`), sans coffre, sans worker, sans routeur, sans service worker. `public/sw.js` exclut `/s/`. En dev, le middleware de `vite.config.ts` (`shareDevServer`) réécrit `/s/*` vers `share.html` et branche `/collab`.
 
+⚠️ **`/share` est pris par `share.html`** : une URL sans extension y est résolue (fallback HTML de Vite en dev, serveur statique en prod) avant le routeur SPA. D'où la route SPA **`/partage`** pour la cible de partage PWA.
+
+## Entrées PWA
+
+`public/manifest.json` déclare des `shortcuts` (Nouveau message `/mail?compose=1`, Nouvelle note `/mail?new=note`, Agenda, Todos) et un `share_target` : `POST /share-target` multipart est intercepté par `public/sw.js`, rangé dans le Cache Storage `share-inbox` (épargné par la purge d'activation), puis redirigé en 303 vers `/partage?pending=1`, qui crée une note Inbox (`src/app/share/page.tsx`). `/mail` consomme aussi `?thread=<id>&action=archive|read`, envoyé par les actions de notification quand le SW n'a pas de jeton.
+
 ## Build et scripts
 
 | Commande | Effet |
