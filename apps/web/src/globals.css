@@ -561,6 +561,8 @@ input[type="checkbox"]:focus-visible {
    via .touch-pan or inline style as needed). */
 html, body {
   touch-action: manipulation;
+  /* Pas de rebond ni de pull-to-refresh natif : la coquille gère son scroll. */
+  overscroll-behavior: none;
 }
 
 /* Hide scrollbars on mobile horizontal-scroll rows (filter chip rails, etc.)

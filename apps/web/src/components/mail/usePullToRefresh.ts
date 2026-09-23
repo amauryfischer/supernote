@@ -14,6 +14,7 @@
  */
 
 import { useEffect, useRef, useState, type RefObject } from "react";
+import { haptic } from "@/lib/haptic";
 
 /** Traction nécessaire pour déclencher le rafraîchissement. */
 const TRIGGER_PX = 72;
@@ -66,6 +67,7 @@ export function usePullToRefresh(
       e.preventDefault();
       // Résistance progressive : la traction ralentit au fur et à mesure.
       const damped = dy <= TRIGGER_PX ? dy : TRIGGER_PX + (dy - TRIGGER_PX) * 0.4;
+      if ((damped >= TRIGGER_PX) !== (pullRef.current >= TRIGGER_PX)) haptic();
       setPull(Math.min(damped, MAX_PX));
     };
 

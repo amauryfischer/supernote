@@ -15,6 +15,7 @@
 
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Archive, Trash } from "@phosphor-icons/react";
+import { haptic } from "@/lib/haptic";
 import { prefersReducedMotion } from "@/lib/motion";
 
 /** Distance à parcourir pour déclencher l'action au relâchement. */
@@ -80,6 +81,7 @@ export function useSwipeGesture({
       if (onLongPress) {
         longPressTimer = setTimeout(() => {
           cancelLongPress();
+          haptic(15);
           onLongPress();
         }, 500);
       }
@@ -104,6 +106,7 @@ export function useSwipeGesture({
         Math.abs(deltaX) <= TRIGGER_PX
           ? deltaX
           : Math.sign(deltaX) * (TRIGGER_PX + (Math.abs(deltaX) - TRIGGER_PX) * 0.35);
+      if ((Math.abs(capped) >= TRIGGER_PX) !== (Math.abs(dxRef.current) >= TRIGGER_PX)) haptic();
       setDx(capped);
     };
 

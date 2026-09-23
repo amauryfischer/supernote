@@ -162,7 +162,7 @@ export function TodoMatrix({
 
   return (
     <DndContext sensors={sensors} collisionDetection={matrixCollision} onDragEnd={handleDragEnd}>
-      <div className="grid h-full grid-cols-1 gap-3 md:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 md:h-full md:grid-cols-2">
         {QUADRANTS.map((q) => (
           <Quadrant
             key={q.key}
@@ -196,7 +196,7 @@ function Quadrant({ def, rows, onToggle, onEdit, onEmail, onContextMenu }: Quadr
       // Hauteur plancher réservée au desktop : sur téléphone les quadrants
       // s'empilent, et quatre blocs de 180px imposaient trois écrans de
       // défilement même quand la moitié est vide.
-      className="flex min-h-0 flex-col rounded-xl border p-3 md:min-h-[180px]"
+      className="flex flex-col rounded-xl border p-3 md:min-h-[180px]"
       style={{
         borderColor: isOver ? def.accent : "var(--border-subtle)",
         backgroundColor: isOver ? "var(--surface-2)" : "var(--surface-1)",

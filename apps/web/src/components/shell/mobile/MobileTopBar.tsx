@@ -6,13 +6,14 @@ import {
   MagnifyingGlass,
   type Icon as PhosphorIcon,
 } from "@phosphor-icons/react";
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useShellChrome, type MobileHeaderAction } from "../shell-chrome-context";
 import { OverflowMenu } from "./OverflowMenu";
 import { GitSyncIndicator } from "@/lib/git/GitSyncIndicator";
 import { OnlineSyncIndicator } from "@/lib/online-sync/OnlineSyncIndicator";
 import { recordVisit } from "@/lib/navigation/recents";
+import { haptic } from "@/lib/haptic";
 import { Button } from "@supernote/ui";
 
 /**
@@ -149,6 +150,55 @@ export const MobileTopBar = memo(function MobileTopBar() {
       router.push(parent);
     }
   }, [mobileBack, pathname, router]);
+
+  const onBackRef = useRef(onBack);
+  onBackRef.current = onBack;
+  useEffect(() => {
+    if (!showBack) return undefined;
+    const EDGE_PX = 20;
+    const TRIGGER_PX = 80;
+    let startX = 0;
+    let startY = 0;
+    let tracking = false;
+    let armed = false;
+    const onStart = (e: TouchEvent) => {
+      const t = e.touches[0];
+      tracking = !!t && t.clientX <= EDGE_PX;
+      if (!t || !tracking) return;
+      startX = t.clientX;
+      startY = t.clientY;
+      armed = false;
+      // Le bord appartient au retour : les lignes glissables (triage mail) ne doivent pas s'armer.
+      e.stopPropagation();
+    };
+    const onMove = (e: TouchEvent) => {
+      const t = e.touches[0];
+      if (!tracking || !t) return;
+      const dx = t.clientX - startX;
+      if (Math.abs(t.clientY - startY) > dx) {
+        tracking = false;
+        return;
+      }
+      if (dx >= TRIGGER_PX !== armed) {
+        armed = dx >= TRIGGER_PX;
+        haptic();
+      }
+    };
+    const onEnd = () => {
+      if (tracking && armed) onBackRef.current();
+      tracking = false;
+    };
+    document.addEventListener("touchstart", onStart, { capture: true, passive: true });
+    document.addEventListener("touchmove", onMove, { passive: true });
+    document.addEventListener("touchend", onEnd);
+    document.addEventListener("touchcancel", onEnd);
+    return () => {
+      document.removeEventListener("touchstart", onStart, { capture: true });
+      document.removeEventListener("touchmove", onMove);
+      document.removeEventListener("touchend", onEnd);
+      document.removeEventListener("touchcancel", onEnd);
+    };
+  }, [showBack]);
 
   const onOpenSearch = useCallback(() => {
     window.dispatchEvent(new CustomEvent("supernote:open-command-palette"));

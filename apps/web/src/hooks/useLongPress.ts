@@ -12,6 +12,7 @@
  */
 
 import { useCallback, useRef } from "react";
+import { haptic } from "@/lib/haptic";
 
 interface LongPressHandlers {
   onTouchStart: (e: React.TouchEvent) => void;
@@ -46,6 +47,7 @@ export function useLongPress(
       const { clientX, clientY } = t;
       start.current = { x: clientX, y: clientY };
       timer.current = setTimeout(() => {
+        haptic(15);
         callback(clientX, clientY);
         timer.current = null;
       }, delay);
