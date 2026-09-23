@@ -87,6 +87,12 @@ function acquireToken(clientId: string, scope: string): Promise<string> {
   return p;
 }
 
+// Le quota Gmail se compte par minute et par utilisateur, tous appareils confondus :
+// insister pendant la minute le maintient dépassé, et un pool de lectures en vol
+// continuerait de tirer après le premier refus.
+const QUOTA_COOLDOWN_MS = 60_000;
+const quotaBlockedUntil = new Map<GoogleScopeFamily, { until: number; error: GoogleApiError }>();
+
 /** Sur 401, le token est oublié et l'appel rejoué une fois ; un second refus lève la reconnexion. */
 export async function googleRequest(
   clientId: string,
@@ -95,6 +101,9 @@ export async function googleRequest(
   init: { method?: string; body?: string; json?: boolean; headers?: Record<string, string> } = {},
   label = "Google API",
 ): Promise<Response> {
+  const family = scopeFamily(scope);
+  const blocked = quotaBlockedUntil.get(family);
+  if (blocked && blocked.until > Date.now()) throw blocked.error;
   for (let attempt = 0; ; attempt++) {
     const token = await acquireToken(clientId, scope);
     const res = await fetch(url, {
@@ -115,7 +124,11 @@ export async function googleRequest(
     setScopeFailed(scope, false);
     if (!res.ok) {
       const text = await res.text().catch(() => "");
-      throw new GoogleApiError(res.status, `${label} ${res.status}: ${text.slice(0, 300)}`);
+      const error = new GoogleApiError(res.status, `${label} ${res.status}: ${text.slice(0, 300)}`);
+      if ((res.status === 403 || res.status === 429) && /quota/i.test(text)) {
+        quotaBlockedUntil.set(family, { until: Date.now() + QUOTA_COOLDOWN_MS, error });
+      }
+      throw error;
     }
     return res;
   }
