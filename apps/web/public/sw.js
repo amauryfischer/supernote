@@ -116,7 +116,9 @@ self.addEventListener("fetch", (event) => {
         const shared = { title: text(form.get("title")), text: text(form.get("text")), url: text(form.get("url")), files };
         const cache = await caches.open(SHARE_INBOX_CACHE);
         await cache.put("/share-target/pending", new Response(JSON.stringify(shared), { headers: { "Content-Type": "application/json" } }));
-        return Response.redirect("/share?pending=1", 303);
+        // "partage" et non "share" : /share sert share.html (page invitée du
+        // partage par lien), pas la route SPA.
+        return Response.redirect("/partage?pending=1", 303);
       })(),
     );
     return;

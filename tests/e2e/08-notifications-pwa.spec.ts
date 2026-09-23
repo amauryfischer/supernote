@@ -27,7 +27,7 @@ test.describe("08 — notifications & PWA", () => {
         ),
       );
     });
-    await page.goto("/share?pending=1");
+    await page.goto("/partage?pending=1");
     await expect(page).toHaveURL(/\/notes\//, { timeout: 20_000 });
     await expect(page.getByLabel("Titre de la note")).toHaveValue("Article partagé");
   });

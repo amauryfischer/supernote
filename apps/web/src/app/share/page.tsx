@@ -1,10 +1,12 @@
 "use client";
 
 /**
- * /share — destination du Web Share Target API.
+ * /partage — destination du Web Share Target API.
  *
  * Le SW (`public/sw.js`) intercepte `POST /share-target`, range le FormData
- * dans le Cache Storage `share-inbox` et redirige ici (`303 → /share?pending=1`).
+ * dans le Cache Storage `share-inbox` et redirige ici (`303 → /partage?pending=1`).
+ * Pas `/share` : ce chemin sert déjà `share.html`, la page invitée du partage
+ * par lien (fonctionnalité différente).
  * Au montage, cette page relit ce cache, crée une note Inbox avec le titre, le
  * texte, le lien et les images partagées, puis rouvre la note créée.
  */
