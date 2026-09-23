@@ -28,6 +28,12 @@ const SCHEMA = `
   );
   CREATE UNIQUE INDEX IF NOT EXISTS push_schedule_once ON push_schedule (vault, key, fireat);
   CREATE INDEX IF NOT EXISTS push_schedule_due ON push_schedule (sentat, fireat);
+  CREATE TABLE IF NOT EXISTS push_mail_watch (
+    email     TEXT NOT NULL,
+    vault     TEXT NOT NULL,
+    updatedat BIGINT NOT NULL,
+    PRIMARY KEY (email, vault)
+  );
 `;
 
 async function openDb() {
@@ -109,5 +115,14 @@ export async function createPushStore() {
       ),
     purgeSent: (before) =>
       db.run(`DELETE FROM push_schedule WHERE sentat IS NOT NULL AND sentat < ?`, [before]),
+    upsertMailWatch: ({ email, vault }) =>
+      db.run(
+        `INSERT INTO push_mail_watch (email, vault, updatedat) VALUES (?, ?, ?)
+         ON CONFLICT (email, vault) DO UPDATE SET updatedat = excluded.updatedat`,
+        [email, vault, Date.now()],
+      ),
+    listMailWatchVaults: async (email) =>
+      (await db.all(`SELECT vault FROM push_mail_watch WHERE email = ?`, [email])).map((r) => r.vault),
+    purgeMailWatch: (before) => db.run(`DELETE FROM push_mail_watch WHERE updatedat < ?`, [before]),
   };
 }
