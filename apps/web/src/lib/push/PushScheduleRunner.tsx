@@ -7,6 +7,7 @@ import { useOnlineSync } from "@/lib/online-sync/OnlineSyncProvider";
 import { onWorkerMessage } from "@/lib/trpc/browser-link";
 import { hasWorkerBackend, trpcVanillaClient } from "@/lib/trpc/client";
 import { mirrorAvailable } from "@/lib/mail-mirror";
+import { renewMailWatch } from "@/lib/mail-push-watch";
 import { CALENDAR_CHANGED_EVENT } from "@/lib/calendar-mirror";
 import { calendarAccount, isCalendarConnected } from "@/lib/calendar-sync";
 import { loadFollowups, MAIL_FOLLOWUP_EVENT } from "@/lib/mail-followup";
@@ -100,6 +101,7 @@ export function PushScheduleRunner(): null {
   const syncOn = Boolean(online?.config.enabled);
   const [synced, setSynced] = useState(false);
   const accountId = calendarAccount(settings)?.accountId ?? "";
+  const clientId = settings.googleDrive.clientId.trim();
 
   useEffect(() => {
     if (online?.status === "connected") setSynced(true);
@@ -117,7 +119,12 @@ export function PushScheduleRunner(): null {
       debounce = window.setTimeout(() => send(), DEBOUNCE_MS);
     };
     const onVisibility = () => {
-      if (document.visibilityState === "hidden") send(true);
+      if (document.visibilityState === "hidden") {
+        send(true);
+        return;
+      }
+      // Le garde de 24 h de renewMailWatch évite les appels en trop à chaque retour de visibilité.
+      void renewMailWatch(clientId, online?.config).catch((err: unknown) => console.warn("[push] watch Gmail", err));
     };
     const tick = window.setInterval(() => {
       if (document.visibilityState === "visible") send();
@@ -129,6 +136,7 @@ export function PushScheduleRunner(): null {
         })
       : () => undefined;
     void ensurePushSubscription(online?.config).catch((err: unknown) => console.warn("[push] réabonnement", err));
+    void renewMailWatch(clientId, online?.config).catch((err: unknown) => console.warn("[push] watch Gmail", err));
     soon();
     for (const name of CHANGE_EVENTS) window.addEventListener(name, soon);
     document.addEventListener("visibilitychange", onVisibility);
@@ -139,7 +147,7 @@ export function PushScheduleRunner(): null {
       for (const name of CHANGE_EVENTS) window.removeEventListener(name, soon);
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [subscribed, syncOn, synced, accountId]);
+  }, [subscribed, syncOn, synced, accountId, clientId]);
 
   return null;
 }

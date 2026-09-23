@@ -62,6 +62,17 @@ async function registerOnServer(config: OnlineSyncConfig, sub: PushSubscription)
   if (!res.ok) throw refusal(res.status);
 }
 
+export async function fetchPushConfig(
+  config: OnlineSyncConfig = loadOnlineSyncConfig(),
+): Promise<{ publicKey: string; gmailTopic: string }> {
+  const res = await fetch(apiUrl(config, "/api/push/key", false));
+  const body = res.ok ? ((await res.json().catch(() => null)) as { publicKey?: unknown; gmailTopic?: unknown } | null) : null;
+  return {
+    publicKey: typeof body?.publicKey === "string" ? body.publicKey : "",
+    gmailTopic: typeof body?.gmailTopic === "string" ? body.gmailTopic : "",
+  };
+}
+
 export async function subscribePush(config: OnlineSyncConfig = loadOnlineSyncConfig()): Promise<void> {
   const permission = await Notification.requestPermission();
   if (permission !== "granted") {
@@ -71,10 +82,8 @@ export async function subscribePush(config: OnlineSyncConfig = loadOnlineSyncCon
         : "Autorisation de notifier non accordée.",
     );
   }
-  const keyRes = await fetch(apiUrl(config, "/api/push/key", false));
-  const keyBody = keyRes.ok ? ((await keyRes.json().catch(() => null)) as { publicKey?: unknown } | null) : null;
-  const key = keyBody?.publicKey;
-  if (typeof key !== "string" || !key) {
+  const { publicKey: key } = await fetchPushConfig(config);
+  if (!key) {
     throw new Error("Le serveur n'envoie pas de notifications push (clés VAPID absentes).");
   }
   const reg = await navigator.serviceWorker.getRegistration();
