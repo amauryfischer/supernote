@@ -130,3 +130,36 @@ export async function sendPushSchedule(
   if (!res.ok) throw new Error(`push schedule ${res.status}`);
   lastSent = stamp;
 }
+
+export const PUSH_PROMPT_KEY = "supernote.push.promptDismissedUntil";
+const PROMPT_SNOOZE_MS = 14 * 24 * 60 * 60_000;
+
+export type PushPrompt = "hidden" | "ask" | "protect" | "install";
+
+export function pushPromptState(config: OnlineSyncConfig = loadOnlineSyncConfig()): PushPrompt {
+  if (typeof Notification === "undefined" && pushAvailability(config) !== "ios-not-installed") return "hidden";
+  try {
+    if (Number(localStorage.getItem(PUSH_PROMPT_KEY) ?? 0) > Date.now()) return "hidden";
+  } catch {
+    /* stockage indisponible : on montre le bandeau */
+  }
+  const availability = pushAvailability(config);
+  if (availability === "ios-not-installed") return "install";
+  if (availability === "no-password") return "protect";
+  if (availability !== "ok" || Notification.permission !== "default") return "hidden";
+  return "ask";
+}
+
+export function dismissPushPrompt(): void {
+  try {
+    localStorage.setItem(PUSH_PROMPT_KEY, String(Date.now() + PROMPT_SNOOZE_MS));
+  } catch {
+    /* rien à retenir */
+  }
+}
+
+/** Permission déjà accordée : abonne sans geste. Sinon le bandeau prend le relais. */
+export async function ensurePushSubscription(config: OnlineSyncConfig = loadOnlineSyncConfig()): Promise<void> {
+  if (pushAvailability(config) !== "ok" || Notification.permission !== "granted") return;
+  await refreshPushSubscription(config);
+}

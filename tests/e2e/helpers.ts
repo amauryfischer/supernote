@@ -29,17 +29,24 @@ const AI_FLAGS = ["supernote.ai.autoTitle", "supernote.ai.autoTag", "supernote.a
  * `googleAccount` renseigne un compte Google connecté et remplace GIS par un
  * faux qui rend un jeton tout de suite ; les appels REST se simulent avec
  * `mockGoogleApis`.
+ *
+ * `password` pose un salon protégé (synchro activée, jeton présent) : requis
+ * pour que `pushAvailability()` renvoie `ok` (un salon libre ne pousse pas).
  */
-export async function bootCloud(page: Page, opts: { googleAccount?: string } = {}): Promise<void> {
+export async function bootCloud(page: Page, opts: { googleAccount?: string; password?: string } = {}): Promise<void> {
   const vaultKey = `e2e${Date.now()}${Math.round(Math.random() * 1e6)}`;
   await page.addInitScript(
-    ({ key, account, aiFlags }) => {
+    ({ key, account, aiFlags, password }) => {
       // Garde : un rechargement doit rouvrir le même coffre, pas en créer un autre.
       if (!localStorage.getItem("supernote.cloud")) {
         localStorage.setItem("supernote.cloud", "1");
         localStorage.setItem(
           "supernote.onlineSync.config",
-          JSON.stringify({ enabled: false, serverUrl: "", vaultKey: key }),
+          JSON.stringify(
+            password
+              ? { enabled: true, serverUrl: "", vaultKey: key, token: password }
+              : { enabled: false, serverUrl: "", vaultKey: key },
+          ),
         );
       }
       localStorage.setItem("supernote.onboarding.completed", "true");
@@ -64,7 +71,7 @@ export async function bootCloud(page: Page, opts: { googleAccount?: string } = {
         },
       };
     },
-    { key: vaultKey, account: opts.googleAccount ?? "", aiFlags: AI_FLAGS },
+    { key: vaultKey, account: opts.googleAccount ?? "", aiFlags: AI_FLAGS, password: opts.password ?? "" },
   );
 }
 

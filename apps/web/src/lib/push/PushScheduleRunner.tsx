@@ -12,7 +12,7 @@ import { calendarAccount, isCalendarConnected } from "@/lib/calendar-sync";
 import { loadFollowups, MAIL_FOLLOWUP_EVENT } from "@/lib/mail-followup";
 import { loadSnoozed, MAIL_SNOOZE_EVENT } from "@/lib/mail-triage";
 import {
-  refreshPushSubscription,
+  ensurePushSubscription,
   sendPushSchedule,
   type PushCategory,
   type PushScheduleRow,
@@ -128,7 +128,7 @@ export function PushScheduleRunner(): null {
           if (m.type === "ENTITY_CHANGE" && (m.op?.kind === "delete" || m.op?.payload?.typeId === "todo")) soon();
         })
       : () => undefined;
-    void refreshPushSubscription().catch((err: unknown) => console.warn("[push] réabonnement", err));
+    void ensurePushSubscription(online?.config).catch((err: unknown) => console.warn("[push] réabonnement", err));
     soon();
     for (const name of CHANGE_EVENTS) window.addEventListener(name, soon);
     document.addEventListener("visibilitychange", onVisibility);

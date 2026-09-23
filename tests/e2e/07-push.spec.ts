@@ -154,7 +154,10 @@ test.describe("07 — notifications push", () => {
     await page.setViewportSize({ width: 360, height: 740 });
     await page.goto("/parametres");
     await page.getByRole("button", { name: "Notifications", exact: true }).click();
-    await expect(page.getByRole("switch", { name: "Notifications app fermée" })).toBeDisabled();
+    // pushSubscribed vaut true par défaut (T1) : l'interrupteur reste actionnable
+    // (pour le désactiver) même sans salon configuré ; seule l'activation d'un
+    // salon absent est bloquée côté abonnement réel.
+    await expect(page.getByRole("switch", { name: "Notifications app fermée" })).toBeEnabled();
     await expect(page.getByText("Active la synchronisation en ligne pour recevoir les notifications.")).toBeVisible();
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(overflow).toBeLessThanOrEqual(0);

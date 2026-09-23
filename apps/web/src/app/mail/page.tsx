@@ -129,6 +129,7 @@ import { MailOutgoingBadge } from "@/components/mail/MailOutgoingBadge";
 import { MailFollowupBadge } from "@/components/mail/MailFollowupBadge";
 import { MailSnoozedBadge } from "@/components/mail/MailSnoozedBadge";
 import { GmailReconnectBanner } from "@/components/mail/GmailReconnectBanner";
+import { PushPromptBanner } from "@/components/mail/PushPromptBanner";
 import { useMailAutoLabel } from "@/components/mail/useMailAutoLabel";
 import { useMailSummaries } from "@/components/mail/useMailSummaries";
 import {
@@ -2307,6 +2308,7 @@ export default function MailPage() {
         style={{ borderRight: "1px solid var(--border-subtle)" }}
       >
         {isMobile && tabStrip}
+        <PushPromptBanner onOpenSync={() => navigate("/parametres")} />
         {/* Mobile : la recherche est repliée derrière l'action d'en-tête (la
             liste garde toute la hauteur) ; desktop : toujours visible. */}
         {(!isMobile || mobileSearchOpen) && searchBox}
