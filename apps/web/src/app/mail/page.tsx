@@ -683,13 +683,26 @@ export default function MailPage() {
           : null,
   );
 
-  // Deep-link `/mail?thread=<id>` : ouvre directement le fil. Consommé une fois.
+  // Deep-link `/mail?thread=<id>` : ouvre le fil. Avec `&action=archive|read`
+  // (venu d'une action de notification sans jeton Gmail côté SW), le fil n'est
+  // pas ouvert : on réutilise les mêmes chemins de triage que la liste.
   useEffect(() => {
     const tid = searchParams.get("thread");
     if (!tid || !connected || !clientId) return;
-    void openThread(tid);
+    const action = searchParams.get("action");
+    if (action === "archive") {
+      triageThread(tid, "archive");
+    } else if (action === "read") {
+      void commitMutation(
+        { threadId: tid, kind: "modifyLabels", removeLabelIds: ["UNREAD"] },
+        () => markThreadRead(clientId, tid),
+      ).catch((err) => console.error(err));
+    } else {
+      void openThread(tid);
+    }
     const next = new URLSearchParams(searchParams);
     next.delete("thread");
+    next.delete("action");
     setSearchParams(next, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, connected, clientId]);
