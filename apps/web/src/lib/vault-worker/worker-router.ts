@@ -222,9 +222,9 @@ function ftsRebuild(db: Database, vaultId: string): void {
        FROM entity e
        LEFT JOIN entity_tag et ON et.entityId = e.id
        LEFT JOIN tag t ON t.id = et.tagId
-       WHERE e.vaultId = ?
+       WHERE e.vaultId = ? AND e.typeId != ?
        GROUP BY e.id`,
-      [vaultId],
+      [vaultId, EMAIL_AI_CACHE_TYPE_ID],
     ),
   );
   for (const r of allEntities) {
@@ -4179,7 +4179,7 @@ export function buildRouter(
     for (const op of ops ?? []) {
       try {
         const existing = row(db.exec(
-          `SELECT id, filePath, updatedAt, sourceVaultId FROM entity WHERE id = ?`,
+          `SELECT id, typeId, fields, filePath, updatedAt, sourceVaultId FROM entity WHERE id = ?`,
           [op.entityId],
         ));
         const existingTs = existing ? Date.parse(existing["updatedAt"] as string) || 0 : 0;
@@ -4221,6 +4221,7 @@ export function buildRouter(
             ftsRemove(db, op.entityId);
             mentionsRemove(db, op.entityId);
             tombstoneAdd(db, op.entityId); // block reindex resurrection
+            if (existing["typeId"] === EMAIL_AI_CACHE_TYPE_ID) dropMirroredThread(existing["fields"]);
             applied++;
           } else {
             skipped++;
@@ -4361,23 +4362,30 @@ export function buildRouter(
         tombstoneClear(db, op.entityId);
         db.run(`DELETE FROM entity_tag WHERE entityId = ?`, [op.entityId]);
         await applyEntityTags(db, vaultId, op.entityId, payload.tags ?? [], payload.updatedAt);
-        ftsAdd(db, {
-          id: op.entityId,
-          typeId: payload.typeId,
-          title: deriveTitle(JSON.stringify(fields), payload.filePath),
-          body: payload.body ?? "",
-          tags: (payload.tags ?? []).join(" "),
-          path: derivePath(storedPath),
-        });
-        indexMentions(db, vaultId, op.entityId, payload.body ?? "");
+        // Le cache mail n'est pas une note : l'indexer ferait remonter objets et
+        // extraits de mails dans la recherche globale.
+        if (payload.typeId === EMAIL_AI_CACHE_TYPE_ID) {
+          ftsRemove(db, op.entityId);
+        } else {
+          ftsAdd(db, {
+            id: op.entityId,
+            typeId: payload.typeId,
+            title: deriveTitle(JSON.stringify(fields), payload.filePath),
+            body: payload.body ?? "",
+            tags: (payload.tags ?? []).join(" "),
+            path: derivePath(storedPath),
+          });
+          indexMentions(db, vaultId, op.entityId, payload.body ?? "");
+        }
 
-        // Dénormalisation sync → mail_thread : quand un email_ai_cache arrive
-        // d'un autre device, écrire les résultats AI dans la ligne mail_thread
-        // correspondante pour que listThreads les expose sans jointure.
+        // Dénormalisation sync → mail_thread : un autre appareil a lu Gmail pour
+        // nous (miroir partagé) ou a calculé l'IA d'un fil.
         if (payload.typeId === EMAIL_AI_CACHE_TYPE_ID) {
           const tid = fields["eac_thread_id"] as string | undefined;
           const acct = fields["eac_account_email"] as string | undefined;
-          if (tid && acct) {
+          if (tid === MAIL_STATE_THREAD_ID && acct) adoptSharedMailState(acct, fields);
+          else if (tid && acct) {
+            upsertSharedMailThread(acct, tid, fields);
             db.run(
               `UPDATE mail_thread
                  SET aiCategory          = COALESCE(?, aiCategory),
@@ -4894,6 +4902,118 @@ export function buildRouter(
   const emailAiCacheEntityId = (accountId: string, threadId: string): string =>
     `eac_${accountId.replace(/[^a-zA-Z0-9]/g, "_")}_${threadId}`;
 
+  // Miroir partagé : le premier appareil qui lit Gmail publie fils, labels et
+  // curseur via les entités email_ai_cache ; les autres les reçoivent au lieu de
+  // relire Gmail (quota par minute et par utilisateur, tous appareils cumulés).
+  // L'entité portant ce faux threadId transporte le curseur et les labels.
+  const MAIL_STATE_THREAD_ID = "__state";
+
+  const parseFields = (json: unknown): Record<string, unknown> => {
+    try { return JSON.parse((json as string) || "{}") as Record<string, unknown>; } catch { return {}; }
+  };
+
+  const hasPendingMailOp = (accountId: string, threadId: string): boolean =>
+    !!row(db.exec(
+      `SELECT 1 AS x FROM mail_outbox WHERE accountId = ? AND threadId = ? AND status != 'failed' LIMIT 1`,
+      [accountId, threadId],
+    ));
+
+  type MirrorLabel = { id: string; name?: string; color?: { textColor: string; backgroundColor: string }; type?: string };
+
+  const replaceMailLabels = (accountId: string, labels: MirrorLabel[], ts: number): void => {
+    // Liste vide = échec probable de labels.list côté client, on ne purge pas.
+    if (labels.length === 0) return;
+    db.run(
+      `DELETE FROM mail_label WHERE accountId = ? AND id NOT IN (${labels.map(() => "?").join(", ")})`,
+      [accountId, ...labels.map((l) => l.id)],
+    );
+    for (const l of labels) {
+      db.run(
+        `INSERT INTO mail_label (accountId, id, name, colorJson, type, updatedAt)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(accountId, id) DO UPDATE SET
+           name = excluded.name, colorJson = excluded.colorJson, type = excluded.type, updatedAt = excluded.updatedAt`,
+        [accountId, l.id, l.name ?? "", l.color ? JSON.stringify(l.color) : null, l.type ?? null, ts],
+      );
+    }
+  };
+
+  // Un fil avec une op locale en attente garde son état optimiste : le reçu est
+  // antérieur à l'intention de l'utilisateur sur cet appareil.
+  const upsertSharedMailThread = (accountId: string, threadId: string, f: Record<string, unknown>): void => {
+    if (typeof f["eac_label_ids"] !== "string" || hasPendingMailOp(accountId, threadId)) return;
+    db.run(
+      `INSERT INTO mail_thread
+         (accountId, id, subject, fromName, fromEmail, snippet, lastDate, lastInternalDate, labelIds, messagesLoaded, updatedAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
+       ON CONFLICT(accountId, id) DO UPDATE SET
+         subject = excluded.subject,
+         fromName = excluded.fromName,
+         fromEmail = excluded.fromEmail,
+         snippet = excluded.snippet,
+         lastDate = excluded.lastDate,
+         lastInternalDate = excluded.lastInternalDate,
+         labelIds = excluded.labelIds,
+         updatedAt = excluded.updatedAt`,
+      [
+        accountId,
+        threadId,
+        String(f["eac_subject"] ?? ""),
+        String(f["eac_from_name"] ?? ""),
+        String(f["eac_from_email"] ?? ""),
+        String(f["eac_snippet"] ?? ""),
+        String(f["eac_date"] ?? ""),
+        Number(f["eac_internal_date"]) || 0,
+        f["eac_label_ids"],
+        Date.now(),
+      ],
+    );
+  };
+
+  const dropMirroredThread = (fieldsJson: unknown): void => {
+    const f = parseFields(fieldsJson);
+    const tid = f["eac_thread_id"];
+    const acct = f["eac_account_email"];
+    if (typeof tid !== "string" || typeof acct !== "string" || tid === MAIL_STATE_THREAD_ID) return;
+    if (hasPendingMailOp(acct, tid)) return;
+    db.run(`DELETE FROM mail_message WHERE accountId = ? AND threadId = ?`, [acct, tid]);
+    db.run(`DELETE FROM mail_thread WHERE accountId = ? AND id = ?`, [acct, tid]);
+  };
+
+  const isHistoryId = (v: unknown): v is string => typeof v === "string" && /^\d+$/.test(v);
+
+  const adoptSharedMailState = (accountId: string, f: Record<string, unknown>): void => {
+    const ts = Date.now();
+    const incoming = f["eac_history_id"];
+    if (isHistoryId(incoming)) {
+      const cur = row(db.exec(`SELECT historyId FROM mail_sync_state WHERE accountId = ?`, [accountId]))?.["historyId"];
+      // Jamais reculer : un curseur plus ancien ferait relire des fils déjà vus.
+      if (!isHistoryId(cur) || BigInt(incoming) > BigInt(cur)) {
+        db.run(
+          `INSERT INTO mail_sync_state (accountId, historyId, lastFullSyncAt, lastSyncAt, updatedAt)
+           VALUES (?, ?, 0, ?, ?)
+           ON CONFLICT(accountId) DO UPDATE SET
+             historyId = excluded.historyId, lastSyncAt = excluded.lastSyncAt, updatedAt = excluded.updatedAt`,
+          [accountId, incoming, ts, ts],
+        );
+      }
+    }
+    if (typeof f["eac_labels_json"] === "string") {
+      const labels = parseFields(f["eac_labels_json"]);
+      if (Array.isArray(labels)) replaceMailLabels(accountId, labels as MirrorLabel[], ts);
+    }
+  };
+
+  const deleteEmailAiCacheEntity = (accountId: string, threadId: string): void => {
+    const entityId = emailAiCacheEntityId(accountId, threadId);
+    const existing = row(db.exec(`SELECT fields FROM entity WHERE id = ?`, [entityId]));
+    if (!existing) return;
+    db.run(`DELETE FROM entity WHERE id = ?`, [entityId]);
+    tombstoneAdd(db, entityId);
+    const previous = { id: entityId, typeId: EMAIL_AI_CACHE_TYPE_ID, fields: parseFields(existing["fields"]), sourceVaultId: null };
+    try { hooks.onEntityDeleted?.(entityId, previous); } catch (e) { console.warn("[hook] onEntityDeleted (email_ai_cache)", e); }
+  };
+
   const upsertEmailAiCacheEntity = (
     accountId: string,
     threadId: string,
@@ -4906,6 +5026,9 @@ export function buildRouter(
       const oldFields: Record<string, unknown> = (() => {
         try { return JSON.parse((existing["fields"] as string) || "{}"); } catch { return {}; }
       })();
+      // Chaque synchro republie toute la boîte : sans ce filtre, chaque tick
+      // enverrait une op par fil et par appareil.
+      if (Object.entries(patch).every(([k, v]) => oldFields[k] === v)) return;
       const merged = { ...oldFields, ...patch };
       db.run(
         `UPDATE entity SET fields = ?, updatedAt = ? WHERE id = ?`,
@@ -5033,7 +5156,7 @@ export function buildRouter(
     // Batch entier en une transaction : le DELETE des messages d'un thread suivi
     // de leur ré-INSERT ne peut plus laisser un thread vidé sur disque si l'onglet
     // meurt au milieu, et on fait un seul commit au lieu d'un par statement.
-    return runInTransaction(db, () => {
+    const result = runInTransaction(db, () => {
     let threadsUpserted = 0;
     let messagesUpserted = 0;
     let removed = 0;
@@ -5115,29 +5238,11 @@ export function buildRouter(
       );
     }
 
-    // Liste complète des labels Gmail : on oublie ceux supprimés depuis. Liste vide = échec
-    // probable de labels.list côté client, on ne purge pas.
-    if (labels?.length) {
-      db.run(
-        `DELETE FROM mail_label WHERE accountId = ? AND id NOT IN (${labels.map(() => "?").join(", ")})`,
-        [accountId, ...labels.map((l) => l.id)],
-      );
-    }
-    for (const l of labels ?? []) {
-      db.run(
-        `INSERT INTO mail_label (accountId, id, name, colorJson, type, updatedAt)
-         VALUES (?, ?, ?, ?, ?, ?)
-         ON CONFLICT(accountId, id) DO UPDATE SET
-           name = excluded.name, colorJson = excluded.colorJson, type = excluded.type, updatedAt = excluded.updatedAt`,
-        [accountId, l.id, l.name ?? "", l.color ? JSON.stringify(l.color) : null, l.type ?? null, ts],
-      );
-    }
+    replaceMailLabels(accountId, labels ?? [], ts);
 
     for (const id of removeThreadIds ?? []) {
       db.run(`DELETE FROM mail_message WHERE accountId = ? AND threadId = ?`, [accountId, id]);
-      const res = db.exec(`SELECT changes() AS c`);
       db.run(`DELETE FROM mail_thread WHERE accountId = ? AND id = ?`, [accountId, id]);
-      void res;
       removed++;
     }
 
@@ -5157,6 +5262,27 @@ export function buildRouter(
 
     return { threads: threadsUpserted, messages: messagesUpserted, removed };
     });
+
+    // Fils avant curseur : un appareil qui adopte le curseur a déjà reçu les fils.
+    runInTransaction(db, () => {
+      for (const t of threads ?? []) {
+        upsertEmailAiCacheEntity(accountId, t.id, {
+          eac_subject: t.subject ?? "",
+          eac_from_name: t.from?.name ?? "",
+          eac_from_email: t.from?.email ?? "",
+          eac_snippet: t.snippet ?? "",
+          eac_date: t.date ?? "",
+          eac_internal_date: t.internalDate ?? 0,
+          eac_label_ids: JSON.stringify(t.labelIds ?? []),
+        });
+      }
+      for (const id of removeThreadIds ?? []) deleteEmailAiCacheEntity(accountId, id);
+      const state: Record<string, unknown> = {};
+      if (historyId) state["eac_history_id"] = historyId;
+      if (labels?.length) state["eac_labels_json"] = JSON.stringify(labels);
+      if (Object.keys(state).length > 0) upsertEmailAiCacheEntity(accountId, MAIL_STATE_THREAD_ID, state);
+    });
+    return result;
   };
 
   const mailApplyLocalMutation = async (input: unknown): Promise<unknown> => {

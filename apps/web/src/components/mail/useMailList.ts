@@ -72,6 +72,8 @@ export interface MailListApi {
    * la sélection ni afficher de squelette. No-op hors mirror.
    */
   refresh: () => Promise<void>;
+  /** Relit le mirror local sans appeler Gmail. No-op hors mirror. */
+  rereadMirror: () => Promise<void>;
   /** Fils en boîte côté Gmail quand le mirror n'en a copié qu'une partie (constat du dernier sync) ; sinon null. */
   truncatedTotal: number | null;
   loadMore: (q: string) => Promise<void>;
@@ -224,6 +226,18 @@ export function useMailList({
     });
   }, [accountId, syncAndReread]);
 
+  const rereadMirror = useCallback(async () => {
+    if (!mirrorAvailable() || !accountId) return;
+    const reqId = ++loadReqRef.current;
+    const [items, labels] = await Promise.all([
+      mirrorListThreads(accountId, { labelId: "INBOX", limit: 500 }),
+      mirrorListLabels(accountId),
+    ]);
+    if (reqId !== loadReqRef.current) return;
+    applyListData(items, labels, undefined);
+    setListError(null);
+  }, [accountId, applyListData]);
+
   // Page suivante : APPEND aux items cumulés puis RECONSTRUCTION de l'overlay sur
   // l'ensemble (sinon le regroupement serait calculé page par page, donc faux).
   // Déduplication par id (Gmail peut renvoyer un fil déjà vu en bord de page).
@@ -336,6 +350,7 @@ export function useMailList({
     moreLoading,
     loadList,
     refresh,
+    rereadMirror,
     truncatedTotal,
     loadMore,
     rebuild,

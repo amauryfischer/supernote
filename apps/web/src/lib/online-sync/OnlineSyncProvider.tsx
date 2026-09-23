@@ -31,6 +31,7 @@ import type { EntityOp } from "@supernote/sync";
 import { useVault } from "@/lib/pwa/PwaVaultSetup";
 import { onWorkerMessage } from "@/lib/trpc/browser-link";
 import { trpcVanillaClient } from "@/lib/trpc/client";
+import { MAIL_MIRROR_RECEIVED_EVENT } from "@/lib/mail-mirror";
 import {
   loadOnlineSyncConfig,
   saveOnlineSyncConfig,
@@ -192,6 +193,9 @@ export function OnlineSyncProvider({ children }: { children: React.ReactNode }) 
               detail: { indexed: ops.length, total: ops.length },
             }),
           );
+          if (ops.some((op) => op.entityId.startsWith("eac_"))) {
+            window.dispatchEvent(new CustomEvent(MAIL_MIRROR_RECEIVED_EVENT));
+          }
         }
       },
       getSnapshot: async () => {
@@ -243,6 +247,9 @@ export function OnlineSyncProvider({ children }: { children: React.ReactNode }) 
         // Les entités montées (provenance ≠ null) ne vont JAMAIS dans le salon
         // du père — le MountSyncManager les route vers leur salon d'origine.
         if (m.sourceVaultId) return;
+        // Le cache mail (objets, expéditeurs, extraits, résumés IA) ne part que
+        // dans un salon protégé : un salon libre se lit avec son seul nom.
+        if (m.op?.entityId.startsWith("eac_") && !config.token.trim()) return;
         if (m.op) client.enqueue([m.op]);
       }
     });

@@ -33,8 +33,11 @@ const AI_FLAGS = ["supernote.ai.autoTitle", "supernote.ai.autoTag", "supernote.a
  * `password` pose un salon protégé (synchro activée, jeton présent) : requis
  * pour que `pushAvailability()` renvoie `ok` (un salon libre ne pousse pas).
  */
-export async function bootCloud(page: Page, opts: { googleAccount?: string; password?: string } = {}): Promise<void> {
-  const vaultKey = `e2e${Date.now()}${Math.round(Math.random() * 1e6)}`;
+export async function bootCloud(
+  page: Page,
+  opts: { googleAccount?: string; password?: string; vaultKey?: string } = {},
+): Promise<void> {
+  const vaultKey = opts.vaultKey ?? `e2e${Date.now()}${Math.round(Math.random() * 1e6)}`;
   await page.addInitScript(
     ({ key, account, aiFlags, password }) => {
       // Garde : un rechargement doit rouvrir le même coffre, pas en créer un autre.

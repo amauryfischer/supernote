@@ -1,6 +1,6 @@
 # Communication
 
-*Last Updated: 2026-09-23*
+*Last Updated: 2026-09-24*
 
 Trois canaux : le thread principal parle au worker, le worker parle au thread principal, et l'application parle au serveur de synchronisation.
 
@@ -69,6 +69,10 @@ La configuration vit entièrement en `localStorage`, jamais en IndexedDB, pour n
 ## Gmail
 
 Appels REST directs depuis le navigateur, token GIS mis en cache par couverture de scopes. Tout passe par `googleRequest` (`apps/web/src/lib/google-api.ts`, partagé avec l'agenda ; `gmailRequest` n'en est qu'un préfixe d'URL) : sur 401 le token est oublié (`forgetAccessToken`, jamais `clearAccessToken` qui révoque tout le consentement) et l'appel rejoué une fois ; au second échec, l'état « reconnexion requise » est levé (`gmailReconnectRequired()`, événement `GMAIL_AUTH_EVENT`) et plus rien ne retente seul. `reconnectGmail` doit partir d'un geste utilisateur, les popups GIS sont bloquées sinon.
+
+**Quota.** Gmail compte ~15 000 unités par minute et par utilisateur, tous appareils et onglets cumulés (`threads.get` = 10). Sur un 403/429 dont le message cite « quota », `googleRequest` refuse sur place tous les appels de la même famille pendant 60 s : sans ça, un pool `mapPool` en vol continuait de tirer après le premier refus. `/mail` attend le worker avant `loadList`, sinon le repli « live » relisait une page entière de fils à chaque ouverture à froid.
+
+**Miroir partagé par le salon.** Un appareil qui lit Gmail publie son miroir en entités `email_ai_cache` (voir [database.md](database.md)) ; les autres repartent du curseur reçu, donc un simple `history.list`. ⚠️ `OnlineSyncProvider` ne pousse les ops `eac_*` (miroir **et** cache IA) que si le salon a un mot de passe (`config.token`) : un salon libre se lit avec son seul nom. À réception, il émet `MAIL_MIRROR_RECEIVED_EVENT` (`lib/mail-mirror.ts`) et `/mail` relit le miroir local (`useMailList.rereadMirror`) sans appeler Gmail. Oracle : `tests/e2e/09-mail-shared-mirror.spec.ts`.
 
 Les écritures (triage, labels, étoile, lu) passent par l'outbox `mail_outbox` : échec réseau, jeton, 429 ou 5xx ne comptent pas comme tentative, un refus 4xx attend avec backoff. Pas de poll : la vidange part sur `MAIL_OUTBOX_EVENT` (`lib/mail-mirror.ts`), `online`, `visibilitychange`, la reconnexion et le vault prêt. `MailFollowupRunner`, monté dans toute l'app, porte aussi le réveil des reports et les relances.
 

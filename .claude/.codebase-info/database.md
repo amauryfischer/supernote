@@ -1,6 +1,6 @@
 # Stockage et schéma
 
-*Last Updated: 2026-09-23*
+*Last Updated: 2026-09-24*
 
 Le coffre est un SQLite qui tourne **dans un Web Worker du navigateur**. Côté serveur, une base optionnelle porte l'op-log de la synchronisation en ligne, les abonnements push et le partage par lien (voir la dernière section).
 
@@ -44,7 +44,9 @@ Conséquence directe : le worker est un **pass-through**. Ajouter une propriét�
 
 ## Miroir Google Agenda
 
-Tables `cal_*`, locales à l'appareil comme le miroir mail (hors op-log). Routes dans un module à part, `lib/vault-worker/calendar-routes.ts`, branché par `buildCalendarRoutes` dans la map de `worker-router.ts` ; les helpers SQL partagés (`row`, `rows`, `runInTransaction`) vivent dans `lib/vault-worker/sql.ts`. `calendar.listEvents` rejoint `entity` pour renvoyer la note de réunion liée (`fields.gcalEventId`), seul lien qui voyage entre appareils. Une écriture en file (`cal_outbox`, id provisoire `local-…`) survit à une synchro complète ; son acquittement remplace l'id provisoire et rafraîchit l'etag des ops suivantes du même événement (sinon 412). `calendar.overlay` lit les todos datés et les champs `date` de toutes les bases. `cal_event.sourceRef` (migration `ALTER TABLE` dans `worker.ts`) recopie `extendedProperties.private.supernoteRef` : la référence de la tâche qu'un bloc planifie (voir [communication.md](communication.md)).
+Tables `cal_*`, locales à l'appareil (hors op-log).
+
+**Miroir mail partagé.** Les tables `mail_*` restent hors op-log, mais `mailSyncUpsert` (`worker-router.ts`) republie ensuite fils INBOX, labels et curseur `historyId` sous forme d'entités synthétiques `email_ai_cache` (id `eac_<compte>_<threadId>`, curseur et labels sur `eac_<compte>___state`), seulement si un champ a changé. `syncApplyOps` les redéverse dans `mail_thread`/`mail_label`/`mail_sync_state` : un fil avec une op `mail_outbox` en attente garde son état local, le curseur n'est adopté que s'il avance. Ces entités sont exclues de `entity_fts` (réception et `ftsRebuild`), sinon objets et extraits de mails remonteraient dans la recherche globale. Le corps des messages (`mail_message`) ne voyage pas. Routes dans un module à part, `lib/vault-worker/calendar-routes.ts`, branché par `buildCalendarRoutes` dans la map de `worker-router.ts` ; les helpers SQL partagés (`row`, `rows`, `runInTransaction`) vivent dans `lib/vault-worker/sql.ts`. `calendar.listEvents` rejoint `entity` pour renvoyer la note de réunion liée (`fields.gcalEventId`), seul lien qui voyage entre appareils. Une écriture en file (`cal_outbox`, id provisoire `local-…`) survit à une synchro complète ; son acquittement remplace l'id provisoire et rafraîchit l'etag des ops suivantes du même événement (sinon 412). `calendar.overlay` lit les todos datés et les champs `date` de toutes les bases. `cal_event.sourceRef` (migration `ALTER TABLE` dans `worker.ts`) recopie `extendedProperties.private.supernoteRef` : la référence de la tâche qu'un bloc planifie (voir [communication.md](communication.md)).
 
 ## Modèles de notes : des entités, pas la table `template`
 

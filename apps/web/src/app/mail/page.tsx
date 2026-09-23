@@ -87,10 +87,12 @@ import {
   mirrorAvailable,
   mirrorApplyMutation,
   mirrorCancelOutbox,
+  MAIL_MIRROR_RECEIVED_EVENT,
   type MirrorMutation,
 } from "@/lib/mail-mirror";
 import { syncThreadDetail } from "@/lib/mail-sync";
 import { isWorkerReady } from "@/lib/trpc/browser-link";
+import { hasWorkerBackend } from "@/lib/trpc/client";
 import { isAiConfigured } from "@/lib/mail-ai";
 import { toggleRowSelection, pruneSelection } from "@/lib/mail-selection";
 import {
@@ -474,6 +476,7 @@ export default function MailPage() {
     moreLoading,
     loadList,
     refresh: refreshList,
+    rereadMirror,
     truncatedTotal,
     loadMore,
     searchLocal,
@@ -524,6 +527,9 @@ export default function MailPage() {
   const drafts = useMailDrafts(thread, settings.gmail.connectedEmail, selfAddresses);
 
   useEffect(() => {
+    // Un worker qui boote va servir le miroir : charger avant lirait toute la
+    // page de fils sur Gmail pour rien.
+    if (hasWorkerBackend() && !workerReady) return;
     if (connected) void loadList(DEFAULT_MAIL_QUERY);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connected, workerReady]);
@@ -564,19 +570,24 @@ export default function MailPage() {
       if (error) void loadList(q);
       else tick();
     };
+    const onMirrorReceived = () => {
+      if (refreshStateRef.current.idle) void rereadMirror().catch(() => undefined);
+    };
     const id = window.setInterval(tick, 120_000);
+    window.addEventListener(MAIL_MIRROR_RECEIVED_EVENT, onMirrorReceived);
     window.addEventListener("online", tick);
     window.addEventListener(MAIL_SNOOZE_EVENT, tick);
     window.addEventListener(GMAIL_AUTH_EVENT, onAuth);
     document.addEventListener("visibilitychange", tick);
     return () => {
       window.clearInterval(id);
+      window.removeEventListener(MAIL_MIRROR_RECEIVED_EVENT, onMirrorReceived);
       window.removeEventListener("online", tick);
       window.removeEventListener(MAIL_SNOOZE_EVENT, tick);
       window.removeEventListener(GMAIL_AUTH_EVENT, onAuth);
       document.removeEventListener("visibilitychange", tick);
     };
-  }, [connected, clientId, refreshList, loadList]);
+  }, [connected, clientId, refreshList, loadList, rereadMirror]);
 
   // ── Ouverture d'un fil ──────────────────────────────────────────────────────
   // Intention différée : `r` / `a` / `f` / `l` sur une ligne de la LISTE ouvrent
