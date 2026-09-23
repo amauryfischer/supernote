@@ -36,6 +36,8 @@ async function openDb() {
     const { default: pg } = await import("pg");
     // Un tour toutes les 30 s : pas besoin d'occuper plus de connexions de l'addon.
     const pool = new pg.Pool({ connectionString: url, max: 2 });
+    // Un client inactif coupé par Postgres tuerait le process sans ce listener.
+    pool.on("error", (err) => console.error("[push-store] pg", err));
     const query = (sql, params) => {
       let i = 0;
       return pool.query(sql.replace(/\?/g, () => `$${++i}`), params);

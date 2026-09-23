@@ -40,6 +40,8 @@ async function openSqlite() {
 async function openPg(url) {
   const { default: pg } = await import("pg");
   const pool = new pg.Pool({ connectionString: url, max: 5 });
+  // Un client inactif coupé par Postgres tuerait le process sans ce listener.
+  pool.on("error", (err) => console.error("[share-store] pg", err));
   // Les requêtes sont écrites une fois avec `?` ; Postgres attend `$1…$n`.
   const query = (sql, params) => {
     let i = 0;

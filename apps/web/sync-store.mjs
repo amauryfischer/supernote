@@ -208,6 +208,8 @@ async function createSqliteStore() {
 async function createPgStore(url) {
   const { default: pg } = await import("pg");
   const pool = new pg.Pool({ connectionString: url, max: 5 });
+  // Un client inactif coupé par Postgres tuerait le process sans ce listener.
+  pool.on("error", (err) => console.error("[sync-store] pg", err));
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS sync_op (

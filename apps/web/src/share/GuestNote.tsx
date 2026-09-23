@@ -52,6 +52,8 @@ export function GuestNote({
       name: access.resourceId,
       document: doc,
       token: access.accessToken,
+      // Un lecteur ne publie rien : sans ce battement, le serveur le coupe et il se reconnecte en boucle.
+      forceSyncInterval: 20000,
       onSynced: () => setSynced(true),
       // Une panne serveur transitoire ("unavailable") n'est pas un refus définitif.
       onAuthenticationFailed: ({ reason }) => {

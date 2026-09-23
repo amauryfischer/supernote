@@ -27,15 +27,10 @@ import {
   formatInlineMetadata,
   type TodoImportance,
 } from "@/lib/todos/inlineMetadata";
+import { refuseIfShared } from "@/lib/share/sharedNoteGuard";
 
 /** Entity type id — still used for standalone todos (no source note). */
 export const TODO_TYPE_ID = "todo";
-
-// En co-édition, Yjs réécrit le corps et effacerait la modification.
-function refuseIfShared(fields: Record<string, unknown>, message: string): void {
-  const shareId = fields["shareId"];
-  if (typeof shareId === "string" && shareId) throw new Error(message);
-}
 
 /**
  * Toggle a todo's done state. For notes-derived todos, rewrites the

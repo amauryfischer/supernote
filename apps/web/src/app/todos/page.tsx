@@ -824,6 +824,7 @@ export default function TodosPage() {
   const handleBulkSetDone = useCallback(
     async (done: boolean) => {
       const rows = rowsNeedingDone(selectedRows, done);
+      let refusal: string | null = null;
       for (const row of rows) {
         try {
           if (row.kind === "standalone") {
@@ -839,13 +840,13 @@ export default function TodosPage() {
               done,
             });
           }
-        } catch {
-          /* keep going — best-effort across the batch */
+        } catch (err) {
+          refusal ??= err instanceof Error ? err.message : String(err);
         }
       }
       await invalidateAll();
       clearSelection();
-      showToast(done ? "Tâches complétées" : "Tâches rouvertes");
+      showToast(refusal ?? (done ? "Tâches complétées" : "Tâches rouvertes"));
     },
     [selectedRows, invalidateAll, clearSelection, showToast],
   );

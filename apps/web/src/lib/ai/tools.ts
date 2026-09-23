@@ -21,6 +21,7 @@ import {
   DEFAULT_EMBED_MODEL,
 } from "@/lib/rag";
 import { OLLAMA_HOST_KEY, DEFAULT_OLLAMA_HOST } from "@/hooks/useAutoTitle";
+import { refuseIfShared } from "@/lib/share/sharedNoteGuard";
 
 interface NoteSummary {
   id: string;
@@ -265,6 +266,11 @@ export const updateNote: AgentTool = {
     if (Array.isArray(args["tags"])) {
       input.tags = (args["tags"] as unknown[]).map((t) => String(t));
     }
+    const current = await trpcVanillaClient.entities.get.query({ id });
+    refuseIfShared(
+      current.fields,
+      "Note partagée : demande à l'utilisateur de modifier la note dans l'éditeur",
+    );
     const updated = await trpcVanillaClient.entities.update.mutate(input);
     return {
       id: updated.id,

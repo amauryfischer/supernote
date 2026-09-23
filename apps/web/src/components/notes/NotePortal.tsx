@@ -27,6 +27,7 @@ import { ArrowSquareOut } from "@phosphor-icons/react";
 import { useRouter } from "next/navigation";
 import { SupernoteEditor } from "@supernote/editor";
 import { createVaultFileAdapter } from "@/lib/vault-file-adapter";
+import { isSharedNote } from "@/lib/share/sharedNoteGuard";
 import type { EntityRef } from "@supernote/editor";
 import { trpc } from "@/lib/trpc/client";
 import { renderInlineDatabase } from "./InlineDatabaseRenderer";
@@ -96,6 +97,8 @@ function NotePortal({ target, alias }: { target: string; alias?: string }): Reac
     { enabled: enabled && !!hitId },
   );
   const note = noteQuery.data ?? null;
+  // Note en co-édition : Yjs réécrit le corps, une sauvegarde du portail serait perdue.
+  const shared = note ? isSharedNote(note.fields) : false;
 
   // Body initial capturé une seule fois : les invalidations ultérieures
   // (déclenchées par nos propres saves) ne doivent pas remonter l'éditeur.
@@ -121,6 +124,7 @@ function NotePortal({ target, alias }: { target: string; alias?: string }): Reac
   const handleChange = useCallback(
     (markdown: string) => {
       if (!hitId) return;
+      if (shared) return;
       if (debounceRef.current) clearTimeout(debounceRef.current);
       setSaveState("saving");
       debounceRef.current = setTimeout(async () => {
@@ -134,7 +138,7 @@ function NotePortal({ target, alias }: { target: string; alias?: string }): Reac
         }
       }, SAVE_DEBOUNCE_MS);
     },
-    [hitId, updateMutation],
+    [hitId, shared, updateMutation],
   );
 
   // Resolvers minimaux pour les wikilinks/mentions de l'éditeur imbriqué.
@@ -252,7 +256,9 @@ function NotePortal({ target, alias }: { target: string; alias?: string }): Reac
         >
           {title}
         </span>
-        <span style={{ color: "var(--text-muted)" }}>portail</span>
+        <span style={{ color: "var(--text-muted)" }}>
+          {shared ? "portail — note partagée, édition dans la note" : "portail"}
+        </span>
         <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 6 }}>
           {saveState === "saving" && <span style={{ color: "var(--text-muted)" }}>…</span>}
           {saveState === "saved" && <span style={{ color: "var(--text-muted)" }}>✓</span>}
@@ -283,6 +289,7 @@ function NotePortal({ target, alias }: { target: string; alias?: string }): Reac
             renderEmbed={renderNotePortal}
             renderDoodle={renderDoodle}
             files={fileAdapter}
+            readOnly={shared}
           />
         </PortalDepthContext.Provider>
       </div>

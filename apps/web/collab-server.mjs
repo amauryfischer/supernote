@@ -7,6 +7,7 @@
 import { Hocuspocus } from "@hocuspocus/server";
 import { Database } from "@hocuspocus/extension-database";
 import crossws from "crossws/adapters/node";
+import * as Y from "yjs";
 
 const MAX_PAYLOAD_BYTES = 5 * 1024 * 1024;
 
@@ -18,8 +19,11 @@ export function createCollabServer({ store, authenticate }) {
       new Database({
         fetch: ({ documentName }) => store.getDoc(documentName),
         // Le store différé peut tomber après la suppression : ne pas ressusciter la ligne.
+        // Fusion et non écrasement : deux conteneurs se chevauchent au déploiement.
         store: async ({ documentName, state }) => {
-          if (await store.getResource(documentName)) await store.putDoc(documentName, state);
+          if (!(await store.getResource(documentName))) return;
+          const existing = await store.getDoc(documentName);
+          await store.putDoc(documentName, existing ? Y.mergeUpdates([existing, state]) : state);
         },
       }),
     ],
@@ -65,7 +69,14 @@ export function createCollabServer({ store, authenticate }) {
   }
 
   return {
-    handleUpgrade: (req, socket, head) => ws.handleUpgrade(req, socket, head),
+    // Un rejet non capté ici tuerait le conteneur entier (statique, synchro et push compris).
+    handleUpgrade: async (req, socket, head) => {
+      try {
+        await ws.handleUpgrade(req, socket, head);
+      } catch (err) {
+        console.error("[collab] handleUpgrade", err);
+      }
+    },
     closeLink(resourceId, slug) {
       for (const c of connectionsOf(resourceId)) if (c.context?.slug === slug) cut(c);
     },
