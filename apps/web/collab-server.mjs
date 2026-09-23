@@ -75,6 +75,7 @@ export function createCollabServer({ store, authenticate }) {
         await ws.handleUpgrade(req, socket, head);
       } catch (err) {
         console.error("[collab] handleUpgrade", err);
+        socket.destroy();
       }
     },
     closeLink(resourceId, slug) {
