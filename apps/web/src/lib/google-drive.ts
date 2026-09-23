@@ -24,6 +24,8 @@
  * want long-lived Google credentials living in localStorage.
  */
 
+import { swKvDelete, swKvSet } from "./sw-kv";
+
 const GIS_SCRIPT_URL = "https://accounts.google.com/gsi/client";
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.readonly";
 const SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets.readonly";
@@ -38,6 +40,9 @@ const DRIVE_FILE_SCOPE = "https://www.googleapis.com/auth/drive.file";
 const OAUTH_SCOPE = `${DRIVE_SCOPE} ${SHEETS_SCOPE} ${DRIVE_FILE_SCOPE}`;
 const DRIVE_API_BASE = "https://www.googleapis.com/drive/v3";
 const SHEETS_API_BASE = "https://sheets.googleapis.com/v4/spreadsheets";
+// Chaîne dupliquée depuis gmail.ts (import impossible : gmail.ts importe déjà
+// google-drive.ts, un import retour créerait un cycle).
+const GMAIL_MODIFY_SCOPE = "https://www.googleapis.com/auth/gmail.modify";
 
 export interface DriveFile {
   id: string;
@@ -189,12 +194,20 @@ export async function requestAccessToken(
           reject(new Error("OAuth response missing access_token"));
           return;
         }
+        const grantedScopes = (response.scope ?? scope).split(" ");
         tokenCache.set(cacheKey(clientId, scope), {
           accessToken: response.access_token,
           expiresAt: Date.now() + (response.expires_in ?? 3600) * 1000,
           clientId,
-          grantedScopes: (response.scope ?? scope).split(" "),
+          grantedScopes,
         });
+        // Le SW réveillé par un push n'a pas accès à la mémoire de la page.
+        if (grantedScopes.includes(GMAIL_MODIFY_SCOPE)) {
+          void swKvSet("gmailToken", {
+            token: response.access_token,
+            expiresAt: Date.now() + (response.expires_in ?? 3600) * 1000,
+          }).catch(() => undefined);
+        }
         resolve(response.access_token);
       },
       error_callback: (err) => {
@@ -222,6 +235,7 @@ export function clearAccessToken(opts: { clientId?: string; scope?: string } = {
       }
     }
   }
+  void swKvDelete("gmailToken").catch(() => undefined);
 }
 
 /** Oublie un token refusé par l'API (401), sans révoquer : revoke retirerait tout le consentement. */
@@ -229,6 +243,7 @@ export function forgetAccessToken(accessToken: string): void {
   for (const [key, token] of [...tokenCache.entries()]) {
     if (token.accessToken === accessToken) tokenCache.delete(key);
   }
+  void swKvDelete("gmailToken").catch(() => undefined);
 }
 
 /** True si un token frais existe pour ce clientId+scope (défaut Drive). */

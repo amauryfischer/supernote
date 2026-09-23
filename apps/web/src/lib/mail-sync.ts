@@ -32,6 +32,7 @@ import {
 } from "@/lib/gmail";
 import { trpcVanillaClient } from "@/lib/trpc/client";
 import { emitOutboxChange, MAIL_SYNCED_EVENT } from "@/lib/mail-mirror";
+import { swKvSet } from "@/lib/sw-kv";
 
 /** Gmail query that defines what the mirror seeds + tracks as "the list". */
 export const MIRROR_SYNC_QUERY = "in:inbox";
@@ -305,6 +306,8 @@ export function syncMailbox(clientId: string, accountId: string): Promise<void> 
       const ok = await incrementalSync(clientId, accountId, state.historyId);
       if (!ok) await fullSync(clientId, accountId);
     }
+    const after = await trpcVanillaClient.mail.getState.query({ accountId });
+    if (after.historyId) void swKvSet("mailHistoryId", after.historyId).catch(() => undefined);
     window.dispatchEvent(new CustomEvent(MAIL_SYNCED_EVENT));
   })().finally(() => {
     inFlight.delete(accountId);

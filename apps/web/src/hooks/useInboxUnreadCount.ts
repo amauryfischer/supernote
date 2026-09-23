@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useSettings } from "@/components/settings";
 import { useGmailConnected } from "@/hooks/useGmailConnected";
 import { getInboxUnreadCount, hasGmailToken } from "@/lib/gmail";
+import { setBadge } from "@/lib/sw-kv";
 
 /** Intervalle de rafraîchissement du compteur (poll léger, 1 appel REST). */
 const POLL_MS = 120_000;
@@ -50,6 +51,7 @@ export function useInboxUnreadCount(): number {
       if (!hasGmailToken(clientId)) return;
       getInboxUnreadCount(clientId)
         .then((n) => {
+          setBadge(n);
           if (!cancelled && aliveRef.current) setCount(n);
         })
         .catch(() => {
