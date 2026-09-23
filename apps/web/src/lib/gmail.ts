@@ -392,6 +392,14 @@ function toIsoDate(raw: string): string {
   return Number.isNaN(t) ? "" : new Date(t).toISOString();
 }
 
+/** Gmail échappe `snippet` en HTML (`l&#39;EAD`) ; textarea (RCDATA) décode sans interpréter `<…>`, donc une double passe ne mange pas `<bob@x.com>`. */
+export function decodeSnippet(s: string): string {
+  if (!s.includes("&") || typeof document === "undefined") return s;
+  const ta = document.createElement("textarea");
+  ta.innerHTML = s;
+  return ta.value;
+}
+
 export function parseGmailMessage(raw: GmailRawMessage): EmailMessage {
   const p = raw.payload;
   const bodyHtml = findHtml(p);
@@ -403,7 +411,7 @@ export function parseGmailMessage(raw: GmailRawMessage): EmailMessage {
     to: parseAddressList(header(p, "To")),
     cc: parseAddressList(header(p, "Cc")),
     date: toIsoDate(header(p, "Date")),
-    snippet: raw.snippet ?? "",
+    snippet: decodeSnippet(raw.snippet ?? ""),
     bodyText: findPlainText(p),
     webLink: `https://mail.google.com/mail/u/0/#all/${raw.id}`,
     attachments: collectAttachments(p, raw.id),
@@ -460,7 +468,7 @@ export async function searchThreadsPage(
     nextPageToken?: string;
   }>(clientId, `/threads${qs}`);
   return {
-    items: (json.threads ?? []).map((t) => ({ id: t.id, snippet: t.snippet ?? "" })),
+    items: (json.threads ?? []).map((t) => ({ id: t.id, snippet: decodeSnippet(t.snippet ?? "") })),
     nextPageToken: json.nextPageToken,
   };
 }
@@ -661,7 +669,7 @@ async function getThreadListItem(clientId: string, threadId: string): Promise<Th
     subject: parsed?.subject || "(sans objet)",
     from: parsed?.from ?? { name: "", email: "" },
     date: parsed?.date ?? "",
-    snippet: json.snippet ?? parsed?.snippet ?? "",
+    snippet: json.snippet != null ? decodeSnippet(json.snippet) : (parsed?.snippet ?? ""),
     labelIds,
   };
 }

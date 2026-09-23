@@ -13,7 +13,12 @@
 
 import { trpcVanillaClient, hasWorkerBackend } from "@/lib/trpc/client";
 import { isWorkerReady } from "@/lib/trpc/browser-link";
-import type { ThreadListItem, EmailThread, GmailLabel } from "@/lib/gmail";
+import { decodeSnippet, type ThreadListItem, type EmailThread, type GmailLabel } from "@/lib/gmail";
+
+// ponytail: redécode à chaque lecture pour les snippets écrits échappés avant le décodage à la source ; seul `&amp;lt;` littéral se dégrade, à retirer après un reseed du miroir.
+function withDecodedSnippets(items: ThreadListItem[]): ThreadListItem[] {
+  return items.map((t) => ({ ...t, snippet: decodeSnippet(t.snippet) }));
+}
 
 /** True when the local mirror can be read/written (worker mounted + ready). */
 export function mirrorAvailable(): boolean {
@@ -77,7 +82,7 @@ export async function mirrorListThreads(
   filter: MirrorThreadFilter = {},
 ): Promise<ThreadListItem[]> {
   const res = await trpcVanillaClient.mail.listThreads.query({ accountId, ...filter });
-  return res.items;
+  return withDecodedSnippets(res.items);
 }
 
 /** Filtres de recherche locale (déjà analysés côté client). */
@@ -107,7 +112,7 @@ export async function mirrorSearchThreads(
   filter: MirrorSearchFilter,
 ): Promise<ThreadListItem[]> {
   const res = await trpcVanillaClient.mail.searchThreads.query({ accountId, ...filter });
-  return res.items;
+  return withDecodedSnippets(res.items);
 }
 
 /** Read mirrored Gmail labels (GmailLabel-shaped). */
