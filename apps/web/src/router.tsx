@@ -93,6 +93,7 @@ export const router: any = createBrowserRouter([
 
       // ── Mail (Gmail) ──────────────────────────────────────────────────
       { path: "mail", lazy: lazyPage(() => import("./app/mail/page")) },
+      { path: "share", lazy: lazyPage(() => import("./app/share/page")) },
       { path: "agenda", lazy: lazyPage(() => import("./app/agenda/page")) },
       { path: "carte", lazy: lazyPage(() => import("./app/carte/page")) },
 

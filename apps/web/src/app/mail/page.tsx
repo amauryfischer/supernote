@@ -152,6 +152,7 @@ import { confidenceThreshold } from "@/lib/mail-autolabel";
 import { prefersReducedMotion } from "@/lib/motion";
 import { useActionFeedback, FeedbackIcon } from "@/lib/action-feedback";
 import { useToast, Tooltip } from "@supernote/ui";
+import { useNewInboxNote } from "@/components/notes/hooks";
 
 type GroupRow = Extract<OverlayRow, { kind: "group" }>;
 
@@ -343,6 +344,7 @@ export default function MailPage() {
     setComposeInitial({ subject: "", body: "" });
     setComposeOpen(true);
   }, []);
+  const newInboxNote = useNewInboxNote();
 
   // Transfert : pré-remplit le compose (objet « Fwd: … » + corps cité), To vide.
   const handleForward = useCallback((prefill: { to?: string; subject: string; body: string; thread?: ForwardThread }) => {
@@ -690,6 +692,22 @@ export default function MailPage() {
     setSearchParams(next, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, connected, clientId]);
+
+  // Raccourcis PWA : `/mail?compose=1` (nouveau message) et `/mail?new=note`
+  // (nouvelle note Inbox). Pas `/?new=note` : la redirection du loader `/` →
+  // `/mail` perd la query.
+  useEffect(() => {
+    const compose = searchParams.get("compose");
+    const newParam = searchParams.get("new");
+    if (!compose && !newParam) return;
+    const next = new URLSearchParams(searchParams);
+    next.delete("compose");
+    next.delete("new");
+    setSearchParams(next, { replace: true });
+    if (newParam === "note") void newInboxNote();
+    else if (connected) openCompose();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, connected]);
 
   // À l'ouverture d'un fil, on déplace le FOCUS sur le panneau de lecture : le
   // lecteur d'écran annonce le fil, et Tab enchaîne sur ses actions plutôt que

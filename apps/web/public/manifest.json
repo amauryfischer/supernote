@@ -32,5 +32,22 @@
   ],
   "screenshots": [],
   "related_applications": [],
-  "prefer_related_applications": false
+  "prefer_related_applications": false,
+  "shortcuts": [
+    { "name": "Nouveau message", "url": "/mail?compose=1", "icons": [{ "src": "/icons/shortcuts/mail.png", "sizes": "96x96" }] },
+    { "name": "Nouvelle note", "url": "/mail?new=note", "icons": [{ "src": "/icons/shortcuts/note.png", "sizes": "96x96" }] },
+    { "name": "Agenda", "url": "/agenda", "icons": [{ "src": "/icons/shortcuts/agenda.png", "sizes": "96x96" }] },
+    { "name": "Todos", "url": "/todos", "icons": [{ "src": "/icons/shortcuts/todos.png", "sizes": "96x96" }] }
+  ],
+  "share_target": {
+    "action": "/share-target",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url",
+      "files": [{ "name": "files", "accept": ["image/*"] }]
+    }
+  }
 }
