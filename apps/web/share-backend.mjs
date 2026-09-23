@@ -302,7 +302,8 @@ export async function createShareBackend() {
     ["PUT", /^\/api\/share\/resources\/([\w-]+)\/blob$/, async (req, res, [id], url) => {
       const resource = await ownedResource(req, id);
       const path = url.searchParams.get("path") ?? "";
-      if (resource.kind !== "note" || !path || path.length > 500 || /\.svg$/i.test(path)) {
+      const ext = path.split(".").pop()?.toLowerCase() ?? "";
+      if (resource.kind !== "note" || !path || path.length > 500 || !Object.hasOwn(IMAGE_TYPES, ext)) {
         return send(res, 400, { error: "invalid path" });
       }
       await store.putBlob(id, path, await readBody(req, MAX_BLOB_BYTES));
@@ -421,7 +422,13 @@ export async function createShareBackend() {
 
   const { createCollabServer } = await import("./collab-server.mjs");
   collab = createCollabServer({ store, authenticate: authenticateCollab });
-  setInterval(() => void collab.sweep(async (slug) => linkState(await store.getLink(slug)) === "ok"), SWEEP_MS).unref();
+  setInterval(
+    () =>
+      void collab
+        .sweep(async (slug) => linkState(await store.getLink(slug)) === "ok")
+        .catch((err) => console.error("[share] sweep", err)),
+    SWEEP_MS,
+  ).unref();
 
   return { enabled: true, handle, handleUpgrade: collab.handleUpgrade, flush: collab.flush };
 }
