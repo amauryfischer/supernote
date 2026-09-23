@@ -60,13 +60,15 @@ Hocuspocus 4.7.0 est branché par `crossws` sur l'événement `upgrade` du serve
 
 ## Pièges
 
-⚠️ **En co-édition, l'état Yjs fait foi et réécrit le corps de la note.** Tout ce qui écrit le `.md` hors de l'éditeur est écrasé. `useTodoSync` (`toggleTodoDone`, `updateTodoMetadata`) refuse donc d'écrire sur une note partagée. Ne sont pas encore gardés : l'outil IA `updateNote`, `NotePortal`, le dépôt de fichiers dans l'arbre, la migration des todos.
+⚠️ **En co-édition, l'état Yjs fait foi et réécrit le corps de la note.** Tout ce qui écrit le `.md` hors de l'éditeur est écrasé. La garde commune est `refuseIfShared` (`lib/share/sharedNoteGuard.ts`) : `useTodoSync` (`toggleTodoDone`, `updateTodoMetadata`), l'outil IA `updateNote` et `NotePortal` (lecture seule) refusent d'écrire sur une note partagée. Ne sont pas encore gardés : le dépôt de fichiers dans l'arbre, la migration des todos.
+
+⚠️ **Un invité en écriture choisit le markdown, donc les chemins d'image.** `noteImages.ts` ne publie que les images sous `ATTACHMENTS_DIR` (`lib/attachments-path.ts`), sans `..`, en png, jpeg, gif, webp ou avif ; `PUT /blob` refuse toute extension absente de `IMAGE_TYPES`. Élargir l'un des deux rouvre la lecture de n'importe quel fichier du coffre.
 
 ⚠️ **L'awareness d'un pair est une entrée non fiable injectée dans `style`.** Le curseur BlockNote et la sélection y-prosemirror y interpolent `user.color` tel quel. `sanitizePeerAwareness` (`lib/share/collab.ts`) réécrit l'état des pairs en place : couleur en `#rrggbb` exactement, nom limité à 40 caractères, et elle ne lève jamais. Elle doit être inscrite **avant** le montage de l'éditeur, car les écouteurs lib0 sont appelés dans l'ordre d'inscription.
 
 ⚠️ **La prop `collaboration` n'est lue qu'au montage** (`useCreateBlockNote` a des dépendances vides). `NoteEditor` remonte l'éditeur par `key` quand il entre ou sort du mode co-édition.
 
-- Les SVG sont refusés à l'envoi d'image : l'invité lit les images en URL `blob:`, qui appartient à l'origine de l'app et ne porte pas la CSP de la réponse.
+- Le SVG n'est pas dans `IMAGE_TYPES` : l'invité lit les images en URL `blob:`, qui appartient à l'origine de l'app et ne porte pas la CSP de la réponse.
 - Un lecteur ne publie aucune awareness (`setLocalState(null)` à la construction du provider).
 - Les liens v1, des pages HTML figées de la table `share`, restent servis tels quels par `/s/<slug>`.
 
