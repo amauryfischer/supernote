@@ -11,6 +11,11 @@
  */
 
 const CACHE_VERSION = "supernote-v12-minimal-headers";
+// Cache dédié au partage PWA (share-target) : jamais purgé à l'activation,
+// son entrée "pending" survit jusqu'à ce que la route /share la consomme.
+const SHARE_INBOX_CACHE = "share-inbox";
+
+const text = (v) => (typeof v === "string" ? v : "");
 
 // We must rebuild Responses before caching: Vite preview (and several CDNs)
 // expose `Content-Encoding: gzip` to the SW even though the body has already
@@ -78,7 +83,7 @@ self.addEventListener("activate", (event) => {
       .then((keys) =>
         Promise.all(
           keys
-            .filter((key) => key !== CACHE_VERSION)
+            .filter((key) => key !== CACHE_VERSION && key !== SHARE_INBOX_CACHE)
             .map((key) => caches.delete(key)),
         ),
       )
@@ -91,6 +96,33 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   const { request } = event;
   const url = new URL(request.url);
+
+  // Cible du Web Share Target API : range le FormData en Cache Storage et
+  // redirige vers /share, qui crée la note Inbox (pas de fenêtre ouverte par
+  // l'OS avant la réponse, donc pas d'autre moyen de faire traverser les
+  // fichiers/texte partagés jusqu'à la page).
+  if (request.method === "POST" && url.pathname === "/share-target") {
+    event.respondWith(
+      (async () => {
+        const form = await request.formData();
+        const files = [];
+        for (const file of form.getAll("files")) {
+          if (!(file instanceof File) || !file.type.startsWith("image/")) continue;
+          const bytes = new Uint8Array(await file.arrayBuffer());
+          let bin = "";
+          for (const b of bytes) bin += String.fromCharCode(b);
+          files.push({ name: file.name, type: file.type, dataUrl: `data:${file.type};base64,${btoa(bin)}` });
+        }
+        const shared = { title: text(form.get("title")), text: text(form.get("text")), url: text(form.get("url")), files };
+        const cache = await caches.open(SHARE_INBOX_CACHE);
+        await cache.put("/share-target/pending", new Response(JSON.stringify(shared), { headers: { "Content-Type": "application/json" } }));
+        // "partage" et non "share" : /share sert share.html (page invitée du
+        // partage par lien), pas la route SPA.
+        return Response.redirect("/partage?pending=1", 303);
+      })(),
+    );
+    return;
+  }
 
   // Only handle same-origin requests
   if (url.origin !== self.location.origin) return;
@@ -229,8 +261,6 @@ function httpsUrl(url) {
     return "";
   }
 }
-
-const text = (v) => (typeof v === "string" ? v : "");
 
 self.addEventListener("push", (event) => {
   let data = {};

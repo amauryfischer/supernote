@@ -93,6 +93,10 @@ export const router: any = createBrowserRouter([
 
       // ── Mail (Gmail) ──────────────────────────────────────────────────
       { path: "mail", lazy: lazyPage(() => import("./app/mail/page")) },
+      // "partage" et non "share" : /share collide avec share.html (page
+      // invitée du partage par lien), servi en priorité par le serveur pour
+      // toute requête sans extension sur ce chemin exact.
+      { path: "partage", lazy: lazyPage(() => import("./app/share/page")) },
       { path: "agenda", lazy: lazyPage(() => import("./app/agenda/page")) },
       { path: "carte", lazy: lazyPage(() => import("./app/carte/page")) },
 
