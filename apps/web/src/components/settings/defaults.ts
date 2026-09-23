@@ -1,4 +1,4 @@
-import type { AppSettings, IaSettings } from "./types";
+import type { AppSettings, IaSettings, NotificationSettings } from "./types";
 
 export const DEFAULT_SETTINGS: AppSettings = {
   general: {
@@ -45,6 +45,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     persistence: false,
     toastDuration: 4,
     pushSubscribed: true,
+    pushDefaultApplied: true,
   },
   googleDrive: {
     clientId: "",
@@ -84,4 +85,14 @@ export function migrateIa(ia: IaSettings): IaSettings {
   return RETIRED_DEFAULT_MODELS.has(ia.ollamaModel)
     ? { ...ia, ollamaModel: DEFAULT_SETTINGS.ia.ollamaModel }
     : ia;
+}
+
+// Une seule fois par appareil : le push est passé à "voulu" par défaut après coup, un appareil déjà installé a `pushDefaultApplied` absent (brut, avant fusion avec les défauts) et doit rattraper `pushSubscribed: true`.
+export function migrateNotifications(
+  n: NotificationSettings,
+  rawPushDefaultApplied: boolean,
+): NotificationSettings {
+  return rawPushDefaultApplied
+    ? n
+    : { ...n, pushSubscribed: true, pushDefaultApplied: true };
 }
