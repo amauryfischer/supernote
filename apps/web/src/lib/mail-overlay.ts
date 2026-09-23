@@ -68,11 +68,15 @@ export function rowHasStar(row: OverlayRow): boolean {
  * `selfEmails` : adresses « à moi » (compte connecté + alias/boîtes partagées,
  * une string ou une liste) → exclues du regroupement par expéditeur (évite un
  * gros groupe parasite « moi »/interne) ; ces items retombent en lignes seules.
- * En plus, un LABEL dont le NOM est l'une de ces adresses (filtre Gmail nommé
- * d'après une boîte partagée, ex. `contact@…`) n'engendre PAS de groupe-label :
- * ses items retombent sur leur vrai expéditeur / en lignes seules. Insensible à
- * la casse, vides ignorés. Les autres labels (tags réels) groupent normalement.
+ * Insensible à la casse, vides ignorés.
+ *
+ * Un LABEL dont le NOM est une adresse email (filtre Gmail nommé d'après une
+ * boîte partagée, ex. `contact@…`) n'engendre PAS de groupe-label, qu'il figure
+ * ou non dans `selfEmails` (les alias sont par appareil) : ses items retombent
+ * sur leur vrai expéditeur / en lignes seules.
  */
+const EMAIL_LIKE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 export function buildMailOverlay(
   items: ThreadListItem[],
   userLabels: Map<string, string>,
@@ -88,16 +92,12 @@ export function buildMailOverlay(
   );
   const consumed = new Set<string>();
 
-  // 1. Indexer par label user. On saute les labels dont le NOM est une adresse
-  // « à moi » (filtre Gmail nommé d'après une boîte partagée) : ils ne doivent
-  // pas former un groupe parasite, leurs items retombent sur leur vrai
-  // expéditeur / en lignes seules.
   const byLabel = new Map<string, ThreadListItem[]>();
   for (const it of items) {
     for (const lid of it.labelIds) {
       const name = userLabels.get(lid);
       if (name === undefined || flatLabelIds?.has(lid)) continue;
-      if (selfSet.has(name.trim().toLowerCase())) continue;
+      if (EMAIL_LIKE.test(name.trim())) continue;
       const arr = byLabel.get(lid);
       if (arr) arr.push(it);
       else byLabel.set(lid, [it]);
