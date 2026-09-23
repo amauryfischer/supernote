@@ -1,6 +1,11 @@
 import { test, expect } from "@playwright/test";
 import { bootCloud, bootDegraded, withInbox } from "./helpers";
 
+// Le headless shell refuse showNotification dans le SW ; le Chromium complet
+// l'accepte. `test.use({ channel })` force un nouveau worker : doit rester au
+// niveau fichier, pas dans un describe (cf. 07-push.spec.ts).
+test.use({ channel: "chromium" });
+
 test.describe("08 — notifications & PWA", () => {
   test("A : le bandeau propose le push, Plus tard le masque", async ({ page }) => {
     // /mail exige Gmail connecté (useGmailConnected) et un salon protégé
@@ -81,9 +86,6 @@ test.describe("08 — notifications & PWA", () => {
 });
 
 test.describe("08 — push mail sans jeton (SW)", () => {
-  // Le headless shell refuse showNotification dans le SW ; le Chromium complet l'accepte.
-  test.use({ channel: "chromium" });
-
   interface Registration {
     registrationId: string;
     scopeURL: string;
