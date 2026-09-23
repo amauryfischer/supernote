@@ -262,6 +262,109 @@ function httpsUrl(url) {
   }
 }
 
+async function relayToVisibleWindow(payload) {
+  const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+  const visible = windows.find((c) => c.visibilityState === "visible");
+  if (visible) visible.postMessage({ type: "PUSH_RECEIVED", payload });
+}
+
+// Base dédiée au pont page → SW (jeton Gmail, historyId, badge) : jamais la
+// base des handles de coffre, pour ne pas faire évoluer sa version.
+function kv(mode, fn) {
+  return new Promise((resolve) => {
+    const open = indexedDB.open("supernote-sw", 1);
+    open.onupgradeneeded = () => open.result.createObjectStore("kv");
+    open.onerror = () => resolve(undefined);
+    open.onsuccess = () => {
+      const db = open.result;
+      const req = fn(db.transaction("kv", mode).objectStore("kv"));
+      req.onsuccess = () => {
+        resolve(req.result);
+        db.close();
+      };
+      req.onerror = () => {
+        resolve(undefined);
+        db.close();
+      };
+    };
+  });
+}
+const kvGet = (key) => kv("readonly", (s) => s.get(key));
+const kvSet = (key, value) => kv("readwrite", (s) => s.put(value, key));
+
+async function gmailToken() {
+  const t = await kvGet("gmailToken");
+  return t && typeof t.token === "string" && t.expiresAt > Date.now() + 60_000 ? t.token : "";
+}
+
+async function gmail(token, path, init = {}) {
+  const res = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/${path}`, {
+    ...init,
+    headers: { Authorization: `Bearer ${token}`, ...(init.body ? { "Content-Type": "application/json" } : {}) },
+  });
+  if (!res.ok) throw new Error(`gmail ${res.status}`);
+  return res.status === 204 ? null : res.json();
+}
+
+async function setBadge(n) {
+  await kvSet("badgeCount", n);
+  if ("setAppBadge" in self.navigator) await (n > 0 ? self.navigator.setAppBadge(n) : self.navigator.clearAppBadge()).catch(() => undefined);
+}
+
+const senderName = (from) => (from.match(/^\s*"?([^"<]+?)"?\s*</)?.[1] ?? from).trim();
+
+async function showMail(data) {
+  const token = await gmailToken();
+  if (!token) {
+    await setBadge(((await kvGet("badgeCount")) || 0) + 1);
+    return self.registration.showNotification("Du nouveau dans ta boîte", {
+      tag: "mail-new",
+      icon: "/icons/icon-192.png",
+      data: { url: "/mail", kind: "mail" },
+    });
+  }
+  try {
+    const since = (await kvGet("mailHistoryId")) || text(data.historyId);
+    const hist = await gmail(token, `history?startHistoryId=${encodeURIComponent(since)}&historyTypes=messageAdded&labelId=INBOX`);
+    const added = (hist?.history ?? [])
+      .flatMap((h) => h.messagesAdded ?? [])
+      .map((m) => m.message)
+      .filter((m) => m?.labelIds?.includes("INBOX"))
+      .slice(0, 5);
+    if (hist?.historyId) await kvSet("mailHistoryId", String(hist.historyId));
+    const inbox = await gmail(token, "labels/INBOX");
+    await setBadge(inbox?.threadsUnread ?? inbox?.messagesUnread ?? 0);
+    if (added.length === 0) {
+      // Archivage ou lecture : rien à dire, mais Safari exige une notification par push.
+      await self.registration.showNotification("Supernote", { tag: "mail-sync", silent: true });
+      const shown = await self.registration.getNotifications({ tag: "mail-sync" });
+      shown.forEach((n) => n.close());
+      return;
+    }
+    const metas = await Promise.all(
+      added.map((m) => gmail(token, `messages/${m.id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject`)),
+    );
+    const header = (m, name) => m.payload?.headers?.find((h) => h.name === name)?.value ?? "";
+    const one = metas.length === 1 ? metas[0] : null;
+    return self.registration.showNotification(
+      one ? senderName(header(one, "From")) : `${metas.length} nouveaux mails`,
+      {
+        body: one ? header(one, "Subject") : metas.map((m) => senderName(header(m, "From"))).join(", "),
+        tag: "mail-new",
+        icon: "/icons/icon-192.png",
+        data: { kind: "mail", url: one ? `/mail?thread=${encodeURIComponent(one.threadId)}` : "/mail", threadId: one?.threadId ?? "" },
+        actions: one ? [{ action: "archive", title: "Archiver" }, { action: "read", title: "Lu" }] : [],
+      },
+    );
+  } catch {
+    return self.registration.showNotification("Du nouveau dans ta boîte", {
+      tag: "mail-new",
+      icon: "/icons/icon-192.png",
+      data: { url: "/mail", kind: "mail" },
+    });
+  }
+}
+
 self.addEventListener("push", (event) => {
   let data = {};
   try {
@@ -279,9 +382,11 @@ self.addEventListener("push", (event) => {
   };
   event.waitUntil(
     (async () => {
-      const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
-      const visible = windows.find((c) => c.visibilityState === "visible");
-      if (visible) visible.postMessage({ type: "PUSH_RECEIVED", payload });
+      await relayToVisibleWindow(payload);
+      if (data.kind === "mail") {
+        await showMail(data);
+        return;
+      }
       // Toujours afficher : Safari révoque la permission d'un site qui reçoit un push sans notification.
       await self.registration.showNotification(payload.title, {
         body: payload.body,
@@ -297,6 +402,29 @@ self.addEventListener("push", (event) => {
 self.addEventListener("notificationclick", (event) => {
   const data = event.notification.data ?? {};
   event.notification.close();
+  if ((event.action === "archive" || event.action === "read") && data.kind === "mail" && data.threadId) {
+    const label = event.action === "archive" ? "INBOX" : "UNREAD";
+    event.waitUntil(
+      (async () => {
+        const token = await gmailToken();
+        if (token) {
+          try {
+            await gmail(token, `threads/${encodeURIComponent(data.threadId)}/modify`, {
+              method: "POST",
+              body: JSON.stringify({ removeLabelIds: [label] }),
+            });
+            const inbox = await gmail(token, "labels/INBOX");
+            await setBadge(inbox?.threadsUnread ?? 0);
+            return;
+          } catch {
+            /* repli : la page exécute via l'outbox */
+          }
+        }
+        await self.clients.openWindow(`/mail?thread=${encodeURIComponent(data.threadId)}&action=${event.action}`);
+      })(),
+    );
+    return;
+  }
   if (event.action === "join") {
     const joinUrl = httpsUrl(text(data.joinUrl));
     if (joinUrl) event.waitUntil(self.clients.openWindow(joinUrl));
