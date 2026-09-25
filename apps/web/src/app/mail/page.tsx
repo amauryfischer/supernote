@@ -141,7 +141,6 @@ import {
   saveCollapsedSections,
   type MailSectionId,
 } from "@/lib/mail-sections";
-import { MailAssistantPanel } from "@/components/mail/MailAssistantPanel";
 import { MailRulesManager } from "@/components/mail/MailRulesManager";
 import {
   loadRules,
@@ -317,7 +316,6 @@ export default function MailPage() {
   // Feuille d'actions mobile (appui long sur une ligne).
   const [sheetItem, setSheetItem] = useState<ThreadListItem | null>(null);
   // Assistant de boîte (questions en langage naturel, IA locale).
-  const [assistantOpen, setAssistantOpen] = useState(false);
   // Règles locales + propositions issues des gestes répétés.
   const [rulesOpen, setRulesOpen] = useState(false);
   const [labelsManagerOpen, setLabelsManagerOpen] = useState(false);
@@ -1930,7 +1928,7 @@ export default function MailPage() {
         searchInputRef.current?.select();
       },
       assistant: () => {
-        if (aiConfigured && accountId) setAssistantOpen((v) => !v);
+        if (aiConfigured && accountId) navigate("/ai");
       },
       help: () => setHelpOpen(true),
     };
@@ -1977,9 +1975,6 @@ export default function MailPage() {
       !captureOpen &&
       !composeOpen &&
       !helpOpen &&
-      // L'assistant est un panneau par-dessus la boîte : laisser `e` archiver
-      // le fil resté derrière serait une action invisible.
-      !assistantOpen &&
       snoozeTarget === null,
     context: kbContext,
     handlers: keyboardHandlers,
@@ -2260,17 +2255,16 @@ export default function MailPage() {
       </Tooltip>
       {/* Assistant de boîte (questions en langage naturel, IA locale). */}
       {aiConfigured && accountId && (
-        <Tooltip content="Assistant de boîte (i)">
+        <Tooltip content="Assistant (i)">
           <Button
             size="sm"
             variant="ghost"
             isIconOnly
             className="shrink-0"
-            aria-label="Ouvrir l'assistant de boîte"
-            aria-pressed={assistantOpen}
-            onPress={() => setAssistantOpen((v) => !v)}
+            aria-label="Ouvrir l'assistant"
+            onPress={() => navigate("/ai")}
           >
-            <ChatCircleDots size={16} style={assistantOpen ? { color: "var(--accent)" } : undefined} />
+            <ChatCircleDots size={16} />
           </Button>
         </Tooltip>
       )}
@@ -2791,25 +2785,6 @@ export default function MailPage() {
           if (snoozeTarget) triageThread(snoozeTarget.id, "snooze", until);
         }}
       />
-      {assistantOpen && accountId && (
-        <div
-          className="sn-overlay-in fixed inset-0 z-40 md:inset-y-0 md:left-auto md:right-0 md:w-[26rem]"
-          style={{
-            background: "var(--surface-1)",
-            borderLeft: "1px solid var(--border-subtle)",
-            boxShadow: "-12px 0 30px color-mix(in oklch, var(--text-primary) 14%, transparent)",
-          }}
-        >
-          <MailAssistantPanel
-            accountId={accountId}
-            onClose={() => setAssistantOpen(false)}
-            onOpenThread={(id) => {
-              setAssistantOpen(false);
-              void openThread(id);
-            }}
-          />
-        </div>
-      )}
       {/* Annonce du résultat des actions aux lecteurs d'écran (le triage change
           la liste sans déplacer le focus : sans ça, rien n'est signalé). */}
       <div aria-live="polite" role="status" className="sr-only">

@@ -30,6 +30,7 @@ interface NoteSummary {
   tags: string[];
   preview: string;
   updatedAt: string;
+  url: string;
 }
 
 function trimBody(body: string | undefined, max = 200): string {
@@ -53,6 +54,7 @@ function toSummary(item: {
     tags: item.tags,
     preview: trimBody(item.body),
     updatedAt: item.updatedAt,
+    url: `/notes/${item.id}`,
   };
 }
 
@@ -336,6 +338,7 @@ export const semanticSearch: AgentTool = {
           filePath: item.filePath,
           score: Math.round(cosineSimilarity(vec, emb) * 1000) / 1000,
           preview: trimBody(item.body, 400),
+          url: `/notes/${item.id}`,
         };
       })
       .filter((x): x is NonNullable<typeof x> => x !== null)

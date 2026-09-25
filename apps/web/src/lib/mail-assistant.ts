@@ -1,23 +1,9 @@
 /**
- * mail-assistant — questions en langage naturel sur SA PROPRE boîte.
- *
- * « Qu'est-ce que j'ai raté cette semaine ? », « où en est le devis Dupont ? ».
- * Le chemin est volontairement simple et vérifiable :
- *   1. on extrait des mots-clés de la question (et une éventuelle borne de
- *      date : « cette semaine », « hier »…) ;
- *   2. on interroge le MIRROR LOCAL — donc aucun email n'est envoyé nulle part
- *      pour chercher ;
- *   3. on donne au modèle LOCAL les quelques fils retenus, et on lui demande de
- *      répondre EN CITANT les objets utilisés.
- *
- * Les fils remontés sont affichés comme sources cliquables : une réponse d'IA
- * sur des emails ne vaut que si on peut aller vérifier dans le fil d'origine.
- *
- * Tout ce qui est calcul (mots-clés, fenêtre de temps, prompt) est PUR ;
- * l'appel réseau/mirror est isolé dans `askMailbox`.
+ * mail-assistant — recherche des fils du miroir local à partir d'une question
+ * en langage naturel (« qu'est-ce que j'ai raté cette semaine ? »). Sert
+ * l'outil `searchMail` de l'assistant /ai : aucun email ne part sur le réseau.
  */
 
-import { runLocalPrompt } from "./mail-ai";
 import { mirrorSearchThreads } from "./mail-mirror";
 import type { ThreadListItem } from "./gmail";
 
@@ -81,68 +67,19 @@ export function extractKeywords(question: string): string[] {
   return [...new Set(words)].slice(0, 6);
 }
 
-/** Tronque un texte pour le prompt. PUR. */
-function clip(text: string, max: number): string {
-  const t = (text ?? "").trim();
-  return t.length <= max ? t : `${t.slice(0, max)}…`;
-}
-
-/**
- * Prompt de l'assistant. On impose de s'appuyer UNIQUEMENT sur les fils
- * fournis et de dire quand la réponse ne s'y trouve pas : un assistant de boîte
- * qui invente est pire qu'un assistant muet. PUR.
- */
-export function buildAssistantPrompt(question: string, threads: readonly ThreadListItem[]): string {
-  const corpus = threads
-    .map((t, i) => {
-      const who = t.from.name ? `${t.from.name} <${t.from.email}>` : t.from.email;
-      return [
-        `[${i + 1}] Objet : ${clip(t.subject, 160)}`,
-        `    De : ${clip(who, 120)}`,
-        `    Date : ${t.date}`,
-        `    Extrait : ${clip(t.snippet, 400)}`,
-      ].join("\n");
-    })
-    .join("\n\n");
-  return [
-    "Tu réponds à une question sur la boîte email de l'utilisateur.",
-    "Tu ne disposes QUE des fils ci-dessous : n'invente aucun fait, aucune date, aucun nom.",
-    "Si la réponse ne s'y trouve pas, dis-le clairement en une phrase.",
-    "",
-    "Fils disponibles :",
-    corpus || "(aucun fil trouvé)",
-    "",
-    `Question : ${question}`,
-    "",
-    "Réponds en français, en 3 phrases maximum, et cite les numéros des fils utilisés entre crochets.",
-  ].join("\n");
-}
-
-/** Réponse de l'assistant + les fils sur lesquels elle s'appuie. */
-export interface MailboxAnswer {
-  answer: string;
-  sources: ThreadListItem[];
-  /** Fenêtre de temps appliquée à la recherche, si détectée. */
-  window: TimeWindow;
-}
-
-/** Nombre de fils injectés dans le prompt (budget de contexte d'un modèle local). */
+/** Fils renvoyés par défaut (budget de contexte d'un modèle local). */
 const MAX_SOURCES = 6;
 
 /**
- * Répond à une question sur la boîte. Recherche LOCALE (mirror) puis génération
- * LOCALE : rien ne sort de la machine.
- *
- * La recherche est dégressive : tous les mots-clés d'abord (précis), puis les
- * deux plus significatifs si ça ne ramène rien — une question formulée en
- * phrase ne doit pas renvoyer « je n'ai rien trouvé » pour une histoire de mot
- * en trop.
+ * Fils du miroir local pertinents pour une question : mots-clés, repli sur
+ * moins de mots, puis les plus récents de la fenêtre si rien ne ressort.
  */
-export async function askMailbox(
+export async function findMailThreads(
   accountId: string,
   question: string,
+  limit = MAX_SOURCES,
   now: Date = new Date(),
-): Promise<MailboxAnswer> {
+): Promise<{ sources: ThreadListItem[]; window: TimeWindow }> {
   const window = detectTimeWindow(question, now);
   const keywords = extractKeywords(question);
 
@@ -150,7 +87,7 @@ export async function askMailbox(
     mirrorSearchThreads(accountId, {
       terms,
       ...(window.after !== undefined ? { after: window.after } : {}),
-      limit: MAX_SOURCES,
+      limit,
     });
 
   let sources: ThreadListItem[] = [];
@@ -161,14 +98,6 @@ export async function askMailbox(
   }
   // Question sans mot-clé exploitable (« qu'est-ce que j'ai raté cette
   // semaine ? ») → les fils les plus récents de la fenêtre.
-  if (sources.length === 0) {
-    sources = await mirrorSearchThreads(accountId, {
-      terms: [],
-      ...(window.after !== undefined ? { after: window.after } : {}),
-      limit: MAX_SOURCES,
-    });
-  }
-
-  const answer = await runLocalPrompt(buildAssistantPrompt(question, sources), 0.2);
-  return { answer, sources, window };
+  if (sources.length === 0) sources = await search([]);
+  return { sources, window };
 }

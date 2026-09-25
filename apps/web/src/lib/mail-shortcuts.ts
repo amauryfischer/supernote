@@ -347,7 +347,7 @@ export const MAIL_SHORTCUTS: MailBinding[] = [
     id: "assistant",
     keys: [["i"]],
     display: "i",
-    label: "Assistant de boîte (IA)",
+    label: "Assistant (IA)",
     group: "Vue",
     contexts: ALL,
   },
