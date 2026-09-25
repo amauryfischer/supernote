@@ -81,7 +81,8 @@ export function useMailKeyboard({
     };
 
     const onKey = (e: KeyboardEvent) => {
-      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      // AltGr (AZERTY : `#` = AltGr+3) remonte ctrl+alt sous Windows : ce n'est pas un modificateur.
+      if (e.metaKey || ((e.ctrlKey || e.altKey) && !e.getModifierState("AltGraph"))) return;
       if (isEditable(e.target)) return;
 
       const res = resolveKey(contextRef.current, pendingRef.current, e.key);

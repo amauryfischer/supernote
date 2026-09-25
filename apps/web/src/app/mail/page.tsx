@@ -939,6 +939,14 @@ export default function MailPage() {
     setSelectedThreadIds((prev) => toggleRowSelection(row, prev));
   }, []);
 
+  const toggleThreadSelected = useCallback((id: string) => {
+    setSelectedThreadIds((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
+  }, []);
+
   const clearSelection = useCallback(() => setSelectedThreadIds(new Set()), []);
 
   const runBulkAction = useCallback(
@@ -1555,6 +1563,13 @@ export default function MailPage() {
     setGroupCursor(0);
   }, [selectedGroupKey]);
 
+  // Un triage retire l'item du groupe : sans ce bornage, le curseur pointe
+  // dans le vide et les raccourcis suivants ne visent plus rien.
+  const selectedGroupSize = selectedGroup?.items.length ?? 0;
+  useEffect(() => {
+    setGroupCursor((c) => Math.min(c, Math.max(selectedGroupSize - 1, 0)));
+  }, [selectedGroupSize]);
+
   useEffect(() => {
     if (!selectedGroup || pane !== "group") return;
     const el = groupScrollRef.current?.querySelector<HTMLElement>(
@@ -1879,6 +1894,11 @@ export default function MailPage() {
           });
       },
       select: () => {
+        if (activeGroup) {
+          const it = activeGroup.items[groupCursor];
+          if (it) toggleThreadSelected(it.id);
+          return;
+        }
         if (selectedRowIndex < 0) {
           const first = displayRows[0];
           setSelectedRowIndex(displayRows.length === 0 ? -1 : 0);
@@ -1932,6 +1952,7 @@ export default function MailPage() {
     toggleRowStar,
     openThenIntent,
     toggleRowSelected,
+    toggleThreadSelected,
     performUndo,
     openCompose,
     drafts,
@@ -2354,7 +2375,7 @@ export default function MailPage() {
         {/* Mobile : la recherche est repliée derrière l'action d'en-tête (la
             liste garde toute la hauteur) ; desktop : toujours visible. */}
         {(!isMobile || mobileSearchOpen) && searchBox}
-        {bulkBar}
+        {!activeGroup && bulkBar}
         {/* `relative` = bloc englobant : sans ça, un descendant `position:absolute`
             (ex. span interne de la Checkbox HeroUI) prend `html` comme référent,
             échappe au clip de l'overflow et fait scroller TOUT le document. */}
@@ -2470,6 +2491,7 @@ export default function MailPage() {
       className="flex h-full flex-col overflow-hidden"
       style={{ borderRight: "1px solid var(--border-subtle)" }}
     >
+      {activeGroup && bulkBar}
       <div ref={groupScrollRef} className="flex-1 overflow-y-auto px-2 pb-4 pt-3">
         <MailGroupList
           title={selectedGroup.title}
@@ -2478,8 +2500,12 @@ export default function MailPage() {
           cursorIndex={isMobile || pane !== "group" ? undefined : groupCursor}
           onPick={(id) => {
             setPane("group");
+            setGroupCursor(Math.max(0, selectedGroup.items.findIndex((it) => it.id === id)));
             void openThread(id);
           }}
+          onToggleStar={toggleRowStar}
+          selectedIds={selectedThreadIds}
+          onToggleSelect={(id) => toggleThreadSelected(id)}
           onDeleteAll={() => void deleteGroup(selectedGroup)}
           onMarkAllRead={() => void markGroupRead(selectedGroup)}
           deleteBusy={bulkBusy}
@@ -2840,6 +2866,9 @@ export default function MailPage() {
                 items={selectedGroup.items}
                 activeThreadId={selectedThreadId ?? undefined}
                 onPick={(id) => void openThread(id)}
+                onToggleStar={toggleRowStar}
+                onSwipe={(id, action) => triageThread(id, action)}
+                onLongPress={(item) => handleLongPressRow({ kind: "single", item })}
                 onDeleteAll={() => void deleteGroup(selectedGroup)}
                 onMarkAllRead={() => void markGroupRead(selectedGroup)}
                 deleteBusy={bulkBusy}

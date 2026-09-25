@@ -921,23 +921,6 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
           }`}
         >
           <div className="flex min-w-0 items-center gap-1.5 md:flex-1">
-            {clientId && (
-              <Button
-                isIconOnly
-                variant="ghost"
-                size="sm"
-                onPress={() => void onToggleStar()}
-                aria-label={starred ? "Retirer l'étoile" : "Mettre une étoile"}
-                aria-pressed={starred}
-                className="h-8 min-h-8 w-8 min-w-8 shrink-0"
-              >
-                <Star
-                  size={18}
-                  weight={starred ? "fill" : "regular"}
-                  style={{ color: starred ? "#f5b300" : "var(--text-muted)" }}
-                />
-              </Button>
-            )}
             {subject ? (
               <h2 className="line-clamp-2 min-w-0 flex-1 text-base font-semibold md:truncate" style={{ color: "var(--text-primary)" }}>
                 {subject}
@@ -946,7 +929,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
               <span />
             )}
           </div>
-          {/* Boutons DIRECTS : Étoile (à gauche du sujet), Todo, TriageBar, Gmail.
+          {/* Boutons DIRECTS : Étoile, Todo, TriageBar, Gmail.
               Toutes les actions SECONDAIRES sont regroupées dans le menu « Plus »
               (kebab) ci-dessous — masqué en mode embed. On garde un Popover (et
               non DropdownMenu items) car 4 actions sont des composants
@@ -961,6 +944,25 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
                 : { background: "var(--surface-0, var(--background))", borderColor: "var(--border-subtle)" }
             }
           >
+            {clientId && (
+              <Tooltip content={starred ? "Retirer l'étoile (t)" : "Mettre une étoile (t)"}>
+                <Button
+                  isIconOnly
+                  variant="ghost"
+                  size="sm"
+                  onPress={() => void onToggleStar()}
+                  aria-label={starred ? "Retirer l'étoile" : "Mettre une étoile"}
+                  aria-pressed={starred}
+                  className="h-9 min-h-9 w-9 min-w-9 shrink-0"
+                >
+                  <Star
+                    size={18}
+                    weight={starred ? "fill" : "regular"}
+                    style={{ color: starred ? "#f5b300" : "var(--text-muted)" }}
+                  />
+                </Button>
+              </Tooltip>
+            )}
             {clientId && (
               <MailEisenhowerPicker
                 onConvert={(q) => void convertToTodo(q)}

@@ -1,12 +1,13 @@
 "use client";
 
-import { Button } from "@heroui/react";
+import { Button, Checkbox } from "@heroui/react";
 import { Tooltip } from "@supernote/ui";
-import { Trash, EnvelopeOpen, Sparkle } from "@phosphor-icons/react";
+import { Trash, EnvelopeOpen, Sparkle, Star } from "@phosphor-icons/react";
 import type { GmailLabelColor, ThreadListItem } from "@/lib/gmail";
 import { RowLabelChips } from "./LabelMarker";
 import { formatMailDateTime } from "@/lib/mail-date";
 import { initials, avatarColor } from "@/lib/mail-avatar";
+import { SwipeableRow, type SwipeAction } from "./SwipeableRow";
 
 export function MailGroupList({
   title,
@@ -21,6 +22,11 @@ export function MailGroupList({
   labelNames,
   labelColors,
   groupLabelId,
+  onToggleStar,
+  onSwipe,
+  onLongPress,
+  selectedIds,
+  onToggleSelect,
 }: {
   title: string;
   items: ThreadListItem[];
@@ -39,7 +45,15 @@ export function MailGroupList({
   labelColors?: ReadonlyMap<string, GmailLabelColor>;
   /** Label du groupe ouvert : commun à toutes les lignes, donc pas répété en pastille. */
   groupLabelId?: string;
+  onToggleStar?: (threadId: string, labelIds: string[]) => void;
+  /** Présent → gestes tactiles sur chaque ligne (parité MailOverlayList). */
+  onSwipe?: (threadId: string, action: SwipeAction) => void;
+  onLongPress?: (item: ThreadListItem) => void;
+  /** Présent → cases à cocher (sélection multiple, cf. MailOverlayList). */
+  selectedIds?: ReadonlySet<string>;
+  onToggleSelect?: (threadId: string) => void;
 }) {
+  const anySelected = items.some((it) => selectedIds?.has(it.id));
   const unreadCount = items.filter((it) => it.labelIds.includes("UNREAD")).length;
   return (
     <div className="flex flex-col gap-1">
@@ -84,7 +98,8 @@ export function MailGroupList({
         const avatar = avatarColor(it.from.email || it.from.name || title);
         const mono = initials(it.from.name ?? "", it.from.email ?? "");
         const aiSummary = summaries?.get(it.id);
-        return (
+        const starred = it.labelIds.includes("STARRED");
+        const row = (
           <Button
             key={it.id}
             data-mail-group-index={idx}
@@ -130,8 +145,37 @@ export function MailGroupList({
                   >
                     {it.from.name || it.from.email}
                   </span>
-                  <span className="shrink-0 text-xs" style={{ color: "var(--text-muted)" }}>
-                    {formatMailDateTime(it.date)}
+                  <span className="flex shrink-0 items-center gap-1.5">
+                    {/* Natif : interactif imbriqué dans la ligne-Button (cf. MailOverlayList). */}
+                    {onToggleStar && (
+                      <span
+                        role="button"
+                        tabIndex={0}
+                        aria-label={starred ? "Retirer l'étoile" : "Mettre une étoile"}
+                        aria-pressed={starred}
+                        className="inline-flex shrink-0 cursor-pointer p-0.5"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onToggleStar(it.id, it.labelIds);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            onToggleStar(it.id, it.labelIds);
+                          }
+                        }}
+                      >
+                        <Star
+                          size={14}
+                          weight={starred ? "fill" : "regular"}
+                          style={{ color: starred ? "#f5b300" : "var(--text-muted)" }}
+                        />
+                      </span>
+                    )}
+                    <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+                      {formatMailDateTime(it.date)}
+                    </span>
                   </span>
                 </span>
                 <span className="flex min-w-0 items-center gap-1.5">
@@ -163,6 +207,33 @@ export function MailGroupList({
               </span>
             </span>
           </Button>
+        );
+        const checked = selectedIds?.has(it.id) ?? false;
+        // Case hors du Button (jamais imbriquée) ; visible au survol, ou dès qu'une ligne est cochée.
+        const body = onToggleSelect ? (
+          <div key={it.id} className="group flex items-center gap-1">
+            <Checkbox
+              isSelected={checked}
+              onChange={() => onToggleSelect(it.id)}
+              className={`shrink-0 pl-1 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 ${
+                anySelected || checked ? "opacity-100" : "opacity-0"
+              }`}
+              aria-label={checked ? "Désélectionner cet email" : "Sélectionner cet email"}
+            />
+            <div className="min-w-0 flex-1">{row}</div>
+          </div>
+        ) : (
+          row
+        );
+        if (!onSwipe) return body;
+        return (
+          <SwipeableRow
+            key={it.id}
+            onSwipe={(action) => onSwipe(it.id, action)}
+            {...(onLongPress ? { onLongPress: () => onLongPress(it) } : {})}
+          >
+            {body}
+          </SwipeableRow>
         );
       })}
     </div>

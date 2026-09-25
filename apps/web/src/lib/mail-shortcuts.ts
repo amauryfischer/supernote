@@ -281,7 +281,7 @@ export const MAIL_SHORTCUTS: MailBinding[] = [
     display: "x",
     label: "Cocher / décocher la ligne",
     group: "Triage",
-    contexts: ["list"],
+    contexts: ["list", "group"],
   },
   {
     id: "undo",
