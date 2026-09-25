@@ -10,8 +10,8 @@
  */
 
 import { useEffect, useState } from "react";
-import { Button, Checkbox, Spinner } from "@heroui/react";
-import { Modal, useToast } from "@supernote/ui";
+import { Button, Spinner } from "@heroui/react";
+import { Modal, useToast, Checkbox } from "@supernote/ui";
 import { CaretRight, CaretDown, Table as TableIcon } from "@phosphor-icons/react";
 import { listDocs, listTables } from "@/lib/coda/client";
 import { importCodaTables, type ImportTarget, type ImportProgress } from "@/lib/coda/import";

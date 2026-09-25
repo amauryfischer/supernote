@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { Button, Input, Spinner, Checkbox } from "@heroui/react";
-import { Badge, EmptyState, Skeleton } from "@supernote/ui";
+import { Button, Input, Spinner } from "@heroui/react";
+import { Badge, EmptyState, Skeleton, Checkbox } from "@supernote/ui";
 import {
   FilePlus,
   Database,
@@ -207,8 +207,11 @@ export default function MailPage() {
       }
       return !open;
     });
-  const syncAge = useMailSyncAge();
-  useMobileTitle(isMobile ? "Mail" : null, isMobile ? syncAge : null);
+  const syncStatus = useMailSyncAge();
+  useMobileTitle(
+    isMobile ? "Mail" : null,
+    isMobile ? (syncStatus.syncing ? "Synchronisation…" : syncStatus.age) : null,
+  );
 
   const clientId = settings.googleDrive.clientId.trim();
   // Compte Gmail connecté = clé de scoping du mirror local (mail_* tables).
@@ -676,6 +679,8 @@ export default function MailPage() {
   }, [thread]);
 
   const closeThread = useCallback(() => {
+    // Invalide un chargement en vol : sa réponse tardive rouvrirait le fil fermé.
+    reqRef.current++;
     setSelectedThreadId(null);
     setThread(null);
     setThreadError(null);
@@ -795,6 +800,7 @@ export default function MailPage() {
       });
       setSelectedThreadId((cur) => {
         if (cur === id) {
+          reqRef.current++;
           setThread(null);
           return null;
         }
@@ -1809,11 +1815,11 @@ export default function MailPage() {
       open: () => {
         if (activeGroup) {
           const it = activeGroup.items[groupCursor];
-          if (it) void openThread(it.id);
+          if (it && it.id !== selectedThreadId) void openThread(it.id);
           return;
         }
         const row = displayRows[selectedRowIndex];
-        if (row) onPick(row);
+        if (row && !(row.kind === "single" && row.item.id === selectedThreadId)) onPick(row);
       },
       close: () => {
         if (selectedThreadId) closeThread();
@@ -2435,7 +2441,11 @@ export default function MailPage() {
               <MailOverlayList
                 rows={displayRows}
                 activeKey={activeKey}
-                onPick={onPick}
+                onPick={(row) => {
+                  // Le clic déplace aussi le curseur clavier : Entrée vise ensuite la ligne vue.
+                  setSelectedRowIndex(displayRows.indexOf(row));
+                  onPick(row);
+                }}
                 onToggleStar={toggleRowStar}
                 labelColors={labelColors}
                 selectedIndex={isMobile || activeGroup ? undefined : selectedRowIndex}

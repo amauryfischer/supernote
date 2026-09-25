@@ -13,8 +13,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { CalendarPlus } from "@phosphor-icons/react";
-import { Switch } from "@supernote/ui";
-import { Button, Input, Checkbox } from "@heroui/react";
+import { Switch, Checkbox } from "@supernote/ui";
+import { Button, Input } from "@heroui/react";
 import type { TodoImportance } from "./TodoRow";
 import { importanceColor } from "./TodoRow";
 

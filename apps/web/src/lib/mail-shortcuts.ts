@@ -110,7 +110,7 @@ export const MAIL_SHORTCUTS: MailBinding[] = [
     display: "↵ / o",
     label: "Ouvrir",
     group: "Navigation",
-    contexts: ["list", "group"],
+    contexts: ALL,
   },
   {
     id: "close",

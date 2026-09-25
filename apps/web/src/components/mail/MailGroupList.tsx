@@ -1,7 +1,7 @@
 "use client";
 
-import { Button, Checkbox } from "@heroui/react";
-import { Tooltip } from "@supernote/ui";
+import { Button } from "@heroui/react";
+import { Tooltip, Checkbox } from "@supernote/ui";
 import { Trash, EnvelopeOpen, Sparkle, Star } from "@phosphor-icons/react";
 import type { GmailLabelColor, ThreadListItem } from "@/lib/gmail";
 import { RowLabelChips } from "./LabelMarker";

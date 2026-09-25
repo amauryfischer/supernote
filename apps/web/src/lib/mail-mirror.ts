@@ -39,6 +39,7 @@ export function emitOutboxChange(): void {
 
 /** Fired after each successful Gmail → mirror pull (drives « il y a 2 min »). */
 export const MAIL_SYNCED_EVENT = "supernote:mail-synced";
+export const MAIL_SYNC_STATE_EVENT = "supernote:mail-sync-state";
 
 /** Un autre appareil a publié son miroir dans le salon : relire le local suffit. */
 export const MAIL_MIRROR_RECEIVED_EVENT = "supernote:mail-mirror-received";

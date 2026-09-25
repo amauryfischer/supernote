@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Checkbox } from "@heroui/react";
+import { Checkbox } from "@supernote/ui";
 import type { Contact } from "./fixtures";
 import { ORGANISATIONS } from "./fixtures";
 import { ContactAvatar } from "./ContactAvatar";

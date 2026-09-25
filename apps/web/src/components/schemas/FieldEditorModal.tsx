@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Button, Input, TextArea, Checkbox, Select, ListBox, ListBoxItem } from "@heroui/react";
+import { Button, Input, TextArea, Select, ListBox, ListBoxItem } from "@heroui/react";
+import { Checkbox } from "@supernote/ui";
 import type { Key } from "@heroui/react";
 import { X, Plus, Trash } from "@phosphor-icons/react";
 import type { Field, FieldKind, SelectOption } from "@supernote/core";

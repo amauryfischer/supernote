@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Button, Checkbox } from "@heroui/react";
+import { Button } from "@heroui/react";
+import { Checkbox } from "@supernote/ui";
 import { Star, DotsSixVertical, Sparkle, CaretDown, Checks } from "@phosphor-icons/react";
 import {
   DndContext,

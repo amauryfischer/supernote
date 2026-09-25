@@ -44,7 +44,9 @@ function isEditable(target: EventTarget | null): boolean {
   if (el.isContentEditable) return true;
   const tag = el.tagName;
   // Une modale ouverte par un composant enfant (barre de report…) ne passe pas par l'état de la page.
-  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || !!el.closest?.('[role="dialog"]');
+  // Une case à cocher focalisée (sélection multiple) n'est pas une saisie : les raccourcis restent actifs.
+  const typing = tag === "INPUT" ? !["checkbox", "radio"].includes((el as HTMLInputElement).type) : tag === "TEXTAREA" || tag === "SELECT";
+  return typing || !!el.closest?.('[role="dialog"]');
 }
 
 /**
@@ -84,6 +86,13 @@ export function useMailKeyboard({
       // AltGr (AZERTY : `#` = AltGr+3) remonte ctrl+alt sous Windows : ce n'est pas un modificateur.
       if (e.metaKey || ((e.ctrlKey || e.altKey) && !e.getModifierState("AltGraph"))) return;
       if (isEditable(e.target)) return;
+      // Fil ouvert : Entrée sur un bouton du fil (Répondre…) reste au bouton.
+      if (
+        e.key === "Enter" &&
+        contextRef.current === "thread" &&
+        (e.target as HTMLElement | null)?.closest?.('button, a[href], [role="button"]')
+      )
+        return;
 
       const res = resolveKey(contextRef.current, pendingRef.current, e.key);
       if (res.kind === "none") {

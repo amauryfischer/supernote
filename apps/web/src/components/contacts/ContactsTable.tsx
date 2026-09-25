@@ -12,7 +12,8 @@ import {
   type Table,
 } from "@tanstack/react-table";
 import { ArrowsDownUp, CaretUp, CaretDown, X } from "@phosphor-icons/react";
-import { Button, Card, Checkbox, Input, Select, ListBox, ListBoxItem } from "@heroui/react";
+import { Button, Card, Input, Select, ListBox, ListBoxItem } from "@heroui/react";
+import { Checkbox } from "@supernote/ui";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import type { FieldValue } from "@supernote/ipc";

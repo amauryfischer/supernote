@@ -12,7 +12,8 @@
  */
 
 import { useState, useCallback } from "react";
-import { Button, Input, Checkbox, SelectRoot, SelectTrigger, SelectValue, SelectPopover, ListBox, ListBoxItem } from "@heroui/react";
+import { Button, Input, SelectRoot, SelectTrigger, SelectValue, SelectPopover, ListBox, ListBoxItem } from "@heroui/react";
+import { Checkbox } from "@supernote/ui";
 import {
   X,
   Eye,
