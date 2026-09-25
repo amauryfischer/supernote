@@ -6,13 +6,13 @@ import type { CalCalendarRow, CalEventRow } from "@supernote/ipc";
 import { ArrowSquareOut, CalendarX, CheckSquare, MapPin, NotePencil, PencilSimple, Trash, VideoCamera, X } from "@phosphor-icons/react";
 import { Button, Tooltip, useToast } from "@supernote/ui";
 import { trpc } from "@/lib/trpc/client";
-import { findContactMatch } from "@/lib/contact-from-email";
 import { buildMeetingNote } from "@/lib/meeting-note";
 import { emitCalendarChanged } from "@/lib/calendar-mirror";
 import { formatDayLong, formatSpan } from "@/lib/agenda/dates";
 import { taskSourcePath } from "@/lib/agenda/task-ref";
 import { calendarColor, canEditCalendar } from "./EventBlock";
 import type { RsvpResponse } from "./useEventWrites";
+import { MeetingBrief } from "./MeetingBrief";
 
 const RESPONSE_LABEL: Record<string, string> = {
   accepted: "Oui",
@@ -164,37 +164,11 @@ export function EventDetail({ event, calendars, onClose, onEdit, onDelete, onRsv
         </div>
       )}
 
-      {others.length > 0 && (
-        <div className="flex flex-col gap-1">
-          <span className="sn-eyebrow sn-eyebrow--compact">Participants</span>
-          <ul className="flex flex-col">
-            {others.map((a) => {
-              const match = findContactMatch(contacts, a.email, a.name);
-              return (
-                <li key={a.email} className="flex min-h-8 items-center gap-2 text-sm">
-                  {match ? (
-                    <button
-                      type="button"
-                      onClick={() => navigate(`/contacts/${match.row.id}`)}
-                      className="min-w-0 truncate text-left underline-offset-2 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-[var(--border-focus)]"
-                      style={{ color: "var(--text-primary)" }}
-                    >
-                      {a.name || a.email}
-                    </button>
-                  ) : (
-                    <span className="min-w-0 truncate" style={{ color: "var(--text-primary)" }}>
-                      {a.name || a.email}
-                    </span>
-                  )}
-                  <span className="ml-auto shrink-0 text-xs" style={{ color: "var(--text-muted)" }}>
-                    {a.organizer ? "Organisateur" : RESPONSE_LABEL[a.responseStatus] ?? a.responseStatus}
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
-        </div>
-      )}
+      <MeetingBrief
+        event={event}
+        contacts={contacts}
+        statusLabel={(a) => (a.organizer ? "Organisateur" : RESPONSE_LABEL[a.responseStatus] ?? a.responseStatus)}
+      />
 
       {event.description && (
         <p className="whitespace-pre-wrap break-words text-sm" style={{ color: "var(--text-secondary)" }}>

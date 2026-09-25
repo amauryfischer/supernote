@@ -14,6 +14,8 @@ import { EventDetail } from "./EventDetail";
 import { OverlayChip } from "./OverlayChip";
 import { useAgendaData } from "./useAgendaData";
 import { useEventWrites } from "./useEventWrites";
+import { useBriefSummary } from "./useMeetingBrief";
+import { BRIEF_LEAD_MS } from "@/lib/meeting-brief";
 import { CommitmentsTodaySection } from "@/components/mail/CommitmentsTodaySection";
 
 function untilLabel(ev: CalEventRow, now: number): string {
@@ -46,6 +48,8 @@ export function TodayPanel({ onClose }: { onClose?: () => void }) {
   const allDay = data.events.filter((e) => e.allDay);
   const next = timed.find((e) => e.endAt > now) ?? null;
   const selected = data.events.find((e) => e.id === selectedId) ?? null;
+  const briefDue = !!next && next.startAt - now <= BRIEF_LEAD_MS && next.attendees.some((a) => !a.self);
+  const briefLine = useBriefSummary(briefDue ? next : null);
 
   if (selected) {
     return (
@@ -121,6 +125,16 @@ export function TodayPanel({ onClose }: { onClose?: () => void }) {
                 {formatSpan(next)}
                 {next.location ? ` · ${next.location}` : ""}
               </span>
+              {briefDue && (
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="min-w-0 flex-1 truncate text-xs" style={{ color: "var(--text-secondary)" }}>
+                    {briefLine || "Voir où tu en es avec les participants"}
+                  </span>
+                  <Button variant="outline" size="sm" onPress={() => setSelectedId(next.id)}>
+                    Brief
+                  </Button>
+                </div>
+              )}
               {next.meetUrl && (
                 <Button variant="primary" size="sm" className="self-start" onPress={() => window.open(next.meetUrl, "_blank", "noopener")}>
                   <VideoCamera size={14} aria-hidden />

@@ -180,6 +180,18 @@ export default function AgendaPage() {
     return () => document.removeEventListener("visibilitychange", onVisible);
   }, [connected, workerReady, clientId, runSync]);
 
+  // `?event=&at=` : clic sur la notification d'avant-réunion, qui ouvre la fiche et son brief.
+  useEffect(() => {
+    const eventId = params.get("event");
+    if (!eventId) return;
+    const at = Number(params.get("at"));
+    if (Number.isFinite(at) && at > 0) setAnchor(at);
+    setSelectedId(eventId);
+    params.delete("event");
+    params.delete("at");
+    setParams(params, { replace: true });
+  }, [params]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // `?new=1` : commande de palette « Nouvel événement ».
   useEffect(() => {
     if (params.get("new") !== "1" || !connected) return;

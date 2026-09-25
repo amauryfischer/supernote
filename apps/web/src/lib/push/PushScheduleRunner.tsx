@@ -20,8 +20,8 @@ import {
 } from "./push-client";
 
 const HORIZON_MS = 7 * 24 * 60 * 60_000;
-// ponytail: prévenance fixe de 10 min ; un réglage si les notifications d'événement doublonnent avec Google Agenda.
-const EVENT_LEAD_MS = 10 * 60_000;
+// ponytail: prévenance fixe de 15 min (le temps de lire le brief) ; un réglage si les notifications d'événement doublonnent avec Google Agenda.
+const EVENT_LEAD_MS = 15 * 60_000;
 const DEBOUNCE_MS = 10_000;
 const TICK_MS = 15 * 60_000;
 const CHANGE_EVENTS = [MAIL_FOLLOWUP_EVENT, MAIL_SNOOZE_EVENT, CALENDAR_CHANGED_EVENT];
@@ -87,7 +87,7 @@ async function computeSchedule(calendarAccountId: string): Promise<Partial<Recor
         const body = e.summary || "(sans titre)";
         return e.sourceRef
           ? { key, fireAt: e.startAt, title: "C'est l'heure", body, url: blockUrl(e.sourceRef), joinUrl: e.meetUrl }
-          : { key, fireAt: e.startAt - EVENT_LEAD_MS, title: `Dans ${EVENT_LEAD_MS / 60_000} min · ${hhmm(e.startAt)}`, body, url: "/agenda", joinUrl: e.meetUrl };
+          : { key, fireAt: e.startAt - EVENT_LEAD_MS, title: `Dans ${EVENT_LEAD_MS / 60_000} min · ${hhmm(e.startAt)}`, body, url: `/agenda?event=${encodeURIComponent(e.eventId)}&at=${e.startAt}`, joinUrl: e.meetUrl };
       })
       .filter((row) => row.fireAt > now);
   }

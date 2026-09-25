@@ -3802,7 +3802,8 @@ export function buildRouter(
       // canvas will simply read as null on next access.
       const allRowsForSweep = rows(
         db.exec(
-          `SELECT id, filePath, fields FROM entity WHERE vaultId = ? AND sourceVaultId IS NULL`,
+          // Les entités système (@system/…) n'ont pas de fichier : les balayer effaçait engagements et miroir mail partagé.
+          `SELECT id, filePath, fields FROM entity WHERE vaultId = ? AND sourceVaultId IS NULL AND filePath NOT LIKE '@system/%'`,
           [vaultId],
         ),
       );
