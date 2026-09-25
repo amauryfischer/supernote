@@ -1,6 +1,6 @@
 # Motifs et pièges
 
-*Last Updated: 2026-09-23*
+*Last Updated: 2026-09-26*
 
 Les motifs récurrents du dépôt, et surtout les contraintes que le code ne dit pas tout seul. Commence par la section sur les propriétés de champ qui disparaissent si tu touches aux champs, c'est le piège le plus coûteux. Les pièges de la co-édition sont dans [sharing.md](sharing.md).
 
@@ -87,6 +87,10 @@ Le mode de saisie se décide **au pointeur, jamais à la largeur** : `.sn-reveal
 ⚠️ Le `Button` de `@supernote/ui` rend toujours un `HeroButton variant="ghost"`, dont `.button--ghost` (hors `@layer`) écrase les fonds Tailwind. Seules primary, secondary, tertiary et danger portent `!` ; ghost (défaut) et outline n'en ont pas, pour que les couleurs passées en `style` inline gagnent.
 
 ⚠️ La règle globale `:focus-visible` de `globals.css` est hors `@layer` : elle bat `focus-visible:outline-none`. Un champ « nu » qui signale son focus autrement (soulignement de la ligne, cf. `ComposeModal.tsx`) doit écrire `focus-visible:outline-none!`.
+
+## ⚠️ Passes IA de fond
+
+Une passe IA de fond (`lib/ai/InboxAutoSort.tsx`, `components/mail/CommitmentsRunner.tsx`) est montée dans `RootLayout` et gardée par `isAiRuntimeAllowed()` (jamais sur mobile), `isAiConfigured()` et un flag localStorage `supernote.ai.*` que les e2e coupent (`AI_FLAGS` dans `tests/e2e/helpers.ts`). Ajoute le flag d'une nouvelle passe à `AI_FLAGS`, sinon tous les e2e connectés à Gmail appellent `127.0.0.1:11434`. Une analyse dure plusieurs secondes : relis l'état persistant juste avant d'écrire (`analyzeAndSave` dans `lib/mail-commitments.ts`), sinon une décision prise pendant l'analyse est écrasée. Exception connue : les réponses rapides mail (`instantReplies`) appellent encore Ollama sur mobile.
 
 ## Retour d'action : le bouton, pas le toast
 
