@@ -50,7 +50,7 @@ import { resolveMountWrite, crossProvenanceCollision, isMountedPath } from "./mo
 import { resolveFileNameStem } from "./entity-filename";
 import { decodeTagPaths } from "./tag-paths";
 import { sanitizePath, stripPathSlashes, sanitizeFolderPath, derivePath } from "./path-utils";
-import { TEMPLATE_TYPE_ID, TEMPLATE_FOLDER, TEMPLATE_SEED_TS, EMAIL_AI_CACHE_TYPE_ID } from "./seed-default-types";
+import { TEMPLATE_TYPE_ID, TEMPLATE_FOLDER, TEMPLATE_SEED_TS, EMAIL_AI_CACHE_TYPE_ID, MAIL_COMMITMENT_TYPE_ID } from "./seed-default-types";
 import { SEED_TEMPLATES } from "@supernote/templates/seeds";
 
 
@@ -222,9 +222,9 @@ function ftsRebuild(db: Database, vaultId: string): void {
        FROM entity e
        LEFT JOIN entity_tag et ON et.entityId = e.id
        LEFT JOIN tag t ON t.id = et.tagId
-       WHERE e.vaultId = ? AND e.typeId != ?
+       WHERE e.vaultId = ? AND e.typeId NOT IN (?, ?)
        GROUP BY e.id`,
-      [vaultId, EMAIL_AI_CACHE_TYPE_ID],
+      [vaultId, EMAIL_AI_CACHE_TYPE_ID, MAIL_COMMITMENT_TYPE_ID],
     ),
   );
   for (const r of allEntities) {
@@ -4364,7 +4364,7 @@ export function buildRouter(
         await applyEntityTags(db, vaultId, op.entityId, payload.tags ?? [], payload.updatedAt);
         // Le cache mail n'est pas une note : l'indexer ferait remonter objets et
         // extraits de mails dans la recherche globale.
-        if (payload.typeId === EMAIL_AI_CACHE_TYPE_ID) {
+        if (payload.typeId === EMAIL_AI_CACHE_TYPE_ID || payload.typeId === MAIL_COMMITMENT_TYPE_ID) {
           ftsRemove(db, op.entityId);
         } else {
           ftsAdd(db, {
@@ -4901,6 +4901,8 @@ export function buildRouter(
   // ── email AI cache: entity id = deterministic from accountId + threadId ──
   const emailAiCacheEntityId = (accountId: string, threadId: string): string =>
     `eac_${accountId.replace(/[^a-zA-Z0-9]/g, "_")}_${threadId}`;
+  const mailCommitmentEntityId = (accountId: string, threadId: string): string =>
+    `mc_${accountId.replace(/[^a-zA-Z0-9]/g, "_")}_${threadId}`;
 
   // Miroir partagé : le premier appareil qui lit Gmail publie fils, labels et
   // curseur via les entités email_ai_cache ; les autres les reçoivent au lieu de
@@ -5014,12 +5016,11 @@ export function buildRouter(
     try { hooks.onEntityDeleted?.(entityId, previous); } catch (e) { console.warn("[hook] onEntityDeleted (email_ai_cache)", e); }
   };
 
-  const upsertEmailAiCacheEntity = (
-    accountId: string,
-    threadId: string,
+  const upsertSystemEntity = (
+    target: { typeId: string; entityId: string; filePath: string; base: Record<string, unknown> },
     patch: Record<string, unknown>,
   ): void => {
-    const entityId = emailAiCacheEntityId(accountId, threadId);
+    const { typeId, entityId, filePath, base } = target;
     const existing = row(db.exec(`SELECT id, fields FROM entity WHERE id = ?`, [entityId]));
     const ts = now();
     if (existing) {
@@ -5034,25 +5035,35 @@ export function buildRouter(
         `UPDATE entity SET fields = ?, updatedAt = ? WHERE id = ?`,
         [JSON.stringify(merged), ts, entityId],
       );
-      const full = { id: entityId, typeId: EMAIL_AI_CACHE_TYPE_ID, fields: merged, updatedAt: ts };
-      try { hooks.onEntityUpdated?.(full, { ...full, fields: oldFields }); } catch (e) { console.warn("[hook] onEntityUpdated (email_ai_cache)", e); }
+      const full = { id: entityId, typeId, fields: merged, updatedAt: ts };
+      try { hooks.onEntityUpdated?.(full, { ...full, fields: oldFields }); } catch (e) { console.warn(`[hook] onEntityUpdated (${typeId})`, e); }
     } else {
-      const fields: Record<string, unknown> = {
-        eac_thread_id: threadId,
-        eac_account_email: accountId,
-        ...patch,
-      };
-      const filePath = `@system/email-ai/${threadId}`;
+      const fields: Record<string, unknown> = { ...base, ...patch };
       db.run(
         `INSERT OR IGNORE INTO entity
            (id, vaultId, typeId, filePath, fields, body, createdAt, updatedAt)
          VALUES (?, ?, ?, ?, ?, '', ?, ?)`,
-        [entityId, vaultId, EMAIL_AI_CACHE_TYPE_ID, filePath, JSON.stringify(fields), ts, ts],
+        [entityId, vaultId, typeId, filePath, JSON.stringify(fields), ts, ts],
       );
-      const full = { id: entityId, typeId: EMAIL_AI_CACHE_TYPE_ID, typeName: "email_ai_cache", fields, filePath, body: "", createdAt: ts, updatedAt: ts };
-      try { hooks.onEntityCreated?.(full); } catch (e) { console.warn("[hook] onEntityCreated (email_ai_cache)", e); }
+      const full = { id: entityId, typeId, typeName: typeId, fields, filePath, body: "", createdAt: ts, updatedAt: ts };
+      try { hooks.onEntityCreated?.(full); } catch (e) { console.warn(`[hook] onEntityCreated (${typeId})`, e); }
     }
   };
+
+  const upsertEmailAiCacheEntity = (
+    accountId: string,
+    threadId: string,
+    patch: Record<string, unknown>,
+  ): void =>
+    upsertSystemEntity(
+      {
+        typeId: EMAIL_AI_CACHE_TYPE_ID,
+        entityId: emailAiCacheEntityId(accountId, threadId),
+        filePath: `@system/email-ai/${threadId}`,
+        base: { eac_thread_id: threadId, eac_account_email: accountId },
+      },
+      patch,
+    );
 
   const mailSetAiCategory = async (input: unknown): Promise<unknown> => {
     const { accountId, threadId, category, confidence, runs } = input as {
@@ -5092,6 +5103,25 @@ export function buildRouter(
       eac_summary_fp: fingerprint,
       eac_summary_at: ts,
     });
+    return { ok: true };
+  };
+
+  // Pas de dénormalisation dans mail_thread : un fil envoyé n'est pas dans le
+  // miroir inbox, et email_ai_cache le ferait apparaître en boîte ailleurs.
+  const mailSetCommitments = async (input: unknown): Promise<unknown> => {
+    const { accountId, threadId, subject, items, fingerprint } = input as {
+      accountId: string; threadId: string; subject: string; items: string; fingerprint: string;
+    };
+    if (!accountId || !threadId) return { ok: false };
+    upsertSystemEntity(
+      {
+        typeId: MAIL_COMMITMENT_TYPE_ID,
+        entityId: mailCommitmentEntityId(accountId, threadId),
+        filePath: `@system/mail-commitments/${threadId}`,
+        base: { mc_thread_id: threadId, mc_account_email: accountId },
+      },
+      { mc_subject: subject, mc_items: items, mc_fp: fingerprint, mc_at: Date.now() },
+    );
     return { ok: true };
   };
 
@@ -5528,6 +5558,7 @@ export function buildRouter(
     "mail.getState": mailGetState,
     "mail.setAiCategory": mailSetAiCategory,
     "mail.setAiSummary": mailSetAiSummary,
+    "mail.setCommitments": mailSetCommitments,
     "mail.getAiCache": mailGetAiCache,
     "mail.syncUpsert": mailSyncUpsert,
     "mail.applyLocalMutation": mailApplyLocalMutation,

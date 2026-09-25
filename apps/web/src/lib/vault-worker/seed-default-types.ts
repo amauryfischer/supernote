@@ -284,6 +284,17 @@ const emailAiCacheFields: SeedField[] = [
   { id: "eac_summary_at", name: "aiSummaryAt", label: "Résumé le", kind: "number" },
 ];
 
+export const MAIL_COMMITMENT_TYPE_ID = "mail_commitment";
+
+const mailCommitmentFields: SeedField[] = [
+  { id: "mc_thread_id", name: "threadId", label: "Gmail thread ID", kind: "text", required: true },
+  { id: "mc_account_email", name: "accountEmail", label: "Compte Gmail", kind: "email" },
+  { id: "mc_subject", name: "subject", label: "Objet", kind: "text" },
+  { id: "mc_items", name: "items", label: "Engagements (JSON)", kind: "longtext" },
+  { id: "mc_fp", name: "fingerprint", label: "Empreinte du fil", kind: "text" },
+  { id: "mc_at", name: "analyzedAt", label: "Analysé le", kind: "number" },
+];
+
 const vaultMountFields: SeedField[] = [
   { id: "vm_label", name: "label", label: "Nom affiché", kind: "text", required: true },
   { id: "vm_server_url", name: "serverUrl", label: "URL du serveur", kind: "text", required: true },
@@ -338,6 +349,7 @@ export const DEFAULT_ENTITY_TYPES: SeedEntityType[] = [
   { id: "habit", name: "Habitude", plural: "Habitudes", icon: "GridNine", color: "#8B5CF6", fields: habitFields, defaultPath: "Habitudes", fileNamePattern: "{name}" },
   { id: "vault_mount", name: "vault_mount", plural: "vault_mounts", icon: "Plugs", color: "#8b5cf6", fields: vaultMountFields, defaultPath: "VaultMounts", fileNamePattern: "{label}" },
   { id: EMAIL_AI_CACHE_TYPE_ID, name: "email_ai_cache", plural: "email_ai_cache", icon: "Brain", color: "#6366F1", fields: emailAiCacheFields, defaultPath: "@system/email-ai", fileNamePattern: "{threadId}" },
+  { id: MAIL_COMMITMENT_TYPE_ID, name: "mail_commitment", plural: "mail_commitment", icon: "Handshake", color: "#6366F1", fields: mailCommitmentFields, defaultPath: "@system/mail-commitments", fileNamePattern: "{threadId}" },
   { id: TEMPLATE_TYPE_ID, name: "Modèle", plural: "Modèles", icon: "FileDashed", color: "#64748B", fields: templateFields, defaultPath: TEMPLATE_FOLDER, fileNamePattern: "{name}" },
 ];
 

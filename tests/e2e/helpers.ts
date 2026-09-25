@@ -19,7 +19,7 @@ export async function bootDegraded(page: Page): Promise<void> {
   });
 }
 
-const AI_FLAGS = ["supernote.ai.autoTitle", "supernote.ai.autoTag", "supernote.ai.margins", "supernote.ai.inboxSort"];
+const AI_FLAGS = ["supernote.ai.autoTitle", "supernote.ai.autoTag", "supernote.ai.margins", "supernote.ai.inboxSort", "supernote.ai.commitments"];
 
 /**
  * Amorce l'app sur un coffre cloud neuf : vrai worker SQLite sur OPFS, sans

@@ -78,7 +78,7 @@ const CHECKLIST_RE = /^(\s*(?:[-*+]|\d+\.)\s+)\[( |x|X)\]\s+(.+?)\s*$/;
 
 /** Cheap stable hash matching the `useAutoTitle` helper so id derivation is
  *  consistent across the codebase. */
-function djb2(s: string): string {
+export function djb2(s: string): string {
   let h = 5381;
   for (let i = 0; i < s.length; i++) {
     h = ((h << 5) + h) ^ s.charCodeAt(i);

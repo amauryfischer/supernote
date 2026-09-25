@@ -25,6 +25,8 @@ import {
   SetAiCategoryOutput,
   SetAiSummaryInput,
   SetAiSummaryOutput,
+  SetCommitmentsInput,
+  SetCommitmentsOutput,
   GetAiCacheInput,
   GetAiCacheOutput,
 } from "../schemas/mail.js";
@@ -133,6 +135,14 @@ export const mailRouter = router({
     .output(SetAiSummaryOutput)
     .mutation(() => {
       throw notImplemented("mail.setAiSummary");
+    }),
+
+  /** Store the commitments detected in a thread (mail_commitment entity, synced). */
+  setCommitments: publicProcedure
+    .input(SetCommitmentsInput)
+    .output(SetCommitmentsOutput)
+    .mutation(() => {
+      throw notImplemented("mail.setCommitments");
     }),
 
   /** Bulk read AI classification + summary for a set of threads. */

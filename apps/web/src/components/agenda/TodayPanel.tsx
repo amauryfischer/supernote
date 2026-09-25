@@ -14,6 +14,7 @@ import { EventDetail } from "./EventDetail";
 import { OverlayChip } from "./OverlayChip";
 import { useAgendaData } from "./useAgendaData";
 import { useEventWrites } from "./useEventWrites";
+import { CommitmentsTodaySection } from "@/components/mail/CommitmentsTodaySection";
 
 function untilLabel(ev: CalEventRow, now: number): string {
   if (ev.startAt <= now) return "en cours";
@@ -165,6 +166,8 @@ export function TodayPanel({ onClose }: { onClose?: () => void }) {
           )}
         </>
       )}
+
+      <CommitmentsTodaySection />
     </div>
   );
 }

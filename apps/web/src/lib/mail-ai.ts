@@ -484,10 +484,14 @@ function asReachabilityError(err: unknown): Error {
  * automatique, assistant de boîte). Lève une erreur claire si Ollama est
  * injoignable.
  */
-export async function runLocalPrompt(prompt: string, temperature = 0.1): Promise<string> {
+export async function runLocalPrompt(
+  prompt: string,
+  temperature = 0.1,
+  format?: "json",
+): Promise<string> {
   const client = buildClient();
   try {
-    const text = await client.generate({ prompt, temperature });
+    const text = await client.generate({ prompt, temperature, ...(format ? { format } : {}) });
     return text.trim();
   } catch (err) {
     throw asReachabilityError(err);

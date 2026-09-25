@@ -270,6 +270,21 @@ export type SetAiSummaryInput = z.infer<typeof SetAiSummaryInput>;
 export const SetAiSummaryOutput = z.object({ ok: z.boolean() });
 export type SetAiSummaryOutput = z.infer<typeof SetAiSummaryOutput>;
 
+// ── mail.setCommitments ────────────────────────────────────────────────────
+// Engagements détectés dans un fil : entité mail_commitment, jamais le miroir.
+
+export const SetCommitmentsInput = z.object({
+  accountId: z.string(),
+  threadId: z.string(),
+  subject: z.string(),
+  items: z.string(),
+  fingerprint: z.string(),
+});
+export type SetCommitmentsInput = z.infer<typeof SetCommitmentsInput>;
+
+export const SetCommitmentsOutput = z.object({ ok: z.boolean() });
+export type SetCommitmentsOutput = z.infer<typeof SetCommitmentsOutput>;
+
 // ── mail.getAiCache ────────────────────────────────────────────────────────
 // Bulk read AI classification + summary for a list of threads (used by hooks
 // to hydrate on mount without a full listThreads call).

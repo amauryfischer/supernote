@@ -79,6 +79,7 @@ import { LabelMarker, LabelStyleGrid, labelChipStyle } from "./LabelMarker";
 import { EmailToEventButton } from "./EmailToEventButton";
 import { MailEisenhowerPicker } from "./MailEisenhowerPicker";
 import { ExtractActionsButton } from "./ExtractActionsButton";
+import { CommitmentsBanner } from "./CommitmentsBanner";
 import { type TriageAction } from "@/lib/mail-triage";
 import {
   QUADRANTS,
@@ -1333,6 +1334,16 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
           </div>
         </div>
       )}
+
+      <CommitmentsBanner
+        thread={thread}
+        accountId={selfEmail ?? ""}
+        selfEmails={aiThread.selfEmails ?? []}
+        onDraft={(text) => {
+          setReplyBody(text);
+          requestAnimationFrame(() => replyTaRef.current?.focus());
+        }}
+      />
 
       {thread.messages.map((m) => (
         <MessageBubble
