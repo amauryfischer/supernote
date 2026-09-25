@@ -4,13 +4,12 @@ import { AppShell, useMobileTitle } from "@/components/shell";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import {
   CONTACTS,
-  INTERACTIONS,
   formatDate,
   entityToContact,
 } from "@/components/contacts";
-import type { Contact, Interaction } from "@/components/contacts";
+import type { Contact } from "@/components/contacts";
+import { DossierTab } from "@/components/contacts/DossierTab";
 import { EditableSidebar } from "@/components/contacts/EditableSidebar";
-import type { EntitySummary } from "@supernote/ipc";
 import {
   ArrowLeft,
   Buildings,
@@ -28,28 +27,9 @@ import { localStore } from "@/lib/local-store";
 import { useSettings } from "@/components/settings/SettingsContext";
 import { ContactEmailTimeline } from "@/components/contacts/ContactEmailTimeline";
 
-type Tab = "notes" | "timeline" | "emails" | "liens" | "finance" | "activite";
+type Tab = "dossier" | "notes" | "emails" | "liens" | "finance" | "activite";
 
 // ── Small UI helpers ──────────────────────────────────────────────────────────
-
-function InteractionKindBadge({ kind }: { kind: string }) {
-  const map: Record<string, string> = {
-    réunion: "oklch(0.88 0.10 260)",
-    appel: "oklch(0.88 0.10 200)",
-    email: "oklch(0.88 0.10 150)",
-    déjeuner: "oklch(0.88 0.10 80)",
-    message: "oklch(0.88 0.10 295)",
-    note: "oklch(0.88 0.06 240)",
-  };
-  return (
-    <span
-      className="rounded-full px-2 py-0.5 text-xs font-medium"
-      style={{ backgroundColor: map[kind] ?? "var(--surface-3)", color: "var(--text-secondary)" }}
-    >
-      {kind}
-    </span>
-  );
-}
 
 // ── Tab: Notes ────────────────────────────────────────────────────────────────
 
@@ -110,111 +90,16 @@ function NotesTab({ entityId, initialNotes }: NotesTabProps) {
   );
 }
 
-// ── Tab: Timeline ─────────────────────────────────────────────────────────────
-
-interface TimelineTabProps {
-  contactId: string;
-  fixtureInteractions: Interaction[];
-}
-
-function TimelineTab({ contactId, fixtureInteractions }: TimelineTabProps) {
-  const { data: trpcData, isError } = trpc.entities.list.useQuery(
-    { typeId: "interaction", limit: 200 },
-    { retry: false },
-  );
-
-  const interactions: Interaction[] = (() => {
-    if (!isError && trpcData?.items && trpcData.items.length > 0) {
-      return trpcData.items
-        .filter((e: EntitySummary) => {
-          const f = e.fields;
-          return f["participants"] === contactId || f["contactId"] === contactId;
-        })
-        .map((e: EntitySummary) => {
-          const f = e.fields;
-          const titleVal = f["title"] ?? f["name"] ?? f["subject"];
-          return {
-            id: e.id,
-            contactId,
-            date: typeof f["date"] === "string" ? f["date"] : e.updatedAt,
-            kind: (typeof f["kind"] === "string" ? f["kind"] : "note") as Interaction["kind"],
-            title: typeof titleVal === "string" ? titleVal : e.typeName,
-            notes: typeof f["notes"] === "string" ? f["notes"] : undefined,
-          };
-        });
-    }
-    return fixtureInteractions;
-  })();
-
-  const sorted = [...interactions].sort(
-    (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
-  );
-
-  return (
-    <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between">
-        <p className="sn-eyebrow">
-          {sorted.length} interaction{sorted.length > 1 ? "s" : ""}
-        </p>
-        {/* CTA « Ajouter interaction » retiré : il n'avait aucun onPress (bouton
-            mort maquillé en primaire). À réintroduire câblé quand le flux
-            d'ajout d'interaction existera. */}
-      </div>
-
-      {sorted.length === 0 && (
-        <p className="text-sm" style={{ color: "var(--text-muted)" }}>Aucune interaction enregistrée.</p>
-      )}
-
-      <div className="relative">
-        <div
-          className="absolute left-3 top-2 bottom-2 w-px"
-          style={{ backgroundColor: "var(--border-subtle)" }}
-        />
-        <div className="flex flex-col gap-4">
-          {sorted.map((interaction) => (
-            <div key={interaction.id} className="flex gap-4">
-              <div
-                className="mt-1 h-6 w-6 flex-shrink-0 rounded-full border-2 flex items-center justify-center z-10"
-                style={{ borderColor: "var(--accent)", backgroundColor: "var(--surface-0)" }}
-              />
-              <div
-                className="flex-1 rounded-lg border p-4"
-                style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-1)" }}
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <InteractionKindBadge kind={interaction.kind} />
-                    <span className="font-medium text-sm" style={{ color: "var(--text-primary)" }}>
-                      {interaction.title}
-                    </span>
-                  </div>
-                  <span className="text-xs flex-shrink-0" style={{ color: "var(--text-muted)" }}>
-                    {formatDate(interaction.date)}
-                  </span>
-                </div>
-                {interaction.notes && (
-                  <p className="mt-2 text-sm leading-relaxed" style={{ color: "var(--text-secondary)" }}>
-                    {interaction.notes}
-                  </p>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ── Tab: Liens ────────────────────────────────────────────────────────────────
 
 interface LiensTabProps {
   contactId: string;
+  orgId?: string;
   orgName?: string;
   orgWebsite?: string;
 }
 
-function LiensTab({ contactId, orgName, orgWebsite }: LiensTabProps) {
+function LiensTab({ contactId, orgId, orgName, orgWebsite }: LiensTabProps) {
   const { data: relations, isError } = trpc.relations.listForEntity.useQuery(
     { entityId: contactId },
     { retry: false },
@@ -235,19 +120,24 @@ function LiensTab({ contactId, orgName, orgWebsite }: LiensTabProps) {
           <div className="flex items-center gap-2 text-sm">
             <Buildings size={14} style={{ color: "var(--text-muted)" }} />
             <span style={{ color: "var(--text-muted)" }}>Travaille chez</span>
-            {orgWebsite ? (
+            {orgId ? (
+              <Link href={`/contacts/${orgId}`} className="font-medium hover:underline" style={{ color: "var(--text-primary)" }}>
+                {orgName}
+              </Link>
+            ) : (
+              <span className="font-medium" style={{ color: "var(--text-primary)" }}>{orgName}</span>
+            )}
+            {orgWebsite && (
               <a
                 href={orgWebsite}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="font-medium hover:underline flex items-center gap-1"
-                style={{ color: "var(--text-primary)" }}
+                aria-label={`Site de ${orgName}`}
+                className="flex items-center"
+                style={{ color: "var(--text-muted)" }}
               >
-                {orgName}
                 <ArrowSquareOut size={11} />
               </a>
-            ) : (
-              <span className="font-medium" style={{ color: "var(--text-primary)" }}>{orgName}</span>
             )}
           </div>
         )}
@@ -374,7 +264,7 @@ function ActiviteTab({ filePath }: ActiviteTabProps) {
 
 export default function ContactDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const [tab, setTab] = useState<Tab>("notes");
+  const [tab, setTab] = useState<Tab>("dossier");
   const isMobile = useIsMobile();
   const { settings } = useSettings();
 
@@ -450,12 +340,11 @@ export default function ContactDetailPage() {
     typeof orgEntity?.fields["website"] === "string"
       ? (orgEntity.fields["website"] as string)
       : undefined;
-  const fixtureInteractions = INTERACTIONS.filter((i) => i.contactId === id);
   const filePath = trpcEntity?.filePath;
 
   const TABS: { id: Tab; label: string }[] = [
+    { id: "dossier", label: "Dossier" },
     { id: "notes", label: "Notes" },
-    { id: "timeline", label: "Timeline" },
     { id: "emails", label: "Emails" },
     { id: "liens", label: "Liens" },
     { id: "finance", label: "Finance" },
@@ -545,9 +434,17 @@ export default function ContactDetailPage() {
                 <NotesTab entityId={id} initialNotes={contact.notes} />
               )}
 
-              {tab === "timeline" && (
-                <TimelineTab contactId={id} fixtureInteractions={fixtureInteractions} />
-              )}
+              {tab === "dossier" &&
+                (trpcEntity ? (
+                  <DossierTab
+                    entity={{ id: trpcEntity.id, typeId: trpcEntity.typeId, fields: trpcEntity.fields as Record<string, unknown> }}
+                    name={contact.name}
+                  />
+                ) : (
+                  <p className="text-sm" style={{ color: "var(--text-muted)" }}>
+                    Le dossier se construit depuis un coffre ouvert.
+                  </p>
+                ))}
 
               {tab === "emails" && (
                 <ContactEmailTimeline
@@ -560,6 +457,7 @@ export default function ContactDetailPage() {
               {tab === "liens" && (
                 <LiensTab
                   contactId={id}
+                  orgId={orgIdField}
                   orgName={orgName}
                   orgWebsite={orgWebsite}
                 />
