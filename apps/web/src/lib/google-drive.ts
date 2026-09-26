@@ -129,6 +129,9 @@ interface CachedToken {
 // sinon chaque scope Gmail (lecture, tag, envoi) rouvre sa propre popup.
 const tokenCache = new Map<string, CachedToken>();
 
+/** Un jeton vient d'entrer en cache : il couvre souvent d'autres scopes que celui demandé (ex. Gmail → Agenda). */
+export const GOOGLE_TOKEN_EVENT = "supernote:google-token";
+
 const cacheKey = (clientId: string, scope: string) => `${clientId} ${scope}`;
 
 const covers = (token: CachedToken, scope: string) =>
@@ -201,6 +204,7 @@ export async function requestAccessToken(
           clientId,
           grantedScopes,
         });
+        window.dispatchEvent(new CustomEvent(GOOGLE_TOKEN_EVENT));
         // Le SW réveillé par un push n'a pas accès à la mémoire de la page.
         if (grantedScopes.includes(GMAIL_MODIFY_SCOPE)) {
           void swKvSet("gmailToken", {

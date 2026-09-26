@@ -149,6 +149,39 @@ test.describe("04 — agenda", () => {
     await expect.poll(() => page.url().split("?")[0], { timeout: 20_000 }).toBe(noteUrl);
   });
 
+  test("masquer un agenda et changer sa couleur, écrits dans Google", async ({ page }) => {
+    const calls = await withGoogleCalendar(page);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto("/agenda");
+    await page.getByRole("button", { name: /Reprendre|Connecter Google Agenda/ }).first().click({ timeout: 45_000 });
+    const point = page.getByRole("button", { name: /Point équipe/ });
+    await expect(point).toBeVisible({ timeout: 30_000 });
+
+    await page.getByRole("button", { name: "Agendas affichés et couleurs" }).click();
+    await page.getByRole("checkbox", { name: ME }).click({ force: true });
+    await expect(point).toHaveCount(0);
+    await expect.poll(() => calls.filter((c) => c.startsWith("PATCH") && c.includes("/calendarList/")).length).toBe(1);
+
+    await page.getByRole("button", { name: `Couleur de ${ME}` }).click();
+    await page.getByRole("button", { name: "#16a765" }).click();
+    await page.getByRole("checkbox", { name: ME }).click({ force: true });
+    await expect(point).toBeVisible();
+    await expect.poll(() => calls.filter((c) => c.startsWith("PATCH") && c.includes("/calendarList/")).length).toBe(3);
+    await expect.poll(() => point.evaluate((el) => el.outerHTML)).toMatch(/22, 167, 101|#16a765/i);
+    if (process.env["SHOTS"]) await page.screenshot({ path: `${process.env["SHOTS"]}/agenda-calendars.png` });
+  });
+
+  test("une synchro refusée par Google s'affiche au lieu d'une grille muette", async ({ page }) => {
+    await bootCloud(page, { googleAccount: ME });
+    await page.addInitScript(() => localStorage.setItem("supernote.calendar.connected", "1"));
+    await page.route("https://www.googleapis.com/**", (route) =>
+      route.fulfill({ status: 403, json: { error: { code: 403, message: "Google Calendar API has not been used in project 1 before or it is disabled." } } }),
+    );
+    await page.goto("/agenda");
+    await page.getByRole("button", { name: /Reprendre/ }).click({ timeout: 45_000 });
+    await expect(page.getByRole("alert").filter({ hasText: "Synchro Google Agenda impossible" })).toContainText("is disabled", { timeout: 20_000 });
+  });
+
   test("un todo glissé du tiroir devient un bloc lié", async ({ page }) => {
     test.setTimeout(120_000);
     const posted: Record<string, unknown>[] = [];

@@ -9,6 +9,8 @@ import { googleRequest, GoogleApiError } from "./google-api";
 export const CALENDAR_EVENTS_SCOPE = "https://www.googleapis.com/auth/calendar.events";
 export const CALENDAR_LIST_SCOPE = "https://www.googleapis.com/auth/calendar.calendarlist.readonly";
 export const CALENDAR_SCOPES: readonly string[] = [CALENDAR_EVENTS_SCOPE, CALENDAR_LIST_SCOPE];
+/** Demandé seulement au premier affichage/masquage ou changement de couleur (consentement incrémental). */
+export const CALENDAR_LIST_WRITE_SCOPE = "https://www.googleapis.com/auth/calendar.calendarlist";
 
 const BASE = "https://www.googleapis.com/calendar/v3";
 
@@ -60,6 +62,19 @@ async function json<T>(res: Response): Promise<T> {
 function eventUrl(calendarId: string, eventId?: string): string {
   const base = `${BASE}/calendars/${encodeURIComponent(calendarId)}/events`;
   return eventId ? `${base}/${encodeURIComponent(eventId)}` : base;
+}
+
+export type CalendarListPatch = Partial<Pick<CalCalendarRow, "selected" | "backgroundColor" | "foregroundColor">>;
+
+/** Coché/décoché et couleur vivent dans la liste d'agendas Google : le réglage suit sur tous les appareils. */
+export async function patchCalendarListEntry(clientId: string, calendarId: string, patch: CalendarListPatch): Promise<void> {
+  await googleRequest(
+    clientId,
+    CALENDAR_LIST_WRITE_SCOPE,
+    `${BASE}/users/me/calendarList/${encodeURIComponent(calendarId)}?colorRgbFormat=true`,
+    { method: "PATCH", json: true, body: JSON.stringify(patch) },
+    "Calendar list patch",
+  );
 }
 
 export async function listCalendars(clientId: string): Promise<CalCalendarRow[]> {

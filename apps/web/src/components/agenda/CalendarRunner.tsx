@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { useToast } from "@supernote/ui";
 import { useSettings } from "@/components/settings/SettingsContext";
 import { mirrorAvailable } from "@/lib/mail-mirror";
+import { GOOGLE_TOKEN_EVENT } from "@/lib/google-drive";
 import { CALENDAR_OUTBOX_EVENT } from "@/lib/calendar-mirror";
 import {
   CALENDAR_CONFLICT_EVENT,
@@ -16,8 +17,9 @@ import {
 const TICK_MS = 5 * 60_000;
 
 /**
- * Garde le miroir de l'agenda à jour hors de /agenda. Ne synchronise qu'avec un
- * jeton déjà en cache : une acquisition ouvrirait la popup Google hors geste.
+ * Garde le miroir de l'agenda à jour. Ne synchronise qu'avec un jeton déjà en
+ * cache (une acquisition ouvrirait la popup Google hors geste) ; le jeton Gmail
+ * du démarrage couvre l'Agenda, d'où la relance à son arrivée.
  */
 export function CalendarRunner() {
   const { settings } = useSettings();
@@ -48,6 +50,7 @@ export function CalendarRunner() {
     const id = window.setInterval(run, TICK_MS);
     document.addEventListener("visibilitychange", run);
     window.addEventListener("online", run);
+    window.addEventListener(GOOGLE_TOKEN_EVENT, soon);
     window.addEventListener(CALENDAR_OUTBOX_EVENT, soon);
     window.addEventListener(CALENDAR_CONFLICT_EVENT, onConflict);
     return () => {
@@ -55,6 +58,7 @@ export function CalendarRunner() {
       window.clearTimeout(debounce);
       document.removeEventListener("visibilitychange", run);
       window.removeEventListener("online", run);
+      window.removeEventListener(GOOGLE_TOKEN_EVENT, soon);
       window.removeEventListener(CALENDAR_OUTBOX_EVENT, soon);
       window.removeEventListener(CALENDAR_CONFLICT_EVENT, onConflict);
     };

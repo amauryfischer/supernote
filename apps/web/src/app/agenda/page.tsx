@@ -2,15 +2,19 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useSearchParams } from "react-router-dom";
-import type { CalEventRow } from "@supernote/ipc";
+import type { CalCalendarRow, CalEventRow } from "@supernote/ipc";
 import { CalendarBlank, CalendarPlus, Plus } from "@phosphor-icons/react";
-import { EmptyState, useToast } from "@supernote/ui";
+import { Button, EmptyState, useToast } from "@supernote/ui";
 import { AppShell, MobileSheet, useMobileFab, useMobileHeaderActions, useMobileTitle } from "@/components/shell";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useSettings } from "@/components/settings/SettingsContext";
 import { useWorkerReady } from "@/components/notes/hooks";
 import { useConfirm } from "@/lib/confirm";
-import { GOOGLE_AUTH_EVENT, googleReconnectRequired } from "@/lib/google-api";
+import { GOOGLE_AUTH_EVENT, googleReconnectRequired, markScopeRecovered } from "@/lib/google-api";
+import { CALENDAR_LIST_WRITE_SCOPE, patchCalendarListEntry, type CalendarListPatch } from "@/lib/gcal";
+import { emitCalendarChanged } from "@/lib/calendar-mirror";
+import { trpcVanillaClient } from "@/lib/trpc/client";
+import { GOOGLE_TOKEN_EVENT } from "@/lib/google-drive";
 import {
   calendarAccount,
   connectCalendar,
@@ -81,6 +85,8 @@ export default function AgendaPage() {
   const [anchor, setAnchor] = useState(() => Date.now());
   const [connected, setConnected] = useState(() => isCalendarConnected());
   const [tokenTick, setTokenTick] = useState(0);
+  // Sans ça, une synchro refusée par Google (API désactivée, scope) laisse une grille vide et muette.
+  const [syncError, setSyncError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editor, setEditor] = useState<EditorState | null>(null);
   const [sources, setSources] = useState(readSources);
@@ -136,12 +142,32 @@ export default function AgendaPage() {
       if (!clientId || !accountId) return;
       try {
         await syncCalendars(clientId, accountId, { force });
+        setSyncError(null);
       } catch (err) {
         console.warn("[agenda] synchro", err);
+        setSyncError(err instanceof Error ? err.message : String(err));
       }
     },
     [clientId, accountId],
   );
+
+  const updateCalendar = async (calendarId: string, patch: CalendarListPatch) => {
+    if (!clientId || !accountId) return;
+    const before = data.calendars;
+    // Toujours la liste complète : syncUpsert retire les agendas absents, avec leurs événements.
+    const apply = (calendars: CalCalendarRow[]) =>
+      trpcVanillaClient.calendar.syncUpsert.mutate({ accountId, calendars }).then(emitCalendarChanged);
+    await apply(before.map((c) => (c.id === calendarId ? { ...c, ...patch } : c)));
+    try {
+      await patchCalendarListEntry(clientId, calendarId, patch);
+      if (patch.selected) void runSync();
+    } catch (err) {
+      // Consentement refusé ou erreur : ce réglage optionnel ne doit pas verrouiller tout l'agenda.
+      markScopeRecovered(CALENDAR_LIST_WRITE_SCOPE);
+      await apply(before);
+      setSyncError(err instanceof Error ? err.message : String(err));
+    }
+  };
 
   const connect = async () => {
     if (!clientId) return;
@@ -177,7 +203,11 @@ export default function AgendaPage() {
     if (connected && workerReady && clientId && hasCalendarToken(clientId)) void runSync();
     const onVisible = () => setTokenTick((t) => t + 1);
     document.addEventListener("visibilitychange", onVisible);
-    return () => document.removeEventListener("visibilitychange", onVisible);
+    window.addEventListener(GOOGLE_TOKEN_EVENT, onVisible);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener(GOOGLE_TOKEN_EVENT, onVisible);
+    };
   }, [connected, workerReady, clientId, runSync]);
 
   // `?event=&at=` : clic sur la notification d'avant-réunion, qui ouvre la fiche et son brief.
@@ -366,7 +396,21 @@ export default function AgendaPage() {
               onDisconnect={() => void disconnect()}
               sources={sources}
               onToggleSource={toggleSource}
+              calendars={data.calendars}
+              onCalendarChange={(id, patch) => void updateCalendar(id, patch)}
             />
+            {syncError && (
+              <div
+                role="alert"
+                className="mx-4 mb-2 flex items-start gap-2 rounded-md px-3 py-2 text-xs md:mx-6"
+                style={{ background: "var(--color-danger-50)", color: "var(--color-danger-700)" }}
+              >
+                <span className="min-w-0 flex-1 break-words">Synchro Google Agenda impossible : {syncError.slice(0, 300)}</span>
+                <Button size="sm" variant="ghost" className="h-7 min-h-7 shrink-0 px-2 text-xs" onPress={() => void runSync(true)}>
+                  Réessayer
+                </Button>
+              </div>
+            )}
             <div className="flex min-h-0 flex-1">
               <div className="flex min-h-0 min-w-0 flex-1 flex-col" {...swipeHandlers}>
                 {gridView}

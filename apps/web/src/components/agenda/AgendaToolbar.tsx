@@ -3,7 +3,10 @@
 import { ArrowsClockwise, CaretLeft, CaretRight, CloudArrowUp, DotsThree, PauseCircle } from "@phosphor-icons/react";
 import { Button, DropdownMenu, Tooltip } from "@supernote/ui";
 import { formatRangeTitle, type AgendaView } from "@/lib/agenda/dates";
+import type { CalCalendarRow } from "@supernote/ipc";
+import type { CalendarListPatch } from "@/lib/gcal";
 import type { OverlaySource } from "./useAgendaData";
+import { CalendarsPopover } from "./CalendarsPopover";
 
 export const SOURCE_LABELS: Record<OverlaySource, string> = {
   todos: "Todos",
@@ -32,10 +35,12 @@ interface AgendaToolbarProps {
   onDisconnect: () => void;
   sources: Record<OverlaySource, boolean>;
   onToggleSource: (s: OverlaySource) => void;
+  calendars: CalCalendarRow[];
+  onCalendarChange: (calendarId: string, patch: CalendarListPatch) => void;
 }
 
 export function AgendaToolbar({
-  view, anchor, isMobile, onView, onNavigate, syncPaused, onResume, pendingCount, onSyncNow, onDisconnect, sources, onToggleSource,
+  view, anchor, isMobile, onView, onNavigate, syncPaused, onResume, pendingCount, onSyncNow, onDisconnect, sources, onToggleSource, calendars, onCalendarChange,
 }: AgendaToolbarProps) {
   const sourceKeys = Object.keys(SOURCE_LABELS) as OverlaySource[];
   return (
@@ -111,6 +116,8 @@ export function AgendaToolbar({
           ))}
         </div>
       )}
+
+      <CalendarsPopover calendars={calendars} onChange={onCalendarChange} />
 
       <DropdownMenu
         trigger={
