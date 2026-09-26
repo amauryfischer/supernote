@@ -127,6 +127,8 @@ export interface GmailSettings {
    * locale. Remplace le snippet Gmail. Résultats mis en cache par fil.
    */
   listSummary: boolean;
+  /** Masque les images distantes (pixels de suivi d'ouverture) jusqu'à « Afficher ». */
+  blockRemoteImages: boolean;
 }
 
 export type LabelStyle = "solid" | "soft" | "outline" | "dot";

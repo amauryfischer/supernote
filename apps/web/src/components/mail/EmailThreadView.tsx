@@ -34,6 +34,8 @@ import { senderHue } from "@/lib/mail-avatar";
 import { formatMailDateTime } from "@/lib/mail-date";
 import {
   sanitizeEmailHtml,
+  extractStyles,
+  isTemplatedHtml,
   splitQuotedHtml,
   splitSignatureHtml,
   loadImageSenders,
@@ -123,7 +125,7 @@ const MENU_COMPONENT_ROW =
  *
  * Corps : deux chemins. Si le message a un corps text/html (`bodyHtml`), il est
  * rendu SANITIZÉ via DOMPurify (`sanitizeEmailHtml`, voir `lib/mail-html.ts`)
- * dans un conteneur isolé — pas d'extraction citation/signature sur ce chemin.
+ * dans une iframe sandboxée ajustée à la largeur (`MailHtmlFrame`).
  * Sinon, fallback TEXTE BRUT historique (`bodyText`) avec citation/signature
  * retirées mais dépliables. Aucun HTML non sanitizé n'est jamais rendu (anti-XSS).
  *
@@ -1925,28 +1927,109 @@ function senderTint(key: string): { bg: string; border: string } {
   return { bg: `hsl(${h} 70% 50% / 0.14)`, border: `hsl(${h} 70% 50% / 0.35)` };
 }
 
-/**
- * CSS scopé au conteneur de corps HTML d'e-mail (chemin `bodyHtml`). Injecté une
- * seule fois au niveau module (pas de modif globals.css — règle WIP). Borne les
- * débordements (images/tables/pré larges) pour rester dans la bulle, sans
- * réécrire le HTML de l'expéditeur. Mobile : images fluides, scroll horizontal
- * local pour les tables larges plutôt qu'un débordement de la page.
- */
-const MAIL_HTML_STYLE_ID = "sn-mail-html-style";
-const MAIL_HTML_CSS = `
-.sn-mail-html img { max-width: 100%; height: auto; }
-.sn-mail-html table { max-width: 100%; border-collapse: collapse; }
-.sn-mail-html pre { white-space: pre-wrap; word-break: break-word; }
-.sn-mail-html a { color: var(--accent); }
-.sn-mail-html blockquote { margin: 0.5em 0; padding-left: 0.75em; border-left: 2px solid var(--border-subtle); color: var(--text-muted); }
+const MAIL_FRAME_CSS = `
+html, body { margin: 0; padding: 0; overflow: hidden; }
+body { font-size: 14px; line-height: 1.5; overflow-wrap: break-word; }
+#sn-root { transform-origin: 0 0; }
+img { max-width: 100%; height: auto; }
+pre { white-space: pre-wrap; word-break: break-word; }
+blockquote { margin: 0.5em 0; padding-left: 0.75em; border-left: 2px solid rgb(128 128 128 / 0.4); }
 `;
-function ensureMailHtmlStyle(): void {
-  if (typeof document === "undefined") return;
-  if (document.getElementById(MAIL_HTML_STYLE_ID)) return;
-  const el = document.createElement("style");
-  el.id = MAIL_HTML_STYLE_ID;
-  el.textContent = MAIL_HTML_CSS;
-  document.head.appendChild(el);
+
+/**
+ * Corps HTML d'un mail, déjà sanitizé, dans une iframe sandboxée : son CSS reste
+ * confiné, ses media queries voient la largeur réelle. Pas de `allow-scripts`, donc
+ * `allow-same-origin` sert juste au parent à mesurer le document. Un gabarit plus
+ * large que la place disponible est réduit à l'échelle (comme Gmail mobile) plutôt
+ * que tronqué ; la hauteur suit le contenu, images comprises.
+ */
+function MailHtmlFrame({
+  html,
+  styles,
+  templated,
+  className,
+  style,
+}: {
+  html: string;
+  styles: string;
+  templated: boolean;
+  className?: string;
+  style?: React.CSSProperties;
+}) {
+  const ref = useRef<HTMLIFrameElement>(null);
+  const [height, setHeight] = useState(0);
+  const srcDoc = useMemo(
+    () =>
+      `<!doctype html><html><head><meta charset="utf-8"><base target="_blank"><style>${MAIL_FRAME_CSS}</style>${styles}</head><body><div id="sn-root">${html}</div></body></html>`,
+    [html, styles],
+  );
+
+  useEffect(() => {
+    const iframe = ref.current;
+    if (!iframe) return;
+    let cleanup = () => {};
+    const setup = () => {
+      cleanup();
+      const doc = iframe.contentDocument;
+      const root = doc?.getElementById("sn-root");
+      if (!doc || !root) return;
+      const cs = getComputedStyle(iframe);
+      if (templated) {
+        doc.documentElement.style.colorScheme = "light";
+        doc.body.style.background = "#fff";
+        doc.body.style.color = "#000";
+      } else {
+        // Mail simple : prend la typo et les couleurs de l'app. Même color-scheme que
+        // la page, sinon Chrome peint l'iframe en blanc opaque.
+        doc.documentElement.style.colorScheme = cs.colorScheme;
+        doc.body.style.color = cs.color;
+        doc.body.style.fontFamily = cs.fontFamily;
+        const accent = cs.getPropertyValue("--accent").trim();
+        if (accent) doc.head.insertAdjacentHTML("beforeend", `<style>a{color:${accent}}</style>`);
+      }
+      doc.body.style.fontFamily ||= cs.fontFamily;
+      const fit = () => {
+        root.style.width = "";
+        root.style.transform = "";
+        const avail = iframe.clientWidth;
+        const natural = Math.max(root.scrollWidth, root.offsetWidth);
+        const scale = natural > avail && avail > 0 ? avail / natural : 1;
+        if (scale < 1) {
+          root.style.width = `${natural}px`;
+          root.style.transform = `scale(${scale})`;
+        }
+        setHeight(Math.ceil(root.offsetHeight * scale));
+      };
+      fit();
+      const View = doc.defaultView?.ResizeObserver ?? ResizeObserver;
+      const inner = new View(fit);
+      inner.observe(root);
+      const outer = new ResizeObserver(fit);
+      outer.observe(iframe);
+      doc.querySelectorAll("img").forEach((img) => img.addEventListener("load", fit));
+      cleanup = () => {
+        inner.disconnect();
+        outer.disconnect();
+      };
+    };
+    iframe.addEventListener("load", setup);
+    if (iframe.contentDocument?.readyState === "complete") setup();
+    return () => {
+      iframe.removeEventListener("load", setup);
+      cleanup();
+    };
+  }, [srcDoc, templated]);
+
+  return (
+    <iframe
+      ref={ref}
+      title="Contenu du message"
+      sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+      srcDoc={srcDoc}
+      className={`block w-full border-0 ${className ?? ""}`}
+      style={{ height, ...style }}
+    />
+  );
 }
 
 /** « à X, Y · cc Z » (moi = compte connecté) + adresses complètes pour l'infobulle. */
@@ -1994,24 +2077,22 @@ function MessageBubble({
     () => false,
   );
   const [showImagesOnce, setShowImagesOnce] = useState(false);
-  const allowRemoteImages = senderTrusted || showImagesOnce;
+  const { settings } = useSettings();
+  const allowRemoteImages = !(settings.gmail.blockRemoteImages ?? false) || senderTrusted || showImagesOnce;
   // Chemin HTML : sanitize PUIS sépare contenu neuf, signature et citation, ces deux
   // dernières repliées. Mémoïsé : la sanitization touche le DOM (template parse).
   const htmlParts = useMemo(() => {
     if (!message.bodyHtml) return null;
-    const { html, blockedImages } = sanitizeEmailHtml(message.bodyHtml, { allowRemoteImages });
+    const sanitized = sanitizeEmailHtml(message.bodyHtml, { allowRemoteImages });
+    const { html, styles } = extractStyles(sanitized.html);
     const { body, quoted } = splitQuotedHtml(html);
-    return { ...splitSignatureHtml(body), quoted, blockedImages };
+    return { ...splitSignatureHtml(body), quoted, styles, templated: isTemplatedHtml(html), blockedImages: sanitized.blockedImages };
   }, [message.bodyHtml, allowRemoteImages]);
   // Chemin texte (fallback historique) : parse uniquement quand pas de HTML.
   const { body, quoted, signature } = useMemo(
     () => (htmlParts ? { body: "", quoted: "", signature: "" } : parseEmailBody(message.bodyText || message.snippet)),
     [htmlParts, message.bodyText, message.snippet],
   );
-  // Injecte le CSS scopé du conteneur HTML à la 1ʳᵉ bulle HTML rendue.
-  useEffect(() => {
-    if (htmlParts) ensureMailHtmlStyle();
-  }, [htmlParts]);
   const copyFb = useActionFeedback();
   // Copie le contenu neuf (sans citation ni signature) ; en HTML, garde la mise en forme au collage.
   const copyMessage = () =>
@@ -2035,13 +2116,14 @@ function MessageBubble({
       ]);
     });
   const canCopy = Boolean(htmlParts?.body || body);
+  const templated = htmlParts?.templated ?? false;
   return (
     <div className="flex">
       <div
-        className="w-full min-w-0 rounded-2xl border px-3.5 py-2.5"
+        className="w-full min-w-0 overflow-hidden rounded-2xl border px-3.5 py-2.5"
         style={{
-          backgroundColor: tint ? tint.bg : "var(--accent-subtle)",
-          borderColor: tint ? tint.border : "var(--border-subtle)",
+          backgroundColor: templated ? "transparent" : tint ? tint.bg : "var(--accent-subtle)",
+          borderColor: templated ? "var(--border-subtle)" : tint ? tint.border : "var(--border-subtle)",
         }}
       >
         <div className="mb-1 flex items-baseline justify-between gap-3">
@@ -2079,33 +2161,39 @@ function MessageBubble({
         </div>
 
         {htmlParts ? (
-          // Corps HTML sanitizé (DOMPurify) — conteneur isolé : largeur bornée,
-          // retour à la ligne, images responsives. La citation (historique) est
-          // séparée et repliée pour éviter les « blocs rémanents ».
+          // La citation (historique) est séparée et repliée pour éviter les « blocs rémanents ».
           <>
             {htmlParts.blockedImages > 0 && (
-              <div
-                className="mb-1.5 flex flex-wrap items-center gap-x-1 gap-y-0.5 text-xs"
-                style={{ color: "var(--text-muted)" }}
-              >
+              <div className="mb-1.5 flex items-center gap-1 text-xs" style={{ color: "var(--text-muted)" }}>
                 <ImageIcon size={14} aria-hidden className="shrink-0" />
-                <span className="mr-1">Images masquées (suivi d&apos;ouverture)</span>
-                <Button size="sm" variant="ghost" onPress={() => setShowImagesOnce(true)}>
+                <span className="min-w-0 truncate">Images masquées</span>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 min-h-7 shrink-0 px-2 text-xs"
+                  onPress={() => setShowImagesOnce(true)}
+                >
                   Afficher
                 </Button>
                 {senderEmail && (
-                  <Button size="sm" variant="ghost" onPress={() => trustImageSender(senderEmail)}>
-                    Toujours pour cet expéditeur
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 min-h-7 shrink-0 px-2 text-xs"
+                    onPress={() => trustImageSender(senderEmail)}
+                  >
+                    Toujours
                   </Button>
                 )}
               </div>
             )}
             {htmlParts.body && (
-              <div
-                className="sn-mail-html max-w-full overflow-x-auto break-words text-sm"
-                style={{ color: "var(--text-secondary)" }}
-                // eslint-disable-next-line react/no-danger -- contenu sanitizé en amont (sanitizeEmailHtml)
-                dangerouslySetInnerHTML={{ __html: htmlParts.body }}
+              <MailHtmlFrame
+                html={htmlParts.body}
+                styles={htmlParts.styles}
+                templated={templated}
+                className={templated ? "-mx-3.5" : undefined}
+                style={{ color: "var(--text-secondary)", ...(templated && { width: "calc(100% + 1.75rem)", maxWidth: "none" }) }}
               />
             )}
             {htmlParts.signature && (
@@ -2113,6 +2201,7 @@ function MessageBubble({
                 openLabel="··· Afficher la signature"
                 closeLabel="Masquer la signature"
                 html={htmlParts.signature}
+                styles={htmlParts.styles}
               />
             )}
             {htmlParts.quoted && (
@@ -2120,6 +2209,7 @@ function MessageBubble({
                 openLabel="··· Afficher la citation"
                 closeLabel="Masquer la citation"
                 html={htmlParts.quoted}
+                styles={htmlParts.styles}
               />
             )}
           </>
@@ -2269,15 +2359,22 @@ function CollapsibleBlock({ openLabel, closeLabel, text }: { openLabel: string; 
 }
 
 /** `html` doit être DÉJÀ sanitizé (découpé après `sanitizeEmailHtml`). */
-function CollapsibleHtml({ openLabel, closeLabel, html }: { openLabel: string; closeLabel: string; html: string }) {
+function CollapsibleHtml({
+  openLabel,
+  closeLabel,
+  html,
+  styles,
+}: {
+  openLabel: string;
+  closeLabel: string;
+  html: string;
+  styles: string;
+}) {
   return (
     <Collapsible openLabel={openLabel} closeLabel={closeLabel}>
-      <div
-        className="sn-mail-html mt-1 max-w-full overflow-x-auto break-words border-l pl-2 text-sm"
-        style={{ color: "var(--text-muted)", borderColor: "var(--border-subtle)" }}
-        // eslint-disable-next-line react/no-danger -- HTML déjà sanitizé en amont
-        dangerouslySetInnerHTML={{ __html: html }}
-      />
+      <div className="mt-1 border-l pl-2" style={{ borderColor: "var(--border-subtle)" }}>
+        <MailHtmlFrame html={html} styles={styles} templated={false} style={{ color: "var(--text-muted)" }} />
+      </div>
     </Collapsible>
   );
 }

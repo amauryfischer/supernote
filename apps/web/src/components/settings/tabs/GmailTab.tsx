@@ -288,6 +288,20 @@ export function GmailTab() {
           )}
 
           <SettingRow
+            label="Masquer les images distantes"
+            description="Bloque les images chargées depuis Internet, dont les pixels qui signalent à l'expéditeur que tu as ouvert son email. Un bouton « Afficher » reste dans chaque message."
+          >
+            <Switch
+              isSelected={gmail.blockRemoteImages ?? false}
+              onChange={(sel) => {
+                updateSettings("gmail", { ...gmail, blockRemoteImages: Boolean(sel) });
+                void saveSettings();
+              }}
+              aria-label="Masquer les images distantes des emails"
+            />
+          </SettingRow>
+
+          <SettingRow
             label="Mini-résumé dans la liste (IA locale)"
             description="Remplace l'aperçu Gmail par une phrase d'une trentaine de mots qui dit ce que l'email attend de toi. Généré une seule fois par fil, puis mis en cache sur cet appareil."
           >

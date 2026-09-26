@@ -4,12 +4,10 @@
  * Le corps HTML brut d'un mail est une surface XSS majeure (scripts, handlers
  * `on*`, `<style>` exfiltrant, `javascript:` URIs, iframes…). On ne le rend
  * JAMAIS tel quel : `sanitizeEmailHtml` produit une chaîne HTML nettoyée,
- * destinée à `dangerouslySetInnerHTML` dans un conteneur isolé (voir
- * `EmailThreadView`/MessageBubble).
+ * rendue dans une iframe sandboxée sans scripts (`MailHtmlFrame`, EmailThreadView).
  *
  * Politique stricte :
- *  - pas de `<script>` ni `<style>` (FORBID_TAGS) — pas d'exécution, pas de CSS
- *    global exfiltrant ;
+ *  - pas de `<script>` (FORBID_TAGS) ; `<style>` gardé, confiné à l'iframe ;
  *  - pas d'attributs `on*` (DOMPurify les retire par défaut ; explicité par
  *    FORBID_ATTR pour la lisibilité) ;
  *  - pas de `<form>`/`<input>` ni de contenu interactif soumettable ;
@@ -21,13 +19,13 @@
  *  - Images inline `cid:` (référencées par Content-ID dans le HTML) ne sont PAS
  *    résolues : on les laisse passer (best-effort) ; elles ne chargeront pas
  *    (URL `cid:` non gérée par le navigateur) mais ne plantent pas le rendu.
- *  - Ressources distantes (images, `background`, `url()` du CSS inline, `<svg
- *    image>`) retirées par défaut : ce sont les pixels-espions qui signalent
- *    l'ouverture. Le lecteur les réaffiche à la demande (`allowRemoteImages`),
- *    ou pour toujours par expéditeur (`trustImageSender`).
- *  - Le CSS inline (`style="…"`) reste autorisé par défaut pour préserver la
- *    mise en forme ; il est borné côté conteneur (max-width, overflow) mais peut
- *    déborder visuellement. DOMPurify neutralise les `style` dangereux
+ *  - Ressources distantes (images, `background`, `url()`/`@import` du CSS, `<svg
+ *    image>`) retirées si le réglage « Masquer les images distantes » est actif :
+ *    ce sont les pixels-espions qui signalent l'ouverture. Le lecteur les réaffiche
+ *    à la demande (`allowRemoteImages`), ou pour toujours par expéditeur
+ *    (`trustImageSender`).
+ *  - Le CSS inline (`style="…"`) reste autorisé pour préserver la mise en forme.
+ *    DOMPurify neutralise les `style` dangereux
  *    (expression(), url(javascript:)…). En complément, on RETIRE le CSS de mise
  *    en page hors-flux (`position: fixed/absolute/sticky`, `z-index`,
  *    `top/right/bottom/left`, `inset`) qui permettrait à un email de dessiner un
@@ -114,6 +112,14 @@ function sanitizeLayoutStyle(style: string): string {
 function ensureLinkHook(): void {
   if (hookRegistered) return;
   hookRegistered = true;
+  DOMPurify.addHook("uponSanitizeElement", (node, data) => {
+    if (!blockRemote || data.tagName !== "style") return;
+    const css = node.textContent ?? "";
+    const cleaned = css
+      .replace(/@import[^;]*;?/gi, () => (blockedCount++, ""))
+      .replace(/(url|image-set)\(\s*(?!['"]?\s*data:)[^)]*\)/gi, () => (blockedCount++, "none"));
+    if (cleaned !== css) node.textContent = cleaned;
+  });
   DOMPurify.addHook("afterSanitizeAttributes", (node) => {
     if (!(node instanceof Element)) return;
     const tag = node.tagName.toUpperCase();
@@ -265,10 +271,12 @@ export function sanitizeEmailHtml(
   blockedCount = 0;
   let html: string;
   try {
-    html = DOMPurify.sanitize(dirty, {
-      // `<script>`/`<style>` (CSS global exfiltrant) + éléments interactifs/embed
-      // qui n'ont aucun sens dans un corps de mail rendu en lecture.
-      FORBID_TAGS: ["script", "style", "form", "input", "button", "textarea", "select", "iframe", "object", "embed"],
+    html = DOMPurify.sanitize(hoistHead(dirty), {
+      // `<style>` gardé : le corps est rendu dans une iframe sandboxée (`MailHtmlFrame`),
+      // son CSS ne peut pas toucher l'app. Sans lui, les gabarits responsives cassent.
+      FORBID_TAGS: ["script", "form", "input", "button", "textarea", "select", "iframe", "object", "embed"],
+      // Sinon un `<style>` en tête de corps part dans <head> et est perdu.
+      FORCE_BODY: true,
       // DOMPurify retire déjà tous les handlers `on*` ; on n'ajoute donc PAS
       // `style` ici → l'attribut `style` INLINE est conservé pour la mise en forme
       // du mail (DOMPurify neutralise les valeurs dangereuses : expression(),
@@ -283,6 +291,36 @@ export function sanitizeEmailHtml(
     blockRemote = false;
   }
   return { html, blockedImages: blockedCount };
+}
+
+/**
+ * Les gabarits posent leur CSS dans <head> et leur fond sur <body>, deux choses que
+ * DOMPurify jette (il ne rend que le contenu du corps) : on les remonte dans le corps.
+ */
+function hoistHead(dirty: string): string {
+  if (typeof DOMParser === "undefined") return dirty;
+  const doc = new DOMParser().parseFromString(dirty, "text/html");
+  const styles = [...doc.head.querySelectorAll("style")].map((el) => el.outerHTML).join("");
+  const bg = doc.body.getAttribute("bgcolor") || doc.body.style.backgroundColor;
+  const body = /^[#\w(),.\s%]+$/.test(bg) ? `<div style="background-color:${bg}">${doc.body.innerHTML}</div>` : doc.body.innerHTML;
+  return styles + body;
+}
+
+const STYLE_RE = /<style\b[^>]*>[\s\S]*?<\/style>/gi;
+
+/** Sort les `<style>` d'un HTML sanitizé : ils vont dans le <head> de l'iframe de rendu. */
+export function extractStyles(html: string): { html: string; styles: string } {
+  const styles = html.match(STYLE_RE)?.join("") ?? "";
+  return { html: styles ? html.replace(STYLE_RE, "") : html, styles };
+}
+
+/**
+ * Mail « gabarit » (newsletter, notification transactionnelle) : mise en page en tables
+ * larges ou fonds posés. Rendu pleine largeur sur fond clair plutôt que dans une bulle
+ * teintée, sinon ses propres couleurs deviennent illisibles en thème sombre.
+ */
+export function isTemplatedHtml(html: string): boolean {
+  return /<table\b[^>]*\bwidth\s*=\s*["']?(?:[4-9]\d\d|\d{4})|\bbgcolor\s*=|background(?:-color)?\s*:/i.test(html);
 }
 
 // ── Expéditeurs dont les images s'affichent d'office ─────────────────────────
