@@ -62,6 +62,22 @@ test.describe("06 — mail", () => {
     await expect(page.getByRole("listbox", { name: "Suggestions de destinataires" })).toHaveCount(0);
   });
 
+  test("archiver un fil (e) affiche la pastille Annuler, cliquer dessus le restaure", async ({ page }) => {
+    await withInbox(page);
+    await page.goto("/mail");
+    await expect(page.getByText("Compte rendu réunion").first()).toBeVisible({ timeout: 20_000 });
+
+    await page.keyboard.press("j");
+    await page.keyboard.press("e");
+
+    const undoButton = page.getByRole("button", { name: /Annuler/ });
+    await expect(undoButton).toBeVisible();
+    await expect(page.getByText("Compte rendu réunion")).toHaveCount(0);
+
+    await undoButton.click();
+    await expect(page.getByText("Compte rendu réunion").first()).toBeVisible();
+  });
+
   test("le message se copie depuis sa bulle", async ({ page, context }) => {
     await context.grantPermissions(["clipboard-read", "clipboard-write"]);
     await withInbox(page);

@@ -818,18 +818,31 @@ export default function MailPage() {
     [setRows, setCumItems],
   );
 
-  // ── Annuler (raccourci `z` ; toast en plus pour une suppression) ────────────
+  // ── Annuler (raccourci `z` ; pastille cliquable après chaque triage) ────────
   const lastUndoableRef = useRef<{
     id: string;
     action: TriageAction;
     opId: string | null;
     at: number;
   } | null>(null);
+  // Pastille visible pendant UNDO_TOAST_DURATION_MS : état (pas juste le ref
+  // ci-dessus) pour déclencher le rendu.
+  const [undoBanner, setUndoBanner] = useState<{
+    id: string;
+    action: TriageAction;
+    opId: string | null;
+  } | null>(null);
+  const undoBannerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (undoBannerTimerRef.current) clearTimeout(undoBannerTimerRef.current);
+  }, []);
 
   const performUndo = useCallback(
     (id: string, action: TriageAction, opId?: string | null) => {
       if (!clientId) return;
       lastUndoableRef.current = null; // consommé
+      if (undoBannerTimerRef.current) clearTimeout(undoBannerTimerRef.current);
+      setUndoBanner(null);
       const undo = (async () => {
         if (opId && mirrorAvailable() && accountId) {
           await mirrorCancelOutbox([opId]);
@@ -864,15 +877,13 @@ export default function MailPage() {
     (id: string, action: TriageAction, opId?: string | null) => {
       setLiveMessage(TRIAGE_DONE_LABEL[action]);
       if (!clientId) return;
-      lastUndoableRef.current = { id, action, opId: opId ?? null, at: Date.now() };
-      if (action !== "delete") return;
-      toast({
-        title: TRIAGE_DONE_LABEL[action],
-        duration: UNDO_TOAST_DURATION_MS,
-        action: { label: "Annuler", onClick: () => performUndo(id, action, opId) },
-      });
+      const entry = { id, action, opId: opId ?? null };
+      lastUndoableRef.current = { ...entry, at: Date.now() };
+      setUndoBanner(entry);
+      if (undoBannerTimerRef.current) clearTimeout(undoBannerTimerRef.current);
+      undoBannerTimerRef.current = setTimeout(() => setUndoBanner(null), UNDO_TOAST_DURATION_MS);
     },
-    [clientId, toast, performUndo],
+    [clientId],
   );
 
   // « Fait » vide aussi la matrice : sinon le label todo survit à l'archivage et
@@ -2807,6 +2818,30 @@ export default function MailPage() {
           style={{ background: "var(--surface-2)", color: "var(--text-secondary)" }}
         >
           {chordPrefix}…
+        </div>
+      )}
+      {/* Pastille « Annuler » après un triage (archive/fait/report/suppression) :
+          même mécanisme que l'indicateur d'accord ci-dessus, pas de toast. */}
+      {undoBanner && (
+        <div
+          className="sn-pop-in fixed inset-x-0 z-50 flex justify-center px-4"
+          style={{ bottom: isMobile ? "calc(64px + env(safe-area-inset-bottom, 0px))" : "1rem" }}
+        >
+          <div
+            className="flex items-center gap-2 rounded-full py-1.5 pl-4 pr-1.5 text-sm shadow-lg"
+            style={{ background: "var(--surface-2)", color: "var(--text-secondary)" }}
+          >
+            <span>{TRIAGE_DONE_LABEL[undoBanner.action]}</span>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="min-h-[32px] min-w-[32px]"
+              aria-label={`Annuler : ${TRIAGE_DONE_LABEL[undoBanner.action]}`}
+              onPress={() => performUndo(undoBanner.id, undoBanner.action, undoBanner.opId)}
+            >
+              Annuler (z)
+            </Button>
+          </div>
         </div>
       )}
     </>
