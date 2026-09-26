@@ -9,6 +9,11 @@ export function calendarColor(calendars: readonly CalCalendarRow[], calendarId: 
   return calendars.find((c) => c.id === calendarId)?.backgroundColor || "var(--accent)";
 }
 
+/** Texte posé sur la couleur pleine de l'agenda : celui que Google fournit, sinon blanc. */
+export function calendarTextColor(calendars: readonly CalCalendarRow[], calendarId: string): string {
+  return calendars.find((c) => c.id === calendarId)?.foregroundColor || "#fff";
+}
+
 export function canEditCalendar(calendars: readonly CalCalendarRow[], calendarId: string): boolean {
   const role = calendars.find((c) => c.id === calendarId)?.accessRole;
   return role === "owner" || role === "writer";
@@ -23,6 +28,16 @@ export function eventTint(color: string, dashed = false): CSSProperties {
   };
 }
 
+/**
+ * Pastille pleine à la Google Agenda (téléphone). Invitation sans réponse : contour
+ * seul, comme Google, pour qu'elle se distingue d'un coup d'œil.
+ */
+export function eventSolid(color: string, textColor: string, outlined = false): CSSProperties {
+  return outlined
+    ? { background: "var(--surface-0)", border: `1px solid ${color}`, color: "var(--text-primary)" }
+    : { background: color, color: textColor };
+}
+
 /** Tâche liée faite, supprimée, ou ligne de note modifiée : le bloc reste comme historique. */
 export function isTaskClosed(event: CalEventRow, openTaskRefs: ReadonlySet<string> | null): boolean {
   return !!event.sourceRef && !!openTaskRefs && !openTaskRefs.has(event.sourceRef);
@@ -32,6 +47,8 @@ interface EventBlockProps {
   event: CalEventRow;
   color: string;
   compact?: boolean;
+  /** Couleur de texte sur fond plein ; présente = rendu « pastille pleine » (téléphone). */
+  solidText?: string;
   style?: CSSProperties;
   taskClosed?: boolean;
   onPointerDown?: (e: ReactPointerEvent<HTMLButtonElement>) => void;
@@ -43,7 +60,7 @@ interface EventBlockProps {
  * Bouton natif plutôt que Button HeroUI : il porte le glisser (pointer capture)
  * et la poignée de redimensionnement, que react-aria intercepterait.
  */
-export function EventBlock({ event, color, compact, style, taskClosed = false, onPointerDown, onResizeStart, onSelect }: EventBlockProps) {
+export function EventBlock({ event, color, compact, solidText, style, taskClosed = false, onPointerDown, onResizeStart, onSelect }: EventBlockProps) {
   const declined = event.selfResponse === "declined";
   const awaiting = event.selfResponse === "needsAction";
   const struck = declined || taskClosed;
@@ -56,9 +73,9 @@ export function EventBlock({ event, color, compact, style, taskClosed = false, o
         // Le glisser appelle lui-même onSelect sans mouvement ; `detail === 0` = clavier.
         if (!onPointerDown || e.detail === 0) onSelect(e.currentTarget);
       }}
-      className="group relative flex w-full min-w-0 flex-col overflow-hidden rounded-md px-1.5 py-0.5 text-left text-xs outline-none focus-visible:ring-2 focus-visible:ring-[var(--border-focus)]"
+      className={`group relative flex w-full min-w-0 flex-col overflow-hidden text-left outline-none focus-visible:ring-2 focus-visible:ring-[var(--border-focus)] ${solidText ? "rounded px-1 py-px text-[11px] leading-tight" : "rounded-md px-1.5 py-0.5 text-xs"}`}
       style={{
-        ...eventTint(color, awaiting),
+        ...(solidText ? eventSolid(color, solidText, awaiting) : eventTint(color, awaiting)),
         opacity: struck ? 0.5 : 1,
         ...style,
       }}
@@ -69,7 +86,7 @@ export function EventBlock({ event, color, compact, style, taskClosed = false, o
         {event.pending && <CloudArrowUp size={12} aria-label="En attente d'envoi" className="shrink-0" />}
       </span>
       {!compact && (
-        <span className="truncate" style={{ color: "var(--text-secondary)" }}>
+        <span className="truncate" style={{ color: solidText ? "inherit" : "var(--text-secondary)", opacity: solidText ? 0.85 : 1 }}>
           {formatSpan(event)}
           {event.location ? ` · ${event.location}` : ""}
         </span>

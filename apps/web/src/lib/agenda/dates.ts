@@ -1,4 +1,4 @@
-export type AgendaView = "day" | "week" | "month" | "list";
+export type AgendaView = "day" | "3day" | "week" | "month" | "list";
 
 export const DAY_MS = 86_400_000;
 
@@ -52,6 +52,9 @@ export function viewRange(view: AgendaView, anchor: number): { from: number; to:
   if (view === "day") {
     first = startOfDay(anchor);
     count = 1;
+  } else if (view === "3day") {
+    first = startOfDay(anchor);
+    count = 3;
   } else if (view === "week") {
     first = startOfWeek(anchor);
     count = 7;
@@ -70,6 +73,7 @@ export function viewRange(view: AgendaView, anchor: number): { from: number; to:
 /** Pas de navigation (précédent/suivant) propre à chaque vue. */
 export function stepAnchor(view: AgendaView, anchor: number, dir: -1 | 1): number {
   if (view === "day") return addDays(anchor, dir);
+  if (view === "3day") return addDays(anchor, 3 * dir);
   if (view === "week") return addDays(anchor, 7 * dir);
   if (view === "month") return addMonths(anchor, dir);
   return addDays(anchor, 14 * dir);
@@ -91,6 +95,21 @@ export function formatRangeTitle(view: AgendaView, anchor: number): string {
   const { days } = viewRange(view, anchor);
   const fmt = new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "short" });
   return `${fmt.format(days[0] ?? anchor)} – ${fmt.format(days[days.length - 1] ?? anchor)}`;
+}
+
+/** Titre d'en-tête mobile, à la Google Agenda : « septembre », l'année seulement hors de l'année en cours. */
+export function formatMonthTitle(anchor: number, now = Date.now()): string {
+  const sameYear = new Date(anchor).getFullYear() === new Date(now).getFullYear();
+  return new Intl.DateTimeFormat("fr-FR", sameYear ? { month: "long" } : { month: "long", year: "numeric" }).format(anchor);
+}
+
+/** « 21 – 27 sept. », séparateur de semaine du planning. */
+export function formatWeekSpan(monday: number): string {
+  const fmt = new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "short" });
+  const sunday = addDays(monday, 6);
+  return new Date(monday).getMonth() === new Date(sunday).getMonth()
+    ? `${new Date(monday).getDate()} – ${fmt.format(sunday)}`
+    : `${fmt.format(monday)} – ${fmt.format(sunday)}`;
 }
 
 /** « 14:00 – 15:30 », ou « Journée » pour un événement sur la journée entière. */
