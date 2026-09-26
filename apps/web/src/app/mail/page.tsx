@@ -184,6 +184,16 @@ function triageMutation(id: string, action: TriageAction): MirrorMutation {
     : { threadId: id, kind: "modifyLabels", removeLabelIds: [INBOX_LABEL] };
 }
 
+// Après un clic, le focus reste sur la ligne cliquée : sans ça, j/k affiche un
+// second anneau (focus-visible) en plus du curseur clavier.
+function followCursor(el: HTMLElement, rowSelector: string) {
+  el.scrollIntoView({ block: "nearest" });
+  const focused = document.activeElement;
+  if (focused instanceof HTMLElement && focused !== el && focused.matches(rowSelector)) {
+    el.focus({ preventScroll: true });
+  }
+}
+
 export default function MailPage() {
   const { settings } = useSettings();
   const navigate = useNavigate();
@@ -1579,7 +1589,7 @@ export default function MailPage() {
     const el = groupScrollRef.current?.querySelector<HTMLElement>(
       `[data-mail-group-index="${groupCursor}"]`,
     );
-    el?.scrollIntoView({ block: "nearest" });
+    if (el) followCursor(el, "[data-mail-group-index]");
   }, [groupCursor, selectedGroup, pane]);
 
   useEffect(() => {
@@ -1595,7 +1605,7 @@ export default function MailPage() {
     const el = listScrollRef.current?.querySelector<HTMLElement>(
       `[data-mail-row-index="${selectedRowIndex}"]`,
     );
-    el?.scrollIntoView({ block: "nearest" });
+    if (el) followCursor(el, "[data-mail-row-index]");
   }, [selectedRowIndex, displayRows]);
 
   useEffect(() => {
