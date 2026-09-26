@@ -2824,11 +2824,11 @@ export default function MailPage() {
           même mécanisme que l'indicateur d'accord ci-dessus, pas de toast. */}
       {undoBanner && (
         <div
-          className="sn-pop-in fixed inset-x-0 z-50 flex justify-center px-4"
+          className="pointer-events-none sn-pop-in fixed inset-x-0 z-50 flex justify-center px-4"
           style={{ bottom: isMobile ? "calc(64px + env(safe-area-inset-bottom, 0px))" : "1rem" }}
         >
           <div
-            className="flex items-center gap-2 rounded-full py-1.5 pl-4 pr-1.5 text-sm shadow-lg"
+            className="pointer-events-auto flex items-center gap-2 rounded-full py-1.5 pl-4 pr-1.5 text-sm shadow-lg"
             style={{ background: "var(--surface-2)", color: "var(--text-secondary)" }}
           >
             <span>{TRIAGE_DONE_LABEL[undoBanner.action]}</span>
