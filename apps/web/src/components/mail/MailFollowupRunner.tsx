@@ -14,10 +14,10 @@
 import { useEffect, useRef } from "react";
 import { useToast } from "@supernote/ui";
 import { useSettings } from "@/components/settings/SettingsContext";
-import { GMAIL_AUTH_EVENT, getThread, gmailReconnectRequired, modifyThreadLabels } from "@/lib/gmail";
+import { GMAIL_AUTH_EVENT, gmailReconnectRequired, modifyThreadLabels } from "@/lib/gmail";
 import { INBOX_LABEL, listDue, removeSnooze } from "@/lib/mail-triage";
 import { mirrorAvailable } from "@/lib/mail-mirror";
-import { flushOutbox } from "@/lib/mail-sync";
+import { ensureThread, flushOutbox } from "@/lib/mail-sync";
 import { useGmailReconnect } from "./GmailReconnectBanner";
 import {
   dueFollowups,
@@ -48,7 +48,9 @@ export function MailFollowupRunner() {
       for (const entry of dueFollowups(Date.now())) {
         if (inFlightRef.current.has(entry.threadId)) continue;
         inFlightRef.current.add(entry.threadId);
-        void getThread(clientId, entry.threadId)
+        // refresh:true — vérification "source de vérité" à l'échéance : un mirror
+        // pas encore rafraîchi ferait manquer une réponse arrivée entre-temps.
+        void ensureThread(clientId, accountId, entry.threadId, { refresh: true })
           .then(async (t) => {
             if (hasNewMessages(entry, t.messages.length)) {
               // Réponse arrivée : le rappel n'a plus d'objet.

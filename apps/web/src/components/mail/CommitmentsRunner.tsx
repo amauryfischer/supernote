@@ -2,10 +2,11 @@
 
 import { useEffect, useRef } from "react";
 import { useSettings } from "@/components/settings/SettingsContext";
-import { getThread, searchThreadsPage } from "@/lib/gmail";
+import { searchThreadsPage } from "@/lib/gmail";
 import { isAiConfigured } from "@/lib/mail-ai";
 import { isAiRuntimeAllowed } from "@/lib/ai/ai-runtime";
 import { MAIL_SYNCED_EVENT } from "@/lib/mail-mirror";
+import { ensureThread } from "@/lib/mail-sync";
 import {
   analyzeAndSave,
   commitmentsEnabled,
@@ -48,7 +49,7 @@ export function CommitmentsRunner() {
           .slice(0, BATCH);
         for (const t of stale) {
           if (Date.now() - lastInput < 2_000) break;
-          const thread = await getThread(clientId, t.id);
+          const thread = await ensureThread(clientId, accountId, t.id);
           await analyzeAndSave(thread, accountId, selfRef.current, threadFingerprint(t.snippet));
         }
       } catch {
