@@ -22,6 +22,30 @@ test.describe("06 — mail", () => {
     if (process.env["SHOTS"]) await page.screenshot({ path: `${process.env["SHOTS"]}/compose-alert.png` });
   });
 
+  test("destinataire : autocomplétion par nom et par ma propre adresse, Ctrl+Entrée envoie", async ({ page }) => {
+    await withInbox(page);
+    await page.goto("/mail");
+    await expect(page.getByText("Compte rendu réunion").first()).toBeVisible({ timeout: 20_000 });
+    await page.keyboard.press("c");
+    const dialog = page.getByRole("dialog", { name: "Nouveau message" });
+
+    await page.getByLabel("Objet").fill("Point");
+    await page.keyboard.press("Control+Enter");
+    await expect(dialog.getByRole("alert")).toContainText("destinataire");
+
+    const to = page.getByLabel("À", { exact: true });
+    await to.fill("alic");
+    await expect(page.getByRole("option", { name: /Alice Dupont/ })).toBeVisible();
+    await page.keyboard.press("Enter");
+    await expect(dialog.getByRole("button", { name: "Retirer alice@exemple.fr" })).toBeVisible();
+    await expect(to).toHaveValue("");
+
+    await to.fill("moi@");
+    await page.getByRole("option", { name: /moi@exemple\.fr/ }).click();
+    await expect(dialog.getByRole("button", { name: "Retirer moi@exemple.fr" })).toBeVisible();
+    await expect(page.getByRole("listbox", { name: "Suggestions de destinataires" })).toHaveCount(0);
+  });
+
   test("le message se copie depuis sa bulle", async ({ page, context }) => {
     await context.grantPermissions(["clipboard-read", "clipboard-write"]);
     await withInbox(page);

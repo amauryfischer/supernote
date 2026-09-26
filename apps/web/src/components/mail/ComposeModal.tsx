@@ -205,12 +205,24 @@ export function ComposeModal({
   };
 
   const suggestionsId = useId();
+  const allSuggestions = useRecipientSuggestions(correspondents);
+  const [suggestOpen, setSuggestOpen] = useState(false);
+  const [activeMatch, setActiveMatch] = useState(0);
+  const matches = useMemo(
+    () => (suggestOpen ? matchRecipients(allSuggestions, toInput, recipients) : []),
+    [suggestOpen, allSuggestions, toInput, recipients],
+  );
 
   const addRecipients = (emails: string[]) => {
     setRecipients((prev) => dedupeEmails([...prev, ...emails]));
   };
   const removeRecipient = (email: string) => {
     setRecipients((prev) => prev.filter((r) => r !== email));
+  };
+  const pickSuggestion = (email: string) => {
+    addRecipients([email]);
+    setToInput("");
+    setActiveMatch(0);
   };
   /** Valide la saisie manuelle courante (Entrée, virgule, ou avant l'envoi). */
   const commitManual = () => {
@@ -341,6 +353,15 @@ export function ComposeModal({
           {/* ⚠️ pas de h-dvh sous md : dvh ignore le clavier virtuel, la hauteur native HeroUI (--visual-viewport-height) le suit. */}
           <ModalContainer size="full" className="fixed inset-0 z-[var(--z-modal)] flex w-full p-0 md:h-dvh">
             <ModalDialog className="flex h-full w-full max-w-none flex-col rounded-none border-0 bg-[var(--surface-1)] p-0 text-[var(--text-primary)] shadow-none">
+              <div
+                className="contents"
+                onKeyDown={(e) => {
+                  if ((e.metaKey || e.ctrlKey) && e.key === "Enter" && !e.nativeEvent.isComposing && !busy) {
+                    e.preventDefault();
+                    void submitSend();
+                  }
+                }}
+              >
               <header className="box-content flex h-14 shrink-0 items-center gap-1.5 border-b border-[var(--border-subtle)] px-2 pt-[env(safe-area-inset-top)] md:px-4">
                 <Tooltip content="Fermer (Échap)">
                   <Button variant="ghost" isIconOnly aria-label="Fermer" onPress={onClose}>
@@ -366,6 +387,7 @@ export function ComposeModal({
                   isDisabled={busy}
                   onPick={(sendAt) => void submitSend(sendAt)}
                 />
+                <Tooltip content="Envoyer (Ctrl / ⌘ + Entrée)">
                 <Button
                   variant="primary"
                   className="ml-1 flex items-center gap-1.5"
@@ -375,6 +397,7 @@ export function ComposeModal({
                   <FeedbackIcon state={sendFb.state} error={sendFb.error} idle={<PaperPlaneTilt size={15} />} />
                   Envoyer
                 </Button>
+                </Tooltip>
               </header>
 
               <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
@@ -435,24 +458,78 @@ export function ComposeModal({
                       {recipients.map((r) => (
                         <Pill key={r} label={r} removeLabel={`Retirer ${r}`} onRemove={() => removeRecipient(r)} />
                       ))}
-                      <div className="min-w-24 flex-1">
+                      <div className="relative min-w-24 flex-1">
                         <Input
                           id={toFieldId}
                           type="email"
                           value={toInput}
-                          list={suggestionsId}
+                          role="combobox"
+                          aria-expanded={matches.length > 0}
+                          aria-controls={suggestionsId}
+                          aria-autocomplete="list"
+                          aria-activedescendant={matches.length ? `${suggestionsId}-${activeMatch}` : undefined}
                           autoComplete="off"
                           className={bareInput}
-                          onChange={(e) => setToInput(e.target.value)}
+                          onChange={(e) => {
+                            setToInput(e.target.value);
+                            setActiveMatch(0);
+                            setSuggestOpen(true);
+                          }}
                           onKeyDown={(e) => {
-                            if (e.key === "Enter" || e.key === ",") {
+                            if (e.metaKey || e.ctrlKey) return;
+                            const picked = matches[activeMatch];
+                            if (matches.length && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+                              e.preventDefault();
+                              const step = e.key === "ArrowDown" ? 1 : -1;
+                              setActiveMatch((i) => (i + step + matches.length) % matches.length);
+                            } else if (picked && (e.key === "Enter" || e.key === "Tab")) {
+                              e.preventDefault();
+                              pickSuggestion(picked.email);
+                            } else if (matches.length && e.key === "Escape") {
+                              // Ferme la liste sans fermer le composeur.
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setSuggestOpen(false);
+                            } else if (e.key === "Enter" || e.key === ",") {
                               e.preventDefault();
                               commitManual();
+                            } else if (e.key === "Backspace" && !toInput && recipients.length) {
+                              removeRecipient(recipients[recipients.length - 1]!);
                             }
                           }}
-                          onBlur={commitManual}
-                          placeholder={recipients.length ? "" : "nom@exemple.com, Entrée pour valider"}
+                          onBlur={() => {
+                            setSuggestOpen(false);
+                            commitManual();
+                          }}
+                          placeholder={recipients.length ? "" : "Nom ou adresse, Entrée pour valider"}
                         />
+                        {matches.length > 0 && (
+                          <div
+                            id={suggestionsId}
+                            role="listbox"
+                            aria-label="Suggestions de destinataires"
+                            className="absolute left-0 top-full z-20 mt-1 w-[min(22rem,calc(100vw-2rem))] overflow-hidden rounded-md border border-[var(--border-subtle)] bg-[var(--surface-1)] py-1 shadow-lg"
+                          >
+                            {matches.map((m, i) => (
+                              <div
+                                key={m.email}
+                                id={`${suggestionsId}-${i}`}
+                                role="option"
+                                aria-selected={i === activeMatch}
+                                // mousedown : garder le focus dans le champ, sinon le blur valide la saisie partielle.
+                                onMouseDown={(e) => {
+                                  e.preventDefault();
+                                  pickSuggestion(m.email);
+                                }}
+                                onMouseEnter={() => setActiveMatch(i)}
+                                className={`flex min-h-10 cursor-pointer flex-col justify-center px-3 py-1 ${i === activeMatch ? "bg-[var(--surface-2)]" : ""}`}
+                              >
+                                <span className="truncate text-sm text-[var(--text-primary)]">{m.name || m.email}</span>
+                                {m.name && <span className="truncate text-xs text-[var(--text-muted)]">{m.email}</span>}
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     </div>
                     <Tooltip content="Envoyer à une organisation">
@@ -467,7 +544,6 @@ export function ComposeModal({
                         <UsersThree size={16} />
                       </Button>
                     </Tooltip>
-                    <RecipientSuggestions id={suggestionsId} correspondents={correspondents} />
                   </div>
                   {orgOpen && (
                     <div className="border-b border-[var(--border-subtle)] py-2 md:pl-[3.75rem]">
@@ -629,6 +705,7 @@ export function ComposeModal({
                   e.target.value = "";
                 }}
               />
+              </div>
             </ModalDialog>
           </ModalContainer>
         </ModalBackdrop>
@@ -682,11 +759,10 @@ function Pill({
 // sur un 403 de quota l'entretiendrait.
 let sentRecipientsCache: Promise<EmailAddress[]> | null = null;
 
-/**
- * Destinataires habituels (envoyés, par fréquence) + contacts du coffre +
- * expéditeurs connus, en `<datalist>` natif pour le champ destinataire.
- */
-function RecipientSuggestions({ id, correspondents }: { id: string; correspondents: EmailAddress[] }) {
+const fold = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+
+/** Destinataires habituels (envoyés, par fréquence) + contacts du coffre + expéditeurs connus + mes adresses. */
+function useRecipientSuggestions(correspondents: EmailAddress[]): EmailAddress[] {
   const { settings } = useSettings();
   const { contacts } = useContactsSource();
   const clientId = settings.googleDrive.clientId.trim();
@@ -703,26 +779,28 @@ function RecipientSuggestions({ id, correspondents }: { id: string; corresponden
     };
   }, [clientId]);
 
-  const suggestions = useMemo(() => {
-    const self = new Set(
-      [settings.gmail.connectedEmail, ...settings.gmail.aliases].map((a) => a.toLowerCase()),
-    );
-    const byEmail = new Map<string, string>();
+  return useMemo(() => {
+    const byEmail = new Map<string, EmailAddress>();
     const add = (email: string, name: string) => {
       const key = email.trim().toLowerCase();
-      if (key && !self.has(key) && !byEmail.has(key)) byEmail.set(key, name);
+      if (key.includes("@") && !byEmail.has(key)) byEmail.set(key, { email: key, name: name.toLowerCase() === key ? "" : name });
     };
     for (const c of sent) add(c.email, c.name);
     for (const c of contacts) for (const e of c.emails) add(e.value, c.name);
     for (const c of correspondents) add(c.email, c.name);
-    return [...byEmail];
+    for (const a of [settings.gmail.connectedEmail, ...settings.gmail.aliases]) if (a) add(a, "Moi");
+    return [...byEmail.values()];
   }, [sent, contacts, correspondents, settings.gmail.connectedEmail, settings.gmail.aliases]);
+}
 
-  return (
-    <datalist id={id}>
-      {suggestions.map(([email, name]) => (
-        <option key={email} value={email} label={name && name.toLowerCase() !== email ? name : undefined} />
-      ))}
-    </datalist>
-  );
+const MAX_SUGGESTIONS = 6;
+
+function matchRecipients(all: EmailAddress[], query: string, exclude: string[]): EmailAddress[] {
+  const q = fold(query.trim());
+  if (!q) return [];
+  const taken = new Set(exclude.map((e) => e.toLowerCase()));
+  const hits = all.filter((a) => !taken.has(a.email) && (a.email.includes(q) || fold(a.name).includes(q)));
+  // Début d'adresse ou de mot du nom d'abord : « amau » doit sortir amaury@ avant lamaurice@.
+  const starts = (a: EmailAddress) => a.email.startsWith(q) || fold(a.name).split(/\s+/).some((w) => w.startsWith(q));
+  return [...hits.filter(starts), ...hits.filter((a) => !starts(a))].slice(0, MAX_SUGGESTIONS);
 }

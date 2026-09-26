@@ -54,6 +54,7 @@ export type MailActionId =
   | "forward"
   | "compose"
   | "aiDraft"
+  | "send"
   // Vue
   | "search"
   | "assistant"
@@ -332,6 +333,15 @@ export const MAIL_SHORTCUTS: MailBinding[] = [
     label: "Brouillons IA",
     group: "Rédaction",
     contexts: ["thread"],
+  },
+  {
+    id: "send",
+    // Géré par les champs de rédaction eux-mêmes : le résolveur ignore les touches modifiées.
+    keys: [],
+    display: "Ctrl+↵ / ⌘+↵",
+    label: "Envoyer (en rédigeant)",
+    group: "Rédaction",
+    contexts: ALL,
   },
 
   // ── Vue ───────────────────────────────────────────────────────────────────
