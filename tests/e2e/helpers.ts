@@ -143,8 +143,12 @@ function resolveInboxPath(path: string): unknown {
   return {};
 }
 
-/** Sous-requêtes (`{ id, path }`) d'un corps `multipart/mixed` de batch Gmail (POST `/batch/gmail/v1`). */
-function parseGmailBatchRequestBody(body: string): Array<{ id: string; path: string }> {
+/**
+ * Sous-requêtes (`{ id, path }`) d'un corps `multipart/mixed` de batch Gmail
+ * (POST `/batch/gmail/v1`). Exporté : chaque mock Gmail qui pose sa propre
+ * route (09, 10) en a besoin pour répondre à l'endpoint batch.
+ */
+export function parseGmailBatchRequestBody(body: string): Array<{ id: string; path: string }> {
   const out: Array<{ id: string; path: string }> = [];
   for (const part of body.split(/--\S+/)) {
     const idMatch = /Content-ID:\s*<([^>]+)>/i.exec(part);
@@ -154,13 +158,20 @@ function parseGmailBatchRequestBody(body: string): Array<{ id: string; path: str
   return out;
 }
 
-/** Réponse `multipart/mixed` d'un lot Gmail batch, une sous-réponse 200 par sous-requête reçue. */
-function buildGmailBatchResponse(items: Array<{ id: string; path: string }>): { contentType: string; body: string } {
+/**
+ * Réponse `multipart/mixed` d'un lot Gmail batch, une sous-réponse 200 par
+ * sous-requête reçue. `resolve` rend le JSON pour un chemin relatif donné
+ * (même résolveur que les routes GET directes du mock appelant).
+ */
+export function buildGmailBatchResponse(
+  items: Array<{ id: string; path: string }>,
+  resolve: (path: string) => unknown,
+): { contentType: string; body: string } {
   const boundary = "e2e_batch_boundary";
   const parts = items.map(
     ({ id, path }) =>
       `--${boundary}\r\nContent-Type: application/http\r\nContent-ID: <response-${id}>\r\n\r\n` +
-      `HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(resolveInboxPath(path))}\r\n`,
+      `HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(resolve(path))}\r\n`,
   );
   return { contentType: `multipart/mixed; boundary=${boundary}`, body: parts.join("") + `--${boundary}--` };
 }
@@ -171,7 +182,10 @@ export async function withInbox(page: Page): Promise<void> {
   await page.route("https://gmail.googleapis.com/**", (route) => {
     const url = new URL(route.request().url());
     if (url.pathname === "/batch/gmail/v1") {
-      const { contentType, body } = buildGmailBatchResponse(parseGmailBatchRequestBody(route.request().postData() ?? ""));
+      const { contentType, body } = buildGmailBatchResponse(
+        parseGmailBatchRequestBody(route.request().postData() ?? ""),
+        resolveInboxPath,
+      );
       return route.fulfill({ status: 200, contentType, body });
     }
     return route.fulfill({ json: resolveInboxPath(url.pathname.replace("/gmail/v1/users/me", "")) });

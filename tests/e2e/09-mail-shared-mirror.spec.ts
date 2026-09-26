@@ -1,23 +1,40 @@
 import { test, expect, type Page } from "@playwright/test";
-import { bootCloud, MESSAGE } from "./helpers";
+import { bootCloud, MESSAGE, parseGmailBatchRequestBody, buildGmailBatchResponse } from "./helpers";
 
 const ACCOUNT = "moi@exemple.fr";
 const SUBJECT = "Compte rendu réunion";
 
-/** Mock Gmail d'un fil ; `down` simule Gmail injoignable. Renvoie le journal des chemins. */
+/** Réponse JSON pour un chemin Gmail relatif — GET direct ou sous-requête d'un lot batch. */
+function resolveGmailPath(path: string): unknown {
+  if (path === "/threads") return { threads: [{ id: "t1", snippet: MESSAGE.snippet }] };
+  if (path.startsWith("/threads/")) return { id: "t1", historyId: "10", messages: [MESSAGE] };
+  if (path === "/profile") return { emailAddress: ACCOUNT, historyId: "10" };
+  if (path === "/history") return { historyId: "10" };
+  if (path.startsWith("/labels/")) return { id: "INBOX", threadsTotal: 1, threadsUnread: 1 };
+  if (path === "/labels") return { labels: [] };
+  return {};
+}
+
+/**
+ * Mock Gmail d'un fil ; `down` simule Gmail injoignable. Renvoie le journal des
+ * chemins — pour un lot batch, une entrée par SOUS-requête (pas le chemin
+ * `/batch/gmail/v1` lui-même), pour garder la granularité que le test vérifie.
+ */
 async function mockGmail(page: Page, state: { down: boolean }): Promise<string[]> {
   const calls: string[] = [];
   await page.route("https://gmail.googleapis.com/**", (route) => {
-    const path = new URL(route.request().url()).pathname.replace("/gmail/v1/users/me", "");
+    const url = new URL(route.request().url());
+    if (url.pathname === "/batch/gmail/v1") {
+      const items = parseGmailBatchRequestBody(route.request().postData() ?? "");
+      for (const it of items) calls.push(it.path);
+      if (state.down) return route.fulfill({ status: 503, body: "" });
+      const { contentType, body } = buildGmailBatchResponse(items, resolveGmailPath);
+      return route.fulfill({ status: 200, contentType, body });
+    }
+    const path = url.pathname.replace("/gmail/v1/users/me", "");
     calls.push(path);
     if (state.down) return route.fulfill({ status: 503, body: "" });
-    if (path === "/threads") return route.fulfill({ json: { threads: [{ id: "t1", snippet: MESSAGE.snippet }] } });
-    if (path.startsWith("/threads/")) return route.fulfill({ json: { id: "t1", historyId: "10", messages: [MESSAGE] } });
-    if (path === "/profile") return route.fulfill({ json: { emailAddress: ACCOUNT, historyId: "10" } });
-    if (path === "/history") return route.fulfill({ json: { historyId: "10" } });
-    if (path.startsWith("/labels/")) return route.fulfill({ json: { id: "INBOX", threadsTotal: 1, threadsUnread: 1 } });
-    if (path === "/labels") return route.fulfill({ json: { labels: [] } });
-    return route.fulfill({ json: {} });
+    return route.fulfill({ json: resolveGmailPath(path) });
   });
   await page.route("https://www.googleapis.com/**", (route) => route.fulfill({ json: { items: [] } }));
   return calls;
@@ -50,6 +67,13 @@ test.describe("09 — miroir mail partagé", () => {
     await b.reload();
     await expect(b.getByText(SUBJECT).first()).toBeVisible({ timeout: 30_000 });
     await expect.poll(() => callsB.includes("/history"), { timeout: 30_000 }).toBe(true);
-    expect(callsB.filter((p) => p.startsWith("/threads"))).toEqual([]);
+    // Le salon épargne la RELECTURE DE LA LISTE (résumés/metadata, page threads.list) :
+    // aucun de ces appels n'est attendu. Le préchargement du corps (format=full,
+    // par lot) est le nouveau coût voulu par `prefetchThreadBodies` — les corps ne
+    // voyagent pas via le salon — donc autorisé, borné au fil affiché et à 20 fils max.
+    const threadCalls = callsB.filter((p) => p.startsWith("/threads"));
+    expect(threadCalls.some((p) => p === "/threads" || p.includes("format=metadata"))).toBe(false);
+    expect(threadCalls.length).toBeLessThanOrEqual(20);
+    for (const p of threadCalls) expect(p).toMatch(/^\/threads\/t1\?.*format=full/);
   });
 });
