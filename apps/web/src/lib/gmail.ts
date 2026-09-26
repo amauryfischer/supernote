@@ -20,6 +20,7 @@ import {
   googleRequest,
   isTransientGoogleError,
   markScopeRecovered,
+  noteGoogleApiFailure,
 } from "./google-api";
 
 export {
@@ -501,6 +502,38 @@ export async function getThread(clientId: string, threadId: string): Promise<Ema
   };
 }
 
+/**
+ * Version batch de `getThread` (format=full, par lots) : utilisée pour le
+ * préchargement du corps de plusieurs fils (`prefetchThreadBodies`) sans un
+ * fetch par fil. Comme `getThreadSummaries`, les fils disparus (404) sont
+ * reportés dans `missing` plutôt que de faire échouer tout le lot.
+ */
+export async function getThreadsFull(
+  clientId: string,
+  threadIds: string[],
+): Promise<{ items: EmailThread[]; missing: string[] }> {
+  const missing: string[] = [];
+  const batch = await gmailBatchGet<{ id: string; messages?: GmailRawMessage[] }>(
+    clientId,
+    threadIds.map((id) => ({ id, path: `/threads/${encodeURIComponent(id)}?format=full` })),
+  );
+  const items: EmailThread[] = [];
+  for (const id of threadIds) {
+    const res = batch.get(id);
+    if (res === undefined) continue;
+    if (res instanceof GoogleApiError) {
+      if (res.status === 404) {
+        missing.push(id);
+        continue;
+      }
+      throw res;
+    }
+    const rawMsgs = res.messages ?? [];
+    items.push({ id, messages: rawMsgs.map((m) => parseGmailMessage(m)), labelIds: unionLabelIds(rawMsgs) });
+  }
+  return { items, missing };
+}
+
 /** Profil complet : adresse + historyId courant (curseur de départ du sync). */
 export interface GmailProfile {
   emailAddress: string;
@@ -574,62 +607,20 @@ export async function listHistory(
 }
 
 /**
- * Re-récupère les résumés de threads donnés (concurrence bornée, pool de 6).
- * Les threads qui renvoient 404 (disparus côté serveur) sont reportés dans
- * `missing` pour que l'appelant les retire du mirror.
- */
-export async function getThreadSummaries(
-  clientId: string,
-  threadIds: string[],
-): Promise<{ items: ThreadListItem[]; missing: string[] }> {
-  const missing: string[] = [];
-  const settled = await mapPool(threadIds, GMAIL_METADATA_CONCURRENCY, async (id) => {
-    try {
-      return await getThreadListItem(clientId, id);
-    } catch (err) {
-      if (err instanceof GoogleApiError && err.status === 404) {
-        missing.push(id);
-        return null;
-      }
-      throw err;
-    }
-  });
-  return {
-    items: settled.filter((x): x is ThreadListItem => x !== null),
-    missing,
-  };
-}
-
-/** Ligne de liste enrichie d'un thread (pour l'affichage façon boîte mail). */
-export interface ThreadListItem {
-  id: string;
-  subject: string;
-  from: EmailAddress;
-  date: string;
-  snippet: string;
-  labelIds: string[];
-  aiCategory?: string | null;
-  aiCategoryConfidence?: number | null;
-  aiCategoryRuns?: number | null;
-  aiCategoryAt?: number | null;
-  aiSummary?: string | null;
-  aiSummaryFp?: string | null;
-  aiSummaryAt?: number | null;
-}
-
-/**
  * Plafond de requêtes Gmail concurrentes lors de l'enrichissement d'une page
  * (un `format=metadata` par thread). Gmail limite les requêtes EN VOL par
  * utilisateur : tout lancer d'un coup (`Promise.all` sur 50 items) renvoie un
- * 429 « Too many concurrent requests for user » (RESOURCE_EXHAUSTED). On draine
- * par pool borné.
+ * 429 « Too many concurrent requests for user » (RESOURCE_EXHAUSTED). Sert de
+ * repli (pool borné) quand un lot batch n'est pas exploitable — voir
+ * `gmailBatchGet`.
  */
 const GMAIL_METADATA_CONCURRENCY = 6;
 
 /**
  * `map` borné en concurrence : exécute `fn` sur chaque item avec au plus `limit`
- * requêtes en vol, en PRÉSERVANT l'ordre des résultats. Évite le 429 « requêtes
- * concurrentes » de l'API Gmail quand une page enrichit beaucoup de threads.
+ * requêtes en vol, en PRÉSERVANT l'ordre des résultats. Repli de `gmailBatchGet`
+ * quand la réponse batch n'est pas exploitable (ex. mock de test qui ne connaît
+ * pas encore `/batch/gmail/v1`).
  */
 async function mapPool<T, R>(
   items: readonly T[],
@@ -650,16 +641,124 @@ async function mapPool<T, R>(
   return results;
 }
 
-/**
- * Métadonnées légères d'un thread (Subject/From/Date du message le plus récent)
- * via `format=metadata` — bien plus léger que `format=full`. Utilisé pour
- * peupler la liste de gauche.
- */
-async function getThreadListItem(clientId: string, threadId: string): Promise<ThreadListItem> {
-  const json = await gmailFetch<{ id: string; snippet?: string; messages?: GmailRawMessage[] }>(
-    clientId,
-    `/threads/${encodeURIComponent(threadId)}?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=Date`,
+const GMAIL_BATCH_URL = "https://gmail.googleapis.com/batch/gmail/v1";
+/** Sous-requêtes max par lot — limite imposée par l'API batch Gmail. */
+const GMAIL_BATCH_CHUNK = 20;
+
+/** Construit le corps `multipart/mixed` d'un lot de GET Gmail relatifs (`/threads/...`, `/messages/...`). */
+function buildGmailBatchBody(boundary: string, items: Array<{ id: string; path: string }>): string {
+  const root = new URL(GMAIL_API_BASE).pathname;
+  return (
+    items
+      .map(
+        ({ id, path }) =>
+          `--${boundary}\r\nContent-Type: application/http\r\nContent-ID: <${id}>\r\n\r\nGET ${root}${path} HTTP/1.1\r\n\r\n`,
+      )
+      .join("") + `--${boundary}--`
   );
+}
+
+/**
+ * Parse une réponse `multipart/mixed` Gmail batch en sous-réponses par id
+ * (Content-ID répond en `response-<id>` côté Google). Renvoie une map vide si
+ * le texte n'a pas la forme attendue (ex. un mock JSON plat qui ne connaît pas
+ * encore l'endpoint batch) — le mieux que puisse faire l'appelant est le repli.
+ */
+function parseGmailBatchResponse(text: string, boundary: string): Map<string, { status: number; body: string }> {
+  const out = new Map<string, { status: number; body: string }>();
+  const marker = `--${boundary}`;
+  for (const part of text.split(marker)) {
+    const trimmed = part.trim();
+    if (!trimmed || trimmed === "--") continue;
+    const idMatch = /Content-ID:\s*<?(?:response-)?([^>\r\n]+)>?/i.exec(part);
+    const httpMatch = /HTTP\/\d\.\d\s+(\d+)[^\r\n]*\r?\n([\s\S]*)/.exec(part);
+    if (!idMatch || !httpMatch) continue;
+    const rest = httpMatch[2]!;
+    const blank = rest.search(/\r?\n\r?\n/);
+    const body = (blank >= 0 ? rest.slice(blank) : "").replace(/^(\r?\n)+/, "").trim();
+    out.set(idMatch[1]!.trim(), { status: Number(httpMatch[1]), body });
+  }
+  return out;
+}
+
+/** Un lot envoyé, ou `null` si la réponse n'est pas exploitable comme multipart. */
+async function gmailBatchFetchChunk<T>(
+  clientId: string,
+  chunk: Array<{ id: string; path: string }>,
+): Promise<Map<string, T | GoogleApiError> | null> {
+  const boundary = `batch_${Math.random().toString(36).slice(2)}`;
+  const res = await googleRequest(
+    clientId,
+    GMAIL_READONLY_SCOPE,
+    GMAIL_BATCH_URL,
+    { method: "POST", body: buildGmailBatchBody(boundary, chunk), headers: { "Content-Type": `multipart/mixed; boundary=${boundary}` } },
+    "Gmail batch",
+  );
+  const contentType = res.headers.get("content-type") ?? "";
+  const boundaryMatch = /boundary=(?:"([^"]+)"|([^;]+))/i.exec(contentType);
+  const responseBoundary = (boundaryMatch?.[1] ?? boundaryMatch?.[2])?.trim();
+  if (!responseBoundary) return null;
+  const parts = parseGmailBatchResponse(await res.text(), responseBoundary);
+  if (parts.size === 0) return null;
+  const results = new Map<string, T | GoogleApiError>();
+  for (const { id } of chunk) {
+    const sub = parts.get(id);
+    if (!sub) {
+      results.set(id, new GoogleApiError(502, "Gmail batch : sous-réponse manquante"));
+      continue;
+    }
+    if (sub.status >= 200 && sub.status < 300) {
+      try {
+        results.set(id, sub.body ? (JSON.parse(sub.body) as T) : ({} as T));
+      } catch {
+        results.set(id, new GoogleApiError(502, "Gmail batch : JSON invalide"));
+      }
+    } else {
+      results.set(id, noteGoogleApiFailure("gmail", sub.status, sub.body, "Gmail batch"));
+    }
+  }
+  return results;
+}
+
+/**
+ * Regroupe des GET Gmail (threads/messages) en lots `multipart/mixed` (POST
+ * `/batch/gmail/v1`, ≤20 sous-requêtes — limite Gmail) plutôt qu'un fetch par
+ * item. Passe par `googleRequest` pour garder le rejeu 401 et la garde quota
+ * partagée ; une sous-réponse 403/429 « quota » déclenche la même garde
+ * (`noteGoogleApiFailure`). Une sous-réponse en échec n'invalide pas les
+ * autres du lot (retour par id, comme `getThreadSummaries` avec `missing`).
+ * Repli en pool borné (`mapPool`) si le lot n'est pas exploitable comme
+ * multipart.
+ */
+async function gmailBatchGet<T>(
+  clientId: string,
+  items: Array<{ id: string; path: string }>,
+): Promise<Map<string, T | GoogleApiError>> {
+  const results = new Map<string, T | GoogleApiError>();
+  for (let i = 0; i < items.length; i += GMAIL_BATCH_CHUNK) {
+    const chunk = items.slice(i, i + GMAIL_BATCH_CHUNK);
+    const parsed = await gmailBatchFetchChunk<T>(clientId, chunk);
+    if (parsed) {
+      for (const [id, v] of parsed) results.set(id, v);
+      continue;
+    }
+    const fallback = await mapPool(chunk, GMAIL_METADATA_CONCURRENCY, async ({ id, path }) => {
+      try {
+        return [id, await gmailFetch<T>(clientId, path)] as const;
+      } catch (err) {
+        return [id, err instanceof GoogleApiError ? err : new GoogleApiError(0, String(err))] as const;
+      }
+    });
+    for (const [id, v] of fallback) results.set(id, v);
+  }
+  return results;
+}
+
+/** Métadonnées d'un thread (Subject/From/Date du message le plus récent) à partir du JSON `format=metadata`. */
+function buildThreadListItem(
+  threadId: string,
+  json: { snippet?: string; messages?: GmailRawMessage[] },
+): ThreadListItem {
   const msgs = json.messages ?? [];
   const last = msgs[msgs.length - 1];
   const parsed = last ? parseGmailMessage(last) : null;
@@ -674,6 +773,66 @@ async function getThreadListItem(clientId: string, threadId: string): Promise<Th
   };
 }
 
+const THREAD_METADATA_QS = "format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=Date";
+
+/** Métadonnées légères (batch) d'un ensemble de threads — voir `buildThreadListItem`. */
+async function getThreadListItemsBatch(
+  clientId: string,
+  threadIds: string[],
+): Promise<Map<string, ThreadListItem | GoogleApiError>> {
+  const raw = await gmailBatchGet<{ snippet?: string; messages?: GmailRawMessage[] }>(
+    clientId,
+    threadIds.map((id) => ({ id, path: `/threads/${encodeURIComponent(id)}?${THREAD_METADATA_QS}` })),
+  );
+  const out = new Map<string, ThreadListItem | GoogleApiError>();
+  for (const [id, res] of raw) out.set(id, res instanceof GoogleApiError ? res : buildThreadListItem(id, res));
+  return out;
+}
+
+/**
+ * Re-récupère les résumés de threads donnés (par lots batch). Les threads qui
+ * renvoient 404 (disparus côté serveur) sont reportés dans `missing` pour que
+ * l'appelant les retire du mirror.
+ */
+export async function getThreadSummaries(
+  clientId: string,
+  threadIds: string[],
+): Promise<{ items: ThreadListItem[]; missing: string[] }> {
+  const missing: string[] = [];
+  const batch = await getThreadListItemsBatch(clientId, threadIds);
+  const items: ThreadListItem[] = [];
+  for (const id of threadIds) {
+    const res = batch.get(id);
+    if (res === undefined) continue;
+    if (res instanceof GoogleApiError) {
+      if (res.status === 404) {
+        missing.push(id);
+        continue;
+      }
+      throw res;
+    }
+    items.push(res);
+  }
+  return { items, missing };
+}
+
+/** Ligne de liste enrichie d'un thread (pour l'affichage façon boîte mail). */
+export interface ThreadListItem {
+  id: string;
+  subject: string;
+  from: EmailAddress;
+  date: string;
+  snippet: string;
+  labelIds: string[];
+  aiCategory?: string | null;
+  aiCategoryConfidence?: number | null;
+  aiCategoryRuns?: number | null;
+  aiCategoryAt?: number | null;
+  aiSummary?: string | null;
+  aiSummaryFp?: string | null;
+  aiSummaryAt?: number | null;
+}
+
 /** Page enrichie de threads (items affichables) + curseur page suivante. */
 export interface ThreadListPage {
   items: ThreadListItem[];
@@ -684,8 +843,7 @@ export interface ThreadListPage {
 /**
  * Variante paginée de `listThreadSummaries` : recherche + enrichit une page de
  * threads (sujet/expéditeur/date) et renvoie le `nextPageToken`. `pageToken`
- * charge la page suivante. 1 appel `threads.list` + N `format=metadata`
- * (parallèles), N borné par `maxResults`.
+ * charge la page suivante. 1 appel `threads.list` + un lot batch `format=metadata`.
  */
 export async function listThreadSummariesPage(
   clientId: string,
@@ -693,11 +851,14 @@ export async function listThreadSummariesPage(
   opts: { maxResults?: number; pageToken?: string } = {},
 ): Promise<ThreadListPage> {
   const page = await searchThreadsPage(clientId, query, opts);
-  // Pool borné (pas `Promise.all` brut) → évite le 429 « too many concurrent
-  // requests » quand `maxResults` est élevé (ex. 50).
-  const items = await mapPool(page.items, GMAIL_METADATA_CONCURRENCY, (t) =>
-    getThreadListItem(clientId, t.id),
-  );
+  const batch = await getThreadListItemsBatch(clientId, page.items.map((t) => t.id));
+  const items: ThreadListItem[] = [];
+  for (const t of page.items) {
+    const res = batch.get(t.id);
+    if (res === undefined) continue;
+    if (res instanceof GoogleApiError) throw res;
+    items.push(res);
+  }
   return { items, nextPageToken: page.nextPageToken };
 }
 
@@ -933,12 +1094,19 @@ export async function listSentRecipients(clientId: string, max = 100): Promise<E
     clientId,
     `/messages?labelIds=SENT&maxResults=${max}`,
   );
-  const headers = await mapPool(list.messages ?? [], GMAIL_METADATA_CONCURRENCY, (m) =>
-    gmailFetch<GmailRawMessage>(
-      clientId,
-      `/messages/${encodeURIComponent(m.id)}?format=metadata&metadataHeaders=To&metadataHeaders=Cc`,
-    ).then((raw) => (raw.payload?.headers ?? []).map((h) => h.value).join(",")),
+  const ids = (list.messages ?? []).map((m) => m.id);
+  const batch = await gmailBatchGet<GmailRawMessage>(
+    clientId,
+    ids.map((id) => ({ id, path: `/messages/${encodeURIComponent(id)}?format=metadata&metadataHeaders=To&metadataHeaders=Cc` })),
   );
+  const headers: string[] = [];
+  for (const id of ids) {
+    const res = batch.get(id);
+    // Best-effort (autocomplétion) : un message disparu ou en échec entre le
+    // list et le batch ne doit pas priver les autres de leur comptage.
+    if (res === undefined || res instanceof GoogleApiError) continue;
+    headers.push((res.payload?.headers ?? []).map((h) => h.value).join(","));
+  }
   const counts = new Map<string, { address: EmailAddress; n: number }>();
   for (const address of headers.flatMap(parseAddressList)) {
     const key = address.email.toLowerCase();

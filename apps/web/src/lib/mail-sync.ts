@@ -22,6 +22,7 @@ import {
   listThreadSummariesPage,
   listLabels,
   getThread,
+  getThreadsFull,
   modifyThreadLabels,
   trashThread,
   untrashThread,
@@ -31,7 +32,7 @@ import {
   type GmailLabel,
 } from "@/lib/gmail";
 import { trpcVanillaClient } from "@/lib/trpc/client";
-import { emitOutboxChange, MAIL_SYNCED_EVENT, MAIL_SYNC_STATE_EVENT } from "@/lib/mail-mirror";
+import { emitOutboxChange, MAIL_SYNCED_EVENT, MAIL_SYNC_STATE_EVENT, mirrorGetThread } from "@/lib/mail-mirror";
 import { swKvSet } from "@/lib/sw-kv";
 
 /** Gmail query that defines what the mirror seeds + tracks as "the list". */
@@ -195,6 +196,49 @@ export async function syncThreadDetail(
     ],
   });
   return t;
+}
+
+/** `navigator.connection` (Network Information API) n'est pas dans lib.dom.ts. */
+interface NetworkInformationLike {
+  saveData?: boolean;
+}
+
+/** Nombre de fils dont le corps est anticipé après un sync (tête de la liste affichée). */
+export const PREFETCH_THREAD_COUNT = 20;
+
+/**
+ * Précharge en tâche de fond le corps complet des `threadIds` pas encore
+ * mirrorés (ou dont seul le résumé l'est) : ouvrir le fil ensuite lit le
+ * miroir au lieu d'attendre Gmail. Best-effort — appelé fire-and-forget par
+ * les déclencheurs (après `syncMailbox`, sur `MAIL_MIRROR_RECEIVED_EVENT`),
+ * l'appelant journalise l'échec (`console.warn`) plutôt que de le propager.
+ */
+export async function prefetchThreadBodies(
+  clientId: string,
+  accountId: string,
+  threadIds: readonly string[],
+): Promise<void> {
+  if (!clientId || !accountId || threadIds.length === 0) return;
+  const connection = (navigator as Navigator & { connection?: NetworkInformationLike }).connection;
+  if (connection?.saveData) return;
+
+  const toFetch: string[] = [];
+  for (const id of threadIds) {
+    const cached = await mirrorGetThread(accountId, id).catch(() => null);
+    if (!cached || cached.complete !== true) toFetch.push(id);
+  }
+  if (toFetch.length === 0) return;
+
+  const { items } = await getThreadsFull(clientId, toFetch);
+  if (items.length === 0) return;
+  await trpcVanillaClient.mail.syncUpsert.mutate({
+    accountId,
+    messages: items.map((t) => ({
+      threadId: t.id,
+      labelIds: t.labelIds,
+      items: t.messages.map((m) => ({ ...m, labelIds: t.labelIds, internalDate: Date.parse(m.date) || 0 })),
+    })),
+  });
 }
 
 // Per-account in-flight guard so concurrent pushes (e.g. a bulk action firing

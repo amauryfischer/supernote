@@ -31,7 +31,7 @@ import {
   mirrorSearchThreads,
 } from "@/lib/mail-mirror";
 import { parseMailQuery } from "@/lib/mail-search";
-import { syncMailbox } from "@/lib/mail-sync";
+import { syncMailbox, prefetchThreadBodies, PREFETCH_THREAD_COUNT } from "@/lib/mail-sync";
 import { buildMailOverlay, type OverlayRow } from "@/lib/mail-overlay";
 
 /** Requête Gmail par défaut (la boîte de réception = le flux « à gérer »). */
@@ -72,8 +72,8 @@ export interface MailListApi {
    * la sélection ni afficher de squelette. No-op hors mirror.
    */
   refresh: () => Promise<void>;
-  /** Relit le mirror local sans appeler Gmail. No-op hors mirror. */
-  rereadMirror: () => Promise<void>;
+  /** Relit le mirror local sans appeler Gmail. No-op (`[]`) hors mirror. */
+  rereadMirror: () => Promise<ThreadListItem[]>;
   /** Fils en boîte côté Gmail quand le mirror n'en a copié qu'une partie (constat du dernier sync) ; sinon null. */
   truncatedTotal: number | null;
   loadMore: (q: string) => Promise<void>;
@@ -144,6 +144,9 @@ export function useMailList({
       if (reqId !== loadReqRef.current) return;
       applyListData(items, labels, undefined);
       setListError(null);
+      void prefetchThreadBodies(clientId, accountId, items.slice(0, PREFETCH_THREAD_COUNT).map((it) => it.id)).catch(
+        (err) => console.warn("[mail] préchargement des corps échoué", err),
+      );
       void getInboxCounts(clientId)
         .then((c) => {
           if (reqId === loadReqRef.current) {
@@ -226,16 +229,17 @@ export function useMailList({
     });
   }, [accountId, syncAndReread]);
 
-  const rereadMirror = useCallback(async () => {
-    if (!mirrorAvailable() || !accountId) return;
+  const rereadMirror = useCallback(async (): Promise<ThreadListItem[]> => {
+    if (!mirrorAvailable() || !accountId) return [];
     const reqId = ++loadReqRef.current;
     const [items, labels] = await Promise.all([
       mirrorListThreads(accountId, { labelId: "INBOX", limit: 500 }),
       mirrorListLabels(accountId),
     ]);
-    if (reqId !== loadReqRef.current) return;
+    if (reqId !== loadReqRef.current) return [];
     applyListData(items, labels, undefined);
     setListError(null);
+    return items;
   }, [accountId, applyListData]);
 
   // Page suivante : APPEND aux items cumulés puis RECONSTRUCTION de l'overlay sur

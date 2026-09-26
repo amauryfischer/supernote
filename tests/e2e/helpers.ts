@@ -132,18 +132,49 @@ export const MESSAGE = {
   },
 };
 
+/** Réponse JSON attendue pour un chemin Gmail relatif — GET direct ou sous-requête d'un lot batch. */
+function resolveInboxPath(path: string): unknown {
+  if (path === "/threads") return { threads: [{ id: "t1", snippet: MESSAGE.snippet }] };
+  if (path.startsWith("/threads/")) return { id: "t1", historyId: "10", messages: [MESSAGE] };
+  if (path.startsWith("/messages/")) return MESSAGE;
+  if (path === "/profile") return { emailAddress: "moi@exemple.fr", historyId: "10" };
+  if (path.startsWith("/labels/")) return { id: "INBOX", threadsTotal: 1, threadsUnread: 1 };
+  if (path === "/labels") return { labels: [] };
+  return {};
+}
+
+/** Sous-requêtes (`{ id, path }`) d'un corps `multipart/mixed` de batch Gmail (POST `/batch/gmail/v1`). */
+function parseGmailBatchRequestBody(body: string): Array<{ id: string; path: string }> {
+  const out: Array<{ id: string; path: string }> = [];
+  for (const part of body.split(/--\S+/)) {
+    const idMatch = /Content-ID:\s*<([^>]+)>/i.exec(part);
+    const pathMatch = /GET\s+\/gmail\/v1\/users\/me(\S*)\s+HTTP/i.exec(part);
+    if (idMatch && pathMatch) out.push({ id: idMatch[1]!, path: pathMatch[1]! });
+  }
+  return out;
+}
+
+/** Réponse `multipart/mixed` d'un lot Gmail batch, une sous-réponse 200 par sous-requête reçue. */
+function buildGmailBatchResponse(items: Array<{ id: string; path: string }>): { contentType: string; body: string } {
+  const boundary = "e2e_batch_boundary";
+  const parts = items.map(
+    ({ id, path }) =>
+      `--${boundary}\r\nContent-Type: application/http\r\nContent-ID: <response-${id}>\r\n\r\n` +
+      `HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(resolveInboxPath(path))}\r\n`,
+  );
+  return { contentType: `multipart/mixed; boundary=${boundary}`, body: parts.join("") + `--${boundary}--` };
+}
+
 /** Boîte Gmail d'un seul fil ; Agenda et Drive vides. */
 export async function withInbox(page: Page): Promise<void> {
   await bootCloud(page, { googleAccount: "moi@exemple.fr" });
   await page.route("https://gmail.googleapis.com/**", (route) => {
-    const path = new URL(route.request().url()).pathname.replace("/gmail/v1/users/me", "");
-    if (path === "/threads") return route.fulfill({ json: { threads: [{ id: "t1", snippet: MESSAGE.snippet }] } });
-    if (path.startsWith("/threads/")) return route.fulfill({ json: { id: "t1", historyId: "10", messages: [MESSAGE] } });
-    if (path.startsWith("/messages/")) return route.fulfill({ json: MESSAGE });
-    if (path === "/profile") return route.fulfill({ json: { emailAddress: "moi@exemple.fr", historyId: "10" } });
-    if (path.startsWith("/labels/")) return route.fulfill({ json: { id: "INBOX", threadsTotal: 1, threadsUnread: 1 } });
-    if (path === "/labels") return route.fulfill({ json: { labels: [] } });
-    return route.fulfill({ json: {} });
+    const url = new URL(route.request().url());
+    if (url.pathname === "/batch/gmail/v1") {
+      const { contentType, body } = buildGmailBatchResponse(parseGmailBatchRequestBody(route.request().postData() ?? ""));
+      return route.fulfill({ status: 200, contentType, body });
+    }
+    return route.fulfill({ json: resolveInboxPath(url.pathname.replace("/gmail/v1/users/me", "")) });
   });
   await page.route("https://www.googleapis.com/**", (route) => route.fulfill({ json: { items: [] } }));
 }
