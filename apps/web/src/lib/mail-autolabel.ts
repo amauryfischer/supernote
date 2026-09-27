@@ -1,21 +1,17 @@
 /**
  * mail-autolabel — classement automatique des nouveaux emails par l'IA LOCALE.
  *
- * Le système de groupes existant (cf. `mail-groups`) sait déjà router un fil
- * hors de la boîte selon ses labels Gmail — mais il fallait poser ces labels à
- * la main. Ici, l'IA locale lit expéditeur + objet + extrait (JAMAIS le HTML) et
- * range le fil dans une catégorie ; le label Gmail correspondant est appliqué,
- * et les vues par groupe s'en nourrissent sans nouvelle mécanique.
+ * L'IA locale lit expéditeur + objet + extrait (JAMAIS le HTML) et choisit un
+ * label parmi ceux de l'utilisateur, ou en crée un sous `Supernote/` quand aucun
+ * ne convient à un email d'une famille récurrente.
  *
- * Trois garde-fous assumés :
- *  - on ne classe QUE ce qui n'a pas encore été vu (registre local d'ids), pour
- *    ne pas repasser sur des fils que l'utilisateur a rangés autrement ;
- *  - rien n'est jamais SUPPRIMÉ ni archivé par le classement : il ajoute un
- *    label, point. Sortir de la boîte reste la décision du groupe configuré ;
- *  - un tag n'est posé QUE si le modèle est d'accord avec lui-même au-delà d'un
- *    seuil réglable (cf. « Confiance » plus bas). En dessous, le fil est laissé
- *    tel quel et compté comme « écarté » — un tag faux coûte plus cher qu'un
- *    tag absent, parce qu'il fait SORTIR le fil de la boîte via les groupes.
+ * Garde-fous :
+ *  - on ne classe QUE les fils jamais vus et sans label utilisateur ;
+ *  - interdits : labels Todo (la matrice reste une décision humaine) et labels
+ *    d'un split (`mail-groups`), qui SORTIRAIENT le fil de la boîte ;
+ *  - rien n'est supprimé ni archivé : on ajoute un label, point ;
+ *  - un label n'est posé QUE si le modèle est d'accord avec lui-même au-delà
+ *    d'un seuil réglable (cf. « Confiance » plus bas).
  *
  * Les fonctions de prompt et de parsing sont PURES ; l'appel réseau est isolé
  * dans `classifyThread`.
@@ -23,69 +19,14 @@
 
 import { runLocalPrompt } from "./mail-ai";
 
-/** Préfixe des labels Gmail posés par le classement (regroupés dans Gmail). */
+/** Préfixe des labels Gmail créés par le classement (regroupés dans Gmail). */
 export const AUTO_LABEL_PREFIX = "Supernote/";
 
-export interface MailCategory {
-  id: string;
-  /** Nom du label Gmail (créé à la demande). */
-  labelName: string;
-  /** Libellé affiché dans l'UI. */
-  title: string;
-  /** Description injectée dans le prompt — c'est elle qui fait le classement. */
-  hint: string;
-}
-
-/**
- * Catégories volontairement peu nombreuses et sans recouvrement : un modèle
- * local se trompe surtout quand on lui propose des nuances. « Humain » est le
- * défaut implicite — ce qui ne ressemble à rien d'automatique n'est pas rangé.
- */
-export const MAIL_CATEGORIES: readonly MailCategory[] = [
-  {
-    id: "newsletter",
-    labelName: `${AUTO_LABEL_PREFIX}Newsletters`,
-    title: "Newsletters",
-    hint: "lettre d'information, veille, blog, contenu éditorial envoyé en masse",
-  },
-  {
-    id: "notification",
-    labelName: `${AUTO_LABEL_PREFIX}Notifications`,
-    title: "Notifications",
-    hint: "alerte automatique d'un service (CI, outil SaaS, réseau social, monitoring)",
-  },
-  {
-    id: "facture",
-    labelName: `${AUTO_LABEL_PREFIX}Factures`,
-    title: "Factures",
-    hint: "facture, reçu, confirmation de paiement, relevé, échéance comptable",
-  },
-  {
-    id: "promo",
-    labelName: `${AUTO_LABEL_PREFIX}Promotions`,
-    title: "Promotions",
-    hint: "publicité, offre commerciale, soldes, prospection non sollicitée",
-  },
-  {
-    id: "agenda",
-    labelName: `${AUTO_LABEL_PREFIX}Agenda`,
-    title: "Agenda",
-    hint: "invitation, rendez-vous, convocation, rappel de réunion",
-  },
-];
-
-/** Identifiant de catégorie, ou "humain" quand rien ne correspond. */
-export type MailCategoryId = (typeof MAIL_CATEGORIES)[number]["id"] | "humain";
-
-/** Tous les noms de labels gérés par le classement. PUR. */
-export function autoLabelNames(): string[] {
-  return MAIL_CATEGORIES.map((c) => c.labelName);
-}
-
-/** Catégorie par id (undefined pour "humain"). PUR. */
-export function categoryById(id: string): MailCategory | undefined {
-  return MAIL_CATEGORIES.find((c) => c.id === id);
-}
+/** Verdict brut : un label existant (nom exact), un label à créer, ou rien. */
+export type LabelVote =
+  | { kind: "existing"; name: string }
+  | { kind: "new"; name: string }
+  | { kind: "none" };
 
 /** Entrée minimale nécessaire au classement (aucun HTML). */
 export interface ClassifiableThread {
@@ -100,42 +41,96 @@ function clip(text: string, max: number): string {
   return t.length <= max ? t : `${t.slice(0, max)}…`;
 }
 
-/**
- * Prompt de classement. On impose une réponse d'UN SEUL mot parmi une liste
- * fermée : c'est ce qui rend le parsing fiable avec un petit modèle local. PUR.
- */
-export function buildCategoryPrompt(thread: ClassifiableThread): string {
-  const options = [
-    ...MAIL_CATEGORIES.map((c) => `- ${c.id} : ${c.hint}`),
-    "- humain : écrit par une personne qui attend une réponse de moi",
-  ].join("\n");
+/** Un petit modèle se noie au-delà : les labels les plus courts passent en premier. */
+const MAX_LABELS_IN_PROMPT = 80;
+const NEW_MARKER = "NOUVEAU:";
+
+/** Prompt de classement. `allowed` = noms des labels que l'IA a le droit de poser. PUR. */
+export function buildLabelPrompt(thread: ClassifiableThread, allowed: readonly string[]): string {
+  const list = [...allowed]
+    .sort((a, b) => a.length - b.length)
+    .slice(0, MAX_LABELS_IN_PROMPT)
+    .sort((a, b) => a.localeCompare(b, "fr"));
   return [
-    "Tu classes un email dans UNE catégorie.",
+    "Tu ranges un email avec UN label.",
     "",
-    "Catégories possibles :",
-    options,
+    list.length ? "Labels existants :" : "Aucun label existant.",
+    ...list.map((n) => `- ${n}`),
     "",
     "Email :",
     `Expéditeur : ${clip(thread.from.name || thread.from.email, 120)} <${clip(thread.from.email, 120)}>`,
     `Objet : ${clip(thread.subject, 200)}`,
     `Extrait : ${clip(thread.snippet, 400)}`,
     "",
-    "Réponds UNIQUEMENT par l'identifiant de la catégorie, en un seul mot, sans ponctuation.",
-    "En cas de doute, réponds : humain",
+    "Réponds sur UNE seule ligne, sans autre texte, par l'un de :",
+    "- le nom EXACT d'un label existant qui convient ;",
+    `- ${NEW_MARKER} <Nom court> si aucun ne convient et que l'email appartient à une famille qui reviendra (newsletter, factures, notifications d'un outil, un fournisseur, un projet…). N'hésite pas à créer : 1 à 3 mots, en français, sans « / » ;`,
+    "- aucun : si l'email est un message personnel isolé qui attend une réponse de moi.",
   ].join("\n");
 }
 
+/** Nom proposé par le modèle → nom de label sûr (sans préfixe ni « / »). PUR. */
+function cleanNewName(raw: string): string {
+  let n = raw.trim().replace(/^["'«\s]+|["'»\s.]+$/g, "");
+  if (n.toLowerCase().startsWith(AUTO_LABEL_PREFIX.toLowerCase())) n = n.slice(AUTO_LABEL_PREFIX.length);
+  n = n.replace(/[/\\]/g, " ").replace(/\s+/g, " ").trim().slice(0, 40);
+  return n ? n[0]!.toUpperCase() + n.slice(1) : "";
+}
+
 /**
- * Lit la réponse du modèle. Tolérant (le modèle bavarde souvent) : on cherche
- * le premier identifiant connu dans le texte. Défaut prudent : "humain" — ne
- * rien ranger vaut mieux que mal ranger. PUR.
+ * Lit la réponse du modèle. Tolérant (il bavarde) mais prudent : un label
+ * existant doit être cité en entier ; défaut « rien » — ne pas ranger vaut mieux
+ * que mal ranger. PUR.
  */
-export function parseCategory(raw: string): MailCategoryId {
-  const text = (raw ?? "").toLowerCase();
-  for (const c of MAIL_CATEGORIES) {
-    if (new RegExp(`\\b${c.id}\\b`).test(text)) return c.id;
+export function parseLabelVote(raw: string, allowed: readonly string[]): LabelVote {
+  const line = (raw ?? "").split("\n").map((l) => l.trim()).find(Boolean) ?? "";
+  const bare = line.replace(/^[-*\s"'«]+|["'»\s.]+$/g, "");
+  const lower = bare.toLowerCase();
+  if (!bare || /^aucun\b/.test(lower)) return { kind: "none" };
+
+  const exact = allowed.find((n) => n.toLowerCase() === lower);
+  if (exact) return { kind: "existing", name: exact };
+
+  const idx = lower.indexOf(NEW_MARKER.toLowerCase());
+  if (idx >= 0) {
+    const name = cleanNewName(bare.slice(idx + NEW_MARKER.length));
+    if (!name || isTodoLabelName(name)) return { kind: "none" };
+    const full = `${AUTO_LABEL_PREFIX}${name}`.toLowerCase();
+    const same = allowed.find((n) => n.toLowerCase() === full || n.toLowerCase() === name.toLowerCase());
+    return same ? { kind: "existing", name: same } : { kind: "new", name: `${AUTO_LABEL_PREFIX}${name}` };
   }
-  return "humain";
+
+  // Le plus long d'abord : « Factures EDF » ne doit pas céder à « Factures ».
+  const cited = [...allowed]
+    .sort((a, b) => b.length - a.length)
+    .find((n) => new RegExp(`(^|[^\\p{L}\\d])${escapeRegExp(n.toLowerCase())}([^\\p{L}\\d]|$)`, "u").test(lower));
+  return cited ? { kind: "existing", name: cited } : { kind: "none" };
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function voteKey(v: LabelVote): string {
+  return v.kind === "none" ? "none" : v.name.toLowerCase();
+}
+
+/**
+ * Labels que l'IA peut poser : labels utilisateur, hors Todo, hors splits, hors
+ * labels à mon adresse. PUR.
+ */
+export function allowedLabelNames(
+  labelNames: ReadonlyMap<string, string>,
+  forbiddenIds: ReadonlySet<string>,
+): string[] {
+  return [...labelNames]
+    .filter(([id, name]) => isUserLabelId(id) && !forbiddenIds.has(id) && !isTodoLabelName(name))
+    .map(([, name]) => name);
+}
+
+/** Tout label « Todo… » : la matrice et ses variantes restent humaines. PUR. */
+export function isTodoLabelName(name: string): boolean {
+  return /^\s*todo\b/i.test(name);
 }
 
 // ── Confiance : accord du modèle avec lui-même ──────────────────────────────
@@ -158,36 +153,32 @@ const MAX_VOTE_RUNS = 3;
 const VOTE_TEMPERATURE = 0.7;
 
 export interface ClassificationResult {
-  category: MailCategoryId;
+  vote: LabelVote;
   /** Part des passes d'accord (0..1). Consistance, PAS exactitude. */
   confidence: number;
-  /** Passes réellement exécutées (1 pour « humain », 2 ou 3 sinon). */
+  /** Passes réellement exécutées (1 pour « aucun », 2 ou 3 sinon). */
   runs: number;
 }
 
 /**
- * Dépouille un vote : catégorie majoritaire et part des passes d'accord. En cas
- * d'égalité, la PREMIÈRE catégorie votée l'emporte — c'est celle de la passe
- * déterministe (température 0), la plus reproductible. PUR.
+ * Dépouille un vote : verdict majoritaire et part des passes d'accord. En cas
+ * d'égalité, le PREMIER voté l'emporte — celui de la passe déterministe
+ * (température 0), la plus reproductible. PUR.
  */
-export function tallyVotes(votes: readonly MailCategoryId[]): {
-  category: MailCategoryId;
-  confidence: number;
-} {
-  if (votes.length === 0) return { category: "humain", confidence: 0 };
-  const counts = new Map<MailCategoryId, number>();
-  for (const v of votes) counts.set(v, (counts.get(v) ?? 0) + 1);
+export function tallyVotes(votes: readonly LabelVote[]): { vote: LabelVote; confidence: number } {
+  if (votes.length === 0) return { vote: { kind: "none" }, confidence: 0 };
+  const counts = new Map<string, number>();
+  for (const v of votes) counts.set(voteKey(v), (counts.get(voteKey(v)) ?? 0) + 1);
   let best = votes[0]!;
-  let bestCount = counts.get(best) ?? 0;
+  let bestCount = counts.get(voteKey(best)) ?? 0;
   for (const v of votes) {
-    const n = counts.get(v) ?? 0;
-    // `>` strict : à égalité, on garde le vote rencontré en premier.
+    const n = counts.get(voteKey(v)) ?? 0;
     if (n > bestCount) {
       best = v;
       bestCount = n;
     }
   }
-  return { category: best, confidence: bestCount / votes.length };
+  return { vote: best, confidence: bestCount / votes.length };
 }
 
 /** Niveaux de confiance exposés dans les réglages. */
@@ -212,26 +203,23 @@ export function confidenceThreshold(level: string | undefined): number {
 /**
  * Classe un fil via l'IA locale, avec sa confiance.
  *
- * Passe 1 à température 0 (réponse de référence). Si elle dit « humain », on
- * s'arrête : rien ne sera posé de toute façon, inutile de payer deux passes de
- * plus — et c'est le cas le plus fréquent dans une boîte de travail.
- * Sinon passe 2 à température non nulle ; si elle confirme, c'est unanime ; si
- * elle infirme, une 3ᵉ passe départage.
+ * Passe 1 à température 0. Si elle dit « aucun », on s'arrête : c'est le cas le
+ * plus fréquent dans une boîte de travail. Sinon passe 2 à température non
+ * nulle ; si elle infirme, une 3ᵉ passe départage.
  *
  * Lève si Ollama est injoignable.
  */
 export async function classifyThread(
   thread: ClassifiableThread,
+  allowed: readonly string[],
 ): Promise<ClassificationResult> {
-  const prompt = buildCategoryPrompt(thread);
-  const first = parseCategory(await runLocalPrompt(prompt, 0));
-  if (first === "humain") return { category: "humain", confidence: 1, runs: 1 };
+  const prompt = buildLabelPrompt(thread, allowed);
+  const ask = async (t: number) => parseLabelVote(await runLocalPrompt(prompt, t), allowed);
+  const first = await ask(0);
+  if (first.kind === "none") return { vote: first, confidence: 1, runs: 1 };
 
-  const votes: MailCategoryId[] = [first];
-  votes.push(parseCategory(await runLocalPrompt(prompt, VOTE_TEMPERATURE)));
-  if (votes[0] !== votes[1] && MAX_VOTE_RUNS >= 3) {
-    votes.push(parseCategory(await runLocalPrompt(prompt, VOTE_TEMPERATURE)));
-  }
+  const votes: LabelVote[] = [first, await ask(VOTE_TEMPERATURE)];
+  if (voteKey(votes[0]!) !== voteKey(votes[1]!) && MAX_VOTE_RUNS >= 3) votes.push(await ask(VOTE_TEMPERATURE));
   return { ...tallyVotes(votes), runs: votes.length };
 }
 

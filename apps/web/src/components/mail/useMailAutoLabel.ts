@@ -9,8 +9,9 @@
  * secondes après la stabilisation de la liste ; « Classer maintenant » la
  * déclenche sans attendre.
  *
- * Le label Gmail de la catégorie est créé à la demande, une seule fois, puis
- * réutilisé. Rien n'est archivé ni supprimé ici — seul un label est posé.
+ * L'IA choisit parmi les labels permis (hors Todo et splits) ou en crée un sous
+ * `Supernote/`, une seule fois, puis réutilisé. Rien n'est archivé ni supprimé
+ * ici — seul un label est posé.
  *
  * Seuil de confiance : un fil dont le classement n'atteint pas `minConfidence`
  * est laissé SANS tag, mais marqué vu — le rejouer donnerait le même verdict,
@@ -22,11 +23,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createLabel, type GmailLabel, type ThreadListItem } from "@/lib/gmail";
 import type { ClassificationResult } from "@/lib/mail-autolabel";
 import {
-  categoryById,
+  allowedLabelNames,
   classifyThread,
   pendingForClassification,
   selfLabelIds,
 } from "@/lib/mail-autolabel";
+import { loadGroups } from "@/lib/mail-groups";
 import { mirrorAvailable, mirrorSetAiCategory } from "@/lib/mail-mirror";
 
 /** Bilan de la dernière passe — ce qui a été posé, ce qui a été écarté. */
@@ -115,42 +117,49 @@ export function useMailAutoLabel({
     let skipped = 0;
     const createdIds = new Map<string, string>();
     const useMirror = mirrorAvailable();
+    // Un label de split sortirait le fil de la boîte : décision réservée à l'utilisateur.
+    const forbidden = new Set([
+      ...selfLabelIds(labelNamesRef.current, selfAddressesRef.current),
+      ...loadGroups().flatMap((g) => g.labelIds),
+    ]);
+    const allowed = allowedLabelNames(labelNamesRef.current, forbidden);
     try {
       for (const it of pending) {
         let verdict: ClassificationResult;
         try {
-          verdict = await classifyThread({
-            subject: it.subject,
-            from: it.from,
-            snippet: it.snippet,
-          });
+          verdict = await classifyThread(
+            { subject: it.subject, from: it.from, snippet: it.snippet },
+            allowed,
+          );
         } catch {
           break;
         }
+        const { vote } = verdict;
 
-        // Persister le résultat (y compris "humain") dans SQLite + entity sync.
+        // Persister aussi « aucun » : le fil est marqué vu et ne repasse pas.
         if (useMirror && accountIdRef.current) {
           try {
             await mirrorSetAiCategory(
               accountIdRef.current, it.id,
-              verdict.category, verdict.confidence, verdict.runs,
+              vote.kind === "none" ? "aucun" : vote.name, verdict.confidence, verdict.runs,
             );
           } catch { /* best-effort — le classement continue */ }
         }
 
-        const cat = categoryById(verdict.category);
-        if (!cat) continue;
+        if (vote.kind === "none") continue;
         if (verdict.confidence < minConfidenceRef.current) {
           skipped++;
           continue;
         }
 
-        let labelId = createdIds.get(cat.labelName) ?? labelIdByName(cat.labelName);
+        let labelId = createdIds.get(vote.name.toLowerCase()) ?? labelIdByName(vote.name);
         if (!labelId) {
           try {
-            const created = await createLabel(clientId, cat.labelName);
+            const created = await createLabel(clientId, vote.name);
             labelId = created.id;
-            createdIds.set(cat.labelName, created.id);
+            createdIds.set(vote.name.toLowerCase(), created.id);
+            // Les fils suivants de la passe réutilisent ce label au lieu d'en inventer un voisin.
+            allowed.push(created.name);
             onLabelCreated?.(created);
           } catch {
             continue;
