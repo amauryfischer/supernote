@@ -204,6 +204,18 @@ test.describe("06 — mail", () => {
     await expect(page.getByText("Compte rendu réunion")).toHaveCount(0);
   });
 
+  test("onglets Inbox / Todo : sémantique tab, flèches pour changer de vue", async ({ page }) => {
+    await withInbox(page);
+    await page.goto("/mail");
+    await expect(page.getByText("Compte rendu réunion").first()).toBeVisible({ timeout: 20_000 });
+    const inbox = page.getByRole("tab", { name: /Inbox/ });
+    await expect(inbox).toHaveAttribute("aria-selected", "true");
+    await inbox.focus();
+    await page.keyboard.press("ArrowRight");
+    await expect(page.getByRole("tab", { name: /Todo/ })).toHaveAttribute("aria-selected", "true");
+    if (process.env["SHOTS"]) await page.screenshot({ path: `${process.env["SHOTS"]}/tabs.png` });
+  });
+
   test("le message se copie depuis sa bulle", async ({ page, context }) => {
     await context.grantPermissions(["clipboard-read", "clipboard-write"]);
     await withInbox(page);
@@ -268,14 +280,22 @@ test.describe("06 — mail", () => {
       const nav = page.getByRole("navigation", { name: "Navigation principale" });
       await expect(nav).toBeVisible();
 
+      const star = await page.getByRole("button", { name: "Mettre une étoile" }).first().boundingBox();
+      expect(Math.min(star!.width, star!.height)).toBeGreaterThanOrEqual(32);
+
       await page.getByText("Compte rendu réunion").first().click();
       const triage = page.getByRole("group", { name: "Triage du fil" });
       await expect(triage.getByRole("button", { name: "Archiver" })).toBeVisible();
       await expect(nav).toHaveCount(0);
       await expect(page.getByRole("button", { name: "Répondre", exact: true })).toBeVisible();
 
-      const box = await triage.boundingBox();
+      const box = await triage.getByRole("button", { name: "Archiver" }).boundingBox();
       expect(box!.y).toBeGreaterThan(page.viewportSize()!.height / 2);
+      await expect(page.getByRole("button", { name: "Plus d'actions" })).toHaveCount(1);
+      await page.getByRole("button", { name: "Plus d'actions" }).click();
+      await expect(page.getByRole("button", { name: "Capturer en note" })).toBeVisible();
+      await page.keyboard.press("Escape");
+      if (process.env["SHOTS"]) await page.screenshot({ path: `${process.env["SHOTS"]}/thread-mobile.png` });
       await expect(page.getByRole("banner").getByText("Compte rendu réunion")).toBeVisible();
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
       expect(overflow).toBeLessThanOrEqual(0);

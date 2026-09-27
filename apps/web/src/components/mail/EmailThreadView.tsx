@@ -977,7 +977,8 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
           <div
             className={
               bottomSlot
-                ? "flex items-center justify-around gap-1 px-3 py-1.5"
+                ? // Les boutons du groupe de triage comptent comme frères pour un espacement régulier.
+                  "flex items-center justify-around gap-1 px-3 py-1.5 [&>[role=group]]:contents [&_button]:h-10 [&_button]:min-h-10 [&_button]:min-w-10"
                 : "flex shrink-0 items-center justify-end gap-1.5"
             }
           >
@@ -1074,7 +1075,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
                         </div>
                       )}
                       <p className="sn-eyebrow sn-eyebrow--compact px-3 pb-0.5 pt-2" aria-hidden>Capturer</p>
-                      {onCaptureNote && !isMobile && (
+                      {onCaptureNote && (
                         <Button
                           variant="ghost"
                           className={MENU_ROW}
@@ -1088,7 +1089,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
                           <span>Capturer en note</span>
                         </Button>
                       )}
-                      {onCaptureBase && !isMobile && (
+                      {onCaptureBase && (
                         <Button
                           variant="ghost"
                           className={MENU_ROW}

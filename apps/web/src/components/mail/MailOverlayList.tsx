@@ -770,7 +770,7 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
               tabIndex={0}
               aria-label={starred ? "Retirer l'étoile" : "Mettre une étoile"}
               aria-pressed={starred}
-              className="relative inline-flex shrink-0 cursor-pointer p-0.5 max-md:before:absolute max-md:before:-inset-2 max-md:before:content-['']"
+              className="inline-flex shrink-0 cursor-pointer p-0.5 max-md:-m-2 max-md:p-2.5"
               onClick={(e) => {
                 e.stopPropagation();
                 onToggleStar(singleItem.id, singleItem.labelIds);
