@@ -23,6 +23,7 @@ import {
   isCalendarConnected,
   syncCalendars,
 } from "@/lib/calendar-sync";
+import { prefersReducedMotion } from "@/lib/motion";
 import { stepAnchor, viewRange, type AgendaView } from "@/lib/agenda/dates";
 import { SLOT_MIN } from "@/lib/agenda/free-slots";
 import { AgendaToolbar } from "@/components/agenda/AgendaToolbar";
@@ -53,14 +54,17 @@ function readSources(): Record<OverlaySource, boolean> {
 const VIEWS: readonly AgendaView[] = ["day", "3day", "week", "month", "list"];
 const SHORTCUTS: Record<string, AgendaView> = { j: "day", "3": "3day", s: "week", m: "month", l: "list" };
 
+// Clé distincte au téléphone : la vue Semaine choisie au bureau y serait illisible.
+const viewKey = (isMobile: boolean) => (isMobile ? `${VIEW_KEY}.mobile` : VIEW_KEY);
+
 function readView(isMobile: boolean): AgendaView {
   try {
-    const v = window.localStorage.getItem(VIEW_KEY);
+    const v = window.localStorage.getItem(viewKey(isMobile));
     if (v && (VIEWS as readonly string[]).includes(v)) return v as AgendaView;
   } catch {
     /* stockage indisponible : vue par défaut */
   }
-  return isMobile ? "list" : "week";
+  return isMobile ? "day" : "week";
 }
 
 function subscribeAuth(onChange: () => void): () => void {
@@ -129,7 +133,7 @@ export default function AgendaPage() {
   const setView = (v: AgendaView) => {
     setViewState(v);
     try {
-      window.localStorage.setItem(VIEW_KEY, v);
+      window.localStorage.setItem(viewKey(isMobile), v);
     } catch {
       /* la vue reste valable pour la session */
     }
@@ -249,26 +253,8 @@ export default function AgendaPage() {
     return () => window.removeEventListener("keydown", onKey);
   }); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Balayage horizontal au doigt, comme Google Agenda : période suivante/précédente.
-  // Pas en planning, qui défile verticalement ; un geste surtout vertical reste un défilement.
-  const touch0 = useRef<{ x: number; y: number } | null>(null);
-  const swipeHandlers = isMobile && view !== "list"
-    ? {
-        onTouchStart: (e: React.TouchEvent) => {
-          const t = e.touches[0];
-          touch0.current = t && e.touches.length === 1 ? { x: t.clientX, y: t.clientY } : null;
-        },
-        onTouchEnd: (e: React.TouchEvent) => {
-          const p0 = touch0.current;
-          const t = e.changedTouches[0];
-          touch0.current = null;
-          if (!p0 || !t) return;
-          const dx = t.clientX - p0.x;
-          if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(t.clientY - p0.y) * 1.5) return;
-          onNavigate(dx < 0 ? 1 : -1);
-        },
-      }
-    : {};
+  // Pas en planning, qui défile verticalement.
+  const swipe = useSwipeSlide(isMobile && view !== "list", (dir) => onNavigate(dir));
 
   const save = async (draft: EventDraft) => {
     if (editor?.mode === "edit") await writes.update(editor.event, draft);
@@ -427,8 +413,8 @@ export default function AgendaPage() {
                 </Button>
               </div>
             )}
-            <div className="flex min-h-0 flex-1">
-              <div className="flex min-h-0 min-w-0 flex-1 flex-col" {...swipeHandlers}>
+            <div className="flex min-h-0 flex-1 overflow-hidden">
+              <div className="flex min-h-0 min-w-0 flex-1 flex-col" {...swipe}>
                 {gridView}
               </div>
               {!isMobile && (view === "day" || view === "3day" || view === "week") && (
@@ -484,4 +470,67 @@ export default function AgendaPage() {
       )}
     </AppShell>
   );
+}
+
+const SWIPE_MIN_PX = 60;
+
+// Le contenu suit le doigt, sort du côté balayé puis la période voisine entre par l'autre bord.
+function useSwipeSlide(enabled: boolean, onStep: (dir: -1 | 1) => void) {
+  const start = useRef<{ x: number; y: number; axis: "x" | "y" | null } | null>(null);
+  const dx = useRef(0);
+  if (!enabled) return {};
+
+  const setX = (el: HTMLElement, x: number, animate: boolean) => {
+    el.style.transition = animate ? "transform var(--sn-dur-3) var(--sn-ease-out)" : "none";
+    el.style.transform = x ? `translateX(${x}px)` : "";
+  };
+
+  return {
+    style: { touchAction: "pan-y" } as React.CSSProperties,
+    onTouchStart: (e: React.TouchEvent<HTMLElement>) => {
+      const t = e.touches[0];
+      if (!t || e.touches.length > 1) return;
+      start.current = { x: t.clientX, y: t.clientY, axis: null };
+      dx.current = 0;
+    },
+    onTouchMove: (e: React.TouchEvent<HTMLElement>) => {
+      const s = start.current;
+      const t = e.touches[0];
+      if (!s || !t) return;
+      const x = t.clientX - s.x;
+      const y = t.clientY - s.y;
+      if (!s.axis && Math.max(Math.abs(x), Math.abs(y)) > 8) s.axis = Math.abs(x) > Math.abs(y) ? "x" : "y";
+      if (s.axis !== "x") return;
+      dx.current = x;
+      if (!prefersReducedMotion()) setX(e.currentTarget, x, false);
+    },
+    onTouchEnd: (e: React.TouchEvent<HTMLElement>) => {
+      const el = e.currentTarget;
+      const axis = start.current?.axis;
+      start.current = null;
+      if (axis !== "x") return;
+      const x = dx.current;
+      if (Math.abs(x) < SWIPE_MIN_PX) {
+        setX(el, 0, true);
+        return;
+      }
+      const dir: -1 | 1 = x < 0 ? 1 : -1;
+      if (prefersReducedMotion()) {
+        onStep(dir);
+        return;
+      }
+      const w = el.offsetWidth;
+      setX(el, -dir * w, true);
+      window.setTimeout(() => {
+        onStep(dir);
+        setX(el, dir * w, false);
+        void el.offsetWidth;
+        setX(el, 0, true);
+      }, 220);
+    },
+    onTouchCancel: (e: React.TouchEvent<HTMLElement>) => {
+      start.current = null;
+      setX(e.currentTarget, 0, true);
+    },
+  };
 }
