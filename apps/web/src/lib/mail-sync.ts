@@ -38,6 +38,10 @@ import { swKvSet } from "@/lib/sw-kv";
 export const MIRROR_SYNC_QUERY = "in:inbox";
 /** Pages of 50 threads seeded on a full sync (cap to bound the cold-start cost). */
 const FULL_SYNC_PAGES = 4;
+// Un fil raté par l'historique Gmail (changement pas encore visible au moment
+// de la lecture) resterait périmé partout : l'adoption du curseur partagé
+// empêche les autres appareils de le revoir. Le full sync le rattrape.
+const FULL_RECONCILE_MS = 6 * 60 * 60_000;
 const PAGE_SIZE = 50;
 
 /** Map a Gmail list item to the mirror's thread-upsert shape. */
@@ -300,7 +304,7 @@ export function syncMailbox(clientId: string, accountId: string): Promise<void> 
       /* outbox push is best-effort; the pull still proceeds */
     });
     const state = await trpcVanillaClient.mail.getState.query({ accountId });
-    if (!state.historyId || state.threadCount === 0) {
+    if (!state.historyId || state.threadCount === 0 || Date.now() - (state.lastFullSyncAt ?? 0) > FULL_RECONCILE_MS) {
       await fullSync(clientId, accountId);
     } else {
       const ok = await incrementalSync(clientId, accountId, state.historyId);
