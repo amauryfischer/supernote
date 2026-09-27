@@ -98,6 +98,6 @@ export function forwardLabel(mark: ForwardMark, selfEmail?: string): { label: st
   const by = classifyBubble(mark.by.email, selfEmail) === "mine" ? "" : ` par ${who(mark.by)}`;
   const short = mark.to.map(who).join(", ");
   const full = mark.to.map((a) => a.email).join(", ");
-  const when = mark.date ? ` · ${new Date(mark.date).toLocaleString()}` : "";
+  const when = mark.date ? ` · ${new Date(mark.date).toLocaleString("fr-FR")}` : "";
   return { label: `Transféré${by} à ${short}`, title: `Transféré${by} à ${full}${when}` };
 }

@@ -98,7 +98,7 @@ export function EmailPicker({
 function EmailRow({ item, onSelect }: { item: ThreadListItem; onSelect: () => void }) {
   const sender = item.from.name || item.from.email || "(inconnu)";
   const date = item.date
-    ? new Date(item.date).toLocaleDateString(undefined, { day: "2-digit", month: "short" })
+    ? new Date(item.date).toLocaleDateString("fr-FR", { day: "2-digit", month: "short" })
     : "";
   return (
     <Button

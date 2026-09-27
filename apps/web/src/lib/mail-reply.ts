@@ -97,7 +97,7 @@ export function pickReplyAll(
 export function buildQuotedBody(message: EmailMessage): string {
   const who = message.from.name || message.from.email || "?";
   const ts = message.date ? Date.parse(message.date) : NaN;
-  const when = Number.isNaN(ts) ? "" : new Date(ts).toLocaleString();
+  const when = Number.isNaN(ts) ? "" : new Date(ts).toLocaleString("fr-FR");
   const attribution = when ? `Le ${when}, ${who} a écrit :` : `${who} a écrit :`;
   const source = message.bodyText || message.snippet || "";
   const quoted = source

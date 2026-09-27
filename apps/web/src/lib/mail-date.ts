@@ -7,13 +7,13 @@
  */
 
 function timePart(d: Date): string {
-  return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  return d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
 }
 
 function datePart(d: Date, now: Date): string {
   return d.getFullYear() === now.getFullYear()
-    ? d.toLocaleDateString(undefined, { day: "2-digit", month: "short" })
-    : d.toLocaleDateString(undefined, { day: "2-digit", month: "2-digit", year: "2-digit" });
+    ? d.toLocaleDateString("fr-FR", { day: "2-digit", month: "short" })
+    : d.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "2-digit" });
 }
 
 function isSameDay(a: Date, b: Date): boolean {

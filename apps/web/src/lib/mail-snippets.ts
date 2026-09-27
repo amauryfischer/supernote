@@ -122,7 +122,7 @@ export function expandVariables(
     email: ctx.email ?? "",
     objet: ctx.objet ?? "",
     moi: ctx.moi ?? "",
-    date: now.toLocaleDateString(),
+    date: now.toLocaleDateString("fr-FR"),
     heure: now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
   };
   return body.replace(/\{\{\s*([a-zA-Zéèêà_]+)\s*\}\}/g, (match, rawName: string) => {

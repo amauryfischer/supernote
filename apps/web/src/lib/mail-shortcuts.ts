@@ -46,6 +46,7 @@ export type MailActionId =
   | "todoDelegate"
   | "todoEliminate"
   | "select"
+  | "rowMenu"
   | "undo"
   // Rédaction
   | "reply"
@@ -277,6 +278,14 @@ export const MAIL_SHORTCUTS: MailBinding[] = [
     contexts: ["list", "group"],
   },
   {
+    id: "rowMenu",
+    keys: [["."], ["ContextMenu"]],
+    display: ". / Menu",
+    label: "Menu d'actions de la ligne",
+    group: "Triage",
+    contexts: ["list"],
+  },
+  {
     id: "undo",
     keys: [["z"]],
     display: "z",
@@ -341,7 +350,7 @@ export const MAIL_SHORTCUTS: MailBinding[] = [
     id: "search",
     keys: [["/"]],
     display: "/",
-    label: "Rechercher",
+    label: "Rechercher (from: · is:unread · has:attachment · newer_than:7d)",
     group: "Vue",
     contexts: ALL,
   },

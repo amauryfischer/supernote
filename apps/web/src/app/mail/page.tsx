@@ -309,6 +309,8 @@ export default function MailPage() {
   // Fil ouvert : la liste se réduit à un rail ; `peekList` la déplie par-dessus.
   const [peekList, setPeekList] = useState(false);
   const [thread, setThread] = useState<EmailThread | null>(null);
+  // Compteur : chaque « . » demande à la liste d'ouvrir le menu de la ligne sous le curseur.
+  const [rowMenuRequest, setRowMenuRequest] = useState(0);
   const openSubject = selectedThreadId ? thread?.messages[0]?.subject || "(sans objet)" : null;
   useMobileTitle(
     isMobile ? (openSubject ?? "Mail") : null,
@@ -1953,6 +1955,7 @@ export default function MailPage() {
         if (aiConfigured && accountId) navigate("/ai");
       },
       help: () => setHelpOpen(true),
+      rowMenu: () => setRowMenuRequest((n) => n + 1),
     };
   }, [
     moveCursor,
@@ -2477,6 +2480,7 @@ export default function MailPage() {
                 sections={sectionMarkers}
                 onToggleSection={toggleSection}
                 onMarkSectionRead={markThreadsRead}
+                menuRequest={rowMenuRequest}
               />
               {/* Sentinelle de scroll infini (chemin live seulement : le mirror
                   charge toute la boîte d'un coup). */}

@@ -27,7 +27,7 @@ export function emailSourceValue(msg: EmailMessage, src: EmailFieldSource): stri
 
 /** Compose le corps markdown d'une note de capture (en-tête + corps + lien). */
 export function emailToMarkdown(msg: EmailMessage): string {
-  const date = msg.date ? new Date(msg.date).toLocaleString() : "";
+  const date = msg.date ? new Date(msg.date).toLocaleString("fr-FR") : "";
   const lines = [
     `**De :** ${msg.from.name}${msg.from.email ? ` <${msg.from.email}>` : ""}`,
     date ? `**Date :** ${date}` : "",

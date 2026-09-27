@@ -52,7 +52,7 @@ export function MailShortcutsHelp({
       title="Raccourcis clavier"
       size="xl"
     >
-      <div className="grid gap-x-8 gap-y-5 md:grid-cols-2">
+      <div className="grid max-h-[70vh] gap-x-8 gap-y-5 overflow-y-auto md:grid-cols-2">
         {MAIL_SHORTCUT_GROUPS.map((group) => {
           const items = shortcutsByGroup(group);
           if (items.length === 0) return null;
@@ -66,7 +66,7 @@ export function MailShortcutsHelp({
               <ul className="flex flex-col gap-1">
                 {items.map((b) => (
                   <li key={b.id} className="flex items-center justify-between gap-3 py-0.5">
-                    <span className="min-w-0 truncate text-sm" style={{ color: "var(--text-secondary)" }}>
+                    <span className="min-w-0 text-sm" style={{ color: "var(--text-secondary)" }}>
                       {b.label}
                     </span>
                     <span className="flex shrink-0 items-center gap-0.5">{renderKeys(b)}</span>

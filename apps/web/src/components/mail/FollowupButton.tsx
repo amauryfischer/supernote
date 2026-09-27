@@ -73,7 +73,7 @@ export function FollowupButton({
         <BellRinging size={16} weight={existing ? "fill" : "regular"} />
         <span>
           {existing
-            ? `Rappel le ${new Date(existing.dueAt).toLocaleDateString()}`
+            ? `Rappel le ${new Date(existing.dueAt).toLocaleDateString("fr-FR")}`
             : "Me rappeler si pas de réponse"}
         </span>
       </Button>

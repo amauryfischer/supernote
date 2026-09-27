@@ -117,7 +117,10 @@ export function MailOverlayList({
   sections,
   onToggleSection,
   onMarkSectionRead,
+  menuRequest = 0,
 }: {
+  /** Incrémenté par la page (touche « . ») : ouvre le menu de la ligne `selectedIndex`. */
+  menuRequest?: number;
   rows: OverlayRow[];
   activeKey?: string;
   onPick: (row: OverlayRow) => void;
@@ -267,6 +270,17 @@ export function MailOverlayList({
     // `virtualizer` est stable pour un même conteneur.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedIndex, virtualized]);
+
+  useEffect(() => {
+    if (!menuRequest || selectedIndex == null || selectedIndex < 0) return;
+    const row = rows[selectedIndex];
+    const el = document.querySelector(`[data-mail-row-index="${selectedIndex}"]`);
+    if (!row || !el) return;
+    const r = el.getBoundingClientRect();
+    setCtx({ x: r.left + 24, y: r.bottom, row });
+    // Seul un nouvel appui compte, pas un déplacement du curseur.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [menuRequest]);
 
   const shared: SharedRowProps = {
     activeKey,
@@ -916,24 +930,45 @@ function MailRowContextMenu({
   userLabels?: Map<string, string>;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  // Le parent passe une flèche neuve à chaque rendu : l'effet ne doit pas se rejouer (il refocaliserait).
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   useEffect(() => {
+    const onClose = () => onCloseRef.current();
+    // Menu natif (ancré au pointeur, cf. exceptions HeroUI) : focus et flèches à la main.
+    const returnTo = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const items = () => [...(ref.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])];
+    items()[0]?.focus();
     const onDown = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) onClose();
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
+      // Menu ouvert = raccourcis de la page suspendus (Entrée ouvrirait aussi le fil).
+      e.stopPropagation();
+      const list = items();
+      const at = list.indexOf(document.activeElement as HTMLElement);
+      const move = (i: number) => {
+        e.preventDefault();
+        list[(i + list.length) % list.length]?.focus();
+      };
+      if (e.key === "ArrowDown") move(at + 1);
+      else if (e.key === "ArrowUp") move(at < 0 ? -1 : at - 1);
+      else if (e.key === "Home") move(0);
+      else if (e.key === "End") move(-1);
+      else if (e.key === "Escape" || e.key === "Tab") {
         e.preventDefault();
         onClose();
       }
     };
     const id = window.setTimeout(() => document.addEventListener("mousedown", onDown), 0);
-    document.addEventListener("keydown", onKey);
+    document.addEventListener("keydown", onKey, true);
     return () => {
       window.clearTimeout(id);
       document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("keydown", onKey, true);
+      returnTo?.focus({ preventScroll: true });
     };
-  }, [onClose]);
+  }, []);
 
   const single = row.kind === "single" ? row.item : null;
   const unread = rowHasUnread(row);
@@ -957,7 +992,8 @@ function MailRowContextMenu({
     <div
       ref={ref}
       role="menu"
-      className="fixed z-50 flex w-[230px] flex-col gap-0.5 rounded-lg p-1 shadow-xl"
+      aria-label="Actions de l'email"
+      className="fixed z-50 flex max-h-[80vh] w-[230px] flex-col gap-0.5 overflow-y-auto rounded-lg p-1 shadow-xl"
       style={{ left, top, backgroundColor: "var(--surface-1)", border: "1px solid var(--border-subtle)" }}
     >
       <CtxItem label="Ouvrir" onClick={() => run(() => onPick(row))} />
@@ -1033,7 +1069,7 @@ function CtxItem({
       type="button"
       role="menuitem"
       onClick={onClick}
-      className={`w-full rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-[var(--surface-2)] ${indent ? "pl-4" : ""}`}
+      className={`w-full rounded-md px-2 py-1.5 text-left text-sm outline-none transition-colors hover:bg-[var(--surface-2)] focus-visible:bg-[var(--surface-2)] ${indent ? "pl-4" : ""}`}
       style={{ color: danger ? "var(--color-danger, #ef4444)" : "var(--text-primary)" }}
     >
       {label}

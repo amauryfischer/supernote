@@ -81,7 +81,7 @@ export function MailSnoozedBadge({
                     {e.subject || "(sans objet)"}
                   </span>
                   <span className="w-full truncate text-xs font-normal" style={{ color: "var(--text-muted)" }}>
-                    {e.from ? `${e.from} · ` : ""}revient {new Date(e.until).toLocaleString(undefined, UNTIL_FORMAT)}
+                    {e.from ? `${e.from} · ` : ""}revient {new Date(e.until).toLocaleString("fr-FR", UNTIL_FORMAT)}
                   </span>
                 </Button>
                 <Tooltip

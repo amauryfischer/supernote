@@ -118,6 +118,29 @@ test.describe("06 — mail", () => {
     await expect(page.getByRole("button", { name: "Capturer dans une base" })).toBeVisible();
   });
 
+  test("clavier : . ouvre le menu de la ligne, flèches + Entrée, heures sans AM/PM", async ({ page }) => {
+    await withInbox(page);
+    await page.goto("/mail");
+    await expect(page.getByText("Compte rendu réunion").first()).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole("listbox", { name: "Boîte mail" })).not.toContainText(/\b(AM|PM)\b/);
+
+    await page.keyboard.press("j");
+    await page.keyboard.press(".");
+    const menu = page.getByRole("menu", { name: "Actions de l'email" });
+    await expect(menu).toBeVisible();
+    await expect(menu.getByRole("menuitem").first()).toBeFocused();
+    await page.keyboard.press("End");
+    await expect(menu.getByRole("menuitem", { name: "Supprimer" })).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(menu).toHaveCount(0);
+
+    await page.keyboard.press(".");
+    await menu.getByRole("menuitem", { name: "Archiver" }).focus();
+    await page.keyboard.press("Enter");
+    await expect(page.getByRole("button", { name: /Annuler/ })).toBeVisible();
+    await expect(page.getByText("Compte rendu réunion")).toHaveCount(0);
+  });
+
   test("le message se copie depuis sa bulle", async ({ page, context }) => {
     await context.grantPermissions(["clipboard-read", "clipboard-write"]);
     await withInbox(page);
