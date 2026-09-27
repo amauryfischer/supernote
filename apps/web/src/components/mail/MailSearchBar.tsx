@@ -79,7 +79,7 @@ export function MailSearchBar({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           onFocus={() => setFocused(true)}
-          placeholder="Rechercher…  from: is:unread has:attachment   (/)"
+          placeholder="Rechercher dans les mails  (/)"
           className="flex-1"
           aria-label="Rechercher dans les emails"
           onKeyDown={(e) => {

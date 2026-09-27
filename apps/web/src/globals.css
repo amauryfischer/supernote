@@ -66,9 +66,9 @@
   /* Text */
   --text-primary: oklch(0.20 0.008 265);
   --text-secondary: oklch(0.42 0.010 265);
-  /* muted assez foncé pour ≥4.5:1 sur surface-0 (WCAG AA) : c'est le token de
-     TOUTE la copie secondaire (hints, metadata, empty states). */
-  --text-muted: oklch(0.545 0.010 265);
+  /* muted assez foncé pour ≥4.5:1 jusqu'à surface-3 (WCAG AA) : c'est le token
+     de TOUTE la copie secondaire (hints, metadata, empty states). */
+  --text-muted: oklch(0.51 0.010 265);
 
   /* Borders */
   --border: oklch(0.885 0.005 265);

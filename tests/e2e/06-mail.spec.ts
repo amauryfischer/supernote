@@ -102,6 +102,22 @@ test.describe("06 — mail", () => {
     await expect(page.getByText("Compte rendu réunion")).toHaveCount(0);
   });
 
+  test("hiérarchie calme : / focalise la recherche, capture dans le menu Plus", async ({ page }) => {
+    await withInbox(page);
+    await page.goto("/mail");
+    await expect(page.getByText("Compte rendu réunion").first()).toBeVisible({ timeout: 20_000 });
+
+    await page.keyboard.press("/");
+    await expect(page.getByLabel("Rechercher dans les emails")).toBeFocused();
+    await page.keyboard.press("Escape");
+
+    await page.getByText("Compte rendu réunion").first().click();
+    await expect(page.getByText("Capturer :")).toHaveCount(0);
+    await page.getByRole("button", { name: "Plus d'actions" }).click();
+    await expect(page.getByRole("button", { name: "Capturer en note" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Capturer dans une base" })).toBeVisible();
+  });
+
   test("le message se copie depuis sa bulle", async ({ page, context }) => {
     await context.grantPermissions(["clipboard-read", "clipboard-write"]);
     await withInbox(page);

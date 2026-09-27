@@ -1712,9 +1712,11 @@ export default function MailPage() {
       remote={remoteSearch}
       leading={
         !isMobile ? (
-          <Button variant="primary" onPress={openCompose}>
-            <PencilSimple size={16} /> Nouveau message
-          </Button>
+          <Tooltip content="Nouveau message (c)">
+            <Button variant="ghost" isIconOnly onPress={openCompose} aria-label="Nouveau message">
+              <PencilSimple size={18} aria-hidden />
+            </Button>
+          </Tooltip>
         ) : null
       }
     />
@@ -2019,12 +2021,10 @@ export default function MailPage() {
   const handleCaptureNote = async () => {
     const msg = thread?.messages[0];
     if (!msg) return;
+    // L'action vit dans un menu (ou l'en-tête mobile) : aucun bouton pour porter l'échec.
     await captureFb.run(
       async () => navigate(`/notes/${await captureToNote(msg)}`),
-      // Sur mobile l'action vit dans l'en-tête, sans bouton pour porter l'échec.
-      isMobile
-        ? (message) => toast({ title: "Échec de la capture", description: message, variant: "danger" })
-        : undefined,
+      (message) => toast({ title: "Échec de la capture", description: message, variant: "danger" }),
     );
   };
 
@@ -2544,40 +2544,6 @@ export default function MailPage() {
 
   captureNoteRef.current = () => void handleCaptureNote();
 
-  // Capture = action SECONDAIRE → rangée discrète (barre du haut sur mobile).
-  const captureBar = thread && !isMobile ? (
-    <div className="flex shrink-0 items-center gap-1 px-4 pb-1 pt-2">
-      <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-        Capturer :
-      </span>
-      <Tooltip content={captureFb.error ?? "Capturer en note"}>
-        <Button
-          variant="ghost"
-          size="sm"
-          isIconOnly
-          aria-label="Capturer en note"
-          className="h-7"
-          isDisabled={captureFb.isPending}
-          onPress={() => void handleCaptureNote()}
-        >
-          <FeedbackIcon state={captureFb.state} idle={<FilePlus size={14} />} size={14} error={captureFb.error} />
-        </Button>
-      </Tooltip>
-      <Tooltip content="Capturer dans une base">
-        <Button
-          variant="ghost"
-          size="sm"
-          isIconOnly
-          aria-label="Capturer dans une base"
-          className="h-7"
-          onPress={() => setCaptureOpen(true)}
-          isDisabled={!thread?.messages[0]}
-        >
-          <Database size={14} />
-        </Button>
-      </Tooltip>
-    </div>
-  ) : null;
 
   // Colonne « Brouillons IA ».
   const draftsOpen = aiConfigured && (drafts.busy || drafts.variants.length > 0 || drafts.error !== null);
@@ -2699,7 +2665,6 @@ export default function MailPage() {
           key={selectedThreadId ?? "thread"}
           className="sn-overlay-in flex min-h-0 flex-1 flex-col overflow-hidden"
         >
-          {captureBar}
           <div className="flex min-h-0 flex-1 overflow-hidden">
             <SwipeableRow
               onSwipe={handleSwipeThread}
@@ -2730,6 +2695,8 @@ export default function MailPage() {
                   onConvertedToTodo={handleConvertedToTodo}
                   onGenerateDrafts={() => void drafts.generate()}
                   draftsBusy={drafts.busy}
+                  onCaptureNote={() => void handleCaptureNote()}
+                  onCaptureBase={() => setCaptureOpen(true)}
                 />
               </div>
             </SwipeableRow>

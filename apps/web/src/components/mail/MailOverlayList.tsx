@@ -836,7 +836,7 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
   const body = (
     <div
       ref={drop.setNodeRef}
-      className={`flex items-center gap-1${selectable ? " group" : ""}`}
+      className={`group/row flex items-center gap-1${selectable ? " group" : ""}`}
       style={{ ...dragMove, ...dropStyle }}
       onContextMenu={(e) => {
         e.preventDefault();
@@ -850,7 +850,7 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
           {...drag.attributes}
           aria-label="Glisser cet email vers un tag"
           title="Glisser vers un tag"
-          className="flex h-8 w-4 shrink-0 cursor-grab items-center justify-center rounded text-[var(--text-muted)] transition-colors hover:text-[var(--accent)]"
+          className="flex h-8 w-4 shrink-0 cursor-grab items-center justify-center rounded text-[var(--text-muted)] opacity-0 transition-[opacity,color] hover:text-[var(--accent)] focus-visible:opacity-100 group-hover/row:opacity-100 group-focus-within/row:opacity-100 max-md:hidden"
           style={{ touchAction: "none" }}
         >
           <DotsSixVertical size={15} weight="bold" aria-hidden />

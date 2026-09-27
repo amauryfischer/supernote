@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, forwardRef, useImperativeHandle, type ReactNode } from "react";
-import { ArrowSquareOut, Plus, X, Tag, MagnifyingGlass, Check, PaperPlaneTilt, Quotes, Paperclip, Star, Envelope, ArrowBendUpRight, Sparkle, MagicWand, ArrowsClockwise, CaretUp, DotsThreeVertical, Copy, Image as ImageIcon, SpeakerSlash, UserMinus, UserPlus, WarningCircle, ShareNetwork, Trash, ArrowBendUpLeft } from "@phosphor-icons/react";
+import { ArrowSquareOut, Plus, X, Tag, MagnifyingGlass, Check, PaperPlaneTilt, Quotes, Paperclip, Star, Envelope, ArrowBendUpRight, Sparkle, MagicWand, ArrowsClockwise, CaretUp, DotsThreeVertical, Copy, Image as ImageIcon, SpeakerSlash, UserMinus, UserPlus, WarningCircle, ShareNetwork, Trash, ArrowBendUpLeft, FilePlus, Database } from "@phosphor-icons/react";
 import { Button, Chip, Input, Spinner, Popover } from "@heroui/react";
 import { useToast, Tooltip } from "@supernote/ui";
 import { useActionFeedback, FeedbackIcon } from "@/lib/action-feedback";
@@ -223,6 +223,9 @@ interface EmailThreadViewProps {
   onGenerateDrafts?: () => void;
   /** Génération de brouillons en cours (état du bouton 🪄). */
   draftsBusy?: boolean;
+  /** Capture du fil (menu « Plus », desktop — la barre du haut mobile les porte déjà). */
+  onCaptureNote?: () => void;
+  onCaptureBase?: () => void;
 }
 
 export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProps>(
@@ -241,6 +244,8 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
       onConvertedToTodo,
       onGenerateDrafts,
       draftsBusy = false,
+      onCaptureNote,
+      onCaptureBase,
     },
     ref,
   ) {
@@ -1009,6 +1014,34 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
                           />
                           <span className="flex-1 text-left">{starred ? "Retirer l'étoile" : "Mettre une étoile"}</span>
                           <kbd className="text-xs" style={{ color: "var(--text-muted)" }}>t</kbd>
+                        </Button>
+                      )}
+                      {onCaptureNote && !isMobile && (
+                        <Button
+                          variant="ghost"
+                          className={MENU_ROW}
+                          aria-label="Capturer en note"
+                          onPress={() => {
+                            setMoreOpen(false);
+                            onCaptureNote();
+                          }}
+                        >
+                          <FilePlus size={16} />
+                          <span>Capturer en note</span>
+                        </Button>
+                      )}
+                      {onCaptureBase && !isMobile && (
+                        <Button
+                          variant="ghost"
+                          className={MENU_ROW}
+                          aria-label="Capturer dans une base"
+                          onPress={() => {
+                            setMoreOpen(false);
+                            onCaptureBase();
+                          }}
+                        >
+                          <Database size={16} />
+                          <span>Capturer dans une base</span>
                         </Button>
                       )}
                       {aiConfigured && (
