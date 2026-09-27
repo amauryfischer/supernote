@@ -160,7 +160,6 @@ type GroupRow = Extract<OverlayRow, { kind: "group" }>;
 
 /** Libellé annoncé aux lecteurs d'écran par action de triage. */
 const TRIAGE_DONE_LABEL: Record<TriageAction, string> = {
-  done: "Email marqué comme fait",
   archive: "Email archivé",
   snooze: "Email reporté",
   delete: "Email supprimé",
@@ -915,11 +914,11 @@ export default function MailPage() {
       if (!clientId) return;
       // Geste manuel noté : trois archivages du même expéditeur feront une
       // proposition de règle (cf. mail-rules).
-      if (action === "archive" || action === "done") {
+      if (action === "archive") {
         const item = cumItems.find((it) => it.id === id);
         if (item) recordAction(item.from.email, "archive");
+        stripTodoLabels(id);
       }
-      if (action === "done") stripTodoLabels(id);
       dropThreadFromList(id);
       if (action === "snooze") {
         const item = cumItems.find((it) => it.id === id) ?? (thread?.id === id ? thread.messages[0] : undefined);
@@ -1535,7 +1534,7 @@ export default function MailPage() {
       setSelectedThreadId(null);
       setThread(null);
       if (!id) return;
-      if (action === "done") stripTodoLabels(id);
+      if (action === "archive") stripTodoLabels(id);
       dropThreadFromList(id);
       bumpTriaged();
       patchMirror(
@@ -1865,7 +1864,6 @@ export default function MailPage() {
       },
       goStarred: () => submitSearch("is:starred"),
       archive: triage("archive"),
-      done: triage("done"),
       snooze: triage("snooze"),
       delete: triage("delete"),
       snoozeMenu: () => {

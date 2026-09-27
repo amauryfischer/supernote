@@ -28,10 +28,10 @@
 import { modifyThreadLabels, trashThread, untrashThread } from "./gmail";
 
 /** Actions de triage exposées par la barre d'actions du thread. */
-export type TriageAction = "done" | "archive" | "snooze" | "delete";
+export type TriageAction = "archive" | "snooze" | "delete";
 
 /** Sous-ensemble géré par mutation de labels (la corbeille a son propre endpoint). */
-type LabelTriageAction = "done" | "archive" | "snooze";
+type LabelTriageAction = "archive" | "snooze";
 
 /** Label système Gmail retiré pour « sortir de la boîte de réception ». */
 export const INBOX_LABEL = "INBOX";
@@ -44,13 +44,12 @@ export interface LabelOps {
 
 /**
  * Mappe une action de triage sur les opérations de labels Gmail correspondantes.
- * PUR — ne touche ni au réseau ni au localStorage. Done et Archive retirent
- * tous deux `INBOX` (Gmail ne distingue pas les deux) ; Snooze également (le
- * suivi de l'échéance est géré séparément par le store snooze).
+ * PUR — ne touche ni au réseau ni au localStorage. Archive et Snooze retirent
+ * tous deux `INBOX` (le suivi de l'échéance est géré séparément par le store
+ * snooze).
  */
 export function actionToLabelOps(action: LabelTriageAction): LabelOps {
   switch (action) {
-    case "done":
     case "archive":
     case "snooze":
       return { addLabelIds: [], removeLabelIds: [INBOX_LABEL] };
@@ -359,14 +358,13 @@ export async function applyTriage(
 // ─── Annulation (undo) d'un triage ────────────────────────────────────────────
 
 /**
- * Mappe une action de triage de labels (done/archive/snooze) sur les opérations
+ * Mappe une action de triage de labels (archive/snooze) sur les opérations
  * de labels qui la DÉFONT : toutes ré-ajoutent `INBOX` (le thread revient en
  * boîte de réception) et ne retirent rien. PUR — symétrique d'`actionToLabelOps`.
  * Le store snooze (échéance locale) est purgé séparément par `undoTriage`.
  */
 export function undoLabelOps(action: LabelTriageAction): LabelOps {
   switch (action) {
-    case "done":
     case "archive":
     case "snooze":
       return { addLabelIds: [INBOX_LABEL], removeLabelIds: [] };

@@ -999,7 +999,6 @@ function MailRowContextMenu({
       {single && onTriage && (
         <>
           <CtxSep />
-          <CtxItem label="Fait" onClick={() => run(() => onTriage(row, "done"))} />
           <CtxItem label="Archiver" onClick={() => run(() => onTriage(row, "archive"))} />
           <CtxLabel text="Reporter" />
           {SNOOZE_PRESETS.map((p) => (

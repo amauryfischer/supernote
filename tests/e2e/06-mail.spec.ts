@@ -78,6 +78,30 @@ test.describe("06 — mail", () => {
     await expect(page.getByText("Compte rendu réunion").first()).toBeVisible();
   });
 
+  test("en-tête du fil réduit à Todo · Archiver · Reporter · Plus ; d archive comme e", async ({ page }) => {
+    await withInbox(page);
+    await page.goto("/mail");
+    await page.getByText("Compte rendu réunion").first().click();
+
+    const triage = page.getByRole("group", { name: "Triage du fil" });
+    await expect(triage.getByRole("button", { name: "Archiver" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Plus d'actions" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Marquer comme fait" })).toHaveCount(0);
+    await expect(triage.getByRole("button", { name: "Supprimer (corbeille)" })).toHaveCount(0);
+
+    await page.getByRole("button", { name: "Plus d'actions" }).click();
+    await expect(page.getByRole("button", { name: "Supprimer (corbeille)" })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("button", { name: "Supprimer (corbeille)" })).toHaveCount(0);
+
+    await page.keyboard.press("Escape");
+    await expect(triage).toHaveCount(0);
+    await page.keyboard.press("j");
+    await page.keyboard.press("d");
+    await expect(page.getByRole("button", { name: /Annuler/ })).toBeVisible();
+    await expect(page.getByText("Compte rendu réunion")).toHaveCount(0);
+  });
+
   test("le message se copie depuis sa bulle", async ({ page, context }) => {
     await context.grantPermissions(["clipboard-read", "clipboard-write"]);
     await withInbox(page);

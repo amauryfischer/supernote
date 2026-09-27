@@ -23,7 +23,7 @@
 
 import { useCallback, useState, type ReactNode } from "react";
 import { Button } from "@heroui/react";
-import { Archive, CheckCircle, Clock, Trash } from "@phosphor-icons/react";
+import { Archive, Clock } from "@phosphor-icons/react";
 import { Tooltip } from "@supernote/ui";
 import {
   addSnooze,
@@ -62,7 +62,7 @@ export function TriageBar({ clientId, threadId, onTriaged, onTriage }: TriageBar
   );
 
   const handleSimple = useCallback(
-    (action: "done" | "archive" | "delete") => {
+    (action: "archive") => {
       if (onTriage) {
         onTriage(action);
         return;
@@ -98,21 +98,7 @@ export function TriageBar({ clientId, threadId, onTriaged, onTriage }: TriageBar
 
   return (
     <div className="flex items-center gap-1" role="group" aria-label="Triage du fil">
-      <Tooltip content={tip("done", "Marquer comme fait")}>
-        <Button
-          variant="ghost"
-          size="sm"
-          isIconOnly
-          onPress={() => handleSimple("done")}
-          isDisabled={busy}
-          className="h-9"
-          aria-label="Marquer comme fait"
-        >
-          {icon("done", <CheckCircle size={18} weight="bold" aria-hidden />)}
-        </Button>
-      </Tooltip>
-
-      <Tooltip content={tip("archive", "Archiver")}>
+      <Tooltip content={tip("archive", "Archiver (e)")}>
         <Button
           variant="ghost"
           size="sm"
@@ -140,20 +126,6 @@ export function TriageBar({ clientId, threadId, onTriaged, onTriage }: TriageBar
         </Button>
       </Tooltip>
       <SnoozeMenu isOpen={snoozeOpen} onClose={() => setSnoozeOpen(false)} onPick={handleSnooze} />
-
-      <Tooltip content={tip("delete", "Supprimer (corbeille)")}>
-        <Button
-          variant="ghost"
-          size="sm"
-          isIconOnly
-          onPress={() => handleSimple("delete")}
-          isDisabled={busy}
-          className="h-9"
-          aria-label="Supprimer (corbeille)"
-        >
-          {icon("delete", <Trash size={18} aria-hidden />)}
-        </Button>
-      </Tooltip>
     </div>
   );
 }

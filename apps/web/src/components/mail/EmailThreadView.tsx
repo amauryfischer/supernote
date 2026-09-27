@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, forwardRef, useImperativeHandle, type ReactNode } from "react";
-import { ArrowSquareOut, Plus, X, Tag, MagnifyingGlass, Check, PaperPlaneTilt, Quotes, Paperclip, Star, Envelope, ArrowBendUpRight, Sparkle, MagicWand, ArrowsClockwise, CaretUp, DotsThreeVertical, Copy, Image as ImageIcon, SpeakerSlash, UserMinus, UserPlus, WarningCircle, ShareNetwork } from "@phosphor-icons/react";
+import { ArrowSquareOut, Plus, X, Tag, MagnifyingGlass, Check, PaperPlaneTilt, Quotes, Paperclip, Star, Envelope, ArrowBendUpRight, Sparkle, MagicWand, ArrowsClockwise, CaretUp, DotsThreeVertical, Copy, Image as ImageIcon, SpeakerSlash, UserMinus, UserPlus, WarningCircle, ShareNetwork, Trash } from "@phosphor-icons/react";
 import { Button, Chip, Input, Spinner, Popover } from "@heroui/react";
 import { useToast, Tooltip } from "@supernote/ui";
 import { useActionFeedback, FeedbackIcon } from "@/lib/action-feedback";
@@ -278,20 +278,18 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
     setLabelIds(thread.labelIds);
   }, [thread]);
 
-  // Archivage après « ignorer » / « bloquer » : via l'outbox de la page (hors ligne,
+  // Triage depuis le menu « Plus » : via l'outbox de la page (hors ligne,
   // « Annuler ») quand elle est là ; appel Gmail direct dans un bloc de note.
-  const archiveThen = (done: () => void) => {
+  const triageFromMenu = (action: "archive" | "delete") => {
     if (onTriage) {
-      onTriage("archive");
-      done();
+      onTriage(action);
       return;
     }
-    void applyTriage(clientId, thread.id, "archive")
-      .then(() => {
-        onTriaged?.("archive");
-        done();
-      })
-      .catch(() => toast({ title: "Archivage échoué", variant: "danger" }));
+    void applyTriage(clientId, thread.id, action)
+      .then(() => onTriaged?.(action))
+      .catch(() =>
+        toast({ title: action === "delete" ? "Suppression échouée" : "Archivage échoué", variant: "danger" }),
+      );
   };
 
   const pushLabels = (change: { addLabelIds?: string[]; removeLabelIds?: string[] }): Promise<void> => {
@@ -932,11 +930,9 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
               <span />
             )}
           </div>
-          {/* Boutons DIRECTS : Étoile, Todo, TriageBar, Gmail.
-              Toutes les actions SECONDAIRES sont regroupées dans le menu « Plus »
-              (kebab) ci-dessous — masqué en mode embed. On garde un Popover (et
-              non DropdownMenu items) car 4 actions sont des composants
-              self-contained à overlay propre : on les déplace tels quels. */}
+          {/* Boutons DIRECTS : Todo, Archiver, Reporter, Plus — le reste vit dans
+              « Plus ». Popover (et non Dropdown) car plusieurs actions sont des
+              composants self-contained à overlay propre, déplacés tels quels. */}
           <div
             className={`flex shrink-0 items-center justify-end gap-1.5${
               embedded ? "" : " max-md:sticky max-md:top-0 max-md:z-10 max-md:-mx-4 max-md:border-b max-md:px-4 max-md:py-1"
@@ -947,25 +943,6 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
                 : { background: "var(--surface-0, var(--background))", borderColor: "var(--border-subtle)" }
             }
           >
-            {clientId && (
-              <Tooltip content={starred ? "Retirer l'étoile (t)" : "Mettre une étoile (t)"}>
-                <Button
-                  isIconOnly
-                  variant="ghost"
-                  size="sm"
-                  onPress={() => void onToggleStar()}
-                  aria-label={starred ? "Retirer l'étoile" : "Mettre une étoile"}
-                  aria-pressed={starred}
-                  className="h-9 min-h-9 w-9 min-w-9 shrink-0"
-                >
-                  <Star
-                    size={18}
-                    weight={starred ? "fill" : "regular"}
-                    style={{ color: starred ? "#f5b300" : "var(--text-muted)" }}
-                  />
-                </Button>
-              </Tooltip>
-            )}
             {clientId && (
               <MailEisenhowerPicker
                 onConvert={(q) => void convertToTodo(q)}
@@ -981,33 +958,39 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
               <TriageBar clientId={clientId} threadId={thread.id} onTriaged={onTriaged} onTriage={onTriage} />
             )}
             {!embedded && (
-              <Tooltip content="Ouvrir dans Gmail">
-                <Button
-                  isIconOnly
-                  variant="ghost"
-                  size="sm"
-                  onPress={() => window.open(buildGmailThreadUrl(thread.id), "_blank", "noopener")}
-                  aria-label="Ouvrir le fil dans Gmail"
-                  className="h-9"
-                >
-                  <ArrowSquareOut size={18} aria-hidden />
-                </Button>
-              </Tooltip>
-            )}
-            {!embedded && (
               <Popover isOpen={moreOpen} onOpenChange={setMoreOpen}>
                 <Button
                   isIconOnly
                   variant="ghost"
                   size="sm"
                   aria-label="Plus d'actions"
-                  className="h-8 min-h-8 w-8 min-w-8 shrink-0"
+                  className="h-9 min-h-9 w-9 min-w-9 shrink-0"
                 >
                   <DotsThreeVertical size={18} aria-hidden />
                 </Button>
                 <Popover.Content className="w-64 p-1">
                   <Popover.Dialog className="outline-none">
                     <div className="flex flex-col gap-0.5">
+                      {clientId && (
+                        <Button
+                          variant="ghost"
+                          onPress={() => {
+                            setMoreOpen(false);
+                            void onToggleStar();
+                          }}
+                          className={MENU_ROW}
+                          aria-label={starred ? "Retirer l'étoile" : "Mettre une étoile"}
+                          aria-pressed={starred}
+                        >
+                          <Star
+                            size={16}
+                            weight={starred ? "fill" : "regular"}
+                            style={{ color: starred ? "var(--warning)" : undefined }}
+                          />
+                          <span className="flex-1 text-left">{starred ? "Retirer l'étoile" : "Mettre une étoile"}</span>
+                          <kbd className="text-xs" style={{ color: "var(--text-muted)" }}>t</kbd>
+                        </Button>
+                      )}
                       {aiConfigured && (
                         <Button
                           variant="ghost"
@@ -1053,7 +1036,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
                             {...(onForward ? { onCompose: onForward } : {})}
                             onBlockAndArchive={() => {
                               blockSender(correspondentMsg.from.email);
-                              archiveThen(() => undefined);
+                              triageFromMenu("archive");
                             }}
                           />
                         </div>
@@ -1066,7 +1049,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
                           onPress={() => {
                             setMoreOpen(false);
                             muteThread(thread.id);
-                            archiveThen(() => undefined);
+                            triageFromMenu("archive");
                           }}
                         >
                           <SpeakerSlash size={16} />
@@ -1081,7 +1064,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
                           onPress={() => {
                             setMoreOpen(false);
                             blockSender(correspondentMsg.from.email);
-                            archiveThen(() => undefined);
+                            triageFromMenu("archive");
                           }}
                         >
                           <UserMinus size={16} />
@@ -1159,6 +1142,37 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
                       <div className={MENU_COMPONENT_ROW}>
                         <EmailToEventButton message={firstMsg} />
                       </div>
+                      <Button
+                        variant="ghost"
+                        className={MENU_ROW}
+                        aria-label="Ouvrir le fil dans Gmail"
+                        onPress={() => {
+                          setMoreOpen(false);
+                          window.open(buildGmailThreadUrl(thread.id), "_blank", "noopener");
+                        }}
+                      >
+                        <ArrowSquareOut size={16} />
+                        <span>Ouvrir dans Gmail</span>
+                      </Button>
+                      {clientId && (
+                        <>
+                          <div role="separator" className="my-1 h-px" style={{ background: "var(--border-subtle)" }} />
+                          <Button
+                            variant="ghost"
+                            className={MENU_ROW}
+                            style={{ color: "var(--danger)" }}
+                            aria-label="Supprimer (corbeille)"
+                            onPress={() => {
+                              setMoreOpen(false);
+                              triageFromMenu("delete");
+                            }}
+                          >
+                            <Trash size={16} />
+                            <span className="flex-1 text-left">Supprimer</span>
+                            <kbd className="text-xs" style={{ color: "var(--text-muted)" }}>#</kbd>
+                          </Button>
+                        </>
+                      )}
                     </div>
                   </Popover.Dialog>
                 </Popover.Content>
