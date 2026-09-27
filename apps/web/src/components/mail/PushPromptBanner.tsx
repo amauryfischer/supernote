@@ -39,7 +39,7 @@ export function PushPromptBanner({ onOpenSync }: { onOpenSync: () => void }) {
     <div
       role="region"
       aria-label="Notifications"
-      className="mx-4 my-2 flex items-center gap-3 rounded-lg border px-3 py-2 text-sm md:mx-10"
+      className="mx-4 my-2 flex items-center gap-3 rounded-lg border px-3 py-2 text-sm md:mx-2"
       style={{ borderColor: "var(--border)" }}
     >
       <BellRinging size={18} aria-hidden />

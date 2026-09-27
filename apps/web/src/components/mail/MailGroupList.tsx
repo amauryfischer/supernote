@@ -169,7 +169,7 @@ export function MailGroupList({
                         <Star
                           size={14}
                           weight={starred ? "fill" : "regular"}
-                          style={{ color: starred ? "#f5b300" : "var(--text-muted)" }}
+                          style={{ color: starred ? "var(--warning)" : "var(--text-muted)" }}
                         />
                       </span>
                     )}

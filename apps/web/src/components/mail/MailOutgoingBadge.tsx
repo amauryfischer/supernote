@@ -93,7 +93,7 @@ export function MailOutgoingBadge() {
                 <span className="truncate text-sm font-medium" style={{ color: "var(--text-primary)" }}>
                   {m.subject || "(sans objet)"}
                 </span>
-                <span className="text-xs" style={{ color: "var(--color-danger, #ef4444)" }}>
+                <span className="text-xs" style={{ color: "var(--danger)" }}>
                   Échec : {m.lastError ?? "erreur inconnue"}
                 </span>
                 <div className="flex gap-1">

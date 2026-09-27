@@ -75,7 +75,7 @@ export function MailLabelsManager({
         </Button>
       </form>
       {error && (
-        <p role="alert" className="-mt-1 mb-3 text-xs" style={{ color: "var(--color-danger)" }}>
+        <p role="alert" className="-mt-1 mb-3 text-xs" style={{ color: "var(--danger)" }}>
           {error}
         </p>
       )}

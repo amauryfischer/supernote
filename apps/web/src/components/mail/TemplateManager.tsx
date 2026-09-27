@@ -199,13 +199,13 @@ export function TemplateManager({
                   size="sm"
                   variant="ghost"
                   onPress={() => handleDelete(draft.id)}
-                  className="text-[var(--color-danger)]"
+                  className="text-[var(--danger)]"
                 >
                   <Trash size={14} /> Supprimer
                 </Button>
                 <div className="flex items-center gap-2">
                   {saveFb.error && (
-                    <span role="alert" className="text-xs" style={{ color: "var(--color-danger)" }}>
+                    <span role="alert" className="text-xs" style={{ color: "var(--danger)" }}>
                       {saveFb.error}
                     </span>
                   )}

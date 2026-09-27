@@ -50,7 +50,7 @@ function SheetAction({
     <Button
       variant="ghost"
       className="h-11 w-full justify-start gap-3 px-3 text-sm"
-      style={danger ? { color: "var(--color-danger, #ef4444)" } : undefined}
+      style={danger ? { color: "var(--danger)" } : undefined}
       onPress={onPress}
     >
       {icon}

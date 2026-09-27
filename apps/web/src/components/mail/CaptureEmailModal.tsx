@@ -151,7 +151,7 @@ export function CaptureEmailModal({
             ))}
             <div className="mt-2 flex items-center justify-end gap-2">
               {fb.error && (
-                <span role="alert" className="text-xs" style={{ color: "var(--color-danger)" }}>
+                <span role="alert" className="text-xs" style={{ color: "var(--danger)" }}>
                   Échec de la capture : {fb.error}
                 </span>
               )}

@@ -73,7 +73,7 @@ export function EmailPicker({
 
       {loading && <Spinner size="sm" />}
       {error && (
-        <p className="text-sm" style={{ color: "var(--color-danger, #ef4444)" }}>
+        <p className="text-sm" style={{ color: "var(--danger)" }}>
           {error}
         </p>
       )}

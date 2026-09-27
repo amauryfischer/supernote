@@ -191,7 +191,7 @@ export function MailGroupsManager({
 
           <div className="flex items-center justify-end gap-2">
             {saveFb.error && (
-              <span role="alert" className="mr-auto text-xs" style={{ color: "var(--color-danger)" }}>
+              <span role="alert" className="mr-auto text-xs" style={{ color: "var(--danger)" }}>
                 {saveFb.error}
               </span>
             )}
