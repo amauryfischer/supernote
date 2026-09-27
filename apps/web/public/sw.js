@@ -313,15 +313,45 @@ async function setBadge(n) {
 
 const senderName = (from) => (from.match(/^\s*"?([^"<]+?)"?\s*</)?.[1] ?? from).trim();
 
+async function notifyMail(items, badge) {
+  await setBadge(badge);
+  if (items.length === 0) {
+    // Archivage ou lecture : rien à dire, mais Safari exige une notification par push.
+    await self.registration.showNotification("Supernote", { tag: "mail-sync", silent: true });
+    const shown = await self.registration.getNotifications({ tag: "mail-sync" });
+    shown.forEach((n) => n.close());
+    return;
+  }
+  const one = items.length === 1 ? items[0] : null;
+  return self.registration.showNotification(one ? one.from : `${items.length} nouveaux mails`, {
+    body: one ? one.subject : items.map((i) => i.from).join(", "),
+    tag: "mail-new",
+    icon: "/icons/icon-192.png",
+    data: { kind: "mail", url: one ? `/mail?thread=${encodeURIComponent(one.threadId)}` : "/mail", threadId: one?.threadId ?? "" },
+    actions: one ? [{ action: "archive", title: "Archiver" }, { action: "read", title: "Lu" }] : [],
+  });
+}
+
+function genericMail() {
+  return self.registration.showNotification("Du nouveau dans ta boîte", {
+    tag: "mail-new",
+    icon: "/icons/icon-192.png",
+    data: { url: "/mail", kind: "mail" },
+  });
+}
+
 async function showMail(data) {
+  // Le serveur a lu Gmail avec son refresh token : rien à redemander.
+  if (Array.isArray(data.items)) {
+    // Garde le repli par jeton amorcé si le serveur perd un jour son refresh token.
+    if (text(data.historyId)) await kvSet("mailHistoryId", text(data.historyId));
+    const items = data.items.map((i) => ({ from: text(i?.from), subject: text(i?.subject), threadId: text(i?.threadId) }));
+    return notifyMail(items, Number.isFinite(data.badge) ? data.badge : 0);
+  }
   const token = await gmailToken();
   if (!token) {
     await setBadge(((await kvGet("badgeCount")) || 0) + 1);
-    return self.registration.showNotification("Du nouveau dans ta boîte", {
-      tag: "mail-new",
-      icon: "/icons/icon-192.png",
-      data: { url: "/mail", kind: "mail" },
-    });
+    return genericMail();
   }
   try {
     const since = (await kvGet("mailHistoryId")) || text(data.historyId);
@@ -333,35 +363,16 @@ async function showMail(data) {
       .slice(0, 5);
     if (hist?.historyId) await kvSet("mailHistoryId", String(hist.historyId));
     const inbox = await gmail(token, "labels/INBOX");
-    await setBadge(inbox?.threadsUnread ?? inbox?.messagesUnread ?? 0);
-    if (added.length === 0) {
-      // Archivage ou lecture : rien à dire, mais Safari exige une notification par push.
-      await self.registration.showNotification("Supernote", { tag: "mail-sync", silent: true });
-      const shown = await self.registration.getNotifications({ tag: "mail-sync" });
-      shown.forEach((n) => n.close());
-      return;
-    }
     const metas = await Promise.all(
       added.map((m) => gmail(token, `messages/${m.id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject`)),
     );
     const header = (m, name) => m.payload?.headers?.find((h) => h.name === name)?.value ?? "";
-    const one = metas.length === 1 ? metas[0] : null;
-    return self.registration.showNotification(
-      one ? senderName(header(one, "From")) : `${metas.length} nouveaux mails`,
-      {
-        body: one ? header(one, "Subject") : metas.map((m) => senderName(header(m, "From"))).join(", "),
-        tag: "mail-new",
-        icon: "/icons/icon-192.png",
-        data: { kind: "mail", url: one ? `/mail?thread=${encodeURIComponent(one.threadId)}` : "/mail", threadId: one?.threadId ?? "" },
-        actions: one ? [{ action: "archive", title: "Archiver" }, { action: "read", title: "Lu" }] : [],
-      },
+    return notifyMail(
+      metas.map((m) => ({ from: senderName(header(m, "From")), subject: header(m, "Subject"), threadId: m.threadId })),
+      inbox?.threadsUnread ?? inbox?.messagesUnread ?? 0,
     );
   } catch {
-    return self.registration.showNotification("Du nouveau dans ta boîte", {
-      tag: "mail-new",
-      icon: "/icons/icon-192.png",
-      data: { url: "/mail", kind: "mail" },
-    });
+    return genericMail();
   }
 }
 

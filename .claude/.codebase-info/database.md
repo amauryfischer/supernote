@@ -1,6 +1,6 @@
 # Stockage et schéma
 
-*Last Updated: 2026-09-26*
+*Last Updated: 2026-09-27*
 
 Le coffre est un SQLite qui tourne **dans un Web Worker du navigateur**. Côté serveur, une base optionnelle porte l'op-log de la synchronisation en ligne, les abonnements push et le partage par lien (voir la dernière section).
 
@@ -82,7 +82,7 @@ En mode dossier local, la base est aussi miroitée vers `.supernote/index.db` da
 
 La méta porte l'`epoch` et les **mots de passe de salon** sous la clé `pw:<nom>`, valeur `sel:hash` en hex (`scrypt`). `claimVaultPassword` insère sans écraser (`INSERT OR IGNORE` / `ON CONFLICT DO NOTHING`), ce qui arbitre deux revendications simultanées. Il n'y a pas de table des salons : un salon existe dès sa première op, et il est « protégé » dès qu'une clé `pw:` le nomme.
 
-`apps/web/push-store.mjs`, même double moteur, ajoute `push_subscription` (clé `endpoint`, salon, appareil, clés de chiffrement) et `push_schedule` (échéances à venir par salon, catégorie, appareil, index unique `(vault, key, fireat)`, `sentat` posé à la réservation, lignes envoyées purgées au bout de 7 jours). Le texte des notifications, objets de mail compris, y est en clair jusqu'à la purge. `push_mail_watch` (`email`, `vault`, `updatedat`, clé `(email, vault)`) relie une adresse Gmail prouvée aux salons à prévenir, purgée après 8 jours sans renouvellement. Aucun jeton ni contenu de mail n'y est stocké.
+`apps/web/push-store.mjs`, même double moteur, ajoute `push_subscription` (clé `endpoint`, salon, appareil, clés de chiffrement) et `push_schedule` (échéances à venir par salon, catégorie, appareil, index unique `(vault, key, fireat)`, `sentat` posé à la réservation, lignes envoyées purgées au bout de 7 jours). Le texte des notifications, objets de mail compris, y est en clair jusqu'à la purge. `push_mail_watch` (`email`, `vault`, `updatedat`, clé `(email, vault)`) relie une adresse Gmail prouvée aux salons à prévenir, purgée après 8 jours sans renouvellement. `push_mail_grant` (clé `email`) garde, si l'utilisateur l'a autorisé, le refresh token Gmail **chiffré** AES-256-GCM par `GOOGLE_TOKEN_KEY`, l'id client OAuth, le dernier `historyId` lu et la date du dernier `users.watch`. Aucun contenu de mail n'y est stocké.
 
 `apps/web/share-store.mjs`, même double moteur (adaptateur SQL qui réécrit `?` en `$n` pour Postgres), porte le partage par lien : `share_resource` (note ou mail, hash de la clé propriétaire, titre, instantané du fil), `share_link` (slug, mode, hash de mot de passe et sa version, expiration, révocation douce), `collab_doc` (état Yjs d'une note, écrit par Hocuspocus), `share_blob` (images publiées) et `share_meta` (secret de signature quand `SHARE_SECRET` manque). L'ancienne table `share` (liens v1, HTML figé) est encore lue. Voir [sharing.md](sharing.md).
 

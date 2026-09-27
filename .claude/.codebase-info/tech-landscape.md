@@ -1,6 +1,6 @@
 # Paysage technique
 
-*Last Updated: 2026-09-23*
+*Last Updated: 2026-09-27*
 
 Supernote est un **système de connaissance et CRM personnel local-first**, livré comme une PWA. Il n'y a pas de serveur applicatif : le coffre de données tourne dans un Web Worker, dans le navigateur.
 
@@ -63,6 +63,7 @@ Le serveur de production est `apps/web/server.mjs`. Il sert le `dist/` prébuild
 | `SHARE_SECRET` | secret HMAC des jetons d'accès invité au partage | un secret est généré et gardé dans `share_meta` |
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | active les notifications push (`/api/push/*`), exige `DATABASE_URL` ; clés générées par `npx web-push generate-vapid-keys`, en changer invalide tous les abonnements | l'interrupteur « Notifications app fermée » reste indisponible |
 | `GMAIL_PUBSUB_TOPIC`, `GMAIL_PUSH_SECRET` | active les notifications de nouveau mail (`/api/push/gmail`, `/api/push/mail-watch`) ; topic Pub/Sub `projects/<id>/topics/<nom>` publiable par `gmail-api-push@system.gserviceaccount.com`, abonnement push vers `/api/push/gmail?key=<secret>` | pas de notification de nouveau mail, le reste du push fonctionne |
+| `GOOGLE_CLIENT_SECRET`, `GOOGLE_TOKEN_KEY` | notifications de mail détaillées sans page ouverte (`/api/push/mail-grant`, refresh token serveur) ; secret du client OAuth Web, clé `openssl rand -base64 32` (la changer rend les autorisations illisibles, donc retirées) ; exige l'écran de consentement GCP en « Interne », sinon le refresh token expire en 7 jours | notif détaillée seulement si la page a été ouverte dans l'heure, sinon « Du nouveau dans ta boîte » |
 
 Les valeurs vivent dans `apps/web/.env.local`, qui n'est pas versionné. Ne jamais recopier une valeur ici.
 

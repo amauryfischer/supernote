@@ -1,4 +1,4 @@
-import { createHash, timingSafeEqual } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { createPushStore } from "./push-store.mjs";
 
 const CATEGORIES = ["reminder", "event", "followup", "snooze"];
@@ -67,6 +67,53 @@ async function readJson(req) {
   }
 }
 
+const GMAIL_MODIFY_SCOPE = "https://www.googleapis.com/auth/gmail.modify";
+
+function sealer(keyB64) {
+  const key = Buffer.from(keyB64, "base64");
+  if (key.length !== 32) return null;
+  return {
+    seal(text) {
+      const iv = randomBytes(12);
+      const cipher = createCipheriv("aes-256-gcm", key, iv);
+      const ct = Buffer.concat([cipher.update(text, "utf8"), cipher.final()]);
+      return [iv, cipher.getAuthTag(), ct].map((b) => b.toString("base64url")).join(".");
+    },
+    open(sealed) {
+      try {
+        const [iv, tag, ct] = sealed.split(".").map((p) => Buffer.from(p, "base64url"));
+        const decipher = createDecipheriv("aes-256-gcm", key, iv);
+        decipher.setAuthTag(tag);
+        return Buffer.concat([decipher.update(ct), decipher.final()]).toString("utf8");
+      } catch {
+        return null;
+      }
+    },
+  };
+}
+
+async function googleOAuthToken(params) {
+  const res = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams(params),
+  });
+  const json = await res.json().catch(() => null);
+  if (!res.ok) throw Object.assign(new Error(`google token ${res.status}`), { code: json?.error });
+  return json;
+}
+
+async function gmailApi(token, path, init = {}) {
+  const res = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/${path}`, {
+    ...init,
+    headers: { Authorization: `Bearer ${token}`, ...(init.body ? { "Content-Type": "application/json" } : {}) },
+  });
+  if (!res.ok) throw Object.assign(new Error(`gmail ${res.status}`), { status: res.status });
+  return res.json();
+}
+
+const senderName = (from) => (from.match(/^\s*"?([^"<]+?)"?\s*</)?.[1] ?? from).trim();
+
 export async function createPushBackend({ vaultAuthed, vaultProtected }) {
   const publicKey = process.env.VAPID_PUBLIC_KEY ?? "";
   const privateKey = process.env.VAPID_PRIVATE_KEY ?? "";
@@ -85,6 +132,99 @@ export async function createPushBackend({ vaultAuthed, vaultProtected }) {
   const mailEnabled = Boolean(gmailTopic && gmailSecret);
   const MAIL_COALESCE_MS = 30_000;
   const MAIL_WATCH_TTL_MS = 8 * 24 * 60 * 60 * 1000;
+  const WATCH_RENEW_MS = 24 * 60 * 60 * 1000;
+
+  // Refresh token Gmail gardé côté serveur : le push porte expéditeur et objet même app fermée depuis des jours.
+  const googleSecret = process.env.GOOGLE_CLIENT_SECRET ?? "";
+  const tokenSeal = mailEnabled && googleSecret ? sealer(process.env.GOOGLE_TOKEN_KEY ?? "") : null;
+  if (mailEnabled && !tokenSeal) {
+    console.log("[push] mails détaillés désactivés : GOOGLE_CLIENT_SECRET ou GOOGLE_TOKEN_KEY (32 octets base64) absente");
+  }
+  const accessTokens = new Map(); // email → { token, expiresAt }
+
+  async function grantToken(grant) {
+    const cached = accessTokens.get(grant.email);
+    if (cached && cached.expiresAt > Date.now() + 60_000) return cached.token;
+    const refreshToken = tokenSeal.open(grant.refreshtoken);
+    try {
+      if (!refreshToken) throw Object.assign(new Error("refresh token illisible"), { code: "invalid_grant" });
+      const json = await googleOAuthToken({
+        client_id: grant.clientid,
+        client_secret: googleSecret,
+        refresh_token: refreshToken,
+        grant_type: "refresh_token",
+      });
+      accessTokens.set(grant.email, { token: json.access_token, expiresAt: Date.now() + (json.expires_in ?? 3600) * 1000 });
+      return json.access_token;
+    } catch (err) {
+      if (err?.code === "invalid_grant") {
+        await store.removeMailGrant(grant.email);
+        console.log("[push] autorisation Gmail révoquée ou illisible, retirée");
+      }
+      throw err;
+    }
+  }
+
+  async function detailedMail(email) {
+    const grant = await store.getMailGrant(email);
+    if (!grant) return null;
+    try {
+      const token = await grantToken(grant);
+      let hist;
+      try {
+        hist = await gmailApi(
+          token,
+          `history?startHistoryId=${encodeURIComponent(grant.lasthistoryid)}&historyTypes=messageAdded&labelId=INBOX`,
+        );
+      } catch (err) {
+        if (err?.status !== 404) throw err;
+        // startHistoryId trop ancien : on repart de l'état présent, ce push reste générique.
+        const profile = await gmailApi(token, "profile");
+        await store.setMailGrantHistory(email, String(profile.historyId));
+        return null;
+      }
+      if (hist?.historyId) await store.setMailGrantHistory(email, String(hist.historyId));
+      const added = (hist?.history ?? [])
+        .flatMap((h) => h.messagesAdded ?? [])
+        .map((m) => m.message)
+        .filter((m) => m?.labelIds?.includes("INBOX"))
+        .slice(0, 5);
+      const metas = await Promise.all(
+        added.map((m) => gmailApi(token, `messages/${m.id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject`)),
+      );
+      const inbox = await gmailApi(token, "labels/INBOX");
+      const header = (m, name) => m.payload?.headers?.find((h) => h.name === name)?.value ?? "";
+      return {
+        items: metas.map((m) => ({
+          from: senderName(header(m, "From")).slice(0, 80),
+          subject: header(m, "Subject").slice(0, 160),
+          threadId: String(m.threadId ?? ""),
+        })),
+        badge: inbox?.threadsUnread ?? inbox?.messagesUnread ?? 0,
+      };
+    } catch (err) {
+      console.warn(`[push] lecture Gmail côté serveur échouée (${err?.message ?? err})`);
+      return null;
+    }
+  }
+
+  // Le watch Gmail expire au bout de 7 jours : sans ça il dépendrait d'une page ouverte dans la semaine.
+  async function renewWatches() {
+    for (const grant of await store.listStaleMailGrants(Date.now() - WATCH_RENEW_MS)) {
+      try {
+        const token = await grantToken(grant);
+        await gmailApi(token, "watch", {
+          method: "POST",
+          body: JSON.stringify({ topicName: gmailTopic, labelIds: ["INBOX"], labelFilterBehavior: "include" }),
+        });
+        await store.touchMailWatch(grant.email);
+      } catch (err) {
+        console.warn(`[push] renouvellement du watch Gmail échoué (${err?.message ?? err})`);
+      } finally {
+        await store.markMailGrantWatched(grant.email);
+      }
+    }
+  }
 
   // Topic : 32 caractères base64url au plus, et `key` contient des « @ » (id d'agenda = adresse).
   const topicOf = (key) => createHash("sha256").update(key).digest("base64url").slice(0, 32);
@@ -110,26 +250,33 @@ export async function createPushBackend({ vaultAuthed, vaultProtected }) {
   }
 
   // Une rafale Pub/Sub (lecture, archivage, plusieurs arrivées) ne fait qu'un push par fenêtre.
-  const mailPending = new Map(); // `${vault}\n${email}` → { lastSentAt, timer, historyId }
+  // Clé par adresse : la lecture Gmail avance lasthistoryid, un second salon du même compte recevrait une liste vide.
+  const mailPending = new Map(); // email → { lastSentAt, timer, historyId }
 
-  async function sendMail(vault, email, historyId) {
-    const payload = JSON.stringify({ kind: "mail", title: "Nouveau mail", body: "", url: "/mail", tag: "mail-new", historyId, email });
-    const subs = await store.listSubscriptions(vault);
-    await Promise.all(subs.map((sub) => deliver(sub, payload, topicOf(`mail:${email}`))));
-    console.log(`[push] mail → ${subs.length} abonnement(s)`);
+  async function sendMail(email, historyId) {
+    const detail = tokenSeal ? await detailedMail(email) : null;
+    const payload = JSON.stringify({
+      kind: "mail", title: "Nouveau mail", body: "", url: "/mail", tag: "mail-new", historyId, email, ...detail,
+    });
+    let count = 0;
+    for (const vault of await store.listMailWatchVaults(email)) {
+      const subs = await store.listSubscriptions(vault);
+      count += subs.length;
+      await Promise.all(subs.map((sub) => deliver(sub, payload, topicOf(`mail:${email}`))));
+    }
+    console.log(`[push] mail → ${count} abonnement(s)${detail ? " (détaillé)" : ""}`);
   }
 
-  function queueMail(vault, email, historyId) {
-    const key = `${vault}\n${email}`;
-    const entry = mailPending.get(key) ?? { lastSentAt: 0, timer: null, historyId };
+  function queueMail(email, historyId) {
+    const entry = mailPending.get(email) ?? { lastSentAt: 0, timer: null, historyId };
     entry.historyId = historyId;
-    mailPending.set(key, entry);
+    mailPending.set(email, entry);
     if (entry.timer) return;
     const wait = Math.max(0, entry.lastSentAt + MAIL_COALESCE_MS - Date.now());
     entry.timer = setTimeout(() => {
       entry.timer = null;
       entry.lastSentAt = Date.now();
-      void sendMail(vault, email, entry.historyId).catch((err) => console.warn("[push] mail", err));
+      void sendMail(email, entry.historyId).catch((err) => console.warn("[push] mail", err));
     }, wait);
     if (typeof entry.timer.unref === "function") entry.timer.unref();
   }
@@ -154,6 +301,7 @@ export async function createPushBackend({ vaultAuthed, vaultProtected }) {
       }
       await store.purgeSent(now - HORIZON_MS);
       await store.purgeMailWatch(now - MAIL_WATCH_TTL_MS);
+      if (tokenSeal) await renewWatches();
     } catch (err) {
       console.warn("[push] tour du planificateur échoué", err);
     }
@@ -173,7 +321,7 @@ export async function createPushBackend({ vaultAuthed, vaultProtected }) {
     }
 
     if (path === "/api/push/key" && req.method === "GET") {
-      sendJson(res, 200, { publicKey, gmailTopic: mailEnabled ? gmailTopic : "" });
+      sendJson(res, 200, { publicKey, gmailTopic: mailEnabled ? gmailTopic : "", mailGrant: Boolean(tokenSeal) });
       return true;
     }
 
@@ -205,7 +353,7 @@ export async function createPushBackend({ vaultAuthed, vaultProtected }) {
         const email = typeof data?.emailAddress === "string" ? data.emailAddress.toLowerCase() : "";
         const historyId = data?.historyId != null ? String(data.historyId) : "";
         if (!email || !historyId) return true;
-        for (const vault of await store.listMailWatchVaults(email)) queueMail(vault, email, historyId);
+        queueMail(email, historyId);
       } catch {
         /* message Pub/Sub illisible : acquitté, ignoré */
       }
@@ -246,6 +394,59 @@ export async function createPushBackend({ vaultAuthed, vaultProtected }) {
         sendJson(res, 400, { error: "gmail profile refused" });
         return true;
       }
+      await store.upsertMailWatch({ email, vault });
+      sendJson(res, 200, { ok: true, email });
+      return true;
+    }
+
+    if (path === "/api/push/mail-grant" && req.method === "POST") {
+      if (!tokenSeal) {
+        sendJson(res, 404, { error: "mail grant disabled" });
+        return true;
+      }
+      const body = await readJson(req);
+      const code = body?.code;
+      const clientId = body?.clientId;
+      if (typeof code !== "string" || !code || typeof clientId !== "string" || !clientId) {
+        sendJson(res, 400, { error: "missing code or clientId" });
+        return true;
+      }
+      let tokens;
+      try {
+        // « postmessage » : redirect_uri imposée par le mode popup de GIS.
+        tokens = await googleOAuthToken({
+          code,
+          client_id: clientId,
+          client_secret: googleSecret,
+          redirect_uri: "postmessage",
+          grant_type: "authorization_code",
+        });
+      } catch (err) {
+        sendJson(res, 400, { error: `code refused (${err?.code ?? "?"})` });
+        return true;
+      }
+      if (!String(tokens?.scope ?? "").split(" ").includes(GMAIL_MODIFY_SCOPE)) {
+        sendJson(res, 400, { error: "gmail scope missing" });
+        return true;
+      }
+      // Google ne renvoie le refresh token qu'au premier consentement hors ligne.
+      if (!tokens.refresh_token) {
+        sendJson(res, 409, { error: "no refresh token" });
+        return true;
+      }
+      const profile = await gmailApi(tokens.access_token, "profile").catch(() => null);
+      const email = typeof profile?.emailAddress === "string" ? profile.emailAddress.toLowerCase() : "";
+      if (!email || profile?.historyId == null) {
+        sendJson(res, 400, { error: "gmail profile refused" });
+        return true;
+      }
+      await store.upsertMailGrant({
+        email,
+        clientId,
+        refreshToken: tokenSeal.seal(tokens.refresh_token),
+        historyId: String(profile.historyId),
+      });
+      accessTokens.set(email, { token: tokens.access_token, expiresAt: Date.now() + (tokens.expires_in ?? 3600) * 1000 });
       await store.upsertMailWatch({ email, vault });
       sendJson(res, 200, { ok: true, email });
       return true;

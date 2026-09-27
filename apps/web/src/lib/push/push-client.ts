@@ -64,12 +64,15 @@ async function registerOnServer(config: OnlineSyncConfig, sub: PushSubscription)
 
 export async function fetchPushConfig(
   config: OnlineSyncConfig = loadOnlineSyncConfig(),
-): Promise<{ publicKey: string; gmailTopic: string }> {
+): Promise<{ publicKey: string; gmailTopic: string; mailGrant: boolean }> {
   const res = await fetch(apiUrl(config, "/api/push/key", false));
-  const body = res.ok ? ((await res.json().catch(() => null)) as { publicKey?: unknown; gmailTopic?: unknown } | null) : null;
+  const body = res.ok
+    ? ((await res.json().catch(() => null)) as { publicKey?: unknown; gmailTopic?: unknown; mailGrant?: unknown } | null)
+    : null;
   return {
     publicKey: typeof body?.publicKey === "string" ? body.publicKey : "",
     gmailTopic: typeof body?.gmailTopic === "string" ? body.gmailTopic : "",
+    mailGrant: body?.mailGrant === true,
   };
 }
 

@@ -1,10 +1,11 @@
 import { googleRequest } from "@/lib/google-api";
 import { GMAIL_MODIFY_SCOPE } from "@/lib/gmail";
-import { hasValidToken, requestAccessToken } from "@/lib/google-drive";
+import { hasValidToken, requestAccessToken, requestOfflineCode } from "@/lib/google-drive";
 import { loadOnlineSyncConfig, type OnlineSyncConfig } from "@/lib/online-sync/config-storage";
 import { fetchPushConfig, pushAvailability } from "@/lib/push/push-client";
 
 const RENEWED_KEY = "supernote.mailWatch.renewedAt";
+const GRANTED_KEY = "supernote.mailGrant.email";
 // Gmail fait expirer un watch au bout de 7 jours.
 const RENEW_EVERY_MS = 24 * 60 * 60_000;
 
@@ -36,4 +37,32 @@ export async function renewMailWatch(clientId: string, config: OnlineSyncConfig 
   });
   if (!res.ok) throw new Error(`mail-watch ${res.status}`);
   localStorage.setItem(RENEWED_KEY, String(Date.now()));
+}
+
+export function mailGrantEmail(): string {
+  try {
+    return localStorage.getItem(GRANTED_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+/** Confie un refresh token Gmail au serveur : les pushs portent expéditeur et objet même app fermée. Geste utilisateur requis. */
+export async function grantMailAccess(clientId: string, config: OnlineSyncConfig = loadOnlineSyncConfig()): Promise<string> {
+  const code = await requestOfflineCode(clientId, GMAIL_MODIFY_SCOPE);
+  const base = config.serverUrl.replace(/\/+$/, "");
+  const res = await fetch(`${base}/api/push/mail-grant?vault=${encodeURIComponent(config.vaultKey)}`, {
+    method: "POST",
+    headers: { "content-type": "application/json", ...(config.token ? { "x-sync-token": config.token } : {}) },
+    body: JSON.stringify({ code, clientId }),
+  });
+  if (res.status === 409) {
+    throw new Error(
+      "Google n'a pas renvoyé d'accès hors ligne : retire Supernote dans myaccount.google.com/permissions puis réessaie.",
+    );
+  }
+  if (!res.ok) throw new Error(`Le serveur a refusé l'autorisation (HTTP ${res.status}).`);
+  const { email } = (await res.json()) as { email: string };
+  localStorage.setItem(GRANTED_KEY, email);
+  return email;
 }

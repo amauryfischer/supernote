@@ -55,7 +55,7 @@ test.describe("07 — notifications push", () => {
     const live = () => registrations.find((r) => !r.isDeleted && r.scopeURL.startsWith(origin));
     await expect.poll(() => Boolean(live())).toBe(true);
     const registrationId = live()!.registrationId;
-    const deliver = (payload: Record<string, string>) =>
+    const deliver = (payload: Record<string, unknown>) =>
       cdp.send("ServiceWorker.deliverPushMessage", { origin, registrationId, data: JSON.stringify(payload) });
 
     // Démarrage à froid de Vite : attendre que la coquille (et donc
@@ -75,6 +75,13 @@ test.describe("07 — notifications push", () => {
       url: "//evil.example/x",
       tag: "event:primary:ev1",
       joinUrl: "https://meet.google.com/abc-defg-hij",
+    });
+    // Push lu côté serveur (refresh token) : le SW affiche sans jeton Gmail.
+    await deliver({
+      kind: "mail",
+      historyId: "42",
+      items: [{ from: "Alice Martin", subject: "Devis signé", threadId: "th9" }],
+      badge: 3,
     });
     const sw = context.serviceWorkers()[0]!;
     await expect
@@ -108,6 +115,13 @@ test.describe("07 — notifications push", () => {
           tag: "followup:t1",
           data: { url: "/mail?thread=t1", joinUrl: "" },
           actions: [],
+        },
+        {
+          title: "Alice Martin",
+          body: "Devis signé",
+          tag: "mail-new",
+          data: { kind: "mail", url: "/mail?thread=th9", threadId: "th9" },
+          actions: ["archive", "read"],
         },
       ]);
   });

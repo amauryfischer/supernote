@@ -34,6 +34,14 @@ const SCHEMA = `
     updatedat BIGINT NOT NULL,
     PRIMARY KEY (email, vault)
   );
+  CREATE TABLE IF NOT EXISTS push_mail_grant (
+    email         TEXT PRIMARY KEY,
+    clientid      TEXT NOT NULL,
+    refreshtoken  TEXT NOT NULL,
+    lasthistoryid TEXT NOT NULL,
+    watchedat     BIGINT NOT NULL,
+    updatedat     BIGINT NOT NULL
+  );
 `;
 
 async function openDb() {
@@ -124,5 +132,24 @@ export async function createPushStore() {
     listMailWatchVaults: async (email) =>
       (await db.all(`SELECT vault FROM push_mail_watch WHERE email = ?`, [email])).map((r) => r.vault),
     purgeMailWatch: (before) => db.run(`DELETE FROM push_mail_watch WHERE updatedat < ?`, [before]),
+    touchMailWatch: (email) =>
+      db.run(`UPDATE push_mail_watch SET updatedat = ? WHERE email = ?`, [Date.now(), email]),
+    upsertMailGrant: ({ email, clientId, refreshToken, historyId }) =>
+      db.run(
+        `INSERT INTO push_mail_grant (email, clientid, refreshtoken, lasthistoryid, watchedat, updatedat)
+         VALUES (?, ?, ?, ?, 0, ?)
+         ON CONFLICT (email) DO UPDATE SET clientid = excluded.clientid, refreshtoken = excluded.refreshtoken,
+           lasthistoryid = excluded.lasthistoryid, updatedat = excluded.updatedat`,
+        [email, clientId, refreshToken, historyId, Date.now()],
+      ),
+    getMailGrant: async (email) =>
+      (await db.all(`SELECT email, clientid, refreshtoken, lasthistoryid FROM push_mail_grant WHERE email = ?`, [email]))[0] ?? null,
+    setMailGrantHistory: (email, historyId) =>
+      db.run(`UPDATE push_mail_grant SET lasthistoryid = ? WHERE email = ?`, [historyId, email]),
+    listStaleMailGrants: (before) =>
+      db.all(`SELECT email, clientid, refreshtoken FROM push_mail_grant WHERE watchedat < ?`, [before]),
+    markMailGrantWatched: (email) =>
+      db.run(`UPDATE push_mail_grant SET watchedat = ? WHERE email = ?`, [Date.now(), email]),
+    removeMailGrant: (email) => db.run(`DELETE FROM push_mail_grant WHERE email = ?`, [email]),
   };
 }

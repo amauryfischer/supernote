@@ -74,6 +74,14 @@ interface GoogleNamespace {
         callback: (response: TokenResponse) => void;
         error_callback?: (err: { type: string; message?: string }) => void;
       }) => TokenClient;
+      initCodeClient: (config: {
+        client_id: string;
+        scope: string;
+        ux_mode: "popup";
+        login_hint?: string;
+        callback: (response: { code?: string; error?: string; error_description?: string }) => void;
+        error_callback?: (err: { type: string; message?: string }) => void;
+      }) => { requestCode: () => void };
       revoke: (token: string, done?: () => void) => void;
     };
   };
@@ -219,6 +227,29 @@ export async function requestAccessToken(
       },
     });
     tokenClient.requestAccessToken({ prompt: opts.prompt ?? "" });
+  });
+}
+
+/** Code d'autorisation hors ligne, échangé côté serveur contre un refresh token. Popup : geste utilisateur requis. */
+export async function requestOfflineCode(clientId: string, scope: string): Promise<string> {
+  if (!clientId) throw new Error("Google: no clientId configured");
+  await loadGis();
+  const google = window.google;
+  if (!google) throw new Error("GIS not available after load");
+  return new Promise<string>((resolve, reject) => {
+    google.accounts.oauth2
+      .initCodeClient({
+        client_id: clientId,
+        scope,
+        ux_mode: "popup",
+        login_hint: connectedGoogleEmail(),
+        callback: (response) => {
+          if (response.code) resolve(response.code);
+          else reject(new Error(`OAuth: ${response.error_description ?? response.error ?? "code absent"}`));
+        },
+        error_callback: (err) => reject(new Error(`OAuth error: ${err.type} ${err.message ?? ""}`)),
+      })
+      .requestCode();
   });
 }
 

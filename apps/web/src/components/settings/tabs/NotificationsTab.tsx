@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Bell, GearSix } from "@phosphor-icons/react";
 import { Button } from "@heroui/react";
 import { Button as UiButton, Switch, Tooltip } from "@supernote/ui";
@@ -11,7 +11,10 @@ import { ToggleSwitch } from "../ToggleSwitch";
 import { RangeSlider } from "../RangeSlider";
 import { useNotificationsContext, buildNotification } from "@supernote/notifications/renderer";
 import { useOnlineSync } from "@/lib/online-sync/OnlineSyncProvider";
+import { useActionFeedback, FeedbackIcon } from "@/lib/action-feedback";
+import { grantMailAccess, mailGrantEmail } from "@/lib/mail-push-watch";
 import {
+  fetchPushConfig,
   pushAvailability,
   subscribePush,
   unsubscribePush,
@@ -76,6 +79,55 @@ function PushRow({ onOpenSync }: { onOpenSync: () => void }) {
   );
 }
 
+function MailGrantRow() {
+  const { settings } = useSettings();
+  const online = useOnlineSync();
+  const [serverReady, setServerReady] = useState(false);
+  const [email, setEmail] = useState(mailGrantEmail);
+  const fb = useActionFeedback();
+  const clientId = settings.googleDrive.clientId.trim();
+  const eligible =
+    settings.notifications.pushSubscribed && Boolean(clientId) && online !== null && pushAvailability(online.config) === "ok";
+
+  useEffect(() => {
+    if (!eligible) return;
+    let alive = true;
+    void fetchPushConfig()
+      .then((c) => alive && setServerReady(c.mailGrant))
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [eligible]);
+
+  if (!eligible || !serverReady) return null;
+
+  const grant = () => void fb.run(async () => setEmail(await grantMailAccess(clientId, online?.config)));
+
+  return (
+    <>
+      <SettingRow
+        label="Mails détaillés app fermée"
+        description={
+          email
+            ? `Actif pour ${email} : expéditeur et objet affichés même Supernote fermé.`
+            : "Affiche l'expéditeur et l'objet même quand Supernote est fermé depuis plus d'une heure."
+        }
+      >
+        <UiButton size="sm" variant={email ? "ghost" : undefined} isDisabled={fb.isPending} onPress={grant}>
+          <FeedbackIcon state={fb.state} error={fb.error} size={14} idle={null} />
+          {email ? "Réautoriser" : "Autoriser"}
+        </UiButton>
+      </SettingRow>
+      {fb.error && (
+        <p role="alert" className="py-2 text-xs" style={{ color: "var(--danger)" }}>
+          {fb.error}
+        </p>
+      )}
+    </>
+  );
+}
+
 export function NotificationsTab({ onOpenSync }: { onOpenSync: () => void }) {
   const { settings, updateSettings } = useSettings();
   const { notifications } = settings;
@@ -106,6 +158,7 @@ export function NotificationsTab({ onOpenSync }: { onOpenSync: () => void }) {
         </SettingRow>
 
         <PushRow onOpenSync={onOpenSync} />
+        <MailGrantRow />
 
         <SettingRow label="Sons" description="Jouer un son pour les notifications importantes">
           <ToggleSwitch
