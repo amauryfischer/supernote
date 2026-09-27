@@ -4,7 +4,8 @@
  * Gestes de triage au doigt (mobile), sur une ligne de la boîte comme sur le
  * fil ouvert :
  *   → vers la droite : archiver
- *   ← vers la gauche : supprimer (corbeille, annulable par le toast)
+ *   ← vers la gauche : supprimer (corbeille, annulable par la pastille) — lignes
+ *     seulement : sur le fil lu, un geste raté ne doit pas jeter ce qu'on lit.
  * Un appui long (lignes seulement) ouvre la feuille d'actions complète.
  *
  * Détails qui comptent : le geste ne s'engage QUE s'il est franchement
@@ -42,10 +43,12 @@ export function useSwipeGesture({
   onSwipe,
   onLongPress,
   disabled = false,
+  allowDelete = true,
 }: {
   onSwipe: (action: SwipeAction) => void;
   onLongPress?: () => void;
   disabled?: boolean;
+  allowDelete?: boolean;
 }) {
   // Élément en state (ref callback) : la cible peut monter après le premier rendu.
   const [el, setEl] = useState<HTMLElement | null>(null);
@@ -95,17 +98,18 @@ export function useSwipeGesture({
       if (!decided) {
         if (Math.abs(deltaX) < ENGAGE_PX && Math.abs(deltaY) < ENGAGE_PX) return;
         decided = true;
-        engaged = Math.abs(deltaX) > Math.abs(deltaY);
+        engaged = Math.abs(deltaX) > Math.abs(deltaY) && (allowDelete || deltaX > 0);
         if (!engaged) cancelLongPress();
       }
       if (!engaged) return;
       cancelLongPress();
       e.preventDefault(); // écouteur non-passif : on prend la main sur le scroll
       // Résistance au-delà du seuil : on sent qu'on est « au bout ».
-      const capped =
+      const resisted =
         Math.abs(deltaX) <= TRIGGER_PX
           ? deltaX
           : Math.sign(deltaX) * (TRIGGER_PX + (Math.abs(deltaX) - TRIGGER_PX) * 0.35);
+      const capped = allowDelete ? resisted : Math.max(0, resisted);
       if ((Math.abs(capped) >= TRIGGER_PX) !== (Math.abs(dxRef.current) >= TRIGGER_PX)) haptic();
       setDx(capped);
     };
@@ -142,7 +146,7 @@ export function useSwipeGesture({
       el.removeEventListener("touchend", onEnd);
       el.removeEventListener("touchcancel", onEnd);
     };
-  }, [el, disabled, onSwipe, onLongPress]);
+  }, [el, disabled, allowDelete, onSwipe, onLongPress]);
 
   // Pas de transform au repos : il changerait le bloc conteneur des `fixed` descendants.
   const style: CSSProperties | undefined =
@@ -192,6 +196,7 @@ export function SwipeableRow({
   onLongPress,
   /** Désactive le geste (ligne non triable : groupe, mode sélection…). */
   disabled = false,
+  allowDelete = true,
   className = "relative overflow-hidden rounded-lg",
   innerClassName,
 }: {
@@ -199,11 +204,12 @@ export function SwipeableRow({
   onSwipe: (action: SwipeAction) => void;
   onLongPress?: () => void;
   disabled?: boolean;
+  allowDelete?: boolean;
   className?: string;
   innerClassName?: string;
 }) {
   // L'état du geste vit ici : un glissement ne re-rend que ce wrapper, pas le parent.
-  const swipe = useSwipeGesture({ onSwipe, onLongPress, disabled });
+  const swipe = useSwipeGesture({ onSwipe, onLongPress, disabled, allowDelete });
 
   return (
     <div ref={swipe.ref} className={className}>

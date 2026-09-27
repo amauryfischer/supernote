@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, forwardRef, useImperativeHandle, type ReactNode } from "react";
-import { ArrowSquareOut, Plus, X, Tag, MagnifyingGlass, Check, PaperPlaneTilt, Quotes, Paperclip, Star, Envelope, ArrowBendUpRight, Sparkle, MagicWand, ArrowsClockwise, CaretUp, DotsThreeVertical, Copy, Image as ImageIcon, SpeakerSlash, UserMinus, UserPlus, WarningCircle, ShareNetwork, Trash } from "@phosphor-icons/react";
+import { ArrowSquareOut, Plus, X, Tag, MagnifyingGlass, Check, PaperPlaneTilt, Quotes, Paperclip, Star, Envelope, ArrowBendUpRight, Sparkle, MagicWand, ArrowsClockwise, CaretUp, DotsThreeVertical, Copy, Image as ImageIcon, SpeakerSlash, UserMinus, UserPlus, WarningCircle, ShareNetwork, Trash, ArrowBendUpLeft } from "@phosphor-icons/react";
 import { Button, Chip, Input, Spinner, Popover } from "@heroui/react";
 import { useToast, Tooltip } from "@supernote/ui";
 import { useActionFeedback, FeedbackIcon } from "@/lib/action-feedback";
@@ -94,6 +94,8 @@ import {
 } from "@/lib/mail-eisenhower";
 import { QuickRepliesRow } from "./QuickRepliesRow";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { createPortal } from "react-dom";
+import { useMobileBottomBar } from "@/components/shell/shell-chrome-context";
 import { useKeyboardViewport } from "@/hooks/useKeyboardOpen";
 import { useMailQuickRepliesChrome } from "@/components/shell/shell-chrome-context";
 import {
@@ -365,6 +367,9 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
   // injecte le texte choisi.
   const replyTaRef = useRef<HTMLTextAreaElement>(null);
   const isMobile = useIsMobile();
+  // Sur téléphone, les actions du fil prennent la place de la nav du bas (au pouce).
+  const bottomSlot = useMobileBottomBar(isMobile && !embedded);
+  const inBottomBar = (node: ReactNode) => (bottomSlot ? createPortal(node, bottomSlot) : node);
   // Mobile, clavier ouvert depuis la réponse : le composeur couvre la zone visible
   // au-dessus du clavier, jusqu'à ce qu'il se referme (pas au blur : un tap sur
   // « Envoyer » déplacerait le bouton sous le doigt avant le relâchement).
@@ -933,16 +938,31 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
           {/* Boutons DIRECTS : Todo, Archiver, Reporter, Plus — le reste vit dans
               « Plus ». Popover (et non Dropdown) car plusieurs actions sont des
               composants self-contained à overlay propre, déplacés tels quels. */}
+          {inBottomBar(
           <div
-            className={`flex shrink-0 items-center justify-end gap-1.5${
-              embedded ? "" : " max-md:sticky max-md:top-0 max-md:z-10 max-md:-mx-4 max-md:border-b max-md:px-4 max-md:py-1"
-            }`}
-            style={
-              embedded
-                ? undefined
-                : { background: "var(--surface-0, var(--background))", borderColor: "var(--border-subtle)" }
+            className={
+              bottomSlot
+                ? "flex items-center justify-around gap-1 px-3 py-1.5"
+                : "flex shrink-0 items-center justify-end gap-1.5"
             }
           >
+            {bottomSlot && clientId && replyParams.to && (
+              <Tooltip content="Répondre (r)">
+                <Button
+                  isIconOnly
+                  variant="ghost"
+                  size="sm"
+                  aria-label="Répondre"
+                  className="h-10 min-h-10 w-10 min-w-10"
+                  onPress={() => {
+                    replyTaRef.current?.scrollIntoView({ block: "nearest" });
+                    replyTaRef.current?.focus();
+                  }}
+                >
+                  <ArrowBendUpLeft size={20} aria-hidden />
+                </Button>
+              </Tooltip>
+            )}
             {clientId && (
               <MailEisenhowerPicker
                 onConvert={(q) => void convertToTodo(q)}
@@ -1178,7 +1198,8 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
                 </Popover.Content>
               </Popover>
             )}
-          </div>
+          </div>,
+          )}
         </div>
         {/* Adresse du correspondant + copie rapide (QoL : récupérer l'email sans
             ouvrir le composeur). Masqué en embed / si pas d'adresse. */}
@@ -1281,7 +1302,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
               isIconOnly
               onPress={openPicker}
               aria-label="Ajouter un label (touche l)"
-              className="flex h-7 min-h-7 w-7 min-w-7 items-center justify-center rounded-full p-0"
+              className="flex h-7 min-h-7 w-7 min-w-7 items-center justify-center rounded-full p-0 max-md:h-8 max-md:min-h-8 max-md:w-8 max-md:min-w-8"
               style={{ border: "1px dashed var(--border)", color: "var(--text-muted)" }}
             >
               <Plus size={12} weight="bold" />

@@ -160,6 +160,28 @@ test.describe("06 — mail", () => {
       if (process.env["SHOTS"]) await page.screenshot({ path: `${process.env["SHOTS"]}/newsletter-mobile.png` });
     });
 
+    test("fil ouvert : actions au pouce à la place de la nav, sujet en titre", async ({ page }) => {
+      await withInbox(page);
+      await page.goto("/mail");
+      const nav = page.getByRole("navigation", { name: "Navigation principale" });
+      await expect(nav).toBeVisible();
+
+      await page.getByText("Compte rendu réunion").first().click();
+      const triage = page.getByRole("group", { name: "Triage du fil" });
+      await expect(triage.getByRole("button", { name: "Archiver" })).toBeVisible();
+      await expect(nav).toHaveCount(0);
+      await expect(page.getByRole("button", { name: "Répondre", exact: true })).toBeVisible();
+
+      const box = await triage.boundingBox();
+      expect(box!.y).toBeGreaterThan(page.viewportSize()!.height / 2);
+      await expect(page.getByRole("banner").getByText("Compte rendu réunion")).toBeVisible();
+      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+      expect(overflow).toBeLessThanOrEqual(0);
+
+      await page.getByRole("button", { name: "Retour" }).click();
+      await expect(nav).toBeVisible();
+    });
+
     test("le retour système ferme le fil au lieu de quitter /mail", async ({ page }) => {
       await withInbox(page);
       await page.goto("/notes");

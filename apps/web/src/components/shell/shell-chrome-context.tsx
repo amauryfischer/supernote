@@ -163,6 +163,13 @@ interface ShellChromeContextValue {
   mobileHeaderActions: MobileHeaderAction[];
   setMobileHeaderActions: (actions: MobileHeaderAction[]) => void;
 
+  /** Une page réclame la place de la barre de navigation du bas (fil mail ouvert). */
+  mobileBottomBar: boolean;
+  setMobileBottomBar: (active: boolean) => void;
+  /** Nœud rendu par `MobileShell` à la place de la nav, cible d'un portal. */
+  mobileBottomSlot: HTMLElement | null;
+  setMobileBottomSlot: (el: HTMLElement | null) => void;
+
   /** Column editor sidebar — quand non-null, la sidebar s'affiche à droite. */
   columnEditor: ColumnEditorState | null;
   openColumnEditor: (base: EntityType, view: View, opts?: { focusFieldId?: string; prefillFormula?: ColumnEditorState["prefillFormula"] }) => void;
@@ -255,6 +262,8 @@ export function ShellChromeProvider({ children }: { children: React.ReactNode })
   const [mobileFab, setMobileFabState] = useState<MobileFabConfig | null | false>(null);
   const [mobileHeaderActions, setMobileHeaderActionsState] = useState<MobileHeaderAction[]>([]);
   const [mobileBack, setMobileBackState] = useState<(() => void) | null>(null);
+  const [mobileBottomBar, setMobileBottomBar] = useState(false);
+  const [mobileBottomSlot, setMobileBottomSlot] = useState<HTMLElement | null>(null);
   // Forme fonction du setter : un handler passé nu serait appelé comme updater.
   const setMobileBack = useCallback(
     (handler: (() => void) | null) => setMobileBackState(() => handler),
@@ -450,6 +459,10 @@ export function ShellChromeProvider({ children }: { children: React.ReactNode })
       setMobileHeaderActions,
       mobileBack,
       setMobileBack,
+      mobileBottomBar,
+      setMobileBottomBar,
+      mobileBottomSlot,
+      setMobileBottomSlot,
       columnEditor,
       openColumnEditor,
       closeColumnEditor,
@@ -482,6 +495,10 @@ export function ShellChromeProvider({ children }: { children: React.ReactNode })
       setMobileHeaderActions,
       mobileBack,
       setMobileBack,
+      mobileBottomBar,
+      setMobileBottomBar,
+      mobileBottomSlot,
+      setMobileBottomSlot,
       columnEditor,
       openColumnEditor,
       closeColumnEditor,
@@ -631,6 +648,23 @@ export function useMobileBack(
       if (window.history.state?.[BACK_SENTINEL]) window.history.back();
     };
   }, [active, systemBack, pops]);
+}
+
+/**
+ * Réclame la place de la barre de navigation du bas tant que `active` : le
+ * shell mobile y rend un emplacement vide, renvoyé ici pour un `createPortal`.
+ * `null` tant que l'emplacement n'est pas monté (ou sur desktop).
+ */
+export function useMobileBottomBar(active: boolean): HTMLElement | null {
+  const ctx = useContext(ShellChromeContext);
+  useEffect(() => {
+    if (!active) return;
+    if (!ctx) return warnMissingProvider("useMobileBottomBar");
+    ctx.setMobileBottomBar(true);
+    return () => ctx.setMobileBottomBar(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active]);
+  return active ? (ctx?.mobileBottomSlot ?? null) : null;
 }
 
 /**

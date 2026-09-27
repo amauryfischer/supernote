@@ -216,10 +216,6 @@ export default function MailPage() {
       return !open;
     });
   const syncStatus = useMailSyncAge();
-  useMobileTitle(
-    isMobile ? "Mail" : null,
-    isMobile ? (syncStatus.syncing ? "Synchronisation…" : syncStatus.age) : null,
-  );
 
   const clientId = settings.googleDrive.clientId.trim();
   // Compte Gmail connecté = clé de scoping du mirror local (mail_* tables).
@@ -313,6 +309,11 @@ export default function MailPage() {
   // Fil ouvert : la liste se réduit à un rail ; `peekList` la déplie par-dessus.
   const [peekList, setPeekList] = useState(false);
   const [thread, setThread] = useState<EmailThread | null>(null);
+  const openSubject = selectedThreadId ? thread?.messages[0]?.subject || "(sans objet)" : null;
+  useMobileTitle(
+    isMobile ? (openSubject ?? "Mail") : null,
+    isMobile && !openSubject ? (syncStatus.syncing ? "Synchronisation…" : syncStatus.age) : null,
+  );
   const [threadLoading, setThreadLoading] = useState(false);
   const [threadError, setThreadError] = useState<string | null>(null);
   const threadRef = useRef<EmailThreadHandle>(null);
@@ -2703,6 +2704,7 @@ export default function MailPage() {
             <SwipeableRow
               onSwipe={handleSwipeThread}
               disabled={!isMobile}
+              allowDelete={false}
               className="relative min-w-0 flex-1 overflow-hidden"
               innerClassName="h-full"
             >
