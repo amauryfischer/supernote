@@ -38,7 +38,7 @@ import { MailOverlayList } from "@/components/mail/MailOverlayList";
 import { MailGroupList } from "@/components/mail/MailGroupList";
 import { useCaptureEmail } from "@/components/mail/useCaptureEmail";
 import { CaptureEmailModal } from "@/components/mail/CaptureEmailModal";
-import { ComposeModal } from "@/components/mail/ComposeModal";
+import { ComposeModal, type ComposeRestore } from "@/components/mail/ComposeModal";
 import { MailEisenhowerBoard, type MailTodoCard } from "@/components/mail/MailEisenhowerBoard";
 import { MailShortcutsHelp } from "@/components/mail/MailShortcutsHelp";
 import { MailLabelsManager } from "@/components/mail/MailLabelsManager";
@@ -344,6 +344,7 @@ export default function MailPage() {
     subject: string;
     body: string;
     thread?: ForwardThread;
+    restore?: ComposeRestore;
   }>({ subject: "", body: "" });
   // Annonce vocale (lecteurs d'écran) du résultat de la dernière action.
   const [liveMessage, setLiveMessage] = useState("");
@@ -2766,6 +2767,16 @@ export default function MailPage() {
         initialSubject={composeInitial.subject}
         initialBody={composeInitial.body}
         thread={composeInitial.thread}
+        restore={composeInitial.restore}
+        onSendCancelled={(restore) => {
+          setComposeInitial({
+            subject: restore.subject,
+            body: restore.body,
+            ...(restore.thread ? { thread: restore.thread } : {}),
+            restore,
+          });
+          setComposeOpen(true);
+        }}
         correspondents={correspondents}
       />
       <MailShortcutsHelp isOpen={helpOpen} onClose={() => setHelpOpen(false)} />

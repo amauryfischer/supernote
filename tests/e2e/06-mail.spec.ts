@@ -90,7 +90,7 @@ test.describe("06 — mail", () => {
     await expect(undoButton).toBeVisible();
   });
 
-  test("Cc/Cci : annuler l'envoi rouvre le composeur rempli, l'envoi porte l'en-tête Bcc", async ({ page }) => {
+  test("Cc/Cci autocomplétés ; annuler l'envoi rouvre le composeur avec pièces jointes, l'envoi porte l'en-tête Bcc", async ({ page }) => {
     await withInbox(page);
     let raw = "";
     await page.route("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", async (route) => {
@@ -101,22 +101,33 @@ test.describe("06 — mail", () => {
     await expect(page.getByText("Compte rendu réunion").first()).toBeVisible({ timeout: 20_000 });
     await page.keyboard.press("c");
     const dialog = page.getByRole("dialog", { name: "Nouveau message" });
-    await page.getByLabel("À", { exact: true }).fill("alice@exemple.fr");
+    await page.getByLabel("À", { exact: true }).fill("bob@exemple.fr");
     await page.keyboard.press("Enter");
     await dialog.getByRole("button", { name: "Cc Cci" }).click();
-    await page.getByLabel("Cc", { exact: true }).fill("bob@exemple.fr");
+    await page.getByLabel("Cc", { exact: true }).fill("alic");
+    await page.getByRole("option", { name: /Alice Dupont/ }).click();
+    await expect(dialog.getByRole("button", { name: "Retirer alice@exemple.fr" })).toBeVisible();
     await page.getByLabel("Cci", { exact: true }).fill("carol@exemple.fr");
     await page.getByLabel("Objet").fill("Point budget");
+    await dialog.locator('input[type="file"]:not([accept])').setInputFiles({
+      name: "budget.pdf",
+      mimeType: "application/pdf",
+      buffer: Buffer.from("%PDF-1.4 budget"),
+    });
+    await expect(dialog.getByText("budget.pdf")).toBeVisible();
     await dialog.getByRole("button", { name: "Envoyer", exact: true }).click();
 
     await page.getByRole("button", { name: "Annuler l'envoi" }).click();
     await expect(dialog).toBeVisible();
     await expect(page.getByLabel("Objet")).toHaveValue("Point budget");
-    await expect(page.getByLabel("Cci", { exact: true })).toHaveValue("carol@exemple.fr");
+    await expect(dialog.getByRole("button", { name: "Retirer carol@exemple.fr" })).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "Retirer alice@exemple.fr" })).toBeVisible();
+    await expect(dialog.getByText("budget.pdf")).toBeVisible();
 
     await dialog.getByRole("button", { name: "Envoyer", exact: true }).click();
     await expect.poll(() => raw, { timeout: 30_000 }).toContain("Bcc: carol@exemple.fr");
-    expect(raw).toContain("Cc: bob@exemple.fr");
+    expect(raw).toContain("Cc: alice@exemple.fr");
+    expect(raw).toContain("budget.pdf");
   });
 
   test("en-tête du fil réduit à Todo · Archiver · Reporter · Plus ; d archive comme e", async ({ page }) => {
