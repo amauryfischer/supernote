@@ -145,7 +145,7 @@ export function ExtractActionsButton({ thread }: ExtractActionsButtonProps) {
               <Spinner size="sm" /> Analyse du fil…
             </div>
           ) : extractError ? (
-            <p role="alert" className="px-1.5 py-3 text-sm" style={{ color: "var(--color-danger)" }}>
+            <p role="alert" className="px-1.5 py-3 text-sm" style={{ color: "var(--danger)" }}>
               Extraction impossible : {extractError}
             </p>
           ) : actions && actions.length > 0 ? (
@@ -185,7 +185,7 @@ export function ExtractActionsButton({ thread }: ExtractActionsButtonProps) {
                     : `Créer les tâches${selectedCount > 0 ? ` (${selectedCount})` : ""}`}
                 </Button>
                 {createFb.error && (
-                  <p role="alert" className="mt-1 text-xs" style={{ color: "var(--color-danger)" }}>
+                  <p role="alert" className="mt-1 text-xs" style={{ color: "var(--danger)" }}>
                     Création des tâches échouée : {createFb.error}
                   </p>
                 )}

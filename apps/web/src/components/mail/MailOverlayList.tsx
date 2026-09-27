@@ -655,7 +655,7 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
               weight="fill"
               aria-label="Contient un message étoilé"
               className="shrink-0"
-              style={{ color: "#f5b300" }}
+              style={{ color: "var(--warning)" }}
             />
           )}
           <span className="ml-auto shrink-0 text-xs" style={{ color: "var(--text-muted)" }}>
@@ -786,7 +786,7 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
               <Star
                 size={14}
                 weight={starred ? "fill" : "regular"}
-                style={{ color: starred ? "#f5b300" : "var(--text-muted)" }}
+                style={{ color: starred ? "var(--warning)" : "var(--text-muted)" }}
               />
             </span>
           ) : (
@@ -795,7 +795,7 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
                 size={14}
                 weight="fill"
                 aria-label="Contient un message étoilé"
-                style={{ color: "#f5b300" }}
+                style={{ color: "var(--warning)" }}
               />
             )
           )}
@@ -1070,7 +1070,7 @@ function CtxItem({
       role="menuitem"
       onClick={onClick}
       className={`w-full rounded-md px-2 py-1.5 text-left text-sm outline-none transition-colors hover:bg-[var(--surface-2)] focus-visible:bg-[var(--surface-2)] ${indent ? "pl-4" : ""}`}
-      style={{ color: danger ? "var(--color-danger, #ef4444)" : "var(--text-primary)" }}
+      style={{ color: danger ? "var(--danger)" : "var(--text-primary)" }}
     >
       {label}
     </button>

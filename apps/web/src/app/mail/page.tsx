@@ -2432,9 +2432,14 @@ export default function MailPage() {
             </div>
           )}
           {listError && (
-            <p className="px-3 py-2 text-sm" style={{ color: "var(--color-danger, #ef4444)" }}>
-              {listError}
-            </p>
+            <div role="alert" className="flex items-center gap-2 px-3 py-2 text-sm">
+              <span className="min-w-0 flex-1" style={{ color: "var(--danger)" }}>
+                {listError}
+              </span>
+              <Button size="sm" variant="ghost" onPress={() => void loadList(query)}>
+                Réessayer
+              </Button>
+            </div>
           )}
           {!listLoading && !listError && rows.length === 0 && (
             groupIdFromTab(mailTab) !== null ? (
@@ -2642,7 +2647,7 @@ export default function MailPage() {
           </div>
         )}
         {drafts.error && (
-          <p role="alert" className="px-1 py-2 text-xs" style={{ color: "var(--color-danger)" }}>
+          <p role="alert" className="px-1 py-2 text-xs" style={{ color: "var(--danger)" }}>
             Brouillon IA impossible : {drafts.error}
           </p>
         )}
@@ -2658,10 +2663,15 @@ export default function MailPage() {
         </div>
       )}
       {!threadLoading && threadError && (
-        <div className="flex flex-1 items-center justify-center px-6 text-center">
-          <p className="text-sm" style={{ color: "var(--color-danger, #ef4444)" }}>
+        <div role="alert" className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center">
+          <p className="text-sm" style={{ color: "var(--danger)" }}>
             {threadError}
           </p>
+          {selectedThreadId && (
+            <Button size="sm" variant="ghost" onPress={() => void openThread(selectedThreadId)}>
+              Réessayer
+            </Button>
+          )}
         </div>
       )}
       {!threadLoading && !threadError && thread && (

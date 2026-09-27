@@ -933,7 +933,10 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
         >
           <div className="flex min-w-0 items-center gap-1.5 md:flex-1">
             {subject ? (
-              <h2 className="line-clamp-2 min-w-0 flex-1 text-base font-semibold md:truncate" style={{ color: "var(--text-primary)" }}>
+              <h2
+                className={`line-clamp-2 min-w-0 flex-1 text-base font-semibold md:truncate${bottomSlot ? " max-md:sr-only" : ""}`}
+                style={{ color: "var(--text-primary)" }}
+              >
                 {subject}
               </h2>
             ) : (
@@ -1386,7 +1389,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
                 <Spinner size="sm" /> Génération du résumé…
               </span>
             ) : summaryError ? (
-              <p role="alert" className="text-sm" style={{ color: "var(--color-danger)" }}>
+              <p role="alert" className="text-sm" style={{ color: "var(--danger)" }}>
                 Résumé impossible : {summaryError}
               </p>
             ) : summary ? (
