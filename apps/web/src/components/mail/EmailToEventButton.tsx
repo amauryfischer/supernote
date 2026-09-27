@@ -151,10 +151,10 @@ export function EmailToEventButton({
           <FeedbackIcon
             state={fb.state}
             error={fb.error}
-            size={size === "sm" ? 14 : 16}
-            idle={<CalendarPlus size={size === "sm" ? 14 : 16} />}
+            size={16}
+            idle={<CalendarPlus size={16} />}
           />
-          <span className="ml-1.5">{fb.state === "error" ? fb.error : "Créer un évènement"}</span>
+          <span>{fb.state === "error" ? fb.error : "Créer un évènement"}</span>
         </Button>
       }
       items={items}

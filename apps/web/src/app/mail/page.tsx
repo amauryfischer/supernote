@@ -1,9 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { Button, Input, Spinner } from "@heroui/react";
+import { Button, Input, Spinner, TabsRoot, TabList, Tab } from "@heroui/react";
 import { Badge, EmptyState, Skeleton, Checkbox } from "@supernote/ui";
 import {
-  FilePlus,
-  Database,
   MagnifyingGlass,
   PencilSimple,
   Archive,
@@ -397,24 +395,10 @@ export default function MailPage() {
   // Recherche dans la barre du haut mobile : le champ de recherche large
   // n'existe que sur desktop, donc inaccessible au doigt.
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
-  // Capture (définie plus bas) : même relais par ref que les résumés.
-  const captureNoteRef = useRef<() => void>(() => {});
+  // Fil ouvert : ses actions (capture comprise) vivent dans « Plus » de la barre du bas.
   useMobileHeaderActions(
     connected && selectedThreadId
-      ? [
-          {
-            id: "mail-capture-note",
-            icon: FilePlus,
-            label: "Capturer en note",
-            onPress: () => captureNoteRef.current(),
-          },
-          {
-            id: "mail-capture-base",
-            icon: Database,
-            label: "Capturer dans une base",
-            onPress: () => setCaptureOpen(true),
-          },
-        ]
+      ? []
       : connected && !selectedGroup
       ? [
           {
@@ -2123,48 +2107,46 @@ export default function MailPage() {
       className="flex items-center gap-2 overflow-x-auto border-b px-3 py-2"
       style={{ borderColor: "var(--border-subtle)" }}
     >
-      <div
-        className="inline-flex rounded-full p-0.5"
-        style={{ backgroundColor: "var(--surface-2)" }}
-        role="tablist"
-        aria-label="Vue mail"
-      >
-        {tabs.map((t) => {
-          const active = mailTab === t.id;
-          return (
-            <Button
-              key={t.id}
-              variant="ghost"
-              size="sm"
-              onPress={() => setMailTab(t.id)}
-              className="sn-motion-colors whitespace-nowrap rounded-full px-3.5 py-1 text-sm font-medium"
-              style={
-                active
-                  ? {
-                      backgroundColor: "var(--surface-0)",
-                      color: "var(--accent)",
-                      boxShadow: "0 1px 2px rgb(0 0 0 / 0.08)",
-                    }
-                  : { backgroundColor: "transparent", color: "var(--text-muted)" }
-              }
-              aria-pressed={active}
-            >
-              {t.label}
-              {t.count ? ` · ${t.count}` : ""}
-              {t.unread > 0 && (
-                <Badge
-                  size="sm"
-                  className="min-w-[1.125rem] justify-center tabular-nums"
-                  style={{ background: "var(--accent)", color: "var(--accent-foreground)" }}
-                >
-                  {t.unread}
-                  <span className="sr-only"> non lus</span>
-                </Badge>
-              )}
-            </Button>
-          );
-        })}
-      </div>
+      <TabsRoot selectedKey={mailTab} onSelectionChange={(k) => setMailTab(String(k))} className="w-auto shrink-0">
+        <TabList
+          aria-label="Vue mail"
+          className="inline-flex gap-0 rounded-full border-0 p-0.5"
+          style={{ backgroundColor: "var(--surface-2)" }}
+        >
+          {tabs.map((t) => {
+            const active = mailTab === t.id;
+            return (
+              <Tab
+                key={t.id}
+                id={t.id}
+                className="sn-motion-colors flex h-8 items-center gap-1.5 whitespace-nowrap rounded-full px-3.5 py-1 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-[var(--border-focus)]"
+                style={
+                  active
+                    ? {
+                        backgroundColor: "var(--surface-0)",
+                        color: "var(--accent)",
+                        boxShadow: "0 1px 2px rgb(0 0 0 / 0.08)",
+                      }
+                    : { backgroundColor: "transparent", color: "var(--text-muted)" }
+                }
+              >
+                {t.label}
+                {t.count ? ` · ${t.count}` : ""}
+                {t.unread > 0 && (
+                  <Badge
+                    size="sm"
+                    className="min-w-[1.125rem] justify-center tabular-nums"
+                    style={{ background: "var(--accent)", color: "var(--accent-foreground)" }}
+                  >
+                    {t.unread}
+                    <span className="sr-only"> non lus</span>
+                  </Badge>
+                )}
+              </Tab>
+            );
+          })}
+        </TabList>
+      </TabsRoot>
       <Tooltip content="Gérer les groupes mail">
         <Button
           size="sm"
@@ -2555,7 +2537,6 @@ export default function MailPage() {
     </div>
   ) : null;
 
-  captureNoteRef.current = () => void handleCaptureNote();
 
 
   // Colonne « Brouillons IA ».
