@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { bootCloud, MESSAGE } from "./helpers";
+import { bootCloud, MESSAGE, parseGmailBatchRequestBody, buildGmailBatchResponse } from "./helpers";
 
 const BODY =
   "Bonjour,\n\nMerci pour l'échange. Je vous envoie le devis signé vendredi 2 octobre.\n\nAlice";
@@ -27,15 +27,25 @@ async function withPromiseInbox(page: Page, engagements: unknown[]): Promise<voi
     localStorage.setItem("supernote.settings", JSON.stringify(s));
   });
   const msg = message("m1", BODY);
+  const resolve = (path: string): unknown => {
+    if (path === "/threads") return { threads: [{ id: "t1", snippet: msg.snippet }] };
+    if (path.startsWith("/threads/")) return { id: "t1", historyId: "10", messages: [msg] };
+    if (path.startsWith("/messages/")) return msg;
+    if (path === "/profile") return { emailAddress: "moi@exemple.fr", historyId: "10" };
+    if (path.startsWith("/labels/")) return { id: "INBOX", threadsTotal: 1, threadsUnread: 1 };
+    if (path === "/labels") return { labels: [] };
+    return {};
+  };
   await page.route("https://gmail.googleapis.com/**", (route) => {
-    const path = new URL(route.request().url()).pathname.replace("/gmail/v1/users/me", "");
-    if (path === "/threads") return route.fulfill({ json: { threads: [{ id: "t1", snippet: msg.snippet }] } });
-    if (path.startsWith("/threads/")) return route.fulfill({ json: { id: "t1", historyId: "10", messages: [msg] } });
-    if (path.startsWith("/messages/")) return route.fulfill({ json: msg });
-    if (path === "/profile") return route.fulfill({ json: { emailAddress: "moi@exemple.fr", historyId: "10" } });
-    if (path.startsWith("/labels/")) return route.fulfill({ json: { id: "INBOX", threadsTotal: 1, threadsUnread: 1 } });
-    if (path === "/labels") return route.fulfill({ json: { labels: [] } });
-    return route.fulfill({ json: {} });
+    const url = new URL(route.request().url());
+    if (url.pathname === "/batch/gmail/v1") {
+      const { contentType, body } = buildGmailBatchResponse(
+        parseGmailBatchRequestBody(route.request().postData() ?? ""),
+        resolve,
+      );
+      return route.fulfill({ status: 200, contentType, body });
+    }
+    return route.fulfill({ json: resolve(url.pathname.replace("/gmail/v1/users/me", "")) });
   });
   await page.route("https://www.googleapis.com/**", (route) => route.fulfill({ json: { items: [] } }));
   await page.route("http://127.0.0.1:11434/**", (route) =>

@@ -132,18 +132,63 @@ export const MESSAGE = {
   },
 };
 
-/** Boîte Gmail d'un seul fil ; Agenda et Drive vides. */
-export async function withInbox(page: Page): Promise<void> {
+/** Réponse JSON attendue pour un chemin Gmail relatif — GET direct ou sous-requête d'un lot batch. */
+function resolveInboxPath(path: string, messages: unknown[] = [MESSAGE]): unknown {
+  if (path === "/threads") return { threads: [{ id: "t1", snippet: MESSAGE.snippet }] };
+  if (path.startsWith("/threads/")) return { id: "t1", historyId: "10", messages };
+  if (path.startsWith("/messages/")) return MESSAGE;
+  if (path === "/profile") return { emailAddress: "moi@exemple.fr", historyId: "10" };
+  if (path.startsWith("/labels/")) return { id: "INBOX", threadsTotal: 1, threadsUnread: 1 };
+  if (path === "/labels") return { labels: [] };
+  return {};
+}
+
+/**
+ * Sous-requêtes (`{ id, path }`) d'un corps `multipart/mixed` de batch Gmail
+ * (POST `/batch/gmail/v1`). Exporté : chaque mock Gmail qui pose sa propre
+ * route (09, 10) en a besoin pour répondre à l'endpoint batch.
+ */
+export function parseGmailBatchRequestBody(body: string): Array<{ id: string; path: string }> {
+  const out: Array<{ id: string; path: string }> = [];
+  for (const part of body.split(/--\S+/)) {
+    const idMatch = /Content-ID:\s*<([^>]+)>/i.exec(part);
+    const pathMatch = /GET\s+\/gmail\/v1\/users\/me(\S*)\s+HTTP/i.exec(part);
+    if (idMatch && pathMatch) out.push({ id: idMatch[1]!, path: pathMatch[1]! });
+  }
+  return out;
+}
+
+/**
+ * Réponse `multipart/mixed` d'un lot Gmail batch, une sous-réponse 200 par
+ * sous-requête reçue. `resolve` rend le JSON pour un chemin relatif donné
+ * (même résolveur que les routes GET directes du mock appelant).
+ */
+export function buildGmailBatchResponse(
+  items: Array<{ id: string; path: string }>,
+  resolve: (path: string) => unknown,
+): { contentType: string; body: string } {
+  const boundary = "e2e_batch_boundary";
+  const parts = items.map(
+    ({ id, path }) =>
+      `--${boundary}\r\nContent-Type: application/http\r\nContent-ID: <response-${id}>\r\n\r\n` +
+      `HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(resolve(path))}\r\n`,
+  );
+  return { contentType: `multipart/mixed; boundary=${boundary}`, body: parts.join("") + `--${boundary}--` };
+}
+
+/** Boîte Gmail d'un seul fil ; Agenda et Drive vides. `messages` remplace le contenu du fil, GET direct comme batch. */
+export async function withInbox(page: Page, messages?: unknown[]): Promise<void> {
   await bootCloud(page, { googleAccount: "moi@exemple.fr" });
   await page.route("https://gmail.googleapis.com/**", (route) => {
-    const path = new URL(route.request().url()).pathname.replace("/gmail/v1/users/me", "");
-    if (path === "/threads") return route.fulfill({ json: { threads: [{ id: "t1", snippet: MESSAGE.snippet }] } });
-    if (path.startsWith("/threads/")) return route.fulfill({ json: { id: "t1", historyId: "10", messages: [MESSAGE] } });
-    if (path.startsWith("/messages/")) return route.fulfill({ json: MESSAGE });
-    if (path === "/profile") return route.fulfill({ json: { emailAddress: "moi@exemple.fr", historyId: "10" } });
-    if (path.startsWith("/labels/")) return route.fulfill({ json: { id: "INBOX", threadsTotal: 1, threadsUnread: 1 } });
-    if (path === "/labels") return route.fulfill({ json: { labels: [] } });
-    return route.fulfill({ json: {} });
+    const url = new URL(route.request().url());
+    if (url.pathname === "/batch/gmail/v1") {
+      const { contentType, body } = buildGmailBatchResponse(
+        parseGmailBatchRequestBody(route.request().postData() ?? ""),
+        (path) => resolveInboxPath(path, messages),
+      );
+      return route.fulfill({ status: 200, contentType, body });
+    }
+    return route.fulfill({ json: resolveInboxPath(url.pathname.replace("/gmail/v1/users/me", ""), messages) });
   });
   await page.route("https://www.googleapis.com/**", (route) => route.fulfill({ json: { items: [] } }));
 }

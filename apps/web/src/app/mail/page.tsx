@@ -88,7 +88,7 @@ import {
   MAIL_MIRROR_RECEIVED_EVENT,
   type MirrorMutation,
 } from "@/lib/mail-mirror";
-import { ensureThread } from "@/lib/mail-sync";
+import { ensureThread, prefetchThreadBodies, PREFETCH_THREAD_COUNT } from "@/lib/mail-sync";
 import { isWorkerReady } from "@/lib/trpc/browser-link";
 import { hasWorkerBackend } from "@/lib/trpc/client";
 import { isAiConfigured } from "@/lib/mail-ai";
@@ -573,7 +573,15 @@ export default function MailPage() {
       else tick();
     };
     const onMirrorReceived = () => {
-      if (refreshStateRef.current.idle) void rereadMirror().catch(() => undefined);
+      if (!refreshStateRef.current.idle) return;
+      void rereadMirror()
+        .then((items) => {
+          if (items.length === 0) return;
+          void prefetchThreadBodies(clientId, accountId, items.slice(0, PREFETCH_THREAD_COUNT).map((it) => it.id)).catch(
+            (err) => console.warn("[mail] préchargement des corps échoué", err),
+          );
+        })
+        .catch(() => undefined);
     };
     const id = window.setInterval(tick, 120_000);
     window.addEventListener(MAIL_MIRROR_RECEIVED_EVENT, onMirrorReceived);
@@ -589,7 +597,7 @@ export default function MailPage() {
       window.removeEventListener(GMAIL_AUTH_EVENT, onAuth);
       document.removeEventListener("visibilitychange", tick);
     };
-  }, [connected, clientId, refreshList, loadList, rereadMirror]);
+  }, [connected, clientId, accountId, refreshList, loadList, rereadMirror]);
 
   // ── Ouverture d'un fil ──────────────────────────────────────────────────────
   // Intention différée : `r` / `a` / `f` / `l` sur une ligne de la LISTE ouvrent

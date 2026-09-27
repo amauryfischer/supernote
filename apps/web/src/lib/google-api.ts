@@ -93,6 +93,25 @@ function acquireToken(clientId: string, scope: string): Promise<string> {
 const QUOTA_COOLDOWN_MS = 60_000;
 const quotaBlockedUntil = new Map<GoogleScopeFamily, { until: number; error: GoogleApiError }>();
 
+/**
+ * Construit l'erreur d'un appel Google échoué et, si c'est un quota (403/429
+ * dont le corps mentionne « quota »), pose la garde 60 s pour la famille de
+ * scope — exposé pour les appelants qui parsent eux-mêmes une réponse groupée
+ * (batch Gmail) et doivent déclencher la même garde par sous-réponse.
+ */
+export function noteGoogleApiFailure(
+  family: GoogleScopeFamily,
+  status: number,
+  text: string,
+  label = "Google API",
+): GoogleApiError {
+  const error = new GoogleApiError(status, `${label} ${status}: ${text.slice(0, 300)}`);
+  if ((status === 403 || status === 429) && /quota/i.test(text)) {
+    quotaBlockedUntil.set(family, { until: Date.now() + QUOTA_COOLDOWN_MS, error });
+  }
+  return error;
+}
+
 /** Sur 401, le token est oublié et l'appel rejoué une fois ; un second refus lève la reconnexion. */
 export async function googleRequest(
   clientId: string,
@@ -124,11 +143,7 @@ export async function googleRequest(
     setScopeFailed(scope, false);
     if (!res.ok) {
       const text = await res.text().catch(() => "");
-      const error = new GoogleApiError(res.status, `${label} ${res.status}: ${text.slice(0, 300)}`);
-      if ((res.status === 403 || res.status === 429) && /quota/i.test(text)) {
-        quotaBlockedUntil.set(family, { until: Date.now() + QUOTA_COOLDOWN_MS, error });
-      }
-      throw error;
+      throw noteGoogleApiFailure(family, res.status, text, label);
     }
     return res;
   }

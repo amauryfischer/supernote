@@ -241,10 +241,7 @@ test.describe("06 — mail", () => {
     });
 
     test("un gabarit newsletter tient dans la largeur, images affichées par défaut", async ({ page }) => {
-      await withInbox(page);
-      await page.route("https://gmail.googleapis.com/**/threads/t1**", (route) =>
-        route.fulfill({ json: { id: "t1", historyId: "10", messages: [NEWSLETTER_MESSAGE] } }),
-      );
+      await withInbox(page, [NEWSLETTER_MESSAGE]);
       const imageLoads: string[] = [];
       await page.route("https://img.exemple.fr/**", (route) => {
         imageLoads.push(route.request().url());
