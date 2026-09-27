@@ -408,7 +408,8 @@ export async function createPushBackend({ vaultAuthed, vaultProtected }) {
       const code = body?.code;
       const clientId = body?.clientId;
       if (typeof code !== "string" || !code || typeof clientId !== "string" || !clientId) {
-        sendJson(res, 400, { error: "missing code or clientId" });
+        console.warn("[push] mail-grant : code ou clientId absent");
+        sendJson(res, 400, { error: "code ou identifiant client absent" });
         return true;
       }
       let tokens;
@@ -422,22 +423,28 @@ export async function createPushBackend({ vaultAuthed, vaultProtected }) {
           grant_type: "authorization_code",
         });
       } catch (err) {
-        sendJson(res, 400, { error: `code refused (${err?.code ?? "?"})` });
+        console.warn(`[push] mail-grant : échange du code refusé par Google (${err?.code ?? err?.message ?? "?"})`);
+        sendJson(res, 400, { error: `échange du code refusé par Google (${err?.code ?? "?"})` });
         return true;
       }
       if (!String(tokens?.scope ?? "").split(" ").includes(GMAIL_MODIFY_SCOPE)) {
-        sendJson(res, 400, { error: "gmail scope missing" });
+        console.warn(`[push] mail-grant : scope Gmail absent (accordés : ${tokens?.scope ?? "aucun"})`);
+        sendJson(res, 400, { error: "accès Gmail non accordé dans la fenêtre Google" });
         return true;
       }
       // Google ne renvoie le refresh token qu'au premier consentement hors ligne.
       if (!tokens.refresh_token) {
+        console.warn("[push] mail-grant : pas de refresh token renvoyé");
         sendJson(res, 409, { error: "no refresh token" });
         return true;
       }
-      const profile = await gmailApi(tokens.access_token, "profile").catch(() => null);
+      const profile = await gmailApi(tokens.access_token, "profile").catch((err) => {
+        console.warn(`[push] mail-grant : profil Gmail refusé (${err?.message ?? err})`);
+        return null;
+      });
       const email = typeof profile?.emailAddress === "string" ? profile.emailAddress.toLowerCase() : "";
       if (!email || profile?.historyId == null) {
-        sendJson(res, 400, { error: "gmail profile refused" });
+        sendJson(res, 400, { error: "profil Gmail refusé" });
         return true;
       }
       await store.upsertMailGrant({

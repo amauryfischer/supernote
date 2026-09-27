@@ -6,6 +6,8 @@ import { fetchPushConfig, pushAvailability } from "@/lib/push/push-client";
 
 const RENEWED_KEY = "supernote.mailWatch.renewedAt";
 const GRANTED_KEY = "supernote.mailGrant.email";
+const GRANT_PROMPT_KEY = "supernote.mailGrant.promptDismissedUntil";
+const GRANT_PROMPT_SNOOZE_MS = 14 * 24 * 60 * 60_000;
 // Gmail fait expirer un watch au bout de 7 jours.
 const RENEW_EVERY_MS = 24 * 60 * 60_000;
 
@@ -47,6 +49,22 @@ export function mailGrantEmail(): string {
   }
 }
 
+export function mailGrantPromptDismissed(): boolean {
+  try {
+    return Number(localStorage.getItem(GRANT_PROMPT_KEY) ?? 0) > Date.now();
+  } catch {
+    return false;
+  }
+}
+
+export function dismissMailGrantPrompt(): void {
+  try {
+    localStorage.setItem(GRANT_PROMPT_KEY, String(Date.now() + GRANT_PROMPT_SNOOZE_MS));
+  } catch {
+    /* rien à retenir */
+  }
+}
+
 /** Confie un refresh token Gmail au serveur : les pushs portent expéditeur et objet même app fermée. Geste utilisateur requis. */
 export async function grantMailAccess(clientId: string, config: OnlineSyncConfig = loadOnlineSyncConfig()): Promise<string> {
   const code = await requestOfflineCode(clientId, GMAIL_MODIFY_SCOPE);
@@ -61,7 +79,10 @@ export async function grantMailAccess(clientId: string, config: OnlineSyncConfig
       "Google n'a pas renvoyé d'accès hors ligne : retire Supernote dans myaccount.google.com/permissions puis réessaie.",
     );
   }
-  if (!res.ok) throw new Error(`Le serveur a refusé l'autorisation (HTTP ${res.status}).`);
+  if (!res.ok) {
+    const detail = ((await res.json().catch(() => null)) as { error?: unknown } | null)?.error;
+    throw new Error(`Le serveur a refusé l'autorisation : ${typeof detail === "string" ? detail : `HTTP ${res.status}`}.`);
+  }
   const { email } = (await res.json()) as { email: string };
   localStorage.setItem(GRANTED_KEY, email);
   return email;
