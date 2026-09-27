@@ -23,6 +23,8 @@ export interface ToastData {
   action?: ToastAction;
   /** Plusieurs actions côte à côte. Prend le pas sur `action` quand fourni. */
   actions?: ToastAction[];
+  /** Pilule d'une ligne (titre + action), centrée sur mobile : pour un « Annuler » qui ne doit pas masquer la liste. */
+  compact?: boolean;
 }
 
 /** Internal shape — `leaving` drives the exit animation before DOM removal. */
@@ -202,6 +204,45 @@ function SingleToast({ data, onDismiss, onRemove }: SingleToastProps) {
       onRemove(data.id);
     }
   };
+
+  if (data.compact) {
+    return (
+      <div
+        role="status"
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
+        onAnimationEnd={handleAnimationEnd}
+        className={cn(
+          "sn-toast relative flex items-center gap-1 self-center overflow-hidden rounded-full border py-1 pl-4 pr-1 [box-shadow:var(--shadow-md)] md:self-end",
+          data.leaving ? "sn-toast-out pointer-events-none" : "sn-toast-in pointer-events-auto",
+          variantClass[variant]
+        )}
+      >
+        <span className={cn("text-xs font-medium", variantTitleClass[variant])}>{data.title}</span>
+        {actions.map((a) => (
+          <Button
+            key={a.label}
+            variant="ghost"
+            size="sm"
+            className="h-8 min-h-8 rounded-full px-3 text-xs font-semibold text-[var(--accent)] hover:text-[var(--accent-hover)]"
+            onClick={() => {
+              a.onClick();
+              if (!a.keepOpen) onDismiss(data.id);
+            }}
+          >
+            {a.label}
+          </Button>
+        ))}
+        {duration > 0 && (
+          <span
+            aria-hidden="true"
+            className={cn("sn-toast-progress absolute bottom-0 left-0 h-0.5 w-full", variantBarClass[variant])}
+            style={{ animationDuration: `${duration}ms` }}
+          />
+        )}
+      </div>
+    );
+  }
 
   return (
     <div
