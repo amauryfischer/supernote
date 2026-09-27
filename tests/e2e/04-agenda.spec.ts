@@ -225,6 +225,38 @@ test.describe("04 — agenda", () => {
       await page.getByRole("button", { name: /Point équipe/ }).click();
       await expect(page.getByRole("button", { name: "Rejoindre" })).toBeVisible();
     });
+
+    test("en-tête à la Google Agenda : vues, mini-calendrier, mois", async ({ page }) => {
+      await withGoogleCalendar(page);
+      await page.goto("/agenda");
+      await page.getByRole("button", { name: /Reprendre|Connecter Google Agenda/ }).first().click({ timeout: 45_000 });
+      await expect(page.getByRole("button", { name: /Point équipe/ })).toBeVisible({ timeout: 30_000 });
+
+      // Vue 3 jours : pas de débordement, l'en-tête d'un jour ouvre la vue Jour.
+      await page.getByRole("button", { name: /^Vue :/ }).click();
+      await page.getByRole("menuitem", { name: "3 jours", exact: true }).click();
+      await expect(page.getByRole("button", { name: "Vue : 3 jours" })).toBeVisible();
+      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflow).toBeLessThanOrEqual(0);
+      await page.getByRole("button", { name: /^Voir le / }).nth(1).click();
+      await expect(page.getByRole("button", { name: "Vue : Jour" })).toBeVisible();
+
+      // Le titre du mois déplie un mini-calendrier ; un tap y choisit le jour.
+      await page.getByRole("button", { name: /afficher le calendrier/ }).click();
+      const target = new Date();
+      target.setDate(target.getDate() + 1);
+      const label = target.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
+      await page.getByRole("button", { name: label, exact: true }).first().click();
+      await expect(page.getByRole("button", { name: /afficher le calendrier/ })).toBeVisible();
+      await expect(page.getByRole("button", { name: /Salon VivaTech/ }).first()).toBeVisible();
+
+      // Mois : toute la cellule d'un jour ouvre ce jour.
+      await page.getByRole("button", { name: /^Vue :/ }).click();
+      await page.getByRole("menuitem", { name: "Mois", exact: true }).click();
+      const today = new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
+      await page.getByRole("button", { name: new RegExp(`^${today}, \\d+ élément`) }).click();
+      await expect(page.getByRole("button", { name: /Point équipe/ })).toBeVisible();
+    });
   });
 
   test.describe("téléphone 360 px", () => {

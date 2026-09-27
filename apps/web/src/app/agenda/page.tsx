@@ -50,8 +50,8 @@ function readSources(): Record<OverlaySource, boolean> {
     return ALL_SOURCES;
   }
 }
-const VIEWS: readonly AgendaView[] = ["day", "week", "month", "list"];
-const SHORTCUTS: Record<string, AgendaView> = { j: "day", s: "week", m: "month", l: "list" };
+const VIEWS: readonly AgendaView[] = ["day", "3day", "week", "month", "list"];
+const SHORTCUTS: Record<string, AgendaView> = { j: "day", "3": "3day", s: "week", m: "month", l: "list" };
 
 function readView(isMobile: boolean): AgendaView {
   try {
@@ -249,19 +249,23 @@ export default function AgendaPage() {
     return () => window.removeEventListener("keydown", onKey);
   }); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Balayage horizontal en vue Jour, au doigt.
-  const touchX = useRef<number | null>(null);
-  const swipeHandlers = isMobile && view === "day"
+  // Balayage horizontal au doigt, comme Google Agenda : période suivante/précédente.
+  // Pas en planning, qui défile verticalement ; un geste surtout vertical reste un défilement.
+  const touch0 = useRef<{ x: number; y: number } | null>(null);
+  const swipeHandlers = isMobile && view !== "list"
     ? {
         onTouchStart: (e: React.TouchEvent) => {
-          touchX.current = e.touches[0]?.clientX ?? null;
+          const t = e.touches[0];
+          touch0.current = t && e.touches.length === 1 ? { x: t.clientX, y: t.clientY } : null;
         },
         onTouchEnd: (e: React.TouchEvent) => {
-          const x0 = touchX.current;
-          const x1 = e.changedTouches[0]?.clientX;
-          touchX.current = null;
-          if (x0 === null || x1 === undefined || Math.abs(x1 - x0) < 60) return;
-          onNavigate(x1 < x0 ? 1 : -1);
+          const p0 = touch0.current;
+          const t = e.changedTouches[0];
+          touch0.current = null;
+          if (!p0 || !t) return;
+          const dx = t.clientX - p0.x;
+          if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(t.clientY - p0.y) * 1.5) return;
+          onNavigate(dx < 0 ? 1 : -1);
         },
       }
     : {};
@@ -349,6 +353,7 @@ export default function AgendaPage() {
     view === "month" ? (
       <MonthGrid
         {...gridProps}
+        mobile={isMobile}
         month={anchor}
         onPickDay={(day) => {
           setAnchor(day);
@@ -356,9 +361,19 @@ export default function AgendaPage() {
         }}
       />
     ) : view === "list" ? (
-      <AgendaList {...gridProps} />
+      <AgendaList {...gridProps} onMore={() => onNavigate(1)} />
     ) : (
-      <TimeGrid {...gridProps} interactive={!isMobile} onMoveEvent={move} onDropTask={isMobile ? undefined : dropTask} />
+      <TimeGrid
+        {...gridProps}
+        mobile={isMobile}
+        interactive={!isMobile}
+        onMoveEvent={move}
+        onDropTask={isMobile ? undefined : dropTask}
+        onPickDay={(day) => {
+          setAnchor(day);
+          setView("day");
+        }}
+      />
     );
 
   const detail = selected && (
@@ -389,6 +404,7 @@ export default function AgendaPage() {
               isMobile={isMobile}
               onView={setView}
               onNavigate={onNavigate}
+              onJump={setAnchor}
               syncPaused={syncPaused}
               onResume={() => void connect()}
               pendingCount={pendingCount}
@@ -415,7 +431,7 @@ export default function AgendaPage() {
               <div className="flex min-h-0 min-w-0 flex-1 flex-col" {...swipeHandlers}>
                 {gridView}
               </div>
-              {!isMobile && (view === "day" || view === "week") && (
+              {!isMobile && (view === "day" || view === "3day" || view === "week") && (
                 <TaskDrawer tasks={toPlan} onPick={(t) => setScheduling({ task: { ref: t.ref, title: t.title } })} />
               )}
               {!isMobile && detail && (

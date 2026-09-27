@@ -14,11 +14,13 @@ import { DAY_MS, addDays, dateKey, isSameDay, minutesOfDay } from "@/lib/agenda/
 import { layoutDay } from "@/lib/agenda/layout";
 import { TASK_DRAG_MIME } from "@/lib/agenda/task-ref";
 import { SLOT_MIN } from "@/lib/agenda/free-slots";
-import { EventBlock, calendarColor, canEditCalendar, eventTint, isTaskClosed } from "./EventBlock";
+import { EventBlock, calendarColor, calendarTextColor, canEditCalendar, eventTint, isTaskClosed } from "./EventBlock";
 import { OverlayChip } from "./OverlayChip";
 import type { AgendaOverlay } from "./useAgendaData";
 
-const PX_PER_MIN = 0.8;
+const DESKTOP_PX_PER_MIN = 0.8;
+/** 60 px l'heure au doigt, comme Google Agenda : un créneau d'une demi-heure reste tapable. */
+const MOBILE_PX_PER_MIN = 1;
 const SNAP_MIN = 15;
 const DRAG_THRESHOLD_PX = 4;
 const HOURS = Array.from({ length: 24 }, (_, h) => h);
@@ -38,6 +40,10 @@ export interface GridProps {
   onMoveEvent: (ev: CalEventRow, startAt: number, endAt: number) => void;
   /** Dépôt d'une tâche du tiroir (glisser HTML5), ordinateur seulement. */
   onDropTask?: (ref: string, startAt: number) => void;
+  /** Rendu téléphone à la Google Agenda : heures hautes, pastilles pleines, marge étroite. */
+  mobile?: boolean;
+  /** Tap sur l'en-tête d'un jour (vues multi-jours) : ouvre ce jour. */
+  onPickDay?: (day: number) => void;
 }
 
 type Drag =
@@ -62,7 +68,10 @@ export function TimeGrid({
   onCreateAt,
   onMoveEvent,
   onDropTask,
+  mobile = false,
+  onPickDay,
 }: GridProps) {
+  const PX_PER_MIN = mobile ? MOBILE_PX_PER_MIN : DESKTOP_PX_PER_MIN;
   const scrollRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const columnsRef = useRef<HTMLDivElement>(null);
@@ -173,7 +182,12 @@ export function TimeGrid({
     onCreateAt(startAt, startAt + 60 * 60_000, false);
   };
 
-  const cols = `3rem repeat(${days.length}, minmax(0, 1fr))`;
+  const cols = `${mobile ? "2.5rem" : "3rem"} repeat(${days.length}, minmax(0, 1fr))`;
+  const single = days.length === 1;
+  const hasAllDayRow = days.some(
+    (day) => allDay.some((ev) => overlapsDay(ev, day)) || overlays.some((o) => o.date === dateKey(day) && o.atMs === null),
+  );
+  const solidText = (calendarId: string) => (mobile ? calendarTextColor(calendars, calendarId) : undefined);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -182,57 +196,80 @@ export function TimeGrid({
         <div />
         {days.map((day) => {
           const today = isSameDay(day, now);
-          return (
-            <div key={day} className="flex flex-col items-center py-1.5">
-              <span className="text-[11px] capitalize" style={{ color: "var(--text-muted)" }}>
+          const label = (
+            <>
+              <span
+                className={`capitalize ${mobile ? "text-[11px] font-medium uppercase" : "text-[11px]"}`}
+                style={{ color: today ? "var(--accent)" : "var(--text-muted)" }}
+              >
                 {WEEKDAY.format(day)}
               </span>
               <span
-                className="flex h-7 min-w-7 items-center justify-center rounded-full px-1 text-sm font-semibold tabular-nums"
+                className={`flex items-center justify-center rounded-full px-1 tabular-nums ${mobile ? "h-8 min-w-8 text-lg" : "h-7 min-w-7 text-sm font-semibold"}`}
                 style={today ? { background: "var(--accent)", color: "var(--accent-foreground)" } : { color: "var(--text-primary)" }}
               >
                 {new Date(day).getDate()}
               </span>
+            </>
+          );
+          // Bouton natif : cellule d'en-tête dense, empilement vertical que le Button HeroUI centrerait en ligne.
+          return onPickDay && !single ? (
+            <button
+              key={day}
+              type="button"
+              onClick={() => onPickDay(day)}
+              aria-label={`Voir le ${new Date(day).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" })}`}
+              className="flex flex-col items-center rounded-md py-1.5 outline-none focus-visible:ring-2 focus-visible:ring-[var(--border-focus)]"
+            >
+              {label}
+            </button>
+          ) : (
+            <div key={day} className={`flex flex-col py-1.5 ${single && mobile ? "items-start pl-2" : "items-center"}`}>
+              {label}
             </div>
           );
         })}
       </div>
 
-      {/* Bande « toute la journée » : événements sur la journée, todos, dates de bases */}
-      <div className="grid shrink-0 border-b" style={{ gridTemplateColumns: cols, borderColor: "var(--border-subtle)" }}>
-        <div className="flex items-start justify-end px-1 pt-1 text-[10px]" style={{ color: "var(--text-muted)" }}>
-          Journée
+      {/* Bande « toute la journée » : événements sur la journée, todos, dates de bases.
+          Au téléphone, masquée quand elle est vide : la hauteur compte. */}
+      {(!mobile || hasAllDayRow) && (
+        <div className="grid shrink-0 border-b" style={{ gridTemplateColumns: cols, borderColor: "var(--border-subtle)" }}>
+          <div className="flex items-start justify-end px-1 pt-1 text-[10px]" style={{ color: "var(--text-muted)" }}>
+            {mobile ? "" : "Journée"}
+          </div>
+          {days.map((day) => {
+            const key = dateKey(day);
+            const dayEvents = allDay.filter((ev) => overlapsDay(ev, day));
+            const dayOverlays = overlays.filter((o) => o.date === key && o.atMs === null);
+            return (
+              <div
+                key={day}
+                className="flex min-h-7 min-w-0 flex-col gap-0.5 border-l p-0.5"
+                style={{ borderColor: "var(--border-subtle)" }}
+                onDoubleClick={(e) => {
+                  if (e.target === e.currentTarget) onCreateAt(day, day + DAY_MS, true);
+                }}
+              >
+                {dayEvents.map((ev) => (
+                  <EventBlock
+                    key={ev.id}
+                    event={ev}
+                    compact
+                    color={calendarColor(calendars, ev.calendarId)}
+                    solidText={solidText(ev.calendarId)}
+                    taskClosed={isTaskClosed(ev, openTaskRefs)}
+                    onSelect={(el) => onSelectEvent(ev, el)}
+                  />
+                ))}
+                {dayOverlays.map((o) => (
+                  <OverlayChip key={o.key} overlay={o} />
+                ))}
+              </div>
+            );
+          })}
         </div>
-        {days.map((day) => {
-          const key = dateKey(day);
-          const dayEvents = allDay.filter((ev) => overlapsDay(ev, day));
-          const dayOverlays = overlays.filter((o) => o.date === key && o.atMs === null);
-          return (
-            <div
-              key={day}
-              className="flex min-h-7 min-w-0 flex-col gap-0.5 border-l p-0.5"
-              style={{ borderColor: "var(--border-subtle)" }}
-              onDoubleClick={(e) => {
-                if (e.target === e.currentTarget) onCreateAt(day, day + DAY_MS, true);
-              }}
-            >
-              {dayEvents.map((ev) => (
-                <EventBlock
-                  key={ev.id}
-                  event={ev}
-                  compact
-                  color={calendarColor(calendars, ev.calendarId)}
-                  taskClosed={isTaskClosed(ev, openTaskRefs)}
-                  onSelect={(el) => onSelectEvent(ev, el)}
-                />
-              ))}
-              {dayOverlays.map((o) => (
-                <OverlayChip key={o.key} overlay={o} />
-              ))}
-            </div>
-          );
-        })}
-      </div>
+      )}
 
       {/* Colonnes horaires */}
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
@@ -244,7 +281,7 @@ export function TimeGrid({
                 className="absolute right-1 -translate-y-1/2 text-[10px] tabular-nums"
                 style={{ top: h * 60 * PX_PER_MIN, color: "var(--text-muted)" }}
               >
-                {h === 0 ? "" : `${String(h).padStart(2, "0")}:00`}
+                {h === 0 ? "" : mobile ? `${h} h` : `${String(h).padStart(2, "0")}:00`}
               </span>
             ))}
           </div>
@@ -315,6 +352,7 @@ export function TimeGrid({
                           event={p.item}
                           compact={p.height < 36}
                           color={calendarColor(calendars, p.item.calendarId)}
+                          solidText={solidText(p.item.calendarId)}
                           style={{ height: "100%" }}
                           taskClosed={isTaskClosed(p.item, openTaskRefs)}
                           onSelect={(el) => onSelectEvent(p.item, el)}
@@ -364,7 +402,9 @@ export function TimeGrid({
                       aria-hidden
                       className="pointer-events-none absolute inset-x-0 z-20 h-0.5"
                       style={{ top: minutesOfDay(now) * PX_PER_MIN, background: "var(--danger)" }}
-                    />
+                    >
+                      <span className="absolute -left-1.5 -top-[5px] h-3 w-3 rounded-full" style={{ background: "var(--danger)" }} />
+                    </div>
                   )}
                 </div>
               );
