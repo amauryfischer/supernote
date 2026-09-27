@@ -33,7 +33,6 @@ export type MailActionId =
   | "goStarred"
   // Triage
   | "archive"
-  | "done"
   | "snooze"
   | "snoozeMenu"
   | "delete"
@@ -165,17 +164,10 @@ export const MAIL_SHORTCUTS: MailBinding[] = [
   // ── Triage ────────────────────────────────────────────────────────────────
   {
     id: "archive",
-    keys: [["e"]],
+    // `d` (ancien « Fait ») reste un alias : Gmail ne distinguait pas les deux.
+    keys: [["e"], ["d"]],
     display: "e",
-    label: "Archiver",
-    group: "Triage",
-    contexts: ALL,
-  },
-  {
-    id: "done",
-    keys: [["d"]],
-    display: "d",
-    label: "Marquer comme fait",
+    label: "Archiver (retire aussi des Todo)",
     group: "Triage",
     contexts: ALL,
   },

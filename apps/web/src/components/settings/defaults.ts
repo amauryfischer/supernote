@@ -64,6 +64,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     // Unanimité par défaut : un tag faux fait SORTIR le fil de la boîte.
     autoLabelConfidence: "strict",
     listSummary: false,
+    blockRemoteImages: false,
   },
 };
 

@@ -47,7 +47,8 @@ export const MobileShell = memo(function MobileShell({
   const [moreOpen, setMoreOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [connectVaultOpen, setConnectVaultOpen] = useState(false);
-  const { columnEditor, closeColumnEditor, entityPeek, closeEntityPeek } = useShellChrome();
+  const { columnEditor, closeColumnEditor, entityPeek, closeEntityPeek, mobileBottomBar, setMobileBottomSlot } =
+    useShellChrome();
 
   // Focus mode: while the keyboard is up and the note editor is focused, drop
   // ALL chrome (header, FAB, bottom nav) so only the note content shows. The
@@ -128,7 +129,19 @@ export const MobileShell = memo(function MobileShell({
             : 0,
         }}
       >
-        <MobileBottomNav onOpenMore={() => setMoreOpen(true)} />
+        {mobileBottomBar ? (
+          <div
+            ref={setMobileBottomSlot}
+            className="border-t"
+            style={{
+              background: "var(--surface-0, var(--background))",
+              borderColor: "var(--border-subtle)",
+              paddingBottom: "env(safe-area-inset-bottom, 0px)",
+            }}
+          />
+        ) : (
+          <MobileBottomNav onOpenMore={() => setMoreOpen(true)} />
+        )}
       </div>
 
       <MoreDrawer

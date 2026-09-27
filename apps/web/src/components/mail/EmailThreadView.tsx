@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, forwardRef, useImperativeHandle, type ReactNode } from "react";
-import { ArrowSquareOut, Plus, X, Tag, MagnifyingGlass, Check, PaperPlaneTilt, Quotes, Paperclip, Star, Envelope, ArrowBendUpRight, Sparkle, MagicWand, ArrowsClockwise, CaretUp, DotsThreeVertical, Copy, Image as ImageIcon, SpeakerSlash, UserMinus, UserPlus, WarningCircle, ShareNetwork } from "@phosphor-icons/react";
+import { ArrowSquareOut, Plus, X, Tag, MagnifyingGlass, Check, PaperPlaneTilt, Quotes, Paperclip, Star, Envelope, ArrowBendUpRight, Sparkle, MagicWand, ArrowsClockwise, CaretUp, DotsThreeVertical, Copy, Image as ImageIcon, SpeakerSlash, UserMinus, UserPlus, WarningCircle, ShareNetwork, Trash, ArrowBendUpLeft } from "@phosphor-icons/react";
 import { Button, Chip, Input, Spinner, Popover } from "@heroui/react";
 import { useToast, Tooltip } from "@supernote/ui";
 import { useActionFeedback, FeedbackIcon } from "@/lib/action-feedback";
@@ -34,6 +34,8 @@ import { senderHue } from "@/lib/mail-avatar";
 import { formatMailDateTime } from "@/lib/mail-date";
 import {
   sanitizeEmailHtml,
+  extractStyles,
+  isTemplatedHtml,
   splitQuotedHtml,
   splitSignatureHtml,
   loadImageSenders,
@@ -92,6 +94,8 @@ import {
 } from "@/lib/mail-eisenhower";
 import { QuickRepliesRow } from "./QuickRepliesRow";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { createPortal } from "react-dom";
+import { useMobileBottomBar } from "@/components/shell/shell-chrome-context";
 import { useKeyboardViewport } from "@/hooks/useKeyboardOpen";
 import { useMailQuickRepliesChrome } from "@/components/shell/shell-chrome-context";
 import {
@@ -123,7 +127,7 @@ const MENU_COMPONENT_ROW =
  *
  * Corps : deux chemins. Si le message a un corps text/html (`bodyHtml`), il est
  * rendu SANITIZÉ via DOMPurify (`sanitizeEmailHtml`, voir `lib/mail-html.ts`)
- * dans un conteneur isolé — pas d'extraction citation/signature sur ce chemin.
+ * dans une iframe sandboxée ajustée à la largeur (`MailHtmlFrame`).
  * Sinon, fallback TEXTE BRUT historique (`bodyText`) avec citation/signature
  * retirées mais dépliables. Aucun HTML non sanitizé n'est jamais rendu (anti-XSS).
  *
@@ -276,20 +280,18 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
     setLabelIds(thread.labelIds);
   }, [thread]);
 
-  // Archivage après « ignorer » / « bloquer » : via l'outbox de la page (hors ligne,
+  // Triage depuis le menu « Plus » : via l'outbox de la page (hors ligne,
   // « Annuler ») quand elle est là ; appel Gmail direct dans un bloc de note.
-  const archiveThen = (done: () => void) => {
+  const triageFromMenu = (action: "archive" | "delete") => {
     if (onTriage) {
-      onTriage("archive");
-      done();
+      onTriage(action);
       return;
     }
-    void applyTriage(clientId, thread.id, "archive")
-      .then(() => {
-        onTriaged?.("archive");
-        done();
-      })
-      .catch(() => toast({ title: "Archivage échoué", variant: "danger" }));
+    void applyTriage(clientId, thread.id, action)
+      .then(() => onTriaged?.(action))
+      .catch(() =>
+        toast({ title: action === "delete" ? "Suppression échouée" : "Archivage échoué", variant: "danger" }),
+      );
   };
 
   const pushLabels = (change: { addLabelIds?: string[]; removeLabelIds?: string[] }): Promise<void> => {
@@ -365,6 +367,9 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
   // injecte le texte choisi.
   const replyTaRef = useRef<HTMLTextAreaElement>(null);
   const isMobile = useIsMobile();
+  // Sur téléphone, les actions du fil prennent la place de la nav du bas (au pouce).
+  const bottomSlot = useMobileBottomBar(isMobile && !embedded);
+  const inBottomBar = (node: ReactNode) => (bottomSlot ? createPortal(node, bottomSlot) : node);
   // Mobile, clavier ouvert depuis la réponse : le composeur couvre la zone visible
   // au-dessus du clavier, jusqu'à ce qu'il se referme (pas au blur : un tap sur
   // « Envoyer » déplacerait le bouton sous le doigt avant le relâchement).
@@ -930,37 +935,31 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
               <span />
             )}
           </div>
-          {/* Boutons DIRECTS : Étoile, Todo, TriageBar, Gmail.
-              Toutes les actions SECONDAIRES sont regroupées dans le menu « Plus »
-              (kebab) ci-dessous — masqué en mode embed. On garde un Popover (et
-              non DropdownMenu items) car 4 actions sont des composants
-              self-contained à overlay propre : on les déplace tels quels. */}
+          {/* Boutons DIRECTS : Todo, Archiver, Reporter, Plus — le reste vit dans
+              « Plus ». Popover (et non Dropdown) car plusieurs actions sont des
+              composants self-contained à overlay propre, déplacés tels quels. */}
+          {inBottomBar(
           <div
-            className={`flex shrink-0 items-center justify-end gap-1.5${
-              embedded ? "" : " max-md:sticky max-md:top-0 max-md:z-10 max-md:-mx-4 max-md:border-b max-md:px-4 max-md:py-1"
-            }`}
-            style={
-              embedded
-                ? undefined
-                : { background: "var(--surface-0, var(--background))", borderColor: "var(--border-subtle)" }
+            className={
+              bottomSlot
+                ? "flex items-center justify-around gap-1 px-3 py-1.5"
+                : "flex shrink-0 items-center justify-end gap-1.5"
             }
           >
-            {clientId && (
-              <Tooltip content={starred ? "Retirer l'étoile (t)" : "Mettre une étoile (t)"}>
+            {bottomSlot && clientId && replyParams.to && (
+              <Tooltip content="Répondre (r)">
                 <Button
                   isIconOnly
                   variant="ghost"
                   size="sm"
-                  onPress={() => void onToggleStar()}
-                  aria-label={starred ? "Retirer l'étoile" : "Mettre une étoile"}
-                  aria-pressed={starred}
-                  className="h-9 min-h-9 w-9 min-w-9 shrink-0"
+                  aria-label="Répondre"
+                  className="h-10 min-h-10 w-10 min-w-10"
+                  onPress={() => {
+                    replyTaRef.current?.scrollIntoView({ block: "nearest" });
+                    replyTaRef.current?.focus();
+                  }}
                 >
-                  <Star
-                    size={18}
-                    weight={starred ? "fill" : "regular"}
-                    style={{ color: starred ? "#f5b300" : "var(--text-muted)" }}
-                  />
+                  <ArrowBendUpLeft size={20} aria-hidden />
                 </Button>
               </Tooltip>
             )}
@@ -979,33 +978,39 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
               <TriageBar clientId={clientId} threadId={thread.id} onTriaged={onTriaged} onTriage={onTriage} />
             )}
             {!embedded && (
-              <Tooltip content="Ouvrir dans Gmail">
-                <Button
-                  isIconOnly
-                  variant="ghost"
-                  size="sm"
-                  onPress={() => window.open(buildGmailThreadUrl(thread.id), "_blank", "noopener")}
-                  aria-label="Ouvrir le fil dans Gmail"
-                  className="h-9"
-                >
-                  <ArrowSquareOut size={18} aria-hidden />
-                </Button>
-              </Tooltip>
-            )}
-            {!embedded && (
               <Popover isOpen={moreOpen} onOpenChange={setMoreOpen}>
                 <Button
                   isIconOnly
                   variant="ghost"
                   size="sm"
                   aria-label="Plus d'actions"
-                  className="h-8 min-h-8 w-8 min-w-8 shrink-0"
+                  className="h-9 min-h-9 w-9 min-w-9 shrink-0"
                 >
                   <DotsThreeVertical size={18} aria-hidden />
                 </Button>
                 <Popover.Content className="w-64 p-1">
                   <Popover.Dialog className="outline-none">
                     <div className="flex flex-col gap-0.5">
+                      {clientId && (
+                        <Button
+                          variant="ghost"
+                          onPress={() => {
+                            setMoreOpen(false);
+                            void onToggleStar();
+                          }}
+                          className={MENU_ROW}
+                          aria-label={starred ? "Retirer l'étoile" : "Mettre une étoile"}
+                          aria-pressed={starred}
+                        >
+                          <Star
+                            size={16}
+                            weight={starred ? "fill" : "regular"}
+                            style={{ color: starred ? "var(--warning)" : undefined }}
+                          />
+                          <span className="flex-1 text-left">{starred ? "Retirer l'étoile" : "Mettre une étoile"}</span>
+                          <kbd className="text-xs" style={{ color: "var(--text-muted)" }}>t</kbd>
+                        </Button>
+                      )}
                       {aiConfigured && (
                         <Button
                           variant="ghost"
@@ -1051,7 +1056,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
                             {...(onForward ? { onCompose: onForward } : {})}
                             onBlockAndArchive={() => {
                               blockSender(correspondentMsg.from.email);
-                              archiveThen(() => undefined);
+                              triageFromMenu("archive");
                             }}
                           />
                         </div>
@@ -1064,7 +1069,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
                           onPress={() => {
                             setMoreOpen(false);
                             muteThread(thread.id);
-                            archiveThen(() => undefined);
+                            triageFromMenu("archive");
                           }}
                         >
                           <SpeakerSlash size={16} />
@@ -1079,7 +1084,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
                           onPress={() => {
                             setMoreOpen(false);
                             blockSender(correspondentMsg.from.email);
-                            archiveThen(() => undefined);
+                            triageFromMenu("archive");
                           }}
                         >
                           <UserMinus size={16} />
@@ -1157,12 +1162,44 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
                       <div className={MENU_COMPONENT_ROW}>
                         <EmailToEventButton message={firstMsg} />
                       </div>
+                      <Button
+                        variant="ghost"
+                        className={MENU_ROW}
+                        aria-label="Ouvrir le fil dans Gmail"
+                        onPress={() => {
+                          setMoreOpen(false);
+                          window.open(buildGmailThreadUrl(thread.id), "_blank", "noopener");
+                        }}
+                      >
+                        <ArrowSquareOut size={16} />
+                        <span>Ouvrir dans Gmail</span>
+                      </Button>
+                      {clientId && (
+                        <>
+                          <div role="separator" className="my-1 h-px" style={{ background: "var(--border-subtle)" }} />
+                          <Button
+                            variant="ghost"
+                            className={MENU_ROW}
+                            style={{ color: "var(--danger)" }}
+                            aria-label="Supprimer (corbeille)"
+                            onPress={() => {
+                              setMoreOpen(false);
+                              triageFromMenu("delete");
+                            }}
+                          >
+                            <Trash size={16} />
+                            <span className="flex-1 text-left">Supprimer</span>
+                            <kbd className="text-xs" style={{ color: "var(--text-muted)" }}>#</kbd>
+                          </Button>
+                        </>
+                      )}
                     </div>
                   </Popover.Dialog>
                 </Popover.Content>
               </Popover>
             )}
-          </div>
+          </div>,
+          )}
         </div>
         {/* Adresse du correspondant + copie rapide (QoL : récupérer l'email sans
             ouvrir le composeur). Masqué en embed / si pas d'adresse. */}
@@ -1265,7 +1302,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
               isIconOnly
               onPress={openPicker}
               aria-label="Ajouter un label (touche l)"
-              className="flex h-7 min-h-7 w-7 min-w-7 items-center justify-center rounded-full p-0"
+              className="flex h-7 min-h-7 w-7 min-w-7 items-center justify-center rounded-full p-0 max-md:h-8 max-md:min-h-8 max-md:w-8 max-md:min-w-8"
               style={{ border: "1px dashed var(--border)", color: "var(--text-muted)" }}
             >
               <Plus size={12} weight="bold" />
@@ -1925,28 +1962,109 @@ function senderTint(key: string): { bg: string; border: string } {
   return { bg: `hsl(${h} 70% 50% / 0.14)`, border: `hsl(${h} 70% 50% / 0.35)` };
 }
 
-/**
- * CSS scopé au conteneur de corps HTML d'e-mail (chemin `bodyHtml`). Injecté une
- * seule fois au niveau module (pas de modif globals.css — règle WIP). Borne les
- * débordements (images/tables/pré larges) pour rester dans la bulle, sans
- * réécrire le HTML de l'expéditeur. Mobile : images fluides, scroll horizontal
- * local pour les tables larges plutôt qu'un débordement de la page.
- */
-const MAIL_HTML_STYLE_ID = "sn-mail-html-style";
-const MAIL_HTML_CSS = `
-.sn-mail-html img { max-width: 100%; height: auto; }
-.sn-mail-html table { max-width: 100%; border-collapse: collapse; }
-.sn-mail-html pre { white-space: pre-wrap; word-break: break-word; }
-.sn-mail-html a { color: var(--accent); }
-.sn-mail-html blockquote { margin: 0.5em 0; padding-left: 0.75em; border-left: 2px solid var(--border-subtle); color: var(--text-muted); }
+const MAIL_FRAME_CSS = `
+html, body { margin: 0; padding: 0; overflow: hidden; }
+body { font-size: 14px; line-height: 1.5; overflow-wrap: break-word; }
+#sn-root { transform-origin: 0 0; }
+img { max-width: 100%; height: auto; }
+pre { white-space: pre-wrap; word-break: break-word; }
+blockquote { margin: 0.5em 0; padding-left: 0.75em; border-left: 2px solid rgb(128 128 128 / 0.4); }
 `;
-function ensureMailHtmlStyle(): void {
-  if (typeof document === "undefined") return;
-  if (document.getElementById(MAIL_HTML_STYLE_ID)) return;
-  const el = document.createElement("style");
-  el.id = MAIL_HTML_STYLE_ID;
-  el.textContent = MAIL_HTML_CSS;
-  document.head.appendChild(el);
+
+/**
+ * Corps HTML d'un mail, déjà sanitizé, dans une iframe sandboxée : son CSS reste
+ * confiné, ses media queries voient la largeur réelle. Pas de `allow-scripts`, donc
+ * `allow-same-origin` sert juste au parent à mesurer le document. Un gabarit plus
+ * large que la place disponible est réduit à l'échelle (comme Gmail mobile) plutôt
+ * que tronqué ; la hauteur suit le contenu, images comprises.
+ */
+function MailHtmlFrame({
+  html,
+  styles,
+  templated,
+  className,
+  style,
+}: {
+  html: string;
+  styles: string;
+  templated: boolean;
+  className?: string;
+  style?: React.CSSProperties;
+}) {
+  const ref = useRef<HTMLIFrameElement>(null);
+  const [height, setHeight] = useState(0);
+  const srcDoc = useMemo(
+    () =>
+      `<!doctype html><html><head><meta charset="utf-8"><base target="_blank"><style>${MAIL_FRAME_CSS}</style>${styles}</head><body><div id="sn-root">${html}</div></body></html>`,
+    [html, styles],
+  );
+
+  useEffect(() => {
+    const iframe = ref.current;
+    if (!iframe) return;
+    let cleanup = () => {};
+    const setup = () => {
+      cleanup();
+      const doc = iframe.contentDocument;
+      const root = doc?.getElementById("sn-root");
+      if (!doc || !root) return;
+      const cs = getComputedStyle(iframe);
+      if (templated) {
+        doc.documentElement.style.colorScheme = "light";
+        doc.body.style.background = "#fff";
+        doc.body.style.color = "#000";
+      } else {
+        // Mail simple : prend la typo et les couleurs de l'app. Même color-scheme que
+        // la page, sinon Chrome peint l'iframe en blanc opaque.
+        doc.documentElement.style.colorScheme = cs.colorScheme;
+        doc.body.style.color = cs.color;
+        doc.body.style.fontFamily = cs.fontFamily;
+        const accent = cs.getPropertyValue("--accent").trim();
+        if (accent) doc.head.insertAdjacentHTML("beforeend", `<style>a{color:${accent}}</style>`);
+      }
+      doc.body.style.fontFamily ||= cs.fontFamily;
+      const fit = () => {
+        root.style.width = "";
+        root.style.transform = "";
+        const avail = iframe.clientWidth;
+        const natural = Math.max(root.scrollWidth, root.offsetWidth);
+        const scale = natural > avail && avail > 0 ? avail / natural : 1;
+        if (scale < 1) {
+          root.style.width = `${natural}px`;
+          root.style.transform = `scale(${scale})`;
+        }
+        setHeight(Math.ceil(root.offsetHeight * scale));
+      };
+      fit();
+      const View = doc.defaultView?.ResizeObserver ?? ResizeObserver;
+      const inner = new View(fit);
+      inner.observe(root);
+      const outer = new ResizeObserver(fit);
+      outer.observe(iframe);
+      doc.querySelectorAll("img").forEach((img) => img.addEventListener("load", fit));
+      cleanup = () => {
+        inner.disconnect();
+        outer.disconnect();
+      };
+    };
+    iframe.addEventListener("load", setup);
+    if (iframe.contentDocument?.readyState === "complete") setup();
+    return () => {
+      iframe.removeEventListener("load", setup);
+      cleanup();
+    };
+  }, [srcDoc, templated]);
+
+  return (
+    <iframe
+      ref={ref}
+      title="Contenu du message"
+      sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+      srcDoc={srcDoc}
+      className={`block w-full border-0 ${className ?? ""}`}
+      style={{ height, ...style }}
+    />
+  );
 }
 
 /** « à X, Y · cc Z » (moi = compte connecté) + adresses complètes pour l'infobulle. */
@@ -1994,24 +2112,22 @@ function MessageBubble({
     () => false,
   );
   const [showImagesOnce, setShowImagesOnce] = useState(false);
-  const allowRemoteImages = senderTrusted || showImagesOnce;
+  const { settings } = useSettings();
+  const allowRemoteImages = !(settings.gmail.blockRemoteImages ?? false) || senderTrusted || showImagesOnce;
   // Chemin HTML : sanitize PUIS sépare contenu neuf, signature et citation, ces deux
   // dernières repliées. Mémoïsé : la sanitization touche le DOM (template parse).
   const htmlParts = useMemo(() => {
     if (!message.bodyHtml) return null;
-    const { html, blockedImages } = sanitizeEmailHtml(message.bodyHtml, { allowRemoteImages });
+    const sanitized = sanitizeEmailHtml(message.bodyHtml, { allowRemoteImages });
+    const { html, styles } = extractStyles(sanitized.html);
     const { body, quoted } = splitQuotedHtml(html);
-    return { ...splitSignatureHtml(body), quoted, blockedImages };
+    return { ...splitSignatureHtml(body), quoted, styles, templated: isTemplatedHtml(html), blockedImages: sanitized.blockedImages };
   }, [message.bodyHtml, allowRemoteImages]);
   // Chemin texte (fallback historique) : parse uniquement quand pas de HTML.
   const { body, quoted, signature } = useMemo(
     () => (htmlParts ? { body: "", quoted: "", signature: "" } : parseEmailBody(message.bodyText || message.snippet)),
     [htmlParts, message.bodyText, message.snippet],
   );
-  // Injecte le CSS scopé du conteneur HTML à la 1ʳᵉ bulle HTML rendue.
-  useEffect(() => {
-    if (htmlParts) ensureMailHtmlStyle();
-  }, [htmlParts]);
   const copyFb = useActionFeedback();
   // Copie le contenu neuf (sans citation ni signature) ; en HTML, garde la mise en forme au collage.
   const copyMessage = () =>
@@ -2035,13 +2151,14 @@ function MessageBubble({
       ]);
     });
   const canCopy = Boolean(htmlParts?.body || body);
+  const templated = htmlParts?.templated ?? false;
   return (
     <div className="flex">
       <div
-        className="w-full min-w-0 rounded-2xl border px-3.5 py-2.5"
+        className="w-full min-w-0 overflow-hidden rounded-2xl border px-3.5 py-2.5"
         style={{
-          backgroundColor: tint ? tint.bg : "var(--accent-subtle)",
-          borderColor: tint ? tint.border : "var(--border-subtle)",
+          backgroundColor: templated ? "transparent" : tint ? tint.bg : "var(--accent-subtle)",
+          borderColor: templated ? "var(--border-subtle)" : tint ? tint.border : "var(--border-subtle)",
         }}
       >
         <div className="mb-1 flex items-baseline justify-between gap-3">
@@ -2079,33 +2196,39 @@ function MessageBubble({
         </div>
 
         {htmlParts ? (
-          // Corps HTML sanitizé (DOMPurify) — conteneur isolé : largeur bornée,
-          // retour à la ligne, images responsives. La citation (historique) est
-          // séparée et repliée pour éviter les « blocs rémanents ».
+          // La citation (historique) est séparée et repliée pour éviter les « blocs rémanents ».
           <>
             {htmlParts.blockedImages > 0 && (
-              <div
-                className="mb-1.5 flex flex-wrap items-center gap-x-1 gap-y-0.5 text-xs"
-                style={{ color: "var(--text-muted)" }}
-              >
+              <div className="mb-1.5 flex items-center gap-1 text-xs" style={{ color: "var(--text-muted)" }}>
                 <ImageIcon size={14} aria-hidden className="shrink-0" />
-                <span className="mr-1">Images masquées (suivi d&apos;ouverture)</span>
-                <Button size="sm" variant="ghost" onPress={() => setShowImagesOnce(true)}>
+                <span className="min-w-0 truncate">Images masquées</span>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 min-h-7 shrink-0 px-2 text-xs"
+                  onPress={() => setShowImagesOnce(true)}
+                >
                   Afficher
                 </Button>
                 {senderEmail && (
-                  <Button size="sm" variant="ghost" onPress={() => trustImageSender(senderEmail)}>
-                    Toujours pour cet expéditeur
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 min-h-7 shrink-0 px-2 text-xs"
+                    onPress={() => trustImageSender(senderEmail)}
+                  >
+                    Toujours
                   </Button>
                 )}
               </div>
             )}
             {htmlParts.body && (
-              <div
-                className="sn-mail-html max-w-full overflow-x-auto break-words text-sm"
-                style={{ color: "var(--text-secondary)" }}
-                // eslint-disable-next-line react/no-danger -- contenu sanitizé en amont (sanitizeEmailHtml)
-                dangerouslySetInnerHTML={{ __html: htmlParts.body }}
+              <MailHtmlFrame
+                html={htmlParts.body}
+                styles={htmlParts.styles}
+                templated={templated}
+                className={templated ? "-mx-3.5" : undefined}
+                style={{ color: "var(--text-secondary)", ...(templated && { width: "calc(100% + 1.75rem)", maxWidth: "none" }) }}
               />
             )}
             {htmlParts.signature && (
@@ -2113,6 +2236,7 @@ function MessageBubble({
                 openLabel="··· Afficher la signature"
                 closeLabel="Masquer la signature"
                 html={htmlParts.signature}
+                styles={htmlParts.styles}
               />
             )}
             {htmlParts.quoted && (
@@ -2120,6 +2244,7 @@ function MessageBubble({
                 openLabel="··· Afficher la citation"
                 closeLabel="Masquer la citation"
                 html={htmlParts.quoted}
+                styles={htmlParts.styles}
               />
             )}
           </>
@@ -2269,15 +2394,22 @@ function CollapsibleBlock({ openLabel, closeLabel, text }: { openLabel: string; 
 }
 
 /** `html` doit être DÉJÀ sanitizé (découpé après `sanitizeEmailHtml`). */
-function CollapsibleHtml({ openLabel, closeLabel, html }: { openLabel: string; closeLabel: string; html: string }) {
+function CollapsibleHtml({
+  openLabel,
+  closeLabel,
+  html,
+  styles,
+}: {
+  openLabel: string;
+  closeLabel: string;
+  html: string;
+  styles: string;
+}) {
   return (
     <Collapsible openLabel={openLabel} closeLabel={closeLabel}>
-      <div
-        className="sn-mail-html mt-1 max-w-full overflow-x-auto break-words border-l pl-2 text-sm"
-        style={{ color: "var(--text-muted)", borderColor: "var(--border-subtle)" }}
-        // eslint-disable-next-line react/no-danger -- HTML déjà sanitizé en amont
-        dangerouslySetInnerHTML={{ __html: html }}
-      />
+      <div className="mt-1 border-l pl-2" style={{ borderColor: "var(--border-subtle)" }}>
+        <MailHtmlFrame html={html} styles={styles} templated={false} style={{ color: "var(--text-muted)" }} />
+      </div>
     </Collapsible>
   );
 }

@@ -11,6 +11,7 @@ export {
   useMobileFab,
   useMobileHeaderActions,
   useMobileBack,
+  useMobileBottomBar,
   type MobileFabConfig,
   type MobileHeaderAction,
   type ColumnEditorState,

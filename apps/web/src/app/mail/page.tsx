@@ -160,7 +160,6 @@ type GroupRow = Extract<OverlayRow, { kind: "group" }>;
 
 /** Libellé annoncé aux lecteurs d'écran par action de triage. */
 const TRIAGE_DONE_LABEL: Record<TriageAction, string> = {
-  done: "Email marqué comme fait",
   archive: "Email archivé",
   snooze: "Email reporté",
   delete: "Email supprimé",
@@ -182,6 +181,16 @@ function triageMutation(id: string, action: TriageAction): MirrorMutation {
   return action === "delete"
     ? { threadId: id, kind: "trash", removeLabelIds: [INBOX_LABEL] }
     : { threadId: id, kind: "modifyLabels", removeLabelIds: [INBOX_LABEL] };
+}
+
+// Après un clic, le focus reste sur la ligne cliquée : sans ça, j/k affiche un
+// second anneau (focus-visible) en plus du curseur clavier.
+function followCursor(el: HTMLElement, rowSelector: string) {
+  el.scrollIntoView({ block: "nearest" });
+  const focused = document.activeElement;
+  if (focused instanceof HTMLElement && focused !== el && focused.matches(rowSelector)) {
+    el.focus({ preventScroll: true });
+  }
 }
 
 export default function MailPage() {
@@ -207,10 +216,6 @@ export default function MailPage() {
       return !open;
     });
   const syncStatus = useMailSyncAge();
-  useMobileTitle(
-    isMobile ? "Mail" : null,
-    isMobile ? (syncStatus.syncing ? "Synchronisation…" : syncStatus.age) : null,
-  );
 
   const clientId = settings.googleDrive.clientId.trim();
   // Compte Gmail connecté = clé de scoping du mirror local (mail_* tables).
@@ -304,6 +309,11 @@ export default function MailPage() {
   // Fil ouvert : la liste se réduit à un rail ; `peekList` la déplie par-dessus.
   const [peekList, setPeekList] = useState(false);
   const [thread, setThread] = useState<EmailThread | null>(null);
+  const openSubject = selectedThreadId ? thread?.messages[0]?.subject || "(sans objet)" : null;
+  useMobileTitle(
+    isMobile ? (openSubject ?? "Mail") : null,
+    isMobile && !openSubject ? (syncStatus.syncing ? "Synchronisation…" : syncStatus.age) : null,
+  );
   const [threadLoading, setThreadLoading] = useState(false);
   const [threadError, setThreadError] = useState<string | null>(null);
   const threadRef = useRef<EmailThreadHandle>(null);
@@ -808,18 +818,31 @@ export default function MailPage() {
     [setRows, setCumItems],
   );
 
-  // ── Annuler (raccourci `z` ; toast en plus pour une suppression) ────────────
+  // ── Annuler (raccourci `z` ; pastille cliquable après chaque triage) ────────
   const lastUndoableRef = useRef<{
     id: string;
     action: TriageAction;
     opId: string | null;
     at: number;
   } | null>(null);
+  // Pastille visible pendant UNDO_TOAST_DURATION_MS : état (pas juste le ref
+  // ci-dessus) pour déclencher le rendu.
+  const [undoBanner, setUndoBanner] = useState<{
+    id: string;
+    action: TriageAction;
+    opId: string | null;
+  } | null>(null);
+  const undoBannerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (undoBannerTimerRef.current) clearTimeout(undoBannerTimerRef.current);
+  }, []);
 
   const performUndo = useCallback(
     (id: string, action: TriageAction, opId?: string | null) => {
       if (!clientId) return;
       lastUndoableRef.current = null; // consommé
+      if (undoBannerTimerRef.current) clearTimeout(undoBannerTimerRef.current);
+      setUndoBanner(null);
       const undo = (async () => {
         if (opId && mirrorAvailable() && accountId) {
           await mirrorCancelOutbox([opId]);
@@ -854,15 +877,13 @@ export default function MailPage() {
     (id: string, action: TriageAction, opId?: string | null) => {
       setLiveMessage(TRIAGE_DONE_LABEL[action]);
       if (!clientId) return;
-      lastUndoableRef.current = { id, action, opId: opId ?? null, at: Date.now() };
-      if (action !== "delete") return;
-      toast({
-        title: TRIAGE_DONE_LABEL[action],
-        duration: UNDO_TOAST_DURATION_MS,
-        action: { label: "Annuler", onClick: () => performUndo(id, action, opId) },
-      });
+      const entry = { id, action, opId: opId ?? null };
+      lastUndoableRef.current = { ...entry, at: Date.now() };
+      setUndoBanner(entry);
+      if (undoBannerTimerRef.current) clearTimeout(undoBannerTimerRef.current);
+      undoBannerTimerRef.current = setTimeout(() => setUndoBanner(null), UNDO_TOAST_DURATION_MS);
     },
-    [clientId, toast, performUndo],
+    [clientId],
   );
 
   // « Fait » vide aussi la matrice : sinon le label todo survit à l'archivage et
@@ -894,11 +915,11 @@ export default function MailPage() {
       if (!clientId) return;
       // Geste manuel noté : trois archivages du même expéditeur feront une
       // proposition de règle (cf. mail-rules).
-      if (action === "archive" || action === "done") {
+      if (action === "archive") {
         const item = cumItems.find((it) => it.id === id);
         if (item) recordAction(item.from.email, "archive");
+        stripTodoLabels(id);
       }
-      if (action === "done") stripTodoLabels(id);
       dropThreadFromList(id);
       if (action === "snooze") {
         const item = cumItems.find((it) => it.id === id) ?? (thread?.id === id ? thread.messages[0] : undefined);
@@ -1514,7 +1535,7 @@ export default function MailPage() {
       setSelectedThreadId(null);
       setThread(null);
       if (!id) return;
-      if (action === "done") stripTodoLabels(id);
+      if (action === "archive") stripTodoLabels(id);
       dropThreadFromList(id);
       bumpTriaged();
       patchMirror(
@@ -1579,7 +1600,7 @@ export default function MailPage() {
     const el = groupScrollRef.current?.querySelector<HTMLElement>(
       `[data-mail-group-index="${groupCursor}"]`,
     );
-    el?.scrollIntoView({ block: "nearest" });
+    if (el) followCursor(el, "[data-mail-group-index]");
   }, [groupCursor, selectedGroup, pane]);
 
   useEffect(() => {
@@ -1595,7 +1616,7 @@ export default function MailPage() {
     const el = listScrollRef.current?.querySelector<HTMLElement>(
       `[data-mail-row-index="${selectedRowIndex}"]`,
     );
-    el?.scrollIntoView({ block: "nearest" });
+    if (el) followCursor(el, "[data-mail-row-index]");
   }, [selectedRowIndex, displayRows]);
 
   useEffect(() => {
@@ -1844,7 +1865,6 @@ export default function MailPage() {
       },
       goStarred: () => submitSearch("is:starred"),
       archive: triage("archive"),
-      done: triage("done"),
       snooze: triage("snooze"),
       delete: triage("delete"),
       snoozeMenu: () => {
@@ -2684,6 +2704,7 @@ export default function MailPage() {
             <SwipeableRow
               onSwipe={handleSwipeThread}
               disabled={!isMobile}
+              allowDelete={false}
               className="relative min-w-0 flex-1 overflow-hidden"
               innerClassName="h-full"
             >
@@ -2797,6 +2818,30 @@ export default function MailPage() {
           style={{ background: "var(--surface-2)", color: "var(--text-secondary)" }}
         >
           {chordPrefix}…
+        </div>
+      )}
+      {/* Pastille « Annuler » après un triage (archive/fait/report/suppression) :
+          même mécanisme que l'indicateur d'accord ci-dessus, pas de toast. */}
+      {undoBanner && (
+        <div
+          className="pointer-events-none sn-pop-in fixed inset-x-0 z-50 flex justify-center px-4"
+          style={{ bottom: isMobile ? "calc(64px + env(safe-area-inset-bottom, 0px))" : "1rem" }}
+        >
+          <div
+            className="pointer-events-auto flex items-center gap-2 rounded-full py-1.5 pl-4 pr-1.5 text-sm shadow-lg"
+            style={{ background: "var(--surface-2)", color: "var(--text-secondary)" }}
+          >
+            <span>{TRIAGE_DONE_LABEL[undoBanner.action]}</span>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="min-h-[32px] min-w-[32px]"
+              aria-label={`Annuler : ${TRIAGE_DONE_LABEL[undoBanner.action]}`}
+              onPress={() => performUndo(undoBanner.id, undoBanner.action, undoBanner.opId)}
+            >
+              Annuler (z)
+            </Button>
+          </div>
         </div>
       )}
     </>

@@ -138,11 +138,11 @@ export function useMailTodos(onError: (message: string) => void): MailTodosApi {
     (rowId: string) => {
       const thread = threads.find((t) => t.id === mailThreadIdOf(rowId));
       if (!thread || !clientId) return;
-      // Même « Fait » que /mail : retrait des labels todo ET sortie de l'inbox.
+      // Même « Archiver » que /mail : retrait des labels todo ET sortie de l'inbox.
       const todoIds = todoLabelIdSet(todoLabelIds);
       const removeLabelIds = [
         ...thread.labelIds.filter((l) => todoIds.has(l)),
-        ...actionToLabelOps("done").removeLabelIds,
+        ...actionToLabelOps("archive").removeLabelIds,
       ];
       setDoneIds((prev) => new Set(prev).add(thread.id));
       const timer = window.setTimeout(
