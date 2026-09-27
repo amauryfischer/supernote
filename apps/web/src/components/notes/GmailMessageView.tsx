@@ -3,8 +3,9 @@
 import { useEffect, useState } from "react";
 import type { GmailEmbedRenderProps } from "@supernote/editor";
 import { useSettings } from "@/components/settings/SettingsContext";
-import { getThread, type EmailThread } from "@/lib/gmail";
+import type { EmailThread } from "@/lib/gmail";
 import { EmailThreadView } from "@/components/mail/EmailThreadView";
+import { ensureThread } from "@/lib/mail-sync";
 
 /** Fonction passée au provider editor : rend un thread Gmail dans un bloc note. */
 export function renderGmailMessage(props: GmailEmbedRenderProps): React.ReactNode {
@@ -14,6 +15,7 @@ export function renderGmailMessage(props: GmailEmbedRenderProps): React.ReactNod
 function GmailMessageView({ threadId, url, onClear }: GmailEmbedRenderProps) {
   const { settings } = useSettings();
   const clientId = settings.googleDrive.clientId.trim();
+  const accountId = settings.gmail.connectedEmail;
   const [thread, setThread] = useState<EmailThread | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -22,7 +24,7 @@ function GmailMessageView({ threadId, url, onClear }: GmailEmbedRenderProps) {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    getThread(clientId, threadId)
+    ensureThread(clientId, accountId, threadId)
       .then((t) => {
         if (!cancelled) setThread(t);
       })
@@ -35,7 +37,7 @@ function GmailMessageView({ threadId, url, onClear }: GmailEmbedRenderProps) {
     return () => {
       cancelled = true;
     };
-  }, [clientId, threadId]);
+  }, [clientId, accountId, threadId]);
 
   return (
     <div

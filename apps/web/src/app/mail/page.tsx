@@ -52,7 +52,6 @@ import { useMailMirror } from "@/components/mail/useMailMirror";
 import { useMailDrafts } from "@/components/mail/useMailDrafts";
 import { MAIL_COMPOSE_EVENT, type MailActionId, type MailContext } from "@/lib/mail-shortcuts";
 import {
-  getThread,
   hasGmailToken,
   gmailReconnectRequired,
   GMAIL_AUTH_EVENT,
@@ -85,10 +84,11 @@ import {
   mirrorAvailable,
   mirrorApplyMutation,
   mirrorCancelOutbox,
+  mirrorGetThread,
   MAIL_MIRROR_RECEIVED_EVENT,
   type MirrorMutation,
 } from "@/lib/mail-mirror";
-import { syncThreadDetail } from "@/lib/mail-sync";
+import { ensureThread } from "@/lib/mail-sync";
 import { isWorkerReady } from "@/lib/trpc/browser-link";
 import { hasWorkerBackend } from "@/lib/trpc/client";
 import { isAiConfigured } from "@/lib/mail-ai";
@@ -633,7 +633,6 @@ export default function MailPage() {
       let shownFromMirror = false;
       if (canMirror) {
         try {
-          const { mirrorGetThread } = await import("@/lib/mail-mirror");
           const cached = await mirrorGetThread(accountId, threadId);
           if (reqId !== reqRef.current) return;
           if (cached && cached.thread.messages.length > 0) {
@@ -647,11 +646,9 @@ export default function MailPage() {
       }
       if (!shownFromMirror) setThreadLoading(true);
 
-      // 2) Fetch live (et persistance mirror si dispo) pour rafraîchir/compléter.
+      // 2) ensureThread ne retouche Gmail que si le mirror est incomplet/périmé.
       try {
-        const t = canMirror
-          ? await syncThreadDetail(clientId, accountId, threadId)
-          : await getThread(clientId, threadId);
+        const t = await ensureThread(clientId, accountId, threadId);
         if (reqId !== reqRef.current) return;
         setThread(t);
       } catch (err) {
@@ -1516,7 +1513,9 @@ export default function MailPage() {
       setSelectedGroup(group);
       setSelectedThreadId(id);
       const reqId = ++reqRef.current;
-      getThread(clientId, id)
+      // refresh:true — une réponse vient de partir, le mirror est forcément
+      // périmé (le message envoyé n'y est pas encore) : on veut Gmail, pas le cache.
+      ensureThread(clientId, accountId, id, { refresh: true })
         .then((t) => {
           if (reqId !== reqRef.current) return;
           setThread(t);
@@ -1525,7 +1524,7 @@ export default function MailPage() {
           /* re-fetch best-effort : la liste rechargée reflète déjà l'envoi */
         });
     });
-  }, [clientId, selectedThreadId, selectedGroup, query, loadList]);
+  }, [clientId, accountId, selectedThreadId, selectedGroup, query, loadList]);
 
   // Triage émis DEPUIS le fil ouvert (TriageBar a déjà poussé Gmail).
   const handleTriaged = useCallback(

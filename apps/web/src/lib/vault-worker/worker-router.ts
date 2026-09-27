@@ -4957,6 +4957,12 @@ export function buildRouter(
          lastDate = excluded.lastDate,
          lastInternalDate = excluded.lastInternalDate,
          labelIds = excluded.labelIds,
+         -- Le résumé partagé porte une date de dernier message différente de celle
+         -- déjà mirrorée : un message est arrivé/reparti sans que ce détail le
+         -- sache → on invalide "complete" pour forcer un refetch au lieu de servir
+         -- un contenu périmé (cf. mailGetThread).
+         messagesLoaded = CASE WHEN excluded.lastInternalDate <> mail_thread.lastInternalDate
+                                THEN 0 ELSE mail_thread.messagesLoaded END,
          updatedAt = excluded.updatedAt`,
       [
         accountId,
@@ -5193,8 +5199,15 @@ export function buildRouter(
     let removed = 0;
 
     for (const t of threads ?? []) {
-      // messagesLoaded deliberately omitted from DO UPDATE so an already
-      // fully-synced thread keeps its messages when only its summary refreshes.
+      // Un résumé (incrémental ou full sync) ne porte pas les messages : par
+      // défaut messagesLoaded est préservé pour qu'un fil déjà complet garde ses
+      // messages quand seul son résumé se rafraîchit. MAIS si la date du dernier
+      // message du résumé diffère de celle déjà mirrorée, un message est
+      // arrivé/reparti sans que le détail stocké le sache → on invalide
+      // "complete" (cf. mailGetThread) pour forcer un refetch au lieu de servir
+      // un fil périmé. ThreadListItem ne porte ni compte de messages ni
+      // historyId par fil (`t.historyId` reste toujours null côté appelant) :
+      // la date du dernier message est le seul signal disponible ici.
       db.run(
         `INSERT INTO mail_thread
            (accountId, id, historyId, subject, fromName, fromEmail, snippet, lastDate, lastInternalDate, labelIds, messagesLoaded, updatedAt)
@@ -5208,6 +5221,8 @@ export function buildRouter(
            lastDate = excluded.lastDate,
            lastInternalDate = excluded.lastInternalDate,
            labelIds = excluded.labelIds,
+           messagesLoaded = CASE WHEN excluded.lastInternalDate <> mail_thread.lastInternalDate
+                                  THEN 0 ELSE mail_thread.messagesLoaded END,
            updatedAt = excluded.updatedAt`,
         [
           accountId,

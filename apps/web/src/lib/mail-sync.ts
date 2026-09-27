@@ -7,7 +7,8 @@
  *  - incrementalSync — pull deltas via history.list since the stored historyId,
  *                      re-fetch only the touched threads, upsert. Falls back to
  *                      a full sync when the historyId expired (404).
- *  - syncThreadDetail — fetch + mirror a single thread's full message set.
+ *  - ensureThread     — read a thread mirror-first: zero Gmail calls when the
+ *                      mirror is complete, else fetch + background-mirror.
  *  - flushOutbox    — push pending optimistic mutations to Gmail, then ack/fail.
  *  - syncMailbox    — the orchestrator: flush outbox, then pull (incremental or full).
  *
@@ -31,7 +32,13 @@ import {
   type GmailLabel,
 } from "@/lib/gmail";
 import { trpcVanillaClient } from "@/lib/trpc/client";
-import { emitOutboxChange, MAIL_SYNCED_EVENT, MAIL_SYNC_STATE_EVENT } from "@/lib/mail-mirror";
+import {
+  emitOutboxChange,
+  mirrorAvailable,
+  mirrorGetThread,
+  MAIL_SYNCED_EVENT,
+  MAIL_SYNC_STATE_EVENT,
+} from "@/lib/mail-mirror";
 import { swKvSet } from "@/lib/sw-kv";
 
 /** Gmail query that defines what the mirror seeds + tracks as "the list". */
@@ -175,29 +182,64 @@ export async function incrementalSync(
   return true;
 }
 
-/** Fetch + mirror a single thread's full message set. Returns the live thread. */
-export async function syncThreadDetail(
+// Dédup des lectures Gmail concurrentes du même fil (montage + clic rapide,
+// plusieurs lecteurs sur le même thread) par "accountId:threadId".
+const threadFetchInFlight = new Map<string, Promise<EmailThread>>();
+
+/**
+ * Lit un fil miroir-d'abord : renvoie le mirror SANS appel Gmail quand il est
+ * complet (sauf `opts.refresh`). Sinon fetch Gmail (dédupliqué) et renvoie
+ * immédiatement — la persistance mirror part en tâche de fond, l'affichage n'attend
+ * pas l'écriture worker. En mode dégradé (pas de mirror), fetch Gmail direct.
+ */
+export async function ensureThread(
   clientId: string,
   accountId: string,
   threadId: string,
+  opts: { refresh?: boolean } = {},
 ): Promise<EmailThread> {
-  const t = await getThread(clientId, threadId);
-  await trpcVanillaClient.mail.syncUpsert.mutate({
-    accountId,
-    messages: [
-      {
-        threadId,
-        labelIds: t.labelIds,
-        items: t.messages.map((m) => ({
-          ...m,
-          // EmailMessage carries no per-message labels; fill with the thread
-          // union so optimistic label patches on messages stay coherent.
-          labelIds: t.labelIds,
-          internalDate: Date.parse(m.date) || 0,
-        })),
-      },
-    ],
-  });
+  const canMirror = mirrorAvailable() && !!accountId;
+  let cached: { thread: EmailThread; complete: boolean } | null = null;
+  if (canMirror) {
+    cached = await mirrorGetThread(accountId, threadId).catch(() => null);
+    if (cached?.complete && !opts.refresh) return cached.thread;
+  }
+
+  const key = `${accountId}:${threadId}`;
+  let fetch = threadFetchInFlight.get(key);
+  if (!fetch) {
+    fetch = getThread(clientId, threadId).finally(() => {
+      threadFetchInFlight.delete(key);
+    });
+    threadFetchInFlight.set(key, fetch);
+  }
+  const t = await fetch;
+
+  // Persiste seulement les fils déjà suivis par le mirror (résumé existant) :
+  // un fil hors mirror (ex. envoyé, contact externe) n'a pas de ligne mail_thread
+  // à mettre à jour côté worker → les messages écrits resteraient orphelins,
+  // jamais relus ni purgés (mailGetThread renvoie null pour un fil sans résumé).
+  if (canMirror && cached !== null) {
+    trpcVanillaClient.mail.syncUpsert
+      .mutate({
+        accountId,
+        messages: [
+          {
+            threadId,
+            labelIds: t.labelIds,
+            items: t.messages.map((m) => ({
+              ...m,
+              // EmailMessage carries no per-message labels; fill with the thread
+              // union so optimistic label patches on messages stay coherent.
+              labelIds: t.labelIds,
+              internalDate: Date.parse(m.date) || 0,
+            })),
+          },
+        ],
+      })
+      .catch((err) => console.warn("[mail] ensureThread: échec persistance mirror", err));
+  }
+
   return t;
 }
 

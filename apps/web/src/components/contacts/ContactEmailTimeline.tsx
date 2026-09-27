@@ -30,10 +30,10 @@ import {
 } from "@phosphor-icons/react";
 import {
   listThreadSummaries,
-  getThread,
   type EmailThread,
 } from "@/lib/gmail";
 import { EmailThreadView } from "@/components/mail/EmailThreadView";
+import { ensureThread } from "@/lib/mail-sync";
 import {
   buildContactMailQuery,
   toContactTimeline,
@@ -130,14 +130,14 @@ export function ContactEmailTimeline({
       setThreadError(null);
       setThreadLoading(true);
       try {
-        setThread(await getThread(trimmedClientId, threadId));
+        setThread(await ensureThread(trimmedClientId, selfEmail ?? "", threadId));
       } catch (err) {
         setThreadError(err instanceof Error ? err.message : String(err));
       } finally {
         setThreadLoading(false);
       }
     },
-    [trimmedClientId],
+    [trimmedClientId, selfEmail],
   );
 
   // ── Gate : pas de client / pas d'adresse ──────────────────────────────────
