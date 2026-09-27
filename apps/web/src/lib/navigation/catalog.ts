@@ -103,7 +103,7 @@ export const NAV_SETTINGS: NavItem = {
  * donc PAS dans le drawer « Plus » (évite les doublons). Le reste du catalogue
  * peuple le drawer automatiquement.
  */
-export const MOBILE_PRIMARY_HREFS: readonly string[] = ["/mail", "/notes", "/todos"];
+export const MOBILE_PRIMARY_HREFS: readonly string[] = ["/mail", "/notes", "/habits", "/agenda", "/todos"];
 
 /** `true` si `href` correspond à la route active (exact pour `/`, préfixe sinon). */
 export function isNavActive(href: string, pathname: string): boolean {

@@ -2,9 +2,11 @@
 
 import {
   type IconWeight,
+  CalendarBlank,
   CheckSquare,
   DotsThree,
   FileText,
+  GridNine,
   EnvelopeSimple,
   type Icon as PhosphorIcon,
 } from "@phosphor-icons/react";
@@ -31,7 +33,7 @@ interface NavTab {
 }
 
 /**
- * Bottom navigation — four tabs (two on each side) flanking a central slot
+ * Bottom navigation — six tabs (three on each side) flanking a central slot
  * left empty for the floating action button. The FAB is rendered separately
  * by `MobileFab`; it positions itself over this slot, slightly raised so the
  * top of the circle peeks above the bar like a Material Design FAB.
@@ -48,8 +50,8 @@ export const MobileBottomNav = memo(function MobileBottomNav({
 }) {
   const pathname = usePathname();
 
-  // Two tabs on each side of the FAB: the central slot is reserved for the
-  // create action — the most common verb on every page.
+  // Le créneau central reste réservé au FAB ; chaque côté occupe une moitié
+  // pour que ce créneau reste centré.
   const leftTabs: NavTab[] = [
     {
       href: "/mail",
@@ -63,8 +65,20 @@ export const MobileBottomNav = memo(function MobileBottomNav({
       icon: FileText,
       match: (p) => p.startsWith("/notes") || p.startsWith("/archive"),
     },
+    {
+      href: "/habits",
+      label: "Habitudes",
+      icon: GridNine,
+      match: (p) => p.startsWith("/habits"),
+    },
   ];
   const rightTabs: NavTab[] = [
+    {
+      href: "/agenda",
+      label: "Agenda",
+      icon: CalendarBlank,
+      match: (p) => p.startsWith("/agenda"),
+    },
     {
       href: "/todos",
       label: "Todos",
@@ -97,18 +111,22 @@ export const MobileBottomNav = memo(function MobileBottomNav({
       }}
       aria-label="Navigation principale"
     >
-      {leftTabs.map((tab) => (
-        <NavTabButton key={tab.label} tab={tab} active={tab.match(pathname)} />
-      ))}
+      <div className="flex flex-1">
+        {leftTabs.map((tab) => (
+          <NavTabButton key={tab.label} tab={tab} active={tab.match(pathname)} />
+        ))}
+      </div>
       {/* Central slot — the FAB renders into this gap (positioned by
           MobileFab as `absolute left-1/2 -translate-x-1/2 -top-5`). The flex
           item below holds the gap open so the right-side tabs don't slide
           into the FAB's footprint. Width matches the FAB's 56 px circle plus
           a little breathing room on each side. */}
       <div className="w-[72px] shrink-0" aria-hidden="true" />
-      {rightTabs.map((tab) => (
-        <NavTabButton key={tab.label} tab={tab} active={tab.match(pathname)} />
-      ))}
+      <div className="flex flex-1">
+        {rightTabs.map((tab) => (
+          <NavTabButton key={tab.label} tab={tab} active={tab.match(pathname)} />
+        ))}
+      </div>
     </nav>
   );
 });
