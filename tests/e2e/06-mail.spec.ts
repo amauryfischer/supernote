@@ -111,11 +111,20 @@ test.describe("06 — mail", () => {
     await expect(page.getByLabel("Rechercher dans les emails")).toBeFocused();
     await page.keyboard.press("Escape");
 
+    await page.getByRole("banner").getByRole("button", { name: "Nouveau message" }).click();
+    await expect(page.getByRole("dialog", { name: "Nouveau message" })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog", { name: "Nouveau message" })).toHaveCount(0);
+
     await page.getByText("Compte rendu réunion").first().click();
     await expect(page.getByText("Capturer :")).toHaveCount(0);
     await page.getByRole("button", { name: "Plus d'actions" }).click();
     await expect(page.getByRole("button", { name: "Capturer en note" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Capturer dans une base" })).toBeVisible();
+    const more = page.getByRole("dialog").filter({ has: page.getByRole("button", { name: "Capturer en note" }) });
+    await more.getByRole("button", { name: "Mettre une étoile" }).focus();
+    await page.keyboard.press("ArrowDown");
+    await expect(more.getByRole("button", { name: "Marquer comme non lu" })).toBeFocused();
   });
 
   test("clavier : . ouvre le menu de la ligne, flèches + Entrée, heures sans AM/PM", async ({ page }) => {
@@ -128,6 +137,8 @@ test.describe("06 — mail", () => {
     await page.keyboard.press(".");
     const menu = page.getByRole("menu", { name: "Actions de l'email" });
     await expect(menu).toBeVisible();
+    const box = await menu.boundingBox();
+    expect(box!.y + box!.height).toBeLessThanOrEqual(page.viewportSize()!.height);
     await expect(menu.getByRole("menuitem").first()).toBeFocused();
     await page.keyboard.press("End");
     await expect(menu.getByRole("menuitem", { name: "Supprimer" })).toBeFocused();

@@ -36,8 +36,6 @@ export function MailSearchBar({
   localCount,
   /** true quand les résultats affichés viennent de Gmail (recherche validée). */
   remote,
-  /** Bouton « Nouveau message » intégré (desktop). */
-  leading,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -46,7 +44,6 @@ export function MailSearchBar({
   inputRef?: RefObject<HTMLInputElement | null>;
   localCount: number | null;
   remote: boolean;
-  leading?: React.ReactNode;
 }) {
   const [focused, setFocused] = useState(false);
   const [history, setHistory] = useState<string[]>([]);
@@ -73,7 +70,6 @@ export function MailSearchBar({
   return (
     <div ref={wrapRef} className="relative flex flex-col gap-1.5 p-3">
       <div className="flex gap-2">
-        {leading}
         <Input
           ref={inputRef}
           value={value}

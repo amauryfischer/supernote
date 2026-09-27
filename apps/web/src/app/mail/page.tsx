@@ -52,7 +52,7 @@ import { useMailKeyboard } from "@/components/mail/useMailKeyboard";
 import { useMailList, DEFAULT_MAIL_QUERY } from "@/components/mail/useMailList";
 import { useMailMirror } from "@/components/mail/useMailMirror";
 import { useMailDrafts } from "@/components/mail/useMailDrafts";
-import type { MailActionId, MailContext } from "@/lib/mail-shortcuts";
+import { MAIL_COMPOSE_EVENT, type MailActionId, type MailContext } from "@/lib/mail-shortcuts";
 import {
   getThread,
   hasGmailToken,
@@ -360,6 +360,10 @@ export default function MailPage() {
     setComposeInitial({ subject: "", body: "" });
     setComposeOpen(true);
   }, []);
+  useEffect(() => {
+    window.addEventListener(MAIL_COMPOSE_EVENT, openCompose);
+    return () => window.removeEventListener(MAIL_COMPOSE_EVENT, openCompose);
+  }, [openCompose]);
   const newInboxNote = useNewInboxNote();
 
   // Transfert : pré-remplit le compose (objet « Fwd: … » + corps cité), To vide.
@@ -1712,15 +1716,6 @@ export default function MailPage() {
       inputRef={searchInputRef}
       localCount={localCount}
       remote={remoteSearch}
-      leading={
-        !isMobile ? (
-          <Tooltip content="Nouveau message (c)">
-            <Button variant="ghost" isIconOnly onPress={openCompose} aria-label="Nouveau message">
-              <PencilSimple size={18} aria-hidden />
-            </Button>
-          </Tooltip>
-        ) : null
-      }
     />
   );
 

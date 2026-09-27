@@ -438,6 +438,14 @@ export function resolveKey(
   return { kind: "none" };
 }
 
+/** Événement window : le TopBar demande un nouveau message à la page /mail. */
+export const MAIL_COMPOSE_EVENT = "supernote:mail-compose";
+
+/** Touche affichée d'une action (première alternative), pour les menus et infobulles. */
+export function shortcutKey(id: MailActionId): string {
+  return MAIL_SHORTCUTS.find((b) => b.id === id)?.keys[0]?.join(" ") ?? "";
+}
+
 /** Raccourcis d'un groupe, pour le rendu de la feuille d'aide. */
 export function shortcutsByGroup(group: MailShortcutGroup): MailBinding[] {
   return MAIL_SHORTCUTS.filter((b) => b.group === group);

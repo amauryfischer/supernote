@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Button } from "@heroui/react";
 import { Checkbox } from "@supernote/ui";
@@ -986,7 +986,12 @@ function MailRowContextMenu({
 
   const W = 230;
   const left = Math.min(x, window.innerWidth - W - 8);
-  const top = Math.min(y, Math.max(8, window.innerHeight - 380));
+  // Hauteur connue seulement une fois rendu (tags, quadrants, reports) : on recale avant peinture.
+  const [top, setTop] = useState(y);
+  useLayoutEffect(() => {
+    const h = ref.current?.offsetHeight ?? 0;
+    setTop(Math.max(8, Math.min(y, window.innerHeight - h - 8)));
+  }, [y]);
 
   return (
     <div

@@ -96,6 +96,7 @@ import { QuickRepliesRow } from "./QuickRepliesRow";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { createPortal } from "react-dom";
 import { useMobileBottomBar } from "@/components/shell/shell-chrome-context";
+import { shortcutKey } from "@/lib/mail-shortcuts";
 import { useKeyboardViewport } from "@/hooks/useKeyboardOpen";
 import { useMailQuickRepliesChrome } from "@/components/shell/shell-chrome-context";
 import {
@@ -106,6 +107,19 @@ import {
   instantReplies,
   type MailAiThread,
 } from "@/lib/mail-ai";
+
+/** ↑/↓/Début/Fin entre les actions du menu « Plus » (boutons HeroUI et composants-actions mêlés). */
+function moveMenuFocus(e: React.KeyboardEvent<HTMLElement>) {
+  const keys = ["ArrowDown", "ArrowUp", "Home", "End"];
+  if (!keys.includes(e.key)) return;
+  const items = [...e.currentTarget.querySelectorAll<HTMLElement>("button:not([disabled])")];
+  if (items.length === 0) return;
+  e.preventDefault();
+  const at = items.indexOf(document.activeElement as HTMLElement);
+  const next =
+    e.key === "Home" ? 0 : e.key === "End" ? items.length - 1 : e.key === "ArrowDown" ? at + 1 : at < 0 ? -1 : at - 1;
+  items[(next + items.length) % items.length]?.focus();
+}
 
 // ─── Styles du menu overflow (« Plus ») ──────────────────────────────────────
 // Ligne de menu pour une action SIMPLE (Button direct) : pleine largeur, alignée
@@ -996,9 +1010,10 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
                 >
                   <DotsThreeVertical size={18} aria-hidden />
                 </Button>
-                <Popover.Content className="w-64 p-1">
+                <Popover.Content className="w-72 p-1">
                   <Popover.Dialog className="outline-none">
-                    <div className="flex flex-col gap-0.5">
+                    <div className="flex max-h-[70vh] flex-col gap-0.5 overflow-y-auto" onKeyDown={moveMenuFocus}>
+                      <p className="sn-eyebrow sn-eyebrow--compact px-3 pb-0.5 pt-2" aria-hidden>Suivre</p>
                       {clientId && (
                         <Button
                           variant="ghost"
@@ -1016,9 +1031,36 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
                             style={{ color: starred ? "var(--warning)" : undefined }}
                           />
                           <span className="flex-1 text-left">{starred ? "Retirer l'étoile" : "Mettre une étoile"}</span>
-                          <kbd className="text-xs" style={{ color: "var(--text-muted)" }}>t</kbd>
+                          <kbd className="text-xs" style={{ color: "var(--text-muted)" }}>{shortcutKey("star")}</kbd>
                         </Button>
                       )}
+                      {clientId && (
+                        <Button
+                          variant="ghost"
+                          onPress={() => {
+                            setMoreOpen(false);
+                            void onMarkUnread();
+                          }}
+                          className={MENU_ROW}
+                          aria-label="Marquer comme non lu"
+                        >
+                          <Envelope size={16} />
+                          <span className="flex-1 text-left">Non lu</span>
+                          <kbd className="text-xs" style={{ color: "var(--text-muted)" }}>{shortcutKey("markUnread")}</kbd>
+                        </Button>
+                      )}
+                      {clientId && (
+                        <div className={MENU_COMPONENT_ROW}>
+                          <FollowupButton
+                            threadId={thread.id}
+                            subject={thread.messages[0]?.subject ?? ""}
+                            messageCount={thread.messages.length}
+                            defaultDays={settings.gmail.followupDays ?? 3}
+                            className={MENU_ROW}
+                          />
+                        </div>
+                      )}
+                      <p className="sn-eyebrow sn-eyebrow--compact px-3 pb-0.5 pt-2" aria-hidden>Capturer</p>
                       {onCaptureNote && !isMobile && (
                         <Button
                           variant="ghost"
@@ -1046,6 +1088,27 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
                           <Database size={16} />
                           <span>Capturer dans une base</span>
                         </Button>
+                      )}
+                      {correspondentMsg?.from.email && (
+                        <Button
+                          variant="ghost"
+                          className={MENU_ROW}
+                          aria-label="Créer ou compléter le contact"
+                          onPress={() => {
+                            // La modale vit hors du menu : ouverte dedans, le popover resterait par-dessus.
+                            setMoreOpen(false);
+                            setContactOpen(true);
+                          }}
+                        >
+                          <UserPlus size={16} />
+                          <span>Créer / compléter le contact</span>
+                        </Button>
+                      )}
+                      <div className={MENU_COMPONENT_ROW}>
+                        <EmailToEventButton message={firstMsg} />
+                      </div>
+                      {aiConfigured && (
+                        <p className="sn-eyebrow sn-eyebrow--compact px-3 pb-0.5 pt-2" aria-hidden>IA</p>
                       )}
                       {aiConfigured && (
                         <Button
@@ -1083,6 +1146,51 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
                           <span>Suggérer quadrant</span>
                         </Button>
                       )}
+                      <p className="sn-eyebrow sn-eyebrow--compact px-3 pb-0.5 pt-2" aria-hidden>Partager</p>
+                      {onForward && (
+                        <Button
+                          variant="ghost"
+                          onPress={() => {
+                            setMoreOpen(false);
+                            onForwardClick();
+                          }}
+                          className={MENU_ROW}
+                          aria-label="Transférer le message"
+                        >
+                          <ArrowBendUpRight size={16} />
+                          <span className="flex-1 text-left">Transférer</span>
+                          <kbd className="text-xs" style={{ color: "var(--text-muted)" }}>{shortcutKey("forward")}</kbd>
+                        </Button>
+                      )}
+                      {shareEnabled && shareAccount && (
+                        <Button
+                          variant="ghost"
+                          className={MENU_ROW}
+                          aria-label="Partager par lien"
+                          onPress={() => {
+                            setMoreOpen(false);
+                            setShareOpen(true);
+                          }}
+                        >
+                          <ShareNetwork size={16} />
+                          <span>Partager par lien</span>
+                        </Button>
+                      )}
+                      <Button
+                        variant="ghost"
+                        className={MENU_ROW}
+                        aria-label="Ouvrir le fil dans Gmail"
+                        onPress={() => {
+                          setMoreOpen(false);
+                          window.open(buildGmailThreadUrl(thread.id), "_blank", "noopener");
+                        }}
+                      >
+                        <ArrowSquareOut size={16} />
+                        <span>Ouvrir dans Gmail</span>
+                      </Button>
+                      {clientId && (
+                        <p className="sn-eyebrow sn-eyebrow--compact px-3 pb-0.5 pt-2" aria-hidden>Expéditeur</p>
+                      )}
                       {clientId && correspondentMsg && (
                         <div className={MENU_COMPONENT_ROW}>
                           <UnsubscribeButton
@@ -1109,7 +1217,8 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
                           }}
                         >
                           <SpeakerSlash size={16} />
-                          <span>Ignorer ce fil</span>
+                          <span className="flex-1 text-left">Ignorer ce fil</span>
+                          <kbd className="text-xs" style={{ color: "var(--text-muted)" }}>{shortcutKey("mute")}</kbd>
                         </Button>
                       )}
                       {clientId && correspondentMsg && (
@@ -1128,89 +1237,6 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
                         </Button>
                       )}
                       {clientId && (
-                        <div className={MENU_COMPONENT_ROW}>
-                          <FollowupButton
-                            threadId={thread.id}
-                            subject={thread.messages[0]?.subject ?? ""}
-                            messageCount={thread.messages.length}
-                            defaultDays={settings.gmail.followupDays ?? 3}
-                            className={MENU_ROW}
-                          />
-                        </div>
-                      )}
-                      {onForward && (
-                        <Button
-                          variant="ghost"
-                          onPress={() => {
-                            setMoreOpen(false);
-                            onForwardClick();
-                          }}
-                          className={MENU_ROW}
-                          aria-label="Transférer le message"
-                        >
-                          <ArrowBendUpRight size={16} />
-                          <span>Transférer</span>
-                        </Button>
-                      )}
-                      {shareEnabled && shareAccount && (
-                        <Button
-                          variant="ghost"
-                          className={MENU_ROW}
-                          aria-label="Partager par lien"
-                          onPress={() => {
-                            setMoreOpen(false);
-                            setShareOpen(true);
-                          }}
-                        >
-                          <ShareNetwork size={16} />
-                          <span>Partager par lien</span>
-                        </Button>
-                      )}
-                      {clientId && (
-                        <Button
-                          variant="ghost"
-                          onPress={() => {
-                            setMoreOpen(false);
-                            void onMarkUnread();
-                          }}
-                          className={MENU_ROW}
-                          aria-label="Marquer comme non lu"
-                        >
-                          <Envelope size={16} />
-                          <span>Non lu</span>
-                        </Button>
-                      )}
-                      {correspondentMsg?.from.email && (
-                        <Button
-                          variant="ghost"
-                          className={MENU_ROW}
-                          aria-label="Créer ou compléter le contact"
-                          onPress={() => {
-                            // La modale vit hors du menu : ouverte dedans, le popover resterait par-dessus.
-                            setMoreOpen(false);
-                            setContactOpen(true);
-                          }}
-                        >
-                          <UserPlus size={16} />
-                          <span>Créer / compléter le contact</span>
-                        </Button>
-                      )}
-                      <div className={MENU_COMPONENT_ROW}>
-                        <EmailToEventButton message={firstMsg} />
-                      </div>
-                      <Button
-                        variant="ghost"
-                        className={MENU_ROW}
-                        aria-label="Ouvrir le fil dans Gmail"
-                        onPress={() => {
-                          setMoreOpen(false);
-                          window.open(buildGmailThreadUrl(thread.id), "_blank", "noopener");
-                        }}
-                      >
-                        <ArrowSquareOut size={16} />
-                        <span>Ouvrir dans Gmail</span>
-                      </Button>
-                      {clientId && (
                         <>
                           <div role="separator" className="my-1 h-px" style={{ background: "var(--border-subtle)" }} />
                           <Button
@@ -1225,7 +1251,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
                           >
                             <Trash size={16} />
                             <span className="flex-1 text-left">Supprimer</span>
-                            <kbd className="text-xs" style={{ color: "var(--text-muted)" }}>#</kbd>
+                            <kbd className="text-xs" style={{ color: "var(--text-muted)" }}>{shortcutKey("delete")}</kbd>
                           </Button>
                         </>
                       )}
