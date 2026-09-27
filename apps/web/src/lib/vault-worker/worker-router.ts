@@ -5007,6 +5007,11 @@ export function buildRouter(
         );
       }
     }
+    // Sans elle, un appareil nourri par le salon relirait toute la boîte (réconciliation 6 h) à sa première synchro.
+    const fullAt = Number(f["eac_full_sync_at"]);
+    if (fullAt > 0) {
+      db.run(`UPDATE mail_sync_state SET lastFullSyncAt = MAX(lastFullSyncAt, ?) WHERE accountId = ?`, [fullAt, accountId]);
+    }
     if (typeof f["eac_labels_json"] === "string") {
       const labels = parseFields(f["eac_labels_json"]);
       if (Array.isArray(labels)) replaceMailLabels(accountId, labels as MirrorLabel[], ts);
@@ -5325,6 +5330,7 @@ export function buildRouter(
       for (const id of removeThreadIds ?? []) deleteEmailAiCacheEntity(accountId, id);
       const state: Record<string, unknown> = {};
       if (historyId) state["eac_history_id"] = historyId;
+      if (markFullSync) state["eac_full_sync_at"] = Date.now();
       if (labels?.length) state["eac_labels_json"] = JSON.stringify(labels);
       if (Object.keys(state).length > 0) upsertEmailAiCacheEntity(accountId, MAIL_STATE_THREAD_ID, state);
     });
