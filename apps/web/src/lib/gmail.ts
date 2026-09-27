@@ -1122,6 +1122,7 @@ function quoteFilename(name: string): string {
 export function buildRawMessage(input: {
   to?: string | string[];
   cc?: string | string[];
+  bcc?: string | string[];
   subject: string;
   body: string;
   /** Corps HTML optionnel — envoyé en alternative du texte. */
@@ -1138,6 +1139,9 @@ export function buildRawMessage(input: {
   if (to) headers.push(`To: ${to}`);
   const cc = sanitizeHeaderValue(formatRecipients(input.cc));
   if (cc) headers.push(`Cc: ${cc}`);
+  // Gmail distribue aux adresses Bcc puis retire l'en-tête du message envoyé.
+  const bcc = sanitizeHeaderValue(formatRecipients(input.bcc));
+  if (bcc) headers.push(`Bcc: ${bcc}`);
   headers.push(`Subject: ${encodeHeaderWord(sanitizeHeaderValue(input.subject))}`);
   if (input.inReplyTo) headers.push(`In-Reply-To: ${sanitizeHeaderValue(input.inReplyTo)}`);
   if (input.references) headers.push(`References: ${sanitizeHeaderValue(input.references)}`);
@@ -1242,6 +1246,7 @@ export async function createDraft(
   input: {
     to?: string | string[];
     cc?: string | string[];
+    bcc?: string | string[];
     subject: string;
     body: string;
     /** Corps HTML optionnel (alternative du texte). */
@@ -1290,6 +1295,7 @@ export async function sendReply(
     threadId: string;
     to?: string | string[];
     cc?: string | string[];
+    bcc?: string | string[];
     subject: string;
     body: string;
     /** Corps HTML optionnel (alternative du texte). */
@@ -1320,6 +1326,7 @@ export async function sendMessage(
   input: {
     to?: string | string[];
     cc?: string | string[];
+    bcc?: string | string[];
     subject: string;
     body: string;
     /** Corps HTML optionnel (alternative du texte). */

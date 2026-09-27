@@ -21,6 +21,8 @@ export interface AutoDraft {
   subject?: string;
   body: string;
   to?: string[];
+  cc?: string[];
+  bcc?: string[];
   /** Horodatage de la dernière frappe (epoch ms). */
   savedAt: number;
 }

@@ -78,6 +78,58 @@ test.describe("06 — mail", () => {
     await expect(page.getByText("Compte rendu réunion").first()).toBeVisible();
   });
 
+  test("la pastille Annuler reste tant qu'on la survole", async ({ page }) => {
+    await withInbox(page);
+    await page.goto("/mail");
+    await expect(page.getByText("Compte rendu réunion").first()).toBeVisible({ timeout: 20_000 });
+    await page.keyboard.press("j");
+    await page.keyboard.press("e");
+    const undoButton = page.getByRole("button", { name: /Annuler : / });
+    await undoButton.hover();
+    await page.waitForTimeout(7_000);
+    await expect(undoButton).toBeVisible();
+  });
+
+  test("Cc/Cci autocomplétés ; annuler l'envoi rouvre le composeur avec pièces jointes, l'envoi porte l'en-tête Bcc", async ({ page }) => {
+    await withInbox(page);
+    let raw = "";
+    await page.route("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", async (route) => {
+      raw = Buffer.from((route.request().postDataJSON() as { raw: string }).raw, "base64url").toString("utf8");
+      await route.fulfill({ json: { id: "sent1", threadId: "t9" } });
+    });
+    await page.goto("/mail");
+    await expect(page.getByText("Compte rendu réunion").first()).toBeVisible({ timeout: 20_000 });
+    await page.keyboard.press("c");
+    const dialog = page.getByRole("dialog", { name: "Nouveau message" });
+    await page.getByLabel("À", { exact: true }).fill("bob@exemple.fr");
+    await page.keyboard.press("Enter");
+    await dialog.getByRole("button", { name: "Cc Cci" }).click();
+    await page.getByLabel("Cc", { exact: true }).fill("alic");
+    await page.getByRole("option", { name: /Alice Dupont/ }).click();
+    await expect(dialog.getByRole("button", { name: "Retirer alice@exemple.fr" })).toBeVisible();
+    await page.getByLabel("Cci", { exact: true }).fill("carol@exemple.fr");
+    await page.getByLabel("Objet").fill("Point budget");
+    await dialog.locator('input[type="file"]:not([accept])').setInputFiles({
+      name: "budget.pdf",
+      mimeType: "application/pdf",
+      buffer: Buffer.from("%PDF-1.4 budget"),
+    });
+    await expect(dialog.getByText("budget.pdf")).toBeVisible();
+    await dialog.getByRole("button", { name: "Envoyer", exact: true }).click();
+
+    await page.getByRole("button", { name: "Annuler l'envoi" }).click();
+    await expect(dialog).toBeVisible();
+    await expect(page.getByLabel("Objet")).toHaveValue("Point budget");
+    await expect(dialog.getByRole("button", { name: "Retirer carol@exemple.fr" })).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "Retirer alice@exemple.fr" })).toBeVisible();
+    await expect(dialog.getByText("budget.pdf")).toBeVisible();
+
+    await dialog.getByRole("button", { name: "Envoyer", exact: true }).click();
+    await expect.poll(() => raw, { timeout: 30_000 }).toContain("Bcc: carol@exemple.fr");
+    expect(raw).toContain("Cc: alice@exemple.fr");
+    expect(raw).toContain("budget.pdf");
+  });
+
   test("en-tête du fil réduit à Todo · Archiver · Reporter · Plus ; d archive comme e", async ({ page }) => {
     await withInbox(page);
     await page.goto("/mail");
@@ -111,11 +163,20 @@ test.describe("06 — mail", () => {
     await expect(page.getByLabel("Rechercher dans les emails")).toBeFocused();
     await page.keyboard.press("Escape");
 
+    await page.getByRole("banner").getByRole("button", { name: "Nouveau message" }).click();
+    await expect(page.getByRole("dialog", { name: "Nouveau message" })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog", { name: "Nouveau message" })).toHaveCount(0);
+
     await page.getByText("Compte rendu réunion").first().click();
     await expect(page.getByText("Capturer :")).toHaveCount(0);
     await page.getByRole("button", { name: "Plus d'actions" }).click();
     await expect(page.getByRole("button", { name: "Capturer en note" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Capturer dans une base" })).toBeVisible();
+    const more = page.getByRole("dialog").filter({ has: page.getByRole("button", { name: "Capturer en note" }) });
+    await more.getByRole("button", { name: "Mettre une étoile" }).focus();
+    await page.keyboard.press("ArrowDown");
+    await expect(more.getByRole("button", { name: "Marquer comme non lu" })).toBeFocused();
   });
 
   test("clavier : . ouvre le menu de la ligne, flèches + Entrée, heures sans AM/PM", async ({ page }) => {
@@ -128,6 +189,8 @@ test.describe("06 — mail", () => {
     await page.keyboard.press(".");
     const menu = page.getByRole("menu", { name: "Actions de l'email" });
     await expect(menu).toBeVisible();
+    const box = await menu.boundingBox();
+    expect(box!.y + box!.height).toBeLessThanOrEqual(page.viewportSize()!.height);
     await expect(menu.getByRole("menuitem").first()).toBeFocused();
     await page.keyboard.press("End");
     await expect(menu.getByRole("menuitem", { name: "Supprimer" })).toBeFocused();

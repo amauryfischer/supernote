@@ -63,6 +63,16 @@ import { OrgRecipientPicker } from "./OrgRecipientPicker";
 
 const SUCCESS_BEFORE_CLOSE_MS = 600;
 
+export interface ComposeRestore {
+  to: string[];
+  cc: string[];
+  bcc: string[];
+  subject: string;
+  body: string;
+  attachments: PendingAttachment[];
+  thread?: ForwardThread;
+}
+
 /**
  * Composeur plein écran. Deux issues : « Créer le brouillon » (ouvre le
  * brouillon dans Gmail) ou « Envoyer » (⚠️ IRRÉVERSIBLE : part immédiatement,
@@ -76,6 +86,8 @@ export function ComposeModal({
   initialBody = "",
   thread,
   correspondents = [],
+  restore,
+  onSendCancelled,
 }: {
   isOpen: boolean;
   onClose: () => void;
@@ -86,6 +98,9 @@ export function ComposeModal({
   thread?: ForwardThread | undefined;
   /** Expéditeurs déjà vus (liste mail chargée), proposés en autocomplétion. */
   correspondents?: EmailAddress[];
+  /** Message rendu à l'édition après « Annuler l'envoi », pièces jointes comprises. */
+  restore?: ComposeRestore | undefined;
+  onSendCancelled?: (restore: ComposeRestore) => void;
 }) {
   const { settings } = useSettings();
   const signature = settings.gmail.signature ?? "";
@@ -95,6 +110,13 @@ export function ComposeModal({
 
   const [recipients, setRecipients] = useState<string[]>(() => parseRecipientInput(initialTo));
   const [toInput, setToInput] = useState("");
+  const [ccList, setCcList] = useState<string[]>([]);
+  const [ccInput, setCcInput] = useState("");
+  const [bccList, setBccList] = useState<string[]>([]);
+  const [bccInput, setBccInput] = useState("");
+  const [ccOpen, setCcOpen] = useState(false);
+  // Sans fenêtre d'annulation, le premier appui sur Envoyer arme, le second part.
+  const [confirmArmed, setConfirmArmed] = useState(false);
   const [subject, setSubject] = useState(initialSubject);
   const [body, setBody] = useState(initialBody);
   const draftFb = useActionFeedback();
@@ -111,6 +133,8 @@ export function ComposeModal({
   const [orgOpen, setOrgOpen] = useState(false);
   const toFieldId = useId();
   const subjectFieldId = useId();
+  const ccFieldId = useId();
+  const bccFieldId = useId();
   // Clavier ouvert, la zone de geste iOS est sous le clavier : sa marge serait perdue.
   const keyboardOpen = useKeyboardOpen();
 
@@ -119,24 +143,42 @@ export function ComposeModal({
   // neufs, avec la signature déjà en place.
   useEffect(() => {
     if (!isOpen) return;
-    const prefilled = Boolean(initialTo || initialSubject || initialBody);
+    const prefilled = Boolean(restore || initialTo || initialSubject || initialBody);
     const draft = prefilled ? null : loadAutoDraft(COMPOSE_DRAFT_KEY);
-    if (draft) {
+    if (restore) {
+      setRecipients(restore.to);
+      setCcList(restore.cc);
+      setBccList(restore.bcc);
+      setCcOpen(restore.cc.length + restore.bcc.length > 0);
+      setSubject(restore.subject);
+      setBody(restore.body);
+      setAttachments(restore.attachments);
+      setRestored(false);
+    } else if (draft) {
       setRecipients(draft.to ?? []);
+      setCcList(draft.cc ?? []);
+      setBccList(draft.bcc ?? []);
+      setCcOpen(Boolean(draft.cc?.length || draft.bcc?.length));
       setSubject(draft.subject ?? "");
       setBody(draft.body);
+      setAttachments([]);
       setRestored(true);
     } else {
       setRecipients(parseRecipientInput(initialTo));
+      setCcList([]);
+      setBccList([]);
+      setCcOpen(false);
       setSubject(initialSubject);
       setBody(withSignature(initialBody, signature));
+      setAttachments([]);
       setRestored(false);
     }
     setToInput("");
-    setAttachments([]);
+    setCcInput("");
+    setBccInput("");
     setOrgOpen(false);
     setNotice(null);
-  }, [isOpen, initialTo, initialSubject, initialBody, signature]);
+  }, [isOpen, restore, initialTo, initialSubject, initialBody, signature]);
 
   // Sauvegarde automatique pendant la frappe : fermer la fenêtre ou recharger
   // l'onglet ne perd plus le message en cours. Débattue pour ne pas écrire à
@@ -144,10 +186,28 @@ export function ComposeModal({
   useEffect(() => {
     if (!isOpen) return undefined;
     const id = setTimeout(() => {
-      saveAutoDraft({ key: COMPOSE_DRAFT_KEY, subject, body, to: recipients });
+      saveAutoDraft({
+        key: COMPOSE_DRAFT_KEY,
+        subject,
+        body,
+        to: recipients,
+        cc: ccList,
+        bcc: bccList,
+      });
     }, 500);
     return () => clearTimeout(id);
-  }, [isOpen, subject, body, recipients]);
+  }, [isOpen, subject, body, recipients, ccList, bccList]);
+
+  useEffect(() => {
+    setConfirmArmed(false);
+  }, [isOpen, recipients, toInput, ccList, ccInput, bccList, bccInput, subject, body]);
+
+  // Inclut une adresse tapée mais non encore validée (pas de perte silencieuse).
+  const pendingRecipients = () => ({
+    to: dedupeEmails([...recipients, ...parseRecipientInput(toInput)]),
+    cc: dedupeEmails([...ccList, ...parseRecipientInput(ccInput)]),
+    bcc: dedupeEmails([...bccList, ...parseRecipientInput(bccInput)]),
+  });
 
   /** Corps prêt à partir : signature ajoutée si elle manque. */
   const finalBody = useCallback(() => withSignature(body, signature), [body, signature]);
@@ -204,31 +264,9 @@ export function ComposeModal({
     setAttachments((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const suggestionsId = useId();
   const allSuggestions = useRecipientSuggestions(correspondents);
-  const [suggestOpen, setSuggestOpen] = useState(false);
-  const [activeMatch, setActiveMatch] = useState(0);
-  const matches = useMemo(
-    () => (suggestOpen ? matchRecipients(allSuggestions, toInput, recipients) : []),
-    [suggestOpen, allSuggestions, toInput, recipients],
-  );
-
   const addRecipients = (emails: string[]) => {
     setRecipients((prev) => dedupeEmails([...prev, ...emails]));
-  };
-  const removeRecipient = (email: string) => {
-    setRecipients((prev) => prev.filter((r) => r !== email));
-  };
-  const pickSuggestion = (email: string) => {
-    addRecipients([email]);
-    setToInput("");
-    setActiveMatch(0);
-  };
-  /** Valide la saisie manuelle courante (Entrée, virgule, ou avant l'envoi). */
-  const commitManual = () => {
-    const parsed = parseRecipientInput(toInput);
-    if (parsed.length) addRecipients(parsed);
-    setToInput("");
   };
 
   const insert = (t: MailTemplate) => {
@@ -263,8 +301,7 @@ export function ComposeModal({
       setNotice({ tone: "danger", text: "Objet ou corps requis." });
       return;
     }
-    // Inclut une adresse tapée mais non encore validée (pas de perte silencieuse).
-    const allTo = dedupeEmails([...recipients, ...parseRecipientInput(toInput)]);
+    const { to: allTo, cc, bcc } = pendingRecipients();
     setNotice(null);
     const url = await draftFb.run(
       async () => {
@@ -272,6 +309,8 @@ export function ComposeModal({
         const html = finalHtml(text);
         const res = await createDraft({
           to: allTo.length ? allTo : undefined,
+          ...(cc.length ? { cc } : {}),
+          ...(bcc.length ? { bcc } : {}),
           subject,
           body: text,
           ...(html ? { html } : {}),
@@ -292,7 +331,7 @@ export function ComposeModal({
   // ⚠️ Envoi IRRÉVERSIBLE : le mail part immédiatement. Destinataire requis
   // (contrairement au brouillon, optionnel).
   const submitSend = async (sendAt?: number) => {
-    const allTo = dedupeEmails([...recipients, ...parseRecipientInput(toInput)]);
+    const { to: allTo, cc, bcc } = pendingRecipients();
     if (allTo.length === 0) {
       setNotice({ tone: "danger", text: "Ajoute au moins un destinataire pour envoyer." });
       document.getElementById(toFieldId)?.focus();
@@ -303,11 +342,9 @@ export function ComposeModal({
       return;
     }
     // Sans fenêtre d'annulation ni date d'envoi, rien ne rattrape un envoi : on confirme.
-    if (undoSeconds <= 0 && sendAt === undefined) {
-      const who = allTo.length === 1 ? allTo[0] : `${allTo.length} destinataires`;
-      if (!window.confirm(`Envoyer ce message à ${who} ? Cette action est immédiate.`)) {
-        return;
-      }
+    if (undoSeconds <= 0 && sendAt === undefined && !confirmArmed) {
+      setConfirmArmed(true);
+      return;
     }
     setNotice(null);
     const result = await sendFb.run(
@@ -319,12 +356,21 @@ export function ComposeModal({
             kind: thread ? "reply" : "message",
             ...thread,
             to: allTo,
+            ...(cc.length ? { cc } : {}),
+            ...(bcc.length ? { bcc } : {}),
             subject,
             body: text,
             ...(html ? { html } : {}),
             ...(attachments.length ? { attachments: toOutgoing(attachments) } : {}),
           },
-          sendAt !== undefined ? { sendAt } : {},
+          {
+            ...(sendAt !== undefined ? { sendAt } : {}),
+            onCancel: () => {
+              // Texte aussi sur disque : si /mail a été quitté, le prochain composeur le retrouve.
+              saveAutoDraft({ key: COMPOSE_DRAFT_KEY, subject, body, to: allTo, cc, bcc });
+              onSendCancelled?.({ to: allTo, cc, bcc, subject, body, attachments, ...(thread ? { thread } : {}) });
+            },
+          },
         );
       },
       (message) => setNotice({ tone: "danger", text: `Échec de l'envoi : ${message}` }),
@@ -395,7 +441,7 @@ export function ComposeModal({
                   onPress={() => void submitSend()}
                 >
                   <FeedbackIcon state={sendFb.state} error={sendFb.error} idle={<PaperPlaneTilt size={15} />} />
-                  Envoyer
+                  {confirmArmed ? "Confirmer l'envoi" : "Envoyer"}
                 </Button>
                 </Tooltip>
               </header>
@@ -450,88 +496,44 @@ export function ComposeModal({
                     </div>
                   )}
 
+                  {confirmArmed && (
+                    <div
+                      role="alert"
+                      className="mt-4 flex items-center gap-2 rounded-md px-3 py-1.5 text-xs"
+                      style={{ background: "var(--color-warning-50)", color: "var(--color-warning-700)" }}
+                    >
+                      <WarningCircle size={13} weight="bold" aria-hidden />
+                      Envoi immédiat, sans annulation possible : appuie de nouveau sur Envoyer.
+                    </div>
+                  )}
+
                   <div className={`${fieldRow} items-start`}>
                     <label htmlFor={toFieldId} className={`${fieldLabel} pt-1.5`}>
                       À
                     </label>
-                    <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
-                      {recipients.map((r) => (
-                        <Pill key={r} label={r} removeLabel={`Retirer ${r}`} onRemove={() => removeRecipient(r)} />
-                      ))}
-                      <div className="relative min-w-24 flex-1">
-                        <Input
-                          id={toFieldId}
-                          type="email"
-                          value={toInput}
-                          role="combobox"
-                          aria-expanded={matches.length > 0}
-                          aria-controls={suggestionsId}
-                          aria-autocomplete="list"
-                          aria-activedescendant={matches.length ? `${suggestionsId}-${activeMatch}` : undefined}
-                          autoComplete="off"
-                          className={bareInput}
-                          onChange={(e) => {
-                            setToInput(e.target.value);
-                            setActiveMatch(0);
-                            setSuggestOpen(true);
-                          }}
-                          onKeyDown={(e) => {
-                            if (e.metaKey || e.ctrlKey) return;
-                            const picked = matches[activeMatch];
-                            if (matches.length && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
-                              e.preventDefault();
-                              const step = e.key === "ArrowDown" ? 1 : -1;
-                              setActiveMatch((i) => (i + step + matches.length) % matches.length);
-                            } else if (picked && (e.key === "Enter" || e.key === "Tab")) {
-                              e.preventDefault();
-                              pickSuggestion(picked.email);
-                            } else if (matches.length && e.key === "Escape") {
-                              // Ferme la liste sans fermer le composeur.
-                              e.preventDefault();
-                              e.stopPropagation();
-                              setSuggestOpen(false);
-                            } else if (e.key === "Enter" || e.key === ",") {
-                              e.preventDefault();
-                              commitManual();
-                            } else if (e.key === "Backspace" && !toInput && recipients.length) {
-                              removeRecipient(recipients[recipients.length - 1]!);
-                            }
-                          }}
-                          onBlur={() => {
-                            setSuggestOpen(false);
-                            commitManual();
-                          }}
-                          placeholder={recipients.length ? "" : "Nom ou adresse, Entrée pour valider"}
-                        />
-                        {matches.length > 0 && (
-                          <div
-                            id={suggestionsId}
-                            role="listbox"
-                            aria-label="Suggestions de destinataires"
-                            className="absolute left-0 top-full z-20 mt-1 w-[min(22rem,calc(100vw-2rem))] overflow-hidden rounded-md border border-[var(--border-subtle)] bg-[var(--surface-1)] py-1 shadow-lg"
-                          >
-                            {matches.map((m, i) => (
-                              <div
-                                key={m.email}
-                                id={`${suggestionsId}-${i}`}
-                                role="option"
-                                aria-selected={i === activeMatch}
-                                // mousedown : garder le focus dans le champ, sinon le blur valide la saisie partielle.
-                                onMouseDown={(e) => {
-                                  e.preventDefault();
-                                  pickSuggestion(m.email);
-                                }}
-                                onMouseEnter={() => setActiveMatch(i)}
-                                className={`flex min-h-10 cursor-pointer flex-col justify-center px-3 py-1 ${i === activeMatch ? "bg-[var(--surface-2)]" : ""}`}
-                              >
-                                <span className="truncate text-sm text-[var(--text-primary)]">{m.name || m.email}</span>
-                                {m.name && <span className="truncate text-xs text-[var(--text-muted)]">{m.email}</span>}
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </div>
+                    <RecipientField
+                      id={toFieldId}
+                      value={recipients}
+                      onChange={setRecipients}
+                      input={toInput}
+                      onInputChange={setToInput}
+                      suggestions={allSuggestions}
+                      inputClassName={bareInput}
+                      placeholder="Nom ou adresse, Entrée pour valider"
+                    />
+                    {!ccOpen && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="px-2 text-sm text-[var(--text-muted)]"
+                        onPress={() => {
+                          setCcOpen(true);
+                          requestAnimationFrame(() => document.getElementById(ccFieldId)?.focus());
+                        }}
+                      >
+                        Cc Cci
+                      </Button>
+                    )}
                     <Tooltip content="Envoyer à une organisation">
                       <Button
                         size="sm"
@@ -550,6 +552,27 @@ export function ComposeModal({
                       <OrgRecipientPicker onAdd={addRecipients} />
                     </div>
                   )}
+
+                  {ccOpen &&
+                    ([
+                      [ccFieldId, "Cc", ccList, setCcList, ccInput, setCcInput],
+                      [bccFieldId, "Cci", bccList, setBccList, bccInput, setBccInput],
+                    ] as const).map(([id, label, list, setList, input, setInput]) => (
+                      <div key={id} className={`${fieldRow} items-start`}>
+                        <label htmlFor={id} className={`${fieldLabel} pt-1.5`}>
+                          {label}
+                        </label>
+                        <RecipientField
+                          id={id}
+                          value={list}
+                          onChange={setList}
+                          input={input}
+                          onInputChange={setInput}
+                          suggestions={allSuggestions}
+                          inputClassName={bareInput}
+                        />
+                      </div>
+                    ))}
 
                   <div className={`${fieldRow} items-center`}>
                     <label htmlFor={subjectFieldId} className={fieldLabel}>
@@ -719,6 +742,128 @@ export function ComposeModal({
         onRemove={remove}
       />
     </>
+  );
+}
+
+/** Destinataires en pastilles + saisie avec autocomplétion (À, Cc, Cci). */
+function RecipientField({
+  id,
+  value,
+  onChange,
+  input,
+  onInputChange,
+  suggestions,
+  inputClassName,
+  placeholder,
+}: {
+  id: string;
+  value: string[];
+  onChange: (next: string[]) => void;
+  input: string;
+  onInputChange: (next: string) => void;
+  suggestions: EmailAddress[];
+  inputClassName: string;
+  placeholder?: string;
+}) {
+  const listId = useId();
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(0);
+  const matches = useMemo(
+    () => (open ? matchRecipients(suggestions, input, value) : []),
+    [open, suggestions, input, value],
+  );
+  const add = (emails: string[]) => onChange(dedupeEmails([...value, ...emails]));
+  const pick = (email: string) => {
+    add([email]);
+    onInputChange("");
+    setActive(0);
+  };
+  /** Valide la saisie manuelle courante (Entrée, virgule, sortie du champ). */
+  const commit = () => {
+    const parsed = parseRecipientInput(input);
+    if (parsed.length) add(parsed);
+    onInputChange("");
+  };
+
+  return (
+    <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+      {value.map((r) => (
+        <Pill key={r} label={r} removeLabel={`Retirer ${r}`} onRemove={() => onChange(value.filter((x) => x !== r))} />
+      ))}
+      <div className="relative min-w-24 flex-1">
+        <Input
+          id={id}
+          type="email"
+          value={input}
+          role="combobox"
+          aria-expanded={matches.length > 0}
+          aria-controls={listId}
+          aria-autocomplete="list"
+          aria-activedescendant={matches.length ? `${listId}-${active}` : undefined}
+          autoComplete="off"
+          className={inputClassName}
+          onChange={(e) => {
+            onInputChange(e.target.value);
+            setActive(0);
+            setOpen(true);
+          }}
+          onKeyDown={(e) => {
+            if (e.metaKey || e.ctrlKey) return;
+            const picked = matches[active];
+            if (matches.length && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+              e.preventDefault();
+              const step = e.key === "ArrowDown" ? 1 : -1;
+              setActive((i) => (i + step + matches.length) % matches.length);
+            } else if (picked && (e.key === "Enter" || e.key === "Tab")) {
+              e.preventDefault();
+              pick(picked.email);
+            } else if (matches.length && e.key === "Escape") {
+              // Ferme la liste sans fermer le composeur.
+              e.preventDefault();
+              e.stopPropagation();
+              setOpen(false);
+            } else if (e.key === "Enter" || e.key === ",") {
+              e.preventDefault();
+              commit();
+            } else if (e.key === "Backspace" && !input && value.length) {
+              onChange(value.slice(0, -1));
+            }
+          }}
+          onBlur={() => {
+            setOpen(false);
+            commit();
+          }}
+          placeholder={value.length ? "" : placeholder}
+        />
+        {matches.length > 0 && (
+          <div
+            id={listId}
+            role="listbox"
+            aria-label="Suggestions de destinataires"
+            className="absolute left-0 top-full z-20 mt-1 w-[min(22rem,calc(100vw-2rem))] overflow-hidden rounded-md border border-[var(--border-subtle)] bg-[var(--surface-1)] py-1 shadow-lg"
+          >
+            {matches.map((m, i) => (
+              <div
+                key={m.email}
+                id={`${listId}-${i}`}
+                role="option"
+                aria-selected={i === active}
+                // mousedown : garder le focus dans le champ, sinon le blur valide la saisie partielle.
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  pick(m.email);
+                }}
+                onMouseEnter={() => setActive(i)}
+                className={`flex min-h-10 cursor-pointer flex-col justify-center px-3 py-1 ${i === active ? "bg-[var(--surface-2)]" : ""}`}
+              >
+                <span className="truncate text-sm text-[var(--text-primary)]">{m.name || m.email}</span>
+                {m.name && <span className="truncate text-xs text-[var(--text-muted)]">{m.email}</span>}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 

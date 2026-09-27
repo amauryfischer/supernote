@@ -22,6 +22,7 @@ import { OnlineSyncIndicator } from "@/lib/online-sync/OnlineSyncIndicator";
 import { AiStatusIndicator } from "./AiStatusIndicator";
 import { InboxSortJournalButton } from "@/lib/ai/InboxSortJournalEntry";
 import { MailSyncAge } from "@/components/mail/MailSyncAge";
+import { MAIL_COMPOSE_EVENT } from "@/lib/mail-shortcuts";
 
 // ── Route label map for static segments ──────────────────────────────────────
 
@@ -213,6 +214,8 @@ function ThemeToggleButton() {
 export const TopBar = memo(function TopBar() {
   const { toggleRightPanel, rightPanelVisible } = useShellChrome();
   const handleNewNote = useNewInboxNote();
+  // Sur /mail, l'action « créer » du shell est un message, pas une note.
+  const onMail = usePathname()?.startsWith("/mail") ?? false;
 
   return (
     <header
@@ -242,12 +245,12 @@ export const TopBar = memo(function TopBar() {
         <Button
           variant="primary"
           size="sm"
-          onClick={handleNewNote}
+          onClick={onMail ? () => window.dispatchEvent(new Event(MAIL_COMPOSE_EVENT)) : handleNewNote}
           data-tour="new-btn"
           className="sn-btn-primary sn-pressable flex items-center gap-1.5 rounded-[var(--radius-md)] px-2.5 py-1 text-xs font-medium"
         >
           <Plus size={13} />
-          Nouveau
+          {onMail ? "Nouveau message" : "Nouveau"}
         </Button>
         <Tooltip content="Nouvelle note depuis un modèle" placement="bottom">
           <Button

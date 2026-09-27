@@ -6,7 +6,8 @@
  * Point d'entrée unique du composeur et de la réponse inline. Trois issues :
  *
  *  - fenêtre d'annulation > 0 → le message est mis en FILE et part à
- *    l'expiration ; un toast propose « Annuler » pendant tout le délai ;
+ *    l'expiration ; un toast propose « Annuler » pendant tout le délai, et
+ *    l'annulation rend le message à l'édition (`onCancel`) ;
  *  - date explicite (`sendAt`) → mise en file jusqu'à cette date, visible et
  *    annulable dans `MailOutgoingBadge` ;
  *  - délai nul, ou charge trop lourde pour le stockage local (grosses pièces
@@ -26,6 +27,7 @@ export interface DeferredSendInput {
   kind: "message" | "reply";
   to: string[];
   cc?: string[];
+  bcc?: string[];
   subject: string;
   body: string;
   html?: string;
@@ -40,6 +42,8 @@ export interface DeferredSendOptions {
   sendAt?: number;
   /** Libellé du toast d'annulation (défaut : « Message envoyé »). */
   label?: string;
+  /** Envoi annulé à temps : l'appelant rend le message à l'édition, sans toast. */
+  onCancel?: () => void;
 }
 
 export type DeferredSendResult = "queued" | "sent";
@@ -57,6 +61,7 @@ export function useDeferredSend() {
           threadId: input.threadId,
           to: input.to,
           ...(input.cc?.length ? { cc: input.cc } : {}),
+          ...(input.bcc?.length ? { bcc: input.bcc } : {}),
           subject: input.subject,
           body: input.body,
           ...(input.html ? { html: input.html } : {}),
@@ -69,6 +74,7 @@ export function useDeferredSend() {
       await sendMessage(clientId, {
         to: input.to,
         ...(input.cc?.length ? { cc: input.cc } : {}),
+        ...(input.bcc?.length ? { bcc: input.bcc } : {}),
         subject: input.subject,
         body: input.body,
         ...(input.html ? { html: input.html } : {}),
@@ -93,6 +99,7 @@ export function useDeferredSend() {
         kind: input.kind,
         to: input.to,
         ...(input.cc?.length ? { cc: input.cc } : {}),
+        ...(input.bcc?.length ? { bcc: input.bcc } : {}),
         subject: input.subject,
         body: input.body,
         ...(input.html ? { html: input.html } : {}),
@@ -132,7 +139,7 @@ export function useDeferredSend() {
           label: "Annuler l'envoi",
           onClick: () => {
             if (cancelOutgoing(id)) {
-              toast({ title: "Envoi annulé", variant: "warning" });
+              opts.onCancel?.();
             } else {
               toast({ title: "Trop tard : le message est parti", variant: "warning" });
             }

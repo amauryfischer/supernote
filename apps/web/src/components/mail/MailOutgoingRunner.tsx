@@ -48,6 +48,7 @@ export function MailOutgoingRunner() {
           threadId: m.threadId,
           to: m.to,
           ...(m.cc?.length ? { cc: m.cc } : {}),
+          ...(m.bcc?.length ? { bcc: m.bcc } : {}),
           subject: m.subject,
           body: m.body,
           ...(m.html ? { html: m.html } : {}),
@@ -60,6 +61,7 @@ export function MailOutgoingRunner() {
       await sendMessage(clientId, {
         to: m.to,
         ...(m.cc?.length ? { cc: m.cc } : {}),
+        ...(m.bcc?.length ? { bcc: m.bcc } : {}),
         subject: m.subject,
         body: m.body,
         ...(m.html ? { html: m.html } : {}),

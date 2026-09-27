@@ -37,6 +37,7 @@ export interface OutgoingMessage {
   kind: "message" | "reply";
   to: string[];
   cc?: string[];
+  bcc?: string[];
   subject: string;
   body: string;
   html?: string;

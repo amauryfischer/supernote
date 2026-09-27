@@ -38,7 +38,7 @@ import { MailOverlayList } from "@/components/mail/MailOverlayList";
 import { MailGroupList } from "@/components/mail/MailGroupList";
 import { useCaptureEmail } from "@/components/mail/useCaptureEmail";
 import { CaptureEmailModal } from "@/components/mail/CaptureEmailModal";
-import { ComposeModal } from "@/components/mail/ComposeModal";
+import { ComposeModal, type ComposeRestore } from "@/components/mail/ComposeModal";
 import { MailEisenhowerBoard, type MailTodoCard } from "@/components/mail/MailEisenhowerBoard";
 import { MailShortcutsHelp } from "@/components/mail/MailShortcutsHelp";
 import { MailLabelsManager } from "@/components/mail/MailLabelsManager";
@@ -52,7 +52,7 @@ import { useMailKeyboard } from "@/components/mail/useMailKeyboard";
 import { useMailList, DEFAULT_MAIL_QUERY } from "@/components/mail/useMailList";
 import { useMailMirror } from "@/components/mail/useMailMirror";
 import { useMailDrafts } from "@/components/mail/useMailDrafts";
-import type { MailActionId, MailContext } from "@/lib/mail-shortcuts";
+import { MAIL_COMPOSE_EVENT, type MailActionId, type MailContext } from "@/lib/mail-shortcuts";
 import {
   getThread,
   hasGmailToken,
@@ -344,6 +344,7 @@ export default function MailPage() {
     subject: string;
     body: string;
     thread?: ForwardThread;
+    restore?: ComposeRestore;
   }>({ subject: "", body: "" });
   // Annonce vocale (lecteurs d'écran) du résultat de la dernière action.
   const [liveMessage, setLiveMessage] = useState("");
@@ -360,6 +361,10 @@ export default function MailPage() {
     setComposeInitial({ subject: "", body: "" });
     setComposeOpen(true);
   }, []);
+  useEffect(() => {
+    window.addEventListener(MAIL_COMPOSE_EVENT, openCompose);
+    return () => window.removeEventListener(MAIL_COMPOSE_EVENT, openCompose);
+  }, [openCompose]);
   const newInboxNote = useNewInboxNote();
 
   // Transfert : pré-remplit le compose (objet « Fwd: … » + corps cité), To vide.
@@ -839,6 +844,15 @@ export default function MailPage() {
     if (undoBannerTimerRef.current) clearTimeout(undoBannerTimerRef.current);
   }, []);
 
+  // Survol ou focus figent la pastille (WCAG 2.2.1) ; le délai repart à la sortie.
+  const armUndoBannerTimer = useCallback(() => {
+    if (undoBannerTimerRef.current) clearTimeout(undoBannerTimerRef.current);
+    undoBannerTimerRef.current = setTimeout(() => setUndoBanner(null), UNDO_TOAST_DURATION_MS);
+  }, []);
+  const pauseUndoBanner = useCallback(() => {
+    if (undoBannerTimerRef.current) clearTimeout(undoBannerTimerRef.current);
+  }, []);
+
   const performUndo = useCallback(
     (id: string, action: TriageAction, opId?: string | null) => {
       if (!clientId) return;
@@ -882,10 +896,9 @@ export default function MailPage() {
       const entry = { id, action, opId: opId ?? null };
       lastUndoableRef.current = { ...entry, at: Date.now() };
       setUndoBanner(entry);
-      if (undoBannerTimerRef.current) clearTimeout(undoBannerTimerRef.current);
-      undoBannerTimerRef.current = setTimeout(() => setUndoBanner(null), UNDO_TOAST_DURATION_MS);
+      armUndoBannerTimer();
     },
-    [clientId],
+    [clientId, armUndoBannerTimer],
   );
 
   // « Fait » vide aussi la matrice : sinon le label todo survit à l'archivage et
@@ -1712,15 +1725,6 @@ export default function MailPage() {
       inputRef={searchInputRef}
       localCount={localCount}
       remote={remoteSearch}
-      leading={
-        !isMobile ? (
-          <Tooltip content="Nouveau message (c)">
-            <Button variant="ghost" isIconOnly onPress={openCompose} aria-label="Nouveau message">
-              <PencilSimple size={18} aria-hidden />
-            </Button>
-          </Tooltip>
-        ) : null
-      }
     />
   );
 
@@ -2763,6 +2767,16 @@ export default function MailPage() {
         initialSubject={composeInitial.subject}
         initialBody={composeInitial.body}
         thread={composeInitial.thread}
+        restore={composeInitial.restore}
+        onSendCancelled={(restore) => {
+          setComposeInitial({
+            subject: restore.subject,
+            body: restore.body,
+            ...(restore.thread ? { thread: restore.thread } : {}),
+            restore,
+          });
+          setComposeOpen(true);
+        }}
         correspondents={correspondents}
       />
       <MailShortcutsHelp isOpen={helpOpen} onClose={() => setHelpOpen(false)} />
@@ -2801,7 +2815,7 @@ export default function MailPage() {
           {chordPrefix}…
         </div>
       )}
-      {/* Pastille « Annuler » après un triage (archive/fait/report/suppression) :
+      {/* Pastille « Annuler » après un triage (archive/report/suppression) :
           même mécanisme que l'indicateur d'accord ci-dessus, pas de toast. */}
       {undoBanner && (
         <div
@@ -2811,6 +2825,10 @@ export default function MailPage() {
           <div
             className="pointer-events-auto flex items-center gap-2 rounded-full py-1.5 pl-4 pr-1.5 text-sm shadow-lg"
             style={{ background: "var(--surface-2)", color: "var(--text-secondary)" }}
+            onMouseEnter={pauseUndoBanner}
+            onMouseLeave={armUndoBannerTimer}
+            onFocus={pauseUndoBanner}
+            onBlur={armUndoBannerTimer}
           >
             <span>{TRIAGE_DONE_LABEL[undoBanner.action]}</span>
             <Button
@@ -2820,7 +2838,7 @@ export default function MailPage() {
               aria-label={`Annuler : ${TRIAGE_DONE_LABEL[undoBanner.action]}`}
               onPress={() => performUndo(undoBanner.id, undoBanner.action, undoBanner.opId)}
             >
-              Annuler (z)
+              Annuler<span className="max-md:hidden">&nbsp;(z)</span>
             </Button>
           </div>
         </div>
