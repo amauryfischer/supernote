@@ -99,7 +99,7 @@ async function googleOAuthToken(params) {
     body: new URLSearchParams(params),
   });
   const json = await res.json().catch(() => null);
-  if (!res.ok) throw Object.assign(new Error(`google token ${res.status}`), { code: json?.error });
+  if (!res.ok) throw Object.assign(new Error(`google token ${res.status}`), { code: json?.error, detail: json?.error_description });
   return json;
 }
 
@@ -423,7 +423,7 @@ export async function createPushBackend({ vaultAuthed, vaultProtected }) {
           grant_type: "authorization_code",
         });
       } catch (err) {
-        console.warn(`[push] mail-grant : échange du code refusé par Google (${err?.code ?? err?.message ?? "?"})`);
+        console.warn(`[push] mail-grant : échange du code refusé par Google (${err?.code ?? err?.message ?? "?"} : ${err?.detail ?? "-"}) client_id=${clientId}`);
         sendJson(res, 400, { error: `échange du code refusé par Google (${err?.code ?? "?"})` });
         return true;
       }
