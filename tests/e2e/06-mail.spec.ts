@@ -78,6 +78,47 @@ test.describe("06 — mail", () => {
     await expect(page.getByText("Compte rendu réunion").first()).toBeVisible();
   });
 
+  test("la pastille Annuler reste tant qu'on la survole", async ({ page }) => {
+    await withInbox(page);
+    await page.goto("/mail");
+    await expect(page.getByText("Compte rendu réunion").first()).toBeVisible({ timeout: 20_000 });
+    await page.keyboard.press("j");
+    await page.keyboard.press("e");
+    const undoButton = page.getByRole("button", { name: /Annuler : / });
+    await undoButton.hover();
+    await page.waitForTimeout(7_000);
+    await expect(undoButton).toBeVisible();
+  });
+
+  test("Cc/Cci : annuler l'envoi rouvre le composeur rempli, l'envoi porte l'en-tête Bcc", async ({ page }) => {
+    await withInbox(page);
+    let raw = "";
+    await page.route("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", async (route) => {
+      raw = Buffer.from((route.request().postDataJSON() as { raw: string }).raw, "base64url").toString("utf8");
+      await route.fulfill({ json: { id: "sent1", threadId: "t9" } });
+    });
+    await page.goto("/mail");
+    await expect(page.getByText("Compte rendu réunion").first()).toBeVisible({ timeout: 20_000 });
+    await page.keyboard.press("c");
+    const dialog = page.getByRole("dialog", { name: "Nouveau message" });
+    await page.getByLabel("À", { exact: true }).fill("alice@exemple.fr");
+    await page.keyboard.press("Enter");
+    await dialog.getByRole("button", { name: "Cc Cci" }).click();
+    await page.getByLabel("Cc", { exact: true }).fill("bob@exemple.fr");
+    await page.getByLabel("Cci", { exact: true }).fill("carol@exemple.fr");
+    await page.getByLabel("Objet").fill("Point budget");
+    await dialog.getByRole("button", { name: "Envoyer", exact: true }).click();
+
+    await page.getByRole("button", { name: "Annuler l'envoi" }).click();
+    await expect(dialog).toBeVisible();
+    await expect(page.getByLabel("Objet")).toHaveValue("Point budget");
+    await expect(page.getByLabel("Cci", { exact: true })).toHaveValue("carol@exemple.fr");
+
+    await dialog.getByRole("button", { name: "Envoyer", exact: true }).click();
+    await expect.poll(() => raw, { timeout: 30_000 }).toContain("Bcc: carol@exemple.fr");
+    expect(raw).toContain("Cc: bob@exemple.fr");
+  });
+
   test("en-tête du fil réduit à Todo · Archiver · Reporter · Plus ; d archive comme e", async ({ page }) => {
     await withInbox(page);
     await page.goto("/mail");

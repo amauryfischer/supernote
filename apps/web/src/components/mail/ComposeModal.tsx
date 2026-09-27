@@ -60,6 +60,7 @@ import { useMailTemplates } from "./useMailTemplates";
 import { TemplatePicker } from "./TemplatePicker";
 import { TemplateManager } from "./TemplateManager";
 import { OrgRecipientPicker } from "./OrgRecipientPicker";
+import { MAIL_COMPOSE_EVENT } from "@/lib/mail-shortcuts";
 
 const SUCCESS_BEFORE_CLOSE_MS = 600;
 
@@ -95,6 +96,11 @@ export function ComposeModal({
 
   const [recipients, setRecipients] = useState<string[]>(() => parseRecipientInput(initialTo));
   const [toInput, setToInput] = useState("");
+  const [ccInput, setCcInput] = useState("");
+  const [bccInput, setBccInput] = useState("");
+  const [ccOpen, setCcOpen] = useState(false);
+  // Sans fenêtre d'annulation, le premier appui sur Envoyer arme, le second part.
+  const [confirmArmed, setConfirmArmed] = useState(false);
   const [subject, setSubject] = useState(initialSubject);
   const [body, setBody] = useState(initialBody);
   const draftFb = useActionFeedback();
@@ -111,6 +117,8 @@ export function ComposeModal({
   const [orgOpen, setOrgOpen] = useState(false);
   const toFieldId = useId();
   const subjectFieldId = useId();
+  const ccFieldId = useId();
+  const bccFieldId = useId();
   // Clavier ouvert, la zone de geste iOS est sous le clavier : sa marge serait perdue.
   const keyboardOpen = useKeyboardOpen();
 
@@ -123,11 +131,17 @@ export function ComposeModal({
     const draft = prefilled ? null : loadAutoDraft(COMPOSE_DRAFT_KEY);
     if (draft) {
       setRecipients(draft.to ?? []);
+      setCcInput((draft.cc ?? []).join(", "));
+      setBccInput((draft.bcc ?? []).join(", "));
+      setCcOpen(Boolean(draft.cc?.length || draft.bcc?.length));
       setSubject(draft.subject ?? "");
       setBody(draft.body);
       setRestored(true);
     } else {
       setRecipients(parseRecipientInput(initialTo));
+      setCcInput("");
+      setBccInput("");
+      setCcOpen(false);
       setSubject(initialSubject);
       setBody(withSignature(initialBody, signature));
       setRestored(false);
@@ -144,10 +158,21 @@ export function ComposeModal({
   useEffect(() => {
     if (!isOpen) return undefined;
     const id = setTimeout(() => {
-      saveAutoDraft({ key: COMPOSE_DRAFT_KEY, subject, body, to: recipients });
+      saveAutoDraft({
+        key: COMPOSE_DRAFT_KEY,
+        subject,
+        body,
+        to: recipients,
+        cc: parseRecipientInput(ccInput),
+        bcc: parseRecipientInput(bccInput),
+      });
     }, 500);
     return () => clearTimeout(id);
-  }, [isOpen, subject, body, recipients]);
+  }, [isOpen, subject, body, recipients, ccInput, bccInput]);
+
+  useEffect(() => {
+    setConfirmArmed(false);
+  }, [isOpen, recipients, toInput, ccInput, bccInput, subject, body]);
 
   /** Corps prêt à partir : signature ajoutée si elle manque. */
   const finalBody = useCallback(() => withSignature(body, signature), [body, signature]);
@@ -270,8 +295,12 @@ export function ComposeModal({
       async () => {
         const text = finalBody();
         const html = finalHtml(text);
+        const cc = parseRecipientInput(ccInput);
+        const bcc = parseRecipientInput(bccInput);
         const res = await createDraft({
           to: allTo.length ? allTo : undefined,
+          ...(cc.length ? { cc } : {}),
+          ...(bcc.length ? { bcc } : {}),
           subject,
           body: text,
           ...(html ? { html } : {}),
@@ -303,12 +332,12 @@ export function ComposeModal({
       return;
     }
     // Sans fenêtre d'annulation ni date d'envoi, rien ne rattrape un envoi : on confirme.
-    if (undoSeconds <= 0 && sendAt === undefined) {
-      const who = allTo.length === 1 ? allTo[0] : `${allTo.length} destinataires`;
-      if (!window.confirm(`Envoyer ce message à ${who} ? Cette action est immédiate.`)) {
-        return;
-      }
+    if (undoSeconds <= 0 && sendAt === undefined && !confirmArmed) {
+      setConfirmArmed(true);
+      return;
     }
+    const cc = parseRecipientInput(ccInput);
+    const bcc = parseRecipientInput(bccInput);
     setNotice(null);
     const result = await sendFb.run(
       () => {
@@ -319,12 +348,21 @@ export function ComposeModal({
             kind: thread ? "reply" : "message",
             ...thread,
             to: allTo,
+            ...(cc.length ? { cc } : {}),
+            ...(bcc.length ? { bcc } : {}),
             subject,
             body: text,
             ...(html ? { html } : {}),
             ...(attachments.length ? { attachments: toOutgoing(attachments) } : {}),
           },
-          sendAt !== undefined ? { sendAt } : {},
+          {
+            ...(sendAt !== undefined ? { sendAt } : {}),
+            // ponytail: pièces jointes et fil de transfert non restaurés, le brouillon auto ne les stocke pas.
+            onCancel: () => {
+              saveAutoDraft({ key: COMPOSE_DRAFT_KEY, subject, body, to: allTo, cc, bcc });
+              window.dispatchEvent(new Event(MAIL_COMPOSE_EVENT));
+            },
+          },
         );
       },
       (message) => setNotice({ tone: "danger", text: `Échec de l'envoi : ${message}` }),
@@ -395,7 +433,7 @@ export function ComposeModal({
                   onPress={() => void submitSend()}
                 >
                   <FeedbackIcon state={sendFb.state} error={sendFb.error} idle={<PaperPlaneTilt size={15} />} />
-                  Envoyer
+                  {confirmArmed ? "Confirmer l'envoi" : "Envoyer"}
                 </Button>
                 </Tooltip>
               </header>
@@ -447,6 +485,17 @@ export function ComposeModal({
                       >
                         <X size={11} />
                       </Button>
+                    </div>
+                  )}
+
+                  {confirmArmed && (
+                    <div
+                      role="alert"
+                      className="mt-4 flex items-center gap-2 rounded-md px-3 py-1.5 text-xs"
+                      style={{ background: "var(--color-warning-50)", color: "var(--color-warning-700)" }}
+                    >
+                      <WarningCircle size={13} weight="bold" aria-hidden />
+                      Envoi immédiat, sans annulation possible : appuie de nouveau sur Envoyer.
                     </div>
                   )}
 
@@ -532,6 +581,19 @@ export function ComposeModal({
                         )}
                       </div>
                     </div>
+                    {!ccOpen && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="px-2 text-sm text-[var(--text-muted)]"
+                        onPress={() => {
+                          setCcOpen(true);
+                          requestAnimationFrame(() => document.getElementById(ccFieldId)?.focus());
+                        }}
+                      >
+                        Cc Cci
+                      </Button>
+                    )}
                     <Tooltip content="Envoyer à une organisation">
                       <Button
                         size="sm"
@@ -550,6 +612,30 @@ export function ComposeModal({
                       <OrgRecipientPicker onAdd={addRecipients} />
                     </div>
                   )}
+
+                  {ccOpen &&
+                    ([
+                      [ccFieldId, "Cc", ccInput, setCcInput],
+                      [bccFieldId, "Cci", bccInput, setBccInput],
+                    ] as const).map(([id, label, value, setValue]) => (
+                      <div key={id} className={`${fieldRow} items-center`}>
+                        <label htmlFor={id} className={fieldLabel}>
+                          {label}
+                        </label>
+                        <div className="min-w-0 flex-1">
+                          <Input
+                            id={id}
+                            type="email"
+                            multiple
+                            value={value}
+                            autoComplete="off"
+                            className={bareInput}
+                            placeholder="Adresses séparées par des virgules"
+                            onChange={(e) => setValue(e.target.value)}
+                          />
+                        </div>
+                      </div>
+                    ))}
 
                   <div className={`${fieldRow} items-center`}>
                     <label htmlFor={subjectFieldId} className={fieldLabel}>

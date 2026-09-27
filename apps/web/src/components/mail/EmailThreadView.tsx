@@ -417,6 +417,10 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
   const signature = settings.gmail.signature ?? "";
   const replyFileImageRef = useRef<HTMLInputElement>(null);
 
+  // Un envoi annulé après navigation ne doit pas remplir la réponse d'un autre fil.
+  const openThreadIdRef = useRef(thread.id);
+  openThreadIdRef.current = thread.id;
+
   useEffect(() => {
     // Réponse en cours non envoyée : on la retrouve en revenant sur le fil
     // (fermer le fil ou recharger l'onglet ne perd plus la frappe).
@@ -667,7 +671,16 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
               ...(replyParams.references ? { references: replyParams.references } : {}),
               ...(attachments?.length ? { attachments } : {}),
             },
-            sendAt !== undefined ? { sendAt, label: "Réponse envoyée" } : { label: "Réponse envoyée" },
+            {
+              ...(sendAt !== undefined ? { sendAt } : {}),
+              label: "Réponse envoyée",
+              onCancel: () => {
+                saveAutoDraft({ key: threadDraftKey(thread.id), body: typed });
+                if (openThreadIdRef.current !== thread.id) return;
+                setReplyBody(typed);
+                setReplyOpen(true);
+              },
+            },
           ),
         fail,
       );

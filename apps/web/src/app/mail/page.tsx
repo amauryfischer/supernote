@@ -843,6 +843,15 @@ export default function MailPage() {
     if (undoBannerTimerRef.current) clearTimeout(undoBannerTimerRef.current);
   }, []);
 
+  // Survol ou focus figent la pastille (WCAG 2.2.1) ; le délai repart à la sortie.
+  const armUndoBannerTimer = useCallback(() => {
+    if (undoBannerTimerRef.current) clearTimeout(undoBannerTimerRef.current);
+    undoBannerTimerRef.current = setTimeout(() => setUndoBanner(null), UNDO_TOAST_DURATION_MS);
+  }, []);
+  const pauseUndoBanner = useCallback(() => {
+    if (undoBannerTimerRef.current) clearTimeout(undoBannerTimerRef.current);
+  }, []);
+
   const performUndo = useCallback(
     (id: string, action: TriageAction, opId?: string | null) => {
       if (!clientId) return;
@@ -886,10 +895,9 @@ export default function MailPage() {
       const entry = { id, action, opId: opId ?? null };
       lastUndoableRef.current = { ...entry, at: Date.now() };
       setUndoBanner(entry);
-      if (undoBannerTimerRef.current) clearTimeout(undoBannerTimerRef.current);
-      undoBannerTimerRef.current = setTimeout(() => setUndoBanner(null), UNDO_TOAST_DURATION_MS);
+      armUndoBannerTimer();
     },
-    [clientId],
+    [clientId, armUndoBannerTimer],
   );
 
   // « Fait » vide aussi la matrice : sinon le label todo survit à l'archivage et
@@ -2796,7 +2804,7 @@ export default function MailPage() {
           {chordPrefix}…
         </div>
       )}
-      {/* Pastille « Annuler » après un triage (archive/fait/report/suppression) :
+      {/* Pastille « Annuler » après un triage (archive/report/suppression) :
           même mécanisme que l'indicateur d'accord ci-dessus, pas de toast. */}
       {undoBanner && (
         <div
@@ -2806,6 +2814,10 @@ export default function MailPage() {
           <div
             className="pointer-events-auto flex items-center gap-2 rounded-full py-1.5 pl-4 pr-1.5 text-sm shadow-lg"
             style={{ background: "var(--surface-2)", color: "var(--text-secondary)" }}
+            onMouseEnter={pauseUndoBanner}
+            onMouseLeave={armUndoBannerTimer}
+            onFocus={pauseUndoBanner}
+            onBlur={armUndoBannerTimer}
           >
             <span>{TRIAGE_DONE_LABEL[undoBanner.action]}</span>
             <Button
@@ -2815,7 +2827,7 @@ export default function MailPage() {
               aria-label={`Annuler : ${TRIAGE_DONE_LABEL[undoBanner.action]}`}
               onPress={() => performUndo(undoBanner.id, undoBanner.action, undoBanner.opId)}
             >
-              Annuler (z)
+              Annuler<span className="max-md:hidden">&nbsp;(z)</span>
             </Button>
           </div>
         </div>
