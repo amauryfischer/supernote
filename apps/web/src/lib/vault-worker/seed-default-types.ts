@@ -258,9 +258,14 @@ const habitFields: SeedField[] = [
   // Emoji affiché sur la tuile de la carte (texte libre, un seul glyphe).
   { id: "habit_icon", name: "icon", label: "Emoji", kind: "text" },
   { id: "habit_color", name: "color", label: "Couleur", kind: "color" },
-  // Check-ins requis pour valider une journée (1 = simple coche).
-  { id: "habit_target", name: "target", label: "Objectif / jour", kind: "number", min: 1, max: 50 },
+  // Check-ins requis pour valider une période (1 = simple coche).
+  { id: "habit_target", name: "target", label: "Objectif / période", kind: "number", min: 1, max: 50 },
   { id: "habit_unit", name: "unit", label: "Unité", kind: "text" },
+  { id: "habit_period", name: "period", label: "Période", kind: "select", options: [{ value: "day", label: "Jour" }, { value: "week", label: "Semaine" }, { value: "month", label: "Mois" }] },
+  // Heures entre deux rappels push (0 = aucun, 24 = une fois par jour).
+  { id: "habit_remind_every", name: "remindEvery", label: "Rappel toutes les (h)", kind: "number", min: 0, max: 24 },
+  { id: "habit_remind_from", name: "remindFrom", label: "Rappels dès (h)", kind: "number", min: 0, max: 23 },
+  { id: "habit_remind_to", name: "remindTo", label: "Rappels jusqu'à (h)", kind: "number", min: 0, max: 23 },
   // Map JSON `{ "YYYY-MM-DD": count }` — le schéma IPC n'accepte pas
   // d'objet imbriqué dans `fields`, donc la map voyage en string. Voir
   // `apps/web/src/lib/habits/habitData.ts` pour la (dé)sérialisation.

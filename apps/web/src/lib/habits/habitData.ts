@@ -1,7 +1,8 @@
 /**
  * habitData — logique pure du tracker d'habitudes (« jardin de pixels »).
  *
- * Une habitude = une entité `habit`. Les check-ins quotidiens vivent dans
+ * Une habitude = une entité `habit`, à tenir `target` fois par période
+ * (jour, semaine lun→dim, mois calendaire). Les check-ins vivent dans
  * `fields.checkins`, une map JSON-encodée `{ "YYYY-MM-DD": count }` — le
  * schéma IPC (`FieldValueSchema`) n'accepte que des scalaires/string[],
  * donc la map voyage en string et est (dé)sérialisée ici.
@@ -12,13 +13,25 @@
 
 export const HABIT_TYPE_ID = "habit";
 
+export type HabitPeriod = "day" | "week" | "month";
+export const HABIT_PERIODS: readonly HabitPeriod[] = ["day", "week", "month"];
+
+/** Heures entre deux rappels ; 0 = désactivé, 24 = une fois par jour à `remindFrom`. */
+export type RemindEvery = 0 | 1 | 2 | 3 | 24;
+export const REMIND_EVERY: readonly RemindEvery[] = [0, 1, 2, 3, 24];
+
 export interface Habit {
   id: string;
   name: string;
   icon: string;
   color: string;
-  /** Nombre de check-ins requis pour valider la journée (≥ 1). */
+  period: HabitPeriod;
+  /** Nombre de check-ins requis pour valider la période (≥ 1). */
   target: number;
+  remindEvery: RemindEvery;
+  /** Plage des rappels, heures locales 0-23, bornes incluses. */
+  remindFrom: number;
+  remindTo: number;
   /** Unité affichée ("verres", "min", …) — vide = simple compteur. */
   unit: string;
   archived: boolean;
@@ -81,15 +94,27 @@ export function serializeCheckins(checkins: Record<string, number>): string {
   return JSON.stringify(compact);
 }
 
+function hourField(raw: unknown, fallback: number): number {
+  return typeof raw === "number" && Number.isInteger(raw) && raw >= 0 && raw <= 23 ? raw : fallback;
+}
+
 export function parseHabit(e: HabitEntityLike): Habit {
   const f = e.fields;
   const target = typeof f["target"] === "number" && f["target"] >= 1 ? Math.floor(f["target"]) : 1;
+  const period = HABIT_PERIODS.find((p) => p === f["period"]) ?? "day";
+  // Absent = 0 : une habitude d'avant les rappels ne se met pas à notifier toute seule.
+  const remindEvery = REMIND_EVERY.find((r) => r === f["remindEvery"]) ?? 0;
+  const remindFrom = hourField(f["remindFrom"], 8);
   return {
     id: e.id,
     name: typeof f["name"] === "string" && f["name"].length > 0 ? f["name"] : "Sans nom",
     icon: typeof f["icon"] === "string" && f["icon"].length > 0 ? f["icon"] : DEFAULT_HABIT_ICON,
     color: typeof f["color"] === "string" && f["color"].length > 0 ? f["color"] : DEFAULT_HABIT_COLOR,
+    period,
     target,
+    remindEvery,
+    remindFrom,
+    remindTo: Math.max(remindFrom, hourField(f["remindTo"], 22)),
     unit: typeof f["unit"] === "string" ? f["unit"] : "",
     archived: f["archived"] === true,
     checkins: parseCheckins(f["checkins"]),
@@ -259,4 +284,190 @@ export function buildGrid(
   }
 
   return { columns, monthLabels };
+}
+
+// ── Périodes ─────────────────────────────────────────────────────────────────
+
+/** Premier jour (minuit local) de la période qui contient `d`. */
+export function periodStart(period: HabitPeriod, d: Date): Date {
+  if (period === "month") return new Date(d.getFullYear(), d.getMonth(), 1);
+  const day = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  return period === "week" ? addDays(day, -((day.getDay() + 6) % 7)) : day;
+}
+
+export function addPeriods(period: HabitPeriod, start: Date, n: number): Date {
+  if (period === "month") return new Date(start.getFullYear(), start.getMonth() + n, 1);
+  return addDays(start, period === "week" ? 7 * n : n);
+}
+
+export interface PeriodProgress {
+  done: number;
+  target: number;
+  complete: boolean;
+}
+
+/** Seule définition de « fait » : somme des check-ins de la période qui contient `date`. */
+export function periodProgress(habit: Habit, date: Date): PeriodProgress {
+  const start = periodStart(habit.period, date);
+  const end = addPeriods(habit.period, start, 1);
+  let done = 0;
+  for (let d = start; d < end; d = addDays(d, 1)) done += habit.checkins[toDateKey(d)] ?? 0;
+  return { done, target: habit.target, complete: done >= habit.target };
+}
+
+/** Prochain compteur d'un jour touché : cycle jusqu'à la cible pour `day`, bascule 0 ↔ 1 sinon (un jour = une fois). */
+export function nextDayCount(habit: Habit, count: number): number {
+  if (habit.period === "day") return cycleCount(count, habit.target);
+  return count > 0 ? 0 : 1;
+}
+
+/** Intensité d'un pixel de jour : un jour coché est plein pour une habitude hebdo/mensuelle. */
+export function habitDayLevel(habit: Habit, count: number): 0 | 1 | 2 | 3 | 4 {
+  if (habit.period === "day") return dayLevel(count, habit.target);
+  return count > 0 ? 3 : 0;
+}
+
+/** Série en périodes complètes consécutives ; la période en cours non tenue ne casse rien. */
+export function habitStreaks(habit: Habit, today: Date): StreakInfo {
+  const keys = Object.keys(habit.checkins).sort();
+  if (keys.length === 0) return { current: 0, best: 0 };
+  const last = periodStart(habit.period, today).getTime();
+  let run = 0;
+  let best = 0;
+  for (let p = periodStart(habit.period, parseDateKey(keys[0]!)); p.getTime() <= last; p = addPeriods(habit.period, p, 1)) {
+    if (periodProgress(habit, p).complete) {
+      run++;
+      best = Math.max(best, run);
+    } else if (p.getTime() !== last) {
+      run = 0;
+    }
+  }
+  return { current: run, best };
+}
+
+const STATS_WINDOW: Record<HabitPeriod, { n: number; label: string }> = {
+  day: { n: 30, label: "30 j" },
+  week: { n: 12, label: "12 sem." },
+  month: { n: 6, label: "6 mois" },
+};
+
+export interface HabitPeriodStats {
+  /** Périodes validées au total. */
+  total: number;
+  /** Taux de validation sur la fenêtre récente (0-100). */
+  rate: number;
+  windowLabel: string;
+}
+
+export function habitStats(habit: Habit, today: Date): HabitPeriodStats {
+  const { n, label } = STATS_WINDOW[habit.period];
+  const strip = periodStrip(habit, today, n);
+  const keys = Object.keys(habit.checkins).sort();
+  let total = 0;
+  if (keys.length > 0) {
+    const last = periodStart(habit.period, today).getTime();
+    for (let p = periodStart(habit.period, parseDateKey(keys[0]!)); p.getTime() <= last; p = addPeriods(habit.period, p, 1)) {
+      if (periodProgress(habit, p).complete) total++;
+    }
+  }
+  const done = strip.filter((c) => c.complete).length;
+  return { total, rate: Math.round((done / n) * 100), windowLabel: label };
+}
+
+export interface StripCell {
+  /** Clé du premier jour de la période. */
+  key: string;
+  level: 0 | 1 | 2 | 3 | 4;
+  complete: boolean;
+  /** Libellé lisible de la période (« 29 sept. », « sem. du 22 sept. », « sept. 2026 »). */
+  label: string;
+}
+
+/** Les `n` dernières périodes, de la plus ancienne à celle en cours. */
+export function periodStrip(habit: Habit, today: Date, n: number): StripCell[] {
+  const current = periodStart(habit.period, today);
+  const cells: StripCell[] = [];
+  for (let i = n - 1; i >= 0; i--) {
+    const start = addPeriods(habit.period, current, -i);
+    const { done, complete } = periodProgress(habit, start);
+    const dayMonth = start.toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
+    cells.push({
+      key: toDateKey(start),
+      level: dayLevel(done, habit.target),
+      complete,
+      label:
+        habit.period === "month"
+          ? start.toLocaleDateString("fr-FR", { month: "short", year: "numeric" })
+          : habit.period === "week"
+            ? `sem. du ${dayMonth}`
+            : dayMonth,
+    });
+  }
+  return cells;
+}
+
+/** Nombre de cellules de la bande compacte d'une carte. */
+export const STRIP_LENGTH: Record<HabitPeriod, number> = { day: 28, week: 16, month: 12 };
+
+const PERIOD_WORD: Record<HabitPeriod, string> = { day: "jour", week: "semaine", month: "mois" };
+
+/** « 8 verres / jour », « 3× / semaine », « Chaque jour ». */
+export function goalLabel(habit: Habit): string {
+  const per = PERIOD_WORD[habit.period];
+  if (habit.unit) return `${habit.target} ${habit.unit} / ${per}`;
+  if (habit.period === "day" && habit.target === 1) return "Chaque jour";
+  return `${habit.target}× / ${per}`;
+}
+
+/** « toutes les 3 h », « 1× / jour à 8 h », « » si désactivé. */
+export function remindLabel(habit: Habit): string {
+  if (habit.remindEvery === 0) return "";
+  if (habit.remindEvery === 24) return `1× / jour à ${habit.remindFrom} h`;
+  if (habit.remindEvery === 1) return "toutes les heures";
+  return `toutes les ${habit.remindEvery} h`;
+}
+
+const PERIOD_NOW: Record<HabitPeriod, string> = { day: "aujourd'hui", week: "cette semaine", month: "ce mois-ci" };
+
+/** Corps de notification et sous-titre de ligne : « Pas encore fait aujourd'hui », « 1/3 cette semaine ». */
+export function progressLabel(habit: Habit, today: Date): string {
+  const { done, target } = periodProgress(habit, today);
+  if (done === 0 && target === 1) return `Pas encore fait ${PERIOD_NOW[habit.period]}`;
+  return `${done}/${target} ${PERIOD_NOW[habit.period]}`;
+}
+
+/**
+ * Instants (ms) où rappeler `habit` dans `]now, now + horizonMs]`, en heure
+ * locale. Un jour dont la période est déjà tenue n'a pas de créneau ; les
+ * périodes futures repartent de zéro, donc sont toutes planifiées.
+ */
+export function reminderSlots(habit: Habit, now: Date, horizonMs: number): number[] {
+  if (habit.archived || habit.remindEvery === 0) return [];
+  const nowMs = now.getTime();
+  const slots: number[] = [];
+  const days = Math.ceil(horizonMs / 86_400_000);
+  for (let i = 0; i <= days; i++) {
+    const day = addDays(new Date(now.getFullYear(), now.getMonth(), now.getDate()), i);
+    if (periodProgress(habit, day).complete) continue;
+    const step = habit.remindEvery === 24 ? 24 : habit.remindEvery;
+    for (let h = habit.remindFrom; h <= habit.remindTo; h += step) {
+      const at = new Date(day.getFullYear(), day.getMonth(), day.getDate(), h).getTime();
+      if (at > nowMs && at <= nowMs + horizonMs) slots.push(at);
+    }
+  }
+  return slots;
+}
+
+/** Premier plan lisible sur la couleur d'une habitude (jamais `#fff` en dur : illisible sur jaune/lime). */
+export function readableOn(hex: string): string {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return "#ffffff";
+  const n = parseInt(m[1]!, 16);
+  const lin = (c: number) => {
+    const v = c / 255;
+    return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+  };
+  const lum = 0.2126 * lin((n >> 16) & 255) + 0.7152 * lin((n >> 8) & 255) + 0.0722 * lin(n & 255);
+  // Seuil où les contrastes WCAG contre blanc et contre noir s'égalisent.
+  return lum > 0.179 ? "#111111" : "#ffffff";
 }
