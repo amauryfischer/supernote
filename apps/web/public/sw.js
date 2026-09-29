@@ -404,7 +404,11 @@ self.addEventListener("push", (event) => {
         tag: payload.tag || undefined,
         icon: "/icons/icon-192.png",
         data: { url: payload.url, joinUrl: payload.joinUrl },
-        actions: payload.joinUrl ? [{ action: "join", title: "Rejoindre" }] : [],
+        actions: payload.joinUrl
+          ? [{ action: "join", title: "Rejoindre" }]
+          : payload.url.startsWith("/habits?habit=")
+            ? [{ action: "done", title: "Fait" }]
+            : [],
       });
     })(),
   );
@@ -442,7 +446,9 @@ self.addEventListener("notificationclick", (event) => {
     return;
   }
   // periodic-sync : ramener l'app sans changer de page.
-  const target = data.reason === "periodic-sync" ? null : internalPath(text(data.url) || "/");
+  const path = data.reason === "periodic-sync" ? null : internalPath(text(data.url) || "/");
+  // « Fait » suit le clic normal : la page applique le check-in en lisant ?done=1.
+  const target = path && event.action === "done" ? `${path}&done=1` : path;
   event.waitUntil(
     (async () => {
       const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });

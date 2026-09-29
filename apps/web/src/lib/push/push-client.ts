@@ -4,7 +4,7 @@ import {
   type OnlineSyncConfig,
 } from "@/lib/online-sync/config-storage";
 
-export type PushCategory = "reminder" | "event" | "followup" | "snooze";
+export type PushCategory = "reminder" | "event" | "followup" | "snooze" | "habit";
 
 export interface PushScheduleRow {
   key: string;

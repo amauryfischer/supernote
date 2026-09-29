@@ -1,8 +1,8 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { createPushStore } from "./push-store.mjs";
 
-const CATEGORIES = ["reminder", "event", "followup", "snooze"];
-const SHARED = new Set(["reminder", "event"]);
+const CATEGORIES = ["reminder", "event", "followup", "snooze", "habit"];
+const SHARED = new Set(["reminder", "event", "habit"]);
 const HORIZON_MS = 7 * 24 * 60 * 60 * 1000;
 const MISSED_MS = 15 * 60 * 1000;
 const MAX_ROWS = 200;
@@ -494,6 +494,8 @@ export async function createPushBackend({ vaultAuthed, vaultProtected }) {
         const rows = categories[category]
           .map((item) => cleanRow(category, item, now))
           .filter(Boolean)
+          .sort((a, b) => a.fireAt - b.fireAt)
+          // ponytail: 200 lignes par catégorie ; au-delà de deux habitudes horaires l'horizon raccourcit, rechargé à l'ouverture de l'app.
           .slice(0, MAX_ROWS);
         await store.replaceSchedule({ vault, deviceId, category, shared: SHARED.has(category) }, rows);
         accepted += rows.length;
