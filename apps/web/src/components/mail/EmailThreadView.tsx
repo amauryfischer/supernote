@@ -2200,9 +2200,26 @@ function MailHtmlFrame({
       const outer = new ResizeObserver(fit);
       outer.observe(iframe);
       doc.querySelectorAll("img").forEach((img) => img.addEventListener("load", fit));
+      // Un clic dans le corps donne le focus à l'iframe : sans ce relais, ses frappes n'atteignent jamais les raccourcis de la page.
+      const relayKey = (e: KeyboardEvent) => {
+        const relayed = new KeyboardEvent("keydown", {
+          key: e.key,
+          code: e.code,
+          shiftKey: e.shiftKey,
+          ctrlKey: e.ctrlKey,
+          altKey: e.altKey,
+          metaKey: e.metaKey,
+          repeat: e.repeat,
+          bubbles: true,
+          cancelable: true,
+        });
+        if (!iframe.dispatchEvent(relayed)) e.preventDefault();
+      };
+      doc.addEventListener("keydown", relayKey);
       cleanup = () => {
         inner.disconnect();
         outer.disconnect();
+        doc.removeEventListener("keydown", relayKey);
       };
     };
     iframe.addEventListener("load", setup);
