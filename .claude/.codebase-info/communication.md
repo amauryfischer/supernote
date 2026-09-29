@@ -1,6 +1,6 @@
 # Communication
 
-*Last Updated: 2026-09-27*
+*Last Updated: 2026-09-29*
 
 Trois canaux : le thread principal parle au worker, le worker parle au thread principal, et l'application parle au serveur de synchronisation.
 
@@ -102,8 +102,10 @@ En développement, un middleware de `vite.config.ts` monte le même backend, à 
 
 **Notifications push.** `push-backend.mjs` est monté si la synchro l'est **et** que `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` et `VAPID_SUBJECT` sont définis. Il charge `web-push` paresseusement. Routes `GET /api/push/key`, `POST /api/push/subscribe|unsubscribe`, `PUT /api/push/schedule`. Toutes, sauf `key` et `unsubscribe`, passent par `vaultAuthed` puis `vaultProtected` : un salon sans mot de passe est refusé, car son nom suffirait à t'envoyer des notifications. Chaque appareil abonné calcule ses échéances à 7 jours et les envoie (`lib/push/PushScheduleRunner.tsx`, route worker `push.upcoming`, relances et reports lus en localStorage). Deux régimes de remplacement :
 
-- catégories partagées (`reminder`, `event`) : le dernier envoi remplace tout le salon ;
+- catégories partagées (`reminder`, `event`, `habit`) : le dernier envoi remplace tout le salon ;
 - catégories locales (`followup`, `snooze`) : remplacement par appareil.
+
+Le serveur trie chaque catégorie par `fireAt` avant de la plafonner à 200 lignes : ce sont donc les échéances les plus lointaines qui tombent. Les rappels d'habitude (`habit:<id>`, plusieurs `fireAt` par clé) sont calculés côté client en heure locale par `reminderSlots` (`lib/habits/habitData.ts`). Un jour dont la période est déjà tenue n'a aucun créneau. Le SW ajoute l'action « Fait », qui rouvre `/habits?habit=<id>&done=1` ; la page applique alors un seul check-in.
 
 Un planificateur de 30 s réserve les échéances dues par `UPDATE … RETURNING` et pousse vers tous les abonnements du salon. `public/sw.js` affiche **toujours** la notification (Safari révoque la permission d'un push silencieux) et la relaie en plus au tiroir si une fenêtre est visible (`PUSH_RECEIVED`).
 
