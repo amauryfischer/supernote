@@ -4,7 +4,7 @@ import { Badge, EmptyState, Skeleton, Checkbox } from "@supernote/ui";
 import {
   MagnifyingGlass,
   PencilSimple,
-  Archive,
+  CheckCircle,
   Trash,
   EnvelopeOpen,
   X,
@@ -2062,16 +2062,16 @@ export default function MailPage() {
             <EnvelopeOpen size={16} />
           </Button>
         </Tooltip>
-        <Tooltip content="Archiver">
+        <Tooltip content="Fait">
           <Button
             size="sm"
             variant="ghost"
             isIconOnly
-            aria-label="Archiver"
+            aria-label="Fait"
             isDisabled={bulkBusy}
             onPress={() => void runBulkAction("archive")}
           >
-            <Archive size={16} />
+            <CheckCircle size={16} weight="bold" />
           </Button>
         </Tooltip>
         <Tooltip content="Supprimer">

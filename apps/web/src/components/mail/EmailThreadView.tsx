@@ -999,7 +999,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
               <span />
             )}
           </div>
-          {/* Boutons DIRECTS : Todo, Archiver, Reporter, Plus — le reste vit dans
+          {/* Boutons DIRECTS : Todo, Fait, Reporter, Plus — le reste vit dans
               « Plus ». Popover (et non Dropdown) car plusieurs actions sont des
               composants self-contained à overlay propre, déplacés tels quels. */}
           {inBottomBar(

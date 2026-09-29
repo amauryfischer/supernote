@@ -160,13 +160,13 @@ test.describe("06 — mail", () => {
     await expect(pill).toHaveCount(0);
   });
 
-  test("en-tête du fil réduit à Todo · Archiver · Reporter · Plus ; d archive comme e", async ({ page }) => {
+  test("en-tête du fil réduit à Todo · Fait · Reporter · Plus ; d archive comme e", async ({ page }) => {
     await withInbox(page);
     await page.goto("/mail");
     await page.getByText("Compte rendu réunion").first().click();
 
     const triage = page.getByRole("group", { name: "Triage du fil" });
-    await expect(triage.getByRole("button", { name: "Archiver" })).toBeVisible();
+    await expect(triage.getByRole("button", { name: "Fait" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Plus d'actions" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Marquer comme fait" })).toHaveCount(0);
     await expect(triage.getByRole("button", { name: "Supprimer (corbeille)" })).toHaveCount(0);
@@ -228,7 +228,7 @@ test.describe("06 — mail", () => {
     await expect(menu).toHaveCount(0);
 
     await page.keyboard.press(".");
-    await menu.getByRole("menuitem", { name: "Archiver" }).focus();
+    await menu.getByRole("menuitem", { name: "Fait" }).focus();
     await page.keyboard.press("Enter");
     await expect(page.getByRole("button", { name: /Annuler/ })).toBeVisible();
     await expect(page.getByText("Compte rendu réunion")).toHaveCount(0);
@@ -312,11 +312,11 @@ test.describe("06 — mail", () => {
 
       await page.getByText("Compte rendu réunion").first().click();
       const triage = page.getByRole("group", { name: "Triage du fil" });
-      await expect(triage.getByRole("button", { name: "Archiver" })).toBeVisible();
+      await expect(triage.getByRole("button", { name: "Fait" })).toBeVisible();
       await expect(nav).toHaveCount(0);
       await expect(page.getByRole("button", { name: "Répondre", exact: true })).toBeVisible();
 
-      const box = await triage.getByRole("button", { name: "Archiver" }).boundingBox();
+      const box = await triage.getByRole("button", { name: "Fait" }).boundingBox();
       expect(box!.y).toBeGreaterThan(page.viewportSize()!.height / 2);
       await expect(page.getByRole("button", { name: "Plus d'actions" })).toHaveCount(1);
       await page.getByRole("button", { name: "Plus d'actions" }).click();
@@ -347,7 +347,7 @@ test.describe("06 — mail", () => {
       await page.goto("/mail");
       await page.getByText("Compte rendu réunion").first().click();
       const triage = page.getByRole("group", { name: "Triage du fil" });
-      await expect(triage.getByRole("button", { name: "Archiver" })).toBeVisible();
+      await expect(triage.getByRole("button", { name: "Fait" })).toBeVisible();
       await expect(page.getByRole("button", { name: "Répondre", exact: true })).toBeVisible();
       await expect(page.getByRole("button", { name: "Plus d'actions" })).toHaveCount(1);
 

@@ -165,10 +165,10 @@ export const MAIL_SHORTCUTS: MailBinding[] = [
   // ── Triage ────────────────────────────────────────────────────────────────
   {
     id: "archive",
-    // `d` (ancien « Fait ») reste un alias : Gmail ne distinguait pas les deux.
+    // `d` reste un alias : Gmail ne distingue pas Fait et Archiver.
     keys: [["e"], ["d"]],
     display: "e",
-    label: "Archiver (retire aussi des Todo)",
+    label: "Fait (archive et retire des Todo)",
     group: "Triage",
     contexts: ALL,
   },

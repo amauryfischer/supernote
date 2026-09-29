@@ -1,11 +1,11 @@
 "use client";
 
 /**
- * TriageBar — barre d'actions de triage d'un thread Gmail (Done / Archive /
+ * TriageBar — barre d'actions de triage d'un thread Gmail (Fait /
  * Snooze), à monter dans la zone d'actions d'une vue thread.
  *
  * Comportement :
- *  - Done / Archive : retirent le thread de l'inbox (mutation `INBOX` côté
+ *  - Fait : retirent le thread de l'inbox (mutation `INBOX` côté
  *    Gmail via `applyTriage`). On désactive la barre pendant l'appel ; le
  *    bouton passe en chargement puis succès, ou en erreur (message en infobulle).
  *  - Snooze : ouvre la barre `SnoozeMenu` (saisie libre 10d / 32h + échéances
@@ -23,7 +23,7 @@
 
 import { useCallback, useState, type ReactNode } from "react";
 import { Button } from "@heroui/react";
-import { Archive, Clock } from "@phosphor-icons/react";
+import { CheckCircle, Clock } from "@phosphor-icons/react";
 import { Tooltip } from "@supernote/ui";
 import {
   addSnooze,
@@ -98,7 +98,7 @@ export function TriageBar({ clientId, threadId, onTriaged, onTriage }: TriageBar
 
   return (
     <div className="flex items-center gap-1" role="group" aria-label="Triage du fil">
-      <Tooltip content={tip("archive", "Archiver (e)")}>
+      <Tooltip content={tip("archive", "Fait (e)")}>
         <Button
           variant="ghost"
           size="sm"
@@ -106,9 +106,9 @@ export function TriageBar({ clientId, threadId, onTriaged, onTriage }: TriageBar
           onPress={() => handleSimple("archive")}
           isDisabled={busy}
           className="h-9"
-          aria-label="Archiver"
+          aria-label="Fait"
         >
-          {icon("archive", <Archive size={18} aria-hidden />)}
+          {icon("archive", <CheckCircle size={18} weight="bold" aria-hidden />)}
         </Button>
       </Tooltip>
 

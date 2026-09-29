@@ -902,7 +902,7 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
  * Menu contextuel (clic droit) d'une ligne de la boîte mail. Positionné en fixe
  * au curseur, fermé au clic-extérieur / Échap. Actions selon `row.kind` : une
  * ligne `single` propose ouvrir / étoile / lu-non lu / ajouter un tag / → Todo
- * (4 quadrants) / triage (Fait/Archiver/Reporter/Supprimer) ; un groupe → « Ouvrir ».
+ * (4 quadrants) / triage (Fait/Reporter/Supprimer) ; un groupe → « Ouvrir ».
  */
 function MailRowContextMenu({
   x,
@@ -1040,7 +1040,7 @@ function MailRowContextMenu({
       {single && onTriage && (
         <>
           <CtxSep />
-          <CtxItem label="Archiver" onClick={() => run(() => onTriage(row, "archive"))} />
+          <CtxItem label="Fait" onClick={() => run(() => onTriage(row, "archive"))} />
           <CtxLabel text="Reporter" />
           {SNOOZE_PRESETS.map((p) => (
             <CtxItem

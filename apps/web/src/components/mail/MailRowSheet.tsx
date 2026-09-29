@@ -11,7 +11,7 @@
 import { Button } from "@heroui/react";
 import { MobileSheet } from "@/components/shell";
 import {
-  Archive,
+  CheckCircle,
   Clock,
   Trash,
   Envelope,
@@ -95,8 +95,8 @@ export function MailRowSheet({
             onPress={run(() => onOpen(item.id))}
           />
           <SheetAction
-            icon={<Archive size={18} />}
-            label="Archiver"
+            icon={<CheckCircle size={18} weight="bold" />}
+            label="Fait"
             onPress={run(() => onTriage(item.id, "archive"))}
           />
           <SheetAction

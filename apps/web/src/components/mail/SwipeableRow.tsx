@@ -15,7 +15,7 @@
  */
 
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { Archive, Trash } from "@phosphor-icons/react";
+import { CheckCircle, Trash } from "@phosphor-icons/react";
 import { haptic } from "@/lib/haptic";
 import { prefersReducedMotion } from "@/lib/motion";
 
@@ -178,7 +178,7 @@ export function SwipeBackdrop({ dx }: { dx: number }) {
         className="flex items-center gap-1.5 text-xs font-semibold"
         style={{ color: "var(--text-primary)", opacity: dx > 0 ? 1 : 0 }}
       >
-        <Archive size={16} weight={armed ? "fill" : "regular"} /> Archiver
+        <CheckCircle size={16} weight={armed ? "fill" : "regular"} /> Fait
       </span>
       <span
         className="flex items-center gap-1.5 text-xs font-semibold"
