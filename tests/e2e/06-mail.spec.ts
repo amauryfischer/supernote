@@ -130,6 +130,36 @@ test.describe("06 — mail", () => {
     expect(raw).toContain("budget.pdf");
   });
 
+  test("réponse : Cc ajouté en pastille, rendu après « Annuler l'envoi », porté par l'en-tête Cc", async ({ page }) => {
+    await withInbox(page);
+    let raw = "";
+    await page.route("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", async (route) => {
+      raw = Buffer.from((route.request().postDataJSON() as { raw: string }).raw, "base64url").toString("utf8");
+      await route.fulfill({ json: { id: "sent1", threadId: "t1" } });
+    });
+    await page.goto("/mail");
+    await page.getByText("Compte rendu réunion").first().click();
+    const reply = page.getByPlaceholder(/Répondre à/);
+    await reply.fill("Merci, je transmets.");
+    await page.getByRole("button", { name: /en copie \(Cc\)/ }).click();
+    const cc = page.getByLabel("Cc", { exact: true });
+    await expect(cc).toBeFocused();
+    await cc.fill("carol@exemple.fr");
+    await page.keyboard.press("Enter");
+    const pill = page.getByRole("button", { name: "Retirer carol@exemple.fr" });
+    await expect(pill).toBeVisible();
+    if (process.env["SHOTS"]) await page.screenshot({ path: `${process.env["SHOTS"]}/reply-cc.png` });
+    await page.getByRole("button", { name: "Envoyer", exact: true }).click();
+
+    await page.getByRole("button", { name: "Annuler l'envoi" }).click();
+    await expect(pill).toBeVisible();
+    await expect(reply).toHaveValue("Merci, je transmets.");
+
+    await page.getByRole("button", { name: "Envoyer", exact: true }).click();
+    await expect.poll(() => raw, { timeout: 30_000 }).toContain("Cc: carol@exemple.fr");
+    await expect(pill).toHaveCount(0);
+  });
+
   test("en-tête du fil réduit à Todo · Archiver · Reporter · Plus ; d archive comme e", async ({ page }) => {
     await withInbox(page);
     await page.goto("/mail");
@@ -299,6 +329,37 @@ test.describe("06 — mail", () => {
 
       await page.getByRole("button", { name: "Retour" }).click();
       await expect(nav).toBeVisible();
+    });
+
+    test("mail à soi-même : actions au pouce, Cc en réponse sans débordement", async ({ page }) => {
+      await withInbox(page, [
+        {
+          ...MESSAGE,
+          labelIds: ["INBOX", "SENT"],
+          payload: {
+            ...MESSAGE.payload,
+            headers: MESSAGE.payload.headers.map((h) =>
+              h.name === "From" ? { name: "From", value: "moi@exemple.fr" } : h,
+            ),
+          },
+        },
+      ]);
+      await page.goto("/mail");
+      await page.getByText("Compte rendu réunion").first().click();
+      const triage = page.getByRole("group", { name: "Triage du fil" });
+      await expect(triage.getByRole("button", { name: "Archiver" })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Répondre", exact: true })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Plus d'actions" })).toHaveCount(1);
+
+      await page.getByPlaceholder(/Répondre à/).tap();
+      const ccButton = page.getByRole("button", { name: /en copie \(Cc\)/ });
+      const box = await ccButton.boundingBox();
+      expect(Math.min(box!.width, box!.height)).toBeGreaterThanOrEqual(32);
+      await ccButton.tap();
+      await expect(page.getByLabel("Cc", { exact: true })).toBeVisible();
+      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+      expect(overflow).toBeLessThanOrEqual(0);
+      if (process.env["SHOTS"]) await page.screenshot({ path: `${process.env["SHOTS"]}/reply-cc-mobile.png` });
     });
 
     test("le retour système ferme le fil au lieu de quitter /mail", async ({ page }) => {

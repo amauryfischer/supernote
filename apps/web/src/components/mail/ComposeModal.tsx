@@ -746,7 +746,7 @@ export function ComposeModal({
 }
 
 /** Destinataires en pastilles + saisie avec autocomplétion (À, Cc, Cci). */
-function RecipientField({
+export function RecipientField({
   id,
   value,
   onChange,
@@ -755,6 +755,7 @@ function RecipientField({
   suggestions,
   inputClassName,
   placeholder,
+  dropUp,
 }: {
   id: string;
   value: string[];
@@ -764,6 +765,8 @@ function RecipientField({
   suggestions: EmailAddress[];
   inputClassName: string;
   placeholder?: string;
+  /** Liste au-dessus du champ : le composeur de réponse est collé en bas du panneau. */
+  dropUp?: boolean;
 }) {
   const listId = useId();
   const [open, setOpen] = useState(false);
@@ -840,7 +843,7 @@ function RecipientField({
             id={listId}
             role="listbox"
             aria-label="Suggestions de destinataires"
-            className="absolute left-0 top-full z-20 mt-1 w-[min(22rem,calc(100vw-2rem))] overflow-hidden rounded-md border border-[var(--border-subtle)] bg-[var(--surface-1)] py-1 shadow-lg"
+            className={`absolute left-0 z-20 w-[min(22rem,calc(100vw-2rem))] overflow-hidden rounded-md border border-[var(--border-subtle)] bg-[var(--surface-1)] py-1 shadow-lg ${dropUp ? "bottom-full mb-1" : "top-full mt-1"}`}
           >
             {matches.map((m, i) => (
               <div
@@ -907,7 +910,7 @@ let sentRecipientsCache: Promise<EmailAddress[]> | null = null;
 const fold = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 
 /** Destinataires habituels (envoyés, par fréquence) + contacts du coffre + expéditeurs connus + mes adresses. */
-function useRecipientSuggestions(correspondents: EmailAddress[]): EmailAddress[] {
+export function useRecipientSuggestions(correspondents: EmailAddress[]): EmailAddress[] {
   const { settings } = useSettings();
   const { contacts } = useContactsSource();
   const clientId = settings.googleDrive.clientId.trim();

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, forwardRef, useImperativeHandle, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, forwardRef, useImperativeHandle, type ReactNode } from "react";
 import { ArrowSquareOut, Plus, X, Tag, MagnifyingGlass, Check, PaperPlaneTilt, Quotes, Paperclip, Star, Envelope, ArrowBendUpRight, Sparkle, MagicWand, ArrowsClockwise, CaretUp, DotsThreeVertical, Copy, Image as ImageIcon, SpeakerSlash, UserMinus, UserPlus, WarningCircle, ShareNetwork, Trash, ArrowBendUpLeft, FilePlus, Database } from "@phosphor-icons/react";
 import { Button, Chip, Input, Spinner, Popover } from "@heroui/react";
 import { useToast, Tooltip } from "@supernote/ui";
@@ -75,6 +75,8 @@ import type { MailMirrorApi } from "./useMailMirror";
 import { markdownToHtml, hasMarkup } from "@/lib/mail-markdown";
 import { withSignature } from "@/lib/mail-signature";
 import { loadAutoDraft, saveAutoDraft, clearAutoDraft, threadDraftKey } from "@/lib/mail-draft-store";
+import { dedupeEmails, parseRecipientInput } from "@/lib/mail-recipients";
+import { RecipientField, useRecipientSuggestions } from "./ComposeModal";
 import { TriageBar } from "./TriageBar";
 import { EnrichContactFromEmail } from "./EnrichContactFromEmail";
 import { LabelMarker, LabelStyleGrid, labelChipStyle } from "./LabelMarker";
@@ -124,6 +126,8 @@ function moveMenuFocus(e: React.KeyboardEvent<HTMLElement>) {
 // ─── Styles du menu overflow (« Plus ») ──────────────────────────────────────
 // Ligne de menu pour une action SIMPLE (Button direct) : pleine largeur, alignée
 // à gauche, padding tactile (~36px de haut ≥ cible 32px mobile).
+const REPLY_RESTORE_EVENT = "supernote:mail-reply-restore";
+
 const MENU_ROW =
   "flex h-auto w-full items-center justify-start gap-2.5 rounded-md px-3 py-2 text-sm";
 // Conteneur qui uniformise un COMPOSANT-action self-contained (ExtractActions,
@@ -378,6 +382,11 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
   // (seul le destinataire principal) → l'option est sans effet, on la masque.
   const [replyToAll, setReplyToAll] = useState(false);
   const hasCc = replyAll.cc.length > 0;
+  // Cc ajoutés à la main, en plus de ceux que « Répondre à tous » reprend du fil.
+  const [replyCc, setReplyCc] = useState<string[]>([]);
+  const [replyCcInput, setReplyCcInput] = useState("");
+  const [replyCcOpen, setReplyCcOpen] = useState(false);
+  const replyCcId = useId();
   // Pièces jointes de la réponse en cours (réinitialisées au changement de fil).
   const [replyAttachments, setReplyAttachments] = useState<PendingAttachment[]>([]);
   const replyFileRef = useRef<HTMLInputElement>(null);
@@ -417,15 +426,30 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
   const signature = settings.gmail.signature ?? "";
   const replyFileImageRef = useRef<HTMLInputElement>(null);
 
-  // Un envoi annulé après navigation ne doit pas remplir la réponse d'un autre fil.
-  const openThreadIdRef = useRef(thread.id);
-  openThreadIdRef.current = thread.id;
+  // « Annuler l'envoi » tombe souvent après le remontage du fil (handleReplied
+  // recharge la liste) : seule l'instance vivante de CE fil relit le brouillon sauvé.
+  useEffect(() => {
+    const restore = (e: Event) => {
+      if (!(e instanceof CustomEvent) || e.detail !== thread.id) return;
+      const saved = loadAutoDraft(threadDraftKey(thread.id));
+      if (!saved) return;
+      setReplyBody(saved.body);
+      setReplyCc(saved.cc ?? []);
+      setReplyCcOpen(Boolean(saved.cc?.length));
+      setReplyOpen(true);
+    };
+    window.addEventListener(REPLY_RESTORE_EVENT, restore);
+    return () => window.removeEventListener(REPLY_RESTORE_EVENT, restore);
+  }, [thread.id]);
 
   useEffect(() => {
     // Réponse en cours non envoyée : on la retrouve en revenant sur le fil
     // (fermer le fil ou recharger l'onglet ne perd plus la frappe).
     const saved = loadAutoDraft(threadDraftKey(thread.id));
     setReplyBody(saved?.body ?? "");
+    setReplyCc(saved?.cc ?? []);
+    setReplyCcInput("");
+    setReplyCcOpen(Boolean(saved?.cc?.length));
     setReplyOpen(false);
     setReplyToAll(false);
     setReplyAttachments([]);
@@ -439,10 +463,10 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
   // Sauvegarde automatique de la réponse en cours (débattue).
   useEffect(() => {
     const id = setTimeout(() => {
-      saveAutoDraft({ key: threadDraftKey(thread.id), body: replyBody });
+      saveAutoDraft({ key: threadDraftKey(thread.id), body: replyBody, cc: replyCc });
     }, 500);
     return () => clearTimeout(id);
-  }, [thread.id, replyBody]);
+  }, [thread.id, replyBody, replyCc]);
 
   /**
    * Insère une image DANS la réponse : pièce jointe inline (Content-ID) +
@@ -637,10 +661,21 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
     context: snippetContext,
   });
 
+  const clearReply = () => {
+    clearAutoDraft(threadDraftKey(thread.id));
+    setReplyBody("");
+    setReplyCc([]);
+    setReplyCcInput("");
+    setReplyCcOpen(false);
+    setReplyAttachments([]);
+  };
+
   const submitReply = async (mode: "send" | "draft", sendAt?: number) => {
     const typed = replyBody.trim();
     if (!typed || !clientId) return;
-    const cc = replyToAll && hasCc ? replyAll.cc : undefined;
+    // Inclut une adresse tapée mais non encore validée (pas de perte silencieuse).
+    const extraCc = dedupeEmails([...replyCc, ...parseRecipientInput(replyCcInput)]);
+    const cc = dedupeEmails([...(replyToAll && hasCc ? replyAll.cc : []), ...extraCc]);
     const attachments = replyAttachments.length ? toOutgoing(replyAttachments) : undefined;
     // Signature ajoutée si elle manque ; part HTML seulement s'il y a de la mise
     // en forme ou une image inline (sinon le message reste en texte pur).
@@ -663,7 +698,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
               kind: "reply",
               threadId: replyParams.threadId,
               to: replyParams.to ? [replyParams.to] : [],
-              ...(cc?.length ? { cc } : {}),
+              ...(cc.length ? { cc } : {}),
               subject: replyParams.subject,
               body,
               ...(html ? { html } : {}),
@@ -675,19 +710,15 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
               ...(sendAt !== undefined ? { sendAt } : {}),
               label: "Réponse envoyée",
               onCancel: () => {
-                saveAutoDraft({ key: threadDraftKey(thread.id), body: typed });
-                if (openThreadIdRef.current !== thread.id) return;
-                setReplyBody(typed);
-                setReplyOpen(true);
+                saveAutoDraft({ key: threadDraftKey(thread.id), body: typed, cc: extraCc });
+                window.dispatchEvent(new CustomEvent(REPLY_RESTORE_EVENT, { detail: thread.id }));
               },
             },
           ),
         fail,
       );
       if (!result) return;
-      clearAutoDraft(threadDraftKey(thread.id));
-      setReplyBody("");
-      setReplyAttachments([]);
+      clearReply();
       // Re-fetch fil + liste côté appelant pour faire apparaître la réponse.
       onReplied?.();
       return;
@@ -696,7 +727,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
       () =>
         createDraft(clientId, {
           ...replyParams,
-          cc,
+          ...(cc.length ? { cc } : {}),
           body,
           ...(html ? { html } : {}),
           attachments,
@@ -704,10 +735,8 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
       fail,
     );
     if (!draft) return;
-    clearAutoDraft(threadDraftKey(thread.id));
+    clearReply();
     window.open(buildGmailDraftUrl(draft.draftId), "_blank", "noopener");
-    setReplyBody("");
-    setReplyAttachments([]);
   };
 
   // Transférer : pré-remplit le compose à partir du dernier message du fil
@@ -1672,9 +1701,38 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
                 À : {replyToAll && hasCc ? replyAll.to : replyParams.to}
                 {replyToAll && hasCc && ` · Cc : ${replyAll.cc.join(", ")}`}
               </span>
+              {!replyCcOpen && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="sn-hit px-2 text-xs text-[var(--text-muted)]"
+                  aria-label="Ajouter des destinataires en copie (Cc)"
+                  onPress={() => {
+                    setReplyCcOpen(true);
+                    requestAnimationFrame(() => document.getElementById(replyCcId)?.focus());
+                  }}
+                >
+                  Cc
+                </Button>
+              )}
               <span className="hidden shrink-0 md:inline">⌘/Ctrl+↵ pour envoyer</span>
             </div>
-            <div className="flex min-w-0 flex-wrap items-center justify-end gap-2 md:shrink-0">
+            {replyCcOpen && (
+              <div className="sn-motion-colors flex basis-full items-start gap-2 border-b border-[var(--border-subtle)] focus-within:border-[var(--border-focus)]">
+                <label htmlFor={replyCcId} className="pt-2 text-xs text-[var(--text-muted)]">
+                  Cc
+                </label>
+                <ReplyCcField
+                  id={replyCcId}
+                  messages={thread.messages}
+                  value={replyCc}
+                  onChange={setReplyCc}
+                  input={replyCcInput}
+                  onInputChange={setReplyCcInput}
+                />
+              </div>
+            )}
+            <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2 md:shrink-0">
               {aiConfigured && (
                 <Tooltip content="Proposer plusieurs brouillons (IA locale)">
                   <Button
@@ -1777,6 +1835,30 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
   );
   },
 );
+
+/** Monté seulement une fois le Cc ouvert : les suggestions lisent les envoyés Gmail, inutile dans un fil embarqué. */
+function ReplyCcField({
+  messages,
+  ...field
+}: {
+  messages: EmailMessage[];
+  id: string;
+  value: string[];
+  onChange: (next: string[]) => void;
+  input: string;
+  onInputChange: (next: string) => void;
+}) {
+  const people = useMemo(() => messages.flatMap((m) => [m.from, ...m.to, ...(m.cc ?? [])]), [messages]);
+  const suggestions = useRecipientSuggestions(people);
+  return (
+    <RecipientField
+      {...field}
+      suggestions={suggestions}
+      dropUp
+      inputClassName="h-8 rounded-none border-0 bg-transparent px-0 py-0 text-sm shadow-none focus:border-0 focus:ring-0 focus-visible:outline-none!"
+    />
+  );
+}
 
 /**
  * Sélecteur de label ancré (position fixe, même esprit que TagSelector) avec
