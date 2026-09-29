@@ -76,6 +76,7 @@ test.describe("07 — notifications push", () => {
       tag: "event:primary:ev1",
       joinUrl: "https://meet.google.com/abc-defg-hij",
     });
+    await deliver({ title: "✅ Lire", body: "Pas encore fait aujourd'hui", url: "/habits?habit=abc", tag: "habit:abc", joinUrl: "" });
     // Push lu côté serveur (refresh token) : le SW affiche sans jeton Gmail.
     await deliver({
       kind: "mail",
@@ -115,6 +116,13 @@ test.describe("07 — notifications push", () => {
           tag: "followup:t1",
           data: { url: "/mail?thread=t1", joinUrl: "" },
           actions: [],
+        },
+        {
+          title: "✅ Lire",
+          body: "Pas encore fait aujourd'hui",
+          tag: "habit:abc",
+          data: { url: "/habits?habit=abc", joinUrl: "" },
+          actions: ["done"],
         },
         {
           title: "Alice Martin",

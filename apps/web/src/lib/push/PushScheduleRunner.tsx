@@ -12,6 +12,7 @@ import { CALENDAR_CHANGED_EVENT } from "@/lib/calendar-mirror";
 import { calendarAccount, isCalendarConnected } from "@/lib/calendar-sync";
 import { loadFollowups, MAIL_FOLLOWUP_EVENT } from "@/lib/mail-followup";
 import { loadSnoozed, MAIL_SNOOZE_EVENT } from "@/lib/mail-triage";
+import { HABIT_TYPE_ID, parseHabit, progressLabel, reminderSlots } from "@/lib/habits/habitData";
 import {
   ensurePushSubscription,
   sendPushSchedule,
@@ -79,6 +80,21 @@ async function computeSchedule(calendarAccountId: string): Promise<Partial<Recor
     url: "/todos",
     joinUrl: "",
   }));
+  const { items } = await trpcVanillaClient.entities.list.query({ typeId: HABIT_TYPE_ID, limit: 1000, offset: 0 });
+  const nowDate = new Date(now);
+  schedule.habit = items
+    .map((e) => parseHabit(e))
+    .flatMap((h) =>
+      reminderSlots(h, nowDate, HORIZON_MS).map((fireAt): PushScheduleRow => ({
+        key: `habit:${h.id}`,
+        fireAt,
+        title: `${h.icon} ${h.name}`,
+        body: progressLabel(h, new Date(fireAt)),
+        url: `/habits?habit=${encodeURIComponent(h.id)}`,
+        joinUrl: "",
+      })),
+    )
+    .sort((a, b) => a.fireAt - b.fireAt);
   // Sans agenda connecté, ne rien envoyer : un appareil sans Google viderait les événements du salon.
   if (accountId) {
     schedule.event = events
@@ -132,7 +148,7 @@ export function PushScheduleRunner(): null {
     const stopWorker = hasWorkerBackend()
       ? onWorkerMessage((msg) => {
           const m = msg as { type?: string; op?: EntityOp };
-          if (m.type === "ENTITY_CHANGE" && (m.op?.kind === "delete" || m.op?.payload?.typeId === "todo")) soon();
+          if (m.type === "ENTITY_CHANGE" && (m.op?.kind === "delete" || m.op?.payload?.typeId === "todo" || m.op?.payload?.typeId === HABIT_TYPE_ID)) soon();
         })
       : () => undefined;
     void ensurePushSubscription(online?.config).catch((err: unknown) => console.warn("[push] réabonnement", err));
