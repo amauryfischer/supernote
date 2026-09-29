@@ -134,8 +134,12 @@ export default function HabitsPage() {
           name: values.name,
           icon: values.icon,
           color: values.color,
+          period: values.period,
           target: values.target,
           unit: values.unit,
+          remindEvery: values.remindEvery,
+          remindFrom: values.remindFrom,
+          remindTo: values.remindTo,
           archived: false,
           checkins: "{}",
         });
@@ -156,8 +160,12 @@ export default function HabitsPage() {
           name: values.name,
           icon: values.icon,
           color: values.color,
+          period: values.period,
           target: values.target,
           unit: values.unit,
+          remindEvery: values.remindEvery,
+          remindFrom: values.remindFrom,
+          remindTo: values.remindTo,
         });
       } catch (err) {
         reportError("Modification non enregistrée", err);
@@ -321,16 +329,16 @@ export default function HabitsPage() {
       <HabitModal
         open={showCreate}
         initial={null}
+        isMobile={isMobile}
         onSave={(v) => void handleCreate(v)}
         onCancel={() => setShowCreate(false)}
       />
       <HabitModal
         open={editing !== null}
         initial={editing}
+        isMobile={isMobile}
         onSave={(v) => void handleUpdate(v)}
         onCancel={() => setEditing(null)}
-        onArchiveToggle={() => void handleArchiveToggle()}
-        onDelete={() => void handleDelete()}
       />
     </AppShell>
   );
