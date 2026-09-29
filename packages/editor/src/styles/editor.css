@@ -490,6 +490,13 @@
   transition: background 100ms ease, color 100ms ease, transform 80ms ease;
 }
 
+@media (pointer: coarse) {
+  .sn-fmt-toolbar__btn {
+    width: 36px;
+    height: 36px;
+  }
+}
+
 .sn-fmt-toolbar__btn:hover {
   background: var(--surface-2, #f3f4f6);
   color: var(--text-primary, #111827);

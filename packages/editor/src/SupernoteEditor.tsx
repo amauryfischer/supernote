@@ -691,8 +691,9 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
     (e: React.MouseEvent<HTMLDivElement>) => {
       if (readOnly) return;
       const target = e.target as HTMLElement;
-      // Ignore les clics qui ont déjà touché un block / contenu éditable.
-      if (target.closest("[data-node-type], [contenteditable='true']")) return;
+      // Seulement la zone vide : la barre de formatage et les menus vivent aussi dans le wrapper,
+      // un clic dessus renverrait le curseur en fin de note.
+      if (target !== e.currentTarget && !target.classList.contains("bn-container")) return;
 
       const doc = editor.document as Block[];
       if (doc.length === 0) return;

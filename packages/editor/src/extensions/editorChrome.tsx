@@ -174,6 +174,19 @@ export function FloatingFormattingToolbar({ wrapperRef }: FloatingFormattingTool
       height: box.height,
     };
   }
+  // Centrée sur la sélection, la barre sortait de l'écran près des bords (mobile surtout).
+  useLayoutEffect(() => {
+    const el = toolbarRef.current;
+    const parent = el?.offsetParent;
+    if (!el || !parent) return;
+    // offsetWidth plutôt que le rect : l'animation d'entrée remplace le translate(-50%).
+    const half = el.offsetWidth / 2;
+    const center = parent.getBoundingClientRect().left + el.offsetLeft - (parseFloat(el.style.marginLeft) || 0);
+    const vw = document.documentElement.clientWidth;
+    const shift = Math.max(8 + half - center, Math.min(0, vw - 8 - half - center));
+    el.style.marginLeft = `${shift}px`;
+  });
+
   const anchorBox = box ?? savedBoxRef.current;
   if (!colorOpen && (!hasSelection || pointerDown || !box)) return null;
   if (!anchorBox) return null;

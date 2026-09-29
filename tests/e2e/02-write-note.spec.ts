@@ -26,4 +26,15 @@ test.describe("02 — écrire une note", () => {
     await expect(editor).toContainText("second bloc");
     expect(await editor.locator("[data-id]").count()).toBeGreaterThan(1);
   });
+
+  test("la barre de formatage garde la sélection entre deux styles", async ({ page }) => {
+    const editor = page.locator(".writing-surface-editor .ProseMirror");
+    await editor.click();
+    await page.keyboard.type("Bonjour le monde");
+    await page.keyboard.press("Shift+Home");
+    const toolbar = page.getByRole("toolbar", { name: "Mise en forme" });
+    await toolbar.getByRole("button", { name: /Gras/ }).click();
+    await toolbar.getByRole("button", { name: /Italique/ }).click();
+    await expect(editor.locator("strong em, em strong")).toHaveText("Bonjour le monde");
+  });
 });
