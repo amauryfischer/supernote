@@ -128,20 +128,16 @@ export function parseHabit(e: HabitEntityLike): Habit {
  * Cycle d'un clic sur un pixel : 0 → 1 → … → target → 0.
  * Une journée déjà validée repasse à vide (annulation d'un faux clic).
  */
-export function cycleCount(count: number, target: number): number {
+function cycleCount(count: number, target: number): number {
   return count >= target ? 0 : count + 1;
 }
 
 /** Niveau d'intensité du pixel — 0 vide, 1-2 partiel, 3 validé, 4 dépassé. */
-export function dayLevel(count: number, target: number): 0 | 1 | 2 | 3 | 4 {
+function dayLevel(count: number, target: number): 0 | 1 | 2 | 3 | 4 {
   if (count <= 0) return 0;
   if (count > target) return 4;
   if (count >= target) return 3;
   return count / target < 0.5 ? 1 : 2;
-}
-
-export function isDayComplete(checkins: Record<string, number>, key: string, target: number): boolean {
-  return (checkins[key] ?? 0) >= target;
 }
 
 // ── Streaks & stats ──────────────────────────────────────────────────────────
@@ -153,68 +149,9 @@ export interface StreakInfo {
   best: number;
 }
 
-export function computeStreaks(
-  checkins: Record<string, number>,
-  target: number,
-  today: Date,
-): StreakInfo {
-  const todayKey = toDateKey(today);
-
-  // Série courante : on remonte depuis aujourd'hui (ou hier si aujourd'hui
-  // n'est pas encore validé) tant que les jours sont complets.
-  let current = 0;
-  let cursor = isDayComplete(checkins, todayKey, target) ? today : addDays(today, -1);
-  while (isDayComplete(checkins, toDateKey(cursor), target)) {
-    current++;
-    cursor = addDays(cursor, -1);
-  }
-
-  // Record : pour chaque début de série (la veille n'est pas complète), on
-  // compte vers l'avant. O(n) sur les jours cochés.
-  let best = current;
-  for (const key of Object.keys(checkins)) {
-    if (!isDayComplete(checkins, key, target)) continue;
-    const day = parseDateKey(key);
-    if (isDayComplete(checkins, toDateKey(addDays(day, -1)), target)) continue; // pas un début
-    let run = 0;
-    let fwd = day;
-    while (isDayComplete(checkins, toDateKey(fwd), target)) {
-      run++;
-      fwd = addDays(fwd, 1);
-    }
-    if (run > best) best = run;
-  }
-
-  return { current, best };
-}
-
 export function parseDateKey(key: string): Date {
   const [y, m, d] = key.split("-").map(Number);
   return new Date(y ?? 1970, (m ?? 1) - 1, d ?? 1);
-}
-
-export interface HabitStats {
-  /** Jours validés au total. */
-  totalDays: number;
-  /** Taux de validation sur les 30 derniers jours (0-100). */
-  rate30: number;
-}
-
-export function computeStats(
-  checkins: Record<string, number>,
-  target: number,
-  today: Date,
-): HabitStats {
-  let totalDays = 0;
-  for (const [key, count] of Object.entries(checkins)) {
-    if (count >= target) totalDays++;
-    void key;
-  }
-  let done30 = 0;
-  for (let i = 0; i < 30; i++) {
-    if (isDayComplete(checkins, toDateKey(addDays(today, -i)), target)) done30++;
-  }
-  return { totalDays, rate30: Math.round((done30 / 30) * 100) };
 }
 
 /** Jalons de série qui méritent une petite fanfare. */
