@@ -140,11 +140,11 @@ export async function createPushBackend({ vaultAuthed, vaultProtected }) {
   if (mailEnabled && !tokenSeal) {
     console.log("[push] mails détaillés désactivés : GOOGLE_CLIENT_SECRET ou GOOGLE_TOKEN_KEY (32 octets base64) absente");
   }
-  const accessTokens = new Map(); // email → { token, expiresAt }
+  const accessTokens = new Map(); // email → { token, expiresAt, scope }
 
   async function grantToken(grant) {
     const cached = accessTokens.get(grant.email);
-    if (cached && cached.expiresAt > Date.now() + 60_000) return cached.token;
+    if (cached && cached.expiresAt > Date.now() + 60_000) return cached;
     const refreshToken = tokenSeal.open(grant.refreshtoken);
     try {
       if (!refreshToken) throw Object.assign(new Error("refresh token illisible"), { code: "invalid_grant" });
@@ -154,8 +154,9 @@ export async function createPushBackend({ vaultAuthed, vaultProtected }) {
         refresh_token: refreshToken,
         grant_type: "refresh_token",
       });
-      accessTokens.set(grant.email, { token: json.access_token, expiresAt: Date.now() + (json.expires_in ?? 3600) * 1000 });
-      return json.access_token;
+      const entry = { token: json.access_token, expiresAt: Date.now() + (json.expires_in ?? 3600) * 1000, scope: json.scope ?? "" };
+      accessTokens.set(grant.email, entry);
+      return entry;
     } catch (err) {
       if (err?.code === "invalid_grant") {
         await store.removeMailGrant(grant.email);
@@ -169,7 +170,7 @@ export async function createPushBackend({ vaultAuthed, vaultProtected }) {
     const grant = await store.getMailGrant(email);
     if (!grant) return null;
     try {
-      const token = await grantToken(grant);
+      const { token } = await grantToken(grant);
       let hist;
       try {
         hist = await gmailApi(
@@ -212,7 +213,7 @@ export async function createPushBackend({ vaultAuthed, vaultProtected }) {
   async function renewWatches() {
     for (const grant of await store.listStaleMailGrants(Date.now() - WATCH_RENEW_MS)) {
       try {
-        const token = await grantToken(grant);
+        const { token } = await grantToken(grant);
         await gmailApi(token, "watch", {
           method: "POST",
           body: JSON.stringify({ topicName: gmailTopic, labelIds: ["INBOX"], labelFilterBehavior: "include" }),
@@ -453,9 +454,32 @@ export async function createPushBackend({ vaultAuthed, vaultProtected }) {
         refreshToken: tokenSeal.seal(tokens.refresh_token),
         historyId: String(profile.historyId),
       });
-      accessTokens.set(email, { token: tokens.access_token, expiresAt: Date.now() + (tokens.expires_in ?? 3600) * 1000 });
+      accessTokens.set(email, {
+        token: tokens.access_token,
+        expiresAt: Date.now() + (tokens.expires_in ?? 3600) * 1000,
+        scope: tokens.scope ?? "",
+      });
       await store.upsertMailWatch({ email, vault });
       sendJson(res, 200, { ok: true, email });
+      return true;
+    }
+
+    // Jeton Google frais tiré du refresh token : la page n'a plus à rouvrir la popup après un rechargement.
+    if (path === "/api/push/google-token" && req.method === "GET") {
+      const email = (url.searchParams.get("email") ?? "").toLowerCase();
+      const grant = tokenSeal && email ? await store.getMailGrant(email) : null;
+      // La ligne (email, salon) n'existe qu'après preuve de possession du compte (mail-watch, mail-grant).
+      if (!grant || !(await store.listMailWatchVaults(email)).includes(vault)) {
+        sendJson(res, 404, { error: "no grant" });
+        return true;
+      }
+      try {
+        const { token, expiresAt, scope } = await grantToken(grant);
+        sendJson(res, 200, { accessToken: token, expiresIn: Math.floor((expiresAt - Date.now()) / 1000), scope });
+      } catch (err) {
+        console.warn(`[push] jeton Google côté serveur refusé (${err?.code ?? err?.message ?? err})`);
+        sendJson(res, 502, { error: "google refused" });
+      }
       return true;
     }
 

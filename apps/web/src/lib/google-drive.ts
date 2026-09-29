@@ -18,12 +18,13 @@
  *      only one matching the basename, since folder context isn't
  *      available client-side).
  *
- * Tokens last ~1h. We keep them in memory only — refresh by re-running
- * `requestAccessToken()` (silent if the user is still in the same Google
- * session, prompted otherwise). Persistence is intentional: we don't
- * want long-lived Google credentials living in localStorage.
+ * Tokens last ~1h. We keep them in memory only. Après un rechargement, le
+ * serveur en refabrique un depuis le refresh token qu'il garde (autorisation
+ * « mails détaillés ») ; à défaut, `requestAccessToken()` rouvre GIS. Rien de
+ * long-lived dans localStorage.
  */
 
+import { loadOnlineSyncConfig } from "./online-sync/config-storage";
 import { swKvDelete, swKvSet } from "./sw-kv";
 
 const GIS_SCRIPT_URL = "https://accounts.google.com/gsi/client";
@@ -172,9 +173,68 @@ function connectedGoogleEmail(): string | undefined {
   }
 }
 
+function cacheToken(key: string, clientId: string, accessToken: string, expiresIn: number, grantedScopes: string[]): void {
+  const expiresAt = Date.now() + expiresIn * 1000;
+  tokenCache.set(key, { accessToken, expiresAt, clientId, grantedScopes });
+  window.dispatchEvent(new CustomEvent(GOOGLE_TOKEN_EVENT));
+  // Le SW réveillé par un push n'a pas accès à la mémoire de la page.
+  if (grantedScopes.includes(GMAIL_MODIFY_SCOPE)) {
+    void swKvSet("gmailToken", { token: accessToken, expiresAt }).catch(() => undefined);
+  }
+}
+
+const SERVER_REFRESH_MARGIN_MS = 5 * 60_000;
+let serverTokenExpiresAt = 0;
+// Pas de grant côté serveur ou serveur injoignable : on ne retente pas à chaque acquisition.
+let serverTokenRetryAt = 0;
+let serverTokenPending: Promise<void> | null = null;
+let serverRefreshTimer: number | undefined;
+
+async function fetchServerToken(clientId: string): Promise<void> {
+  const email = connectedGoogleEmail();
+  const config = loadOnlineSyncConfig();
+  if (!email || !config.enabled || !config.vaultKey || !config.token) return;
+  const base = config.serverUrl.replace(/\/+$/, "");
+  const query = `vault=${encodeURIComponent(config.vaultKey)}&email=${encodeURIComponent(email)}`;
+  try {
+    const res = await fetch(`${base}/api/push/google-token?${query}`, { headers: { "x-sync-token": config.token } });
+    // Sans backend push, le serveur statique peut renvoyer l'index HTML en 200.
+    const json = res.ok ? ((await res.json()) as { accessToken?: unknown; expiresIn?: unknown; scope?: unknown }) : null;
+    if (typeof json?.accessToken !== "string" || typeof json.expiresIn !== "number") throw new Error("no server token");
+    const expiresIn = json.expiresIn;
+    cacheToken(`${clientId} server`, clientId, json.accessToken, expiresIn, String(json.scope ?? "").split(" "));
+    serverTokenExpiresAt = Date.now() + expiresIn * 1000;
+    window.clearTimeout(serverRefreshTimer);
+    serverRefreshTimer = window.setTimeout(
+      () => void restoreServerToken(clientId),
+      Math.max(0, expiresIn * 1000 - SERVER_REFRESH_MARGIN_MS),
+    );
+  } catch {
+    serverTokenRetryAt = Date.now() + 10 * 60_000;
+  }
+}
+
+/** Remet en cache un jeton fabriqué par le serveur, sans popup. Sans effet si aucun grant n'y est déposé. */
+export function restoreServerToken(clientId: string): Promise<void> {
+  const now = Date.now();
+  if (!clientId || serverTokenExpiresAt > now + SERVER_REFRESH_MARGIN_MS || serverTokenRetryAt > now) {
+    return Promise.resolve();
+  }
+  serverTokenPending ??= fetchServerToken(clientId).finally(() => {
+    serverTokenPending = null;
+  });
+  return serverTokenPending;
+}
+
+function resetServerToken(): void {
+  serverTokenExpiresAt = 0;
+  window.clearTimeout(serverRefreshTimer);
+}
+
 /**
  * Récupère un access token pour `scope` (défaut = scopes Drive). Réutilise le
- * token caché s'il est frais ; sinon lance le flux de consentement OAuth.
+ * token caché s'il est frais, puis celui du serveur ; sinon lance le flux de
+ * consentement OAuth.
  *
  * `prompt` : "" (silencieux si déjà accordé), "consent" (force le dialogue),
  * "none" (échoue si pas de grant silencieux).
@@ -187,6 +247,11 @@ export async function requestAccessToken(
   const scope = opts.scope ?? OAUTH_SCOPE;
   const cached = findFreshToken(clientId, scope);
   if (cached) return cached.accessToken;
+  if (opts.prompt !== "consent") {
+    await restoreServerToken(clientId);
+    const restored = findFreshToken(clientId, scope);
+    if (restored) return restored.accessToken;
+  }
   await loadGis();
   const google = window.google;
   if (!google) throw new Error("GIS not available after load");
@@ -205,21 +270,13 @@ export async function requestAccessToken(
           reject(new Error("OAuth response missing access_token"));
           return;
         }
-        const grantedScopes = (response.scope ?? scope).split(" ");
-        tokenCache.set(cacheKey(clientId, scope), {
-          accessToken: response.access_token,
-          expiresAt: Date.now() + (response.expires_in ?? 3600) * 1000,
+        cacheToken(
+          cacheKey(clientId, scope),
           clientId,
-          grantedScopes,
-        });
-        window.dispatchEvent(new CustomEvent(GOOGLE_TOKEN_EVENT));
-        // Le SW réveillé par un push n'a pas accès à la mémoire de la page.
-        if (grantedScopes.includes(GMAIL_MODIFY_SCOPE)) {
-          void swKvSet("gmailToken", {
-            token: response.access_token,
-            expiresAt: Date.now() + (response.expires_in ?? 3600) * 1000,
-          }).catch(() => undefined);
-        }
+          response.access_token,
+          response.expires_in ?? 3600,
+          (response.scope ?? scope).split(" "),
+        );
         resolve(response.access_token);
       },
       error_callback: (err) => {
@@ -258,6 +315,7 @@ export async function requestOfflineCode(clientId: string, scope: string): Promi
  * couvrent. Sans scope → tout.
  */
 export function clearAccessToken(opts: { clientId?: string; scope?: string } = {}): void {
+  resetServerToken();
   for (const [key, token] of [...tokenCache.entries()]) {
     if (opts.clientId && token.clientId !== opts.clientId) continue;
     if (opts.scope && !covers(token, opts.scope)) continue;
@@ -275,6 +333,7 @@ export function clearAccessToken(opts: { clientId?: string; scope?: string } = {
 
 /** Oublie un token refusé par l'API (401), sans révoquer : revoke retirerait tout le consentement. */
 export function forgetAccessToken(accessToken: string): void {
+  resetServerToken();
   for (const [key, token] of [...tokenCache.entries()]) {
     if (token.accessToken === accessToken) tokenCache.delete(key);
   }

@@ -34,6 +34,7 @@ import { MailOutgoingRunner } from "@/components/mail/MailOutgoingRunner";
 import { MailFollowupRunner } from "@/components/mail/MailFollowupRunner";
 import { CommitmentsRunner } from "@/components/mail/CommitmentsRunner";
 import { CalendarRunner } from "@/components/agenda/CalendarRunner";
+import { GoogleTokenRunner } from "@/lib/GoogleTokenRunner";
 import { PushScheduleRunner } from "@/lib/push/PushScheduleRunner";
 
 export function RootLayout() {
@@ -75,6 +76,7 @@ export function RootLayout() {
                 <MailFollowupRunner />
                 {/* Engagements : la détection tourne au repos, hors de /mail aussi. */}
                 <CommitmentsRunner />
+                <GoogleTokenRunner />
                 {/* Miroir de l'agenda : synchro et file d'écriture, hors de /agenda aussi. */}
                 <CalendarRunner />
                 {/* Vault auto-init status banner (only meaningful in Electron;
