@@ -9,9 +9,10 @@
  * an de cases vides démotivantes. Les jours d'avant la création sont rendus
  * invisibles — sauf s'ils portent un check-in (donnée importée : on l'affiche).
  *
- * L'intensité de chaque pixel reflète la progression vers la cible du jour
- * (`dayLevel`). Cliquer un pixel passé/présent cycle son compteur
- * (0 → 1 → … → cible → 0) — rattrapage d'hier ou correction d'un faux clic.
+ * L'intensité de chaque pixel vient de `habitDayLevel` (progression vers la
+ * cible pour `day`, plein/vide pour `week`/`month`). Cliquer un pixel
+ * passé/présent applique `onCycleDay` — rattrapage d'hier ou correction d'un
+ * faux clic.
  *
  * Le conteneur scrolle horizontalement et s'ancre à droite (les semaines
  * récentes d'abord) — sur mobile on remonte le temps en glissant vers la
@@ -19,7 +20,7 @@
  */
 
 import { memo, useEffect, useMemo, useRef } from "react";
-import { buildGrid, dayLevel, gridWeeks, toDateKey } from "@/lib/habits/habitData";
+import { buildGrid, gridWeeks, habitDayLevel, toDateKey, type Habit } from "@/lib/habits/habitData";
 import { useIsMobile } from "@/hooks/useIsMobile";
 
 const CELL = 11; // px — côté d'un pixel (pointeur fin)
@@ -34,18 +35,14 @@ const CELL_TOUCH = 14;
 const GAP = 3; // px — gouttière
 
 interface PixelGridProps {
-  checkins: Record<string, number>;
-  target: number;
-  color: string;
-  /** Date de création de l'habitude — borne gauche de la grille. */
-  createdAt: string;
+  habit: Habit;
   /** Pixel à faire « pop » (clé du jour fraîchement coché). */
   poppingKey?: string | null;
   onCycleDay: (dateKey: string) => void;
 }
 
 /** Couleur de fond d'un pixel selon son niveau d'intensité. */
-function cellBackground(level: 0 | 1 | 2 | 3 | 4, color: string): string {
+export function cellBackground(level: 0 | 1 | 2 | 3 | 4, color: string): string {
   switch (level) {
     case 0:
       return "var(--surface-2)";
@@ -59,13 +56,11 @@ function cellBackground(level: 0 | 1 | 2 | 3 | 4, color: string): string {
 }
 
 export const PixelGrid = memo(function PixelGrid({
-  checkins,
-  target,
-  color,
-  createdAt,
+  habit,
   poppingKey,
   onCycleDay,
 }: PixelGridProps) {
+  const { checkins, color, createdAt } = habit;
   const scrollRef = useRef<HTMLDivElement>(null);
   const isMobile = useIsMobile();
   const cellSize = isMobile ? CELL_TOUCH : CELL;
@@ -128,7 +123,9 @@ export const PixelGrid = memo(function PixelGrid({
             {/* Sous trois colonnes, le nom du mois est plus large que la
                 grille : il se faisait rogner par le conteneur scrollable
                 (« août » rendu « oût ») sans rien apprendre à personne. */}
-            {weeks >= 3 && monthLabels.map((m) => {
+            {/* Même traitement à gauche : un libellé sur les deux premières
+                colonnes déborde sur les étiquettes de jours. */}
+            {weeks >= 3 && monthLabels.filter((m) => m.week >= 2).map((m) => {
               // Un label posé sur les dernières colonnes déborderait à
               // droite — ce qui élargit le scrollWidth et fait apparaître
               // une scrollbar fantôme. On l'ancre alors à droite : le
@@ -165,7 +162,13 @@ export const PixelGrid = memo(function PixelGrid({
                       />
                     );
                   }
-                  const level = dayLevel(count, target);
+                  const level = habitDayLevel(habit, count);
+                  const status =
+                    habit.period === "day"
+                      ? `${count} sur ${habit.target}`
+                      : count > 0
+                        ? "fait"
+                        : "pas fait";
                   const isToday = cell.key === todayKey;
                   const dateLabel = new Date(`${cell.key}T00:00:00`).toLocaleDateString("fr-FR", {
                     weekday: "short",
@@ -179,8 +182,8 @@ export const PixelGrid = memo(function PixelGrid({
                     <button
                       key={cell.key}
                       type="button"
-                      title={`${dateLabel} · ${count}/${target}`}
-                      aria-label={`${dateLabel} : ${count} sur ${target}`}
+                      title={`${dateLabel} · ${status}`}
+                      aria-label={`${dateLabel} : ${status}`}
                       onClick={() => onCycleDay(cell.key)}
                       // L'anneau ::before mange la moitié de la gouttière de
                       // chaque côté : +4px de cible sans décaler un seul

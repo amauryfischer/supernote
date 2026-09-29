@@ -28,6 +28,8 @@ export interface HabitsSource {
   habits: Habit[];
   mode: HabitsSourceMode;
   isLoading: boolean;
+  isError: boolean;
+  refetch: () => void;
   createHabit: (fields: Record<string, FieldValue>) => Promise<void>;
   /** Merge partiel sur `fields` (le reste de l'entité est conservé). */
   updateHabitFields: (id: string, fields: Record<string, FieldValue>) => Promise<void>;
@@ -100,6 +102,8 @@ export function useHabitsSource(): HabitsSource {
     habits,
     mode: degraded ? "fallback" : "live",
     isLoading: !degraded && query.isLoading,
+    isError: !degraded && query.isError,
+    refetch: () => void query.refetch(),
     createHabit,
     updateHabitFields,
     removeHabit,
