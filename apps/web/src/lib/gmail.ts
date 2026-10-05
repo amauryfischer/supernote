@@ -642,8 +642,11 @@ async function mapPool<T, R>(
 }
 
 const GMAIL_BATCH_URL = "https://gmail.googleapis.com/batch/gmail/v1";
-/** Sous-requêtes max par lot — limite imposée par l'API batch Gmail. */
-const GMAIL_BATCH_CHUNK = 20;
+// Google exécute les sous-requêtes d'un lot en parallèle : au-delà d'une dizaine,
+// Gmail renvoie 429 « Too many concurrent requests for user » (vécu en prod).
+const GMAIL_BATCH_CHUNK = 10;
+// Un seul lot en vol par onglet : synchro, préchargement et lecteurs se partagent la concurrence.
+let batchQueue: Promise<unknown> = Promise.resolve();
 
 /** Construit le corps `multipart/mixed` d'un lot de GET Gmail relatifs (`/threads/...`, `/messages/...`). */
 function buildGmailBatchBody(boundary: string, items: Array<{ id: string; path: string }>): string {
@@ -686,6 +689,15 @@ async function gmailBatchFetchChunk<T>(
   clientId: string,
   chunk: Array<{ id: string; path: string }>,
 ): Promise<Map<string, T | GoogleApiError> | null> {
+  const run = batchQueue.then(() => gmailBatchFetchChunkNow<T>(clientId, chunk));
+  batchQueue = run.catch(() => undefined);
+  return run;
+}
+
+async function gmailBatchFetchChunkNow<T>(
+  clientId: string,
+  chunk: Array<{ id: string; path: string }>,
+): Promise<Map<string, T | GoogleApiError> | null> {
   const boundary = `batch_${Math.random().toString(36).slice(2)}`;
   const res = await googleRequest(
     clientId,
@@ -722,7 +734,7 @@ async function gmailBatchFetchChunk<T>(
 
 /**
  * Regroupe des GET Gmail (threads/messages) en lots `multipart/mixed` (POST
- * `/batch/gmail/v1`, ≤20 sous-requêtes — limite Gmail) plutôt qu'un fetch par
+ * `/batch/gmail/v1`, lots de `GMAIL_BATCH_CHUNK`, un lot en vol à la fois) plutôt qu'un fetch par
  * item. Passe par `googleRequest` pour garder le rejeu 401 et la garde quota
  * partagée ; une sous-réponse 403/429 « quota » déclenche la même garde
  * (`noteGoogleApiFailure`). Une sous-réponse en échec n'invalide pas les
