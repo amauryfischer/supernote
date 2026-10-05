@@ -513,6 +513,7 @@ export function ComposeModal({
                     </label>
                     <RecipientField
                       id={toFieldId}
+                      autoFocus
                       value={recipients}
                       onChange={setRecipients}
                       input={toInput}
@@ -756,6 +757,7 @@ export function RecipientField({
   inputClassName,
   placeholder,
   dropUp,
+  autoFocus,
 }: {
   id: string;
   value: string[];
@@ -767,6 +769,7 @@ export function RecipientField({
   placeholder?: string;
   /** Liste au-dessus du champ : le composeur de réponse est collé en bas du panneau. */
   dropUp?: boolean;
+  autoFocus?: boolean;
 }) {
   const listId = useId();
   const [open, setOpen] = useState(false);
@@ -797,6 +800,7 @@ export function RecipientField({
         <Input
           id={id}
           type="email"
+          autoFocus={autoFocus}
           value={input}
           role="combobox"
           aria-expanded={matches.length > 0}
