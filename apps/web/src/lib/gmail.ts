@@ -660,7 +660,9 @@ const GMAIL_BATCH_URL = "https://gmail.googleapis.com/batch/gmail/v1";
 // Google exécute les sous-requêtes d'un lot en parallèle : au-delà d'une dizaine,
 // Gmail renvoie 429 « Too many concurrent requests for user » (vécu en prod).
 const GMAIL_BATCH_CHUNK = 10;
-// Un seul lot en vol par onglet : synchro, préchargement et lecteurs se partagent la concurrence.
+// Un seul lot en vol par onglet, espacés : Gmail plafonne aussi le coût glissant
+// (~250 unités/s par utilisateur, threads.get = 10) et un full sync enchaîné le dépassait.
+const GMAIL_BATCH_GAP_MS = 1_000;
 let batchQueue: Promise<unknown> = Promise.resolve();
 
 /** Construit le corps `multipart/mixed` d'un lot de GET Gmail relatifs (`/threads/...`, `/messages/...`). */
@@ -705,7 +707,7 @@ async function gmailBatchFetchChunk<T>(
   chunk: Array<{ id: string; path: string }>,
 ): Promise<Map<string, T | GoogleApiError> | null> {
   const run = batchQueue.then(() => gmailBatchFetchChunkNow<T>(clientId, chunk));
-  batchQueue = run.catch(() => undefined);
+  batchQueue = run.catch(() => undefined).then(() => new Promise((r) => setTimeout(r, GMAIL_BATCH_GAP_MS)));
   return run;
 }
 
