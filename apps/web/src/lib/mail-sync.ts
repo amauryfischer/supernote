@@ -409,15 +409,28 @@ export function syncMailbox(clientId: string, accountId: string): Promise<void> 
     }
     const after = await trpcVanillaClient.mail.getState.query({ accountId });
     if (after.historyId) void swKvSet("mailHistoryId", after.historyId).catch(() => undefined);
+    lastSyncFailed = false;
     window.dispatchEvent(new CustomEvent(MAIL_SYNCED_EVENT));
-  })().finally(() => {
-    inFlight.delete(accountId);
-    window.dispatchEvent(new CustomEvent(MAIL_SYNC_STATE_EVENT));
-  });
+  })()
+    .catch((err: unknown) => {
+      lastSyncFailed = true;
+      throw err;
+    })
+    .finally(() => {
+      inFlight.delete(accountId);
+      window.dispatchEvent(new CustomEvent(MAIL_SYNC_STATE_EVENT));
+    });
 
   inFlight.set(accountId, task);
   window.dispatchEvent(new CustomEvent(MAIL_SYNC_STATE_EVENT));
   return task;
+}
+
+let lastSyncFailed = false;
+
+/** La dernière tentative de synchro a échoué (quota, jeton, réseau…). */
+export function mailSyncFailed(): boolean {
+  return lastSyncFailed;
 }
 
 export function isMailSyncing(): boolean {

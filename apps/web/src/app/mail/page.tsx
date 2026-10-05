@@ -25,7 +25,7 @@ import {
 } from "@phosphor-icons/react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useSettings } from "@/components/settings/SettingsContext";
-import { useMailSyncAge } from "@/components/mail/MailSyncAge";
+import { MAIL_SYNC_REQUEST_EVENT, useMailSyncAge } from "@/components/mail/MailSyncAge";
 import { AppShell, MobileSheet, useMobileTitle, useMobileFab, useMobileHeaderActions, useMobileBack } from "@/components/shell";
 import { TodayPanel } from "@/components/agenda/TodayPanel";
 import { useIsMobile } from "@/hooks/useIsMobile";
@@ -312,7 +312,13 @@ export default function MailPage() {
   const openSubject = selectedThreadId ? thread?.messages[0]?.subject || "(sans objet)" : null;
   useMobileTitle(
     isMobile ? (openSubject ?? "Mail") : null,
-    isMobile && !openSubject ? (syncStatus.syncing ? "Synchronisation…" : syncStatus.age) : null,
+    isMobile && !openSubject
+      ? syncStatus.syncing
+        ? "Synchronisation…"
+        : syncStatus.failed
+          ? "Échec de synchro — tirer pour réessayer"
+          : syncStatus.age
+      : null,
   );
   const [threadLoading, setThreadLoading] = useState(false);
   const [threadError, setThreadError] = useState<string | null>(null);
@@ -583,7 +589,9 @@ export default function MailPage() {
         })
         .catch(() => undefined);
     };
+    const onManualSync = () => void loadList(refreshStateRef.current.query);
     const id = window.setInterval(tick, 120_000);
+    window.addEventListener(MAIL_SYNC_REQUEST_EVENT, onManualSync);
     window.addEventListener(MAIL_MIRROR_RECEIVED_EVENT, onMirrorReceived);
     window.addEventListener("online", tick);
     window.addEventListener(MAIL_SNOOZE_EVENT, tick);
@@ -591,6 +599,7 @@ export default function MailPage() {
     document.addEventListener("visibilitychange", tick);
     return () => {
       window.clearInterval(id);
+      window.removeEventListener(MAIL_SYNC_REQUEST_EVENT, onManualSync);
       window.removeEventListener(MAIL_MIRROR_RECEIVED_EVENT, onMirrorReceived);
       window.removeEventListener("online", tick);
       window.removeEventListener(MAIL_SNOOZE_EVENT, tick);
