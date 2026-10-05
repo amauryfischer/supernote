@@ -88,16 +88,41 @@ function acquireToken(clientId: string, scope: string): Promise<string> {
 }
 
 // Le quota Gmail se compte par minute et par utilisateur, tous appareils confondus :
-// insister pendant la minute le maintient dépassé, et un pool de lectures en vol
-// continuerait de tirer après le premier refus.
+// insister le maintient dépassé. La garde vit dans localStorage pour que les onglets
+// et le rechargement la respectent, et double à chaque refus rapproché.
 const QUOTA_COOLDOWN_MS = 60_000;
-const quotaBlockedUntil = new Map<GoogleScopeFamily, { until: number; error: GoogleApiError }>();
+const QUOTA_COOLDOWN_MAX_MS = 15 * 60_000;
+const quotaKey = (family: GoogleScopeFamily) => `supernote.googleQuotaBlock.${family}`;
+
+interface QuotaBlock {
+  until: number;
+  cooldown: number;
+  status: number;
+  message: string;
+}
+
+function readQuotaBlock(family: GoogleScopeFamily): QuotaBlock | null {
+  try {
+    const raw = localStorage.getItem(quotaKey(family));
+    return raw ? (JSON.parse(raw) as QuotaBlock) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeQuotaBlock(family: GoogleScopeFamily, block: QuotaBlock): void {
+  try {
+    localStorage.setItem(quotaKey(family), JSON.stringify(block));
+  } catch {
+    /* stockage indisponible : la garde ne tient que pour cet appel */
+  }
+}
 
 /**
- * Construit l'erreur d'un appel Google échoué et, si c'est un quota (403/429
- * dont le corps mentionne « quota »), pose la garde 60 s pour la famille de
- * scope — exposé pour les appelants qui parsent eux-mêmes une réponse groupée
- * (batch Gmail) et doivent déclencher la même garde par sous-réponse.
+ * Construit l'erreur d'un appel Google échoué et, si c'est un quota, pose la
+ * garde pour la famille de scope — exposé pour les appelants qui parsent
+ * eux-mêmes une réponse groupée (batch Gmail) et doivent déclencher la même
+ * garde par sous-réponse.
  */
 export function noteGoogleApiFailure(
   family: GoogleScopeFamily,
@@ -106,8 +131,13 @@ export function noteGoogleApiFailure(
   label = "Google API",
 ): GoogleApiError {
   const error = new GoogleApiError(status, `${label} ${status}: ${text.slice(0, 300)}`);
-  if ((status === 403 || status === 429) && /quota/i.test(text)) {
-    quotaBlockedUntil.set(family, { until: Date.now() + QUOTA_COOLDOWN_MS, error });
+  if (status === 429 || (status === 403 && /rateLimit|quota/i.test(text))) {
+    const now = Date.now();
+    const prev = readQuotaBlock(family);
+    if (prev && prev.until > now) return error;
+    const cooldown =
+      prev && now - prev.until < prev.cooldown * 2 ? Math.min(prev.cooldown * 2, QUOTA_COOLDOWN_MAX_MS) : QUOTA_COOLDOWN_MS;
+    writeQuotaBlock(family, { until: now + cooldown, cooldown, status, message: error.message });
   }
   return error;
 }
@@ -121,8 +151,8 @@ export async function googleRequest(
   label = "Google API",
 ): Promise<Response> {
   const family = scopeFamily(scope);
-  const blocked = quotaBlockedUntil.get(family);
-  if (blocked && blocked.until > Date.now()) throw blocked.error;
+  const blocked = readQuotaBlock(family);
+  if (blocked && blocked.until > Date.now()) throw new GoogleApiError(blocked.status, blocked.message);
   for (let attempt = 0; ; attempt++) {
     const token = await acquireToken(clientId, scope);
     const res = await fetch(url, {

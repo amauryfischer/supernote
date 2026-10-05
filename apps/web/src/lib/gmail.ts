@@ -797,23 +797,22 @@ async function getThreadListItemsBatch(
 export async function getThreadSummaries(
   clientId: string,
   threadIds: string[],
-): Promise<{ items: ThreadListItem[]; missing: string[] }> {
+): Promise<{ items: ThreadListItem[]; missing: string[]; failed: GoogleApiError[] }> {
   const missing: string[] = [];
+  const failed: GoogleApiError[] = [];
   const batch = await getThreadListItemsBatch(clientId, threadIds);
   const items: ThreadListItem[] = [];
   for (const id of threadIds) {
     const res = batch.get(id);
     if (res === undefined) continue;
     if (res instanceof GoogleApiError) {
-      if (res.status === 404) {
-        missing.push(id);
-        continue;
-      }
-      throw res;
+      if (res.status === 404) missing.push(id);
+      else failed.push(res);
+      continue;
     }
     items.push(res);
   }
-  return { items, missing };
+  return { items, missing, failed };
 }
 
 /** Ligne de liste enrichie d'un thread (pour l'affichage façon boîte mail). */
@@ -836,6 +835,8 @@ export interface ThreadListItem {
 /** Page enrichie de threads (items affichables) + curseur page suivante. */
 export interface ThreadListPage {
   items: ThreadListItem[];
+  /** Sous-réponses en échec : la page est partielle. */
+  failed: GoogleApiError[];
   /** Curseur opaque à repasser en `pageToken` ; absent = plus de page. */
   nextPageToken?: string;
 }
@@ -853,13 +854,15 @@ export async function listThreadSummariesPage(
   const page = await searchThreadsPage(clientId, query, opts);
   const batch = await getThreadListItemsBatch(clientId, page.items.map((t) => t.id));
   const items: ThreadListItem[] = [];
+  const failed: GoogleApiError[] = [];
   for (const t of page.items) {
     const res = batch.get(t.id);
     if (res === undefined) continue;
-    if (res instanceof GoogleApiError) throw res;
-    items.push(res);
+    if (res instanceof GoogleApiError) failed.push(res);
+    else items.push(res);
   }
-  return { items, nextPageToken: page.nextPageToken };
+  if (items.length === 0 && failed[0]) throw failed[0];
+  return { items, failed, nextPageToken: page.nextPageToken };
 }
 
 /**

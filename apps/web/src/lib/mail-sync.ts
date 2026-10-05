@@ -89,26 +89,42 @@ export function computeFullSyncRemovals(
 // ── Per-account in-flight guard ─────────────────────────────────────────────
 const inFlight = new Map<string, Promise<void>>();
 
-/** Full reseed of the inbox + labels; stamps the historyId cursor. */
+/**
+ * Full reseed of the inbox + labels; stamps the historyId cursor. Chaque page
+ * est écrite dès sa lecture : un refus de quota en cours de route garde ce qui
+ * est lu, et le curseur n'est posé que sur une passe complète.
+ */
 export async function fullSync(clientId: string, accountId: string): Promise<void> {
   const profile = await getGmailProfileFull(clientId);
   const labels = await listLabels(clientId).catch(() => [] as GmailLabel[]);
 
-  const all: ThreadListItem[] = [];
+  const fetchedIds: string[] = [];
   let pageToken: string | undefined;
   let reachedEnd = false;
+  let firstFailure: Error | undefined;
   for (let i = 0; i < FULL_SYNC_PAGES; i++) {
-    const page = await listThreadSummariesPage(clientId, MIRROR_SYNC_QUERY, {
-      maxResults: PAGE_SIZE,
-      pageToken,
+    let page: Awaited<ReturnType<typeof listThreadSummariesPage>>;
+    try {
+      page = await listThreadSummariesPage(clientId, MIRROR_SYNC_QUERY, { maxResults: PAGE_SIZE, pageToken });
+    } catch (err) {
+      firstFailure = err instanceof Error ? err : new Error(String(err));
+      break;
+    }
+    firstFailure ??= page.failed[0];
+    fetchedIds.push(...page.items.map((it) => it.id));
+    await trpcVanillaClient.mail.syncUpsert.mutate({
+      accountId,
+      threads: page.items.map(toThreadInput),
+      ...(i === 0 && labels.length ? { labels: labels.map(toLabelInput) } : {}),
     });
-    all.push(...page.items);
+    if (firstFailure) break;
     pageToken = page.nextPageToken;
     if (!pageToken) {
       reachedEnd = true;
       break;
     }
   }
+  if (firstFailure) throw firstFailure;
 
   // Strip inbox threads that vanished since the last seed (only when we saw the
   // whole inbox — otherwise we'd wrongly evict threads beyond the fetch window).
@@ -116,17 +132,10 @@ export async function fullSync(clientId: string, accountId: string): Promise<voi
     .query({ accountId, labelId: "INBOX", limit: 500 })
     .then((r) => r.items.map((it) => it.id))
     .catch(() => [] as string[]);
-  const removeThreadIds = computeFullSyncRemovals(
-    existing,
-    all.map((it) => it.id),
-    reachedEnd,
-  );
 
   await trpcVanillaClient.mail.syncUpsert.mutate({
     accountId,
-    threads: all.map(toThreadInput),
-    labels: labels.map(toLabelInput),
-    removeThreadIds,
+    removeThreadIds: computeFullSyncRemovals(existing, fetchedIds, reachedEnd),
     historyId: profile.historyId || undefined,
     markFullSync: true,
   });
@@ -167,7 +176,7 @@ export async function incrementalSync(
     return true;
   }
 
-  const { items, missing } = await getThreadSummaries(clientId, hist.changedThreadIds);
+  const { items, missing, failed } = await getThreadSummaries(clientId, hist.changedThreadIds);
   // "Inbox zero" model: the mirror only holds threads still to handle (in:inbox).
   // A touched thread that left the inbox is "done"/archived → drop it from the
   // mirror (row + messages) to reclaim space, instead of keeping a stale row.
@@ -178,8 +187,10 @@ export async function incrementalSync(
     threads: stillInbox.map(toThreadInput),
     labels: labelInput,
     removeThreadIds: [...missing, ...leftInbox],
-    historyId: hist.historyId,
+    // Curseur figé tant qu'un fil n'a pu être relu : le prochain passage le reprend.
+    historyId: failed.length ? undefined : hist.historyId,
   });
+  if (failed[0]) throw failed[0];
   return true;
 }
 
