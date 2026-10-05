@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, forwardRef, useImperativeHandle, type ReactNode } from "react";
-import { ArrowSquareOut, Plus, X, Tag, MagnifyingGlass, Check, PaperPlaneTilt, Quotes, Paperclip, Star, Envelope, ArrowBendUpRight, Sparkle, MagicWand, ArrowsClockwise, CaretUp, DotsThreeVertical, Copy, Image as ImageIcon, SpeakerSlash, UserMinus, UserPlus, WarningCircle, ShareNetwork, Trash, ArrowBendUpLeft, FilePlus, Database } from "@phosphor-icons/react";
+import { ArrowSquareOut, Plus, X, Tag, MagnifyingGlass, Check, PaperPlaneTilt, Quotes, Paperclip, Star, Envelope, ArrowBendUpRight, Sparkle, MagicWand, ArrowsClockwise, CaretUp, DotsThreeVertical, Copy, Image as ImageIcon, SpeakerSlash, UserMinus, UserPlus, WarningCircle, ShareNetwork, ArrowBendUpLeft, FilePlus, Database } from "@phosphor-icons/react";
 import { Button, Chip, Input, Spinner, Popover } from "@heroui/react";
 import { useToast, Tooltip } from "@supernote/ui";
 import { useActionFeedback, FeedbackIcon } from "@/lib/action-feedback";
@@ -224,6 +224,8 @@ interface EmailThreadViewProps {
    * lu) — l'appelant resynchronise la ligne correspondante dans la liste.
    */
   onLabelsChanged?: (threadId: string, labelIds: string[]) => void;
+  /** Label créé depuis le fil : la liste doit le connaître pour le regrouper sans rechargement. */
+  onLabelCreated?: (label: GmailLabel) => void;
   /**
    * Appelé quand l'utilisateur clique « Transférer » — l'appelant ouvre le
    * ComposeModal pré-rempli (objet « Fwd: … » + corps cité), destinataire vide.
@@ -258,6 +260,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
       commitMutation,
       onReplied,
       onLabelsChanged,
+      onLabelCreated,
       onForward,
       onConvertedToTodo,
       onGenerateDrafts,
@@ -305,7 +308,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
 
   // Triage depuis le menu « Plus » : via l'outbox de la page (hors ligne,
   // « Annuler ») quand elle est là ; appel Gmail direct dans un bloc de note.
-  const triageFromMenu = (action: "archive" | "delete") => {
+  const triageFromMenu = (action: "archive") => {
     if (onTriage) {
       onTriage(action);
       return;
@@ -313,7 +316,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
     void applyTriage(clientId, thread.id, action)
       .then(() => onTriaged?.(action))
       .catch(() =>
-        toast({ title: action === "delete" ? "Suppression échouée" : "Archivage échoué", variant: "danger" }),
+        toast({ title: "Archivage échoué", variant: "danger" }),
       );
   };
 
@@ -840,6 +843,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
     try {
       const created = await createLabel(clientId, name);
       setAllLabels((prev) => [...prev, created]);
+      onLabelCreated?.(created);
       await mutate(created.id, "add");
     } catch (err) {
       toast({
@@ -1040,6 +1044,26 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
               />
             )}
             {clientId && (
+              <Tooltip content={`${starred ? "Retirer l'étoile" : "Mettre une étoile"} (${shortcutKey("star")})`}>
+                <Button
+                  isIconOnly
+                  variant="ghost"
+                  size="sm"
+                  aria-label={starred ? "Retirer l'étoile" : "Mettre une étoile"}
+                  aria-pressed={starred}
+                  className="h-9"
+                  onPress={() => void onToggleStar()}
+                >
+                  <Star
+                    size={18}
+                    weight={starred ? "fill" : "regular"}
+                    style={{ color: starred ? "var(--warning)" : undefined }}
+                    aria-hidden
+                  />
+                </Button>
+              </Tooltip>
+            )}
+            {clientId && (
               <TriageBar clientId={clientId} threadId={thread.id} onTriaged={onTriaged} onTriage={onTriage} />
             )}
             {!embedded && (
@@ -1057,26 +1081,6 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
                   <Popover.Dialog className="outline-none">
                     <div className="flex max-h-[70vh] flex-col gap-0.5 overflow-y-auto" onKeyDown={moveMenuFocus}>
                       <p className="sn-eyebrow sn-eyebrow--compact px-3 pb-0.5 pt-2" aria-hidden>Suivre</p>
-                      {clientId && (
-                        <Button
-                          variant="ghost"
-                          onPress={() => {
-                            setMoreOpen(false);
-                            void onToggleStar();
-                          }}
-                          className={MENU_ROW}
-                          aria-label={starred ? "Retirer l'étoile" : "Mettre une étoile"}
-                          aria-pressed={starred}
-                        >
-                          <Star
-                            size={16}
-                            weight={starred ? "fill" : "regular"}
-                            style={{ color: starred ? "var(--warning)" : undefined }}
-                          />
-                          <span className="flex-1 text-left">{starred ? "Retirer l'étoile" : "Mettre une étoile"}</span>
-                          <kbd className="text-xs" style={{ color: "var(--text-muted)" }}>{shortcutKey("star")}</kbd>
-                        </Button>
-                      )}
                       {clientId && (
                         <Button
                           variant="ghost"
@@ -1278,25 +1282,6 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
                           <UserMinus size={16} />
                           <span>Bloquer l'expéditeur</span>
                         </Button>
-                      )}
-                      {clientId && (
-                        <>
-                          <div role="separator" className="my-1 h-px" style={{ background: "var(--border-subtle)" }} />
-                          <Button
-                            variant="ghost"
-                            className={MENU_ROW}
-                            style={{ color: "var(--danger)" }}
-                            aria-label="Supprimer (corbeille)"
-                            onPress={() => {
-                              setMoreOpen(false);
-                              triageFromMenu("delete");
-                            }}
-                          >
-                            <Trash size={16} />
-                            <span className="flex-1 text-left">Supprimer</span>
-                            <kbd className="text-xs" style={{ color: "var(--text-muted)" }}>{shortcutKey("delete")}</kbd>
-                          </Button>
-                        </>
                       )}
                     </div>
                   </Popover.Dialog>

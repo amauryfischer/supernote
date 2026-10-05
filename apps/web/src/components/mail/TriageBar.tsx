@@ -2,10 +2,10 @@
 
 /**
  * TriageBar — barre d'actions de triage d'un thread Gmail (Fait /
- * Snooze), à monter dans la zone d'actions d'une vue thread.
+ * Snooze / Supprimer), à monter dans la zone d'actions d'une vue thread.
  *
  * Comportement :
- *  - Fait : retirent le thread de l'inbox (mutation `INBOX` côté
+ *  - Fait / Supprimer : retirent le thread de l'inbox (mutation `INBOX` côté
  *    Gmail via `applyTriage`). On désactive la barre pendant l'appel ; le
  *    bouton passe en chargement puis succès, ou en erreur (message en infobulle).
  *  - Snooze : ouvre la barre `SnoozeMenu` (saisie libre 10d / 32h + échéances
@@ -23,7 +23,7 @@
 
 import { useCallback, useState, type ReactNode } from "react";
 import { Button } from "@heroui/react";
-import { CheckCircle, Clock } from "@phosphor-icons/react";
+import { CheckCircle, Clock, Trash } from "@phosphor-icons/react";
 import { Tooltip } from "@supernote/ui";
 import {
   addSnooze,
@@ -32,6 +32,7 @@ import {
   type TriageAction,
 } from "@/lib/mail-triage";
 import { useActionFeedback, FeedbackIcon } from "@/lib/action-feedback";
+import { shortcutKey } from "@/lib/mail-shortcuts";
 import { SnoozeMenu } from "./SnoozeMenu";
 
 export interface TriageBarProps {
@@ -62,7 +63,7 @@ export function TriageBar({ clientId, threadId, onTriaged, onTriage }: TriageBar
   );
 
   const handleSimple = useCallback(
-    (action: "archive") => {
+    (action: "archive" | "delete") => {
       if (onTriage) {
         onTriage(action);
         return;
@@ -123,6 +124,19 @@ export function TriageBar({ clientId, threadId, onTriaged, onTriage }: TriageBar
           aria-label="Reporter (snooze)"
         >
           {icon("snooze", <Clock size={18} aria-hidden />)}
+        </Button>
+      </Tooltip>
+      <Tooltip content={tip("delete", `Supprimer (${shortcutKey("delete")})`)}>
+        <Button
+          variant="ghost"
+          size="sm"
+          isIconOnly
+          onPress={() => handleSimple("delete")}
+          isDisabled={busy}
+          className="h-9"
+          aria-label="Supprimer (corbeille)"
+        >
+          {icon("delete", <Trash size={18} aria-hidden />)}
         </Button>
       </Tooltip>
       <SnoozeMenu isOpen={snoozeOpen} onClose={() => setSnoozeOpen(false)} onPick={handleSnooze} />

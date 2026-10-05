@@ -160,7 +160,7 @@ test.describe("06 — mail", () => {
     await expect(pill).toHaveCount(0);
   });
 
-  test("en-tête du fil réduit à Todo · Fait · Reporter · Plus ; d archive comme e", async ({ page }) => {
+  test("en-tête du fil réduit à Todo · Étoile · Fait · Reporter · Supprimer · Plus ; d archive comme e", async ({ page }) => {
     await withInbox(page);
     await page.goto("/mail");
     await page.getByText("Compte rendu réunion").first().click();
@@ -169,12 +169,9 @@ test.describe("06 — mail", () => {
     await expect(triage.getByRole("button", { name: "Fait" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Plus d'actions" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Marquer comme fait" })).toHaveCount(0);
-    await expect(triage.getByRole("button", { name: "Supprimer (corbeille)" })).toHaveCount(0);
-
-    await page.getByRole("button", { name: "Plus d'actions" }).click();
-    await expect(page.getByRole("button", { name: "Supprimer (corbeille)" })).toBeVisible();
-    await page.keyboard.press("Escape");
-    await expect(page.getByRole("button", { name: "Supprimer (corbeille)" })).toHaveCount(0);
+    await expect(triage.getByRole("button", { name: "Supprimer (corbeille)" })).toBeVisible();
+    await page.locator('button[aria-label="Mettre une étoile"][aria-pressed="false"]').click();
+    await expect(page.locator('button[aria-label="Retirer l\'étoile"][aria-pressed="true"]')).toBeVisible();
 
     await page.keyboard.press("Escape");
     await expect(triage).toHaveCount(0);
@@ -182,6 +179,23 @@ test.describe("06 — mail", () => {
     await page.keyboard.press("d");
     await expect(page.getByRole("button", { name: /Annuler/ })).toBeVisible();
     await expect(page.getByText("Compte rendu réunion")).toHaveCount(0);
+  });
+
+  test("un label créé depuis le fil regroupe la liste sans rechargement", async ({ page }) => {
+    await withInbox(page);
+    await page.route("https://gmail.googleapis.com/gmail/v1/users/me/labels", (route) =>
+      route.request().method() === "POST"
+        ? route.fulfill({ json: { id: "Label_pt", name: "Portugal", type: "user" } })
+        : route.fallback(),
+    );
+    await page.goto("/mail");
+    await page.getByText("Compte rendu réunion").first().click();
+
+    await page.getByRole("button", { name: "Ajouter un label (touche l)" }).click();
+    await page.getByRole("dialog", { name: "Ajouter un label" }).getByRole("textbox").fill("Portugal");
+    await page.keyboard.press("Enter");
+
+    await expect(page.getByRole("listbox", { name: "Boîte mail" }).getByText("Portugal")).toBeVisible();
   });
 
   test("hiérarchie calme : / focalise la recherche, capture dans le menu Plus", async ({ page }) => {
@@ -204,8 +218,8 @@ test.describe("06 — mail", () => {
     await expect(page.getByRole("button", { name: "Capturer en note" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Capturer dans une base" })).toBeVisible();
     const more = page.getByRole("dialog").filter({ has: page.getByRole("button", { name: "Capturer en note" }) });
-    await more.getByRole("button", { name: "Mettre une étoile" }).focus();
-    await page.keyboard.press("ArrowDown");
+    await more.getByRole("button", { name: "Capturer en note" }).focus();
+    await page.keyboard.press("Home");
     await expect(more.getByRole("button", { name: "Marquer comme non lu" })).toBeFocused();
   });
 

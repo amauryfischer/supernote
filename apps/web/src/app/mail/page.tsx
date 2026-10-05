@@ -2706,6 +2706,7 @@ export default function MailPage() {
                   commitMutation={commitMutation}
                   onReplied={handleReplied}
                   onLabelsChanged={syncThreadLabels}
+                  onLabelCreated={addLabel}
                   onForward={handleForward}
                   onConvertedToTodo={handleConvertedToTodo}
                   onGenerateDrafts={() => void drafts.generate()}
