@@ -20,7 +20,7 @@ import {
   getGmailProfileFull,
   listHistory,
   getThreadSummaries,
-  listThreadSummariesPage,
+  searchThreadsPage,
   listLabels,
   getThread,
   getThreadsFull,
@@ -62,6 +62,7 @@ function toThreadInput(it: ThreadListItem) {
     date: it.date,
     internalDate: Date.parse(it.date) || 0,
     labelIds: it.labelIds,
+    historyId: it.historyId ?? undefined,
   };
 }
 
@@ -92,29 +93,40 @@ const inFlight = new Map<string, Promise<void>>();
 /**
  * Full reseed of the inbox + labels; stamps the historyId cursor. Chaque page
  * est écrite dès sa lecture : un refus de quota en cours de route garde ce qui
- * est lu, et le curseur n'est posé que sur une passe complète.
+ * est lu, et le curseur n'est posé que sur une passe complète. Seuls les fils
+ * dont le historyId diffère du miroir sont relus (threads.get coûte 10 unités).
  */
 export async function fullSync(clientId: string, accountId: string): Promise<void> {
   const profile = await getGmailProfileFull(clientId);
   const labels = await listLabels(clientId).catch(() => [] as GmailLabel[]);
+  const mirrorHistory = new Map(
+    await trpcVanillaClient.mail.listThreads
+      .query({ accountId, labelId: "INBOX", limit: 500 })
+      .then((r) => r.items.map((it) => [it.id, it.historyId ?? null] as const))
+      .catch(() => []),
+  );
 
   const fetchedIds: string[] = [];
   let pageToken: string | undefined;
   let reachedEnd = false;
   let firstFailure: Error | undefined;
   for (let i = 0; i < FULL_SYNC_PAGES; i++) {
-    let page: Awaited<ReturnType<typeof listThreadSummariesPage>>;
+    let page: Awaited<ReturnType<typeof searchThreadsPage>>;
+    let summaries: Awaited<ReturnType<typeof getThreadSummaries>>;
     try {
-      page = await listThreadSummariesPage(clientId, MIRROR_SYNC_QUERY, { maxResults: PAGE_SIZE, pageToken });
+      page = await searchThreadsPage(clientId, MIRROR_SYNC_QUERY, { maxResults: PAGE_SIZE, pageToken });
+      const stale = page.items.filter((t) => !t.historyId || mirrorHistory.get(t.id) !== t.historyId).map((t) => t.id);
+      summaries = await getThreadSummaries(clientId, stale);
     } catch (err) {
       firstFailure = err instanceof Error ? err : new Error(String(err));
       break;
     }
-    firstFailure ??= page.failed[0];
-    fetchedIds.push(...page.items.map((it) => it.id));
+    firstFailure ??= summaries.failed[0];
+    const missing = new Set(summaries.missing);
+    fetchedIds.push(...page.items.map((t) => t.id).filter((id) => !missing.has(id)));
     await trpcVanillaClient.mail.syncUpsert.mutate({
       accountId,
-      threads: page.items.map(toThreadInput),
+      threads: summaries.items.map(toThreadInput),
       ...(i === 0 && labels.length ? { labels: labels.map(toLabelInput) } : {}),
     });
     if (firstFailure) break;

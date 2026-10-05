@@ -430,6 +430,7 @@ export function parseGmailMessage(raw: GmailRawMessage): EmailMessage {
 export interface ThreadSummary {
   id: string;
   snippet: string;
+  historyId?: string;
 }
 
 export interface EmailThread {
@@ -465,11 +466,11 @@ export async function searchThreadsPage(
   const token = opts.pageToken ? `&pageToken=${encodeURIComponent(opts.pageToken)}` : "";
   const qs = `?q=${encodeURIComponent(query)}&maxResults=${maxResults}${token}`;
   const json = await gmailFetch<{
-    threads?: Array<{ id: string; snippet?: string }>;
+    threads?: Array<{ id: string; snippet?: string; historyId?: string }>;
     nextPageToken?: string;
   }>(clientId, `/threads${qs}`);
   return {
-    items: (json.threads ?? []).map((t) => ({ id: t.id, snippet: decodeSnippet(t.snippet ?? "") })),
+    items: (json.threads ?? []).map((t) => ({ id: t.id, snippet: decodeSnippet(t.snippet ?? ""), historyId: t.historyId })),
     nextPageToken: json.nextPageToken,
   };
 }
@@ -786,7 +787,7 @@ async function gmailBatchGet<T>(
 /** Métadonnées d'un thread (Subject/From/Date du message le plus récent) à partir du JSON `format=metadata`. */
 function buildThreadListItem(
   threadId: string,
-  json: { snippet?: string; messages?: GmailRawMessage[] },
+  json: { snippet?: string; historyId?: string; messages?: GmailRawMessage[] },
 ): ThreadListItem {
   const msgs = json.messages ?? [];
   const last = msgs[msgs.length - 1];
@@ -799,6 +800,7 @@ function buildThreadListItem(
     date: parsed?.date ?? "",
     snippet: json.snippet != null ? decodeSnippet(json.snippet) : (parsed?.snippet ?? ""),
     labelIds,
+    historyId: json.historyId,
   };
 }
 
@@ -809,7 +811,7 @@ async function getThreadListItemsBatch(
   clientId: string,
   threadIds: string[],
 ): Promise<Map<string, ThreadListItem | GoogleApiError>> {
-  const raw = await gmailBatchGet<{ snippet?: string; messages?: GmailRawMessage[] }>(
+  const raw = await gmailBatchGet<{ snippet?: string; historyId?: string; messages?: GmailRawMessage[] }>(
     clientId,
     threadIds.map((id) => ({ id, path: `/threads/${encodeURIComponent(id)}?${THREAD_METADATA_QS}` })),
   );
@@ -847,6 +849,7 @@ export async function getThreadSummaries(
 /** Ligne de liste enrichie d'un thread (pour l'affichage façon boîte mail). */
 export interface ThreadListItem {
   id: string;
+  historyId?: string | null;
   subject: string;
   from: EmailAddress;
   date: string;

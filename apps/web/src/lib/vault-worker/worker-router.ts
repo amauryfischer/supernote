@@ -4614,6 +4614,7 @@ export function buildRouter(
     date: (r["lastDate"] as string) ?? "",
     snippet: (r["snippet"] as string) ?? "",
     labelIds: parseStrArr(r["labelIds"]),
+    historyId: (r["historyId"] as string | null) ?? null,
     aiCategory: (r["aiCategory"] as string | null) ?? null,
     aiCategoryConfidence: r["aiCategoryConfidence"] != null ? Number(r["aiCategoryConfidence"]) : null,
     aiCategoryRuns: r["aiCategoryRuns"] != null ? Number(r["aiCategoryRuns"]) : null,
@@ -4650,7 +4651,7 @@ export function buildRouter(
     );
     const total = totalRow ? Number(totalRow["c"]) : 0;
     const res = db.exec(
-      `SELECT id, subject, fromName, fromEmail, snippet, lastDate, labelIds,
+      `SELECT id, subject, fromName, fromEmail, snippet, lastDate, labelIds, historyId,
               aiCategory, aiCategoryConfidence, aiCategoryRuns, aiCategoryAt,
               aiSummary, aiSummaryFp, aiSummaryAt
          FROM mail_thread WHERE ${whereSql}

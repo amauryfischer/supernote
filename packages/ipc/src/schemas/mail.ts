@@ -37,6 +37,7 @@ export const MailThreadRowSchema = z.object({
   date: z.string(),
   snippet: z.string(),
   labelIds: z.array(z.string()),
+  historyId: z.string().nullable().optional(),
   aiCategory: z.string().nullable().optional(),
   aiCategoryConfidence: z.number().nullable().optional(),
   aiCategoryRuns: z.number().nullable().optional(),
