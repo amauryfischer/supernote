@@ -554,6 +554,8 @@ export interface GmailHistoryResult {
   historyId?: string;
   /** Thread ids touchés (ajout / suppression de message / changement de label). */
   changedThreadIds: string[];
+  /** Sous-ensemble entré, sorti ou resté dans l'INBOX, ou supprimé. */
+  inboxThreadIds?: string[];
 }
 
 /**
@@ -562,11 +564,17 @@ export interface GmailHistoryResult {
  * Sur 404 (historyId expiré, > ~1 semaine), renvoie `ok: false` pour signaler
  * au moteur de reconciliation de retomber sur un full sync.
  */
+interface HistoryMessage {
+  threadId?: string;
+  labelIds?: string[];
+}
+
 export async function listHistory(
   clientId: string,
   startHistoryId: string,
 ): Promise<GmailHistoryResult> {
   const changed = new Set<string>();
+  const inbox = new Set<string>();
   let latest = startHistoryId;
   let pageToken: string | undefined;
   do {
@@ -582,10 +590,10 @@ export async function listHistory(
     const json = (await res.json()) as {
       history?: Array<{
         messages?: Array<{ id?: string; threadId?: string }>;
-        messagesAdded?: Array<{ message?: { threadId?: string } }>;
-        messagesDeleted?: Array<{ message?: { threadId?: string } }>;
-        labelsAdded?: Array<{ message?: { threadId?: string } }>;
-        labelsRemoved?: Array<{ message?: { threadId?: string } }>;
+        messagesAdded?: Array<{ message?: HistoryMessage }>;
+        messagesDeleted?: Array<{ message?: HistoryMessage }>;
+        labelsAdded?: Array<{ message?: HistoryMessage; labelIds?: string[] }>;
+        labelsRemoved?: Array<{ message?: HistoryMessage; labelIds?: string[] }>;
       }>;
       historyId?: string;
       nextPageToken?: string;
@@ -599,11 +607,18 @@ export async function listHistory(
         (h.labelsRemoved ?? []).map((x) => x.message ?? {}),
       ];
       for (const pool of pools) for (const m of pool) if (m.threadId) changed.add(m.threadId);
+      for (const x of h.messagesDeleted ?? []) if (x.message?.threadId) inbox.add(x.message.threadId);
+      for (const x of [...(h.messagesAdded ?? []), ...(h.labelsAdded ?? []), ...(h.labelsRemoved ?? [])]) {
+        if (x.message?.threadId && x.message.labelIds?.includes("INBOX")) inbox.add(x.message.threadId);
+      }
+      for (const x of h.labelsRemoved ?? []) {
+        if (x.message?.threadId && x.labelIds?.includes("INBOX")) inbox.add(x.message.threadId);
+      }
     }
     if (json.historyId) latest = json.historyId;
     pageToken = json.nextPageToken;
   } while (pageToken);
-  return { ok: true, historyId: latest, changedThreadIds: [...changed] };
+  return { ok: true, historyId: latest, changedThreadIds: [...changed], inboxThreadIds: [...inbox] };
 }
 
 /**

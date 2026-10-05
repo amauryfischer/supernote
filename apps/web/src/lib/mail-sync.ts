@@ -153,7 +153,15 @@ export async function incrementalSync(
   const hist = await listHistory(clientId, startHistoryId);
   if (!hist.ok) return false;
   // L'historique couvre toute la boîte (envoyés, archives, labels) : relire chaque fil
-  // touché peut dépasser le quota Gmail par minute. Au-delà, le full sync borné coûte moins.
+  // touché dépassait le quota Gmail par minute, figeait le curseur et rejouait la même
+  // rafale à chaque passe. Seuls comptent les fils du miroir et ceux qui touchent l'INBOX.
+  const mirrored = new Set(
+    await trpcVanillaClient.mail.listThreads
+      .query({ accountId, labelId: "INBOX", limit: 500 })
+      .then((r) => r.items.map((it) => it.id)),
+  );
+  const inbox = new Set(hist.inboxThreadIds ?? []);
+  hist.changedThreadIds = hist.changedThreadIds.filter((id) => mirrored.has(id) || inbox.has(id));
   if (hist.changedThreadIds.length > FULL_SYNC_PAGES * PAGE_SIZE) return false;
 
   // Rafraîchir AUSSI la liste des labels : l'historique Gmail couvre les
