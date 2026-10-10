@@ -1,6 +1,6 @@
 # Motifs et pièges
 
-*Last Updated: 2026-09-26*
+*Last Updated: 2026-10-10*
 
 Les motifs récurrents du dépôt, et surtout les contraintes que le code ne dit pas tout seul. Commence par la section sur les propriétés de champ qui disparaissent si tu touches aux champs, c'est le piège le plus coûteux. Les pièges de la co-édition sont dans [sharing.md](sharing.md).
 
@@ -75,14 +75,11 @@ Le mode de saisie se décide **au pointeur, jamais à la largeur** : `.sn-reveal
 
 ⚠️ `.sn-pressable` est défini **après** `.sn-motion-colors`. Empiler les deux fait gagner la transition de la première et perdre l'ease couleur.
 
-## ⚠️ Le design system est largement contourné
+## Design system : `@supernote/ui` d'abord, garde `pnpm lint`
 
-| Import depuis `apps/web/src` | Fichiers |
-|---|---|
-| `@heroui/react` en direct | 150 |
-| `@supernote/ui` | 83 |
+`apps/web/src` passe par les wrappers de `@supernote/ui` (`Button`, `Input`, `Textarea`, `Select`, `Badge`, `Card`, `Tooltip`…). Il n'importe de `@heroui/react` que neuf noms en liste blanche : `Spinner`, `Popover`, `ListBox`, `ListBoxItem`, `ProgressBar`, `TabsRoot`, `TabList`, `Tab`, `Key`. Ces noms n'ont pas de wrapper. `apps/web/scripts/check-ui-imports.mjs`, lancé par `pnpm lint` en CI, échoue sur tout autre nom, y compris en import multi-ligne, aliasé ou `import type`. Pour un composant HeroUI hors liste, ajoute d'abord un wrapper dans `packages/ui`, ou étends la liste en connaissance de cause.
 
-`CLAUDE.md` impose HeroUI v3, et c'est respecté. Mais le paquet `@supernote/ui`, qui enveloppe une quinzaine de ces composants, est contourné presque deux fois sur trois. Si tu ajoutes un composant, vérifie d'abord si `@supernote/ui` le fournit déjà.
+Géométrie décidée : `Button size="sm"` = `h-9 md:h-8`, `text-sm`, coins `radius-md`. Le `Select` du wrapper affiche la valeur choisie. Il accepte `renderValue(option)` pour une valeur riche (pastille) et `triggerClassName` pour un déclencheur compact.
 
 ⚠️ Le `Button` de `@supernote/ui` rend toujours un `HeroButton variant="ghost"`, dont `.button--ghost` (hors `@layer`) écrase les fonds Tailwind. Seules primary, secondary, tertiary et danger portent `!` ; ghost (défaut) et outline n'en ont pas, pour que les couleurs passées en `style` inline gagnent.
 
@@ -115,13 +112,19 @@ Pour **forcer** un nouveau défaut une seule fois, pose un drapeau et lis-le dan
 
 Côté Ollama, tout `createOllamaClient` doit recevoir `defaultModel` (`settings.ia.ollamaModel` ou `getAiSettings().model`). Sans lui, le client choisit seul dans `PREFERRED_MODELS` de `@supernote/ai`, `llama3.2:3b` en tête, et ignore les réglages.
 
+## ⚠️ Transactions SQL du worker : synchrones
+
+`runInTransaction` (`vault-worker/sql.ts`) fait BEGIN IMMEDIATE, puis COMMIT ou ROLLBACK, **sans await**. Le worker ne sérialise pas les RPC : un `await` dans la transaction laisse une autre requête écrire au milieu. Tout ce qui est appelé dedans doit être synchrone, `applyEntityTags` compris (`entity-helpers.ts`), et les transactions ne s'imbriquent pas. `entities.create/update/delete` et chaque op de `syncApplyOps` y passent. Les I/O (`.md` écrit avant le SQL, récursion des relations inverses) restent hors transaction. `18-entity-atomicity.spec.ts` vérifie le rollback.
+
 ## Vérification
 
-Pas de test unitaire, c'est une décision. `pnpm typecheck` plus `pnpm test:e2e`, trente-deux tests Playwright chromium. Le `webServer` reçoit `DATABASE_URL=file:./e2e-share.db` (ignoré par git), donc la synchro, le push et le partage tournent en e2e. `07-share.spec.ts` joue propriétaire et invité dans deux contextes. `07-push.spec.ts` pousse dans le service worker par CDP (`ServiceWorker.deliverPushMessage`) et exige `channel: "chromium"` : le headless shell refuse `showNotification`.
+Pas de test unitaire, c'est une décision. `pnpm typecheck`, `pnpm lint` (garde d'imports), plus `pnpm test:e2e` : 74 tests Playwright chromium dans 19 specs, ~8 min à `--workers=2`. Le `webServer` reçoit `DATABASE_URL=file:./e2e-share.db` (ignoré par git), donc la synchro, le push et le partage tournent en e2e. `07-share.spec.ts` joue propriétaire et invité dans deux contextes. `07-push.spec.ts` pousse dans le service worker par CDP (`ServiceWorker.deliverPushMessage`) et exige `channel: "chromium"` : le headless shell refuse `showNotification`.
 
 Deux amorces dans `tests/e2e/helpers.ts`. `bootDegraded` pose `supernote.degraded` : pas de worker, rendu seulement. `bootCloud(page, { googleAccount? })` ouvre un coffre cloud neuf sur un **vrai worker OPFS** (seul mode où miroirs, modèles et routes worker tournent) et remplace GIS par un faux ; `mockGoogleApis(page, handler)` intercepte `www.googleapis.com` et rend le journal des appels. Tout nouveau scénario worker ou Google va là (`04-agenda.spec.ts`, `05-templates.spec.ts`, `06-mail.spec.ts`), pas dans un banc jetable. Gmail n'est pas sur `www.googleapis.com` : `06-mail.spec.ts` route lui-même `gmail.googleapis.com` pour servir une boîte d'un fil. Le serveur de test tourne sur un port dérivé du chemin du worktree (`sha256(__dirname)`, plage 3200-3599) en `--strictPort` et sans `reuseExistingServer` : chaque worktree a son serveur Vite, et le 3100, tenu par un service Windows invisible depuis WSL, reste évité. `NAV_ROUTES` (helpers) liste les routes testées par `03-navigate`.
 
 ⚠️ Routes chargées en `lazy` : sur un Vite froid, le premier accès dépasse le timeout de 5 s d'`expect`. `tests/e2e/global-setup.ts` visite chaque route de `NAV_ROUTES` (dégradé et cloud) avant la suite pour payer cette compilation hors budget ; toute nouvelle route testée doit y passer, via `NAV_ROUTES` ou le préchauffage cloud. Deux `pnpm test:e2e` simultanés dans le même worktree échouent désormais au démarrage (port déjà pris), c'est voulu.
+
+⚠️ **Sous WSL2, la suite tourne dans un namespace réseau isolé.** En réseau miroir, WSL retire puis remet l'IP d'eth0 toutes les ~26 s. Chromium vide alors ses pools de sockets en `ERR_NETWORK_CHANGED`, localhost compris : page blanche, worker en erreur, test différent à chaque run. `playwright.config.ts` détecte WSL et relance le run via `unshare -rn`, avec la seule boucle locale et la garde `SUPERNOTE_E2E_NETNS=1`. Dans ce namespace, il n'y a ni internet ni service de l'hôte (Ollama réel) : tout appel externe doit être mocké. Sur ce poste, une seule exécution e2e à la fois, à 2 workers au plus.
 
 ⚠️ Les fichiers de `tests/` n'appartiennent à aucun workspace, donc `pnpm typecheck` **ne les couvre pas**, et Playwright transpile sans vérifier les types.
 

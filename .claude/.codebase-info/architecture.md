@@ -1,6 +1,6 @@
 # Architecture
 
-*Last Updated: 2026-09-21*
+*Last Updated: 2026-10-10*
 
 Supernote est un **système de connaissance et CRM personnel local-first**. Il n'y a pas de serveur applicatif : la base de données tourne dans un Web Worker, dans le navigateur de l'utilisateur.
 
@@ -25,7 +25,7 @@ Supernote est un **système de connaissance et CRM personnel local-first**. Il n
                            │  timeout 15 s par requête
 ┌──────────────────────────▼──────────────────────────────┐
 │  Web Worker                                             │
-│    worker-router.ts   ~4700 lignes, vault/entities/…    │
+│    worker-router.ts   ~4000 l. + sync/mail/checklists   │
 │    sqlite-adapter     @sqlite.org/sqlite-wasm 3.53      │
 │    VFS OPFS SAH pool  + FTS5                            │
 │    moteur d'automatisations                             │
@@ -56,7 +56,7 @@ La permission du dossier local **n'est pas persistée** entre sessions. Elle est
 
 Le worker n'est pas qu'une base de données. Il porte :
 
-- le routeur de procédures, `worker-router.ts`, pour `vault.*`, `entities.*`, `schemas.*`, `tags.*`, `search.*` ;
+- le routeur de procédures, `worker-router.ts`, pour `vault.*`, `entities.*`, `schemas.*`, `tags.*`, `search.*`. Il fusionne trois tables de routes extraites : `sync-routes.ts` (`sync.*`), `mail-routes.ts` (`mail.*`, miroir Gmail) et `checklists.ts` (checklists des notes). Les helpers d'entité partagés, dont la FTS et les tags, sont dans `entity-helpers.ts` ;
 - le moteur SQLite et son adaptateur ;
 - le mirroring vers `.supernote/index.db`, ce qui rend le coffre synchronisable par Git ;
 - le moteur d'automatisations ;

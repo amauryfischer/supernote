@@ -1,6 +1,6 @@
 # Prise en main
 
-*Last Updated: 2026-09-23*
+*Last Updated: 2026-10-10*
 
 ## Démarrer
 
@@ -20,7 +20,8 @@ Au premier lancement, l'application demande un dossier de coffre. « Continuer s
 
 ```bash
 pnpm typecheck     # doit passer avant tout commit
-pnpm test:e2e      # 18 tests Playwright chromium
+pnpm lint          # garde des imports @heroui/react (liste blanche)
+pnpm test:e2e      # 74 tests Playwright chromium, ~8 min à --workers=2
 ```
 
 Il n'y a **pas de test unitaire** et c'est une décision. Ne crée pas de `*.test.ts`, ne réintroduis pas vitest. Le fichier `docs/dev/testing.md` dit le contraire : il est périmé, ignore-le.
@@ -40,7 +41,7 @@ pnpm --filter @supernote/editor build
 
 **Ajouter une page.** Crée `apps/web/src/app/<route>/page.tsx`, enveloppe dans `<AppShell>`, déclare la route dans `router.tsx` en `lazy`, ajoute l'entrée dans `lib/navigation/catalog.ts`. Publie le chrome mobile avec `useMobileTitle`, `useMobileFab` (`false` masque le FAB, `null` laisse le « Nouveau » par défaut) et `useMobileHeaderActions` ; une vue empilée sans route propre (fil mail, éditeur de template) publie son retour avec `useMobileBack`, qui capte aussi le geste retour du téléphone par une entrée d'historique sentinelle. Une page qui publie seulement une cible de route (`/archive` → `/notes`) passe `{ systemBack: false }`, sinon le retour système boucle entre les deux routes. Le provider vit dans `RootLayout`, donc la page elle-même peut appeler ces hooks.
 
-**Ajouter un composant.** Vérifie d'abord si `@supernote/ui` le fournit. L'application contourne ce paquet dans deux tiers des cas, ne creuse pas l'écart sans raison.
+**Ajouter un composant.** Passe par `@supernote/ui`. `pnpm lint` refuse tout import `@heroui/react` hors de la liste blanche de neuf noms (voir [patterns.md](patterns.md), section « Design system »).
 
 ## Où lire en premier
 

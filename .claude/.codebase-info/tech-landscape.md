@@ -1,6 +1,6 @@
 # Paysage technique
 
-*Last Updated: 2026-09-27*
+*Last Updated: 2026-10-10*
 
 Supernote est un **système de connaissance et CRM personnel local-first**, livré comme une PWA. Il n'y a pas de serveur applicatif : le coffre de données tourne dans un Web Worker, dans le navigateur.
 
@@ -39,11 +39,11 @@ Le service worker est **désactivé en développement** (`devOptions: { enabled:
 | Fichier | Ce qu'il décide |
 |---|---|
 | `pnpm-workspace.yaml` | périmètre des workspaces, `allowBuilds` par paquet natif |
-| `turbo.json` | graphe des tâches build, dev, lint, typecheck, clean |
+| `turbo.json` | graphe des tâches build, dev, lint, typecheck, clean ; `lint` d'`apps/web` = `scripts/check-ui-imports.mjs` |
 | `packages/tsconfig/base.json` | TypeScript strict, `noUncheckedIndexedAccess`, cible ES2022 |
 | `.prettierrc.json` | 100 colonnes, guillemets simples, plugin de tri Tailwind |
 | `.npmrc` | `auto-install-peers`, liste `onlyBuiltDependencies` |
-| `playwright.config.ts` | suite e2e chromium, port dérivé du worktree (3200-3599, `--strictPort`), `globalSetup` de préchauffage |
+| `playwright.config.ts` | suite e2e chromium, port dérivé du worktree (3200-3599, `--strictPort`), `globalSetup` de préchauffage ; sous WSL, relance dans un netns loopback (`unshare -rn`) |
 | `Procfile` | `node apps/web/server.mjs` en production |
 
 ## Déploiement

@@ -1,6 +1,6 @@
 # Conventions de code
 
-*Last Updated: 2026-09-13*
+*Last Updated: 2026-10-10*
 
 Ces conventions viennent des fichiers de configuration **et** de ce que le code fait réellement. Les règles absolues du projet vivent dans `CLAUDE.md` à la racine ; ce document les complète sans les remplacer.
 
@@ -60,7 +60,8 @@ Il n'y a **pas de test unitaire** dans ce dépôt, et c'est une décision, pas u
 
 ```
 pnpm typecheck     # doit passer avant tout commit
-pnpm test:e2e      # Playwright chromium, 9 tests
+pnpm lint          # garde des imports @heroui/react, voir patterns.md
+pnpm test:e2e      # Playwright chromium, 74 tests
 ```
 
 Voir [patterns.md](patterns.md) pour ce que la suite e2e couvre réellement.

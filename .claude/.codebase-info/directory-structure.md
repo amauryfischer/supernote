@@ -1,6 +1,6 @@
 # Arborescence
 
-*Last Updated: 2026-09-23*
+*Last Updated: 2026-10-10*
 
 Monorepo pnpm workspaces, orchestré par Turborepo. Le principe d'organisation est **par domaine**, pas par couche : chaque paquet possède un sujet, pas un étage technique.
 
@@ -24,7 +24,7 @@ supernote/
 │       │   ├── share/          page invité (2ᵉ entrée Vite, sans coffre ni worker)
 │       │   ├── hooks/          hooks partagés (useIsMobile, usePluginEnabled…)
 │       │   ├── lib/
-│       │   │   ├── vault-worker/   le coffre : worker, routeur, SQLite
+│       │   │   ├── vault-worker/   le coffre : worker, routeurs (entités, sync, mail, checklists), SQLite
 │       │   │   ├── trpc/           pont navigateur↔worker
 │       │   │   ├── online-sync/    synchronisation, journal, montages
 │       │   │   ├── share/          partage par lien, client propriétaire, awareness
@@ -34,6 +34,7 @@ supernote/
 │       │   │   ├── navigation/     catalogue de navigation, source unique
 │       │   │   └── next-shims/     compat pour les imports next/* résiduels
 │       │   └── i18n/           chargement des messages, bloquant
+│       ├── scripts/            check-ui-imports.mjs, garde lancée par `pnpm lint`
 │       ├── server.mjs          serveur statique de production, sans dépendance
 │       ├── share-backend.mjs  share-store.mjs  collab-server.mjs  partage et co-édition (sharing.md)
 │       ├── share.html          entrée de la page invité, servie sur /s/*

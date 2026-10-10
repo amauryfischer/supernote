@@ -1,6 +1,6 @@
 # Carte du codebase — Supernote
 
-*Last Updated: 2026-09-23*
+*Last Updated: 2026-10-10*
 
 **Système de connaissance et CRM personnel local-first**, livré comme PWA. Monorepo pnpm de 854 fichiers source. Pas de serveur applicatif : la base SQLite tourne dans un **Web Worker**, dans le navigateur. Une seule application, `apps/web`, et 15 paquets dont deux dorment.
 

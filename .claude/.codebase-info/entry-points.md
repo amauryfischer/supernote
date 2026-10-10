@@ -1,6 +1,6 @@
 # Points d'entrée
 
-*Last Updated: 2026-09-23*
+*Last Updated: 2026-10-10*
 
 ## Démarrage du navigateur
 
@@ -79,7 +79,8 @@ Avec `DATABASE_URL`, il monte aussi le partage : `/api/share/*`, `/s/<slug>` ré
 | `pnpm dev` | serveur Vite sur le port 3100 |
 | `pnpm build:packages` | compile les paquets vers leur `dist/` |
 | `pnpm typecheck` | `tsc --noEmit` par workspace, via Turborepo |
-| `pnpm test:e2e` | Playwright chromium, serveur de dev sur un port dérivé du worktree (3200-3599), routes préchauffées par `tests/e2e/global-setup.ts` |
+| `pnpm test:e2e` | Playwright chromium, serveur de dev sur un port dérivé du worktree (3200-3599), routes préchauffées par `tests/e2e/global-setup.ts` ; sous WSL, netns isolé (voir patterns.md) |
+| `pnpm lint` | `apps/web/scripts/check-ui-imports.mjs` : refuse tout import `@heroui/react` hors liste blanche |
 | `pnpm scalingo-postbuild` | build de production, `@supernote/web` seul |
 
 Voir aussi : [architecture.md](architecture.md), [communication.md](communication.md), [onboarding.md](onboarding.md).

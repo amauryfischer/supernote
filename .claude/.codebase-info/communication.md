@@ -1,6 +1,6 @@
 # Communication
 
-*Last Updated: 2026-09-29*
+*Last Updated: 2026-10-10*
 
 Trois canaux : le thread principal parle au worker, le worker parle au thread principal, et l'application parle au serveur de synchronisation.
 
@@ -39,7 +39,7 @@ Transport asymétrique : flux SSE descendant sur `GET /api/sync/stream`, POST mo
 
 **Pièces jointes.** Les ops ne portent que le markdown. Les octets d'une image de note passent à part par `/api/sync/blob?vault&path` (POST pour envoyer, GET/HEAD pour lire, même authentification que le salon). `apps/web/src/lib/vault-file-adapter.ts` pousse au collage et au premier affichage si le serveur ne l'a pas (`hasBlob`/`pushBlob`), et tire l'image absente en local (`pullBlob`, `apps/web/src/lib/online-sync/client.ts`). La visionneuse de pièces jointes (`useAttachmentBlob`) lit encore en local seulement.
 
-⚠️ **Renommage et déplacement distants.** `syncApplyOps` (`worker-router.ts`) doit supprimer l'ancien `.md` quand le chemin change : sinon le reindex toutes les 30 s re-pointe l'entité sur la copie périmée, lui redonne un `updatedAt` récent, et l'ancien titre/dossier repart vers les autres appareils. Le reindex ignore aussi une copie dont l'entité a encore son fichier courant sur disque. Toute mutation qui change `filePath` en masse (`folders.rename`, `folders.delete`) doit appeler les hooks `onEntityUpdated`/`onEntityDeleted`, seuls émetteurs d'ops. Les dossiers vides, leurs couleurs et leur ordre ne sont pas synchronisés.
+⚠️ **Renommage et déplacement distants.** `syncApplyOps` (`sync-routes.ts`) doit supprimer l'ancien `.md` quand le chemin change : sinon le reindex toutes les 30 s re-pointe l'entité sur la copie périmée, lui redonne un `updatedAt` récent, et l'ancien titre/dossier repart vers les autres appareils. Le reindex ignore aussi une copie dont l'entité a encore son fichier courant sur disque. Toute mutation qui change `filePath` en masse (`folders.rename`, `folders.delete`) doit appeler les hooks `onEntityUpdated`/`onEntityDeleted`, seuls émetteurs d'ops. Les dossiers vides, leurs couleurs et leur ordre ne sont pas synchronisés.
 
 **Salons protégés.** Un salon peut porter un mot de passe. Il voyage dans le champ `token` du client, le même que `SYNC_TOKEN` (en-tête `x-sync-token`, `?token=` pour le stream, faute d'en-tête possible sur `EventSource`). `POST /api/sync/join` pose le mot de passe d'un salon libre, ou vérifie celui d'un salon protégé. `GET /api/sync/vaults` liste **uniquement les salons protégés** : un salon sans mot de passe garde le comportement historique, son nom servant de secret, et n'apparaît jamais. `/info` renvoyant `locked`, le client passe en erreur « Mot de passe requis » au lieu de boucler en reconnexion.
 
