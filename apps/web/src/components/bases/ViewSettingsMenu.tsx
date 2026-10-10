@@ -7,7 +7,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { Button, Input } from "@heroui/react";
+import { Button, Input } from "@supernote/ui";
 import {
   PencilSimple,
   Copy,
@@ -152,7 +152,7 @@ export function ViewSettingsMenu({
                 setNextName(view.name);
               }
             }}
-            className="w-full rounded border bg-transparent px-2 py-1 text-xs"
+            wrapperClassName="w-full" className="rounded border bg-transparent px-2 py-1 text-xs"
             style={{ borderColor: "var(--accent)", color: "var(--text-primary)" }}
           />
         </div>

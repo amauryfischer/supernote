@@ -10,8 +10,7 @@
  */
 
 import { useMemo } from "react";
-import { Button } from "@heroui/react";
-import { EmptyState } from "@supernote/ui";
+import { EmptyState, Button } from "@supernote/ui";
 import { Plus } from "@phosphor-icons/react";
 import type { EntityType } from "@supernote/core";
 import type { View } from "@supernote/ipc";

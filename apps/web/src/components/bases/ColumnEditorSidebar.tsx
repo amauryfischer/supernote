@@ -12,8 +12,7 @@
  */
 
 import { useState, useCallback } from "react";
-import { Button, Input, SelectRoot, SelectTrigger, SelectValue, SelectPopover, ListBox, ListBoxItem } from "@heroui/react";
-import { Checkbox } from "@supernote/ui";
+import { Checkbox, Button, Input, Select } from "@supernote/ui";
 import {
   X,
   Eye,
@@ -463,10 +462,6 @@ const AGG_LABELS: Record<RollupAgg, string> = {
   count: "Compter", sum: "Somme", avg: "Moyenne", min: "Minimum",
   max: "Maximum", all: "Tous vrais", any: "Au moins un",
 };
-const SELECT_TRIGGER_CLS = "w-full rounded border px-2 py-1.5 text-xs";
-const SELECT_TRIGGER_STYLE = {
-  borderColor: "var(--border)", backgroundColor: "var(--surface-1)", color: "var(--text-primary)",
-} as const;
 const FIELD_LABEL_CLS = "mb-1 block text-xs font-medium";
 
 function FieldEditForm({ field, isSaving, prefill, currentBaseId, currentBasePlural, onSave, onCancel }: FieldEditFormProps) {
@@ -590,7 +585,7 @@ function FieldEditForm({ field, isSaving, prefill, currentBaseId, currentBasePlu
           value={label}
           onChange={(e) => handleLabelChange(e.target.value)}
           placeholder="Ex : Montant"
-          className="w-full text-xs"
+          wrapperClassName="w-full" className="text-xs"
           autoFocus
           onKeyDown={(e) => { if (e.key === "Enter") handleSave(); if (e.key === "Escape") onCancel(); }}
         />
@@ -599,22 +594,14 @@ function FieldEditForm({ field, isSaving, prefill, currentBaseId, currentBasePlu
       {/* Kind */}
       <div>
         <label className="mb-1 block text-xs font-medium" style={{ color: "var(--text-secondary)" }}>Type</label>
-        <SelectRoot
+        <Select
           selectedKey={kind}
           onSelectionChange={(key) => { if (key != null) setKind(key as FieldKind); }}
           className="w-full text-xs"
-        >
-          <SelectTrigger className="w-full rounded border px-2 py-1.5 text-xs" style={{ borderColor: "var(--border)", backgroundColor: "var(--surface-1)", color: "var(--text-primary)" }}>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectPopover>
-            <ListBox>
-              {FIELD_KINDS.map((k) => (
-                <ListBoxItem key={k.kind} id={k.kind}>{k.label}</ListBoxItem>
-              ))}
-            </ListBox>
-          </SelectPopover>
-        </SelectRoot>
+          options={[
+          ...FIELD_KINDS.map((k) => ({ key: k.kind, label: k.label })),
+          ]}
+        />
       </div>
 
       {/* Options (select/multiselect/status) */}
@@ -633,7 +620,7 @@ function FieldEditForm({ field, isSaving, prefill, currentBaseId, currentBasePlu
                 <Input
                   value={opt.label}
                   onChange={(e) => setOptions(options.map((o, j) => j === i ? { ...o, label: e.target.value, value: makeSlug(e.target.value) || o.value } : o))}
-                  className="flex-1 text-xs"
+                  wrapperClassName="flex-1" className="text-xs"
                   placeholder="Libellé"
                 />
                 <Button
@@ -676,25 +663,15 @@ function FieldEditForm({ field, isSaving, prefill, currentBaseId, currentBasePlu
           <label className="sn-eyebrow sn-eyebrow--compact block">
             Base cible
           </label>
-          <SelectRoot
-            selectedKey={relTargetTypeId || null}
+          <Select
+            selectedKey={relTargetTypeId || undefined}
             onSelectionChange={(key) => setRelTargetTypeId(key ? String(key) : "")}
             className="w-full text-xs"
-          >
-            <SelectTrigger className="w-full rounded border px-2 py-1 text-xs" style={{ borderColor: "var(--border)", backgroundColor: "var(--surface-1)", color: "var(--text-primary)" }}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectPopover>
-              <ListBox>
-                {(allBases ?? []).filter((b) => b.id !== currentBaseId).map((b) => (
-                  <ListBoxItem key={b.id} id={b.id}>{b.plural || b.name}</ListBoxItem>
-                ))}
-                {(allBases ?? []).find((b) => b.id === currentBaseId) && (
-                  <ListBoxItem key={currentBaseId} id={currentBaseId}>{currentBasePlural} (auto-référence)</ListBoxItem>
-                )}
-              </ListBox>
-            </SelectPopover>
-          </SelectRoot>
+            options={[
+            ...(allBases ?? []).filter((b) => b.id !== currentBaseId).map((b) => ({ key: b.id, label: b.plural || b.name })),
+            ...((allBases ?? []).find((b) => b.id === currentBaseId) ? [{ key: currentBaseId, label: `${currentBasePlural} (auto-référence)` }] : []),
+            ]}
+          />
           <label className="sn-eyebrow sn-eyebrow--compact mt-1 block">
             Sélection
           </label>
@@ -738,21 +715,21 @@ function FieldEditForm({ field, isSaving, prefill, currentBaseId, currentBasePlu
           <div className="grid grid-cols-3 gap-2">
             <label className={FIELD_LABEL_CLS} style={{ color: "var(--text-secondary)" }}>
               Min
-              <Input value={minVal} onChange={(e) => setMinVal(e.target.value)} placeholder="—" inputMode="decimal" className="w-full text-xs" />
+              <Input value={minVal} onChange={(e) => setMinVal(e.target.value)} placeholder="—" inputMode="decimal" wrapperClassName="w-full" className="text-xs" />
             </label>
             <label className={FIELD_LABEL_CLS} style={{ color: "var(--text-secondary)" }}>
               Max
-              <Input value={maxVal} onChange={(e) => setMaxVal(e.target.value)} placeholder="—" inputMode="decimal" className="w-full text-xs" />
+              <Input value={maxVal} onChange={(e) => setMaxVal(e.target.value)} placeholder="—" inputMode="decimal" wrapperClassName="w-full" className="text-xs" />
             </label>
             <label className={FIELD_LABEL_CLS} style={{ color: "var(--text-secondary)" }}>
               Décimales
-              <Input value={precision} onChange={(e) => setPrecision(e.target.value)} placeholder="0" inputMode="numeric" className="w-full text-xs" />
+              <Input value={precision} onChange={(e) => setPrecision(e.target.value)} placeholder="0" inputMode="numeric" wrapperClassName="w-full" className="text-xs" />
             </label>
           </div>
           {kind === "currency" && (
             <label className={FIELD_LABEL_CLS} style={{ color: "var(--text-secondary)" }}>
               Devise (code ISO)
-              <Input value={currencyCode} onChange={(e) => setCurrencyCode(e.target.value)} placeholder="EUR" className="w-full text-xs" />
+              <Input value={currencyCode} onChange={(e) => setCurrencyCode(e.target.value)} placeholder="EUR" wrapperClassName="w-full" className="text-xs" />
             </label>
           )}
           {(kind === "progress" || kind === "rating") && (
@@ -767,22 +744,18 @@ function FieldEditForm({ field, isSaving, prefill, currentBaseId, currentBasePlu
       {(kind === "date" || kind === "datetime") && (
         <div>
           <label className={FIELD_LABEL_CLS} style={{ color: "var(--text-secondary)" }}>Format d'affichage</label>
-          <SelectRoot
+          <Select
             selectedKey={dateFormat || "__auto"}
             onSelectionChange={(k) => setDateFormat(k === "__auto" || k == null ? "" : String(k))}
             className="w-full text-xs"
-          >
-            <SelectTrigger className={SELECT_TRIGGER_CLS} style={SELECT_TRIGGER_STYLE}><SelectValue /></SelectTrigger>
-            <SelectPopover>
-              <ListBox>
-                <ListBoxItem id="__auto">Auto (locale)</ListBoxItem>
-                <ListBoxItem id="YYYY-MM-DD">2026-06-24</ListBoxItem>
-                <ListBoxItem id="DD/MM/YYYY">24/06/2026</ListBoxItem>
-                <ListBoxItem id="DD MMM YYYY">24 juin 2026</ListBoxItem>
-                {kind === "datetime" && <ListBoxItem id="DD/MM/YYYY HH:mm">24/06/2026 14:30</ListBoxItem>}
-              </ListBox>
-            </SelectPopover>
-          </SelectRoot>
+            options={[
+            { key: "__auto", label: "Auto (locale)" },
+            { key: "YYYY-MM-DD", label: "2026-06-24" },
+            { key: "DD/MM/YYYY", label: "24/06/2026" },
+            { key: "DD MMM YYYY", label: "24 juin 2026" },
+            ...(kind === "datetime" ? [{ key: "DD/MM/YYYY HH:mm", label: "24/06/2026 14:30" }] : []),
+            ]}
+          />
         </div>
       )}
 
@@ -798,60 +771,42 @@ function FieldEditForm({ field, isSaving, prefill, currentBaseId, currentBasePlu
               <label className="sn-eyebrow sn-eyebrow--compact block">
                 Via le champ relation
               </label>
-              <SelectRoot
-                selectedKey={relationFieldId || null}
+              <Select
+                selectedKey={relationFieldId || undefined}
                 onSelectionChange={(k) => { setRelationFieldId(k ? String(k) : ""); setTargetFieldId(""); }}
                 className="w-full text-xs"
-              >
-                <SelectTrigger className={SELECT_TRIGGER_CLS} style={SELECT_TRIGGER_STYLE}><SelectValue /></SelectTrigger>
-                <SelectPopover>
-                  <ListBox>
-                    {relationFields.map((rf) => (
-                      <ListBoxItem key={rf.id} id={rf.id}>{rf.label || rf.name}</ListBoxItem>
-                    ))}
-                  </ListBox>
-                </SelectPopover>
-              </SelectRoot>
+                options={[
+                ...relationFields.map((rf) => ({ key: rf.id, label: rf.label || rf.name })),
+                ]}
+              />
 
               <label className="sn-eyebrow sn-eyebrow--compact block">
                 {kind === "rollup" ? "Agréger le champ" : "Récupérer le champ"}
                 {targetBase ? ` de « ${targetBase.plural || targetBase.name} »` : ""}
               </label>
-              <SelectRoot
-                selectedKey={targetFieldId || null}
+              <Select
+                selectedKey={targetFieldId || undefined}
                 onSelectionChange={(k) => setTargetFieldId(k ? String(k) : "")}
                 isDisabled={!selectedRelation}
                 className="w-full text-xs"
-              >
-                <SelectTrigger className={SELECT_TRIGGER_CLS} style={SELECT_TRIGGER_STYLE}><SelectValue /></SelectTrigger>
-                <SelectPopover>
-                  <ListBox>
-                    {targetFields.map((tf) => (
-                      <ListBoxItem key={tf.id} id={tf.id}>{tf.label || tf.name}</ListBoxItem>
-                    ))}
-                  </ListBox>
-                </SelectPopover>
-              </SelectRoot>
+                options={[
+                ...targetFields.map((tf) => ({ key: tf.id, label: tf.label || tf.name })),
+                ]}
+              />
 
               {kind === "rollup" && (
                 <>
                   <label className="sn-eyebrow sn-eyebrow--compact block">
                     Agrégation
                   </label>
-                  <SelectRoot
+                  <Select
                     selectedKey={aggregation}
                     onSelectionChange={(k) => { if (k != null) setAggregation(k as RollupAgg); }}
                     className="w-full text-xs"
-                  >
-                    <SelectTrigger className={SELECT_TRIGGER_CLS} style={SELECT_TRIGGER_STYLE}><SelectValue /></SelectTrigger>
-                    <SelectPopover>
-                      <ListBox>
-                        {(Object.keys(AGG_LABELS) as RollupAgg[]).map((a) => (
-                          <ListBoxItem key={a} id={a}>{AGG_LABELS[a]}</ListBoxItem>
-                        ))}
-                      </ListBox>
-                    </SelectPopover>
-                  </SelectRoot>
+                    options={[
+                    ...(Object.keys(AGG_LABELS) as RollupAgg[]).map((a) => ({ key: a, label: AGG_LABELS[a] })),
+                    ]}
+                  />
                 </>
               )}
             </>
@@ -864,42 +819,32 @@ function FieldEditForm({ field, isSaving, prefill, currentBaseId, currentBasePlu
         <div>
           <label className={FIELD_LABEL_CLS} style={{ color: "var(--text-secondary)" }}>Valeur par défaut</label>
           {kind === "bool" ? (
-            <SelectRoot
+            <Select
               selectedKey={defaultValue || "false"}
               onSelectionChange={(k) => setDefaultValue(String(k))}
               className="w-full text-xs"
-            >
-              <SelectTrigger className={SELECT_TRIGGER_CLS} style={SELECT_TRIGGER_STYLE}><SelectValue /></SelectTrigger>
-              <SelectPopover>
-                <ListBox>
-                  <ListBoxItem id="false">Non coché</ListBoxItem>
-                  <ListBoxItem id="true">Coché</ListBoxItem>
-                </ListBox>
-              </SelectPopover>
-            </SelectRoot>
+              options={[
+              { key: "false", label: "Non coché" },
+              { key: "true", label: "Coché" },
+              ]}
+            />
           ) : kind === "select" || kind === "status" ? (
-            <SelectRoot
+            <Select
               selectedKey={defaultValue || "__none"}
               onSelectionChange={(k) => setDefaultValue(k === "__none" || k == null ? "" : String(k))}
               className="w-full text-xs"
-            >
-              <SelectTrigger className={SELECT_TRIGGER_CLS} style={SELECT_TRIGGER_STYLE}><SelectValue /></SelectTrigger>
-              <SelectPopover>
-                <ListBox>
-                  <ListBoxItem id="__none">Aucune</ListBoxItem>
-                  {options.map((o) => (
-                    <ListBoxItem key={o.value} id={o.value}>{o.label}</ListBoxItem>
-                  ))}
-                </ListBox>
-              </SelectPopover>
-            </SelectRoot>
+              options={[
+              { key: "__none", label: "Aucune" },
+              ...options.map((o) => ({ key: o.value, label: o.label })),
+              ]}
+            />
           ) : (
             <Input
               value={defaultValue}
               onChange={(e) => setDefaultValue(e.target.value)}
               placeholder={NUMBER_KINDS.has(kind) ? "Ex : 0" : kind === "date" || kind === "datetime" ? "YYYY-MM-DD" : "—"}
               inputMode={NUMBER_KINDS.has(kind) ? "decimal" : undefined}
-              className="w-full text-xs"
+              wrapperClassName="w-full" className="text-xs"
             />
           )}
         </div>
@@ -941,7 +886,6 @@ function FieldEditForm({ field, isSaving, prefill, currentBaseId, currentBasePlu
           onPress={handleSave}
           isPending={isSaving}
           className="flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium"
-          style={{ backgroundColor: "var(--btn-primary-bg)", color: "var(--btn-primary-fg)" }}
         >
           <Check size={10} /> {isSaving ? "…" : field ? "Mettre à jour" : "Créer"}
         </Button>
@@ -994,23 +938,17 @@ function FormulaEditor({ expression, onChangeExpression, outputKind, onChangeOut
       )}
       <div className="flex items-center gap-2">
         <label className="text-[11px]" style={{ color: "var(--text-secondary)" }}>Type de sortie</label>
-        <SelectRoot
+        <Select
           selectedKey={outputKind}
           onSelectionChange={(key) => { if (key != null) onChangeOutputKind(key as FormulaOutputKind); }}
           className="text-[11px]"
-        >
-          <SelectTrigger className="rounded border px-1.5 py-1 text-[11px]" style={{ borderColor: "var(--border)", backgroundColor: "var(--surface-1)", color: "var(--text-primary)" }}>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectPopover>
-            <ListBox>
-              <ListBoxItem id="text">Texte</ListBoxItem>
-              <ListBoxItem id="number">Nombre</ListBoxItem>
-              <ListBoxItem id="date">Date</ListBoxItem>
-              <ListBoxItem id="bool">Booléen</ListBoxItem>
-            </ListBox>
-          </SelectPopover>
-        </SelectRoot>
+          options={[
+          { key: "text", label: "Texte" },
+          { key: "number", label: "Nombre" },
+          { key: "date", label: "Date" },
+          { key: "bool", label: "Booléen" },
+          ]}
+        />
       </div>
       <details className="text-[10px]" style={{ color: "var(--text-muted)" }}>
         <summary className="cursor-pointer select-none">Aide & exemples</summary>

@@ -11,7 +11,7 @@
  */
 
 import { useEffect, useRef } from "react";
-import { Button, SelectRoot, SelectTrigger, SelectValue, SelectPopover, ListBox, ListBoxItem } from "@heroui/react";
+import { Button, Select } from "@supernote/ui";
 import { ArrowsDownUp, X, Plus, ArrowUp, ArrowDown, CaretUp, CaretDown } from "@phosphor-icons/react";
 import type { EntityType, SortClause } from "@supernote/core";
 import type { View } from "@supernote/ipc";
@@ -137,22 +137,14 @@ export function SortBuilder({ base, view, onClose }: SortBuilderProps) {
               </div>
 
               {/* Field */}
-              <SelectRoot
+              <Select
                 selectedKey={field.id}
                 onSelectionChange={(key) => { if (key != null) updateSort(index, { fieldId: String(key) }); }}
                 className="flex-1 text-xs"
-              >
-                <SelectTrigger className="w-full rounded border px-1.5 py-1 text-xs" style={{ borderColor: "var(--border-subtle)", color: "var(--text-primary)" }}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectPopover>
-                  <ListBox>
-                    {base.fields.map((f) => (
-                      <ListBoxItem key={f.id} id={f.id}>{labelForField(f)}</ListBoxItem>
-                    ))}
-                  </ListBox>
-                </SelectPopover>
-              </SelectRoot>
+                options={[
+                ...base.fields.map((f) => ({ key: f.id, label: labelForField(f) })),
+                ]}
+              />
 
               {/* Direction toggle */}
               <Button

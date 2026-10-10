@@ -12,9 +12,9 @@
  */
 
 import { useMemo, useState } from "react";
-import { Button, Popover } from "@heroui/react";
+import { Popover } from "@heroui/react";
 import { ArrowsLeftRight } from "@phosphor-icons/react";
-import { EmptyState, Tooltip } from "@supernote/ui";
+import { EmptyState, Tooltip, Button } from "@supernote/ui";
 import type { EntityType, SelectOption } from "@supernote/core";
 import type { View } from "@supernote/ipc";
 import {
@@ -184,9 +184,8 @@ function MoveToPicker({
     <Popover isOpen={open} onOpenChange={setOpen}>
       <Tooltip content="Déplacer vers…">
         <Button
-          isIconOnly
           variant="ghost"
-          size="sm"
+          size="icon"
           aria-label="Déplacer vers…"
           className="sn-reveal sn-hit h-6 w-6 min-w-0 rounded-md"
           style={{ color: "var(--text-muted)" }}

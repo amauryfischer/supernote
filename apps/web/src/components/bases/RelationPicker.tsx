@@ -9,7 +9,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { Button } from "@heroui/react";
+import { Button } from "@supernote/ui";
 import { Check, MagnifyingGlass, X } from "@phosphor-icons/react";
 import type { RelationField } from "@supernote/core";
 import { trpc } from "@/lib/trpc/client";
@@ -202,7 +202,6 @@ export function RelationPicker({ field, value, onCommit, onCancel }: RelationPic
             size="sm"
             onPress={commit}
             className="w-full rounded py-1 text-xs font-medium"
-            style={{ backgroundColor: "var(--btn-primary-bg)", color: "var(--btn-primary-fg)" }}
           >
             Confirmer ({selected.length} sélectionné{selected.length > 1 ? "s" : ""})
           </Button>

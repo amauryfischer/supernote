@@ -11,7 +11,6 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { Button, Input } from "@heroui/react";
 import {
   Funnel,
   ArrowsDownUp,
@@ -23,7 +22,7 @@ import {
   MagnifyingGlass,
   X,
 } from "@phosphor-icons/react";
-import { Tooltip } from "@supernote/ui";
+import { Tooltip, Button, Input } from "@supernote/ui";
 import type { EntityType } from "@supernote/core";
 import type { View } from "@supernote/ipc";
 import { FilterBuilder } from "./FilterBuilder";
@@ -221,15 +220,14 @@ export function BaseToolbar({
               }}
               placeholder="Rechercher…"
               aria-label="Rechercher dans la base"
-              className="w-full min-w-0 bg-transparent text-sm outline-none"
+              wrapperClassName="w-full min-w-0" className="bg-transparent text-sm outline-none"
               style={{ color: "var(--text-primary)" }}
             />
             {query ? (
               <Tooltip content="Effacer la recherche">
                 <Button
-                  isIconOnly
                   variant="ghost"
-                  size="sm"
+                  size="icon"
                   onPress={() => {
                     onSearchQueryChange?.("");
                     focusSearch();
@@ -261,7 +259,6 @@ export function BaseToolbar({
             variant="primary"
             onPress={onCreateEntry}
             className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium"
-            style={{ backgroundColor: "var(--btn-primary-bg)", color: "var(--btn-primary-fg)" }}
           >
             <Plus size={11} /> Nouvelle entrée
           </Button>

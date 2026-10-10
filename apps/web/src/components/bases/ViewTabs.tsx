@@ -9,7 +9,7 @@
  */
 
 import { useState } from "react";
-import { Button } from "@heroui/react";
+import { Button } from "@supernote/ui";
 import { Plus, DotsThree } from "@phosphor-icons/react";
 import type { View } from "@supernote/ipc";
 import { ViewKindIcon } from "./ViewKindIcon";
