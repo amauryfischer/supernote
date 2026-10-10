@@ -6,10 +6,6 @@ import {
   ShowInFolderInput,
   FetchPriceInput,
   FetchPriceOutput,
-  TranscribeAudioInput,
-  TranscribeAudioOutput,
-  OcrImageInput,
-  OcrImageOutput,
   FetchStockPriceInput,
   FetchCryptoPriceInput,
   FetchForexRateInput,
@@ -62,24 +58,6 @@ export const systemRouter = router({
     .output(FetchPriceOutput)
     .query(() => {
       throw notImplemented("system.fetchPrice");
-    }),
-
-  /** Transcribe an audio file via Whisper (nodejs-whisper). Copies the file
-   *  into _assets/audio/{ulid}.{ext} and returns markdown-ready segments. */
-  transcribeAudio: publicProcedure
-    .input(TranscribeAudioInput)
-    .output(TranscribeAudioOutput)
-    .mutation(() => {
-      throw notImplemented("system.transcribeAudio");
-    }),
-
-  /** Run OCR on an image file via Tesseract.js. Copies the file into
-   *  _assets/images/{ulid}.{ext} and returns extracted text + confidence. */
-  ocrImage: publicProcedure
-    .input(OcrImageInput)
-    .output(OcrImageOutput)
-    .mutation(() => {
-      throw notImplemented("system.ocrImage");
     }),
 
   /** Fetch live stock price via Yahoo Finance (10 s timeout). */

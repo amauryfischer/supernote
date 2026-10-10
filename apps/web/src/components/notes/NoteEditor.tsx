@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Button, Spinner } from "@heroui/react";
 import dynamic from "next/dynamic";
-import { CaretDown, CaretRight, Calendar, Tag, FloppyDisk, Microphone, Image, Sparkle, X, CheckCircle, WarningCircle, Presentation, FilePdf, Stop, CodeSimple, ShareNetwork } from "@phosphor-icons/react";
+import { CaretDown, CaretRight, Calendar, Tag, FloppyDisk, Microphone, Sparkle, X, CheckCircle, WarningCircle, Presentation, FilePdf, Stop, CodeSimple, ShareNetwork } from "@phosphor-icons/react";
 import Link from "next/link";
 import { Fragment } from "react";
 import { TagSelector } from "@/components/tags/TagSelector";
@@ -106,15 +106,6 @@ interface NoteEditorProps {
 }
 
 type SaveStatus = "idle" | "saving" | "saved" | "error";
-
-type DropStatus =
-  | "idle"
-  | "audio-over"
-  | "image-over"
-  | "transcribing"
-  | "ocr"
-  | "done"
-  | "error";
 
 /** Préférence globale : rangée métadonnées dépliée ou repliée (repliée par défaut). */
 const META_BAR_STORAGE_KEY = "supernote.notes.metaBarOpen";
@@ -238,19 +229,9 @@ const AUTO_TITLE_MIN_CHARS = 30;
 const AUTO_TAG_DEBOUNCE_MS = 5000;
 const AUTO_TAG_MIN_CHARS = 30;
 
-const AUDIO_EXTENSIONS = new Set(["mp3", "wav", "m4a", "webm", "ogg", "flac"]);
-const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "bmp", "webp", "tiff"]);
-
-function fileExt(name: string): string {
-  return name.split(".").pop()?.toLowerCase() ?? "";
-}
-
-function isAudio(name: string): boolean {
-  return AUDIO_EXTENSIONS.has(fileExt(name));
-}
-
-function isImage(name: string): boolean {
-  return IMAGE_EXTENSIONS.has(fileExt(name));
+// BlockNote gère le dépôt dans la zone éditable ; ailleurs, le navigateur ouvrirait le fichier.
+function preventFileOpen(e: React.DragEvent<HTMLDivElement>) {
+  e.preventDefault();
 }
 
 function readShare(fields: Record<string, unknown> | undefined): { id: string; key: string } | null {
@@ -365,7 +346,6 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
   // remount pour refléter le fix immédiatement, avant le round-trip de save.
   const [pendingBody, setPendingBody] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
-  const [dropStatus, setDropStatus] = useState<DropStatus>("idle");
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [titleAiBadge, setTitleAiBadge] = useState(false);
   const [tagsAiBadge, setTagsAiBadge] = useState(false);
@@ -1061,9 +1041,6 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
     requestAnimationFrame(tryRestore);
   }, []);
   // ────────────────────────────────────────────────────────────────────────────
-
-  const transcribeAudio = trpc.system.transcribeAudio.useMutation();
-  const ocrImage = trpc.system.ocrImage.useMutation();
 
   // tRPC utils for entity resolvers (imperatively fetched, not subscribed)
   const utils = trpc.useUtils();
@@ -1816,98 +1793,12 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
     }
   }, [insertMarkdown]);
 
-  const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    const files = Array.from(e.dataTransfer.items);
-    const hasAudio = files.some((f) => f.kind === "file" && isAudio(f.type || "x.mp3"));
-    const hasImage = files.some((f) => f.kind === "file" && f.type.startsWith("image/"));
-    if (hasAudio) setDropStatus("audio-over");
-    else if (hasImage) setDropStatus("image-over");
-    else setDropStatus("idle");
-  }, []);
-
-  const handleDragLeave = useCallback(() => {
-    setDropStatus("idle");
-  }, []);
-
-  const handleDrop = useCallback(
-    async (e: React.DragEvent<HTMLDivElement>) => {
-      e.preventDefault();
-      setDropStatus("idle");
-
-      const files = Array.from(e.dataTransfer.files);
-      if (files.length === 0) return;
-
-      for (const file of files) {
-        const name = file.name;
-        if (isAudio(name)) {
-          // Write temp file path via Electron's file object
-          const filePath = (file as File & { path?: string }).path;
-          if (!filePath) {
-            showToast("Chemin introuvable — lancez depuis Electron");
-            continue;
-          }
-          setDropStatus("transcribing");
-          showToast("Transcription en cours...", 60000);
-          try {
-            const result = await transcribeAudio.mutateAsync({ filePath, language: "fr" });
-            const md = buildAudioMarkdown(result.assetPath, result.text, result.segments);
-            insertMarkdown(md);
-            setDropStatus("done");
-            showToast("Transcription terminee");
-          } catch (err) {
-            setDropStatus("error");
-            showToast(`Erreur transcription: ${err instanceof Error ? err.message : String(err)}`);
-          }
-        } else if (isImage(name)) {
-          // Hors Electron, pas de chemin natif à OCR-iser : BlockNote a déjà
-          // inséré l'image via l'adaptateur fichiers, on ne double pas.
-          const filePath = (file as File & { path?: string }).path;
-          if (!filePath) continue;
-          setDropStatus("ocr");
-          showToast("OCR en cours...", 60000);
-          try {
-            const result = await ocrImage.mutateAsync({ filePath });
-            const md = buildImageMarkdown(result.assetPath, result.text);
-            insertMarkdown(md);
-            setDropStatus("done");
-            showToast("OCR termine");
-          } catch (err) {
-            setDropStatus("error");
-            showToast(`Erreur OCR: ${err instanceof Error ? err.message : String(err)}`);
-          }
-        }
-      }
-    },
-    [insertMarkdown, ocrImage, transcribeAudio],
-  );
-
-  const isDropping = dropStatus === "audio-over" || dropStatus === "image-over";
-
   return (
     <div
       className={`flex h-full flex-col overflow-hidden ${ambianceClass(ambiance, typo)}`}
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
+      onDragOver={preventFileOpen}
+      onDrop={preventFileOpen}
     >
-      {/* Drop overlay */}
-      {isDropping && (
-        <div
-          className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-2"
-          style={{ backgroundColor: "var(--accent-subtle)", border: "2px dashed var(--accent)" }}
-        >
-          {dropStatus === "audio-over" ? (
-            <Microphone size={32} style={{ color: "var(--accent)" }} />
-          ) : (
-            <Image size={32} style={{ color: "var(--accent)" }} />
-          )}
-          <p className="text-sm font-medium" style={{ color: "var(--accent)" }}>
-            {dropStatus === "audio-over" ? "Deposez pour transcrire" : "Deposez pour OCR"}
-          </p>
-        </div>
-      )}
-
       {/* Toast */}
       {(toastMsg || aiLoading) && (
         <div
@@ -2216,7 +2107,6 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
               </Button>
             </Tooltip>
           )}
-          <DropHint status={dropStatus} />
           <SaveIndicator status={saveStatus} />
               </div>
             </div>
@@ -2442,49 +2332,6 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
   );
 }
 
-// ── Markdown builders ─────────────────────────────────────────────────────────
-
-interface Segment {
-  start: number;
-  end: number;
-  text: string;
-}
-
-function buildAudioMarkdown(assetPath: string, text: string, segments: Segment[]): string {
-  const relPath = assetPath.replace(/.*_assets\//, "_assets/");
-  const lines = [
-    `> **Audio transcrit** — [ecouter](${relPath})`,
-    "",
-    text.trim(),
-  ];
-  if (segments.length > 0) {
-    lines.push("", "<details><summary>Segments</summary>", "");
-    for (const seg of segments) {
-      const t = `${fmtSeconds(seg.start)} → ${fmtSeconds(seg.end)}`;
-      lines.push(`- **${t}**: ${seg.text.trim()}`);
-    }
-    lines.push("", "</details>");
-  }
-  return lines.join("\n");
-}
-
-function buildImageMarkdown(assetPath: string, ocrText: string): string {
-  const relPath = assetPath.replace(/.*_assets\//, "_assets/");
-  return [
-    `![Image](${relPath})`,
-    "",
-    ocrText.trim() ? `*OCR:* ${ocrText.trim()}` : "",
-  ]
-    .filter((l) => l !== "")
-    .join("\n");
-}
-
-function fmtSeconds(s: number): string {
-  const m = Math.floor(s / 60);
-  const sec = Math.floor(s % 60);
-  return `${m}:${String(sec).padStart(2, "0")}`;
-}
-
 // ── Sub-components ────────────────────────────────────────────────────────────
 
 interface SaveIndicatorProps {
@@ -2517,24 +2364,6 @@ function SaveIndicator({ status }: SaveIndicatorProps) {
       <span className="text-[10px]">{label}</span>
     </div>
   );
-}
-
-function DropHint({ status }: { status: DropStatus }) {
-  if (status === "transcribing") {
-    return (
-      <span className="flex items-center gap-1 text-[10px]" style={{ color: "var(--accent)" }}>
-        <Microphone size={11} /> Transcription...
-      </span>
-    );
-  }
-  if (status === "ocr") {
-    return (
-      <span className="flex items-center gap-1 text-[10px]" style={{ color: "var(--accent)" }}>
-        <Image size={11} /> OCR...
-      </span>
-    );
-  }
-  return null;
 }
 
 function EditorSkeleton() {

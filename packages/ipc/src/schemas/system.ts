@@ -50,43 +50,6 @@ export const FetchPriceOutput = z.object({
 });
 export type FetchPriceOutput = z.infer<typeof FetchPriceOutput>;
 
-// ── transcribeAudio ───────────────────────────────────────────────────────────
-
-export const TranscribeAudioInput = z.object({
-  filePath: z.string().min(1),
-  language: z.enum(["fr", "en", "auto"]).optional().default("fr"),
-});
-export type TranscribeAudioInput = z.infer<typeof TranscribeAudioInput>;
-
-export const TranscriptionSegmentSchema = z.object({
-  start: z.number(),
-  end: z.number(),
-  text: z.string(),
-});
-
-export const TranscribeAudioOutput = z.object({
-  text: z.string(),
-  language: z.string(),
-  segments: z.array(TranscriptionSegmentSchema),
-  duration: z.number(),
-  assetPath: z.string(),
-});
-export type TranscribeAudioOutput = z.infer<typeof TranscribeAudioOutput>;
-
-// ── ocrImage ─────────────────────────────────────────────────────────────────
-
-export const OcrImageInput = z.object({
-  filePath: z.string().min(1),
-});
-export type OcrImageInput = z.infer<typeof OcrImageInput>;
-
-export const OcrImageOutput = z.object({
-  text: z.string(),
-  confidence: z.number(),
-  assetPath: z.string(),
-});
-export type OcrImageOutput = z.infer<typeof OcrImageOutput>;
-
 // ── fetchStockPrice ───────────────────────────────────────────────────────────
 
 export const FetchStockPriceInput = z.object({
