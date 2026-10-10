@@ -12,8 +12,7 @@ import {
   type Table,
 } from "@tanstack/react-table";
 import { ArrowsDownUp, CaretUp, CaretDown, X } from "@phosphor-icons/react";
-import { Button, Card, Input, Select, ListBox, ListBoxItem } from "@heroui/react";
-import { Checkbox } from "@supernote/ui";
+import { Checkbox, Button, Card, Input, Select } from "@supernote/ui";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import type { FieldValue } from "@supernote/ipc";
@@ -252,6 +251,8 @@ const RELATION_LABELS: Record<RelationType, string> = {
   partenaire: "Partenaire",
 };
 
+const RELATION_OPTIONS = ALL_RELATION_TYPES.map((rt) => ({ key: rt, label: RELATION_LABELS[rt] }));
+
 function RelationCell({
   contact,
   meta,
@@ -266,28 +267,15 @@ function RelationCell({
     <Select
       selectedKey={type}
       onSelectionChange={(key) => {
-        const next = String(key) as RelationType;
+        const next = key as RelationType;
         if (next !== type) meta.onUpdate?.(contact.id, { relationType: next });
       }}
       aria-label="Type de relation"
-    >
-      <Select.Trigger
-        className="flex items-center gap-1 rounded-full outline-none transition-opacity hover:opacity-80"
-        aria-label={`Relation : ${RELATION_LABELS[type]}`}
-      >
-        <RelationChip type={type} />
-        <CaretDown size={10} style={{ color: "var(--text-muted)" }} />
-      </Select.Trigger>
-      <Select.Popover>
-        <ListBox>
-          {ALL_RELATION_TYPES.map((rt) => (
-            <ListBoxItem key={rt} textValue={RELATION_LABELS[rt]}>
-              <RelationChip type={rt} />
-            </ListBoxItem>
-          ))}
-        </ListBox>
-      </Select.Popover>
-    </Select>
+      options={RELATION_OPTIONS}
+      className="w-fit"
+      triggerClassName="w-auto gap-1 rounded-full border-0 bg-transparent p-0 hover:bg-transparent hover:opacity-80"
+      renderValue={(o) => <RelationChip type={o.key as RelationType} />}
+    />
   );
 }
 
@@ -343,7 +331,7 @@ function TagChip({ tag, onRemove }: { tag: string; onRemove?: () => void }) {
           type="button"
           isIconOnly
           variant="ghost"
-          size="sm"
+          size="icon"
           onPress={onRemove}
           className="relative h-auto min-h-0 min-w-0 p-0 transition-opacity after:absolute after:-inset-2 after:content-[''] hover:opacity-70"
           aria-label={`Retirer ${tag}`}

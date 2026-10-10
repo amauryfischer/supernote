@@ -30,7 +30,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Button, Input } from "@heroui/react";
+import { Button, Input } from "@supernote/ui";
 import {
   Buildings,
   CaretDown,
@@ -146,7 +146,7 @@ export function OrganisationSelector({
             type="button"
             isIconOnly
             variant="ghost"
-            size="sm"
+            size="icon"
             onPress={clear}
             className="relative h-4 w-4 min-h-0 min-w-0 rounded p-0 after:absolute after:-inset-2 after:content-['']"
             aria-label="Retirer l'organisation"

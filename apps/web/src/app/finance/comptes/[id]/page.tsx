@@ -10,12 +10,11 @@
  */
 
 import { ArrowLeft } from "@phosphor-icons/react";
-import { Input } from "@heroui/react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
 import { AppShell } from "@/components/shell";
-import { Skeleton } from "@supernote/ui";
+import { Skeleton, Input } from "@supernote/ui";
 import { trpc } from "@/lib/trpc/client";
 import { parseDecimal } from "@/components/finance/utils";
 
@@ -133,7 +132,7 @@ function AccountForm({ initialFields, onPersist, isSaving, saveError }: AccountF
         onChange={(e) => setName(e.target.value)}
         onBlur={() => onPersist({ name })}
         placeholder="Nom du compte"
-        className="mb-2 w-full bg-transparent text-2xl font-semibold outline-none"
+        className="mb-2 bg-transparent text-2xl font-semibold outline-none" wrapperClassName="w-full"
         style={{ color: "var(--text-primary)" }}
       />
 

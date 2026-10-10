@@ -14,7 +14,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { Button } from "@heroui/react";
+import { Button } from "@supernote/ui";
 import { CaretDown, CaretRight, CheckSquare } from "@phosphor-icons/react";
 import { extractChecklists } from "@/lib/todos/extractChecklists";
 import { filterChecklistsHeuristic } from "@/lib/todos/heuristicFilter";

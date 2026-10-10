@@ -12,7 +12,7 @@
  */
 
 import { AppShell, useMobileTitle } from "@/components/shell";
-import { Button, Input } from "@heroui/react";
+import { Button, Input } from "@supernote/ui";
 import { Pause, Play, Stop, Timer } from "@phosphor-icons/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 

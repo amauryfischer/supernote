@@ -14,7 +14,7 @@ import { ArrowLeft, LinkedinLogo, TwitterLogo, GithubLogo, Plus, X, UploadSimple
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useRef, useEffect } from "react";
-import { Button, Input, TextArea } from "@heroui/react";
+import { Button, Input, Textarea } from "@supernote/ui";
 import { trpc } from "@/lib/trpc/client";
 import { TagSelector } from "@/components/tags/TagSelector";
 
@@ -42,7 +42,7 @@ function TextInput({ value, onChange, placeholder, type = "text" }: {
       value={value}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
-      className="w-full rounded-md border px-3 py-2 text-sm outline-none transition-colors focus:border-[var(--accent)]"
+      className="rounded-md border px-3 py-2 text-sm outline-none transition-colors focus:border-[var(--accent)]" wrapperClassName="w-full"
       style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-1)", color: "var(--text-primary)" }}
     />
   );
@@ -282,7 +282,7 @@ export default function NouveauContactPage() {
                       type="button"
                       isIconOnly
                       variant="outline"
-                      size="sm"
+                      size="icon"
                       onPress={() => removeEmail(i)}
                       aria-label="Supprimer cet email"
                       className="h-9 w-9 shrink-0"
@@ -335,7 +335,7 @@ export default function NouveauContactPage() {
                       type="button"
                       isIconOnly
                       variant="outline"
-                      size="sm"
+                      size="icon"
                       onPress={() => removePhone(i)}
                       aria-label="Supprimer ce téléphone"
                       className="h-9 w-9 shrink-0"
@@ -367,7 +367,7 @@ export default function NouveauContactPage() {
               type="date"
               value={birthday}
               onChange={(e) => setBirthday(e.target.value)}
-              className="w-48 rounded-md border px-3 py-2 text-sm outline-none transition-colors focus:border-[var(--accent)]"
+              className="rounded-md border px-3 py-2 text-sm outline-none transition-colors focus:border-[var(--accent)]" wrapperClassName="w-48"
               style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-1)", color: "var(--text-primary)" }}
             />
           </div>
@@ -412,7 +412,7 @@ export default function NouveauContactPage() {
                     type="button"
                     isIconOnly
                     variant="ghost"
-                    size="sm"
+                    size="icon"
                     onPress={() => removeTag(tag)}
                     aria-label={`Supprimer ${tag}`}
                     className="h-4 w-4 min-w-0 p-0"
@@ -428,12 +428,12 @@ export default function NouveauContactPage() {
           {/* Notes */}
           <div>
             <FieldLabel>Notes</FieldLabel>
-            <TextArea
+            <Textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               rows={6}
               placeholder="Notes libres en Markdown…"
-              className="w-full resize-none rounded-md border px-3 py-2 text-sm outline-none transition-colors focus:border-[var(--accent)]"
+              className="resize-none rounded-md border px-3 py-2 text-sm outline-none transition-colors focus:border-[var(--accent)]" wrapperClassName="w-full"
               style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-1)", color: "var(--text-primary)" }}
             />
           </div>
@@ -460,8 +460,8 @@ export default function NouveauContactPage() {
               type="submit"
               isDisabled={createMutation.isPending}
               size="sm"
+              variant="primary"
               className="px-5 text-sm font-medium"
-              style={{ backgroundColor: "var(--btn-primary-bg)", color: "var(--btn-primary-fg)" }}
             >
               {createMutation.isPending ? "Création…" : "Créer"}
             </Button>

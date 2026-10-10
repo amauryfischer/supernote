@@ -8,9 +8,8 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { Button, ListBox, ListBoxItem, Select } from "@heroui/react";
 import { CaretDown } from "@phosphor-icons/react";
-import { Input, Modal, Tabs } from "@supernote/ui";
+import { Input, Modal, Tabs, Button, Select } from "@supernote/ui";
 import { COLOR_PRESETS } from "@/components/shell";
 import { useOnlineSync } from "@/lib/online-sync/OnlineSyncProvider";
 import {
@@ -342,7 +341,6 @@ export function HabitModal({ open, initial, isMobile, onSave, onCancel }: HabitM
   );
 }
 
-// Le Select de @supernote/ui affiche son placeholder à la place de la valeur choisie : on branche HeroUI directement.
 function SelectField({
   label,
   value,
@@ -361,23 +359,10 @@ function SelectField({
       <span className={LABEL_CLASS}>{label}</span>
       <Select
         selectedKey={String(value)}
-        onSelectionChange={(k) => k != null && onChange(Number(k))}
+        onSelectionChange={(k) => onChange(Number(k))}
         aria-label={label}
-      >
-        <Select.Trigger className="flex min-h-9 w-full items-center justify-between rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface-1)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none">
-          <Select.Value />
-          <CaretDown size={12} aria-hidden />
-        </Select.Trigger>
-        <Select.Popover>
-          <ListBox>
-            {options.map((o) => (
-              <ListBoxItem key={o.key} id={o.key}>
-                {o.label}
-              </ListBoxItem>
-            ))}
-          </ListBox>
-        </Select.Popover>
-      </Select>
+        options={options}
+      />
     </div>
   );
 }

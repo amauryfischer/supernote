@@ -8,8 +8,7 @@
  */
 
 import { memo, useMemo, useState } from "react";
-import { Button } from "@heroui/react";
-import { DropdownMenu, Tooltip } from "@supernote/ui";
+import { DropdownMenu, Tooltip, Button } from "@supernote/ui";
 import {
   Archive,
   Bell,
@@ -157,7 +156,7 @@ export const HabitCard = memo(function HabitCard({
             <Tooltip content="Actions">
               <Button
                 variant="ghost"
-                size="sm"
+                size="icon"
                 isIconOnly
                 aria-label={`Actions pour ${habit.name}`}
                 className="h-9 w-9 shrink-0 md:h-8 md:w-8"

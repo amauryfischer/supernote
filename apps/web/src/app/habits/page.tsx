@@ -21,14 +21,13 @@
  * carte ; avec `&done=1` (bouton « Fait ») il coche le jour, une seule fois.
  */
 
-import { Button } from "@heroui/react";
 import {
   AppShell,
   useMobileFab,
   useMobileTitle,
 } from "@/components/shell";
 import { useIsMobile } from "@/hooks/useIsMobile";
-import { Badge, useToast } from "@supernote/ui";
+import { Badge, useToast, Button } from "@supernote/ui";
 import { GridNine, Plus, Sparkle } from "@phosphor-icons/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useConfirm } from "@/lib/confirm";

@@ -20,7 +20,8 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Button, Spinner } from "@heroui/react";
+import { Spinner } from "@heroui/react";
+import { Button } from "@supernote/ui";
 import {
   ArrowDownLeft,
   ArrowUpRight,
@@ -268,7 +269,7 @@ function TimelineHeader({ state, onRefresh }: { state: LoadState; onRefresh: () 
       <Button
         isIconOnly
         variant="ghost"
-        size="sm"
+        size="icon"
         onPress={onRefresh}
         isDisabled={state.status === "loading"}
         aria-label="Rafraîchir"

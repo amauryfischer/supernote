@@ -1,6 +1,6 @@
 "use client";
 
-import { Button } from "@heroui/react";
+import { Button } from "@supernote/ui";
 import { Archive, Envelope, Tag, Trash, X } from "@phosphor-icons/react";
 
 interface BulkActionBarProps {
@@ -67,7 +67,7 @@ export function BulkActionBar({ selectedCount, onClear, onEmail, onArchive, arch
       <Button
         isIconOnly
         variant="ghost"
-        size="sm"
+        size="icon"
         onPress={onClear}
         className="h-7 w-7 rounded-md"
         style={{ color: "var(--text-muted)" }}

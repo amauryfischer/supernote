@@ -10,12 +10,11 @@
  */
 
 import { ArrowLeft, ArrowsClockwise } from "@phosphor-icons/react";
-import { Input } from "@heroui/react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
 import { AppShell } from "@/components/shell";
-import { Skeleton } from "@supernote/ui";
+import { Skeleton, Input } from "@supernote/ui";
 import { trpc } from "@/lib/trpc/client";
 import { parseDecimal, formatCurrency } from "@/components/finance/utils";
 import { fetchAssetPrice } from "@/lib/finance/price-fetch";
@@ -158,7 +157,7 @@ function AssetForm({ initialFields, onPersist, isSaving, saveError }: AssetFormP
         onChange={(e) => setName(e.target.value)}
         onBlur={() => onPersist({ name })}
         placeholder="Nom de l'actif"
-        className="mb-2 w-full bg-transparent text-2xl font-semibold outline-none"
+        className="mb-2 bg-transparent text-2xl font-semibold outline-none" wrapperClassName="w-full"
         style={{ color: "var(--text-primary)" }}
       />
 

@@ -43,6 +43,10 @@ export interface SelectProps {
   isInvalid?: boolean;
   /** Disabled state. */
   isDisabled?: boolean;
+  /** Rendu de la valeur sélectionnée dans le trigger (défaut : contenu de l'item). */
+  renderValue?: (option: SelectOption) => React.ReactNode;
+  /** Classes ajoutées au trigger (après les classes de base). */
+  triggerClassName?: string;
   /** Additional class. */
   className?: string;
 }
@@ -62,6 +66,8 @@ export function Select({
   isInvalid,
   isDisabled,
   className,
+  renderValue,
+  triggerClassName,
 }: SelectProps) {
   return (
     <div className={cn("flex flex-col gap-1", className)}>
@@ -82,11 +88,16 @@ export function Select({
         <SelectTrigger
           className={cn(
             "flex w-full items-center justify-between rounded-[var(--radius-md)] border border-[var(--border)] bg-[var(--surface-1)] px-3 py-2 text-sm text-[var(--text-primary)] transition-colors hover:bg-[var(--surface-2)] focus:border-[var(--border-focus)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-subtle)] disabled:cursor-not-allowed disabled:opacity-50",
-            isInvalid && "border-[var(--color-danger)]"
+            isInvalid && "border-[var(--color-danger)]",
+            triggerClassName
           )}
         >
           <SelectValue className="flex-1 text-left text-[var(--text-primary)] data-[placeholder]:text-[var(--text-muted)]">
-            {({ isPlaceholder, defaultChildren }) => (isPlaceholder ? placeholder : defaultChildren)}
+            {({ isPlaceholder, defaultChildren }) => {
+              if (isPlaceholder) return placeholder;
+              const sel = renderValue ? options.find((o) => o.key === selectedKey) : undefined;
+              return sel && renderValue ? renderValue(sel) : defaultChildren;
+            }}
           </SelectValue>
           <SelectIndicator className="ml-2 h-4 w-4 shrink-0 text-[var(--text-muted)]" />
         </SelectTrigger>

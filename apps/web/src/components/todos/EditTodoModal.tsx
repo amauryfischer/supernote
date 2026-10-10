@@ -13,8 +13,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { CalendarPlus } from "@phosphor-icons/react";
-import { Switch, Checkbox } from "@supernote/ui";
-import { Button, Input } from "@heroui/react";
+import { Switch, Checkbox, Button, Input } from "@supernote/ui";
 import type { TodoImportance } from "./TodoRow";
 import { importanceColor } from "./TodoRow";
 
@@ -182,7 +181,7 @@ export function EditTodoModal({
                 submit();
               }
             }}
-            className="w-full text-sm"
+            className="text-sm" wrapperClassName="w-full"
             aria-label="Texte de la tâche"
           />
           {readonlyText && (
@@ -209,7 +208,7 @@ export function EditTodoModal({
               max={9}
               value={String(priority)}
               onChange={(e) => setPriority(Number(e.target.value) || 5)}
-              className="w-full text-sm"
+              className="text-sm" wrapperClassName="w-full"
               aria-label="Priorité"
             />
           </div>
@@ -230,7 +229,7 @@ export function EditTodoModal({
               type="date"
               value={startDate}
               onChange={(e) => setStartDate(e.target.value)}
-              className="w-full text-sm"
+              className="text-sm" wrapperClassName="w-full"
               aria-label="Date de début"
             />
           </div>
@@ -246,7 +245,7 @@ export function EditTodoModal({
               type="date"
               value={dueDate}
               onChange={(e) => setDueDate(e.target.value)}
-              className="w-full text-sm"
+              className="text-sm" wrapperClassName="w-full"
               aria-label="Date d'échéance"
             />
           </div>
@@ -317,7 +316,7 @@ export function EditTodoModal({
             type="datetime-local"
             value={reminderAt}
             onChange={(e) => setReminderAt(e.target.value)}
-            className="mb-2 w-full text-sm"
+            className="mb-2 text-sm" wrapperClassName="w-full"
             aria-label="Date et heure du rappel"
           />
           <Input
@@ -325,7 +324,7 @@ export function EditTodoModal({
             value={reminderText}
             onChange={(e) => setReminderText(e.target.value)}
             placeholder={`Message (défaut : "Rappel : ${text || "…"}")`}
-            className="w-full text-sm"
+            className="text-sm" wrapperClassName="w-full"
             aria-label="Message du rappel"
             disabled={!reminderAt}
           />
