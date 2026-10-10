@@ -13,6 +13,8 @@ export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> 
   errorMessage?: string;
   /** Visual error state. */
   isInvalid?: boolean;
+  /** Classes de l'enveloppe (flex-1, w-*…) ; `className` reste sur l'`<input>`. */
+  wrapperClassName?: string;
 }
 
 /**
@@ -21,10 +23,10 @@ export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> 
  */
 export const Input = React.forwardRef<HTMLInputElement, InputProps>(
   (
-    { className, startContent, endContent, errorMessage, isInvalid, ...props },
+    { className, wrapperClassName, startContent, endContent, errorMessage, isInvalid, ...props },
     ref
   ) => (
-    <div className="flex flex-col gap-1">
+    <div className={cn("flex flex-col gap-1", wrapperClassName)}>
       <div className="relative flex items-center">
         {startContent && (
           <span className="pointer-events-none absolute left-3 text-[var(--text-muted)]">
@@ -63,14 +65,16 @@ export interface TextareaProps
   errorMessage?: string;
   /** Visual error state. */
   isInvalid?: boolean;
+  /** Classes de l'enveloppe (flex-1, w-*…) ; `className` reste sur le `<textarea>`. */
+  wrapperClassName?: string;
 }
 
 /**
  * Textarea — multi-line text field.
  */
 export const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(
-  ({ className, errorMessage, isInvalid, ...props }, ref) => (
-    <div className="flex flex-col gap-1">
+  ({ className, wrapperClassName, errorMessage, isInvalid, ...props }, ref) => (
+    <div className={cn("flex flex-col gap-1", wrapperClassName)}>
       <textarea
         ref={ref}
         aria-invalid={isInvalid}
