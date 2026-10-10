@@ -9,7 +9,8 @@
  */
 
 import { useEffect, useState } from "react";
-import { Button, Popover, Input } from "@heroui/react";
+import { Popover } from "@heroui/react";
+import { Button, Input } from "@supernote/ui";
 import { BellRinging } from "@phosphor-icons/react";
 import {
   addFollowup,

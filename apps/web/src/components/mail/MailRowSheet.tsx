@@ -8,7 +8,7 @@
  * font 44 px de haut (pouce), et les actions destructives sont isolées en bas.
  */
 
-import { Button } from "@heroui/react";
+import { Button } from "@supernote/ui";
 import { MobileSheet } from "@/components/shell";
 import {
   CheckCircle,

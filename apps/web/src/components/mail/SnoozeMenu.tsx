@@ -11,8 +11,7 @@
 
 import { useState } from "react";
 import { Command } from "cmdk";
-import { Button, Input } from "@heroui/react";
-import { ModalRoot, ModalBackdrop, ModalContainer, ModalDialog } from "@supernote/ui";
+import { ModalRoot, ModalBackdrop, ModalContainer, ModalDialog, Button, Input } from "@supernote/ui";
 import { Clock, Lightning } from "@phosphor-icons/react";
 import { SNOOZE_PRESETS_FULL, parseSnoozeInput, type SnoozePreset } from "@/lib/mail-triage";
 

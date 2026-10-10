@@ -8,9 +8,9 @@
  */
 
 import { useEffect, useState } from "react";
-import { Button, Popover } from "@heroui/react";
+import { Popover } from "@heroui/react";
 import { ArrowUUpLeft, Clock } from "@phosphor-icons/react";
-import { Tooltip } from "@supernote/ui";
+import { Tooltip, Button } from "@supernote/ui";
 import { modifyThreadLabels } from "@/lib/gmail";
 import { INBOX_LABEL, loadSnoozed, removeSnooze, MAIL_SNOOZE_EVENT, type SnoozeEntry } from "@/lib/mail-triage";
 import { useActionFeedback, FeedbackIcon } from "@/lib/action-feedback";
@@ -90,9 +90,8 @@ export function MailSnoozedBadge({
                   }
                 >
                   <Button
-                    size="sm"
+                    size="icon"
                     variant="ghost"
-                    isIconOnly
                     aria-label="Remettre dans la boîte maintenant"
                     className="h-8 min-h-8 w-8 min-w-8 shrink-0"
                     isDisabled={waking === e.threadId && fb.isPending}

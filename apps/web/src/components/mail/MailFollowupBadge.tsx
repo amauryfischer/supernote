@@ -8,9 +8,9 @@
  */
 
 import { useEffect, useState } from "react";
-import { Button, Popover } from "@heroui/react";
+import { Popover } from "@heroui/react";
 import { BellRinging, X } from "@phosphor-icons/react";
-import { Tooltip } from "@supernote/ui";
+import { Tooltip, Button } from "@supernote/ui";
 import {
   loadFollowups,
   pendingFollowups,
@@ -69,9 +69,8 @@ export function MailFollowupBadge({ onOpenThread }: { onOpenThread?: (id: string
                 </button>
                 <Tooltip content="Retirer le rappel">
                   <Button
-                    size="sm"
+                    size="icon"
                     variant="ghost"
-                    isIconOnly
                     aria-label="Retirer le rappel"
                     className="h-8 min-h-8 w-8 min-w-8"
                     onPress={() => removeFollowup(e.threadId)}

@@ -22,9 +22,8 @@
  */
 
 import { useCallback, useState, type ReactNode } from "react";
-import { Button } from "@heroui/react";
 import { CheckCircle, Clock, Trash } from "@phosphor-icons/react";
-import { Tooltip } from "@supernote/ui";
+import { Tooltip, Button } from "@supernote/ui";
 import {
   addSnooze,
   applyTriage,
@@ -102,8 +101,7 @@ export function TriageBar({ clientId, threadId, onTriaged, onTriage }: TriageBar
       <Tooltip content={tip("archive", "Fait (e)")}>
         <Button
           variant="ghost"
-          size="sm"
-          isIconOnly
+          size="icon"
           onPress={() => handleSimple("archive")}
           isDisabled={busy}
           className="h-9"
@@ -116,8 +114,7 @@ export function TriageBar({ clientId, threadId, onTriaged, onTriage }: TriageBar
       <Tooltip content={tip("snooze", "Reporter (h)")}>
         <Button
           variant="ghost"
-          size="sm"
-          isIconOnly
+          size="icon"
           onPress={() => setSnoozeOpen(true)}
           isDisabled={busy}
           className="h-9"
@@ -129,8 +126,7 @@ export function TriageBar({ clientId, threadId, onTriaged, onTriage }: TriageBar
       <Tooltip content={tip("delete", `Supprimer (${shortcutKey("delete")})`)}>
         <Button
           variant="ghost"
-          size="sm"
-          isIconOnly
+          size="icon"
           onPress={() => handleSimple("delete")}
           isDisabled={busy}
           className="h-9"

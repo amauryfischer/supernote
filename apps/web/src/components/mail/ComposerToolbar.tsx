@@ -10,8 +10,7 @@
  */
 
 import type { RefObject } from "react";
-import { Button } from "@heroui/react";
-import { Tooltip } from "@supernote/ui";
+import { Tooltip, Button } from "@supernote/ui";
 import {
   TextB,
   TextItalic,
@@ -65,8 +64,7 @@ export function ComposerToolbar({
         <Tooltip key={kind} content={label}>
           <Button
             variant="ghost"
-            size="sm"
-            isIconOnly
+            size="icon"
             aria-label={label}
             className="h-8 min-h-8 w-8 min-w-8"
             onPress={() => run(kind)}

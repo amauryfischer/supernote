@@ -1,8 +1,8 @@
 "use client";
 
 import { X } from "@phosphor-icons/react";
-import { Button, Spinner } from "@heroui/react";
-import { Tooltip } from "@supernote/ui";
+import { Spinner } from "@heroui/react";
+import { Tooltip, Button } from "@supernote/ui";
 import type { MailQuickRepliesChrome } from "@/components/shell/shell-chrome-context";
 
 /**
@@ -38,9 +38,8 @@ export function QuickRepliesRow({
       {items.length > 0 && (
         <Tooltip content="Masquer les réponses éclair">
           <Button
-            isIconOnly
             variant="ghost"
-            size="sm"
+            size="icon"
             aria-label="Masquer les réponses éclair"
             className="h-7 min-h-7 w-7 min-w-7"
             onPress={onDismiss}

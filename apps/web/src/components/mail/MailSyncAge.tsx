@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Button, Spinner } from "@heroui/react";
+import { Spinner } from "@heroui/react";
 import { ArrowsClockwise, WarningCircle } from "@phosphor-icons/react";
-import { Tooltip } from "@supernote/ui";
+import { Tooltip, Button } from "@supernote/ui";
 import { useSettings } from "@/components/settings/SettingsContext";
 import { trpcVanillaClient } from "@/lib/trpc/client";
 import { MAIL_SYNCED_EVENT, MAIL_SYNC_STATE_EVENT, mirrorAvailable } from "@/lib/mail-mirror";
@@ -84,9 +84,8 @@ export function MailSyncAge() {
       )}
       <Tooltip content={`${label} · Synchroniser maintenant`}>
         <Button
-          isIconOnly
           variant="ghost"
-          size="sm"
+          size="icon"
           isDisabled={syncing}
           onPress={() => window.dispatchEvent(new CustomEvent(MAIL_SYNC_REQUEST_EVENT))}
           aria-label="Synchroniser les mails maintenant"

@@ -13,8 +13,7 @@
  */
 
 import { useCallback, useMemo, useState, type KeyboardEvent, type RefObject } from "react";
-import { Button } from "@heroui/react";
-import { Kbd } from "@supernote/ui";
+import { Kbd, Button } from "@supernote/ui";
 import {
   detectSnippetQuery,
   matchSnippets,

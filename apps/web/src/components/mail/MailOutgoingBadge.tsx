@@ -10,9 +10,9 @@
  */
 
 import { useEffect, useState } from "react";
-import { Button, Popover } from "@heroui/react";
+import { Popover } from "@heroui/react";
 import { Clock, WarningCircle, PaperPlaneTilt, X } from "@phosphor-icons/react";
-import { Tooltip } from "@supernote/ui";
+import { Tooltip, Button } from "@supernote/ui";
 import {
   loadOutgoing,
   scheduledOutgoing,
@@ -137,9 +137,8 @@ export function MailOutgoingBadge() {
                 </div>
                 <Tooltip content="Envoyer maintenant">
                   <Button
-                    size="sm"
+                    size="icon"
                     variant="ghost"
-                    isIconOnly
                     aria-label="Envoyer maintenant"
                     className="h-8 min-h-8 w-8 min-w-8"
                     onPress={() => {
@@ -152,9 +151,8 @@ export function MailOutgoingBadge() {
                 </Tooltip>
                 <Tooltip content="Annuler cet envoi">
                   <Button
-                    size="sm"
+                    size="icon"
                     variant="ghost"
-                    isIconOnly
                     aria-label="Annuler cet envoi"
                     className="h-8 min-h-8 w-8 min-w-8"
                     onPress={() => {

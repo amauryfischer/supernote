@@ -5,7 +5,7 @@
  * todo (cf. `mail-eisenhower`). Présentationnel : la page porte les mutations.
  */
 
-import { Button } from "@heroui/react";
+import { Button } from "@supernote/ui";
 import { Envelope, Sparkle } from "@phosphor-icons/react";
 import { QUADRANTS, type EisenhowerQuadrant } from "@/lib/mail-eisenhower";
 import type { ThreadListItem } from "@/lib/gmail";
