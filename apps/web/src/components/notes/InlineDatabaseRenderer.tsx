@@ -18,7 +18,7 @@
  */
 
 import { useMemo, useState, type ReactNode } from "react";
-import { Button, Input } from "@heroui/react";
+import { Button, Input } from "@supernote/ui";
 import {
   requestDatabaseBlockReconfigure,
   type DatabaseViewBlockProps,
@@ -288,12 +288,11 @@ function BasePicker({ currentId }: { currentId: string }) {
             <Button size="sm" variant="ghost" onPress={() => setCreating(false)}>
               Annuler
             </Button>
-            <Button
+            <Button variant="primary"
               size="sm"
               onPress={handleCreate}
               isDisabled={!canCreate}
               className="flex items-center gap-1.5"
-              style={{ backgroundColor: "var(--btn-primary-bg)", color: "var(--btn-primary-fg)" }}
             >
               {!createSchema.isPending && <Plus size={14} weight="bold" />}
               {createSchema.isPending ? "Création…" : "Créer la base"}
@@ -415,7 +414,7 @@ function BasePicker({ currentId }: { currentId: string }) {
         ) : (
           <span />
         )}
-        <Button
+        <Button variant="primary"
           size="sm"
           onPress={() => {
             setCreating(true);
@@ -423,7 +422,6 @@ function BasePicker({ currentId }: { currentId: string }) {
             setNewPlural("");
           }}
           className="flex items-center gap-1.5"
-          style={{ backgroundColor: "var(--btn-primary-bg)", color: "var(--btn-primary-fg)" }}
         >
           <Plus size={14} weight="bold" /> Nouvelle base
         </Button>
@@ -546,16 +544,15 @@ function ViewLinkPicker({
             if (e.key === "Enter" && !createView.isPending) createAndLink();
           }}
           aria-label="Nom de la nouvelle vue"
-          className={`${PICKER_INPUT_CLS} flex-1`}
+          className={PICKER_INPUT_CLS} wrapperClassName="flex-1"
           style={PICKER_INPUT_STYLE}
           placeholder={`Vue inline – ${basePlural}`}
         />
-        <Button
+        <Button variant="primary"
           size="sm"
           isDisabled={createView.isPending}
           onPress={createAndLink}
           className="flex items-center gap-1.5"
-          style={{ backgroundColor: "var(--btn-primary-bg)", color: "var(--btn-primary-fg)" }}
         >
           {!createView.isPending && <Plus size={14} weight="bold" />}
           {createView.isPending ? "Création…" : "Créer"}

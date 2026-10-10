@@ -9,7 +9,8 @@
  */
 
 import { useState } from "react";
-import { Button, Popover } from "@heroui/react";
+import { Popover } from "@heroui/react";
+import { Button } from "@supernote/ui";
 import { Check, Palette } from "@phosphor-icons/react";
 import { trpc } from "@/lib/trpc/client";
 

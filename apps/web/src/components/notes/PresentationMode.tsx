@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { CaretLeft, CaretRight, X, NotePencil } from "@phosphor-icons/react";
-import { Button } from "@heroui/react";
+import { Button } from "@supernote/ui";
 import { splitSlides } from "@/lib/present/slides";
 import { SlideContent } from "./SlideContent";
 
@@ -99,25 +99,24 @@ export function PresentationMode({
           {title}
         </span>
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="sm" isIconOnly aria-label="Diapo précédente" onPress={() => go(-1)} isDisabled={idx === 0}>
+          <Button variant="ghost" size="icon" aria-label="Diapo précédente" onPress={() => go(-1)} isDisabled={idx === 0}>
             <CaretLeft size={16} />
           </Button>
           <span className="text-xs tabular-nums" style={{ color: "var(--text-secondary)" }}>
             {idx + 1} / {count}
           </span>
-          <Button variant="ghost" size="sm" isIconOnly aria-label="Diapo suivante" onPress={() => go(1)} isDisabled={idx === count - 1}>
+          <Button variant="ghost" size="icon" aria-label="Diapo suivante" onPress={() => go(1)} isDisabled={idx === count - 1}>
             <CaretRight size={16} />
           </Button>
           <Button
             variant={showNotes ? "primary" : "ghost"}
-            size="sm"
-            isIconOnly
+            size="icon"
             aria-label="Notes du présentateur (n)"
             onPress={() => setShowNotes((s) => !s)}
           >
             <NotePencil size={16} />
           </Button>
-          <Button variant="ghost" size="sm" isIconOnly aria-label="Quitter (Échap)" onPress={onClose}>
+          <Button variant="ghost" size="icon" aria-label="Quitter (Échap)" onPress={onClose}>
             <X size={16} />
           </Button>
         </div>

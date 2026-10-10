@@ -89,10 +89,9 @@ import {
 import { CustomFolderGlyph } from "./CustomFolderGlyph";
 import { IconPickerGrid } from "./FolderIconPickerGrid";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { Button, Input } from "@heroui/react";
 import type { Folder as FolderType } from "./fixtures";
 import { useTranslations } from "next-intl";
-import { ContextMenu, Tooltip, useContextMenu, useToast, type ContextMenuItemDef } from "@supernote/ui";
+import { Button, Input, ContextMenu, Tooltip, useContextMenu, useToast, type ContextMenuItemDef } from "@supernote/ui";
 import { useRouter } from "next/navigation";
 import { ConnectVaultModal } from "./ConnectVaultModal";
 import { useUpdateFolder, useReorderFolders, useMoveFolder } from "./hooks";
@@ -1287,7 +1286,7 @@ export function FileTree({
               }
             }}
             aria-label="Filtrer les dossiers et les notes"
-            className="w-full rounded-md py-1.5 pl-8 pr-3 text-xs outline-none"
+            className="rounded-md py-1.5 pl-8 pr-3 text-xs outline-none" wrapperClassName="w-full"
             style={{
               backgroundColor: "var(--surface-2)",
               color: "var(--text-primary)",
@@ -2571,8 +2570,7 @@ function ActionButton({ onClick, label, icon }: ActionButtonProps) {
     <Tooltip content={label}>
       <Button
         variant="ghost"
-        size="sm"
-        isIconOnly
+        size="icon"
         onPress={onClick}
         aria-label={label}
         // Ces boutons sont côte à côte : leurs zones tactiles se bornent
@@ -2692,7 +2690,7 @@ function ColorPickerGrid({ onPick, onReset }: ColorPickerGridProps) {
         }}
       >
         {FOLDER_COLOR_PALETTE.map((color) => (
-          <Button
+          <Button variant="ghost"
             key={color}
             onPress={() => onPick(color)}
             aria-label={`Couleur ${color}`}
@@ -2747,7 +2745,7 @@ function ColorPickerGrid({ onPick, onReset }: ColorPickerGridProps) {
           />
           Personnalisée
         </label>
-        <Button
+        <Button variant="ghost"
           onPress={onReset}
           style={{
             fontSize: 12,

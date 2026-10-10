@@ -1,7 +1,7 @@
 "use client";
 
 import { Archive, ArrowsDownUp, CaretDoubleLeft, FileText, MagnifyingGlass, Plus, SortAscending, Warning } from "@phosphor-icons/react";
-import { Button, Input } from "@heroui/react";
+import { Button, Input } from "@supernote/ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Note } from "./fixtures";
 import { NoteListItem } from "./NoteListItem";
@@ -358,8 +358,7 @@ export function NoteList({
           {onNewNote && (
             <Button
               variant="ghost"
-              size="sm"
-              isIconOnly
+              size="icon"
               onPress={onNewNote}
               aria-label={t("newNote")}
               className="h-6 w-6 min-w-0 rounded-md hover:bg-[var(--surface-2)]"
@@ -370,8 +369,7 @@ export function NoteList({
           )}
           <Button
             variant="ghost"
-            size="sm"
-            isIconOnly
+            size="icon"
             onPress={() => setShowArchived((v) => !v)}
             aria-label={showArchived ? "Masquer les notes archivées" : "Afficher les notes archivées"}
             className="h-6 w-6 min-w-0 rounded-md hover:bg-[var(--surface-2)]"
@@ -396,8 +394,7 @@ export function NoteList({
           {onCollapse && (
             <Button
               variant="ghost"
-              size="sm"
-              isIconOnly
+              size="icon"
               onPress={onCollapse}
               aria-label="Réduire la liste"
               className="h-6 w-6 min-w-0 rounded-md hover:bg-[var(--surface-2)]"
@@ -423,7 +420,7 @@ export function NoteList({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             aria-label={tCommon("search")}
-            className="w-full rounded-md py-1.5 pl-8 pr-3 text-xs outline-none"
+            className="rounded-md py-1.5 pl-8 pr-3 text-xs outline-none" wrapperClassName="w-full"
             style={{
               backgroundColor: "var(--surface-2)",
               color: "var(--text-primary)",
@@ -615,7 +612,6 @@ function EmptyNoteList({
           size="sm"
           onPress={onNewNote}
           className="gap-1.5 rounded-lg px-4 text-xs font-medium"
-          style={{ backgroundColor: "var(--btn-primary-bg)", color: "var(--btn-primary-fg)" }}
         >
           <Plus size={13} />
           {t("createFirstNote")}

@@ -12,7 +12,8 @@
  */
 
 import { useEffect, useState } from "react";
-import { Button, Input, Popover, Spinner } from "@heroui/react";
+import { Popover, Spinner } from "@heroui/react";
+import { Button, Input } from "@supernote/ui";
 import {
   Check,
   Image as ImageIcon,
@@ -173,7 +174,7 @@ function CoverGallery({
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Rechercher des photos…"
               aria-label="Rechercher des photos Unsplash"
-              className="w-full bg-transparent text-sm outline-none"
+              className="bg-transparent text-sm outline-none" wrapperClassName="w-full"
               style={{ color: "var(--text-primary)" }}
             />
           </div>

@@ -9,7 +9,8 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { Button, Popover } from "@heroui/react";
+import { Popover } from "@heroui/react";
+import { Button } from "@supernote/ui";
 import { Smiley, Shuffle, Trash } from "@phosphor-icons/react";
 
 /** Palette curée d'emojis pour icônes de note. */

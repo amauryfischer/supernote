@@ -2,7 +2,7 @@
 
 import { FileText, Plus } from "@phosphor-icons/react";
 import { useTranslations } from "next-intl";
-import { Button } from "@heroui/react";
+import { Button } from "@supernote/ui";
 
 import { GOOGLE_DOC_KINDS, type GoogleDocKind } from "@/lib/google-drive";
 import { DRIVE_DOC_ICONS, DRIVE_DOC_ORDER } from "./driveDocMeta";
@@ -40,13 +40,9 @@ export function EmptyEditor({ onNewNote, onNewDriveDoc }: EmptyEditorProps) {
         </p>
       </div>
 
-      <Button
+      <Button variant="primary"
         onPress={onNewNote}
         className="flex items-center gap-2 rounded-lg px-5 py-2.5 text-sm font-medium transition-opacity hover:opacity-90"
-        style={{
-          backgroundColor: "var(--btn-primary-bg)",
-          color: "var(--btn-primary-fg)",
-        }}
       >
         <Plus size={15} />
         {t("newNote")}

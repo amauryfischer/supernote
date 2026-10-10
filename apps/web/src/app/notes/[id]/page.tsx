@@ -27,7 +27,6 @@ import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { DeleteNoteModal } from "@/components/notes/DeleteNoteModal";
 import { AttachmentRouter } from "@/components/attachments/AttachmentRouter";
 import { useConfirm, usePrompt } from "@/hooks/usePrompt";
-import { Button } from "@heroui/react";
 import {
   ArrowsInSimple,
   ArrowsOutSimple,
@@ -51,7 +50,7 @@ import { NOTE_SHARE_EVENT } from "@/lib/share/collab";
 import { useShareEnabled } from "@/lib/share/shareApi";
 import { useCreateDraft } from "@/components/notes/useCreateDraft";
 import { useGmailConnected } from "@/hooks/useGmailConnected";
-import { useToast } from "@supernote/ui";
+import { Button, useToast } from "@supernote/ui";
 
 type NoteViewMode = "note" | "canvas";
 

@@ -16,7 +16,8 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { Button, Spinner } from "@heroui/react";
+import { Spinner } from "@heroui/react";
+import { Button } from "@supernote/ui";
 import { ArrowsClockwise, ArrowSquareOut, Warning } from "@phosphor-icons/react";
 import { buildPubhtmlUrl, buildOpenUrl } from "@supernote/editor";
 import { useSettings } from "../settings/SettingsContext";

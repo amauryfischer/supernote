@@ -11,7 +11,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Button, Input } from "@heroui/react";
+import { Button, Input } from "@supernote/ui";
 import type { Icon as PhosphorIcon } from "@phosphor-icons/react";
 import {
   ALL_FOLDER_ICON_NAMES,
@@ -168,7 +168,7 @@ export function IconPickerGrid({ onPick, onReset }: IconPickerGridProps) {
                 }}
               >
                 {cells.map((name) => (
-                  <Button
+                  <Button variant="ghost"
                     key={name}
                     onPress={() => onPick(name)}
                     aria-label={`Icône ${name}`}
@@ -214,7 +214,7 @@ export function IconPickerGrid({ onPick, onReset }: IconPickerGridProps) {
           justifyContent: "flex-end",
         }}
       >
-        <Button
+        <Button variant="ghost"
           onPress={onReset}
           style={{
             fontSize: 12,
