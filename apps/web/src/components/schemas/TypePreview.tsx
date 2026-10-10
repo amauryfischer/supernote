@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Button } from "@heroui/react";
+import { Button } from "@supernote/ui";
 import { PencilSimple, Copy, Trash, Plus, ArrowRight, Table } from "@phosphor-icons/react";
 import type { EntityType, Field } from "@supernote/core";
 import { RELATION_TYPES, ENTITY_TYPES, ENTITY_COUNTS } from "./fixtures";
@@ -42,9 +42,9 @@ export function TypePreview({ type }: TypePreviewProps) {
         <div className="flex items-center gap-2">
           <Link href={`/bases/${type.id}`}>
             <Button
+              variant="primary"
               size="sm"
               className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors"
-              style={{ backgroundColor: "var(--btn-primary-bg)", color: "var(--btn-primary-fg)" }}
             >
               <Table size={13} />
               Ouvrir la Base
@@ -73,7 +73,7 @@ export function TypePreview({ type }: TypePreviewProps) {
           <Button
             isIconOnly
             variant="ghost"
-            size="sm"
+            size="icon"
             aria-label="Supprimer le type"
             className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors hover:bg-red-50"
             style={{ borderColor: "var(--border)", color: "var(--danger)" }}

@@ -1,6 +1,7 @@
 "use client";
 
-import { Button, Card, Chip, Spinner } from "@heroui/react";
+import { Spinner } from "@heroui/react";
+import { Badge, Button, Card } from "@supernote/ui";
 import { PencilSimple, Plus, Trash } from "@phosphor-icons/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -41,16 +42,15 @@ function VariableRow({
         </span>
       </td>
       <td className="px-4 py-3">
-        <Chip size="sm" variant="soft">{variable.type}</Chip>
+        <Badge size="sm">{variable.type}</Badge>
       </td>
       <td className="px-4 py-3">
-        <Chip
+        <Badge
           size="sm"
-          variant="soft"
-          color={variable.value.kind === "formula" ? "accent" : "default"}
+          variant={variable.value.kind === "formula" ? "primary" : "default"}
         >
           {variable.value.kind}
-        </Chip>
+        </Badge>
       </td>
       <td className="px-4 py-3">
         <VariablePreview id={variable.id} />
@@ -59,7 +59,7 @@ function VariableRow({
         <div className="flex justify-end gap-1">
           <Button
             isIconOnly
-            size="sm"
+            size="icon"
             variant="ghost"
             aria-label="Éditer"
             onPress={() => router.push(`/variables/${variable.id}`)}
@@ -68,7 +68,7 @@ function VariableRow({
           </Button>
           <Button
             isIconOnly
-            size="sm"
+            size="icon"
             variant="danger-soft"
             aria-label="Supprimer"
             onPress={() => onDelete(variable.id)}
@@ -138,7 +138,7 @@ export default function VariablesPage() {
       </div>
 
       {/* Table */}
-      <Card>
+      <Card elevation="none" className="border-0">
         <div
           className="overflow-x-auto rounded-xl"
           style={{ backgroundColor: "var(--surface-0)", border: "1px solid var(--border-subtle)" }}

@@ -1,9 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Button, Input, TextArea, Select, ListBox, ListBoxItem } from "@heroui/react";
-import { Checkbox } from "@supernote/ui";
-import type { Key } from "@heroui/react";
+import { Button, Checkbox, Input, Select, Textarea } from "@supernote/ui";
 import { X, Plus, Trash } from "@phosphor-icons/react";
 import type { Field, FieldKind, SelectOption } from "@supernote/core";
 import { FIELD_KINDS, ENTITY_TYPES } from "./fixtures";
@@ -135,7 +133,7 @@ export function FieldEditorModal({ field, onClose, onSave }: FieldEditorModalPro
           <h2 className="text-base font-semibold" style={{ color: "var(--text-primary)" }}>
             {field ? "Modifier le champ" : "Nouveau champ"}
           </h2>
-          <Button isIconOnly variant="ghost" size="sm" onPress={onClose} aria-label="Fermer" className="rounded-md p-1 hover:bg-[var(--surface-2)]">
+          <Button isIconOnly variant="ghost" size="icon" onPress={onClose} aria-label="Fermer" className="rounded-md p-1 hover:bg-[var(--surface-2)]">
             <X size={16} style={{ color: "var(--text-muted)" }} />
           </Button>
         </div>
@@ -150,7 +148,8 @@ export function FieldEditorModal({ field, onClose, onSave }: FieldEditorModalPro
               <Input
                 value={label}
                 onChange={(e) => handleLabelChange(e.target.value)}
-                className="w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[var(--accent)]"
+                wrapperClassName="w-full"
+                className="rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[var(--accent)]"
                 style={{ borderColor: "var(--border)", backgroundColor: "var(--surface-1)", color: "var(--text-primary)" }}
                 placeholder="Mon champ"
               />
@@ -162,7 +161,8 @@ export function FieldEditorModal({ field, onClose, onSave }: FieldEditorModalPro
               <Input
                 value={name}
                 onChange={(e) => setName(makeSlug(e.target.value))}
-                className="w-full rounded-lg border px-3 py-2 font-mono text-sm outline-none focus:ring-2 focus:ring-[var(--accent)]"
+                wrapperClassName="w-full"
+                className="rounded-lg border px-3 py-2 font-mono text-sm outline-none focus:ring-2 focus:ring-[var(--accent)]"
                 style={{ borderColor: "var(--border)", backgroundColor: "var(--surface-1)", color: "var(--text-primary)" }}
               />
             </div>
@@ -233,14 +233,15 @@ export function FieldEditorModal({ field, onClose, onSave }: FieldEditorModalPro
                       onChange={(e) =>
                         updateOption(i, { label: e.target.value, value: makeSlug(e.target.value) })
                       }
-                      className="flex-1 rounded-lg border px-3 py-1.5 text-sm outline-none"
+                      wrapperClassName="flex-1"
+                      className="rounded-lg border px-3 py-1.5 text-sm outline-none"
                       style={{
                         borderColor: "var(--border)",
                         backgroundColor: "var(--surface-1)",
                         color: "var(--text-primary)",
                       }}
                     />
-                    <Button isIconOnly variant="ghost" size="sm" onPress={() => removeOption(i)} aria-label="Supprimer l'option" className="rounded p-1 hover:bg-red-50">
+                    <Button isIconOnly variant="ghost" size="icon" onPress={() => removeOption(i)} aria-label="Supprimer l'option" className="rounded p-1 hover:bg-red-50">
                       <Trash size={12} style={{ color: "var(--danger)" }} />
                     </Button>
                   </div>
@@ -258,24 +259,10 @@ export function FieldEditorModal({ field, onClose, onSave }: FieldEditorModalPro
                 </label>
                 <Select
                   selectedKey={targetTypeId}
-                  onSelectionChange={(k: Key | null) => setTargetTypeId(String(k ?? ""))}
+                  onSelectionChange={setTargetTypeId}
                   aria-label="Type cible"
-                >
-                  <Select.Trigger
-                    className="flex w-full items-center justify-between rounded-lg border px-3 py-2 text-sm outline-none"
-                    style={{ borderColor: "var(--border)", backgroundColor: "var(--surface-1)", color: "var(--text-primary)" }}
-                  >
-                    <Select.Value />
-                  </Select.Trigger>
-                  <Select.Popover>
-                    <ListBox>
-                      <ListBoxItem key="">Choisir…</ListBoxItem>
-                      {ENTITY_TYPES.map((t) => (
-                        <ListBoxItem key={t.id}>{t.name}</ListBoxItem>
-                      ))}
-                    </ListBox>
-                  </Select.Popover>
-                </Select>
+                  options={[{ key: "", label: "Choisir…" }, ...ENTITY_TYPES.map((t) => ({ key: t.id, label: t.name }))]}
+                />
               </div>
               <div>
                 <label className="mb-1 block text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
@@ -283,23 +270,14 @@ export function FieldEditorModal({ field, onClose, onSave }: FieldEditorModalPro
                 </label>
                 <Select
                   selectedKey={cardinality}
-                  onSelectionChange={(k: Key | null) => setCardinality(String(k ?? ""))}
+                  onSelectionChange={setCardinality}
                   aria-label="Cardinalité"
-                >
-                  <Select.Trigger
-                    className="flex w-full items-center justify-between rounded-lg border px-3 py-2 text-sm outline-none"
-                    style={{ borderColor: "var(--border)", backgroundColor: "var(--surface-1)", color: "var(--text-primary)" }}
-                  >
-                    <Select.Value />
-                  </Select.Trigger>
-                  <Select.Popover>
-                    <ListBox>
-                      <ListBoxItem key="one_to_one">1:1</ListBoxItem>
-                      <ListBoxItem key="one_to_many">1:N</ListBoxItem>
-                      <ListBoxItem key="many_to_many">N:N</ListBoxItem>
-                    </ListBox>
-                  </Select.Popover>
-                </Select>
+                  options={[
+                    { key: "one_to_one", label: "1:1" },
+                    { key: "one_to_many", label: "1:N" },
+                    { key: "many_to_many", label: "N:N" },
+                  ]}
+                />
               </div>
             </div>
           )}
@@ -310,11 +288,12 @@ export function FieldEditorModal({ field, onClose, onSave }: FieldEditorModalPro
               <label className="mb-1 block text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
                 Expression
               </label>
-              <TextArea
+              <Textarea
                 value={expression}
                 onChange={(e) => setExpression(e.target.value)}
                 rows={3}
-                className="w-full rounded-lg border px-3 py-2 font-mono text-sm outline-none"
+                wrapperClassName="w-full"
+                className="rounded-lg border px-3 py-2 font-mono text-sm outline-none"
                 style={{
                   borderColor: "var(--border)",
                   backgroundColor: "var(--surface-1)",
@@ -333,7 +312,8 @@ export function FieldEditorModal({ field, onClose, onSave }: FieldEditorModalPro
             <Input
               value={helpText}
               onChange={(e) => setHelpText(e.target.value)}
-              className="w-full rounded-lg border px-3 py-2 text-sm outline-none"
+              wrapperClassName="w-full"
+              className="rounded-lg border px-3 py-2 text-sm outline-none"
               style={{
                 borderColor: "var(--border)",
                 backgroundColor: "var(--surface-1)",
@@ -384,10 +364,10 @@ export function FieldEditorModal({ field, onClose, onSave }: FieldEditorModalPro
             Annuler
           </Button>
           <Button
+            variant="primary"
             size="sm"
             onPress={handleSave}
             className="rounded-lg px-4 py-2 text-sm font-medium transition-colors"
-            style={{ backgroundColor: "var(--btn-primary-bg)", color: "var(--btn-primary-fg)" }}
           >
             Enregistrer
           </Button>

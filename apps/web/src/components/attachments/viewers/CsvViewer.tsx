@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Papa from "papaparse";
-import { Button, Chip, Spinner } from "@heroui/react";
+import { Spinner } from "@heroui/react";
+import { Badge, Button } from "@supernote/ui";
 import { Download, Plus, Trash } from "@phosphor-icons/react";
 import type { AttachmentViewerProps } from "../AttachmentRouter";
 import { useAttachmentBlob } from "../useAttachmentBlob";
@@ -328,15 +329,15 @@ export function CsvViewer({ note: _note, path }: AttachmentViewerProps) {
 
         <div className="flex items-center gap-1">
           {delimiterOptions.map((opt) => (
-            <Chip
+            <Badge
               key={opt.value}
               size="sm"
-              variant={delimiter === opt.value ? "primary" : "tertiary"}
+              variant={delimiter === opt.value ? "primary" : "default"}
               onClick={() => setDelimiter(opt.value)}
               className="cursor-pointer"
             >
               {opt.label}
-            </Chip>
+            </Badge>
           ))}
         </div>
 

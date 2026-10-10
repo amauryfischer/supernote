@@ -24,7 +24,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Button, Input } from "@heroui/react";
+import { Button, Input } from "@supernote/ui";
 import { Plus, MagnifyingGlass, Check, Hash } from "@phosphor-icons/react";
 import { trpc } from "@/lib/trpc/client";
 import type { Tag } from "@supernote/ipc/schemas/tags";
@@ -202,7 +202,8 @@ function TagSelectorPopover({ open, anchorRect, value, onChange, onClose }: Popo
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Rechercher un tag…"
-          className="flex-1 bg-transparent text-xs outline-none"
+          wrapperClassName="flex-1"
+          className="bg-transparent text-xs outline-none"
           style={{ color: "var(--text-primary)" }}
         />
       </div>

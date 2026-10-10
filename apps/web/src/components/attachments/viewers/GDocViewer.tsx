@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Button, Chip, Input, Spinner } from "@heroui/react";
+import { Spinner } from "@heroui/react";
+import { Badge, Button, Input } from "@supernote/ui";
 import { ArrowSquareOut } from "@phosphor-icons/react";
 
 import type { AttachmentViewerProps } from "../AttachmentRouter";
@@ -390,9 +391,9 @@ export function GDocViewer({ note, path }: AttachmentViewerProps) {
       {/* Toolbar */}
       <div className="flex shrink-0 items-center gap-2 border-b px-3 py-1.5"
            style={{ borderColor: "var(--border)", background: "var(--bg-toolbar, var(--bg))" }}>
-        <Chip size="sm" variant="soft" color="default" className="shrink-0">
+        <Badge size="sm" variant="default" className="shrink-0">
           {TYPE_LABELS[docType]}
-        </Chip>
+        </Badge>
         <span className="flex-1 truncate text-sm">{basename}</span>
         <Button
           size="sm"
@@ -533,6 +534,7 @@ function UrlOverridePrompt({
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             placeholder="https://docs.google.com/…/d/…"
+            wrapperClassName="flex-1"
             disabled={saving}
           />
           <Button

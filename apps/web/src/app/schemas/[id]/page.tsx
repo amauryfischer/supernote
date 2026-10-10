@@ -18,7 +18,7 @@ import {
   verticalListSortingStrategy,
   arrayMove,
 } from "@dnd-kit/sortable";
-import { Button } from "@heroui/react";
+import { Button } from "@supernote/ui";
 import { AppShell, useMobileTitle, useMobileHeaderActions, useMobileFab, type MobileHeaderAction } from "@/components/shell";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { ENTITY_TYPES } from "@/components/schemas/fixtures";
@@ -193,12 +193,12 @@ export default function SchemaEditPage() {
               <span className="text-xs" style={{ color: "var(--accent)" }}>Sauvegardé</span>
             )}
             <Button
+              variant="primary"
               onPress={() => void handleSave()}
               isDisabled={updateMutation.isPending}
               isPending={updateMutation.isPending}
               size="sm"
               className="text-sm font-medium"
-              style={{ backgroundColor: "var(--btn-primary-bg)", color: "var(--btn-primary-fg)" }}
             >
               Sauvegarder
             </Button>
@@ -224,10 +224,10 @@ export default function SchemaEditPage() {
                 Champs ({fields.length})
               </span>
               <Button
+                variant="primary"
                 onPress={() => setEditingField("new")}
                 size="sm"
                 className="text-xs font-medium"
-                style={{ backgroundColor: "var(--btn-primary-bg)", color: "var(--btn-primary-fg)" }}
               >
                 <Plus size={11} /> Champ
               </Button>

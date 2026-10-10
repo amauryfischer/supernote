@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import mammoth from "mammoth";
 import DOMPurify from "dompurify";
-import { Button, Spinner } from "@heroui/react";
+import { Spinner } from "@heroui/react";
+import { Button } from "@supernote/ui";
 import { Download, Warning } from "@phosphor-icons/react";
 import type { AttachmentViewerProps } from "../AttachmentRouter";
 import { useAttachmentBlob } from "../useAttachmentBlob";
