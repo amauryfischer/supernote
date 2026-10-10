@@ -790,14 +790,6 @@ function SupernoteBlockMenu({
  *     opens the slash menu so the user picks a block type immediately.
  *   - `⠿` clicked → opens the block menu (transform / duplicate / colour /
  *     delete); dragged → moves the block (BlockNote's own drag machinery).
- *
- * MOBILE TODO: the hover side menu never appears on touch. To reach the SAME
- * <SupernoteBlockMenu> from a long-press, SupernoteEditor's wrapper
- * `onContextMenu` (already wired for AI) needs to: resolve the block under the
- * pointer (`editor.getBlock` from `event.target.closest("[data-id]")`) and
- * render <SupernoteBlockMenu> with an anchorRect at the pointer. The menu
- * already self-presents as a bottom-sheet under 768px, so no extra UI is
- * needed — only the trigger, which lives outside this file's scope.
  */
 export function SupernoteSideMenu() {
   const editor = useBlockNoteEditor();
@@ -878,5 +870,104 @@ export function SupernoteSideMenu() {
         />
       )}
     </div>
+  );
+}
+
+// ── Poignée tactile ───────────────────────────────────────────────────────────
+
+const TOUCH_HANDLE_SIZE = 36;
+
+/**
+ * Déclencheur du même <SupernoteBlockMenu> sans souris. Le ⠿ ne vit qu'au
+ * survol, et le `contextmenu` d'un appui long arrive après que le navigateur a
+ * sélectionné un mot (Chrome Android) : il ne se produit donc jamais « sans
+ * sélection ». D'où une poignée explicite, collée au bord droit du bloc du
+ * curseur, sous `(any-pointer: coarse)` seulement. Le bouton est portalé sur
+ * <body> comme le menu (jamais de DOM ajouté dans le sous-arbre ProseMirror).
+ */
+export function SupernoteTouchBlockHandle() {
+  const editor = useBlockNoteEditor();
+  const [coarse] = useState(
+    () => typeof window !== "undefined" && window.matchMedia("(any-pointer: coarse)").matches,
+  );
+  const [, setTick] = useState(0);
+  const [menu, setMenu] = useState<{ anchor: DOMRect; block: BlockMenuBlock } | null>(null);
+  const btnRef = useRef<HTMLButtonElement | null>(null);
+
+  useEditorSelectionChange(() => setTick((v) => v + 1));
+  useEffect(() => {
+    if (!coarse) return;
+    const bump = () => setTick((v) => v + 1);
+    window.addEventListener("scroll", bump, true);
+    window.addEventListener("resize", bump);
+    return () => {
+      window.removeEventListener("scroll", bump, true);
+      window.removeEventListener("resize", bump);
+    };
+  }, [coarse]);
+
+  const closeMenu = useCallback(() => setMenu(null), []);
+
+  let block: BlockMenuBlock | null = null;
+  let rect: DOMRect | null = null;
+  if (coarse) {
+    try {
+      // Avec une sélection de texte, c'est la barre de formatage qui prend la place.
+      if (editor.getSelectedText().length === 0) {
+        const cursorBlock = editor.getTextCursorPosition().block;
+        const el = editor.domElement?.querySelector(`[data-id="${cursorBlock.id}"]`);
+        block = cursorBlock as unknown as BlockMenuBlock;
+        rect = el?.getBoundingClientRect() ?? null;
+      }
+    } catch {
+      /* état transitoire de l'éditeur (remplacement du document) : pas de poignée */
+    }
+  }
+  const visible = rect != null && rect.bottom > 0 && rect.top < window.innerHeight;
+
+  return (
+    <>
+      {block && rect && visible &&
+        createPortal(
+          <button
+            ref={btnRef}
+            type="button"
+            className="sn-side-menu__btn sn-side-menu__drag"
+            aria-label="Options du bloc"
+            aria-haspopup="menu"
+            aria-expanded={menu != null}
+            data-testid="touch-block-handle"
+            style={{
+              position: "fixed",
+              zIndex: 40,
+              width: TOUCH_HANDLE_SIZE,
+              height: TOUCH_HANDLE_SIZE,
+              fontSize: "1.1rem",
+              left: Math.min(rect.right, window.innerWidth) - TOUCH_HANDLE_SIZE - 2,
+              top: Math.max(rect.top - 2, 8),
+              background: "var(--surface-1, #fff)",
+              border: "1px solid var(--border-subtle, #e5e7eb)",
+              opacity: 0.85,
+            }}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => {
+              const el = btnRef.current;
+              if (el) setMenu({ anchor: el.getBoundingClientRect(), block: block as BlockMenuBlock });
+            }}
+          >
+            ⠿
+          </button>,
+          document.body,
+        )}
+      {menu && (
+        <SupernoteBlockMenu
+          editor={editor as unknown as BlockMenuEditor}
+          opsEditor={editor as unknown as BlockOpsEditorLike}
+          block={menu.block}
+          anchorRect={menu.anchor}
+          onClose={closeMenu}
+        />
+      )}
+    </>
   );
 }

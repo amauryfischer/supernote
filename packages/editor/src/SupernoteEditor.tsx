@@ -50,6 +50,7 @@ import { AIActionsMenu } from "./ai/AIActionsMenu.js";
 import { SmoothCaret } from "./SmoothCaret.js";
 import {
   FloatingFormattingToolbar,
+  SupernoteTouchBlockHandle,
   SupernoteSideMenu,
   WikilinkHoverPreview,
 } from "./extensions/editorChrome.js";
@@ -760,6 +761,7 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
             unless we provide our own components. Hidden in read-only. */}
         {!readOnly && <SideMenuController sideMenu={SupernoteSideMenu} />}
         {!readOnly && <FloatingFormattingToolbar wrapperRef={wrapperRef} />}
+        {!readOnly && <SupernoteTouchBlockHandle />}
       </BlockNoteViewRaw>
 
       {/* Animated caret overlay — hides the native caret while active and
