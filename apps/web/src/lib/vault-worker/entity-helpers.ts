@@ -459,13 +459,14 @@ export function safeParseFieldsBlob(raw: string): Record<string, unknown> {
     return {};
   }
 }
-export async function applyEntityTags(
+// Synchrone à dessein : appelée dans runInTransaction, une levée doit annuler le COMMIT.
+export function applyEntityTags(
   db: Database,
   vaultId: string,
   entityId: string,
   tags: string[],
   ts: string,
-): Promise<void> {
+): void {
   for (const tagPath of tags) {
     let tagRow = row(db.exec(`SELECT id FROM tag WHERE vaultId = ? AND path = ?`, [vaultId, tagPath]));
     if (!tagRow) {

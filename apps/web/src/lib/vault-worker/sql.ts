@@ -24,8 +24,8 @@ export function rows(res: ReturnType<Database["exec"]>): SqlRow[] {
  * (I/O FSA/OPFS) à l'intérieur laisserait une autre RPC s'intercaler dans la
  * transaction ouverte → écritures mêlées ou commit d'un état partiel. Un `fn`
  * synchrone s'exécute d'une traite dans une seule tâche : rien ne s'intercale.
- * (C'est pourquoi syncApplyOps/entitiesCreate/Delete, qui entrelacent des `await`
- * d'I/O fichier avec le SQL, ne sont PAS enveloppés ici.)
+ * (Les handlers entities.* et syncApplyOps font donc leur I/O fichier AVANT et
+ * leur nettoyage APRÈS, et n'enveloppent que le SQL.)
  *
  * Gains : durabilité (un kill de l'onglet entre deux statements ne peut plus
  * laisser d'état partiel sur disque — ex. un thread mail vidé de ses messages)

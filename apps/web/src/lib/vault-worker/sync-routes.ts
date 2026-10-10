@@ -176,11 +176,14 @@ export function buildSyncRoutes(
               }
               await deleteExcalidrawSibling(vaultHandle, filePath);
             }
-            db.run(`DELETE FROM entity WHERE id = ?`, [op.entityId]);
-            ftsRemove(db, op.entityId);
-            mentionsRemove(db, op.entityId);
-            tombstoneAdd(db, op.entityId); // block reindex resurrection
-            if (existing["typeId"] === EMAIL_AI_CACHE_TYPE_ID) dropMirroredThread(existing["fields"]);
+            // Une transaction par op (pas par appel) : le tombstone part avec le DELETE.
+            runInTransaction(db, () => {
+              db.run(`DELETE FROM entity WHERE id = ?`, [op.entityId]);
+              ftsRemove(db, op.entityId);
+              mentionsRemove(db, op.entityId);
+              tombstoneAdd(db, op.entityId); // block reindex resurrection
+              if (existing["typeId"] === EMAIL_AI_CACHE_TYPE_ID) dropMirroredThread(existing["fields"]);
+            });
             applied++;
           } else {
             skipped++;
@@ -197,41 +200,8 @@ export function buildSyncRoutes(
         // Column defs carried by the op (`entity_type.fields`). Empty for
         // delete ops, older producers, or system types with no custom columns.
         const opTypeFields = Array.isArray(payload.typeFields) ? payload.typeFields : [];
-        let typeRow = row(db.exec(`SELECT name, fields FROM entity_type WHERE id = ?`, [payload.typeId]));
-        if (!typeRow) {
-          // Unknown entity type on this device — recreate it WITH the columns
-          // the producer transported, so a synced custom base keeps its schema
-          // instead of arriving with an empty `[]` (the old data-loss bug). Any
-          // mounted/freshly-synced entity then satisfies the FK with full defs.
-          const nowIso = now();
-          db.run(
-            `INSERT OR IGNORE INTO entity_type (id, vaultId, name, plural, fields, isSystem, createdAt, updatedAt)
-             VALUES (?, ?, ?, ?, ?, 0, ?, ?)`,
-            [
-              payload.typeId,
-              vaultId,
-              payload.typeName || payload.typeId,
-              payload.typeName || payload.typeId,
-              JSON.stringify(opTypeFields),
-              nowIso,
-              nowIso,
-            ],
-          );
-          typeRow = { name: payload.typeName || payload.typeId };
-        } else if (opTypeFields.length > 0) {
-          // The type already exists locally but may have been created earlier
-          // with an empty `[]` (a minimal stub from before columns travelled, or
-          // an op that arrived in a different order). Backfill the columns when
-          // the op carries them and the local copy is still empty — never clobber
-          // a non-empty local schema (LWW on entities, not on type defs here).
-          const localFields = parseTypeFieldsBlob(typeRow["fields"]);
-          if (localFields.length === 0) {
-            db.run(
-              `UPDATE entity_type SET fields = ?, updatedAt = ? WHERE id = ?`,
-              [JSON.stringify(opTypeFields), now(), payload.typeId],
-            );
-          }
-        }
+        const typeRow = row(db.exec(`SELECT name, fields FROM entity_type WHERE id = ?`, [payload.typeId]));
+        const typeName = (typeRow?.["name"] as string | undefined) ?? (payload.typeName || payload.typeId);
         // Mounted ops store under `@mounts/<slug>/…`; native ops keep their path.
         const { filePath: storedPath } = resolveMountWrite(payload.filePath, provenance);
         // Guard against filePath collisions with a DIFFERENT entity (the
@@ -258,7 +228,7 @@ export function buildSyncRoutes(
         if (provenance === null && isMarkdownPath(payload.filePath)) {
           const frontmatter: Record<string, unknown> = {
             id: op.entityId,
-            type: typeRow["name"],
+            type: typeName,
             ...fields,
           };
           const content = serializeFrontmatter(frontmatter, payload.body ?? "");
@@ -266,108 +236,141 @@ export function buildSyncRoutes(
           hash = await hashContent(content);
         }
 
-        if (existing) {
-          db.run(
-            `UPDATE entity SET typeId = ?, filePath = ?, fields = ?, body = ?, fileHash = ?, sourceVaultId = ?, createdAt = ?, updatedAt = ? WHERE id = ?`,
-            [
-              payload.typeId,
-              storedPath,
-              JSON.stringify(fields),
-              payload.body ?? "",
-              hash,
-              provenance,
-              payload.createdAt,
-              payload.updatedAt,
-              op.entityId,
-            ],
-          );
-          const oldPath = (existing["filePath"] as string) ?? "";
-          // ⚠️ Renommage ou déplacement distant : l'ancien .md survivait, et le
-          // reindex (toutes les 30 s) y re-pointait l'entité — ancien titre,
-          // ancien dossier. Supprimé seulement une fois l'UPDATE passé.
-          if (
-            provenance === null &&
-            oldPath !== storedPath &&
-            isMarkdownPath(oldPath) &&
-            isMarkdownPath(storedPath)
-          ) {
-            try {
-              await deleteVaultFile(vaultHandle, oldPath.split("/"));
-            } catch {
-              /* already gone */
-            }
-            await moveExcalidrawSibling(vaultHandle, oldPath, storedPath);
-          }
-        } else {
-          db.run(
-            `INSERT INTO entity (id, vaultId, typeId, filePath, fields, body, fileHash, sourceVaultId, createdAt, updatedAt)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [
-              op.entityId,
-              vaultId,
-              payload.typeId,
-              storedPath,
-              JSON.stringify(fields),
-              payload.body ?? "",
-              hash,
-              provenance,
-              payload.createdAt,
-              payload.updatedAt,
-            ],
-          );
-        }
-
-        // A synced (re)upsert of this id supersedes any earlier deletion.
-        tombstoneClear(db, op.entityId);
-        db.run(`DELETE FROM entity_tag WHERE entityId = ?`, [op.entityId]);
-        await applyEntityTags(db, vaultId, op.entityId, payload.tags ?? [], payload.updatedAt);
-        // Le cache mail n'est pas une note : l'indexer ferait remonter objets et
-        // extraits de mails dans la recherche globale.
-        if (payload.typeId === EMAIL_AI_CACHE_TYPE_ID || payload.typeId === MAIL_COMMITMENT_TYPE_ID) {
-          ftsRemove(db, op.entityId);
-        } else {
-          ftsAdd(db, {
-            id: op.entityId,
-            typeId: payload.typeId,
-            title: deriveTitle(JSON.stringify(fields), payload.filePath),
-            body: payload.body ?? "",
-            tags: (payload.tags ?? []).join(" "),
-            path: derivePath(storedPath),
-          });
-          indexMentions(db, vaultId, op.entityId, payload.body ?? "");
-        }
-
-        // Dénormalisation sync → mail_thread : un autre appareil a lu Gmail pour
-        // nous (miroir partagé) ou a calculé l'IA d'un fil.
-        if (payload.typeId === EMAIL_AI_CACHE_TYPE_ID) {
-          const tid = fields["eac_thread_id"] as string | undefined;
-          const acct = fields["eac_account_email"] as string | undefined;
-          if (tid === MAIL_STATE_THREAD_ID && acct) adoptSharedMailState(acct, fields);
-          else if (tid && acct) {
-            upsertSharedMailThread(acct, tid, fields);
+        // Une transaction par op (pas par appel) : une op fautive n'annule pas
+        // l'hydratation du batch, et les gardes LWW/pathOwner ci-dessus dépendent
+        // des ops précédentes. Le .md est déjà écrit : l'I/O reste hors transaction.
+        runInTransaction(db, () => {
+          if (!typeRow) {
+            // Unknown entity type on this device — recreate it WITH the columns
+            // the producer transported, so a synced custom base keeps its schema
+            // instead of arriving with an empty `[]` (the old data-loss bug). Any
+            // mounted/freshly-synced entity then satisfies the FK with full defs.
+            const nowIso = now();
             db.run(
-              `UPDATE mail_thread
-                 SET aiCategory          = COALESCE(?, aiCategory),
-                     aiCategoryConfidence = COALESCE(?, aiCategoryConfidence),
-                     aiCategoryRuns       = COALESCE(?, aiCategoryRuns),
-                     aiCategoryAt         = COALESCE(?, aiCategoryAt),
-                     aiSummary            = COALESCE(?, aiSummary),
-                     aiSummaryFp          = COALESCE(?, aiSummaryFp),
-                     aiSummaryAt          = COALESCE(?, aiSummaryAt)
-               WHERE accountId = ? AND id = ?`,
+              `INSERT OR IGNORE INTO entity_type (id, vaultId, name, plural, fields, isSystem, createdAt, updatedAt)
+               VALUES (?, ?, ?, ?, ?, 0, ?, ?)`,
+              [payload.typeId, vaultId, typeName, typeName, JSON.stringify(opTypeFields), nowIso, nowIso],
+            );
+          } else if (opTypeFields.length > 0) {
+            // The type already exists locally but may have been created earlier
+            // with an empty `[]` (a minimal stub from before columns travelled, or
+            // an op that arrived in a different order). Backfill the columns when
+            // the op carries them and the local copy is still empty — never clobber
+            // a non-empty local schema (LWW on entities, not on type defs here).
+            const localFields = parseTypeFieldsBlob(typeRow["fields"]);
+            if (localFields.length === 0) {
+              db.run(
+                `UPDATE entity_type SET fields = ?, updatedAt = ? WHERE id = ?`,
+                [JSON.stringify(opTypeFields), now(), payload.typeId],
+              );
+            }
+          }
+
+          if (existing) {
+            db.run(
+              `UPDATE entity SET typeId = ?, filePath = ?, fields = ?, body = ?, fileHash = ?, sourceVaultId = ?, createdAt = ?, updatedAt = ? WHERE id = ?`,
               [
-                (fields["eac_category"] as SqlValue) ?? null,
-                (fields["eac_category_confidence"] as SqlValue) ?? null,
-                (fields["eac_category_runs"] as SqlValue) ?? null,
-                (fields["eac_category_at"] as SqlValue) ?? null,
-                (fields["eac_summary"] as SqlValue) ?? null,
-                (fields["eac_summary_fp"] as SqlValue) ?? null,
-                (fields["eac_summary_at"] as SqlValue) ?? null,
-                acct,
-                tid,
+                payload.typeId,
+                storedPath,
+                JSON.stringify(fields),
+                payload.body ?? "",
+                hash,
+                provenance,
+                payload.createdAt,
+                payload.updatedAt,
+                op.entityId,
+              ],
+            );
+          } else {
+            db.run(
+              `INSERT INTO entity (id, vaultId, typeId, filePath, fields, body, fileHash, sourceVaultId, createdAt, updatedAt)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              [
+                op.entityId,
+                vaultId,
+                payload.typeId,
+                storedPath,
+                JSON.stringify(fields),
+                payload.body ?? "",
+                hash,
+                provenance,
+                payload.createdAt,
+                payload.updatedAt,
               ],
             );
           }
+
+          // A synced (re)upsert of this id supersedes any earlier deletion.
+          tombstoneClear(db, op.entityId);
+          db.run(`DELETE FROM entity_tag WHERE entityId = ?`, [op.entityId]);
+          applyEntityTags(db, vaultId, op.entityId, payload.tags ?? [], payload.updatedAt);
+          // Le cache mail n'est pas une note : l'indexer ferait remonter objets et
+          // extraits de mails dans la recherche globale.
+          if (payload.typeId === EMAIL_AI_CACHE_TYPE_ID || payload.typeId === MAIL_COMMITMENT_TYPE_ID) {
+            ftsRemove(db, op.entityId);
+          } else {
+            ftsAdd(db, {
+              id: op.entityId,
+              typeId: payload.typeId,
+              title: deriveTitle(JSON.stringify(fields), payload.filePath),
+              body: payload.body ?? "",
+              tags: (payload.tags ?? []).join(" "),
+              path: derivePath(storedPath),
+            });
+            indexMentions(db, vaultId, op.entityId, payload.body ?? "");
+          }
+
+          // Dénormalisation sync → mail_thread : un autre appareil a lu Gmail pour
+          // nous (miroir partagé) ou a calculé l'IA d'un fil.
+          if (payload.typeId === EMAIL_AI_CACHE_TYPE_ID) {
+            const tid = fields["eac_thread_id"] as string | undefined;
+            const acct = fields["eac_account_email"] as string | undefined;
+            if (tid === MAIL_STATE_THREAD_ID && acct) adoptSharedMailState(acct, fields);
+            else if (tid && acct) {
+              upsertSharedMailThread(acct, tid, fields);
+              db.run(
+                `UPDATE mail_thread
+                   SET aiCategory          = COALESCE(?, aiCategory),
+                       aiCategoryConfidence = COALESCE(?, aiCategoryConfidence),
+                       aiCategoryRuns       = COALESCE(?, aiCategoryRuns),
+                       aiCategoryAt         = COALESCE(?, aiCategoryAt),
+                       aiSummary            = COALESCE(?, aiSummary),
+                       aiSummaryFp          = COALESCE(?, aiSummaryFp),
+                       aiSummaryAt          = COALESCE(?, aiSummaryAt)
+                 WHERE accountId = ? AND id = ?`,
+                [
+                  (fields["eac_category"] as SqlValue) ?? null,
+                  (fields["eac_category_confidence"] as SqlValue) ?? null,
+                  (fields["eac_category_runs"] as SqlValue) ?? null,
+                  (fields["eac_category_at"] as SqlValue) ?? null,
+                  (fields["eac_summary"] as SqlValue) ?? null,
+                  (fields["eac_summary_fp"] as SqlValue) ?? null,
+                  (fields["eac_summary_at"] as SqlValue) ?? null,
+                  acct,
+                  tid,
+                ],
+              );
+            }
+          }
+        });
+
+        // ⚠️ Renommage ou déplacement distant : l'ancien .md survivait, et le
+        // reindex (toutes les 30 s) y re-pointait l'entité — ancien titre,
+        // ancien dossier. Supprimé seulement une fois la transaction passée.
+        const oldPath = (existing?.["filePath"] as string | undefined) ?? "";
+        if (
+          existing &&
+          provenance === null &&
+          oldPath !== storedPath &&
+          isMarkdownPath(oldPath) &&
+          isMarkdownPath(storedPath)
+        ) {
+          try {
+            await deleteVaultFile(vaultHandle, oldPath.split("/"));
+          } catch {
+            /* already gone */
+          }
+          await moveExcalidrawSibling(vaultHandle, oldPath, storedPath);
         }
 
         applied++;

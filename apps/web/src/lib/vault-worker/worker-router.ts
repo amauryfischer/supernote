@@ -874,31 +874,32 @@ export function buildRouter(
       const content = serializeFrontmatter(frontmatter, body ?? "");
       await writeVaultFile(vaultHandle, relativePath.split("/"), content);
 
-      db.run(
-        `INSERT INTO entity (id, vaultId, typeId, filePath, fields, body, fileHash, createdAt, updatedAt)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [id, vaultId, typeId, relativePath, JSON.stringify(fields), body ?? "", "", ts, ts],
-      );
+      // Une seule transaction : sans elle, une levée après l'INSERT laissait une
+      // entité sans FTS/tags/mentions alors que l'appelant recevait une erreur.
+      // L'INSERT reste sous le verrou `path:` (apparié à la contrainte UNIQUE).
+      runInTransaction(db, () => {
+        db.run(
+          `INSERT INTO entity (id, vaultId, typeId, filePath, fields, body, fileHash, createdAt, updatedAt)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [id, vaultId, typeId, relativePath, JSON.stringify(fields), body ?? "", "", ts, ts],
+        );
+        // (Re)creating this id supersedes any prior deletion — clear its tombstone
+        // so the reindex stops skipping its file.
+        tombstoneClear(db, id);
+        if (tags?.length) applyEntityTags(db, vaultId, id, tags, ts);
+        ftsAdd(db, {
+          id,
+          typeId,
+          title: deriveTitle(JSON.stringify(fields), relativePath),
+          body: body ?? "",
+          tags: (tags ?? []).join(" "),
+          path: derivePath(relativePath),
+        });
+        indexMentions(db, vaultId, id, body ?? "");
+      });
     };
 
     await runSerialized(createLockKey, resolveAndWrite);
-    // (Re)creating this id supersedes any prior deletion — clear its tombstone
-    // so the reindex stops skipping its file.
-    tombstoneClear(db, id);
-
-    if (tags?.length) {
-      await applyEntityTags(db, vaultId, id, tags, ts);
-    }
-
-    ftsAdd(db, {
-      id,
-      typeId,
-      title: deriveTitle(JSON.stringify(fields), relativePath),
-      body: body ?? "",
-      tags: (tags ?? []).join(" "),
-      path: derivePath(relativePath),
-    });
-    indexMentions(db, vaultId, id, body ?? "");
 
     const created = await entitiesGet({ id });
     try { hooks.onEntityCreated?.(created); } catch (e) { console.warn("[hook] onEntityCreated", e); }
@@ -942,8 +943,11 @@ export function buildRouter(
     // (même relationTypeId, cible = type courant) existe côté cible, on reflète
     // l'ajout/retrait sur ce champ inverse. No-op si pas d'appariement explicite
     // → zéro impact sur les bases sans relations bidi. `__skipInverseSync`
-    // empêche le ping-pong A↔B.
-    if (fields && !skipInverseSync) {
+    // empêche le ping-pong A↔B. Jouée APRÈS le commit de la source (chaque cible
+    // réécrit son .md : I/O, donc hors transaction) : une source qui lève ne
+    // laisse plus de demi-relation côté cibles.
+    const syncInverseRelations = async (): Promise<void> => {
+      if (!fields || skipInverseSync) return;
       try {
         const parseIds = (v: unknown): string[] => {
           if (!v) return [];
@@ -989,7 +993,7 @@ export function buildRouter(
       } catch (err) {
         console.warn("[relations] sync inverse échouée", err);
       }
-    }
+    };
 
     const oldPath = (existing["filePath"] as string) ?? "";
     // Normalize the requested path: strip ".." segments and leading/trailing
@@ -1192,10 +1196,45 @@ export function buildRouter(
         );
       }
 
-      db.run(
-        `UPDATE entity SET fields = ?, body = ?, fileHash = ?, filePath = ?, updatedAt = ? WHERE id = ?`,
-        [JSON.stringify(newFields), newBody, hash, effectivePath, ts, id],
-      );
+      // Une seule transaction : le DELETE entity_tag commité seul puis une levée
+      // dans applyEntityTags perdait les tags pour toujours (rien ne les reconstruit).
+      runInTransaction(db, () => {
+        db.run(
+          `UPDATE entity SET fields = ?, body = ?, fileHash = ?, filePath = ?, updatedAt = ? WHERE id = ?`,
+          [JSON.stringify(newFields), newBody, hash, effectivePath, ts, id],
+        );
+        tombstoneClear(db, id); // a live, edited entity is not a tombstone
+
+        if (tags !== undefined) {
+          db.run(`DELETE FROM entity_tag WHERE entityId = ?`, [id]);
+          applyEntityTags(db, vaultId, id, tags, ts);
+        }
+
+        // Relire les tags depuis entity_tag (paths, comme ftsRebuild) plutôt que de
+        // se fier au param `tags` : une update de corps/champs sans `tags` réécrivait
+        // la colonne FTS avec "" et cassait silencieusement la recherche par tag en
+        // session (réparée seulement au ftsRebuild du boot suivant). applyEntityTags
+        // a déjà mis entity_tag à jour au-dessus quand `tags` était fourni.
+        const ftsTags =
+          (row(
+            db.exec(
+              `SELECT GROUP_CONCAT(t.path, ' ') as tp
+                 FROM entity_tag et JOIN tag t ON t.id = et.tagId
+                WHERE et.entityId = ?`,
+              [id],
+            ),
+          )?.["tp"] as string) ?? "";
+
+        ftsAdd(db, {
+          id,
+          typeId: existing["typeId"] as string,
+          title: deriveTitle(JSON.stringify(newFields), effectivePath),
+          body: newBody,
+          tags: ftsTags,
+          path: derivePath(effectivePath),
+        });
+        indexMentions(db, vaultId, id, newBody);
+      });
       // La ligne porte le nouveau chemin : la source peut partir sans risque.
       if (cleanupSource) await cleanupSource();
     };
@@ -1203,37 +1242,7 @@ export function buildRouter(
     if (isMove) await runSerialized(`path:${effectivePath}`, commitWrite);
     else await commitWrite();
 
-    tombstoneClear(db, id); // a live, edited entity is not a tombstone
-
-    if (tags !== undefined) {
-      db.run(`DELETE FROM entity_tag WHERE entityId = ?`, [id]);
-      await applyEntityTags(db, vaultId, id, tags, ts);
-    }
-
-    // Relire les tags depuis entity_tag (paths, comme ftsRebuild) plutôt que de
-    // se fier au param `tags` : une update de corps/champs sans `tags` réécrivait
-    // la colonne FTS avec "" et cassait silencieusement la recherche par tag en
-    // session (réparée seulement au ftsRebuild du boot suivant). applyEntityTags
-    // a déjà mis entity_tag à jour au-dessus quand `tags` était fourni.
-    const ftsTags =
-      (row(
-        db.exec(
-          `SELECT GROUP_CONCAT(t.path, ' ') as tp
-             FROM entity_tag et JOIN tag t ON t.id = et.tagId
-            WHERE et.entityId = ?`,
-          [id],
-        ),
-      )?.["tp"] as string) ?? "";
-
-    ftsAdd(db, {
-      id,
-      typeId: existing["typeId"] as string,
-      title: deriveTitle(JSON.stringify(newFields), effectivePath),
-      body: newBody,
-      tags: ftsTags,
-      path: derivePath(effectivePath),
-    });
-    indexMentions(db, vaultId, id, newBody);
+    await syncInverseRelations();
 
     const updated = await entitiesGet({ id });
     try { hooks.onEntityUpdated?.(updated, previousForHook); } catch (e) { console.warn("[hook] onEntityUpdated", e); }
@@ -1328,10 +1337,14 @@ export function buildRouter(
       }
       // Also remove the .excalidraw sibling if present.
       await deleteExcalidrawSibling(vaultHandle, filePath);
-      db.run(`DELETE FROM entity WHERE id = ?`, [id]);
-      ftsRemove(db, id);
-      mentionsRemove(db, id);
-      tombstoneAdd(db, id); // block reindex resurrection if the .md survived
+      // Le tombstone doit partir avec le DELETE : sans lui, un kill entre les deux
+      // laissait le reindex ressusciter la note si le .md avait survécu.
+      runInTransaction(db, () => {
+        db.run(`DELETE FROM entity WHERE id = ?`, [id]);
+        ftsRemove(db, id);
+        mentionsRemove(db, id);
+        tombstoneAdd(db, id);
+      });
     }
     try { hooks.onEntityDeleted?.(id, previousForHook); } catch (e) { console.warn("[hook] onEntityDeleted", e); }
     return { id, deleted: true };
