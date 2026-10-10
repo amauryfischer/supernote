@@ -61,7 +61,7 @@ Il n'y a **pas de test unitaire** dans ce dépôt, et c'est une décision, pas u
 ```
 pnpm typecheck     # doit passer avant tout commit
 pnpm lint          # garde des imports @heroui/react, voir patterns.md
-pnpm test:e2e      # Playwright chromium, 74 tests
+pnpm test:e2e      # Playwright chromium, 77 tests
 ```
 
 Voir [patterns.md](patterns.md) pour ce que la suite e2e couvre réellement.
