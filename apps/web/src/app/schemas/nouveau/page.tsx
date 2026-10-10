@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Check } from "@phosphor-icons/react";
-import { Button, Input, TextArea } from "@heroui/react";
+import { Button, Input, Textarea } from "@supernote/ui";
 import { AppShell, useMobileTitle } from "@/components/shell";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { getIcon } from "@/components/schemas/icon-map";
@@ -127,7 +127,6 @@ export default function NouveauSchemaPage() {
                 value={form.name}
                 onChange={(e) => patch("name", e.target.value)}
                 placeholder="Exemple : Livre"
-                variant="primary"
               />
             </FormField>
             <FormField label="Nom pluriel *">
@@ -135,20 +134,19 @@ export default function NouveauSchemaPage() {
                 value={form.plural}
                 onChange={(e) => patch("plural", e.target.value)}
                 placeholder="Exemple : Livres"
-                variant="primary"
               />
             </FormField>
           </div>
 
           {/* Description */}
           <FormField label="Description">
-            <TextArea
+            <Textarea
               value={form.description}
               onChange={(e) => patch("description", e.target.value)}
               placeholder="À quoi sert ce type d'entité ?"
               rows={2}
-              variant="primary"
-              className="w-full resize-none"
+              wrapperClassName="w-full"
+              className="resize-none"
             />
           </FormField>
 
@@ -167,7 +165,7 @@ export default function NouveauSchemaPage() {
                     onPress={() => patch("icon", name)}
                     isIconOnly
                     variant="outline"
-                    size="sm"
+                    size="icon"
                     className="h-9 w-9"
                     style={iconStyle}
                     aria-label={name}
@@ -184,10 +182,11 @@ export default function NouveauSchemaPage() {
             <div className="flex flex-wrap gap-2">
               {COLOR_OPTIONS.map((color) => (
                 <Button
+                  variant="ghost"
                   key={color}
                   onPress={() => patch("color", color)}
                   isIconOnly
-                  size="sm"
+                  size="icon"
                   aria-label={`Couleur ${color}`}
                   className="relative h-8 w-8 rounded-full border-2 transition-transform hover:scale-110"
                   style={{
@@ -252,12 +251,12 @@ export default function NouveauSchemaPage() {
             Annuler
           </Button>
           <Button
+            variant="primary"
             onPress={handleCreate}
             isDisabled={!form.name || !form.plural || createMutation.isPending}
             isPending={createMutation.isPending}
             size="md"
             className="text-sm font-medium"
-            style={{ backgroundColor: "var(--btn-primary-bg)", color: "var(--btn-primary-fg)" }}
           >
             Créer le type
           </Button>

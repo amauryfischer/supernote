@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import { Button, Spinner } from "@heroui/react";
+import { Spinner } from "@heroui/react";
+import { Button } from "@supernote/ui";
 import {
   MagnifyingGlassPlus,
   MagnifyingGlassMinus,
@@ -121,19 +122,19 @@ export function ImageViewer({ path }: AttachmentViewerProps) {
     <div className="flex h-full w-full flex-col overflow-hidden bg-black">
       {/* Toolbar */}
       <div className="flex shrink-0 items-center gap-1 border-b border-white/10 bg-black/80 px-2 py-1">
-        <Button isIconOnly size="sm" variant="ghost" onPress={zoomIn} aria-label="Zoom avant">
+        <Button isIconOnly size="icon" variant="ghost" onPress={zoomIn} aria-label="Zoom avant">
           <MagnifyingGlassPlus size={16} weight="bold" />
         </Button>
-        <Button isIconOnly size="sm" variant="ghost" onPress={zoomOut} aria-label="Zoom arrière">
+        <Button isIconOnly size="icon" variant="ghost" onPress={zoomOut} aria-label="Zoom arrière">
           <MagnifyingGlassMinus size={16} weight="bold" />
         </Button>
-        <Button isIconOnly size="sm" variant="ghost" onPress={reset} aria-label="Réinitialiser le zoom">
+        <Button isIconOnly size="icon" variant="ghost" onPress={reset} aria-label="Réinitialiser le zoom">
           <ArrowsIn size={16} weight="bold" />
         </Button>
         <span className="px-1 text-xs text-white/50">{Math.round(zoom * 100)}%</span>
         <div className="flex-1" />
         <a href={objectUrl} download={basename} tabIndex={-1}>
-          <Button isIconOnly size="sm" variant="ghost" aria-label="Télécharger">
+          <Button isIconOnly size="icon" variant="ghost" aria-label="Télécharger">
             <DownloadSimple size={16} weight="bold" />
           </Button>
         </a>

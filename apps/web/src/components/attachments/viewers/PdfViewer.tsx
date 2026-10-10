@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Button, Input, Spinner, TextArea } from "@heroui/react";
+import { Spinner } from "@heroui/react";
+import { Button, Input, Textarea } from "@supernote/ui";
 import * as pdfjsLib from "pdfjs-dist";
 import type { PDFDocumentProxy, PDFPageProxy, RenderTask } from "pdfjs-dist";
 import { PDFDocument, rgb } from "pdf-lib";
@@ -510,7 +511,8 @@ export function PdfViewer({ path }: AttachmentViewerProps) {
           <Input
             value={pageInputValue}
             onChange={(e) => handlePageInputChange(e.target.value)}
-            className="w-14 text-center"
+            wrapperClassName="w-14"
+            className="text-center"
             aria-label="Page courante"
           />
           <span className="text-xs" style={{ color: "var(--text-muted)" }}>/ {numPages}</span>
@@ -535,7 +537,7 @@ export function PdfViewer({ path }: AttachmentViewerProps) {
 
         {/* Annotation tool buttons */}
         <Button
-          size="sm"
+          size="icon"
           variant={activeTool === "none" ? "outline" : "ghost"}
           isIconOnly
           aria-label="Sélectionner"
@@ -544,7 +546,7 @@ export function PdfViewer({ path }: AttachmentViewerProps) {
           <CursorClick size={16} />
         </Button>
         <Button
-          size="sm"
+          size="icon"
           variant={activeTool === "highlight" ? "outline" : "ghost"}
           isIconOnly
           aria-label="Surligner"
@@ -553,7 +555,7 @@ export function PdfViewer({ path }: AttachmentViewerProps) {
           <Highlighter size={16} />
         </Button>
         <Button
-          size="sm"
+          size="icon"
           variant={activeTool === "comment" ? "outline" : "ghost"}
           isIconOnly
           aria-label="Commenter"
@@ -622,7 +624,7 @@ export function PdfViewer({ path }: AttachmentViewerProps) {
                       }}
                       onClick={(e) => e.stopPropagation()}
                     >
-                      <TextArea
+                      <Textarea
                         autoFocus
                         placeholder="Votre commentaire…"
                         value={commentText}

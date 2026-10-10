@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Button, Input, Select, ListBox, ListBoxItem, Spinner } from "@heroui/react";
-import type { Key } from "@heroui/react";
+import { Spinner } from "@heroui/react";
+import { Button, Input, Select } from "@supernote/ui";
 import type { Variable, VariableInput, VariableValue, VariableType } from "@supernote/ipc";
 import { FormulaInputEditor } from "@/components/bases/FormulaInputEditor";
 import { trpc } from "@/lib/trpc/client";
@@ -143,7 +143,8 @@ export function VariableForm({
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="flex-1 rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[var(--accent)]"
+              wrapperClassName="flex-1"
+              className="rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[var(--accent)]"
               style={{
                 borderColor: "var(--border)",
                 backgroundColor: "var(--surface-1)",
@@ -165,30 +166,12 @@ export function VariableForm({
           </label>
           <Select
             selectedKey={type}
-            onSelectionChange={(k: Key | null) => {
-              const key = k == null ? null : String(k);
-              if (key && (key in TYPE_LABELS)) setType(key as VariableType);
+            onSelectionChange={(key) => {
+              if (key in TYPE_LABELS) setType(key as VariableType);
             }}
             aria-label="Type de la variable"
-          >
-            <Select.Trigger
-              className="flex w-full items-center justify-between rounded-lg border px-3 py-2 text-sm outline-none"
-              style={{
-                borderColor: "var(--border)",
-                backgroundColor: "var(--surface-1)",
-                color: "var(--text-primary)",
-              }}
-            >
-              <Select.Value />
-            </Select.Trigger>
-            <Select.Popover>
-              <ListBox>
-                {(Object.keys(TYPE_LABELS) as VariableType[]).map((t) => (
-                  <ListBoxItem key={t} id={t}>{TYPE_LABELS[t]}</ListBoxItem>
-                ))}
-              </ListBox>
-            </Select.Popover>
-          </Select>
+            options={(Object.keys(TYPE_LABELS) as VariableType[]).map((t) => ({ key: t, label: TYPE_LABELS[t] }))}
+          />
         </div>
 
         {/* Source */}
@@ -250,7 +233,8 @@ export function VariableForm({
             type={type === "number" ? "number" : type === "date" ? "datetime-local" : "text"}
             value={literalValue}
             onChange={(e) => setLiteralValue(e.target.value)}
-            className="w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[var(--accent)]"
+            wrapperClassName="w-full"
+            className="rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[var(--accent)]"
             style={{
               borderColor: "var(--border)",
               backgroundColor: "var(--surface-1)",

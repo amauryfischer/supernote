@@ -1,6 +1,7 @@
 "use client";
 
-import { Button, Spinner } from "@heroui/react";
+import { Spinner } from "@heroui/react";
+import { Button } from "@supernote/ui";
 import { DownloadSimple, ArrowSquareOut } from "@phosphor-icons/react";
 
 import type { AttachmentViewerProps } from "../AttachmentRouter";
@@ -52,14 +53,14 @@ export function HtmlViewer({ path }: AttachmentViewerProps) {
         <div className="flex-1" />
         {objectUrl && (
           <a href={objectUrl} target="_blank" rel="noreferrer" tabIndex={-1}>
-            <Button isIconOnly size="sm" variant="ghost" aria-label="Ouvrir dans un nouvel onglet">
+            <Button isIconOnly size="icon" variant="ghost" aria-label="Ouvrir dans un nouvel onglet">
               <ArrowSquareOut size={16} weight="bold" />
             </Button>
           </a>
         )}
         {objectUrl && (
           <a href={objectUrl} download={basename} tabIndex={-1}>
-            <Button isIconOnly size="sm" variant="ghost" aria-label="Télécharger">
+            <Button isIconOnly size="icon" variant="ghost" aria-label="Télécharger">
               <DownloadSimple size={16} weight="bold" />
             </Button>
           </a>

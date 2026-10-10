@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Plus, Database, Stack } from "@phosphor-icons/react";
-import { Button } from "@heroui/react";
+import { Button, Skeleton } from "@supernote/ui";
 import { AppShell, useMobileFab, useMobileTitle } from "@/components/shell";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { TypeListItem } from "@/components/schemas/TypeListItem";
@@ -13,7 +13,6 @@ import { ENTITY_TYPES } from "@/components/schemas/fixtures";
 import { trpc } from "@/lib/trpc/client";
 import type { EntityType } from "@supernote/core";
 import { ipcEntityTypeToCore } from "@/components/schemas/adapters";
-import { Skeleton } from "@supernote/ui";
 
 const SEED_IDS = new Set([
   "personne", "organisation", "interaction", "note",
@@ -40,9 +39,9 @@ function EmptyCustomTypes() {
       </p>
       <Link href="/schemas/nouveau">
         <Button
+          variant="primary"
           size="sm"
           className="mt-3 text-xs font-medium"
-          style={{ backgroundColor: "var(--btn-primary-bg)", color: "var(--btn-primary-fg)" }}
         >
           Créer un type
         </Button>
@@ -105,9 +104,9 @@ export default function SchemasPage() {
             </div>
             <Link href="/schemas/nouveau">
               <Button
+                variant="primary"
                 size="sm"
                 className="text-xs font-medium"
-                style={{ backgroundColor: "var(--btn-primary-bg)", color: "var(--btn-primary-fg)" }}
               >
                 <Plus size={12} />
                 Nouveau

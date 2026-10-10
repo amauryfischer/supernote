@@ -21,8 +21,7 @@
 
 import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { Button, Input } from "@heroui/react";
-import { useToast, Checkbox } from "@supernote/ui";
+import { useToast, Checkbox, Button, Input } from "@supernote/ui";
 import { withMutationFeedback } from "@/lib/trpc/with-mutation-feedback";
 import { Plus, Tag as TagIcon } from "@phosphor-icons/react";
 import {
@@ -319,10 +318,10 @@ export default function TagsPage() {
             </div>
             {/* "Nouveau tag" button hidden on mobile — FAB handles creation */}
             <Button
+              variant="primary"
               onPress={() => setCreateModal({ open: true, parent: "" })}
               size="sm"
               className="hidden md:flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium"
-              style={{ backgroundColor: "var(--btn-primary-bg)", color: "var(--btn-primary-fg)" }}
             >
               <Plus size={12} /> Nouveau tag
             </Button>
@@ -333,7 +332,8 @@ export default function TagsPage() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Rechercher un tag…"
-              className="w-full rounded-md px-3 py-1.5 text-sm outline-none"
+              wrapperClassName="w-full"
+              className="rounded-md px-3 py-1.5 text-sm outline-none"
               style={{
                 backgroundColor: "var(--surface-0)",
                 border: `1px solid ${subtle}`,
@@ -664,13 +664,10 @@ function TagPickerModal({
             Annuler
           </Button>
           <Button
+            variant="primary"
             size="sm"
             onPress={() => onConfirm(value)}
             className="rounded-md px-3 py-1.5 text-sm font-medium"
-            style={{
-              backgroundColor: "var(--btn-primary-bg)",
-              color: "var(--btn-primary-fg)",
-            }}
           >
             Valider
           </Button>
@@ -781,6 +778,7 @@ function DeleteTagModal({
             Annuler
           </Button>
           <Button
+            variant="ghost"
             size="sm"
             autoFocus
             onPress={onConfirm}

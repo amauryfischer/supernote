@@ -2,7 +2,7 @@
 
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Button } from "@heroui/react";
+import { Button } from "@supernote/ui";
 import { DotsSixVertical, PencilSimple, Trash } from "@phosphor-icons/react";
 import type { Field } from "@supernote/core";
 import { FieldKindBadge } from "./FieldKindBadge";
@@ -56,7 +56,7 @@ export function SortableFieldRow({ field, onEdit, onDelete }: SortableFieldRowPr
         <Button
           isIconOnly
           variant="ghost"
-          size="sm"
+          size="icon"
           onPress={onEdit}
           className="rounded p-1 hover:bg-[var(--surface-2)]"
           aria-label="Modifier"
@@ -66,7 +66,7 @@ export function SortableFieldRow({ field, onEdit, onDelete }: SortableFieldRowPr
         <Button
           isIconOnly
           variant="ghost"
-          size="sm"
+          size="icon"
           onPress={onDelete}
           className="rounded p-1 hover:bg-red-50"
           aria-label="Supprimer"

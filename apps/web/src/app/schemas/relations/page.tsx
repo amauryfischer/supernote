@@ -4,7 +4,7 @@ import { useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, X } from "@phosphor-icons/react";
-import { Button } from "@heroui/react";
+import { Button } from "@supernote/ui";
 import { AppShell, useMobileTitle } from "@/components/shell";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { ENTITY_TYPES, RELATION_TYPES } from "@/components/schemas/fixtures";
@@ -98,7 +98,7 @@ export default function RelationsPage() {
                   onPress={() => setSelectedRel(null)}
                   variant="ghost"
                   isIconOnly
-                  size="sm"
+                  size="icon"
                   aria-label="Fermer l'édition de relation"
                   className="h-6 w-6"
                 >

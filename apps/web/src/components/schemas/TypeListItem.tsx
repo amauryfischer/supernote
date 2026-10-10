@@ -1,6 +1,6 @@
 "use client";
 
-import { Button } from "@heroui/react";
+import { Button } from "@supernote/ui";
 import { EntityType } from "@supernote/core";
 import { ENTITY_COUNTS } from "./fixtures";
 import { getIcon } from "./icon-map";

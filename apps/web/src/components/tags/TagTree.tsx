@@ -20,7 +20,7 @@
  */
 
 import { useMemo, useState, useCallback } from "react";
-import { Button } from "@heroui/react";
+import { Button } from "@supernote/ui";
 import {
   CaretDown,
   CaretRight,

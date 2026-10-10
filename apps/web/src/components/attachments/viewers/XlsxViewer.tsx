@@ -2,7 +2,8 @@
 
 import { useCallback, useMemo, useState } from "react";
 import * as XLSX from "xlsx";
-import { Button, Spinner } from "@heroui/react";
+import { Spinner } from "@heroui/react";
+import { Button } from "@supernote/ui";
 import { Download, Plus } from "@phosphor-icons/react";
 import type { AttachmentViewerProps } from "../AttachmentRouter";
 import { useAttachmentBlob } from "../useAttachmentBlob";

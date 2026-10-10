@@ -1,6 +1,6 @@
 "use client";
 
-import { Button } from "@heroui/react";
+import { Button } from "@supernote/ui";
 import { Trash } from "@phosphor-icons/react";
 import { trpc } from "@/lib/trpc/client";
 
