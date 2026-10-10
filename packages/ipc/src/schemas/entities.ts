@@ -205,3 +205,24 @@ export type Backlink = z.infer<typeof BacklinkSchema>;
 
 export const GetBacklinksOutput = z.array(BacklinkSchema);
 export type GetBacklinksOutput = z.infer<typeof GetBacklinksOutput>;
+
+/** Ligne de checklist déjà extraite d'une note (le corps de la note ne quitte pas le worker). */
+export const NoteChecklistRowSchema = z.object({
+  noteId: z.string(),
+  noteTitle: z.string(),
+  noteTags: z.array(z.string()),
+  noteUpdatedAt: z.string(),
+  line: z.number(),
+  blockId: z.string(),
+  text: z.string(),
+  done: z.boolean(),
+  priority: z.number(),
+  importance: z.enum(["low", "medium", "high", "critical"]),
+  urgent: z.boolean(),
+  startDate: z.string().nullable(),
+  dueDate: z.string().nullable(),
+});
+export type NoteChecklistRow = z.infer<typeof NoteChecklistRowSchema>;
+
+export const NoteChecklistsOutput = z.array(NoteChecklistRowSchema);
+export type NoteChecklistsOutput = z.infer<typeof NoteChecklistsOutput>;

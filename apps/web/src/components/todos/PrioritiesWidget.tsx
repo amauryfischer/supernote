@@ -16,8 +16,6 @@ import { useMemo } from "react";
 import { Skeleton } from "@supernote/ui";
 import { trpc } from "@/lib/trpc/client";
 import { TODO_TYPE_ID } from "@/hooks/useTodoSync";
-import { extractChecklists } from "@/lib/todos/extractChecklists";
-import { filterChecklistsHeuristic } from "@/lib/todos/heuristicFilter";
 import { importanceColor } from "./TodoRow";
 import type { TodoImportance } from "./TodoRow";
 import { InlineMarkdown } from "@/lib/inlineMarkdown";
@@ -52,10 +50,10 @@ function parsePriority(v: unknown): number {
 }
 
 export function PrioritiesWidget() {
-  const notesQuery = trpc.entities.list.useQuery(
-    { typeId: "note", limit: 5000, offset: 0 },
-    { staleTime: 60_000, retry: false },
-  );
+  const notesQuery = trpc.entities.noteChecklists.useQuery(undefined, {
+    staleTime: 60_000,
+    retry: false,
+  });
   const todosQuery = trpc.entities.list.useQuery(
     { typeId: TODO_TYPE_ID, limit: 5000, offset: 0 },
     { staleTime: 60_000, retry: false },
@@ -65,24 +63,17 @@ export function PrioritiesWidget() {
     const collected: MiniRow[] = [];
 
     // Notes-derived rows.
-    for (const n of notesQuery.data?.items ?? []) {
-      const body = typeof n.body === "string" ? n.body : "";
-      if (!body || !body.includes("[")) continue;
-      const items = extractChecklists(body);
-      if (items.length === 0) continue;
-      const kept = filterChecklistsHeuristic(body, items);
-      for (const it of kept) {
-        if (it.done) continue;
-        const isUrgent = it.importance === "critical" || it.priority <= 3;
-        if (!isUrgent) continue;
-        collected.push({
-          id: `note:${n.id}:${it.blockId}`,
-          text: it.text,
-          priority: it.priority,
-          importance: it.importance,
-          sourceNoteId: n.id,
-        });
-      }
+    for (const it of notesQuery.data ?? []) {
+      if (it.done) continue;
+      const isUrgent = it.importance === "critical" || it.priority <= 3;
+      if (!isUrgent) continue;
+      collected.push({
+        id: `note:${it.noteId}:${it.blockId}`,
+        text: it.text,
+        priority: it.priority,
+        importance: it.importance,
+        sourceNoteId: it.noteId,
+      });
     }
 
     // Standalone entities.

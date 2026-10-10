@@ -7,8 +7,6 @@ import { useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
 import { trpc } from "@/lib/trpc/client";
 import { TODO_TYPE_ID } from "@/hooks/useTodoSync";
-import { extractChecklists } from "@/lib/todos/extractChecklists";
-import { filterChecklistsHeuristic } from "@/lib/todos/heuristicFilter";
 import { importanceColor } from "@/components/todos/TodoRow";
 import type { TodoImportance } from "@/components/todos/TodoRow";
 import { HomeSection, HOME_ROW_CLASS, SectionSkeleton, SectionNotice } from "./HomeSection";
@@ -41,12 +39,10 @@ export function TodayWidget() {
   const tCommon = useTranslations("home");
   const router = useRouter();
 
-  // Les notes gardent leur body : extractChecklists parse le markdown complet.
-  // (Scan client-side coûteux — candidat à un endpoint worker dédié plus tard.)
-  const notesQuery = trpc.entities.list.useQuery(
-    { typeId: "note", limit: 5000, offset: 0 },
-    { staleTime: 60_000, retry: false },
-  );
+  const notesQuery = trpc.entities.noteChecklists.useQuery(undefined, {
+    staleTime: 60_000,
+    retry: false,
+  });
   // Les todos sont pilotés par champs (pas de body) → résumés suffisent.
   const todosQuery = trpc.entities.listSummaries.useQuery(
     { typeId: TODO_TYPE_ID, limit: 5000, offset: 0 },
@@ -56,22 +52,15 @@ export function TodayWidget() {
   const rows = useMemo<UrgentRow[]>(() => {
     const collected: UrgentRow[] = [];
 
-    for (const n of notesQuery.data?.items ?? []) {
-      const body = typeof n.body === "string" ? n.body : "";
-      if (!body || !body.includes("[")) continue;
-      const items = extractChecklists(body);
-      if (items.length === 0) continue;
-      const kept = filterChecklistsHeuristic(body, items);
-      for (const it of kept) {
-        if (it.done) continue;
-        if (!(it.importance === "critical" || it.priority <= 3)) continue;
-        collected.push({
-          id: `note:${n.id}:${it.blockId}`,
-          text: it.text,
-          priority: it.priority,
-          importance: it.importance,
-        });
-      }
+    for (const it of notesQuery.data ?? []) {
+      if (it.done) continue;
+      if (!(it.importance === "critical" || it.priority <= 3)) continue;
+      collected.push({
+        id: `note:${it.noteId}:${it.blockId}`,
+        text: it.text,
+        priority: it.priority,
+        importance: it.importance,
+      });
     }
 
     for (const e of todosQuery.data?.items ?? []) {

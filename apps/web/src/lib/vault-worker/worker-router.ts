@@ -13,6 +13,7 @@
 import type { Database } from "./sqlite-adapter";
 import { row, rows, runInTransaction, type SqlValue, type SqlRow } from "./sql";
 import { buildCalendarRoutes } from "./calendar-routes";
+import { buildChecklistRoutes } from "./checklists";
 import {
   parseFrontmatter,
   serializeFrontmatter,
@@ -5590,6 +5591,7 @@ export function buildRouter(
     "mail.retryFailed": mailRetryFailed,
 
     ...buildCalendarRoutes(db, vaultId),
+    ...buildChecklistRoutes(db, vaultId),
   };
 }
 
