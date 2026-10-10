@@ -18,7 +18,8 @@ import {
   useState,
   type KeyboardEvent,
 } from "react";
-import { Button, TextArea, Card, Chip, Spinner } from "@heroui/react";
+import { Spinner } from "@heroui/react";
+import { Badge, Button, Card, Textarea } from "@supernote/ui";
 import { ArrowUp, Robot, Wrench, Warning, Stop } from "@phosphor-icons/react";
 import { createOllamaClient, runAgent, type AgentEvent, type ChatMessage } from "@supernote/ai";
 import { useNavigate, useSearchParams } from "react-router-dom";
@@ -336,24 +337,24 @@ export function ChatPanel() {
               options={probe.models.map((m) => ({ value: m, label: m }))}
             />
           ) : (
-            <Chip size="sm" variant="soft" className="ml-2">
+            <Badge size="sm" variant="default" className="ml-2">
               {activeModel}
-            </Chip>
+            </Badge>
           )}
         </div>
         <div className="flex items-center gap-2">
           {probe.state === "available" && (
-            <Chip size="sm" color="success" variant="soft">
+            <Badge size="sm" variant="success">
               Ollama OK · {probe.models.length} modèle{probe.models.length > 1 ? "s" : ""}
-            </Chip>
+            </Badge>
           )}
           {probe.state === "unavailable" && (
-            <Chip size="sm" color="danger" variant="soft">
+            <Badge size="sm" variant="danger">
               <span className="flex items-center gap-1">
                 <Warning size={12} />
                 Ollama indisponible
               </span>
-            </Chip>
+            </Badge>
           )}
           {probe.state === "unknown" && <Spinner size="sm" />}
         </div>
@@ -388,7 +389,7 @@ export function ChatPanel() {
             </div>
           )}
           {probe.state === "unavailable" && (
-            <Card>
+            <Card elevation="none" className="border-0">
               <div className="flex items-start gap-3 p-4">
                 <Warning size={20} weight="fill" style={{ color: "var(--danger)" }} />
                 <div className="text-sm">
@@ -431,22 +432,21 @@ export function ChatPanel() {
       {aiAllowed && (
       <div className="border-t px-4 py-3 md:px-6 md:py-4" style={{ borderColor: "var(--border-subtle)" }}>
         <div className="mx-auto flex max-w-3xl items-end gap-2">
-          <TextArea
+          <Textarea
             rows={2}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Demande à l'assistant…"
             disabled={running || probe.state === "unavailable"}
-            className="flex-1 resize-none px-3 py-2 text-sm outline-none"
+            className="flex-1 resize-none px-3 py-2 text-sm outline-none" wrapperClassName="flex-1"
           />
           {running ? (
-            <Button isIconOnly variant="danger" onPress={handleStop} aria-label="Stop">
+            <Button size="icon" variant="danger" onPress={handleStop} aria-label="Stop">
               <Stop size={18} weight="fill" />
             </Button>
           ) : (
-            <Button
-              isIconOnly
+            <Button size="icon"
               variant="primary"
               onPress={() => void handleSend()}
               isDisabled={!input.trim() || probe.state === "unavailable"}
@@ -560,9 +560,9 @@ function ToolCallCard({ item }: { item: DisplayToolItem }) {
               {previewArgs(item.args)}
             </span>
           </div>
-          <Chip size="sm" variant="soft" color={chipColor}>
+          <Badge size="sm" variant={chipColor}>
             {item.status === "running" ? "…" : item.status === "error" ? "err" : "ok"}
-          </Chip>
+          </Badge>
         </button>
         {sources.length > 0 && (
           <div className="flex flex-wrap gap-1.5">

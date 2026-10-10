@@ -1,6 +1,6 @@
 "use client";
 
-import { Button } from "@heroui/react";
+import { Button } from "@supernote/ui";
 import { Calendar, Lightning, Alarm, Brain, Plus } from "@phosphor-icons/react";
 import type { TemplateKey } from "./fixtures";
 import { TEMPLATE_META } from "./fixtures";

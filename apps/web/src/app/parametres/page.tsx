@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Button } from "@heroui/react";
+import { Button } from "@supernote/ui";
 import {
   Gear,
   Palette,
@@ -150,15 +150,11 @@ function SettingsContent() {
             </h1>
           </div>
           {saveable && (
-            <Button
+            <Button variant="primary"
               onPress={saveSettings}
               isDisabled={isSaving}
               size="sm"
               className="ml-auto flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-all hover:opacity-90 disabled:opacity-50"
-              style={{
-                backgroundColor: "var(--btn-primary-bg)",
-                color: "var(--btn-primary-fg)",
-              }}
             >
               <FloppyDisk size={14} />
               {isSaving ? t("settings.saving") : t("settings.save")}

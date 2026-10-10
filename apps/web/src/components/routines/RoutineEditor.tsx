@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Button, Input } from "@heroui/react";
+import { Button, Input } from "@supernote/ui";
 import { Plus, FloppyDisk, X, Play, ArrowLeft, Question } from "@phosphor-icons/react";
 import Link from "next/link";
 import type { RoutineFixture, ActionConfig, ActionType, RunRecord, RunStatus } from "./fixtures";
@@ -181,11 +181,10 @@ export function RoutineEditor({ routine, onSave, onCancel, onRunNow }: RoutineEd
             <X size={13} />
             Annuler
           </Button>
-          <Button
+          <Button variant="primary"
             size="sm"
             onPress={handleSave}
             className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-opacity hover:opacity-90"
-            style={{ backgroundColor: "var(--btn-primary-bg)", color: "var(--btn-primary-fg)" }}
           >
             <FloppyDisk size={13} />
             {saved ? "Enregistré" : "Enregistrer"}
@@ -227,7 +226,7 @@ export function RoutineEditor({ routine, onSave, onCancel, onRunNow }: RoutineEd
               <Input
                 value={data.description}
                 onChange={(e) => update({ description: e.target.value })}
-                className="w-full rounded-md border px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
+                className="rounded-md border px-3 py-2 text-sm outline-none focus:border-[var(--accent)]" wrapperClassName="w-full"
                 style={{
                   backgroundColor: "var(--surface-0)",
                   borderColor: "var(--border)",

@@ -1,8 +1,7 @@
 "use client";
 
-import { Trash, DotsSixVertical, CaretDown } from "@phosphor-icons/react";
-import { Button, Input, TextArea, Select, ListBox, ListBoxItem } from "@heroui/react";
-import type { Key } from "@heroui/react";
+import { Trash, DotsSixVertical } from "@phosphor-icons/react";
+import { Button, Input, Select, Textarea } from "@supernote/ui";
 import type { ActionConfig, ActionType } from "./fixtures";
 
 interface ActionCardProps {
@@ -28,7 +27,7 @@ const ACTION_LABELS: Record<ActionType, string> = {
 interface SelectFieldProps {
   label: string;
   selectedKey: string;
-  onSelectionChange: (key: Key | null) => void;
+  onSelectionChange: (key: string) => void;
   options: Array<{ key: string; label: string }>;
 }
 
@@ -46,19 +45,12 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 function SelectField({ label, selectedKey, onSelectionChange, options }: SelectFieldProps) {
   return (
     <Field label={label}>
-      <Select selectedKey={selectedKey} onSelectionChange={onSelectionChange} aria-label={label}>
-        <Select.Trigger className="flex w-full items-center justify-between rounded border px-2.5 py-1.5 text-sm outline-none transition-colors" style={{ backgroundColor: "var(--surface-0)", borderColor: "var(--border)", color: "var(--text-primary)" }}>
-          <Select.Value />
-          <CaretDown size={12} />
-        </Select.Trigger>
-        <Select.Popover>
-          <ListBox>
-            {options.map(({ key, label: optLabel }) => (
-              <ListBoxItem key={key}>{optLabel}</ListBoxItem>
-            ))}
-          </ListBox>
-        </Select.Popover>
-      </Select>
+      <Select
+        aria-label={label}
+        selectedKey={selectedKey}
+        onSelectionChange={onSelectionChange}
+        options={options}
+      />
     </Field>
   );
 }
@@ -71,7 +63,7 @@ function MailDraftForm({ action, onChange }: { action: ActionConfig; onChange: (
     <div className="space-y-2">
       <Field label="À (to)">
         <Input
-          className="w-full"
+          wrapperClassName="w-full"
           value={String(action.to ?? "")}
           onChange={(e) => set("to", e.target.value)}
           placeholder="contact@exemple.fr ou {{entity.fields.email}}"
@@ -79,15 +71,15 @@ function MailDraftForm({ action, onChange }: { action: ActionConfig; onChange: (
       </Field>
       <Field label="Objet">
         <Input
-          className="w-full"
+          wrapperClassName="w-full"
           value={String(action.subject ?? "")}
           onChange={(e) => set("subject", e.target.value)}
           placeholder="Objet — {{now}}"
         />
       </Field>
       <Field label="Corps du message">
-        <TextArea
-          className="w-full"
+        <Textarea
+          wrapperClassName="w-full"
           rows={4}
           value={String(action.body ?? "")}
           onChange={(e) => set("body", e.target.value)}
@@ -113,15 +105,15 @@ function NotifyForm({ action, onChange, hasLevel }: { action: ActionConfig; onCh
     <div className="space-y-2">
       <Field label="Titre">
         <Input
-          className="w-full"
+          wrapperClassName="w-full"
           value={String(action.title ?? "")}
           onChange={(e) => set("title", e.target.value)}
           placeholder="Titre de la notification"
         />
       </Field>
       <Field label="Message">
-        <TextArea
-          className="w-full"
+        <Textarea
+          wrapperClassName="w-full"
           rows={2}
           value={String(action.body ?? "")}
           onChange={(e) => set("body", e.target.value)}
@@ -132,7 +124,7 @@ function NotifyForm({ action, onChange, hasLevel }: { action: ActionConfig; onCh
         <SelectField
           label="Niveau"
           selectedKey={String(action.level ?? "info")}
-          onSelectionChange={(key) => { if (key != null) set("level", key as string); }}
+          onSelectionChange={(key) => set("level", key)}
           options={LEVEL_OPTIONS}
         />
       )}
@@ -148,15 +140,15 @@ function LlmPromptForm({ action, onChange }: { action: ActionConfig; onChange: (
     <div className="space-y-2">
       <Field label="Modèle">
         <Input
-          className="w-full"
+          wrapperClassName="w-full"
           value={String(action.model ?? "llama3")}
           onChange={(e) => set("model", e.target.value)}
           placeholder="llama3, gpt-4o…"
         />
       </Field>
       <Field label="Prompt">
-        <TextArea
-          className="w-full font-mono text-xs"
+        <Textarea
+          className="font-mono text-xs" wrapperClassName="w-full"
           rows={5}
           value={String(action.prompt ?? "")}
           onChange={(e) => set("prompt", e.target.value)}
@@ -165,7 +157,7 @@ function LlmPromptForm({ action, onChange }: { action: ActionConfig; onChange: (
       </Field>
       <Field label="Stocker le résultat dans">
         <Input
-          className="w-full"
+          wrapperClassName="w-full"
           value={String(action.storeResultAs ?? "")}
           onChange={(e) => set("storeResultAs", e.target.value)}
           placeholder="dailyBrief"
@@ -185,7 +177,7 @@ function WebhookForm({ action, onChange }: { action: ActionConfig; onChange: (a:
     <div className="space-y-2">
       <Field label="URL">
         <Input
-          className="w-full"
+          wrapperClassName="w-full"
           value={String(action.url ?? "")}
           onChange={(e) => set("url", e.target.value)}
           placeholder="https://hooks.example.com/endpoint"
@@ -194,12 +186,12 @@ function WebhookForm({ action, onChange }: { action: ActionConfig; onChange: (a:
       <SelectField
         label="Méthode"
         selectedKey={String(action.method ?? "POST")}
-        onSelectionChange={(key) => { if (key != null) set("method", key as string); }}
+        onSelectionChange={(key) => set("method", key)}
         options={METHOD_OPTIONS}
       />
       <Field label="Corps (JSON)">
-        <TextArea
-          className="w-full font-mono text-xs"
+        <Textarea
+          className="font-mono text-xs" wrapperClassName="w-full"
           rows={3}
           value={String(action.body ?? "")}
           onChange={(e) => set("body", e.target.value)}
@@ -218,15 +210,15 @@ function InboxNoteForm({ action, onChange }: { action: ActionConfig; onChange: (
     <div className="space-y-2">
       <Field label="Titre">
         <Input
-          className="w-full"
+          wrapperClassName="w-full"
           value={String(action.title ?? "")}
           onChange={(e) => set("title", e.target.value)}
           placeholder="Titre de la note"
         />
       </Field>
       <Field label="Corps">
-        <TextArea
-          className="w-full"
+        <Textarea
+          wrapperClassName="w-full"
           rows={3}
           value={String(action.body ?? "")}
           onChange={(e) => set("body", e.target.value)}
@@ -245,15 +237,15 @@ function CreateEntityForm({ action, onChange }: { action: ActionConfig; onChange
     <div className="space-y-2">
       <Field label="Type d'entité (typeId)">
         <Input
-          className="w-full"
+          wrapperClassName="w-full"
           value={String(action.typeId ?? "")}
           onChange={(e) => set("typeId", e.target.value)}
           placeholder="person, note, task…"
         />
       </Field>
       <Field label="Champs (key=value, un par ligne)">
-        <TextArea
-          className="w-full font-mono text-xs"
+        <Textarea
+          className="font-mono text-xs" wrapperClassName="w-full"
           rows={4}
           value={Object.entries((action.fields as Record<string, string>) ?? {}).map(([k, v]) => `${k}=${v}`).join("\n")}
           onChange={(e) => {
@@ -279,8 +271,8 @@ function RunScriptForm({ action, onChange }: { action: ActionConfig; onChange: (
   return (
     <div className="space-y-2">
       <Field label="Script (JavaScript)">
-        <TextArea
-          className="w-full font-mono text-xs"
+        <Textarea
+          className="font-mono text-xs" wrapperClassName="w-full"
           rows={8}
           value={String(action.script ?? "")}
           onChange={(e) => set("script", e.target.value)}
@@ -332,8 +324,7 @@ export function ActionCard({ action, index, onChange, onRemove }: ActionCardProp
           {ACTION_LABELS[action.type] ?? action.type}
         </span>
         <Button
-          isIconOnly
-          size="sm"
+          size="icon"
           variant="ghost"
           onPress={onRemove}
           className="h-6 w-6 min-w-0 rounded p-0.5"

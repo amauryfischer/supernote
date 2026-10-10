@@ -1,6 +1,6 @@
 "use client";
 
-import { Button } from "@heroui/react";
+import { Button } from "@supernote/ui";
 import { Plus, Trash } from "@phosphor-icons/react";
 import type { Template } from "@supernote/templates";
 

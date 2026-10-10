@@ -2,7 +2,7 @@
 
 import { FolderOpen } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
-import { Button, Input } from "@heroui/react";
+import { Button, Input } from "@supernote/ui";
 import { useSettings } from "../SettingsContext";
 import { SettingRow } from "../SettingRow";
 import { SettingSection } from "../SettingSection";
@@ -140,7 +140,7 @@ export function GeneralTab() {
             value={defaultEmail}
             onChange={(e) => persistDefaultEmail(e.target.value)}
             placeholder="vous@exemple.fr"
-            className="w-full"
+            wrapperClassName="w-full"
           />
         </SettingRow>
       </SettingSection>

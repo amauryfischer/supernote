@@ -2,7 +2,7 @@
 
 import { Keyboard, ArrowCounterClockwise } from "@phosphor-icons/react";
 import { useMemo, useState } from "react";
-import { Button, Chip, Input } from "@heroui/react";
+import { Badge, Button, Input } from "@supernote/ui";
 import { ACTION_META } from "@supernote/editor";
 import { useSettings } from "../SettingsContext";
 import { SettingSection } from "../SettingSection";
@@ -115,9 +115,9 @@ function EditorShortcutRow({
             {label}
           </span>
           {hasConflict && (
-            <Chip color="warning" variant="soft" className="text-[10px]">
+            <Badge variant="warning" className="text-[10px]">
               Conflit
-            </Chip>
+            </Badge>
           )}
         </div>
         {editing ? (
@@ -128,15 +128,14 @@ function EditorShortcutRow({
               onKeyDown={handleKeyDown}
               readOnly
               placeholder="Appuyez sur les touches…"
-              className="w-[160px] font-mono text-xs"
+              className="font-mono text-xs" wrapperClassName="w-[160px]"
             />
             <Button
-              variant="ghost"
+              variant="primary"
               size="sm"
               onPress={save}
               isDisabled={!draft}
               className="rounded-md px-2 py-1 text-xs font-medium"
-              style={{ backgroundColor: "var(--btn-primary-bg)", color: "var(--btn-primary-fg)" }}
             >
               OK
             </Button>

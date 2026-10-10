@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Button, Input } from "@heroui/react";
+import { Button, Input, Switch, Textarea, useToast } from "@supernote/ui";
 import {
   EnvelopeSimple,
   Plug,
@@ -15,7 +15,6 @@ import {
 } from "@phosphor-icons/react";
 import { useSettings } from "../SettingsContext";
 import { SettingRow } from "../SettingRow";
-import { Textarea, useToast, Switch } from "@supernote/ui";
 import { SettingSection } from "../SettingSection";
 import { connectGmail, getGmailProfile, GMAIL_READONLY_SCOPE } from "@/lib/gmail";
 import { clearAccessToken } from "@/lib/google-drive";
@@ -224,7 +223,7 @@ export function GmailTab() {
                   updateSettings("gmail", { ...gmail, undoSendSeconds: n });
                 }}
                 onBlur={() => void saveSettings()}
-                className="w-24"
+                wrapperClassName="w-24"
                 aria-label="Fenêtre d'annulation d'envoi, en secondes"
               />
               <span className="text-xs" style={{ color: "var(--text-muted)" }}>
@@ -248,7 +247,7 @@ export function GmailTab() {
                   updateSettings("gmail", { ...gmail, followupDays: n });
                 }}
                 onBlur={() => void saveSettings()}
-                className="w-24"
+                wrapperClassName="w-24"
                 aria-label="Délai par défaut d'un rappel de relance, en jours"
               />
               <span className="text-xs" style={{ color: "var(--text-muted)" }}>
@@ -469,7 +468,7 @@ export function GmailTab() {
                     void addAlias();
                   }
                 }}
-                className="w-full sm:w-72"
+                wrapperClassName="w-full sm:w-72"
               />
               <Button
                 variant="primary"

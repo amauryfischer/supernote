@@ -2,7 +2,8 @@
 
 import { Robot, CircleNotch, CheckCircle, XCircle, Copy, Check, Database } from "@phosphor-icons/react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Button, Input, ProgressBar } from "@heroui/react";
+import { ProgressBar } from "@heroui/react";
+import { Button, Input } from "@supernote/ui";
 import { runIndex } from "@/lib/rag-indexer";
 import { useSettings } from "../SettingsContext";
 import { SettingRow } from "../SettingRow";
@@ -519,7 +520,7 @@ export function IaOllamaTab() {
             onChange={(e) => setHost(e.target.value)}
             onBlur={(e) => persistHost(e.target.value || DEFAULT_OLLAMA_HOST)}
             placeholder={DEFAULT_OLLAMA_HOST}
-            className="w-56"
+            wrapperClassName="w-56"
           />
         </SettingRow>
 
@@ -631,12 +632,11 @@ function RagIndexSection({ host, model }: RagIndexSectionProps) {
         label="Indexer le vault"
         description="Embed chaque note via Ollama (nomic-embed-text). Durée : ~0.5 s/note."
       >
-        <Button
+        <Button variant="primary"
           size="sm"
           onPress={() => void handleIndex()}
           isDisabled={running}
           className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium"
-          style={{ backgroundColor: "var(--btn-primary-bg)", color: "var(--btn-primary-fg)" }}
         >
           {running && <CircleNotch size={13} className="animate-spin" />}
           {running ? "Indexation…" : "Indexer le vault"}

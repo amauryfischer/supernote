@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Button, Input, TextArea } from "@heroui/react";
+import { Button, Input, Textarea } from "@supernote/ui";
 import { listVariables, renderTemplate } from "@supernote/templates";
 import type { Template, TemplateResolvers } from "@supernote/templates";
 import { FilePlus, Play, Tag } from "@phosphor-icons/react";
@@ -97,7 +97,7 @@ export function TemplateEditor({
           type="text"
           value={name}
           onChange={(e) => setName(e.target.value)}
-          className="min-w-0 flex-1 basis-full bg-transparent text-lg font-semibold md:basis-auto"
+          className="bg-transparent text-lg font-semibold" wrapperClassName="min-w-0 flex-1 basis-full md:basis-auto"
           placeholder="Nom du template"
           aria-label="Nom du template"
         />
@@ -151,7 +151,7 @@ export function TemplateEditor({
               type="text"
               value={entityType}
               onChange={(e) => setEntityType(e.target.value)}
-              className="w-full text-sm"
+              className="text-sm" wrapperClassName="w-full"
               placeholder="ex: note, contact, projet…"
               aria-label="Type d'entité cible"
             />
@@ -191,10 +191,11 @@ export function TemplateEditor({
 
         {/* Right: body textarea + preview */}
         <div className="flex flex-1 flex-col overflow-hidden">
-          <TextArea
+          <Textarea
             value={body}
             onChange={(e) => setBody(e.target.value)}
             className={`flex-1 resize-none p-4 font-mono text-sm md:p-6 bg-[var(--surface-0)] text-[var(--text-primary)]${preview !== null || previewError !== null ? " border-b border-[var(--border-subtle)]" : ""}`}
+            wrapperClassName="flex-1"
             aria-label="Corps du template"
             spellCheck={false}
             rows={10}

@@ -10,8 +10,8 @@
  */
 
 import { useEffect, useState } from "react";
-import { Button, Spinner } from "@heroui/react";
-import { Modal, useToast, Checkbox } from "@supernote/ui";
+import { Spinner } from "@heroui/react";
+import { Button, Checkbox, Modal, useToast } from "@supernote/ui";
 import { CaretRight, CaretDown, Table as TableIcon } from "@phosphor-icons/react";
 import { listDocs, listTables } from "@/lib/coda/client";
 import { importCodaTables, type ImportTarget, type ImportProgress } from "@/lib/coda/import";
@@ -117,11 +117,10 @@ export function CodaImportModal({ isOpen, onClose, onImported }: Props) {
             <Button variant="ghost" size="sm" onPress={onClose} isDisabled={importing}>
               Annuler
             </Button>
-            <Button
+            <Button variant="primary"
               size="sm"
               onPress={() => void runImport()}
               isDisabled={selected.size === 0 || importing}
-              style={{ backgroundColor: "var(--btn-primary-bg)", color: "var(--btn-primary-fg)" }}
             >
               {importing ? "Import…" : `Importer (${selected.size})`}
             </Button>
