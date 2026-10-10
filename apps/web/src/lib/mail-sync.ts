@@ -71,20 +71,24 @@ function toLabelInput(l: GmailLabel) {
 }
 
 /**
- * Pure: which mirrored inbox threads must drop their stale state after a
- * COMPLETE full sync (we saw the whole inbox). A mirror thread that no longer
- * appears in the freshly fetched set has left the inbox → remove it. Skipped
- * when the sync was truncated (more inbox pages exist than we fetched), since we
- * can't tell absence from "beyond the fetch window".
+ * Pure: which mirrored inbox threads have left the inbox after a full sync.
+ * Gmail lists newest first: on a truncated sync, a mirror thread absent from the
+ * fetched set but newer than the oldest fetched one has left; older ones are
+ * indistinguishable from "beyond the fetch window" and stay.
  */
 export function computeFullSyncRemovals(
-  mirrorInboxIds: readonly string[],
+  mirrorInbox: readonly { id: string; date: string }[],
   fetchedIds: readonly string[],
   reachedEnd: boolean,
 ): string[] {
-  if (!reachedEnd) return [];
   const fetched = new Set(fetchedIds);
-  return mirrorInboxIds.filter((id) => !fetched.has(id));
+  const absent = mirrorInbox.filter((t) => !fetched.has(t.id));
+  if (reachedEnd) return absent.map((t) => t.id);
+  // ponytail: date d'en-tête ≠ internalDate Gmail ; un expéditeur à l'horloge fausse peut évincer du miroir un fil hors fenêtre
+  const cutoff = Math.min(
+    ...mirrorInbox.filter((t) => fetched.has(t.id)).map((t) => Date.parse(t.date) || Infinity),
+  );
+  return absent.filter((t) => (Date.parse(t.date) || 0) > cutoff).map((t) => t.id);
 }
 
 // ── Per-account in-flight guard ─────────────────────────────────────────────
@@ -138,12 +142,10 @@ export async function fullSync(clientId: string, accountId: string): Promise<voi
   }
   if (firstFailure) throw firstFailure;
 
-  // Strip inbox threads that vanished since the last seed (only when we saw the
-  // whole inbox — otherwise we'd wrongly evict threads beyond the fetch window).
   const existing = await trpcVanillaClient.mail.listThreads
     .query({ accountId, labelId: "INBOX", limit: 500 })
-    .then((r) => r.items.map((it) => it.id))
-    .catch(() => [] as string[]);
+    .then((r) => r.items)
+    .catch(() => []);
 
   await trpcVanillaClient.mail.syncUpsert.mutate({
     accountId,
@@ -421,11 +423,13 @@ export function syncMailbox(clientId: string, accountId: string): Promise<void> 
       /* outbox push is best-effort; the pull still proceeds */
     });
     const state = await trpcVanillaClient.mail.getState.query({ accountId });
-    if (!state.historyId || state.threadCount === 0 || Date.now() - (state.lastFullSyncAt ?? 0) > FULL_RECONCILE_MS) {
+    // Le full sync pose le curseur courant sans voir les sorties d'INBOX au-delà de sa
+    // fenêtre : l'historique en attente passe d'abord, sinon ces archivages sont perdus.
+    // ponytail: absence longue (> 200 fils touchés ou curseur expiré) → seule la fenêtre du full sync est rattrapée
+    const caughtUp =
+      !!state.historyId && state.threadCount > 0 && (await incrementalSync(clientId, accountId, state.historyId));
+    if (!caughtUp || Date.now() - (state.lastFullSyncAt ?? 0) > FULL_RECONCILE_MS) {
       await fullSync(clientId, accountId);
-    } else {
-      const ok = await incrementalSync(clientId, accountId, state.historyId);
-      if (!ok) await fullSync(clientId, accountId);
     }
     const after = await trpcVanillaClient.mail.getState.query({ accountId });
     if (after.historyId) void swKvSet("mailHistoryId", after.historyId).catch(() => undefined);
