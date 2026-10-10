@@ -11,7 +11,7 @@
  * targets. Action labels collapse to icons on the narrowest screens.
  */
 
-import { Button } from "@heroui/react";
+import { Button } from "@supernote/ui";
 import { CheckCircle, ArrowCounterClockwise, Trash, X } from "@phosphor-icons/react";
 
 interface TodoBulkActionBarProps {
@@ -104,7 +104,7 @@ export function TodoBulkActionBar({
       <Button
         isIconOnly
         variant="ghost"
-        size="sm"
+        size="icon"
         onPress={onClear}
         className="h-8 w-8 shrink-0 rounded-md"
         style={{ color: "var(--text-muted)" }}

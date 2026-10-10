@@ -22,8 +22,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRef, useState, useMemo, useEffect, useCallback } from "react";
 import type { FieldValue } from "@supernote/ipc";
-import { Button, Input } from "@heroui/react";
-import { SkeletonCard } from "@supernote/ui";
+import { SkeletonCard, Button, Input } from "@supernote/ui";
 import { useTranslations } from "next-intl";
 import { trpc } from "@/lib/trpc/client";
 import { usePrompt, useConfirm } from "@/hooks/usePrompt";
@@ -356,7 +355,7 @@ export default function ContactsPage() {
               <Button
                 isIconOnly
                 variant="ghost"
-                size="sm"
+                size="icon"
                 onPress={() => setView("table")}
                 className="h-7 w-7 rounded-r-none"
                 aria-label={t("tableView")}
@@ -370,7 +369,7 @@ export default function ContactsPage() {
               <Button
                 isIconOnly
                 variant="ghost"
-                size="sm"
+                size="icon"
                 onPress={() => setView("gallery")}
                 className="h-7 w-7 rounded-l-none"
                 aria-label={t("galleryView")}
@@ -436,7 +435,7 @@ export default function ContactsPage() {
               <Button
                 isIconOnly
                 variant="ghost"
-                size="sm"
+                size="icon"
                 onPress={() => setQuery("")}
                 aria-label="Effacer"
                 className="h-4 w-4 min-w-0 p-0"

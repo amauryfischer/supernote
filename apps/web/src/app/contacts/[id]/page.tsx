@@ -19,8 +19,7 @@ import {
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState, useCallback } from "react";
-import { Button, TextArea } from "@heroui/react";
-import { Skeleton } from "@supernote/ui";
+import { Skeleton, Button, Textarea } from "@supernote/ui";
 import { trpc } from "@/lib/trpc/client";
 import type { RelationEdge, FieldValue } from "@supernote/ipc";
 import { localStore } from "@/lib/local-store";
@@ -63,17 +62,17 @@ function NotesTab({ entityId, initialNotes }: NotesTabProps) {
           onPress={handleSave}
           isDisabled={updateMutation.isPending}
           size="sm"
+          variant="primary"
           className="px-3 text-xs font-medium"
-          style={{ backgroundColor: "var(--btn-primary-bg)", color: "var(--btn-primary-fg)" }}
         >
           {updateMutation.isPending ? "Enregistrement…" : saved ? "Enregistré" : "Enregistrer"}
         </Button>
       </div>
-      <TextArea
+      <Textarea
         value={notes}
         onChange={(e) => setNotes(e.target.value)}
         rows={20}
-        className="w-full resize-none rounded-lg border p-4 text-sm font-mono leading-relaxed outline-none transition-colors focus:border-[var(--accent)]"
+        className="resize-none rounded-lg border p-4 text-sm font-mono leading-relaxed outline-none transition-colors focus:border-[var(--accent)]" wrapperClassName="w-full"
         style={{
           borderColor: "var(--border-subtle)",
           backgroundColor: "var(--surface-1)",

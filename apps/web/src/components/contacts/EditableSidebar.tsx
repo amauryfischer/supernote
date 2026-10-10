@@ -12,7 +12,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Button, Input, Select, ListBox, ListBoxItem } from "@heroui/react";
+import { Button, Input, Select } from "@supernote/ui";
 import {
   Buildings,
   Calendar,
@@ -24,7 +24,6 @@ import {
   TwitterLogo,
   UploadSimple,
   X,
-  CaretDown,
 } from "@phosphor-icons/react";
 import { trpc } from "@/lib/trpc/client";
 import type { FieldValue } from "@supernote/ipc";
@@ -46,6 +45,9 @@ import type {
   SocialLinks,
 } from "@/components/contacts";
 
+
+const EMAIL_LABEL_OPTIONS = ["perso", "pro", "autre"].map((l) => ({ key: l, label: l }));
+const PHONE_LABEL_OPTIONS = ["mobile", "fixe", "pro"].map((l) => ({ key: l, label: l }));
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
   return (
@@ -268,7 +270,7 @@ export function EditableSidebar({ contact, hasLiveBackend }: EditableSidebarProp
         <Button
           type="button"
           variant="ghost"
-          isIconOnly
+          isIconOnly size="icon"
           onPress={() => fileRef.current?.click()}
           className="group relative rounded-full p-0 transition-opacity hover:opacity-90"
           aria-label="Modifier la photo"
@@ -374,34 +376,22 @@ export function EditableSidebar({ contact, hasLiveBackend }: EditableSidebarProp
               onChange={(e) => updateEmail(i, "value", e.target.value)}
               onBlur={() => commitEmails(emails)}
               placeholder="email@…"
-              className="flex-1"
+              wrapperClassName="flex-1"
             />
             <Select
               selectedKey={email.label}
-              onSelectionChange={(key) => {
-                const val = String(key) as Email["label"];
-                commitEmails(emails.map((em, idx) => (idx === i ? { ...em, label: val } : em)));
+              onSelectionChange={(val) => {
+                commitEmails(emails.map((em, idx) => (idx === i ? { ...em, label: val as Email["label"] } : em)));
               }}
               aria-label="Label email"
               className="w-20"
-            >
-              <Select.Trigger className="rounded-md border px-1.5 py-1.5 text-xs outline-none" style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-1)", color: "var(--text-secondary)" }}>
-                <Select.Value />
-                <CaretDown size={10} />
-              </Select.Trigger>
-              <Select.Popover>
-                <ListBox>
-                  <ListBoxItem key="perso">perso</ListBoxItem>
-                  <ListBoxItem key="pro">pro</ListBoxItem>
-                  <ListBoxItem key="autre">autre</ListBoxItem>
-                </ListBox>
-              </Select.Popover>
-            </Select>
+              options={EMAIL_LABEL_OPTIONS}
+            />
             <Button
               type="button"
               isIconOnly
               variant="ghost"
-              size="sm"
+              size="icon"
               onPress={() => removeEmail(i)}
               className="h-8 w-8 flex-shrink-0 rounded-md border"
               style={{ borderColor: "var(--border-subtle)", color: "var(--text-muted)" }}
@@ -435,34 +425,22 @@ export function EditableSidebar({ contact, hasLiveBackend }: EditableSidebarProp
               onChange={(e) => updatePhone(i, "value", e.target.value)}
               onBlur={() => commitPhones(phones)}
               placeholder="+33 …"
-              className="flex-1"
+              wrapperClassName="flex-1"
             />
             <Select
               selectedKey={phone.label}
-              onSelectionChange={(key) => {
-                const val = String(key) as Phone["label"];
-                commitPhones(phones.map((ph, idx) => (idx === i ? { ...ph, label: val } : ph)));
+              onSelectionChange={(val) => {
+                commitPhones(phones.map((ph, idx) => (idx === i ? { ...ph, label: val as Phone["label"] } : ph)));
               }}
               aria-label="Label téléphone"
               className="w-20"
-            >
-              <Select.Trigger className="rounded-md border px-1.5 py-1.5 text-xs outline-none" style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-1)", color: "var(--text-secondary)" }}>
-                <Select.Value />
-                <CaretDown size={10} />
-              </Select.Trigger>
-              <Select.Popover>
-                <ListBox>
-                  <ListBoxItem key="mobile">mobile</ListBoxItem>
-                  <ListBoxItem key="fixe">fixe</ListBoxItem>
-                  <ListBoxItem key="pro">pro</ListBoxItem>
-                </ListBox>
-              </Select.Popover>
-            </Select>
+              options={PHONE_LABEL_OPTIONS}
+            />
             <Button
               type="button"
               isIconOnly
               variant="ghost"
-              size="sm"
+              size="icon"
               onPress={() => removePhone(i)}
               className="h-8 w-8 flex-shrink-0 rounded-md border"
               style={{ borderColor: "var(--border-subtle)", color: "var(--text-muted)" }}
@@ -499,7 +477,7 @@ export function EditableSidebar({ contact, hasLiveBackend }: EditableSidebarProp
           value={birthday}
           onChange={(e) => setBirthday(e.target.value)}
           onBlur={() => persist({ birthday })}
-          className="w-full"
+          wrapperClassName="w-full"
         />
         {birthday && relBirthday && (
           <span
@@ -523,7 +501,7 @@ export function EditableSidebar({ contact, hasLiveBackend }: EditableSidebarProp
             onChange={(e) => setLinkedin(e.target.value)}
             onBlur={() => persistSocial({ linkedin, twitter, github })}
             placeholder="linkedin.com/in/…"
-            className="flex-1"
+            wrapperClassName="flex-1"
           />
         </div>
         <div className="flex items-center gap-2">
@@ -534,7 +512,7 @@ export function EditableSidebar({ contact, hasLiveBackend }: EditableSidebarProp
             onChange={(e) => setTwitter(e.target.value)}
             onBlur={() => persistSocial({ linkedin, twitter, github })}
             placeholder="twitter.com/…"
-            className="flex-1"
+            wrapperClassName="flex-1"
           />
         </div>
         <div className="flex items-center gap-2">
@@ -545,7 +523,7 @@ export function EditableSidebar({ contact, hasLiveBackend }: EditableSidebarProp
             onChange={(e) => setGithub(e.target.value)}
             onBlur={() => persistSocial({ linkedin, twitter, github })}
             placeholder="github.com/…"
-            className="flex-1"
+            wrapperClassName="flex-1"
           />
         </div>
       </div>
@@ -568,7 +546,7 @@ export function EditableSidebar({ contact, hasLiveBackend }: EditableSidebarProp
                 type="button"
                 isIconOnly
                 variant="ghost"
-                size="sm"
+                size="icon"
                 onPress={() => removeAlias(alias)}
                 className="relative h-auto min-h-0 min-w-0 p-0 after:absolute after:-inset-2 after:content-['']"
                 aria-label={`Supprimer l'alias ${alias}`}
@@ -590,13 +568,13 @@ export function EditableSidebar({ contact, hasLiveBackend }: EditableSidebarProp
               }
             }}
             placeholder="Ajouter un alias…"
-            className="flex-1"
+            wrapperClassName="flex-1"
           />
           <Button
             type="button"
             isIconOnly
             variant="ghost"
-            size="sm"
+            size="icon"
             onPress={addAlias}
             className="rounded-md border px-2 py-1"
             style={{ borderColor: "var(--border-subtle)", color: "var(--text-muted)" }}
@@ -625,7 +603,7 @@ export function EditableSidebar({ contact, hasLiveBackend }: EditableSidebarProp
                 type="button"
                 isIconOnly
                 variant="ghost"
-                size="sm"
+                size="icon"
                 onPress={() => removeTag(tag)}
                 className="relative h-auto min-h-0 min-w-0 p-0 outline-none after:absolute after:-inset-2 after:content-[''] focus:outline-none focus-visible:outline-none"
                 aria-label={`Supprimer ${tag}`}

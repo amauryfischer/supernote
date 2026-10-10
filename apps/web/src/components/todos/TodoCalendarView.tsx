@@ -29,7 +29,7 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import { Button } from "@heroui/react";
+import { Button } from "@supernote/ui";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { CaretLeft, CaretRight } from "@phosphor-icons/react";
 import { importanceColor } from "./TodoRow";

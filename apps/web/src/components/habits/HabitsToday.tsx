@@ -8,7 +8,7 @@
  */
 
 import { useState } from "react";
-import { Button } from "@heroui/react";
+import { Button } from "@supernote/ui";
 import { CaretDown, CaretRight, Check } from "@phosphor-icons/react";
 import {
   addPeriods,

@@ -20,7 +20,6 @@
  * note's line and deletes the entities. Standalones are never touched.
  */
 
-import { Button } from "@heroui/react";
 import { NativeSelect } from "@/components/settings/NativeSelect";
 import {
   AppShell,
@@ -52,7 +51,7 @@ import {
   Checks,
   Sparkle,
 } from "@phosphor-icons/react";
-import { EmptyState, ContextMenu, useContextMenu, DropdownMenu, Tooltip, type ContextMenuItemDef } from "@supernote/ui";
+import { EmptyState, ContextMenu, useContextMenu, DropdownMenu, Tooltip, type ContextMenuItemDef, Button } from "@supernote/ui";
 import { importanceColor, importanceLabel, importanceForAxis } from "@/components/todos/TodoRow";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -2005,7 +2004,7 @@ function SortableTodoRow({
         <Button
           {...listeners}
           aria-label="Réordonner"
-          size="sm"
+          size="icon"
           variant="ghost"
           isIconOnly
           className="absolute left-0 top-1/2 z-10 -translate-y-1/2 flex h-6 w-5 items-center justify-center rounded cursor-grab active:cursor-grabbing min-w-0 p-0"

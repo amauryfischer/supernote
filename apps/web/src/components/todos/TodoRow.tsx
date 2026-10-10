@@ -14,8 +14,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Button } from "@heroui/react";
-import { Checkbox } from "@supernote/ui";
+import { Checkbox, Button } from "@supernote/ui";
 import { FileText, Envelope, Bell, Clock } from "@phosphor-icons/react";
 import { useDateFormat } from "@/lib/dateFormat";
 import { InlineMarkdown } from "@/lib/inlineMarkdown";
