@@ -11,7 +11,7 @@ import {
 import type { SearchResult } from "@supernote/ipc";
 import type { Icon } from "@phosphor-icons/react";
 import { useRouter } from "next/navigation";
-import { Button } from "@heroui/react";
+import { Button } from "@supernote/ui";
 
 interface ResultCardProps {
   result: SearchResult;

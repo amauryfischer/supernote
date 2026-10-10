@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMemo } from "react";
-import { Chip } from "@heroui/react";
+import { Badge } from "@supernote/ui";
 import { useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
 import { trpc } from "@/lib/trpc/client";
@@ -99,9 +99,9 @@ export function TodayWidget() {
       title={t("title")}
       meta={
         !isLoading && rows.length > 0 ? (
-          <Chip size="sm" color="warning" variant="soft">
+          <Badge size="sm" variant="warning">
             {t("urgentCount", { n: rows.length })}
-          </Chip>
+          </Badge>
         ) : undefined
       }
       action={{ label: t("viewAll"), href: "/todos" }}

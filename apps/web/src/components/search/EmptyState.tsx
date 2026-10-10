@@ -1,6 +1,6 @@
 "use client";
 
-import { Button } from "@heroui/react";
+import { Button } from "@supernote/ui";
 import { MagnifyingGlass, Lightbulb } from "@phosphor-icons/react";
 
 interface EmptyStateProps {

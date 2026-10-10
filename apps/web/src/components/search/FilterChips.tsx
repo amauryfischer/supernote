@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Plus, X, FunnelSimple } from "@phosphor-icons/react";
-import { Button } from "@heroui/react";
+import { Button } from "@supernote/ui";
 import type { ActiveFilter, FilterKey } from "./types";
 
 interface FilterChipsProps {
@@ -53,9 +53,8 @@ export function FilterChips({ filters, onAdd, onRemove }: FilterChipsProps) {
             <span className="opacity-70">{f.key}:</span>
             <span>{f.value}</span>
             <Button
-              isIconOnly
               variant="ghost"
-              size="sm"
+              size="icon"
               onPress={() => onRemove(i)}
               aria-label="Retirer le filtre"
               className="ml-0.5 h-auto min-h-0 min-w-0 p-0 hover:opacity-70"

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Clock, BookmarkSimple, Trash, FloppyDisk, X } from "@phosphor-icons/react";
-import { Button } from "@heroui/react";
+import { Button } from "@supernote/ui";
 import type { RecentSearch, SavedSearch, SearchMode, ActiveFilter } from "./types";
 
 interface SearchSidebarProps {
@@ -79,9 +79,8 @@ export function SearchSidebar({
                   {r.query}
                 </Button>
                 <Button
-                  isIconOnly
                   variant="ghost"
-                  size="sm"
+                  size="icon"
                   onPress={() => onDeleteRecent(r.id)}
                   aria-label="Supprimer cette recherche récente"
                   className="sn-reveal sn-hit shrink-0 rounded p-0.5"
@@ -121,9 +120,8 @@ export function SearchSidebar({
                   </span>
                 </Button>
                 <Button
-                  isIconOnly
                   variant="ghost"
-                  size="sm"
+                  size="icon"
                   onPress={() => onDeleteSaved(s.id)}
                   aria-label="Supprimer cette recherche enregistrée"
                   className="sn-reveal sn-hit shrink-0 rounded p-0.5"

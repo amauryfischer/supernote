@@ -1,6 +1,7 @@
 "use client";
 
-import { Chip, Spinner } from "@heroui/react";
+import { Spinner } from "@heroui/react";
+import { Badge } from "@supernote/ui";
 import {
   BookOpen,
   FileText,
@@ -103,9 +104,9 @@ export function CommandPreview({ entityId, activeResult }: CommandPreviewProps) 
           </span>
           {typeName && (
             <span>
-              <Chip size="sm" variant="soft">
+              <Badge size="sm">
                 {typeName}
-              </Chip>
+              </Badge>
             </span>
           )}
         </div>

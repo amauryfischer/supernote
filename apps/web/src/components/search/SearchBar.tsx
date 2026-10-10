@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { MagnifyingGlass, X } from "@phosphor-icons/react";
-import { Button } from "@heroui/react";
+import { Button } from "@supernote/ui";
 
 interface SearchBarProps {
   value: string;
@@ -50,9 +50,8 @@ export function SearchBar({ value, onChange, isLoading }: SearchBarProps) {
       )}
       {value && (
         <Button
-          isIconOnly
           variant="ghost"
-          size="sm"
+          size="icon"
           onPress={() => onChange("")}
           className="absolute right-4 rounded-md p-0.5"
           style={{ color: "var(--text-muted)" }}
