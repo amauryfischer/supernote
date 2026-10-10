@@ -92,7 +92,7 @@ export function Select({
             triggerClassName
           )}
         >
-          <SelectValue className="flex-1 text-left text-[var(--text-primary)] data-[placeholder]:text-[var(--text-muted)]">
+          <SelectValue className="min-w-0 flex-1 overflow-hidden text-left text-[var(--text-primary)] data-[placeholder]:text-[var(--text-muted)]">
             {({ isPlaceholder, defaultChildren }) => {
               if (isPlaceholder) return placeholder;
               const sel = renderValue ? options.find((o) => o.key === selectedKey) : undefined;
