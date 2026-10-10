@@ -1,6 +1,23 @@
 import { defineConfig, devices } from "@playwright/test";
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
+import { release } from "node:os";
 import path from "node:path";
+
+// ⚠️ WSL2 en réseau miroir : toutes les ~26 s, l'hôte retire puis remet l'IP d'eth0.
+// Chromium (AddressTrackerLinux) y voit un changement d'IP et vide ses pools de
+// sockets en ERR_NETWORK_CHANGED, localhost compris. Modules Vite et worker du
+// coffre se perdent alors au hasard (SQ-63). Aucun switch Chromium ne coupe ce flush,
+// donc tout le run (runner, Vite, Chromium) est relancé dans un namespace réseau réduit à lo.
+// ponytail: relance depuis la config ; passer par un script test:e2e dédié si ça grossit.
+if (!process.env["SUPERNOTE_E2E_NETNS"] && release().includes("microsoft")) {
+  const run = spawnSync(
+    "unshare",
+    ["-rn", "sh", "-c", 'ip link set lo up && exec "$0" "$@"', process.execPath, ...process.argv.slice(1)],
+    { stdio: "inherit", env: { ...process.env, SUPERNOTE_E2E_NETNS: "1" } },
+  );
+  if (!run.error) process.exit(run.status ?? 1);
+}
 
 // Port dérivé du worktree pour éviter qu'un worktree parallèle réutilise le
 // serveur d'un autre. Plage 3200-3599 : à l'écart de 3100 (service Windows
