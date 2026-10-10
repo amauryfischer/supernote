@@ -86,7 +86,7 @@ export function Select({
           )}
         >
           <SelectValue className="flex-1 text-left text-[var(--text-primary)] data-[placeholder]:text-[var(--text-muted)]">
-            {placeholder}
+            {({ isPlaceholder, defaultChildren }) => (isPlaceholder ? placeholder : defaultChildren)}
           </SelectValue>
           <SelectIndicator className="ml-2 h-4 w-4 shrink-0 text-[var(--text-muted)]" />
         </SelectTrigger>
