@@ -10,7 +10,7 @@
 
 import { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
-import { Button } from "@heroui/react";
+import { Button } from "@supernote/ui";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import {
   breadcrumb,

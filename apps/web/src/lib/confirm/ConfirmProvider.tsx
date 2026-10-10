@@ -1,6 +1,5 @@
 import * as React from "react";
-import { Modal } from "@supernote/ui";
-import { Button } from "@heroui/react";
+import { Button, Modal } from "@supernote/ui";
 import { ConfirmContext, type ConfirmFn, type ConfirmOptions } from "./useConfirm";
 
 interface PendingConfirm {

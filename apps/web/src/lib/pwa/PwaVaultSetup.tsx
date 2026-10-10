@@ -24,7 +24,7 @@
  */
 
 import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from "react";
-import { Button, Input } from "@heroui/react";
+import { Button, Input } from "@supernote/ui";
 import { CloudIcon, LockSimpleIcon } from "@phosphor-icons/react";
 import {
   saveVaultHandle,
@@ -1699,7 +1699,8 @@ function CloudVaultList({
                   setPassword(e.target.value);
                   setJoinError(null);
                 }}
-                style={{ ...styles.input, flex: "1 1 auto", minWidth: 0 }}
+                wrapperClassName="min-w-0 flex-1"
+                style={styles.input}
               />
               <Button
                 type="submit"

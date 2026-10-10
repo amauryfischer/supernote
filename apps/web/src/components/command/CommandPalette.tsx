@@ -24,7 +24,7 @@ import { registry } from "@/lib/commands/registry";
 import type { Command as AppCommand } from "@/lib/commands/types";
 import { useDebounce } from "@/hooks/useDebounce";
 import { useIsMobile } from "@/hooks/useIsMobile";
-import { Button } from "@heroui/react";
+import { Button } from "@supernote/ui";
 import { trpc, hasWorkerBackend } from "@/lib/trpc/client";
 import { isWorkerReady } from "@/lib/trpc/browser-link";
 import type { SearchResult } from "@supernote/ipc";

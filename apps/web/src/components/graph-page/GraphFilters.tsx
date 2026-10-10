@@ -1,6 +1,6 @@
 "use client";
 
-import { Button, Input } from "@heroui/react";
+import { Button, Input } from "@supernote/ui";
 import { X } from "@phosphor-icons/react";
 import {
   ALL_NODE_TYPES,
@@ -87,7 +87,7 @@ export function GraphFilters({
         value={tagFilter}
         onChange={(e) => onTagFilterChange(e.target.value)}
         placeholder="#tag…"
-        className="ml-2 w-[100px]"
+        wrapperClassName="ml-2 w-[100px]"
       />
     </div>
   );

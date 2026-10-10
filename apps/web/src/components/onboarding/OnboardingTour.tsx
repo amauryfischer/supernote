@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Button } from "@heroui/react";
+import { Button } from "@supernote/ui";
 import { X, ArrowLeft, ArrowRight } from "@phosphor-icons/react";
 
 const STORAGE_KEY = "supernote.onboarding.completed";
@@ -207,9 +207,8 @@ export function OnboardingTour() {
             {step + 1}/{steps.length}
           </span>
           <Button
-            isIconOnly
             variant="ghost"
-            size="sm"
+            size="icon"
             onPress={dismiss}
             className="h-5 w-5 min-h-0 min-w-0 rounded"
             style={{ color: "var(--text-muted)" }}
@@ -269,7 +268,6 @@ export function OnboardingTour() {
               size="sm"
               onPress={goNext}
               className="flex items-center gap-1 rounded-md px-3 py-1.5 text-xs font-medium"
-              style={{ backgroundColor: "var(--btn-primary-bg)", color: "var(--btn-primary-fg)" }}
             >
               {isLast ? "Terminer" : "Suivant"}
               {!isLast && <ArrowRight size={11} />}

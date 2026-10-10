@@ -11,7 +11,6 @@
  */
 
 import { Archive, ArrowLeft, ArrowUUpLeft, FileText, Folder as FolderIcon, MagnifyingGlass } from "@phosphor-icons/react";
-import { Button, Input } from "@heroui/react";
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -19,7 +18,7 @@ import { AppShell, useMobileBack, useMobileTitle } from "@/components/shell";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useNoteList, useArchiveNote } from "@/components/notes/hooks";
 import { useDateFormat } from "@/lib/dateFormat";
-import { Tooltip, useToast } from "@supernote/ui";
+import { Button, Input, Tooltip, useToast } from "@supernote/ui";
 
 export default function ArchivePage() {
   const isMobile = useIsMobile();
@@ -144,8 +143,7 @@ export default function ArchivePage() {
             <Tooltip content="Retour aux notes">
               <Button
                 variant="ghost"
-                size="sm"
-                isIconOnly
+                size="icon"
                 onPress={() => router.push("/notes")}
                 aria-label="Retour aux notes"
                 className="h-8 w-8 min-w-0 rounded-md hover:bg-[var(--surface-2)]"
@@ -186,7 +184,7 @@ export default function ArchivePage() {
               placeholder="Rechercher dans les archives…"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              className="w-full rounded-md py-1.5 pl-8 pr-3 text-xs outline-none"
+              className="rounded-md py-1.5 pl-8 pr-3 text-xs outline-none"
               style={{
                 backgroundColor: "var(--surface-1)",
                 color: "var(--text-primary)",
@@ -212,7 +210,7 @@ export default function ArchivePage() {
               placeholder="Rechercher dans les archives…"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              className="w-full rounded-md py-1.5 pl-8 pr-3 text-xs outline-none"
+              className="rounded-md py-1.5 pl-8 pr-3 text-xs outline-none"
               style={{
                 backgroundColor: "var(--surface-1)",
                 color: "var(--text-primary)",
