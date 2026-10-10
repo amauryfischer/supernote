@@ -272,6 +272,9 @@ function RelationCell({
       }}
       aria-label="Type de relation"
       options={RELATION_OPTIONS}
+      className="w-fit"
+      triggerClassName="w-auto gap-1 rounded-full border-0 bg-transparent p-0 hover:bg-transparent hover:opacity-80"
+      renderValue={(o) => <RelationChip type={o.key as RelationType} />}
     />
   );
 }

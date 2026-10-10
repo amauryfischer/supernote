@@ -46,6 +46,8 @@ import type {
 } from "@/components/contacts";
 
 
+const LABEL_TRIGGER_CLASS =
+  "rounded-md border-[var(--border-subtle)] bg-[var(--surface-1)] px-1.5 py-1.5 text-xs text-[var(--text-secondary)]";
 const EMAIL_LABEL_OPTIONS = ["perso", "pro", "autre"].map((l) => ({ key: l, label: l }));
 const PHONE_LABEL_OPTIONS = ["mobile", "fixe", "pro"].map((l) => ({ key: l, label: l }));
 
@@ -386,6 +388,7 @@ export function EditableSidebar({ contact, hasLiveBackend }: EditableSidebarProp
               aria-label="Label email"
               className="w-20"
               options={EMAIL_LABEL_OPTIONS}
+              triggerClassName={LABEL_TRIGGER_CLASS}
             />
             <Button
               type="button"
@@ -435,6 +438,7 @@ export function EditableSidebar({ contact, hasLiveBackend }: EditableSidebarProp
               aria-label="Label téléphone"
               className="w-20"
               options={PHONE_LABEL_OPTIONS}
+              triggerClassName={LABEL_TRIGGER_CLASS}
             />
             <Button
               type="button"
