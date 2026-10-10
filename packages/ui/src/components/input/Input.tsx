@@ -27,7 +27,7 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
     ref
   ) => (
     <div className={cn("flex flex-col gap-1", wrapperClassName)}>
-      <div className="relative flex items-center">
+      <div className={cn("flex items-center", (startContent || endContent) && "relative")}>
         {startContent && (
           <span className="pointer-events-none absolute left-3 text-[var(--text-muted)]">
             {startContent}
@@ -38,6 +38,7 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
           aria-invalid={isInvalid}
           className={cn(
             inputBaseClass,
+            "min-w-0",
             startContent && "pl-9",
             endContent && "pr-9",
             isInvalid && "border-[var(--color-danger)] focus:ring-[var(--color-danger-100)]",
