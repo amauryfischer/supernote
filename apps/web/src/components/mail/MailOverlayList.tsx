@@ -2,7 +2,7 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Button } from "@heroui/react";
+import { Button } from "@supernote/ui";
 import { Checkbox } from "@supernote/ui";
 import { Star, DotsSixVertical, Sparkle, CaretDown, Checks } from "@phosphor-icons/react";
 import {
@@ -476,8 +476,7 @@ function MailSectionHeader({
       {marker.unread > 0 && onMarkRead && (
         <Button
           variant="ghost"
-          size="sm"
-          isIconOnly
+          size="icon"
           className="h-8 w-8 shrink-0 md:h-6 md:w-6"
           aria-label={`Marquer « ${marker.title} » comme lu`}
           onPress={() => onMarkRead(marker.unreadIds)}
@@ -818,7 +817,7 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
   // Style DnD : la ligne draggée suit le pointeur (translate) et s'estompe ;
   // un groupe-tag survolé par un drop se met en surbrillance pointillée. Les
   // listeners de drag vivent sur une POIGNÉE dédiée (pas sur la ligne) : la
-  // surface de la ligne est un <Button> HeroUI dont react-aria capte le
+  // surface de la ligne est un <Button variant="primary"> HeroUI dont react-aria capte le
   // pointerdown (stopPropagation) — un wrapper draggable ne recevrait jamais
   // l'évènement. La poignée, hors du Button, contourne ça.
   const draggableActive = dndEnabled && isSingle;

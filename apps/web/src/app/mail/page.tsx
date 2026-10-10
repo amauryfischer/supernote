@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { Button, Input, Spinner, TabsRoot, TabList, Tab } from "@heroui/react";
-import { Badge, EmptyState, Skeleton, Checkbox } from "@supernote/ui";
+import { Spinner, TabsRoot, TabList, Tab } from "@heroui/react";
+import { Badge, Button, EmptyState, Skeleton, Checkbox } from "@supernote/ui";
 import {
   MagnifyingGlass,
   PencilSimple,
@@ -2047,9 +2047,8 @@ export default function MailPage() {
         style={{ borderBottom: "1px solid var(--border-subtle)", background: "var(--accent-subtle)" }}
       >
         <Button
-          size="sm"
+          size="icon"
           variant="ghost"
-          isIconOnly
           aria-label="Tout désélectionner"
           onPress={clearSelection}
         >
@@ -2061,9 +2060,8 @@ export default function MailPage() {
         <span className="flex-1" />
         <Tooltip content="Marquer lu">
           <Button
-            size="sm"
+            size="icon"
             variant="ghost"
-            isIconOnly
             aria-label="Marquer lu"
             isDisabled={bulkBusy}
             onPress={() => void runBulkAction("read")}
@@ -2073,9 +2071,8 @@ export default function MailPage() {
         </Tooltip>
         <Tooltip content="Fait">
           <Button
-            size="sm"
+            size="icon"
             variant="ghost"
-            isIconOnly
             aria-label="Fait"
             isDisabled={bulkBusy}
             onPress={() => void runBulkAction("archive")}
@@ -2085,9 +2082,8 @@ export default function MailPage() {
         </Tooltip>
         <Tooltip content="Supprimer">
           <Button
-            size="sm"
+            size="icon"
             variant="ghost"
-            isIconOnly
             aria-label="Supprimer"
             isDisabled={bulkBusy}
             onPress={() => void runBulkAction("delete")}
@@ -2165,9 +2161,8 @@ export default function MailPage() {
       </TabsRoot>
       <Tooltip content="Gérer les groupes mail">
         <Button
-          size="sm"
+          size="icon"
           variant="ghost"
-          isIconOnly
           onPress={() => setGroupsManagerOpen(true)}
           aria-label="Gérer les groupes mail"
           className="shrink-0"
@@ -2178,9 +2173,8 @@ export default function MailPage() {
       {!isMobile && (
         <Tooltip content={todayOpen ? "Masquer la journée" : "Voir la journée (agenda)"}>
           <Button
-            size="sm"
+            size="icon"
             variant="ghost"
-            isIconOnly
             onPress={toggleToday}
             aria-label="Panneau Aujourd'hui"
             aria-pressed={todayOpen}
@@ -2204,9 +2198,8 @@ export default function MailPage() {
           }
         >
           <Button
-            size="sm"
+            size="icon"
             variant="ghost"
-            isIconOnly
             className="shrink-0"
             aria-label="Classer les emails avec l'IA locale"
             isDisabled={autoLabel.busy}
@@ -2234,9 +2227,8 @@ export default function MailPage() {
           }
         >
           <Button
-            size="sm"
+            size="icon"
             variant="ghost"
-            isIconOnly
             className="shrink-0"
             aria-label="Résumer les emails avec l'IA locale"
             isDisabled={listSummaries.busy}
@@ -2268,9 +2260,8 @@ export default function MailPage() {
         }
       >
         <Button
-          size="sm"
+          size="icon"
           variant="ghost"
-          isIconOnly
           className="shrink-0"
           aria-label="Règles de la boîte"
           onPress={() => setRulesOpen(true)}
@@ -2282,9 +2273,8 @@ export default function MailPage() {
       {aiConfigured && accountId && (
         <Tooltip content="Assistant (i)">
           <Button
-            size="sm"
+            size="icon"
             variant="ghost"
-            isIconOnly
             className="shrink-0"
             aria-label="Ouvrir l'assistant"
             onPress={() => navigate("/ai")}
@@ -2296,9 +2286,8 @@ export default function MailPage() {
       {!isMobile && (
         <Tooltip content="Gérer les labels">
           <Button
-            size="sm"
+            size="icon"
             variant="ghost"
-            isIconOnly
             onPress={() => setLabelsManagerOpen(true)}
             aria-label="Gérer les labels"
             className="shrink-0"
@@ -2310,9 +2299,8 @@ export default function MailPage() {
       {!isMobile && (
         <Tooltip content="Raccourcis clavier (?)">
           <Button
-            size="sm"
+            size="icon"
             variant="ghost"
-            isIconOnly
             onPress={() => setHelpOpen(true)}
             aria-label="Afficher les raccourcis clavier"
             className="shrink-0"
@@ -2579,9 +2567,8 @@ export default function MailPage() {
         </Checkbox>
         <Tooltip content="Régénérer">
           <Button
-            isIconOnly
             variant="ghost"
-            size="sm"
+            size="icon"
             aria-label="Régénérer les brouillons"
             isDisabled={drafts.busy}
             onPress={() => void drafts.generate()}
@@ -2591,9 +2578,8 @@ export default function MailPage() {
         </Tooltip>
         <Tooltip content="Fermer">
           <Button
-            isIconOnly
             variant="ghost"
-            size="sm"
+            size="icon"
             aria-label="Fermer les brouillons"
             onPress={drafts.clear}
           >
@@ -2853,7 +2839,7 @@ export default function MailPage() {
             <p className="mb-4 text-sm" style={{ color: "var(--text-muted)" }}>
               Connecte un compte Gmail pour lire tes emails ici.
             </p>
-            <Button onPress={() => navigate("/parametres")}>Connecter Gmail</Button>
+            <Button variant="primary" onPress={() => navigate("/parametres")}>Connecter Gmail</Button>
           </div>
         </div>
       </AppShell>
