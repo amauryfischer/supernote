@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, forwardRef, useImperativeHandle, type ReactNode } from "react";
 import { ArrowSquareOut, Plus, X, Tag, MagnifyingGlass, Check, PaperPlaneTilt, Quotes, Paperclip, Star, Envelope, ArrowBendUpRight, Sparkle, MagicWand, ArrowsClockwise, CaretUp, DotsThreeVertical, Copy, Image as ImageIcon, SpeakerSlash, UserMinus, UserPlus, WarningCircle, ShareNetwork, ArrowBendUpLeft, FilePlus, Database } from "@phosphor-icons/react";
-import { Button, Chip, Input, Spinner, Popover } from "@heroui/react";
-import { useToast, Tooltip } from "@supernote/ui";
+import { Spinner, Popover } from "@heroui/react";
+import { useToast, Tooltip, Badge, Button, Input } from "@supernote/ui";
 import { useActionFeedback, FeedbackIcon } from "@/lib/action-feedback";
 import { useSettings } from "@/components/settings/SettingsContext";
 import { ShareDialog } from "@/components/share/ShareDialog";
@@ -1018,9 +1018,8 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
             {bottomSlot && clientId && replyParams.to && (
               <Tooltip content="Répondre (r)">
                 <Button
-                  isIconOnly
                   variant="ghost"
-                  size="sm"
+                  size="icon"
                   aria-label="Répondre"
                   className="h-10 min-h-10 w-10 min-w-10"
                   onPress={() => {
@@ -1046,9 +1045,8 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
             {clientId && (
               <Tooltip content={`${starred ? "Retirer l'étoile" : "Mettre une étoile"} (${shortcutKey("star")})`}>
                 <Button
-                  isIconOnly
                   variant="ghost"
-                  size="sm"
+                  size="icon"
                   aria-label={starred ? "Retirer l'étoile" : "Mettre une étoile"}
                   aria-pressed={starred}
                   className="h-9"
@@ -1069,9 +1067,8 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
             {!embedded && (
               <Popover isOpen={moreOpen} onOpenChange={setMoreOpen}>
                 <Button
-                  isIconOnly
                   variant="ghost"
-                  size="sm"
+                  size="icon"
                   aria-label="Plus d'actions"
                   className="h-9 min-h-9 w-9 min-w-9 shrink-0"
                 >
@@ -1300,9 +1297,8 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
             </span>
             <Tooltip content={copyRecipientFb.state === "success" ? "Copiée" : (copyRecipientFb.error ?? "Copier l'adresse")}>
               <Button
-                isIconOnly
                 variant="ghost"
-                size="sm"
+                size="icon"
                 aria-label="Copier l'adresse"
                 className="sn-hit h-6 min-h-6 w-6 min-w-6 shrink-0"
                 onPress={copyRecipient}
@@ -1371,9 +1367,8 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
                 <span className="truncate">{l.name}</span>
               </Button>
               <Button
-                isIconOnly
                 variant="ghost"
-                size="sm"
+                size="icon"
                 onPress={() => void mutate(l.id, "remove")}
                 aria-label={`Retirer le label ${l.name}`}
                 /* Icône petite mais zone cliquable ≥32px (cible tactile) ; marge
@@ -1388,8 +1383,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
             <Button
               ref={triggerRef}
               variant="ghost"
-              size="sm"
-              isIconOnly
+              size="icon"
               onPress={openPicker}
               aria-label="Ajouter un label (touche l)"
               className="flex h-7 min-h-7 w-7 min-w-7 items-center justify-center rounded-full p-0 max-md:h-8 max-md:min-h-8 max-md:w-8 max-md:min-w-8"
@@ -1426,9 +1420,8 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
                 <ArrowsClockwise size={12} /> Régénérer
               </Button>
               <Button
-                isIconOnly
                 variant="ghost"
-                size="sm"
+                size="icon"
                 onPress={() => setSummaryOpen(false)}
                 aria-label="Replier le résumé"
                 className="h-auto min-h-0 min-w-0 p-1"
@@ -1526,8 +1519,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
             trailing={
               <Button
                 variant="ghost"
-                size="sm"
-                isIconOnly
+                size="icon"
                 aria-label="Insérer une image dans la réponse"
                 className="h-8 min-h-8 w-8 min-w-8"
                 onPress={() => replyFileImageRef.current?.click()}
@@ -1639,9 +1631,8 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
               <WarningCircle size={13} weight="bold" aria-hidden />
               <span className="min-w-0 flex-1">{replyNotice.text}</span>
               <Button
-                size="sm"
+                size="icon"
                 variant="ghost"
-                isIconOnly
                 aria-label="Masquer le message"
                 className="sn-hit h-6 min-h-6 w-6 min-w-6"
                 onPress={() => setReplyNotice(null)}
@@ -1665,9 +1656,8 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
                   <Paperclip size={11} />
                   <span className="max-w-[200px] truncate">{attachmentLabel(att)}</span>
                   <Button
-                    isIconOnly
                     variant="ghost"
-                    size="sm"
+                    size="icon"
                     onPress={() => removeReplyAttachment(i)}
                     aria-label={`Retirer ${att.filename}`}
                     /* Icône petite mais zone cliquable ≥32px (cible tactile) ;
@@ -1722,8 +1712,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
                 <Tooltip content="Proposer plusieurs brouillons (IA locale)">
                   <Button
                     variant="ghost"
-                    size="sm"
-                    isIconOnly
+                    size="icon"
                     onPress={() => onGenerateDrafts?.()}
                     isDisabled={draftsBusy || replyBusy}
                     aria-label="Proposer plusieurs brouillons de réponse avec l'IA locale"
@@ -1746,8 +1735,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
               <Tooltip content="Joindre des fichiers">
                 <Button
                   variant="ghost"
-                  size="sm"
-                  isIconOnly
+                  size="icon"
                   onPress={() => replyFileRef.current?.click()}
                   aria-label="Joindre des fichiers"
                 >
@@ -1757,8 +1745,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
               <Tooltip content="Citer le message précédent">
                 <Button
                   variant="ghost"
-                  size="sm"
-                  isIconOnly
+                  size="icon"
                   onPress={insertQuote}
                   aria-label="Citer le message précédent"
                 >
@@ -2341,9 +2328,8 @@ function MessageBubble({
             {canCopy && (
               <Tooltip content={copyFb.state === "success" ? "Copié" : (copyFb.error ?? "Copier le message")}>
                 <Button
-                  isIconOnly
                   variant="ghost"
-                  size="sm"
+                  size="icon"
                   aria-label="Copier le message"
                   className="sn-hit -my-1 -mr-1.5 h-6 min-h-6 w-6 min-w-6"
                   onPress={copyMessage}
@@ -2453,10 +2439,10 @@ function MessageBubble({
         {forwardNotes && forwardNotes.length > 0 && (
           <div className="mt-1.5 flex flex-wrap gap-1">
             {forwardNotes.map((note) => (
-              <Chip key={note.title} size="sm" variant="soft" title={note.title} className="max-w-full gap-1">
+              <Badge key={note.title} size="sm" variant="default" title={note.title} className="max-w-full gap-1">
                 <ArrowBendUpRight size={11} aria-hidden className="shrink-0" />
                 <span className="truncate">{note.label}</span>
-              </Chip>
+              </Badge>
             ))}
           </div>
         )}
