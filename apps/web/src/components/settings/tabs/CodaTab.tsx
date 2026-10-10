@@ -8,9 +8,8 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Button, Chip } from "@heroui/react";
 import { Table as TableIcon, ArrowsClockwise, ArrowSquareOut, Plus } from "@phosphor-icons/react";
-import { useToast } from "@supernote/ui";
+import { Badge, Button, useToast } from "@supernote/ui";
 import { SettingRow } from "../SettingRow";
 import { SettingSection } from "../SettingSection";
 import { codaStatus } from "@/lib/coda/client";
@@ -52,9 +51,9 @@ export function CodaTab() {
         description="Importe des tables Coda comme bases Supernote en lecture seule. Le token vit côté serveur (CODA_API_TOKEN)."
         icon={<TableIcon size={16} />}
         action={
-          <Chip size="sm" variant="soft" color={enabled ? "success" : "default"}>
+          <Badge size="sm" variant={enabled ? "success" : "default"}>
             {enabled === null ? "…" : enabled ? "Connecté" : "Indisponible"}
-          </Chip>
+          </Badge>
         }
       >
         {enabled === false && (
@@ -65,11 +64,10 @@ export function CodaTab() {
         )}
         {enabled && (
           <SettingRow label="Importer" description="Choisir des tables Coda à répliquer localement.">
-            <Button
+            <Button variant="primary"
               size="sm"
               onPress={() => setModalOpen(true)}
               className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm"
-              style={{ backgroundColor: "var(--btn-primary-bg)", color: "var(--btn-primary-fg)" }}
             >
               <Plus size={14} /> Importer depuis Coda
             </Button>

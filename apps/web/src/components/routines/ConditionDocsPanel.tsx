@@ -15,7 +15,7 @@
 //   - value.ts     → type coercions
 // ============================================================
 
-import { Button } from "@heroui/react";
+import { Button } from "@supernote/ui";
 import { X, CaretDown, CaretRight } from "@phosphor-icons/react";
 import { useState } from "react";
 
@@ -290,9 +290,8 @@ export function ConditionDocsPanel({ open, onClose }: ConditionDocsPanelProps) {
             </p>
           </div>
           <Button
-            isIconOnly
             variant="ghost"
-            size="sm"
+            size="icon"
             onPress={onClose}
             className="rounded p-1 transition-colors hover:bg-[var(--surface-3)]"
             style={{ color: "var(--text-muted)" }}

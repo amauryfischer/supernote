@@ -1,6 +1,6 @@
 "use client";
 
-import { Button } from "@heroui/react";
+import { Button } from "@supernote/ui";
 import { X, EnvelopeSimple, FileText, PencilSimple, Link as LinkIcon, Bell, BellRinging, Globe, Brain, Code, Tray } from "@phosphor-icons/react";
 import type { ActionType } from "./fixtures";
 
@@ -61,9 +61,8 @@ export function ActionPickerModal({ open, onClose, onSelect }: ActionPickerModal
             Choisir une action
           </h2>
           <Button
-            isIconOnly
             variant="ghost"
-            size="sm"
+            size="icon"
             onPress={onClose}
             aria-label="Fermer"
             className="rounded p-1 transition-colors hover:bg-[var(--surface-2)]"

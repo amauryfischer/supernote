@@ -2,8 +2,7 @@
 
 import { GitBranch, ArrowsClockwise, CheckCircle, CloudCheck, Plugs } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
-import { Switch } from "@supernote/ui";
-import { Button, Input, Chip } from "@heroui/react";
+import { Badge, Button, Input, Switch } from "@supernote/ui";
 import { useSettings } from "../SettingsContext";
 import { SettingRow } from "../SettingRow";
 import { SettingSection } from "../SettingSection";
@@ -105,9 +104,9 @@ function OnlineSyncSection() {
       description="Alternative à Git : synchronise le coffre entre vos appareils (web et Android) dès qu'un serveur avec base de données est disponible."
       icon={<CloudCheck size={16} />}
       action={
-        <Chip size="sm" variant="soft" color={meta.color}>
+        <Badge size="sm" variant={meta.color}>
           {meta.label}
-        </Chip>
+        </Badge>
       }
     >
       <SettingRow
@@ -133,7 +132,7 @@ function OnlineSyncSection() {
           placeholder="Même origine (par défaut)"
           value={serverUrl}
           onChange={(e) => setServerUrl(e.target.value)}
-          className="w-72"
+          wrapperClassName="w-72"
         />
       </SettingRow>
 
@@ -146,7 +145,7 @@ function OnlineSyncSection() {
           placeholder="mon-coffre-perso"
           value={vaultKey}
           onChange={(e) => setVaultKey(e.target.value)}
-          className="w-72"
+          wrapperClassName="w-72"
         />
       </SettingRow>
 
@@ -162,7 +161,7 @@ function OnlineSyncSection() {
             setToken(e.target.value);
             setJoinError(null);
           }}
-          className="w-72"
+          wrapperClassName="w-72"
         />
       </SettingRow>
 
@@ -199,7 +198,7 @@ function OnlineSyncSection() {
                 setNextPassword(e.target.value);
                 setPasswordNotice(null);
               }}
-              className="w-72 max-w-full"
+              wrapperClassName="w-72 max-w-full"
             />
             <Button
               variant="ghost"
@@ -282,9 +281,9 @@ function MountsSection() {
             label={mount.label || mount.vaultKey}
             description={mount.serverUrl || undefined}
           >
-            <Chip size="sm" variant="soft" color="success">
+            <Badge size="sm" variant="success">
               Connecté
-            </Chip>
+            </Badge>
           </SettingRow>
         ))
       )}
@@ -326,7 +325,7 @@ export function SyncTab() {
             placeholder="https://github.com/user/vault.git"
             value={sync.gitRemoteUrl}
             onChange={(e) => updateSync({ gitRemoteUrl: e.target.value })}
-            className="w-72"
+            wrapperClassName="w-72"
           />
         </SettingRow>
 

@@ -1,8 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Button, Input, Select, ListBox, ListBoxItem } from "@heroui/react";
-import type { Key } from "@heroui/react";
+import { Button, Input, Select } from "@supernote/ui";
 import { CaretDown } from "@phosphor-icons/react";
 import type { TriggerConfig, TriggerType } from "./fixtures";
 
@@ -131,34 +130,19 @@ function SelectField({
 }: {
   label: string;
   selectedKey: string;
-  onSelectionChange: (key: Key | null) => void;
+  onSelectionChange: (key: string) => void;
   options: Array<{ value: string; label: string }>;
   includeEmpty?: { label: string };
 }) {
+  const items = options.map((opt) => ({ key: opt.value, label: opt.label }));
   return (
     <Field label={label}>
       <Select
+        aria-label={label}
         selectedKey={selectedKey}
         onSelectionChange={onSelectionChange}
-        aria-label={label}
-      >
-        <Select.Trigger
-          className="flex w-full items-center justify-between rounded border px-2.5 py-1.5 text-sm outline-none transition-colors"
-          style={inputStyle()}
-        >
-          <Select.Value />
-        </Select.Trigger>
-        <Select.Popover>
-          <ListBox>
-            {includeEmpty && (
-              <ListBoxItem key="">{includeEmpty.label}</ListBoxItem>
-            )}
-            {options.map((opt) => (
-              <ListBoxItem key={opt.value}>{opt.label}</ListBoxItem>
-            ))}
-          </ListBox>
-        </Select.Popover>
-      </Select>
+        options={includeEmpty ? [{ key: "", label: includeEmpty.label }, ...items] : items}
+      />
     </Field>
   );
 }
@@ -275,7 +259,7 @@ function CronBuilder({ trigger, onChange }: { trigger: TriggerConfig; onChange: 
           onChange={(e) => onChange({ ...trigger, expression: e.target.value })}
           placeholder="0 9 * * MON"
           spellCheck={false}
-          className="w-full rounded-md border px-3 py-2 font-mono text-sm outline-none focus:border-[var(--accent)] transition-colors"
+          className="rounded-md border px-3 py-2 font-mono text-sm outline-none focus:border-[var(--accent)] transition-colors" wrapperClassName="w-full"
           style={inputStyle()}
         />
         <p className="mt-1 text-[10px]" style={{ color: "var(--text-muted)" }}>
@@ -291,7 +275,7 @@ function CronBuilder({ trigger, onChange }: { trigger: TriggerConfig; onChange: 
           value={trigger.timezone ?? "Europe/Paris"}
           onChange={(e) => onChange({ ...trigger, timezone: e.target.value })}
           placeholder="Europe/Paris"
-          className="w-full rounded-md border px-3 py-2 text-sm outline-none focus:border-[var(--accent)] transition-colors"
+          className="rounded-md border px-3 py-2 text-sm outline-none focus:border-[var(--accent)] transition-colors" wrapperClassName="w-full"
           style={inputStyle()}
         />
       </Field>
@@ -305,13 +289,13 @@ function EventBuilder({ trigger, onChange }: { trigger: TriggerConfig; onChange:
       <SelectField
         label="Type d'événement"
         selectedKey={trigger.eventType ?? "entity.created"}
-        onSelectionChange={(k) => onChange({ ...trigger, eventType: String(k ?? "") })}
+        onSelectionChange={(k) => onChange({ ...trigger, eventType: k })}
         options={EVENT_TYPES}
       />
       <SelectField
         label="Type d'entité (filtre optionnel)"
         selectedKey={trigger.entityTypeId ?? ""}
-        onSelectionChange={(k) => onChange({ ...trigger, entityTypeId: String(k ?? "") || undefined })}
+        onSelectionChange={(k) => onChange({ ...trigger, entityTypeId: k || undefined })}
         options={ENTITY_TYPES}
         includeEmpty={{ label: "Toutes les entités" }}
       />
@@ -325,7 +309,7 @@ function AlarmBuilder({ trigger, onChange }: { trigger: TriggerConfig; onChange:
       <SelectField
         label="Type d'entité"
         selectedKey={trigger.entityTypeId ?? "person"}
-        onSelectionChange={(k) => onChange({ ...trigger, entityTypeId: String(k ?? "") })}
+        onSelectionChange={(k) => onChange({ ...trigger, entityTypeId: k })}
         options={ENTITY_TYPES}
       />
       <Field label="Champ date">
@@ -333,7 +317,7 @@ function AlarmBuilder({ trigger, onChange }: { trigger: TriggerConfig; onChange:
           value={trigger.dateField ?? "birthday"}
           onChange={(e) => onChange({ ...trigger, dateField: e.target.value })}
           placeholder="birthday"
-          className="w-full rounded-md border px-3 py-2 text-sm outline-none focus:border-[var(--accent)] transition-colors"
+          className="rounded-md border px-3 py-2 text-sm outline-none focus:border-[var(--accent)] transition-colors" wrapperClassName="w-full"
           style={inputStyle()}
         />
       </Field>
@@ -342,7 +326,7 @@ function AlarmBuilder({ trigger, onChange }: { trigger: TriggerConfig; onChange:
           value={trigger.offset ?? "-1d"}
           onChange={(e) => onChange({ ...trigger, offset: e.target.value })}
           placeholder="-1d, +2h, 0"
-          className="w-full rounded-md border px-3 py-2 text-sm outline-none focus:border-[var(--accent)] transition-colors"
+          className="rounded-md border px-3 py-2 text-sm outline-none focus:border-[var(--accent)] transition-colors" wrapperClassName="w-full"
           style={inputStyle()}
         />
         <p className="mt-1 text-[10px]" style={{ color: "var(--text-muted)" }}>
@@ -354,7 +338,7 @@ function AlarmBuilder({ trigger, onChange }: { trigger: TriggerConfig; onChange:
           value={trigger.timezone ?? "Europe/Paris"}
           onChange={(e) => onChange({ ...trigger, timezone: e.target.value })}
           placeholder="Europe/Paris"
-          className="w-full rounded-md border px-3 py-2 text-sm outline-none focus:border-[var(--accent)] transition-colors"
+          className="rounded-md border px-3 py-2 text-sm outline-none focus:border-[var(--accent)] transition-colors" wrapperClassName="w-full"
           style={inputStyle()}
         />
       </Field>
@@ -370,14 +354,14 @@ function WebhookBuilder({ trigger, onChange }: { trigger: TriggerConfig; onChang
           value={trigger.path ?? "/webhook/custom"}
           onChange={(e) => onChange({ ...trigger, path: e.target.value })}
           placeholder="/webhook/custom"
-          className="w-full rounded-md border px-3 py-2 text-sm outline-none focus:border-[var(--accent)] transition-colors"
+          className="rounded-md border px-3 py-2 text-sm outline-none focus:border-[var(--accent)] transition-colors" wrapperClassName="w-full"
           style={inputStyle()}
         />
       </Field>
       <SelectField
         label="Méthode HTTP"
         selectedKey={trigger.method ?? "POST"}
-        onSelectionChange={(k) => onChange({ ...trigger, method: String(k ?? "") })}
+        onSelectionChange={(k) => onChange({ ...trigger, method: k })}
         options={["GET", "POST", "PUT", "PATCH"].map((m) => ({ value: m, label: m }))}
       />
     </div>

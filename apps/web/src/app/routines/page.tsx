@@ -2,7 +2,7 @@
 
 import { AppShell, useMobileFab, useMobileTitle } from "@/components/shell";
 import { useIsMobile } from "@/hooks/useIsMobile";
-import { Button } from "@heroui/react";
+import { Button, DropdownMenu, EmptyState } from "@supernote/ui";
 import {
   ROUTINES,
   TEMPLATE_META,
@@ -14,7 +14,6 @@ import { Plus, Lightning, CaretDown } from "@phosphor-icons/react";
 import { useRouter } from "next/navigation";
 import { useState, useCallback } from "react";
 import type { Entity, FieldValue } from "@supernote/ipc";
-import { EmptyState, DropdownMenu } from "@supernote/ui";
 import type { DropdownMenuItem } from "@supernote/ui";
 import { useTranslations } from "next-intl";
 import { entityToRoutine, routineFixtureToEntityFields, ROUTINE_TYPE_ID } from "@/lib/routines/entity-adapter";
@@ -75,10 +74,9 @@ function NewRoutineDropdown() {
       items={items}
       onAction={(key) => router.push(`/routines/nouveau?template=${key}`)}
       trigger={
-        <Button
+        <Button variant="primary"
           size="sm"
           className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-opacity hover:opacity-90"
-          style={{ backgroundColor: "var(--btn-primary-bg)", color: "var(--btn-primary-fg)" }}
         >
           <Plus size={13} />
           {t("newRoutine")}

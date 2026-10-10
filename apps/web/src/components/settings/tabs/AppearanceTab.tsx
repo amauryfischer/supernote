@@ -1,7 +1,7 @@
 "use client";
 
 import { useTheme } from "next-themes";
-import { Button } from "@heroui/react";
+import { Button } from "@supernote/ui";
 import { useSettings } from "../SettingsContext";
 import { SettingRow } from "../SettingRow";
 import { SettingSection } from "../SettingSection";
@@ -71,9 +71,8 @@ export function AppearanceTab() {
             {ACCENT_COLORS.map((color) => (
               <Button
                 key={color.value}
-                isIconOnly
                 variant="ghost"
-                size="sm"
+                size="icon"
                 aria-label={color.label}
                 onPress={() => handleAccent(color.value)}
                 className="h-7 w-7 min-w-0 rounded-full p-0 transition-all"

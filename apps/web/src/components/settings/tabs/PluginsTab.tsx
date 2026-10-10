@@ -1,7 +1,7 @@
 "use client";
 
 import { PuzzlePiece, Plus, Trash, Toolbox } from "@phosphor-icons/react";
-import { Button } from "@heroui/react";
+import { Button } from "@supernote/ui";
 import { useSettings } from "../SettingsContext";
 import { SettingSection } from "../SettingSection";
 import { ToggleSwitch } from "../ToggleSwitch";
@@ -93,9 +93,8 @@ function PluginCard({
       <div className="flex items-center gap-2">
         <ToggleSwitch checked={plugin.enabled} onChange={onToggle} />
         <Button
-          isIconOnly
           variant="ghost"
-          size="sm"
+          size="icon"
           onPress={onRemove}
           aria-label="Retirer le plugin"
           className="opacity-40 transition-opacity hover:opacity-100"

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Button, Input } from "@heroui/react";
+import { Button, Input } from "@supernote/ui";
 import { GoogleLogo, LinkSimple, Plug, Warning, CheckCircle, MagnifyingGlass } from "@phosphor-icons/react";
 import { useSettings } from "../SettingsContext";
 import { SettingRow } from "../SettingRow";
@@ -127,7 +127,7 @@ export function GoogleDriveTab() {
             placeholder="123456-abc.apps.googleusercontent.com"
             value={googleDrive.clientId}
             onChange={(e) => updateGoogleDrive({ clientId: e.target.value })}
-            className="w-96"
+            wrapperClassName="w-96"
           />
         </SettingRow>
 
@@ -210,7 +210,7 @@ export function GoogleDriveTab() {
                   value={googleDrive.driveRootFolderId}
                   onChange={(e) => updateGoogleDrive({ driveRootFolderId: e.target.value.trim() })}
                   onBlur={() => void saveSettings()}
-                  className="w-96"
+                  wrapperClassName="w-96"
                 />
                 <Button
                   variant="outline"

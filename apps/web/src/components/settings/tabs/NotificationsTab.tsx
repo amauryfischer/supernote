@@ -2,8 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Bell, GearSix } from "@phosphor-icons/react";
-import { Button } from "@heroui/react";
-import { Button as UiButton, Switch, Tooltip } from "@supernote/ui";
+import { Button, Switch, Tooltip } from "@supernote/ui";
 import { useSettings } from "../SettingsContext";
 import { SettingRow } from "../SettingRow";
 import { SettingSection } from "../SettingSection";
@@ -56,9 +55,9 @@ function PushRow({ onOpenSync }: { onOpenSync: () => void }) {
         <div className="flex items-center gap-2">
           {(availability === "no-sync" || availability === "no-password") && (
             <Tooltip content="Configurer le salon">
-              <UiButton variant="ghost" size="icon" aria-label="Configurer le salon" onPress={onOpenSync}>
+              <Button variant="ghost" size="icon" aria-label="Configurer le salon" onPress={onOpenSync}>
                 <GearSix size={16} />
-              </UiButton>
+              </Button>
             </Tooltip>
           )}
           <Switch
@@ -114,10 +113,10 @@ function MailGrantRow() {
             : "Affiche l'expéditeur et l'objet même quand Supernote est fermé depuis plus d'une heure."
         }
       >
-        <UiButton size="sm" variant={email ? "ghost" : undefined} isDisabled={fb.isPending} onPress={grant}>
+        <Button size="sm" variant={email ? "ghost" : undefined} isDisabled={fb.isPending} onPress={grant}>
           <FeedbackIcon state={fb.state} error={fb.error} size={14} idle={null} />
           {email ? "Réautoriser" : "Autoriser"}
-        </UiButton>
+        </Button>
       </SettingRow>
       {fb.error && (
         <p role="alert" className="py-2 text-xs" style={{ color: "var(--danger)" }}>
@@ -201,14 +200,10 @@ export function NotificationsTab({ onOpenSync }: { onOpenSync: () => void }) {
           description="Pousse une notification info dans le centre"
         >
           <Button
-            variant="ghost"
+            variant="primary"
             size="sm"
             onPress={sendTestNotification}
             className="rounded-md px-3 py-1.5 text-xs font-medium"
-            style={{
-              backgroundColor: "var(--btn-primary-bg)",
-              color: "var(--btn-primary-fg)",
-            }}
           >
             Ajouter une notif test
           </Button>
