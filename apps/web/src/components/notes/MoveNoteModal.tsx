@@ -15,7 +15,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { FolderSimple, MagnifyingGlass } from "@phosphor-icons/react";
-import { Button } from "@heroui/react";
+import { Button } from "@supernote/ui";
 
 interface MoveNoteModalProps {
   open: boolean;
@@ -134,7 +134,7 @@ export function MoveNoteModal({
               const isCurrent = path === currentFolder;
               return (
                 <li key={path}>
-                  <Button
+                  <Button variant="ghost"
                     isDisabled={isCurrent}
                     onPress={() => {
                       if (!isCurrent) onConfirm(path);

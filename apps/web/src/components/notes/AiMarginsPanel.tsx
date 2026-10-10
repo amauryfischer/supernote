@@ -11,8 +11,8 @@
 
 import { forwardRef, useEffect, useRef } from "react";
 import Link from "next/link";
-import { Spinner, Button } from "@heroui/react";
-import { Tooltip } from "@supernote/ui";
+import { Spinner } from "@heroui/react";
+import { Button, Tooltip } from "@supernote/ui";
 import {
   Sparkle,
   ArrowsClockwise,
@@ -186,8 +186,7 @@ export function AiMarginsPanel({
         <Tooltip content="Tout réanalyser">
           <Button
             variant="ghost"
-            size="sm"
-            isIconOnly={!fullPass}
+            size={!fullPass ? "icon" : "sm"}
             aria-label={
               fullPass
                 ? `Réanalyse complète : ${fullPass.done} bloc sur ${fullPass.total}`

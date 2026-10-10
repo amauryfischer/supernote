@@ -15,7 +15,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { Button, Spinner } from "@heroui/react";
+import { Spinner } from "@heroui/react";
+import { Button } from "@supernote/ui";
 import { Check, PencilSimple } from "@phosphor-icons/react";
 import type { CanvasDocument } from "@supernote/canvas";
 

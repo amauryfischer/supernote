@@ -15,7 +15,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { X, ArrowSquareOut } from "@phosphor-icons/react";
-import { Button, Spinner } from "@heroui/react";
+import { Spinner } from "@heroui/react";
+import { Button } from "@supernote/ui";
 import { useRouter } from "next/navigation";
 import { trpc } from "@/lib/trpc/client";
 import type { Note } from "./fixtures";
@@ -161,8 +162,7 @@ function StackColumn({
           {note && (
             <Button
               variant="ghost"
-              size="sm"
-              isIconOnly
+              size="icon"
               aria-label="Ouvrir en pleine page"
               onPress={() => router.push(`/notes/${note.id}`)}
               className="h-6 w-6 min-w-0"
@@ -172,8 +172,7 @@ function StackColumn({
           )}
           <Button
             variant="ghost"
-            size="sm"
-            isIconOnly
+            size="icon"
             aria-label="Fermer la colonne"
             onPress={onClose}
             className="h-6 w-6 min-w-0"

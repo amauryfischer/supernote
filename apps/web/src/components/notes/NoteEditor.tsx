@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Button, Spinner } from "@heroui/react";
+import { Spinner } from "@heroui/react";
 import dynamic from "next/dynamic";
 import { CaretDown, CaretRight, Calendar, Tag, FloppyDisk, Microphone, Sparkle, X, CheckCircle, WarningCircle, Presentation, FilePdf, Stop, CodeSimple, ShareNetwork } from "@phosphor-icons/react";
 import Link from "next/link";
@@ -38,7 +38,7 @@ import { renderGmailMessage } from "./GmailMessageView";
 import { GmailPickerModal } from "./GmailPickerModal";
 import { useCreateDraft } from "./useCreateDraft";
 import { useGmailConnected } from "@/hooks/useGmailConnected";
-import { useToast } from "@supernote/ui";
+import { Button, useToast } from "@supernote/ui";
 import { EnvelopeSimple } from "@phosphor-icons/react";
 import { ShortcutsCheatSheet } from "./ShortcutsCheatSheet";
 import { AmbianceSelector, ambianceClass, asAmbiance, asTypo, type NoteAmbiance, type NoteTypo } from "./AmbianceSelector";
@@ -1841,9 +1841,8 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
           </span>
           <Tooltip content="Arrêter la dictée">
             <Button
-              isIconOnly
               variant="ghost"
-              size="sm"
+              size="icon"
               onPress={() => voice.stop()}
               aria-label="Arrêter la dictée"
               className="h-8 w-8 min-w-8 shrink-0 rounded-full"
@@ -1931,9 +1930,8 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
                 {shareEnabled && (
                   <Tooltip content={share ? "Partagée · gérer les liens" : "Partager"}>
                     <Button
-                      isIconOnly
                       variant="ghost"
-                      size="sm"
+                      size="icon"
                       aria-label="Partager"
                       className="h-8 w-8 min-w-8"
                       style={{ color: share ? "var(--accent)" : "var(--text-muted)" }}
@@ -1996,7 +1994,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
           {ollamaReady && (
             <Button
               variant="ghost"
-              size="sm"
+              size="icon"
               onPress={() => {
                 const next = !(marginsOverride ?? marginsGlobal);
                 // Une surcharge égale au réglage global n'en est pas une : on
@@ -2781,7 +2779,6 @@ function NoteTagsInput({ noteId, tags, onTagsChange, aiBadge }: NoteTagsInputPro
             <Button
               variant="ghost"
               size="sm"
-              isIconOnly
               onPress={() => removeTag(tag)}
               aria-label={`Retirer le tag ${tag}`}
               className="h-4 w-4 min-w-0 bg-transparent p-0 opacity-70 hover:opacity-100"

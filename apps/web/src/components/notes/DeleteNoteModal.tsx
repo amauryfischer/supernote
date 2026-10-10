@@ -1,7 +1,7 @@
 "use client";
 
 import { Trash } from "@phosphor-icons/react";
-import { Button } from "@heroui/react";
+import { Button } from "@supernote/ui";
 
 interface DeleteNoteModalProps {
   isOpen: boolean;

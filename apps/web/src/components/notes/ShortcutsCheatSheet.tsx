@@ -6,9 +6,8 @@
  */
 
 import { useMemo, useState } from "react";
-import { Chip, Input } from "@heroui/react";
 import { ACTION_META } from "@supernote/editor";
-import { Modal } from "@supernote/ui";
+import { Badge, Input, Modal } from "@supernote/ui";
 import { useEditorBindings } from "@/lib/editor-shortcuts/useEditorBindings";
 import { prettyCombo } from "@/lib/editor-shortcuts/prettyCombo";
 import { BUILTIN_FORMAT_SHORTCUTS } from "@/lib/editor-shortcuts/builtins";
@@ -109,12 +108,11 @@ export function ShortcutsCheatSheet({ isOpen, onClose }: ShortcutsCheatSheetProp
                           {action.label}
                         </span>
                         {pretty ? (
-                          <Chip
-                            variant="soft"
+                          <Badge
                             className="font-mono text-xs"
                           >
                             {pretty}
-                          </Chip>
+                          </Badge>
                         ) : (
                           <span
                             className="text-xs"
@@ -160,12 +158,11 @@ export function ShortcutsCheatSheet({ isOpen, onClose }: ShortcutsCheatSheetProp
                         >
                           {shortcut.label}
                         </span>
-                        <Chip
-                          variant="soft"
+                        <Badge
                           className="font-mono text-xs"
                         >
                           {pretty}
-                        </Chip>
+                        </Badge>
                       </div>
                     );
                   })}

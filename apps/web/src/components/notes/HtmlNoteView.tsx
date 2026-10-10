@@ -14,9 +14,8 @@
  */
 
 import { useCallback, useMemo, useState } from "react";
-import { Button } from "@heroui/react";
 import { ArrowsClockwise, Code, Eye } from "@phosphor-icons/react";
-import { Tooltip } from "@supernote/ui";
+import { Button, Tooltip } from "@supernote/ui";
 import { findHtmlArtifact, initialHtmlFor, writeHtmlArtifact } from "@/lib/html-note";
 
 interface HtmlNoteViewProps {
