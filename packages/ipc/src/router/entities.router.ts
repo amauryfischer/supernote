@@ -20,6 +20,7 @@ import {
   EntityGraphOutput,
   CountEntitiesInput,
   CountEntitiesOutput,
+  NoteChecklistsOutput,
 } from "../schemas/entities.js";
 import { z } from "zod";
 
@@ -136,6 +137,16 @@ export const entitiesRouter = router({
     .output(GetBacklinksOutput)
     .query(() => {
       throw notImplemented("entities.getBacklinks");
+    }),
+
+  /**
+   * Lignes de checklist des notes non archivées, extraites côté worker
+   * (`lib/vault-worker/checklists.ts`) : le client ne reçoit plus les corps.
+   */
+  noteChecklists: publicProcedure
+    .output(NoteChecklistsOutput)
+    .query(() => {
+      throw notImplemented("entities.noteChecklists");
     }),
 
 });

@@ -124,12 +124,24 @@ export function TrpcProvider({ children }: TrpcProviderProps) {
         void invalidateDataQueries();
       }, 300);
     };
+    // Coalescé : une rafale de mutations (déplacement multiple, import) = un refetch.
+    let checklistsTimer: ReturnType<typeof setTimeout> | null = null;
+    const onNotesMutated = () => {
+      if (checklistsTimer) clearTimeout(checklistsTimer);
+      checklistsTimer = setTimeout(() => {
+        checklistsTimer = null;
+        void queryClient.invalidateQueries({ queryKey: [["entities", "noteChecklists"]] });
+      }, 100);
+    };
     window.addEventListener("supernote:vault-ready", refresh);
     window.addEventListener("supernote:index-progress", onProgress);
+    window.addEventListener("supernote:notes-mutated", onNotesMutated);
     return () => {
       window.removeEventListener("supernote:vault-ready", refresh);
       window.removeEventListener("supernote:index-progress", onProgress);
+      window.removeEventListener("supernote:notes-mutated", onNotesMutated);
       if (progressTimer) clearTimeout(progressTimer);
+      if (checklistsTimer) clearTimeout(checklistsTimer);
     };
   }, [queryClient]);
 

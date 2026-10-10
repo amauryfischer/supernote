@@ -238,6 +238,11 @@ function nextId(): string {
 
 // ── tRPC link factory ─────────────────────────────────────────────────────────
 
+// Mutations qui peuvent changer un corps de note, un tag ou l'archivage : les
+// sites d'appel n'invalident que `entities.list`, pas `entities.noteChecklists`
+// (checklists extraites côté worker), d'où ce signal central écouté par le Provider.
+const MUTATES_NOTES = /^(entities|tags|vault|templates)\./;
+
 export function browserVaultLink(): TRPCLink<AppRouter> {
   return (_runtime: TRPCClientRuntime) =>
     ({ op }) =>
@@ -271,6 +276,9 @@ export function browserVaultLink(): TRPCLink<AppRouter> {
 
         void promise
           .then((result) => {
+            if (op.type === "mutation" && MUTATES_NOTES.test(op.path)) {
+              window.dispatchEvent(new CustomEvent("supernote:notes-mutated"));
+            }
             observer.next({ result: { data: result } });
             observer.complete();
           })
