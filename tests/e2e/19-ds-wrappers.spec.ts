@@ -31,16 +31,22 @@ test.describe("19 — wrappers @supernote/ui", () => {
       const input = page.getByPlaceholder("Filtrer le coffre…");
       await expect(input).toBeVisible({ timeout: 30_000 });
 
-      const hit = await input.evaluate((el) => {
-        let box: HTMLElement | null = el.parentElement;
-        while (box && !box.querySelector("svg")) box = box.parentElement;
-        const icon = box?.querySelector("svg");
-        if (!icon) return "no-icon";
-        const r = icon.getBoundingClientRect();
-        const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-        return top && (top === icon || icon.contains(top)) ? "icon" : (top?.tagName ?? "none");
-      });
-      expect(hit).toBe("icon");
+      // L'overlay « Ouverture du vault… » recouvre tout tant que le coffre n'est pas prêt : on sonde jusqu'à sa disparition.
+      await expect
+        .poll(
+          () =>
+            input.evaluate((el) => {
+              let box: HTMLElement | null = el.parentElement;
+              while (box && !box.querySelector("svg")) box = box.parentElement;
+              const icon = box?.querySelector("svg");
+              if (!icon) return "no-icon";
+              const r = icon.getBoundingClientRect();
+              const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+              return top && (top === icon || icon.contains(top)) ? "icon" : (top?.tagName ?? "none");
+            }),
+          { timeout: 60_000 },
+        )
+        .toBe("icon");
     });
 
     test("Select : la pastille renderValue ne passe pas sous le chevron", async ({ page }) => {
@@ -52,6 +58,7 @@ test.describe("19 — wrappers @supernote/ui", () => {
       });
 
       await page.goto("/contacts");
+      await expect(page.getByText("Ouverture du vault...")).toBeHidden({ timeout: 60_000 });
       const trigger = page.getByRole("button", { name: /Type de relation/ }).first();
       await expect(trigger).toBeVisible({ timeout: 30_000 });
 
@@ -66,7 +73,7 @@ test.describe("19 — wrappers @supernote/ui", () => {
       expect(gap!).toBeGreaterThanOrEqual(0);
 
       await trigger.click();
-      await page.getByRole("option", { name: "Ami" }).click();
+      await page.locator('[role="option"]:visible', { hasText: /^Ami$/ }).click();
       const ring = await trigger.evaluate((el) => getComputedStyle(el).boxShadow);
       expect(ring === "none" || /rgba\(0, 0, 0, 0\)/.test(ring)).toBe(true);
     });
