@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useState, useSyncExternalStore } from "react";
-import { Button, Spinner } from "@heroui/react";
+import { Spinner } from "@heroui/react";
+import { Button } from "@supernote/ui";
 import { WarningCircle } from "@phosphor-icons/react";
 import { GMAIL_AUTH_EVENT, gmailReconnectRequired, reconnectGmail } from "@/lib/gmail";
 

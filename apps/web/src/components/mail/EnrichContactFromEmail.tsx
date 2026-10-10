@@ -10,9 +10,9 @@
  */
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { Button, Chip, Input, Spinner } from "@heroui/react";
+import { Spinner } from "@heroui/react";
 import { UserPlus } from "@phosphor-icons/react";
-import { Modal, Tooltip } from "@supernote/ui";
+import { Modal, Tooltip, Button, Badge, Input } from "@supernote/ui";
 import { trpc } from "@/lib/trpc/client";
 import { useEntityMutations } from "@/components/bases/hooks";
 import { contactFormToEntityFields, entityToContact } from "@/components/contacts/entityAdapter";
@@ -56,9 +56,8 @@ export function EnrichContactFromEmail({ message, open, onOpenChange }: EnrichCo
     <>
       <Tooltip content={LABEL}>
         <Button
-          isIconOnly
           variant="ghost"
-          size="sm"
+          size="icon"
           aria-label={LABEL}
           className="sn-hit h-6 min-h-6 w-6 min-w-6 shrink-0"
           onPress={() => onOpenChange(true)}
@@ -261,22 +260,22 @@ function ContactForm({
       <div className="flex flex-wrap items-center gap-2 text-xs" style={{ color: "var(--text-muted)" }}>
         {match ? (
           <>
-            <Chip size="sm" variant="soft" color="success">
+            <Badge size="sm" variant="success">
               Contact existant
-            </Chip>
+            </Badge>
             <span className="min-w-0 break-words">
               {entityName(match.row)} ({match.by === "email" ? "même email" : "même nom"})
             </span>
           </>
         ) : (
-          <Chip size="sm" variant="soft" color="accent">
+          <Badge size="sm" variant="primary">
             Nouveau contact
-          </Chip>
+          </Badge>
         )}
         {guess.automated && (
-          <Chip size="sm" variant="soft" color="warning">
+          <Badge size="sm" variant="warning">
             Adresse automatique
-          </Chip>
+          </Badge>
         )}
         {ai === "running" && (
           <span className="flex items-center gap-1.5">

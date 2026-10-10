@@ -1,7 +1,7 @@
 "use client";
 
 import type { CSSProperties } from "react";
-import { Button } from "@heroui/react";
+import { Button } from "@supernote/ui";
 import { Tag } from "@phosphor-icons/react";
 import type { GmailLabelColor } from "@/lib/gmail";
 import type { LabelStyle } from "@/components/settings/types";
@@ -162,9 +162,8 @@ export function LabelStyleGrid({
           const color = labelColorFor(h, s.id);
           const selected = h === currentHue && s.id === currentStyle;
           return (
-            <Button
+            <Button size="icon"
               key={`${s.id}-${h.name}`}
-              isIconOnly
               variant="ghost"
               onPress={() => onPick(color)}
               aria-label={`${h.name}, ${s.name}${selected ? " (actuel)" : ""}`}

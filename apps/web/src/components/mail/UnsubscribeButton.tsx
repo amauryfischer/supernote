@@ -15,8 +15,7 @@
  * presque toujours la suite voulue, mais elle reste un choix.
  */
 
-import { Button } from "@heroui/react";
-import { useToast } from "@supernote/ui";
+import { useToast, Button } from "@supernote/ui";
 import { ProhibitInset } from "@phosphor-icons/react";
 import { getMessageHeaders, type EmailMessage } from "@/lib/gmail";
 import {

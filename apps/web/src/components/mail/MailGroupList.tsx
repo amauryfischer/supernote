@@ -1,7 +1,6 @@
 "use client";
 
-import { Button } from "@heroui/react";
-import { Tooltip, Checkbox } from "@supernote/ui";
+import { Tooltip, Checkbox, Button } from "@supernote/ui";
 import { Trash, EnvelopeOpen, Sparkle, Star } from "@phosphor-icons/react";
 import type { GmailLabelColor, ThreadListItem } from "@/lib/gmail";
 import { RowLabelChips } from "./LabelMarker";
@@ -65,9 +64,8 @@ export function MailGroupList({
           {onMarkAllRead && unreadCount > 0 && (
             <Tooltip content="Tout marquer comme lu">
               <Button
-                size="sm"
+                size="icon"
                 variant="ghost"
-                isIconOnly
                 aria-label="Tout marquer comme lu"
                 onPress={onMarkAllRead}
               >
@@ -78,9 +76,8 @@ export function MailGroupList({
           {onDeleteAll && items.length > 0 && (
             <Tooltip content="Supprimer tout le groupe">
               <Button
-                size="sm"
+                size="icon"
                 variant="ghost"
-                isIconOnly
                 aria-label="Supprimer tout le groupe"
                 isDisabled={deleteBusy}
                 onPress={onDeleteAll}

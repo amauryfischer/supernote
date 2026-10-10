@@ -15,8 +15,7 @@
  */
 
 import { useEffect, useRef, useState, type RefObject } from "react";
-import { Button, Input } from "@heroui/react";
-import { Tooltip } from "@supernote/ui";
+import { Tooltip, Button, Input } from "@supernote/ui";
 import { MagnifyingGlass, X, ClockCounterClockwise, Lightning } from "@phosphor-icons/react";
 import {
   queryChips,
@@ -95,10 +94,9 @@ export function MailSearchBar({
         {value && (
           <Tooltip content="Effacer la recherche">
             <Button
-              size="sm"
+              size="icon"
               variant="ghost"
               onPress={onClear}
-              isIconOnly
               aria-label="Effacer la recherche"
             >
               <X size={16} />
@@ -107,10 +105,9 @@ export function MailSearchBar({
         )}
         <Tooltip content="Chercher dans tout Gmail (↵)">
           <Button
-            size="sm"
+            size="icon"
             variant="ghost"
             onPress={() => onSubmit(value)}
-            isIconOnly
             aria-label="Chercher dans tout Gmail"
           >
             <MagnifyingGlass size={16} />
@@ -134,9 +131,8 @@ export function MailSearchBar({
               {c.kind !== "texte" && <span className="font-semibold">{c.kind}</span>}
               <span className="max-w-[12rem] truncate">{c.value}</span>
               <Button
-                isIconOnly
                 variant="ghost"
-                size="sm"
+                size="icon"
                 aria-label={`Retirer le filtre ${c.kind} ${c.value}`}
                 className="-my-1.5 inline-flex h-7 min-h-7 w-7 min-w-7 items-center justify-center p-0"
                 onPress={() => onChange(removeToken(value, c.token))}

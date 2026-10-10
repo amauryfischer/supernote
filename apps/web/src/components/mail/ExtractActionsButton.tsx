@@ -23,8 +23,8 @@
  */
 
 import { useState } from "react";
-import { Button, Popover, Spinner } from "@heroui/react";
-import { Checkbox } from "@supernote/ui";
+import { Popover, Spinner } from "@heroui/react";
+import { Checkbox, Button } from "@supernote/ui";
 import { ListPlus, ArrowsClockwise } from "@phosphor-icons/react";
 import { extractActions, type MailAiThread } from "@/lib/mail-ai";
 import { trpcVanillaClient } from "@/lib/trpc/client";

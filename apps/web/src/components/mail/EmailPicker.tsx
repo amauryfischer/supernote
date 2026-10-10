@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Input, Button, Spinner } from "@heroui/react";
+import { Spinner } from "@heroui/react";
+import { Input, Button } from "@supernote/ui";
 import { MagnifyingGlass } from "@phosphor-icons/react";
 import { useSettings } from "@/components/settings/SettingsContext";
 import { listThreadSummaries, type ThreadListItem } from "@/lib/gmail";
@@ -66,7 +67,7 @@ export function EmailPicker({
           placeholder="Rechercher (ex. from:ada is:unread)"
           className="flex-1"
         />
-        <Button onPress={() => void run()} isDisabled={loading}>
+        <Button variant="primary" onPress={() => void run()} isDisabled={loading}>
           <MagnifyingGlass size={16} /> Chercher
         </Button>
       </div>

@@ -14,8 +14,7 @@
  */
 
 import { useEffect, useState } from "react";
-import { Button, Input } from "@heroui/react";
-import { Modal, Switch } from "@supernote/ui";
+import { Modal, Switch, Button, Input } from "@supernote/ui";
 import { Plus, Trash, Lightning, Funnel } from "@phosphor-icons/react";
 import { NativeSelect } from "@/components/settings/NativeSelect";
 import {
@@ -175,9 +174,8 @@ export function MailRulesManager({
                   aria-label={`Activer la règle ${rule.name}`}
                 />
                 <Button
-                  size="sm"
+                  size="icon"
                   variant="ghost"
-                  isIconOnly
                   aria-label={`Supprimer la règle ${rule.name}`}
                   onPress={() => {
                     removeRule(rule.id);

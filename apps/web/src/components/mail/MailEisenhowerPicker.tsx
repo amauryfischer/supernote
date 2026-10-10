@@ -6,9 +6,9 @@
  */
 
 import { useEffect, useState } from "react";
-import { Button, Popover } from "@heroui/react";
+import { Popover } from "@heroui/react";
 import { ListChecks, Sparkle } from "@phosphor-icons/react";
-import { Tooltip } from "@supernote/ui";
+import { Tooltip, Button } from "@supernote/ui";
 import { QUADRANTS, type EisenhowerQuadrant } from "@/lib/mail-eisenhower";
 
 export interface MailEisenhowerPickerProps {
@@ -69,8 +69,7 @@ export function MailEisenhowerPicker({
       <Tooltip content={current ? `Todo · ${current.label} (1–4)` : "Mettre en todo (1–4)"}>
         <Button
           variant="ghost"
-          size="sm"
-          isIconOnly
+          size="icon"
           isDisabled={isBusy}
           className="h-9"
           aria-label={

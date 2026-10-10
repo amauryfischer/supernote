@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { Button, Spinner } from "@heroui/react";
+import { Spinner } from "@heroui/react";
 import { WarningCircle } from "@phosphor-icons/react";
-import { Tooltip } from "@supernote/ui";
+import { Tooltip, Button } from "@supernote/ui";
 import { useMailOutboxStatus } from "./useMailOutboxStatus";
 import { mirrorRetryFailed } from "@/lib/mail-mirror";
 import { flushOutbox } from "@/lib/mail-sync";

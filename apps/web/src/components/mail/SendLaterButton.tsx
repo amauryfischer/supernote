@@ -13,8 +13,7 @@
  */
 
 import { useState } from "react";
-import { Button } from "@heroui/react";
-import { Tooltip } from "@supernote/ui";
+import { Tooltip, Button } from "@supernote/ui";
 import { Clock } from "@phosphor-icons/react";
 import { SnoozeMenu } from "./SnoozeMenu";
 import {
@@ -49,8 +48,7 @@ export function SendLaterButton({
       <Tooltip content="Envoyer plus tard (l'app doit être ouverte à l'heure dite)">
         <Button
           variant="ghost"
-          size="sm"
-          isIconOnly={iconOnly}
+          size={iconOnly ? "icon" : "sm"}
           isDisabled={isDisabled}
           aria-label="Envoyer plus tard"
           onPress={() => setOpen(true)}
