@@ -30,12 +30,14 @@ const buttonVariants = cva(
           "bg-transparent text-[var(--text-secondary)] hover:bg-[var(--surface-2)] hover:text-[var(--text-primary)]",
         danger:
           "bg-[var(--color-danger)]! text-[var(--color-danger-foreground)]! hover:bg-[var(--color-danger-700)]!",
+        "danger-soft":
+          "bg-[var(--color-danger-50)]! text-[var(--color-danger)]! hover:bg-[var(--color-danger-100)]!",
       },
       size: {
-        sm:   "h-7 rounded-[var(--radius-md)] px-3 text-xs",
+        sm:   "h-9 md:h-8 rounded-[var(--radius-md)] px-3 text-sm",
         md:   "h-9 rounded-[var(--radius-md)] px-4 text-sm",
         lg:   "h-11 rounded-[var(--radius-lg)] px-5 text-base",
-        icon: "h-8 w-8 rounded-[var(--radius-md)] p-0",
+        icon: "h-9 w-9 md:h-8 md:w-8 rounded-[var(--radius-md)] p-0",
       },
     },
     defaultVariants: {
@@ -46,8 +48,19 @@ const buttonVariants = cva(
   }
 );
 
+// ⚠️ tailwind-merge ne dédoublonne pas `h-7` et `md:h-8` (variantes différentes) :
+// un h-/w- imposé par le site doit aussi retirer le `md:` de la taille, sinon il
+// perd au-dessus de 768 px.
+function withoutMdSize(base: string, className: unknown): string {
+  if (typeof className !== "string") return base;
+  let out = base;
+  if (/(^|\s)h-/.test(className)) out = out.replace(/\smd:h-\S+/, "");
+  if (/(^|\s)w-/.test(className)) out = out.replace(/\smd:w-\S+/, "");
+  return out;
+}
+
 /** Supernote Button variant options. Kept separate from HeroUI's ButtonRootProps.variant. */
-export type ButtonVariant = "primary" | "secondary" | "tertiary" | "outline" | "ghost" | "danger";
+export type ButtonVariant = "primary" | "secondary" | "tertiary" | "outline" | "ghost" | "danger" | "danger-soft";
 /** Supernote Button size options. */
 export type ButtonSize = "sm" | "md" | "lg" | "icon";
 
@@ -62,7 +75,7 @@ export interface ButtonProps extends Omit<React.ComponentPropsWithRef<typeof Her
 
 /**
  * Button — ergonomic wrapper over HeroUI v3 Button.
- * Variants: `primary | secondary | tertiary | outline | ghost | danger`
+ * Variants: `primary | secondary | tertiary | outline | ghost | danger | danger-soft`
  * Sizes: `sm | md | lg | icon`
  * All colors come from CSS tokens — no hardcoded values.
  */
@@ -75,7 +88,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       ref={ref}
       variant="ghost"
       isDisabled={isDisabled ?? isLoading}
-      className={cn(buttonVariants({ variant, size }), className)}
+      className={cn(withoutMdSize(buttonVariants({ variant, size }), className), className)}
       {...props}
     >
       {children}

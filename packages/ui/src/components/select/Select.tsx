@@ -35,6 +35,8 @@ export interface SelectProps {
   placeholder?: string;
   /** Field label. */
   label?: string;
+  /** Nom accessible quand aucun `label` visible n'est affiché. */
+  "aria-label"?: string;
   /** Error message. */
   errorMessage?: string;
   /** Error state. */
@@ -55,6 +57,7 @@ export function Select({
   onSelectionChange,
   placeholder = "Select an option",
   label,
+  "aria-label": ariaLabel,
   errorMessage,
   isInvalid,
   isDisabled,
@@ -74,6 +77,7 @@ export function Select({
         }}
         isDisabled={isDisabled}
         isInvalid={isInvalid}
+        aria-label={ariaLabel}
       >
         <SelectTrigger
           className={cn(
@@ -92,10 +96,23 @@ export function Select({
               <ListBoxItem
                 key={opt.key}
                 id={opt.key}
+                textValue={opt.label}
                 isDisabled={opt.isDisabled}
                 className="cursor-pointer rounded-[var(--radius-md)] px-3 py-1.5 text-sm text-[var(--text-primary)] outline-none data-[focused]:bg-[var(--surface-2)] data-[hovered]:bg-[var(--surface-2)] data-[selected]:text-[var(--color-primary)]"
               >
-                {opt.label}
+                {opt.startContent || opt.description ? (
+                  <span className="flex items-center gap-2">
+                    {opt.startContent}
+                    <span className="flex min-w-0 flex-col">
+                      <span>{opt.label}</span>
+                      {opt.description && (
+                        <span className="text-xs text-[var(--text-muted)]">{opt.description}</span>
+                      )}
+                    </span>
+                  </span>
+                ) : (
+                  opt.label
+                )}
               </ListBoxItem>
             ))}
           </ListBox>
