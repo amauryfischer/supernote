@@ -7,7 +7,7 @@
     "dev": "vite --port 3100 --host",
     "build": "vite build",
     "preview": "vite preview --port 3100",
-    "lint": "echo 'lint disabled (Next.js removed)'",
+    "lint": "node scripts/check-ui-imports.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
