@@ -8,7 +8,6 @@
  */
 
 import { useMemo, useState } from "react";
-import { Button, Input, TextArea } from "@heroui/react";
 import type { EntityType, Field } from "@supernote/core";
 import type { View } from "@supernote/ipc";
 import {
@@ -20,7 +19,7 @@ import {
   isBlankValue,
 } from "./hooks";
 import { Cell, READONLY_KINDS } from "./Cell";
-import { useToast } from "@supernote/ui";
+import { useToast, Button, Input, Textarea } from "@supernote/ui";
 
 interface FormViewProps {
   base: EntityType;
@@ -135,7 +134,7 @@ export function FormView({ base, view }: FormViewProps) {
           className="text-xl font-semibold"
         />
       </div>
-      <TextArea
+      <Textarea
         aria-label="Description"
         placeholder="Description (optionnelle)…"
         value={cfg.description ?? ""}

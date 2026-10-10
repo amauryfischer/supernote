@@ -19,9 +19,8 @@
  */
 
 import { useCallback, useMemo, useRef } from "react";
-import { Button } from "@heroui/react";
 import { X, Trash, Copy, ArrowSquareOut } from "@phosphor-icons/react";
-import { Tooltip } from "@supernote/ui";
+import { Tooltip, Button } from "@supernote/ui";
 import { useRouter } from "next/navigation";
 import { trpc } from "@/lib/trpc/client";
 import { ipcEntityTypeToCore } from "@/components/schemas/adapters";
@@ -148,9 +147,8 @@ export function EntityPeekPanel({ baseId, entityId }: EntityPeekPanelProps) {
         </span>
         <Tooltip content="Fermer">
           <Button
-            isIconOnly
             variant="ghost"
-            size="sm"
+            size="icon"
             onPress={closeEntityPeek}
             className="flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-[var(--surface-2)]"
             style={{ color: "var(--text-muted)" }}

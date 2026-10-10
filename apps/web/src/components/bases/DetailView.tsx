@@ -11,7 +11,7 @@
  */
 
 import { useMemo, useState } from "react";
-import { Button } from "@heroui/react";
+import { Button } from "@supernote/ui";
 import { CaretDown, CaretRight, Trash } from "@phosphor-icons/react";
 import type { EntityType, Field } from "@supernote/core";
 import type { View } from "@supernote/ipc";
@@ -96,8 +96,7 @@ export function DetailView({ base, view }: DetailViewProps) {
               style={{ borderColor: "var(--border-subtle)" }}
             >
               <Button
-                isIconOnly
-                size="sm"
+                size="icon"
                 variant="ghost"
                 onPress={() => toggle(entity.id)}
                 aria-label={isCollapsed ? "Déplier" : "Replier"}
@@ -111,8 +110,7 @@ export function DetailView({ base, view }: DetailViewProps) {
                 {title}
               </span>
               <Button
-                isIconOnly
-                size="sm"
+                size="icon"
                 variant="ghost"
                 onPress={() => mut.delete.mutate({ id: entity.id })}
                 aria-label="Supprimer"

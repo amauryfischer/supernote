@@ -12,7 +12,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Field } from "@supernote/core";
 import type { SummarizeOp, View } from "@supernote/ipc";
-import { Button } from "@heroui/react";
+import { Button } from "@supernote/ui";
 import {
   availableSummarizeOps,
   computeSummarize,

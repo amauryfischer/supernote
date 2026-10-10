@@ -14,7 +14,7 @@
  */
 
 import { useMemo, useState } from "react";
-import { Button } from "@heroui/react";
+import { Button } from "@supernote/ui";
 import { CaretLeft, CaretRight, CalendarBlank } from "@phosphor-icons/react";
 import type { EntityType } from "@supernote/core";
 import type { View } from "@supernote/ipc";

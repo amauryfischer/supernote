@@ -9,7 +9,7 @@
  */
 
 import { useMemo } from "react";
-import { Button } from "@heroui/react";
+import { Button } from "@supernote/ui";
 import {
   BarChart,
   Bar,

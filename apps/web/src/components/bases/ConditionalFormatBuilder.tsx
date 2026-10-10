@@ -10,7 +10,7 @@
  */
 
 import { useState } from "react";
-import { Button } from "@heroui/react";
+import { Button } from "@supernote/ui";
 import { Plus, Trash } from "@phosphor-icons/react";
 import type { EntityType, Field } from "@supernote/core";
 import type {
@@ -210,7 +210,7 @@ function RuleRow({
             { value: "row", label: "Ligne" },
           ]}
         />
-        <Button isIconOnly size="sm" variant="ghost" onPress={onRemove} aria-label="Supprimer la règle" className="ml-auto">
+        <Button size="icon" variant="ghost" onPress={onRemove} aria-label="Supprimer la règle" className="ml-auto">
           <Trash size={12} />
         </Button>
       </div>

@@ -12,11 +12,10 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Button } from "@heroui/react";
 import { Plus, Trash, ArrowUp, ArrowDown, CaretDown, ArrowsOutSimple } from "@phosphor-icons/react";
 import type { EntityType, Field, SelectOption } from "@supernote/core";
 import type { View, SortClause } from "@supernote/ipc";
-import { EmptyState, useToast } from "@supernote/ui";
+import { EmptyState, useToast, Button } from "@supernote/ui";
 import { trpc } from "@/lib/trpc/client";
 import { coreFieldToIpc } from "@/components/schemas/adapters";
 import { Cell, READONLY_KINDS, type AdvanceDir } from "./Cell";

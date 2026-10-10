@@ -13,7 +13,7 @@
  */
 
 import { useEffect, useRef } from "react";
-import { Button, Input, SelectRoot, SelectTrigger, SelectValue, SelectPopover, ListBox, ListBoxItem } from "@heroui/react";
+import { Button, Input, Select } from "@supernote/ui";
 import { Funnel, X, Plus } from "@phosphor-icons/react";
 import type { EntityType, Field, FilterClause, FilterOp, SelectOption } from "@supernote/core";
 import type { View } from "@supernote/ipc";
@@ -152,46 +152,28 @@ function FilterRow({ base, clause, onChange, onRemove }: FilterRowProps) {
   return (
     <div className="flex items-center gap-1.5">
       {/* Field picker */}
-      <SelectRoot
+      <Select
         selectedKey={field.id}
         onSelectionChange={(key) => {
           const nextField = base.fields.find((f) => f.id === key);
           if (!nextField) return;
           onChange({ fieldId: nextField.id, op: defaultOpForFieldKind(nextField.kind), value: "" });
         }}
-        className="text-xs"
-        style={{ minWidth: 130 }}
-      >
-        <SelectTrigger className="rounded border px-1.5 py-1 text-xs" style={{ borderColor: "var(--border-subtle)", color: "var(--text-primary)", minWidth: 130 }}>
-          <SelectValue />
-        </SelectTrigger>
-        <SelectPopover>
-          <ListBox>
-            {base.fields.map((f) => (
-              <ListBoxItem key={f.id} id={f.id}>{labelForField(f)}</ListBoxItem>
-            ))}
-          </ListBox>
-        </SelectPopover>
-      </SelectRoot>
+        className="text-xs min-w-[130px]"
+        options={[
+        ...base.fields.map((f) => ({ key: f.id, label: labelForField(f) })),
+        ]}
+      />
 
       {/* Op picker */}
-      <SelectRoot
+      <Select
         selectedKey={currentOp.op}
         onSelectionChange={(key) => { if (key != null) onChange({ op: key as FilterOp }); }}
-        className="text-xs"
-        style={{ minWidth: 110 }}
-      >
-        <SelectTrigger className="rounded border px-1.5 py-1 text-xs" style={{ borderColor: "var(--border-subtle)", color: "var(--text-primary)", minWidth: 110 }}>
-          <SelectValue />
-        </SelectTrigger>
-        <SelectPopover>
-          <ListBox>
-            {ops.map((o) => (
-              <ListBoxItem key={o.op} id={o.op}>{o.label}</ListBoxItem>
-            ))}
-          </ListBox>
-        </SelectPopover>
-      </SelectRoot>
+        className="text-xs min-w-[110px]"
+        options={[
+        ...ops.map((o) => ({ key: o.op, label: o.label })),
+        ]}
+      />
 
       {/* Value editor — kind-specific */}
       <div className="flex-1">
@@ -242,7 +224,7 @@ function FilterValueInput({
       return (
         <Input
           type="number"
-          className="w-full rounded border bg-transparent px-1.5 py-1 text-xs"
+          wrapperClassName="w-full" className="rounded border bg-transparent px-1.5 py-1 text-xs"
           style={{ borderColor: "var(--border-subtle)", color: "var(--text-primary)" }}
           value={value === null || value === undefined ? "" : String(value)}
           onChange={(e) => onChange(e.target.value === "" ? "" : Number(e.target.value))}
@@ -255,7 +237,7 @@ function FilterValueInput({
       return (
         <Input
           type={field.kind === "datetime" || field.kind === "createdAt" || field.kind === "updatedAt" ? "datetime-local" : "date"}
-          className="w-full rounded border bg-transparent px-1.5 py-1 text-xs"
+          wrapperClassName="w-full" className="rounded border bg-transparent px-1.5 py-1 text-xs"
           style={{ borderColor: "var(--border-subtle)", color: "var(--text-primary)" }}
           value={value === null || value === undefined ? "" : String(value).slice(0, field.kind === "date" ? 10 : 16)}
           onChange={(e) => onChange(e.target.value)}
@@ -264,23 +246,17 @@ function FilterValueInput({
     case "bool": {
       const boolVal = value === true ? "true" : value === false ? "false" : "";
       return (
-        <SelectRoot
-          selectedKey={boolVal || null}
+        <Select
+          selectedKey={boolVal || undefined}
           onSelectionChange={(key) => {
             onChange(key === "true" ? true : key === "false" ? false : null);
           }}
           className="w-full text-xs"
-        >
-          <SelectTrigger className="w-full rounded border px-1.5 py-1 text-xs" style={{ borderColor: "var(--border-subtle)", color: "var(--text-primary)" }}>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectPopover>
-            <ListBox>
-              <ListBoxItem id="true">Vrai</ListBoxItem>
-              <ListBoxItem id="false">Faux</ListBoxItem>
-            </ListBox>
-          </SelectPopover>
-        </SelectRoot>
+          options={[
+          { key: "true", label: "Vrai" },
+          { key: "false", label: "Faux" },
+          ]}
+        />
       );
     }
     case "select":
@@ -289,29 +265,21 @@ function FilterValueInput({
       const opts = (field as { options: SelectOption[] }).options ?? [];
       const strVal = value === null || value === undefined ? "" : String(value);
       return (
-        <SelectRoot
-          selectedKey={strVal || null}
+        <Select
+          selectedKey={strVal || undefined}
           onSelectionChange={(key) => { onChange(key ? String(key) : ""); }}
           className="w-full text-xs"
-        >
-          <SelectTrigger className="w-full rounded border px-1.5 py-1 text-xs" style={{ borderColor: "var(--border-subtle)", color: "var(--text-primary)" }}>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectPopover>
-            <ListBox>
-              {opts.map((o) => (
-                <ListBoxItem key={o.value} id={o.value}>{o.label}</ListBoxItem>
-              ))}
-            </ListBox>
-          </SelectPopover>
-        </SelectRoot>
+          options={[
+          ...opts.map((o) => ({ key: o.value, label: o.label })),
+          ]}
+        />
       );
     }
     default:
       return (
         <Input
           type="text"
-          className="w-full rounded border bg-transparent px-1.5 py-1 text-xs"
+          wrapperClassName="w-full" className="rounded border bg-transparent px-1.5 py-1 text-xs"
           style={{ borderColor: "var(--border-subtle)", color: "var(--text-primary)" }}
           value={value === null || value === undefined ? "" : String(value)}
           onChange={(e) => onChange(e.target.value)}

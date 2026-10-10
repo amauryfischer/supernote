@@ -11,14 +11,13 @@ import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Database, Plus, Gear, ArrowsClockwise, CloudCheck } from "@phosphor-icons/react";
-import { Button } from "@heroui/react";
 import { AppShell, useMobileTitle, useMobileFab } from "@/components/shell";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { trpc } from "@/lib/trpc/client";
 import { ipcEntityTypeToCore } from "@/components/schemas/adapters";
 import { BaseView, useEntityMutations } from "@/components/bases";
 import { getIcon } from "@/components/schemas/icon-map";
-import { Skeleton, useToast } from "@supernote/ui";
+import { Skeleton, useToast, Button } from "@supernote/ui";
 import { getCodaBinding } from "@/lib/coda/bindings";
 import { refreshCodaBase } from "@/lib/coda/refresh";
 
@@ -112,9 +111,8 @@ export default function BasePage() {
           style={{ borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-1)" }}
         >
           <Button
-            isIconOnly
             variant="ghost"
-            size="sm"
+            size="icon"
             onPress={() => router.push("/schemas")}
             aria-label="Retour aux schémas"
             className="rounded p-1"

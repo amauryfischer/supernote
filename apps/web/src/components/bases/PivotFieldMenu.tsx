@@ -11,7 +11,7 @@
  */
 
 import { useEffect, useRef } from "react";
-import { Button } from "@heroui/react";
+import { Button } from "@supernote/ui";
 import { Check } from "@phosphor-icons/react";
 import type { EntityType, Field, FieldKind } from "@supernote/core";
 import type { View } from "@supernote/ipc";
