@@ -540,16 +540,19 @@ export function useUpdateNote() {
     },
   });
 
+  // ⚠️ `mutation` change à chaque rendu ; en dépendre relance le nettoyage « démontage » de
+  // NoteEditor à chaque rendu (sauvegarde forcée, minuteurs auto-titre/auto-tag annulés).
+  const { mutateAsync } = mutation;
   const updateNote = useCallback(
     async (id: string, title: string, body: string): Promise<void> => {
       if (!hasBackend) return;
-      await mutation.mutateAsync({
+      await mutateAsync({
         id,
         fields: { title },
         body,
       });
     },
-    [hasBackend, mutation],
+    [hasBackend, mutateAsync],
   );
 
   return { updateNote, isPending: mutation.isPending };
