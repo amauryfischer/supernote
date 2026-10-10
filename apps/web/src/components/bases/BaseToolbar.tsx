@@ -220,7 +220,7 @@ export function BaseToolbar({
               }}
               placeholder="Rechercher…"
               aria-label="Rechercher dans la base"
-              wrapperClassName="w-full min-w-0" className="border-0 bg-transparent p-0 text-sm outline-none focus:ring-0"
+              wrapperClassName="w-full min-w-0" className="border-0 bg-transparent px-0 py-0 h-8 md:h-6 text-sm outline-none focus:ring-0"
               style={{ color: "var(--text-primary)" }}
             />
             {query ? (
