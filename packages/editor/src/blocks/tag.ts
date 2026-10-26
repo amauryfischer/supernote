@@ -3,6 +3,21 @@
 
 import { createInlineContentSpec } from "@blocknote/core";
 
+const TAG_KINDS: Record<string, string> = {
+  TODO: "todo", AFAIRE: "todo",
+  FIXME: "bug", BUG: "bug", URGENT: "bug",
+  IDEE: "idea", IDEA: "idea", NOTE: "idea",
+  QUESTION: "question",
+  DONE: "done", FAIT: "done",
+};
+
+// Même table que NoteMinimap (web) : le paquet n'exporte pas ce helper.
+function tagKind(path: string): string | undefined {
+  const head = path.split("/")[0] ?? "";
+  const key = head.normalize("NFD").replace(/\p{M}/gu, "").replace(/[-_\s]/g, "").toUpperCase();
+  return TAG_KINDS[key];
+}
+
 export const tagInlineSpec = createInlineContentSpec(
   {
     type: "tag" as const,
@@ -16,6 +31,8 @@ export const tagInlineSpec = createInlineContentSpec(
       const pill = document.createElement("span");
       pill.className = "sn-tag";
       pill.setAttribute("data-tag-path", inlineContent.props.path);
+      const kind = tagKind(inlineContent.props.path);
+      if (kind) pill.setAttribute("data-tag-kind", kind);
       pill.setAttribute("contenteditable", "false");
       pill.setAttribute("role", "link");
       pill.setAttribute("tabindex", "0");

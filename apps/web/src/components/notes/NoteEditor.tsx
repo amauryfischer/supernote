@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Spinner } from "@heroui/react";
 import dynamic from "next/dynamic";
-import { CaretDown, CaretRight, Calendar, Tag, FloppyDisk, Microphone, Sparkle, X, CheckCircle, WarningCircle, Presentation, FilePdf, Stop, CodeSimple, ShareNetwork, MapTrifold } from "@phosphor-icons/react";
+import { CaretDown, CaretRight, Calendar, Tag, FloppyDisk, Microphone, Sparkle, X, CheckCircle, WarningCircle, Presentation, FilePdf, Stop, CodeSimple, ShareNetwork, MapTrifold, MagnifyingGlass } from "@phosphor-icons/react";
 import Link from "next/link";
 import { Fragment } from "react";
 import { TagSelector } from "@/components/tags/TagSelector";
@@ -48,6 +48,7 @@ import { createVaultFileAdapter } from "@/lib/vault-file-adapter";
 import { NoteIcon, IconButton, asIcon } from "./NoteIcon";
 import { AiMarginsPanel } from "./AiMarginsPanel";
 import { NoteMinimap, useMinimapPref } from "./NoteMinimap";
+import { NO_FIND, NoteFind, useNoteFind, type FindState } from "./NoteFind";
 import { Backlinks } from "./BacklinksPanel";
 import { useAiMarginsChrome } from "@/components/shell/shell-chrome-context";
 import {
@@ -336,6 +337,9 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
   const aiRuntimeAllowed = useMemo(() => !isMobile && isAiRuntimeAllowed(), [isMobile]);
   const aiMargins = aiRuntimeAllowed && (marginsOverride ?? marginsGlobal);
   const [minimapOn, toggleMinimap] = useMinimapPref();
+  const noteRootRef = useRef<HTMLDivElement>(null);
+  const find = useNoteFind(noteRootRef);
+  const [findState, setFindState] = useState<FindState>(NO_FIND);
   const [bodyVersion, setBodyVersion] = useState(0);
   const [presenting, setPresenting] = useState(false);
   // Surlignage du bloc correspondant au commentaire IA survolé (overlay hors
@@ -1797,6 +1801,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
 
   return (
     <div
+      ref={noteRootRef}
       className={`flex h-full flex-col overflow-hidden ${ambianceClass(ambiance, typo)}`}
       onDragOver={preventFileOpen}
       onDrop={preventFileOpen}
@@ -2056,6 +2061,18 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
             <MapTrifold size={13} weight={minimapOn ? "fill" : "regular"} />
             Minimap
           </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onPress={find.show}
+            className="sn-hit h-7 min-w-0 gap-1 px-2 text-xs"
+            style={{ color: find.open ? "var(--accent)" : "var(--text-muted)" }}
+            aria-label="Rechercher dans la note"
+            aria-pressed={find.open}
+          >
+            <MagnifyingGlass size={13} />
+            Rechercher
+          </Button>
           {gmailConnected && (
             <Button
               variant="ghost"
@@ -2274,7 +2291,29 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
             texte, sur desktop comme sur mobile. pb-16 : dégage le FAB mobile. */}
         <Backlinks entityId={note.id} className="sn-no-print px-4 pb-16 pt-4 md:px-10 md:pb-8" />
       </div>
-      {minimapOn && <NoteMinimap scrollRef={editorContainerRef} overlay={isMobile} />}
+      {minimapOn && <NoteMinimap scrollRef={editorContainerRef} overlay={isMobile} find={findState} />}
+      {find.open && (
+        <NoteFind
+          scrollRef={editorContainerRef}
+          focusTick={find.focusTick}
+          onClose={find.hide}
+          onChange={setFindState}
+          className={`right-2 top-2 ${minimapOn ? "md:right-[8.5rem]" : "md:right-4"}`}
+        />
+      )}
+      {isMobile && !find.open && (
+        // La barre méta est repliée par défaut : sans ce bouton, la recherche serait hors d'atteinte au doigt.
+        <Button
+          variant="ghost"
+          size="icon"
+          onPress={find.show}
+          aria-label="Rechercher dans la note"
+          className="sn-hit sn-no-print absolute right-2 top-2 z-20 h-9 w-9 min-w-9 rounded-full border opacity-90 shadow-md"
+          style={{ backgroundColor: "var(--surface-1)", borderColor: "var(--border)", color: "var(--text-muted)" }}
+        >
+          <MagnifyingGlass size={16} />
+        </Button>
+      )}
       </div>
       <NoteFormulaModalHost
         stubBase={{ id: "_note", name: "Note", plural: "Notes", fields: [], defaultPath: "", fileNamePattern: "{name}" }}

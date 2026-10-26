@@ -1853,3 +1853,38 @@ html, body {
     scroll-behavior: auto !important;
   }
 }
+
+/* ────────────────────────────────────────────────────────────────────────── */
+/* Tags #TODO colorés (pastille du texte + repères de la minimap) et          */
+/* recherche dans la note (CSS Custom Highlight API)                          */
+/* ────────────────────────────────────────────────────────────────────────── */
+
+:root {
+  --sn-tag-todo-fg: #b45309;     --sn-tag-todo-bg: #fef3c7;
+  --sn-tag-bug-fg: #b91c1c;      --sn-tag-bug-bg: #fee2e2;
+  --sn-tag-idea-fg: #1d4ed8;     --sn-tag-idea-bg: #dbeafe;
+  --sn-tag-question-fg: #6d28d9; --sn-tag-question-bg: #ede9fe;
+  --sn-tag-done-fg: #15803d;     --sn-tag-done-bg: #dcfce7;
+  --sn-find-bg: rgb(250 204 21 / 0.45);
+  --sn-find-current-bg: rgb(251 146 60 / 0.7);
+}
+
+[data-theme="dark"] {
+  --sn-tag-todo-fg: #fbbf24;     --sn-tag-todo-bg: rgb(251 191 36 / 0.2);
+  --sn-tag-bug-fg: #f87171;      --sn-tag-bug-bg: rgb(248 113 113 / 0.2);
+  --sn-tag-idea-fg: #60a5fa;     --sn-tag-idea-bg: rgb(96 165 250 / 0.2);
+  --sn-tag-question-fg: #a78bfa; --sn-tag-question-bg: rgb(167 139 250 / 0.2);
+  --sn-tag-done-fg: #4ade80;     --sn-tag-done-bg: rgb(74 222 128 / 0.2);
+  --sn-find-bg: rgb(250 204 21 / 0.35);
+  --sn-find-current-bg: rgb(251 146 60 / 0.6);
+}
+
+::highlight(sn-find) {
+  background-color: var(--sn-find-bg);
+  color: inherit;
+}
+
+::highlight(sn-find-current) {
+  background-color: var(--sn-find-current-bg);
+  color: inherit;
+}
