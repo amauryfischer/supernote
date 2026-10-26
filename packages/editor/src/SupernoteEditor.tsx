@@ -41,6 +41,7 @@ import { attachCheckShortcut } from "./extensions/checkShortcut.js";
 import { COPIED_MARKDOWN_EVENT } from "./extensions/copyMarkdown.js";
 import { createSectionFoldExtension } from "./extensions/sectionFold.js";
 import { smartTypographyExtension } from "./extensions/smartTypography.js";
+import { tagInputRuleExtension } from "./extensions/tagInputRule.js";
 import { attachHtmlPaste } from "./extensions/htmlPaste.js";
 import { attachPasteLinkTitle } from "./extensions/pasteLinkTitle.js";
 import {
@@ -200,6 +201,7 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
           createEditorKeymapExtension(getKeymapBindings ?? defaultBindings, () => blockNoteRef.current),
           createBlockOpsExtension(() => blockNoteRef.current),
           createSectionFoldExtension(() => foldStorageKeyRef.current),
+          tagInputRuleExtension,
           // Remplacements typographiques à la frappe (->, --, ..., (c)…).
           // Désactivable via la prop `smartTypography`.
           ...(smartTypography ? [smartTypographyExtension] : []),

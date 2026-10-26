@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { bootCloud, openNote, seedNote } from "./helpers";
+import { bootCloud, openNote, seedNote, workerCall } from "./helpers";
 
 // Les routes de note se compilent à froid (Vite) et le coffre OPFS rouvre lentement à chaque rechargement.
 test.describe.configure({ timeout: 180_000 });
@@ -234,6 +234,33 @@ test.describe("20 — QoL notes (desktop)", () => {
     await page.keyboard.press("End");
     await page.keyboard.type(" quatre cinq");
     await expect(page.getByText("5 mots · 1 min", { exact: true })).toBeVisible({ timeout: 15_000 });
+  });
+
+  test("#tag tapé : pastille sans quitter la note ; barré et sous-liste (Tab) identiques à la réouverture", async ({ page }) => {
+    const [id] = await seedAndOpen(page, [{ title: "Aller-retour", body: "Début\n\nmot ~~barré~~ ici\n\n- parent\n\n  - enfant" }]);
+    const editor = page.locator(".bn-editor");
+    const asSaved = async () => {
+      await expect(editor.locator("s", { hasText: "barré" })).toBeVisible();
+      // Relu à plat, le Tab revenait en paragraphe « - enfant » et le barré en « ~~barré~~ ».
+      await expect(editor.locator(".bn-block-group .bn-block-group", { hasText: "enfant" })).toHaveCount(1);
+      await expect(editor).not.toContainText("~~");
+      await expect(editor).not.toContainText("- enfant");
+    };
+    await asSaved();
+
+    await editor.locator(".bn-block-content", { hasText: "Début" }).click();
+    await page.keyboard.press("End");
+    await page.keyboard.type(" #TODO suite #IDEE");
+    await page.keyboard.press("Enter");
+    await expect(editor.locator('.sn-tag[data-tag-path="TODO"]')).toHaveCount(1);
+    await expect(editor.locator('.sn-tag[data-tag-path="IDEE"]')).toHaveCount(1);
+
+    await expect
+      .poll(async () => (await workerCall<{ body: string }>(page, "query", "entities.get", { id })).body)
+      .toContain("#TODO suite #IDEE");
+    await openNote(page, id!);
+    await asSaved();
+    await expect(editor.locator(".sn-tag")).toHaveCount(2);
   });
 
   test("/date insère la date du jour en français", async ({ page }) => {

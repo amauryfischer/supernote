@@ -103,8 +103,8 @@ function parseInlineText(text: string): AnyInlineItem[] {
       continue;
     }
 
-    // Tag: #path/sub-tag
-    const tagMatch = /^#([\w/\-]+)/.exec(remaining);
+    // Tag: #path/sub-tag — pas collé à un mot ni à un chemin (`page#ancre`), comme TAG_RE (@supernote/core).
+    const tagMatch = /[\w/]$/.test(text.slice(0, text.length - remaining.length)) ? null : /^#([\w/\-]+)/.exec(remaining);
     if (tagMatch) {
       const path = tagMatch[1] ?? "";
       items.push({ type: "tag", props: { path } });
@@ -112,18 +112,24 @@ function parseInlineText(text: string): AnyInlineItem[] {
       continue;
     }
 
-    // Bold: **text**
+    // Styles emboîtés dans l'ordre d'écriture de serialize.ts (`~~_**x**_~~`) : chacun relit son intérieur.
+    const strikeMatch = /^~~(.+?)~~/.exec(remaining);
+    if (strikeMatch) {
+      pushStyled(strikeMatch[1] ?? "", { strike: true });
+      remaining = remaining.slice(strikeMatch[0].length);
+      continue;
+    }
+
     const boldMatch = /^\*\*(.+?)\*\*/.exec(remaining);
     if (boldMatch) {
-      items.push({ type: "text", text: boldMatch[1] ?? "", styles: { bold: true } });
+      pushStyled(boldMatch[1] ?? "", { bold: true });
       remaining = remaining.slice(boldMatch[0].length);
       continue;
     }
 
-    // Italic: _text_ or *text*
-    const italicMatch = /^[*_](.+?)[*_]/.exec(remaining);
+    const italicMatch = /^_(.+?)_/.exec(remaining) ?? /^\*(.+?)\*/.exec(remaining);
     if (italicMatch) {
-      items.push({ type: "text", text: italicMatch[1] ?? "", styles: { italic: true } });
+      pushStyled(italicMatch[1] ?? "", { italic: true });
       remaining = remaining.slice(italicMatch[0].length);
       continue;
     }
@@ -150,7 +156,7 @@ function parseInlineText(text: string): AnyInlineItem[] {
 
     // Plain text — consume until next special char (`<` included so the
     // styled-HTML matchers above get a chance mid-line)
-    const plainMatch = /^[^[\]@#*_`<]+/.exec(remaining) ?? /^./.exec(remaining);
+    const plainMatch = /^[^[\]@#*_`<~]+/.exec(remaining) ?? /^./.exec(remaining);
     if (plainMatch) {
       items.push({ type: "text", text: plainMatch[0], styles: {} });
       remaining = remaining.slice(plainMatch[0].length);
@@ -298,6 +304,16 @@ function parseLine(line: string): AnyBlock | null {
   return null;
 }
 
+/** Largeur de l'indentation de tête, une tabulation valant un niveau (2 espaces). */
+function indentWidth(line: string): number {
+  return (/^[ \t]*/.exec(line)?.[0] ?? "").replace(/\t/g, "  ").length;
+}
+
+function dedent(line: string, width: number): string {
+  const lead = /^[ \t]*/.exec(line)?.[0] ?? "";
+  return lead.replace(/\t/g, "  ").slice(width) + line.slice(lead.length);
+}
+
 /** Parse full markdown into an array of PartialBlocks */
 export function markdownToBlocks(markdown: string): AnyBlock[] {
   const blocks: AnyBlock[] = [];
@@ -306,6 +322,21 @@ export function markdownToBlocks(markdown: string): AnyBlock[] {
 
   while (i < lines.length) {
     const line = lines[i] ?? "";
+
+    // serialize.ts indente les enfants (Tab) de 2 espaces : relus à plat, une
+    // sous-liste revenait en paragraphe « - item ».
+    if (line.trim() && indentWidth(line) > 0) {
+      let j = i;
+      while (j < lines.length && (!(lines[j] ?? "").trim() || indentWidth(lines[j] ?? "") > 0)) j++;
+      const group = lines.slice(i, j);
+      const width = Math.min(...group.filter((l) => l.trim()).map(indentWidth));
+      const children = markdownToBlocks(group.map((l) => dedent(l, width)).join("\n"));
+      const parent = blocks[blocks.length - 1];
+      if (parent) parent.children = [...(parent.children ?? []), ...children];
+      else blocks.push(...children);
+      i = j;
+      continue;
+    }
 
     // Fenced code block. La clôture doit avoir AU MOINS autant de backticks que
     // l'ouverture : un artefact HTML qui contient lui-même ``` reste intact.
