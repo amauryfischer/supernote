@@ -1050,6 +1050,14 @@
   background: #dcfce7;
 }
 
+/* Tags à sens (TODO, BUG…) : couleur par `data-tag-kind`, posé par tag.ts ; jetons définis dans globals.css. */
+.sn-tag[data-tag-kind="todo"] { background: var(--sn-tag-todo-bg, #fef3c7); color: var(--sn-tag-todo-fg, #b45309); }
+.sn-tag[data-tag-kind="bug"] { background: var(--sn-tag-bug-bg, #fee2e2); color: var(--sn-tag-bug-fg, #b91c1c); }
+.sn-tag[data-tag-kind="idea"] { background: var(--sn-tag-idea-bg, #dbeafe); color: var(--sn-tag-idea-fg, #1d4ed8); }
+.sn-tag[data-tag-kind="question"] { background: var(--sn-tag-question-bg, #ede9fe); color: var(--sn-tag-question-fg, #6d28d9); }
+.sn-tag[data-tag-kind="done"] { background: var(--sn-tag-done-bg, #dcfce7); color: var(--sn-tag-done-fg, #15803d); }
+.sn-tag[data-tag-kind]:hover { filter: brightness(0.96); }
+
 /* ── Callout block ──────────────────────────────────────────── */
 
 .sn-callout {
