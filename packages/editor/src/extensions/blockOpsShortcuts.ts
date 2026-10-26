@@ -23,7 +23,7 @@ import {
   resolveSelectExtendTarget,
 } from "./blockNavShortcuts.js";
 
-interface BlockLike {
+export interface BlockLike {
   id: string;
   type: string;
   props: Record<string, unknown>;
@@ -45,6 +45,9 @@ export interface BlockOpsEditorLike {
   ) => void;
   moveBlocksUp: () => void;
   moveBlocksDown: () => void;
+  getSelection: () => { blocks: BlockLike[] } | undefined;
+  getSelectionCutBlocks: () => { blocks: BlockLike[] };
+  prosemirrorState: { selection: { empty: boolean } };
 }
 
 /**

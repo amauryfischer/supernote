@@ -205,6 +205,57 @@ function makeAskAiItem(onAskAi: () => void): DefaultReactSuggestionItem {
   };
 }
 
+// ── Date et heure ─────────────────────────────────────────────────────────────
+
+function makeDateItem(
+  editor: BlockNoteEditor<any, any, any>,
+  cfg: { title: string; subtext: string; aliases: string[]; icon: string; text: () => string },
+): DefaultReactSuggestionItem {
+  return {
+    title: cfg.title,
+    subtext: cfg.subtext,
+    group: "Date et heure",
+    aliases: cfg.aliases,
+    icon: <span aria-hidden="true">{cfg.icon}</span>,
+    onItemClick() {
+      editor.insertInlineContent([cfg.text() + " "]);
+    },
+  };
+}
+
+const longDate = (d: Date) =>
+  d.toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
+
+function makeDateItems(editor: BlockNoteEditor<any, any, any>): DefaultReactSuggestionItem[] {
+  return [
+    makeDateItem(editor, {
+      title: "Date du jour",
+      subtext: "Insère la date d'aujourd'hui",
+      aliases: ["date", "aujourd'hui", "aujourdhui", "today", "jour"],
+      icon: "📅",
+      text: () => longDate(new Date()),
+    }),
+    makeDateItem(editor, {
+      title: "Date de demain",
+      subtext: "Insère la date de demain",
+      aliases: ["demain", "tomorrow", "date"],
+      icon: "📅",
+      text: () => {
+        const d = new Date();
+        d.setDate(d.getDate() + 1);
+        return longDate(d);
+      },
+    }),
+    makeDateItem(editor, {
+      title: "Heure actuelle",
+      subtext: "Insère l'heure (HH:MM)",
+      aliases: ["heure", "time", "maintenant", "now"],
+      icon: "🕒",
+      text: () => new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }),
+    }),
+  ];
+}
+
 /** Get default slash menu items extended with Supernote custom blocks */
 export function getSupernoteSlashMenuItems(
   editor: BlockNoteEditor<any, any, any>,
@@ -466,7 +517,7 @@ export function getSupernoteSlashMenuItems(
 
   const aiItems: DefaultReactSuggestionItem[] = onAskAi ? [makeAskAiItem(onAskAi)] : [];
 
-  return [...defaults, ...calloutItems, codeItem, embedItem, databaseViewItem, googleSheetItem, htmlItem, gmailItem, formulaItem, ...liveFormulaItems, doodleItem, ...entityLinkItems, ...aiItems];
+  return [...defaults, ...calloutItems, codeItem, embedItem, databaseViewItem, googleSheetItem, htmlItem, gmailItem, formulaItem, ...liveFormulaItems, doodleItem, ...makeDateItems(editor), ...entityLinkItems, ...aiItems];
 }
 
 // ── Suggestion menu renderer ──────────────────────────────────────────────────

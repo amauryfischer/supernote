@@ -38,6 +38,8 @@ import {
 } from "./extensions/blockOpsShortcuts.js";
 import { ACTION_META } from "./keymap/actions.js";
 import { attachCheckShortcut } from "./extensions/checkShortcut.js";
+import { COPIED_MARKDOWN_EVENT } from "./extensions/copyMarkdown.js";
+import { createSectionFoldExtension } from "./extensions/sectionFold.js";
 import { smartTypographyExtension } from "./extensions/smartTypography.js";
 import { attachHtmlPaste } from "./extensions/htmlPaste.js";
 import {
@@ -94,7 +96,11 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
     getKeymapBindings,
     files,
     collaboration,
+    foldStorageKey,
   } = props;
+
+  const foldStorageKeyRef = useRef(foldStorageKey);
+  foldStorageKeyRef.current = foldStorageKey;
 
   // Adaptateur fichiers lu par référence : les options BlockNote sont figées
   // au montage (deps []), la note courante change, elle.
@@ -189,6 +195,7 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
           enterTagExtension,
           createEditorKeymapExtension(getKeymapBindings ?? defaultBindings, () => blockNoteRef.current),
           createBlockOpsExtension(() => blockNoteRef.current),
+          createSectionFoldExtension(() => foldStorageKeyRef.current),
           // Remplacements typographiques à la frappe (->, --, ..., (c)…).
           // Désactivable via la prop `smartTypography`.
           ...(smartTypography ? [smartTypographyExtension] : []),
@@ -282,6 +289,15 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
       }
     });
   }, []);
+
+  // Mod+Maj+C : pas de toast, les blocs copiés clignotent brièvement.
+  useEffect(() => {
+    const el = wrapperRef.current;
+    if (!el) return undefined;
+    const onCopied = (e: Event) => flashBlocks((e as CustomEvent<{ ids: string[] }>).detail.ids);
+    el.addEventListener(COPIED_MARKDOWN_EVENT, onCopied);
+    return () => el.removeEventListener(COPIED_MARKDOWN_EVENT, onCopied);
+  }, [flashBlocks]);
 
   // Expose an imperative insert function to the host once the editor mounts.
   useEffect(() => {

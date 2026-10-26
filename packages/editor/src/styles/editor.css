@@ -1428,3 +1428,75 @@
   color: var(--text-muted, #9ca3af);
   font-size: 0.75rem;
 }
+
+/* ── Sections repliables (extensions/sectionFold.ts) ────────── */
+/* Révélation au survol et plancher tactile : `.sn-reveal` / `.sn-hit` de globals.css. */
+
+.sn-fold-hidden {
+  display: none !important;
+}
+
+.sn-fold-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35em;
+  vertical-align: middle;
+  height: 1.35rem;
+  min-width: 1.35rem;
+  margin-left: 0.4em;
+  padding: 0 0.3em;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted, #9ca3af);
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+  user-select: none;
+  transition:
+    background var(--sn-dur-2, 120ms) var(--sn-ease-out, ease),
+    color var(--sn-dur-2, 120ms) var(--sn-ease-out, ease);
+}
+
+.sn-fold-toggle:hover {
+  background: var(--surface-2, #f3f4f6);
+  color: var(--text-primary, #111827);
+}
+
+.sn-fold-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.sn-fold-toggle__chevron {
+  display: inline-block;
+  font-size: 1.1rem;
+  transform: rotate(90deg);
+  transition: transform var(--sn-dur-2, 120ms) var(--sn-ease-out, ease);
+}
+
+.sn-folded .sn-fold-toggle__chevron {
+  transform: rotate(0deg);
+}
+
+.sn-fold-toggle__count {
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+/* La cible tactile de 32px ne doit pas agrandir la ligne du titre. */
+@media (any-pointer: coarse) {
+  .sn-fold-toggle {
+    margin-block: -0.5rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sn-fold-toggle,
+  .sn-fold-toggle__chevron {
+    transition-duration: 0.01ms;
+  }
+}

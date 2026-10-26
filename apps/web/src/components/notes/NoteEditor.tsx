@@ -2220,6 +2220,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
             <SupernoteEditor
               key={share ? `${note.id}:collab:${share.id}` : `${note.id}:${externalBodyVersion}:${bindingsKey}`}
               collaboration={share ? collab.collaboration : undefined}
+              foldStorageKey={note.id}
               initialMarkdown={pendingBody ?? note.body}
               onChange={handleEditorChange}
               onSave={handleManualSave}

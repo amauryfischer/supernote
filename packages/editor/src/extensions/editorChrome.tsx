@@ -30,8 +30,10 @@ import { SideMenuExtension, SuggestionMenu } from "@blocknote/core/extensions";
 import { ColorMenu, textSwatch } from "./colorMenu.js";
 import {
   duplicateBlock,
+  type BlockLike,
   type BlockOpsEditorLike,
 } from "./blockOpsShortcuts.js";
+import { copyBlocksAsMarkdown } from "./copyMarkdown.js";
 import { ACTION_META } from "../keymap/actions.js";
 
 // ── Floating formatting toolbar ───────────────────────────────────────────────
@@ -444,7 +446,7 @@ interface BlockMenuEditor {
     update: { type?: string; props?: Record<string, unknown> },
   ) => void;
   removeBlocks: (blocks: BlockMenuBlock[]) => void;
-  getBlock: (blockId: string) => { props: Record<string, unknown> } | undefined;
+  getBlock: (blockId: string) => BlockLike | undefined;
 }
 
 /** "Transformer en" targets. Every type here keeps `content: "inline"`, so the
@@ -599,6 +601,16 @@ function SupernoteBlockMenu({
     onClose();
   }, [opsEditor, block, onClose]);
 
+  const [copyState, setCopyState] = useState<"idle" | "done" | "error">("idle");
+  const closeTimer = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(closeTimer.current), []);
+
+  const handleCopyMarkdown = useCallback(async () => {
+    const ok = await copyBlocksAsMarkdown([editor.getBlock(block.id) ?? block]);
+    setCopyState(ok ? "done" : "error");
+    closeTimer.current = window.setTimeout(onClose, 800);
+  }, [editor, block, onClose]);
+
   const handleDelete = useCallback(() => {
     try {
       editor.removeBlocks([block]);
@@ -683,6 +695,27 @@ function SupernoteBlockMenu({
             {shortcutFor("block-ops.duplicate") && (
               <span className="sn-block-menu__shortcut">
                 {shortcutFor("block-ops.duplicate")}
+              </span>
+            )}
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="sn-block-menu__item"
+            onMouseDown={noStealMouseDown}
+            onClick={handleCopyMarkdown}
+            disabled={copyState !== "idle"}
+            aria-live="polite"
+          >
+            <span className="sn-block-menu__icon" aria-hidden>
+              {copyState === "done" ? "✓" : copyState === "error" ? "!" : "M↓"}
+            </span>
+            <span className="sn-block-menu__label">
+              {copyState === "done" ? "Copié" : copyState === "error" ? "Copie impossible" : "Copier en Markdown"}
+            </span>
+            {copyState === "idle" && shortcutFor("edition.copyMarkdown") && (
+              <span className="sn-block-menu__shortcut">
+                {shortcutFor("edition.copyMarkdown")}
               </span>
             )}
           </button>
