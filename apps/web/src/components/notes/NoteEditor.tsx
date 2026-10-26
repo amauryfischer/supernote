@@ -9,7 +9,7 @@ import { Fragment } from "react";
 import { TagSelector } from "@/components/tags/TagSelector";
 import { formatRelativeDate, type Note } from "./fixtures";
 import { useUpdateNote } from "./hooks";
-import type { SupernoteEditorProps, EntityRef, StreamingInsertHandle, SupernoteEditorApi } from "@supernote/editor";
+import type { SupernoteEditorProps, LinkTitleResolver, EntityRef, StreamingInsertHandle, SupernoteEditorApi } from "@supernote/editor";
 import { createOllamaClient } from "@supernote/ai/ollama";
 import type { AIActionId } from "@supernote/ai/actions";
 import { trpc, trpcVanillaClient } from "@/lib/trpc/client";
@@ -101,6 +101,17 @@ const SupernoteEditor = dynamic<SupernoteEditorProps>(
   () => import("@supernote/editor").then((m) => ({ default: m.SupernoteEditor })),
   { ssr: false, loading: () => <EditorSkeleton /> },
 );
+
+/** Titre d'une URL collée ; `null` sans point d'accès, hors ligne ou en erreur (le lien garde l'URL). */
+const resolveLinkTitle: LinkTitleResolver = async (url) => {
+  try {
+    const res = await fetch(`/api/unfurl?url=${encodeURIComponent(url)}`);
+    const body: unknown = res.ok ? await res.json() : null;
+    return typeof body === "object" && body !== null && "title" in body && typeof body.title === "string" ? body.title : null;
+  } catch {
+    return null;
+  }
+};
 
 // ── Entity helpers ─────────────────────────────────────────────────────────────
 
@@ -2304,6 +2315,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
               onAIWarning={onAIWarning}
               getKeymapBindings={getBindings}
               files={fileAdapter}
+              resolveLinkTitle={resolveLinkTitle}
             />
             )}
           </div>

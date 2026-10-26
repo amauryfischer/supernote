@@ -110,6 +110,24 @@ function shareDevServer() {
   };
 }
 
+/** Dev-only : même handler `/api/unfurl` que `server.mjs`, sans proxy. */
+function unfurlDevServer() {
+  return {
+    name: "supernote-unfurl-dev",
+    configureServer(server: { middlewares: { use: (fn: (req: unknown, res: unknown, next: () => void) => void) => void } }) {
+      server.middlewares.use((req, res, next) => {
+        if (!((req as { url?: string }).url ?? "").startsWith("/api/unfurl")) return next();
+        void import("./unfurl.mjs")
+          .then(({ handleUnfurl }) => handleUnfurl(req as never, res as never))
+          .then((handled) => {
+            if (!handled) next();
+          })
+          .catch(() => next());
+      });
+    },
+  };
+}
+
 export default defineConfig({
   plugins: [
     react(),
@@ -117,6 +135,7 @@ export default defineConfig({
     tailwindcss(),
     onlineSyncDevServer(),
     shareDevServer(),
+    unfurlDevServer(),
     VitePWA({
       registerType: "prompt",
       injectRegister: false,

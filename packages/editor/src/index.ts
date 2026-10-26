@@ -10,6 +10,7 @@ export type {
   EntityRef,
   EntityResolvers,
   EditorFileAdapter,
+  LinkTitleResolver,
   CalloutVariant,
   Block,
   StreamingInsertHandle,
