@@ -10,6 +10,7 @@ interface NoteMinimapProps {
 
 const MOBILE_HIDE_DELAY_MS = 1200;
 const PREF_KEY = "supernote.minimap";
+const LABEL_PX: Record<string, number> = { H1: 11, H2: 10, H3: 9 };
 
 export function useMinimapPref(): [boolean, () => void] {
   const [on, setOn] = useState(() => {
@@ -65,20 +66,61 @@ export function NoteMinimap({ scrollRef, overlay = false }: NoteMinimapProps) {
     canvas.height = Math.round(height * dpr);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, width, height);
-    ctx.fillStyle = getComputedStyle(c.querySelector(".bn-editor") ?? c).color;
-
     const box = c.getBoundingClientRect();
     const originY = box.top - c.scrollTop;
+    const toX = (x: number) => (x - box.left) * sx;
+    const midY = (r: DOMRect) => (r.top + r.height / 2 - originY) * sy;
+    const labels: { text: string; x: number; y: number; px: number; color: string; family: string }[] = [];
+    const seenHeadings = new Set<Element>();
+    const styles = new Map<Element, CSSStyleDeclaration>();
     const walker = document.createTreeWalker(c, NodeFilter.SHOW_TEXT);
     const range = document.createRange();
+    ctx.textBaseline = "middle";
     for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-      if (!node.nodeValue?.trim()) continue;
-      range.selectNodeContents(node);
-      ctx.globalAlpha = node.parentElement?.closest("h1, h2, h3") ? 0.75 : 0.4;
-      for (const r of range.getClientRects()) {
-        const h = Math.max(1, r.height * sy * 0.6);
-        ctx.fillRect((r.left - box.left) * sx, (r.top - originY) * sy + (r.height * sy - h) / 2, Math.max(1, r.width * sx), h);
+      const text = node.nodeValue ?? "";
+      const el = node.parentElement;
+      if (!el || !text.trim()) continue;
+      let cs = styles.get(el);
+      if (!cs) {
+        cs = getComputedStyle(el);
+        styles.set(el, cs);
       }
+      range.selectNodeContents(node);
+      const rects = Array.from(range.getClientRects()).filter((r) => r.width > 0);
+      const first = rects[0];
+      if (!first) continue;
+      const heading = el.closest("h1, h2, h3");
+      if (heading) {
+        if (seenHeadings.has(heading)) continue;
+        seenHeadings.add(heading);
+        const px = LABEL_PX[heading.tagName] ?? 8;
+        labels.push({ text: heading.textContent?.trim() ?? text, x: toX(first.left), y: midY(first), px, color: cs.color, family: cs.fontFamily });
+        continue;
+      }
+      ctx.fillStyle = cs.color;
+      ctx.globalAlpha = 0.6;
+      ctx.font = `${cs.fontStyle} ${cs.fontWeight} ${parseFloat(cs.fontSize) * sx}px ${cs.fontFamily}`;
+      // Le découpage du texte par ligne n'est pas exposé : on le répartit au prorata de la largeur de chaque ligne.
+      const total = rects.reduce((sum, r) => sum + r.width, 0);
+      let start = 0;
+      for (const r of rects) {
+        const end = start + Math.round((text.length * r.width) / total);
+        ctx.fillText(text.slice(start, end), toX(r.left), midY(r), r.width * sx);
+        start = end;
+      }
+    }
+
+    // Titres lisibles par-dessus le texte miniature ; un titre qui chevaucherait le précédent est sauté.
+    ctx.globalAlpha = 1;
+    let floor = -Infinity;
+    for (const l of labels) {
+      const top = l.y - l.px / 2 - 1;
+      if (top < floor) continue;
+      ctx.font = `600 ${l.px}px ${l.family}`;
+      ctx.clearRect(l.x - 2, top, Math.min(width, ctx.measureText(l.text).width + 4), l.px + 2);
+      ctx.fillStyle = l.color;
+      ctx.fillText(l.text, l.x, l.y);
+      floor = top + l.px + 2;
     }
     updateViewport();
   }, [scrollRef, updateViewport]);
@@ -165,7 +207,7 @@ export function NoteMinimap({ scrollRef, overlay = false }: NoteMinimapProps) {
       className={[
         "sn-no-print cursor-pointer touch-none select-none",
         overflows ? "" : "hidden",
-        overlay ? "sn-motion-glide absolute inset-y-0 right-0 z-10 w-12 shadow-lg" : "relative w-28 shrink-0",
+        overlay ? "sn-motion-glide absolute inset-y-0 right-0 z-10 w-16 shadow-lg" : "relative w-32 shrink-0",
       ].join(" ")}
       style={{
         borderLeft: "1px solid var(--border-subtle)",
