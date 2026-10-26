@@ -2,8 +2,8 @@
  * blockComments — commentaires IA par bloc.
  *
  * Découpe le corps markdown en blocs, attribue à chacun un hash stable de son
- * contenu, et produit un court commentaire IA par bloc (suggestion / question /
- * incohérence / reformulation / mise en forme). Le hash sert de clé de cache :
+ * contenu, et produit un court commentaire IA par bloc (suggestion / incohérence /
+ * lien / reformulation / mise en forme), toujours avec sa réécriture du bloc. Le hash sert de clé de cache :
  * un bloc inchangé n'est jamais ré-analysé. Seul `analyzeBlock` touche le
  * réseau, le reste est pur.
  */
@@ -113,9 +113,6 @@ export interface BlockComment {
   /** Réécriture complète du bloc proposée, applicable en 1 clic. Optionnel. */
   fix?: string;
 }
-
-/** Catégories dont la remarque n'a aucun sens sans texte de remplacement. */
-const KINDS_REQUIRING_FIX: ReadonlySet<BlockComment["kind"]> = new Set(["rewrite", "format"]);
 
 /** Hash FNV-1a 32 bits → hex. Déterministe, pas de Math.random. */
 export function hashText(s: string): string {
@@ -439,32 +436,6 @@ function parseLooseObject(raw: string): Record<string, unknown> | null {
 
 
 /**
- * Tournures par lesquelles un modèle dit « je n'ai rien à dire » tout en
- * remplissant le champ commentaire. Testées sur le texte sans accents.
- */
-const EMPTY_PRAISE =
-  /(ne necessite (aucune|pas|d)|(aucune|pas de) (correction|modification|reformulation|amelioration|remarque|suggestion|erreur|faute)|rien a (signaler|redire|corriger|ajouter|dire|reformuler|modifier)|(est|semble|parait|reste) (deja )?(correct|correcte|clair|claire|bien |bon |bonne|coherent|coherente|complet|complete|lisible|precis|precise|approprie|appropriee|satisfaisant|satisfaisante|comprehensible|explicite|valide)|aucun (probleme|souci|defaut)|tout (va bien|est correct)|phrase complete|n.appelle aucun|pas d.(erreur|ambiguite|incoherence|probleme)|ne pose (pas|aucun) |(bloc|passage|paragraphe|texte) (est|semble) vide|aucun contenu a commenter|rien (a|de) commenter|pas de contenu a commenter)/;
-
-/** Marqueurs d'une vraie réserve : « c'est clair MAIS trop long » reste utile. */
-const HAS_RESERVE = /\b(mais|toutefois|cependant|neanmoins|en revanche|pourtant|sauf)\b/;
-
-function deaccent(s: string): string {
-  return s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-}
-
-/**
- * Vrai quand le commentaire se contente de constater que le bloc va bien.
- * Une carte qui annonce n'avoir rien à annoncer pousse les vraies suggestions
- * vers le bas et apprend à l'utilisateur que le panneau contient du bruit —
- * après quoi il cesse de le lire. Zéro carte vaut mieux qu'une carte creuse.
- */
-export function isEmptyPraise(comment: string): boolean {
-  const flat = deaccent(comment);
-  if (HAS_RESERVE.test(flat)) return false;
-  return EMPTY_PRAISE.test(flat);
-}
-
-/**
  * Parse tolérant de la réponse JSON du modèle pour un bloc. `blockText` permet
  * de rejeter un « fix » qui rend le bloc à l'identique.
  */
@@ -475,18 +446,12 @@ export function parseBlockComment(raw: string, blockText?: string): BlockComment
   if (!comment) return null;
   const fixRaw = typeof o["fix"] === "string" ? o["fix"].trim() : "";
   const kind = coerceKind(o["kind"]);
-  // Un fix qui rend le bloc à l'identique n'offre aucune action : il serait
-  // masqué à l'affichage, autant le traiter comme absent dès ici.
+  // Un fix qui rend le bloc à l'identique n'offre aucune action.
   const fix = fixRaw && fixRaw !== (blockText ?? "").trim() ? fixRaw : "";
-  // « Reformule ceci » sans la reformulation ne laisse à l'utilisateur qu'un
-  // reproche : on jette plutôt que d'afficher une remarque non actionnable.
-  if (!fix && KINDS_REQUIRING_FIX.has(kind)) return null;
-  // Rien à appliquer ET rien à reprocher : le modèle a rempli le champ pour ne
-  // rien dire. `null` = « analysé, rien à signaler », le chemin prévu pour ça.
-  if (!fix && isEmptyPraise(comment)) return null;
-  const out: BlockComment = { comment, kind };
-  if (fix) out.fix = fix;
-  return out;
+  // Sans correctif, la carte n'offrait qu'« Écarter » : une remarque à lire puis
+  // à jeter. `null` = « analysé, rien à signaler ».
+  if (!fix) return null;
+  return { comment, kind, fix };
 }
 
 /**
@@ -502,19 +467,18 @@ RÈGLES STRICTES :
 - Une seule remarque, ≤ 20 mots, concrète et spécifique à ce bloc.
 - LE SILENCE EST LA RÉPONSE NORMALE : la plupart des blocs n'appellent aucune remarque. Dans ce cas renvoie {"comment":"","kind":"suggestion","fix":""} et rien d'autre.
 - N'écris JAMAIS un commentaire pour dire que le bloc est correct, clair, complet, bien écrit, ou qu'il ne nécessite pas de correction. Ces réponses sont INTERDITES : le commentaire doit alors être VIDE.
-- Ne commente que si tu proposes une amélioration précise. Mieux vaut rien qu'une banalité.
+- Ne commente que si tu fournis le bloc corrigé dans "fix". Une remarque sans "fix" est INTERDITE : renvoie alors le JSON vide.
 - Choisis le "kind" en descendant cette liste et en t'arrêtant au PREMIER qui s'applique :
   1. "format" = la structure ne colle pas : énumération en prose qui doit devenir une liste, lignes parallèles qui forment un tableau, ligne d'annonce qui doit devenir un titre markdown,
   2. "rewrite" = phrase lourde, verbeuse, passive ou à rallonge, qui dirait la même chose en bien moins de mots,
   3. "issue" = contredit un autre passage de la note,
   4. "link" = devrait renvoyer à une autre note/notion citée ailleurs,
-  5. "question" = ambiguïté factuelle réelle dans ce bloc,
-  6. "suggestion" = DERNIER RECOURS, uniquement si aucun des cinq précédents ne s'applique.
+  5. "suggestion" = DERNIER RECOURS, uniquement si aucun des quatre précédents ne s'applique.
 
-"fix" contient le BLOC ENTIER RÉÉCRIT (markdown, prêt à remplacer tel quel : ni commentaire, ni guillemets autour, ni explication). OBLIGATOIRE pour "rewrite" (version reformulée, même sens) et pour "format" (même contenu, structure markdown corrigée). Pour les autres "kind", ne le mets que si la correction est sûre. Ne mets JAMAIS de fix qui supprime de l'information ou invente un fait.
+"fix" contient le BLOC ENTIER RÉÉCRIT (markdown, prêt à remplacer tel quel : ni commentaire, ni guillemets autour, ni explication). OBLIGATOIRE pour tous les "kind" : "rewrite" = version reformulée, même sens ; "format" = même contenu, structure markdown corrigée ; les autres = le bloc avec la correction appliquée. Pas de correction sûre = silence (JSON vide). Ne mets JAMAIS de fix qui supprime de l'information ou invente un fait.
 
 Réponds UNIQUEMENT par du JSON valide, rien d'autre :
-{"comment":"<remarque en français citant le bloc, ou vide>","kind":"suggestion|question|issue|link|rewrite|format","fix":"<bloc réécrit, ou vide>"}
+{"comment":"<remarque en français citant le bloc, ou vide>","kind":"suggestion|issue|link|rewrite|format","fix":"<bloc réécrit, ou vide>"}
 
 TITRE DE LA NOTE : ${noteTitle}
 
