@@ -7,6 +7,8 @@ interface NoteMinimapProps {
   scrollRef: RefObject<HTMLDivElement | null>;
   /** Mobile : surimpression qui n'apparaît qu'au défilement, pour ne pas manger la largeur du texte. */
   overlay?: boolean;
+  /** Desktop étroit : bande fixe de 20 px, tags en pastilles rondes, sans texte. */
+  rail?: boolean;
   /** Résultats de la recherche dans la note, tracés en traits pleine largeur. */
   find?: FindState;
 }
@@ -17,11 +19,12 @@ const LABEL_PX: Record<string, number> = { H1: 11, H2: 10, H3: 9 };
 const PILL_PX = 9;
 const PILL_PAD = 3;
 
-type TagKind = "todo" | "bug" | "idea" | "question" | "done";
+export type TagKind = "todo" | "bug" | "urgent" | "idea" | "question" | "done";
 
 const TAG_KINDS: Record<string, TagKind> = {
   TODO: "todo", AFAIRE: "todo",
-  FIXME: "bug", BUG: "bug", URGENT: "bug",
+  FIXME: "bug", BUG: "bug",
+  URGENT: "urgent",
   IDEE: "idea", IDEA: "idea", NOTE: "idea",
   QUESTION: "question",
   DONE: "done", FAIT: "done",
@@ -32,7 +35,7 @@ const TAG_KINDS: Record<string, TagKind> = {
 const RAW_TAG_RE = /(?<![\p{L}\p{N}_/&=:#-])#([\p{L}\p{N}_-]+)/gu;
 
 // Même table que tag.ts (paquet editor) : il n'exporte pas son helper.
-function tagKind(path: string): TagKind | undefined {
+export function tagKind(path: string): TagKind | undefined {
   const head = path.split("/")[0] ?? "";
   return TAG_KINDS[head.normalize("NFD").replace(/\p{M}/gu, "").replace(/[-_\s]/g, "").toUpperCase()];
 }
@@ -40,8 +43,17 @@ function tagKind(path: string): TagKind | undefined {
 interface TagMark {
   label: string;
   kind: TagKind | undefined;
-  x: number;
   y: number;
+}
+
+/** Tronque avec « … » pour tenir dans `max` px ; vide si même une lettre ne tient pas. */
+function fitText(ctx: CanvasRenderingContext2D, text: string, max: number): string {
+  if (ctx.measureText(text).width <= max) return text;
+  for (let n = text.length - 1; n > 0; n--) {
+    const t = `${text.slice(0, n).trimEnd()}…`;
+    if (ctx.measureText(t).width <= max) return t;
+  }
+  return "";
 }
 
 export function useMinimapPref(): [boolean, () => void] {
@@ -61,11 +73,15 @@ export function useMinimapPref(): [boolean, () => void] {
   return [on, toggle];
 }
 
+const railRadius = (width: number) => Math.min(5, width / 2 - 1.5);
+
 // Canvas plutôt que clone DOM : un double du texte casserait les getByText des e2e et rechargerait les iframes.
-export function NoteMinimap({ scrollRef, overlay = false, find = NO_FIND }: NoteMinimapProps) {
+export function NoteMinimap({ scrollRef, overlay = false, rail = false, find = NO_FIND }: NoteMinimapProps) {
+  const compact = overlay || rail;
   const rootRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const findCanvasRef = useRef<HTMLCanvasElement>(null);
+  const pillColRef = useRef(0);
   const viewportRef = useRef<HTMLDivElement>(null);
   const cursorRef = useRef<HTMLDivElement>(null);
   const findRef = useRef(find);
@@ -99,33 +115,35 @@ export function NoteMinimap({ scrollRef, overlay = false, find = NO_FIND }: Note
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     const { ranges, current } = findRef.current;
     if (ranges.length === 0) return;
+    // Teintes du surlignage, vives et opaques ; dans le rail, sur leur propre bande pour ne pas se confondre avec le #TODO.
     const cs = getComputedStyle(root);
-    const accent = cs.getPropertyValue("--accent").trim();
-    const halo = cs.getPropertyValue("--surface-1").trim();
     const originY = c.getBoundingClientRect().top - c.scrollTop;
     const ys = ranges.map((r) => {
       const b = r.getBoundingClientRect();
       return (b.top + b.height / 2 - originY) * scaleRef.current;
     });
-    ctx.fillStyle = accent;
-    ctx.globalAlpha = 0.85;
+    // Arrêtés avant la colonne des pastilles (dans le rail : une encoche à gauche, les pastilles sont à droite) : un trait en travers d'un tag le rendait illisible.
+    const w = compact ? Math.min(6, Math.max(2, width - 2 * railRadius(width) - 2)) : width - pillColRef.current;
+    ctx.fillStyle = cs.getPropertyValue("--sn-find-mark").trim();
     ys.forEach((y, i) => {
-      if (i !== current) ctx.fillRect(0, y - 1, width, 3);
+      if (i !== current) ctx.fillRect(0, y - 1.5, w, 3);
     });
     const y = ys[current];
     if (y !== undefined) {
-      ctx.globalAlpha = 1;
-      ctx.fillStyle = halo;
-      ctx.fillRect(0, y - 4, width, 8);
-      ctx.fillStyle = accent;
-      ctx.fillRect(0, y - 2.5, width, 5);
+      ctx.fillStyle = cs.getPropertyValue("--sn-find-current-mark").trim();
+      ctx.fillRect(0, y - 2.5, compact ? w + 2 : w, 5);
     }
-  }, [scrollRef]);
+  }, [scrollRef, compact]);
 
   const updateCursor = useCallback(() => {
     const c = scrollRef.current;
     const el = cursorRef.current;
     if (!c || !el) return;
+    // Dans le rail, la bande du viewport suffit : un trait de curseur s'y lisait comme un tag sans couleur.
+    if (compact) {
+      el.style.display = "none";
+      return;
+    }
     const sel = document.getSelection();
     const node = sel?.focusNode;
     // Hors de l'éditeur (barre de recherche, autre champ) : on garde le dernier repère plutôt que de le faire clignoter.
@@ -143,7 +161,7 @@ export function NoteMinimap({ scrollRef, overlay = false, find = NO_FIND }: Note
     const y = (r.top + r.height / 2 - (c.getBoundingClientRect().top - c.scrollTop)) * scaleRef.current;
     el.style.display = "block";
     el.style.transform = `translateY(${y - 1}px)`;
-  }, [scrollRef]);
+  }, [scrollRef, compact]);
 
   const paint = useCallback(() => {
     const c = scrollRef.current;
@@ -156,7 +174,8 @@ export function NoteMinimap({ scrollRef, overlay = false, find = NO_FIND }: Note
     if (!ctx || width === 0 || height === 0) return;
 
     const sx = width / c.clientWidth;
-    const sy = Math.min(sx, height / c.scrollHeight);
+    // Le rail n'a que 12 px de large : borné par la largeur, il tasserait toute la note dans son premier centimètre.
+    const sy = compact ? height / c.scrollHeight : Math.min(sx, height / c.scrollHeight);
     scaleRef.current = sy;
     const dpr = window.devicePixelRatio || 1;
     canvas.width = Math.round(width * dpr);
@@ -165,15 +184,17 @@ export function NoteMinimap({ scrollRef, overlay = false, find = NO_FIND }: Note
     ctx.clearRect(0, 0, width, height);
     const box = c.getBoundingClientRect();
     const originY = box.top - c.scrollTop;
-    const toX = (x: number) => (x - box.left) * sx;
     const midY = (r: DOMRect) => (r.top + r.height / 2 - originY) * sy;
-    const labels: { text: string; x: number; y: number; px: number; color: string; family: string }[] = [];
+    // Abscisses brutes (px depuis le bord du scroller) : l'échelle horizontale dépend de la colonne des pastilles.
+    const labels: { text: string; rx: number; y: number; px: number; color: string; family: string }[] = [];
+    const runs: { rx: number; rw: number; y: number; cs: CSSStyleDeclaration }[] = [];
     const tags: TagMark[] = [];
     const seenHeadings = new Set<Element>();
     const seenPills = new Set<Element>();
     const styles = new Map<Element, CSSStyleDeclaration>();
     const walker = document.createTreeWalker(c, NodeFilter.SHOW_TEXT);
     const range = document.createRange();
+    let foldY: number | null = null;
     ctx.textBaseline = "middle";
     for (let node = walker.nextNode(); node; node = walker.nextNode()) {
       const text = node.nodeValue ?? "";
@@ -187,86 +208,138 @@ export function NoteMinimap({ scrollRef, overlay = false, find = NO_FIND }: Note
       range.selectNodeContents(node);
       const rects = Array.from(range.getClientRects()).filter((r) => r.width > 0);
       const first = rects[0];
-      if (!first) continue;
+      // Une section repliée garde ses tags dans la minimap, rapportés sur la ligne de son titre.
+      const y: number | null = first ? midY(first) : foldY !== null && el.closest(".sn-fold-hidden") ? foldY : null;
+      if (y === null) continue;
+      if (first && el.closest(".sn-folded")) foldY = y;
       // Tag inline : une pastille, jamais du texte miniature.
       const pill = el.closest(".sn-tag");
       if (pill) {
         if (!seenPills.has(pill)) {
           seenPills.add(pill);
           const path = pill.getAttribute("data-tag-path") ?? text.replace(/^#/, "");
-          tags.push({ label: `#${path}`, kind: tagKind(path), x: toX(first.left), y: midY(first) });
+          tags.push({ label: `#${path}`, kind: tagKind(path), y });
         }
+        continue;
+      }
+      if (!first) {
+        for (const m of text.matchAll(RAW_TAG_RE)) if (/\p{L}/u.test(m[1]!)) tags.push({ label: m[0], kind: tagKind(m[1]!), y });
         continue;
       }
       const heading = el.closest("h1, h2, h3");
       if (heading) {
-        if (seenHeadings.has(heading)) continue;
+        if (compact || seenHeadings.has(heading)) continue;
         seenHeadings.add(heading);
         const px = LABEL_PX[heading.tagName] ?? 8;
-        labels.push({ text: heading.textContent?.trim() ?? text, x: toX(first.left), y: midY(first), px, color: cs.color, family: cs.fontFamily });
+        labels.push({ text: heading.textContent?.trim() ?? text, rx: first.left - box.left, y: midY(first), px, color: cs.color, family: cs.fontFamily });
         continue;
       }
-      for (const m of text.matchAll(RAW_TAG_RE)) {
+      // Hors éditeur (cartes des Marges IA, rétroliens), un « #TAG » cité n'est pas un tag de la note.
+      for (const m of el.closest(".ProseMirror") ? text.matchAll(RAW_TAG_RE) : []) {
         if (!/\p{L}/u.test(m[1]!)) continue;
         range.setStart(node, m.index);
         range.setEnd(node, m.index + m[0].length);
         const r = range.getClientRects()[0];
-        if (r) tags.push({ label: m[0], kind: tagKind(m[1]!), x: toX(r.left), y: midY(r) });
+        if (r) tags.push({ label: m[0], kind: tagKind(m[1]!), y: midY(r) });
       }
-      ctx.fillStyle = cs.color;
-      ctx.globalAlpha = 0.6;
-      ctx.font = `${cs.fontStyle} ${cs.fontWeight} ${parseFloat(cs.fontSize) * sx}px ${cs.fontFamily}`;
-      // Le découpage du texte par ligne n'est pas exposé : on le répartit au prorata de la largeur de chaque ligne.
-      const total = rects.reduce((sum, r) => sum + r.width, 0);
-      let start = 0;
-      for (const r of rects) {
-        const end = start + Math.round((text.length * r.width) / total);
-        ctx.fillText(text.slice(start, end), toX(r.left), midY(r), r.width * sx);
-        start = end;
+      if (compact) continue;
+      for (const r of rects) runs.push({ rx: r.left - box.left, rw: r.width, y: midY(r), cs });
+    }
+
+    const palette = getComputedStyle(rootRef.current ?? c);
+    const token = (name: string) => palette.getPropertyValue(name).trim();
+
+    // Rail : trop étroit pour du texte, chaque tag y devient une pastille ronde de sa couleur.
+    if (compact) {
+      const r = railRadius(width);
+      // Deux tags d'une même ligne (ou d'une section repliée) s'empilent au lieu de se masquer.
+      let below = -Infinity;
+      for (const t of [...tags].sort((a, b) => a.y - b.y)) {
+        const y = Math.max(t.y, below + 2 * r + 4);
+        below = y;
+        const cx = width - r - 1;
+        ctx.beginPath();
+        ctx.arc(cx, y, r, 0, Math.PI * 2);
+        ctx.fillStyle = t.kind ? token(`--sn-tag-${t.kind}-fg`) : token("--accent");
+        ctx.fill();
+        // Liseré du fond : deux pastilles voisines restent deux pastilles, pas une grappe.
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = token("--surface-0") || "#fff";
+        ctx.stroke();
+        // #URGENT marqué d'un « ! » : à cette taille, son magenta et le rouge de #BUG se confondaient.
+        if (t.kind === "urgent") {
+          ctx.fillStyle = token("--surface-0") || "#fff";
+          ctx.fillRect(cx - 0.75, y - r + 2, 1.5, r);
+          ctx.fillRect(cx - 0.75, y + r - 2.5, 1.5, 1.5);
+        }
       }
     }
 
-    // Titres lisibles par-dessus le texte miniature ; un titre qui chevaucherait le précédent est sauté.
+    // Pastilles calées à droite sur la ligne de leur tag. Des tags trop proches pour deux pastilles en forment
+    // une seule, « #A +n », sur la ligne du premier : décalée, une pastille désignait la mauvaise section.
+    ctx.font = `700 ${PILL_PX}px ${palette.fontFamily}`;
+    const pillH = PILL_PX + 4;
+    const groups: { first: TagMark; count: number }[] = [];
+    for (const t of compact ? [] : tags) {
+      const last = groups[groups.length - 1];
+      if (last && t.y - last.first.y < pillH + 1) last.count++;
+      else groups.push({ first: t, count: 1 });
+    }
+    const pills = groups.map(({ first, count }) => {
+      const more = count > 1 ? ` +${count - 1}` : "";
+      let label = first.label;
+      let w = ctx.measureText(label + more).width + PILL_PAD * 2;
+      while (w > width - 4 && label.length > 2) {
+        label = `${label.slice(0, -2)}…`;
+        w = ctx.measureText(label + more).width + PILL_PAD * 2;
+      }
+      return { label: label + more, kind: first.kind, x: Math.max(1, width - w - 2), top: first.y - pillH / 2, w };
+    });
+
+    // Colonne réservée aux pastilles : la silhouette du texte est tassée à sa gauche, jamais dessous.
+    const pillCol = pills.length > 0 ? Math.max(...pills.map((p) => p.w)) + 6 : 0;
+    pillColRef.current = pillCol;
+    const sxText = Math.max(width - pillCol, width / 2) / c.clientWidth;
+    // Le corps en barres, pas en lettres : à cette échelle, du texte se lisait comme une bouillie rognée.
+    ctx.globalAlpha = 0.22;
+    for (const r of runs) {
+      const h = Math.max(1, parseFloat(r.cs.fontSize) * sy * 0.6);
+      ctx.fillStyle = r.cs.color;
+      ctx.fillRect(r.rx * sxText, r.y - h / 2, r.rw * sxText, h);
+    }
     ctx.globalAlpha = 1;
+
+    // Titres lisibles par-dessus le texte miniature, arrêtés avant une pastille de la même ligne ; un titre
+    // qui chevaucherait le précédent est sauté.
     let floor = -Infinity;
     for (const l of labels) {
       const top = l.y - l.px / 2 - 1;
+      const bottom = top + l.px + 2;
       if (top < floor) continue;
+      const x = l.rx * sxText;
+      const limit = Math.min(width - 2, ...pills.filter((p) => p.top < bottom && p.top + pillH > top).map((p) => p.x - 6));
       ctx.font = `600 ${l.px}px ${l.family}`;
-      ctx.clearRect(l.x - 2, top, Math.min(width, ctx.measureText(l.text).width + 4), l.px + 2);
+      const text = fitText(ctx, l.text, limit - x);
+      if (!text) continue;
+      ctx.clearRect(x - 2, top, ctx.measureText(text).width + 4, l.px + 2);
       ctx.fillStyle = l.color;
-      ctx.fillText(l.text, l.x, l.y);
-      floor = top + l.px + 2;
+      ctx.fillText(text, x, l.y);
+      floor = bottom;
     }
 
-    // Tags par-dessus : pastille colorée + libellé, sautée si elle chevauche la précédente (comme les titres).
-    const palette = getComputedStyle(rootRef.current ?? c);
-    const token = (name: string) => palette.getPropertyValue(name).trim();
     ctx.font = `700 ${PILL_PX}px ${palette.fontFamily}`;
-    const pillH = PILL_PX + 4;
-    let pillFloor = -Infinity;
-    for (const t of tags) {
-      const top = t.y - pillH / 2;
-      if (top < pillFloor) continue;
-      let label = t.label;
-      let w = ctx.measureText(label).width + PILL_PAD * 2;
-      while (w > width - 2 && label.length > 2) {
-        label = `${label.slice(0, -2)}…`;
-        w = ctx.measureText(label).width + PILL_PAD * 2;
-      }
-      const x = Math.min(Math.max(1, t.x), Math.max(1, width - w - 1));
-      const fg = t.kind ? token(`--sn-tag-${t.kind}-fg`) : token("--text-primary");
-      ctx.clearRect(x, top, w, pillH);
+    for (const p of pills) {
+      const fg = p.kind ? token(`--sn-tag-${p.kind}-fg`) : token("--text-primary");
+      ctx.clearRect(p.x, p.top, p.w, pillH);
       ctx.beginPath();
-      ctx.roundRect(x, top, w, pillH, 3);
-      ctx.fillStyle = t.kind ? token(`--sn-tag-${t.kind}-bg`) : token("--surface-2");
+      ctx.roundRect(p.x + 0.5, p.top + 0.5, p.w - 1, pillH - 1, 3);
+      ctx.fillStyle = p.kind ? token(`--sn-tag-${p.kind}-bg`) : token("--surface-2");
       ctx.fill();
-      ctx.strokeStyle = t.kind ? fg : token("--accent");
+      ctx.strokeStyle = p.kind ? fg : token("--accent");
       ctx.lineWidth = 1;
       ctx.stroke();
       ctx.fillStyle = fg;
-      ctx.fillText(label, x + PILL_PAD, t.y);
-      pillFloor = top + pillH + 1;
+      ctx.fillText(p.label, p.x + PILL_PAD, p.top + pillH / 2);
     }
 
     // Case non cochée : point ambre sur le bord gauche.
@@ -280,7 +353,7 @@ export function NoteMinimap({ scrollRef, overlay = false, find = NO_FIND }: Note
     updateViewport();
     drawFind();
     updateCursor();
-  }, [scrollRef, updateViewport, drawFind, updateCursor]);
+  }, [scrollRef, compact, updateViewport, drawFind, updateCursor]);
 
   const reveal = useCallback(() => {
     const root = rootRef.current;
@@ -379,7 +452,7 @@ export function NoteMinimap({ scrollRef, overlay = false, find = NO_FIND }: Note
       className={[
         "sn-no-print cursor-pointer touch-none select-none",
         overflows ? "" : "hidden",
-        overlay ? "sn-motion-glide absolute inset-y-0 right-0 z-10 w-16 shadow-lg" : "relative w-32 shrink-0",
+        overlay ? "sn-motion-glide absolute inset-y-0 right-0 z-10 w-3" : rail ? "relative w-5 shrink-0" : "relative w-40 shrink-0",
       ].join(" ")}
       style={{
         borderLeft: "1px solid var(--border-subtle)",
@@ -399,7 +472,8 @@ export function NoteMinimap({ scrollRef, overlay = false, find = NO_FIND }: Note
       <canvas ref={findCanvasRef} className="pointer-events-none absolute inset-0 h-full w-full" />
       <div
         ref={cursorRef}
-        className="pointer-events-none absolute inset-x-0 top-0 hidden h-0.5"
+        // Encoche sur le bord gauche : en pleine largeur, elle barrait le titre de la ligne comme un texte rayé.
+        className="pointer-events-none absolute left-0 top-0 hidden h-0.5 w-2 rounded-r-full"
         style={{ backgroundColor: "var(--accent)" }}
       />
       <div

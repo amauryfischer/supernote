@@ -2,14 +2,14 @@
 
 /**
  * Plan de la note : titre courant collant, liste des titres (popover desktop,
- * bottom-sheet mobile), saut vers un titre, lien profond `?block=<id>`,
+ * bottom-sheet mobile), saut vers un titre, lien profond `?heading=<ancre>`,
  * largeur de lecture et statistiques de lecture.
  *
  * Tout est lecture seule sur le DOM de l'éditeur : aucune mutation dans le
  * sous-arbre ProseMirror (le surlignage passe par une balise <style> du head).
  */
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import {
   ArrowsInLineHorizontal,
   ArrowsOutLineHorizontal,
@@ -21,15 +21,21 @@ import { useParams, useSearchParams } from "next/navigation";
 import { Button, Tooltip } from "@supernote/ui";
 import { MobileSheet } from "@/components/shell/mobile/MobileSheet";
 import { FeedbackIcon, useActionFeedback } from "@/lib/action-feedback";
+import { tagKind } from "./NoteMinimap";
 
 export interface OutlineHeading {
   id: string;
   level: 1 | 2 | 3;
   text: string;
+  /** Ancre stable du lien profond : les ids BlockNote sont régénérés à chaque chargement de la note. */
+  anchor: string;
+  /** Tags de la section (jusqu'au titre suivant) : sur téléphone, le rail de la minimap ne peut pas les nommer. */
+  tags: string[];
 }
 
 /** Les ids de bloc BlockNote sont des UUID ; on valide avant de les injecter dans un sélecteur ou une règle CSS. */
 const BLOCK_ID_RE = /^[\w-]+$/;
+const ANCHOR_RE = /^[a-z0-9-]{1,90}$/;
 /** Marge laissée au-dessus d'un titre atteint, sous la barre collante. */
 const SCROLL_OFFSET_PX = 48;
 /** Un titre est « courant » dès que son haut passe sous cette ligne (> SCROLL_OFFSET_PX, pour qu'un saut le rende courant). */
@@ -51,22 +57,40 @@ function blockElement(col: HTMLElement | null, id: string): HTMLElement | null {
   return col.querySelector<HTMLElement>(`[data-id="${id}"]`);
 }
 
+function slugify(text: string): string {
+  const slug = text.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  return slug.slice(0, 80) || "titre";
+}
+
+// `el` est le bloc [data-id] et non le h1-h3 : c'est lui que scrollToBlock cale, la marge du titre faussait le seuil.
 function readHeadings(col: HTMLElement): { heading: OutlineHeading; el: HTMLElement }[] {
   const found: { heading: OutlineHeading; el: HTMLElement }[] = [];
-  for (const el of col.querySelectorAll<HTMLElement>("h1, h2, h3")) {
+  const seen = new Map<string, number>();
+  // Ordre du document : chaque tag revient au dernier titre rencontré.
+  for (const h of col.querySelectorAll<HTMLElement>("h1, h2, h3, .sn-tag")) {
+    if (h.classList.contains("sn-tag")) {
+      const path = h.getAttribute("data-tag-path") ?? h.textContent?.replace(/^#/, "").trim();
+      const tags = found[found.length - 1]?.heading.tags;
+      if (path && tags && !tags.includes(path)) tags.push(path);
+      continue;
+    }
     // Un h1-h3 d'un bloc personnalisé (callout, embed…) n'est pas un titre de la note.
-    const contentType = el.closest(".bn-block-content")?.getAttribute("data-content-type");
+    const contentType = h.closest(".bn-block-content")?.getAttribute("data-content-type");
     if (contentType && contentType !== "heading") continue;
-    const id = el.closest("[data-id]")?.getAttribute("data-id");
-    const text = el.textContent?.trim();
-    if (!id || !text) continue;
-    found.push({ heading: { id, level: Number(el.tagName[1]) as 1 | 2 | 3, text }, el });
+    const el = h.closest<HTMLElement>("[data-id]");
+    const id = el?.getAttribute("data-id");
+    const text = h.textContent?.trim();
+    if (!el || !id || !text) continue;
+    const slug = slugify(text);
+    const n = (seen.get(slug) ?? 0) + 1;
+    seen.set(slug, n);
+    found.push({ heading: { id, level: Number(h.tagName[1]) as 1 | 2 | 3, text, anchor: n > 1 ? `${slug}-${n}` : slug, tags: [] }, el });
   }
   return found;
 }
 
 function sameHeadings(a: OutlineHeading[], b: OutlineHeading[]): boolean {
-  return a.length === b.length && a.every((h, i) => h.id === b[i]!.id && h.level === b[i]!.level && h.text === b[i]!.text);
+  return a.length === b.length && a.every((h, i) => h.id === b[i]!.id && h.level === b[i]!.level && h.anchor === b[i]!.anchor && h.tags.join() === b[i]!.tags.join());
 }
 
 export function useNoteOutline(
@@ -171,28 +195,28 @@ function flashBlock(id: string): void {
   flashTimer = window.setTimeout(() => flashStyle?.remove(), BLOCK_FLASH_MS + 200);
 }
 
-function headingUrl(blockId: string): string {
+function headingUrl(anchor: string): string {
   const url = new URL(window.location.href);
-  url.searchParams.set("block", blockId);
+  url.searchParams.set("heading", anchor);
   url.hash = "";
   return url.toString();
 }
 
-/** Id de bloc visé par `?block=` — seulement pour la note affichée par la page, pas pour une colonne empilée. */
-export function useDeepLinkBlockId(noteId: string): string | null {
+/** Ancre visée par `?heading=` — seulement pour la note affichée par la page, pas pour une colonne empilée. */
+export function useDeepLinkHeading(noteId: string): string | null {
   const params = useParams<{ id: string }>();
-  const block = useSearchParams().get("block");
-  return params.id === noteId && block && BLOCK_ID_RE.test(block) ? block : null;
+  const anchor = useSearchParams().get("heading");
+  return params.id === noteId && anchor && ANCHOR_RE.test(anchor) ? anchor : null;
 }
 
-/** Fait défiler jusqu'au bloc visé (l'éditeur peint après le montage) puis le surligne. */
-export function useBlockDeepLink(
-  blockId: string | null,
+/** Fait défiler jusqu'au titre visé (l'éditeur peint après le montage) puis le surligne. */
+export function useHeadingDeepLink(
+  anchor: string | null,
   colRef: RefObject<HTMLElement | null>,
   scrollRef: RefObject<HTMLElement | null>,
 ): void {
   useEffect(() => {
-    if (!blockId) return undefined;
+    if (!anchor) return undefined;
     const scroller = scrollRef.current;
     let frame = 0;
     const timers: number[] = [];
@@ -204,7 +228,9 @@ export function useBlockDeepLink(
     scroller?.addEventListener("touchmove", onUserMove, { passive: true });
     const started = performance.now();
     const attempt = () => {
-      if (scrollToBlock(colRef.current, scrollRef.current, blockId, false)) {
+      const col = colRef.current;
+      const blockId = col ? readHeadings(col).find((it) => it.heading.anchor === anchor)?.heading.id : undefined;
+      if (blockId && scrollToBlock(col, scrollRef.current, blockId, false)) {
         flashBlock(blockId);
         // Images et blocs dynamiques décalent la page après le premier calage.
         for (const delay of DEEP_LINK_REALIGN_MS) {
@@ -225,7 +251,7 @@ export function useBlockDeepLink(
       scroller?.removeEventListener("wheel", onUserMove);
       scroller?.removeEventListener("touchmove", onUserMove);
     };
-  }, [blockId, colRef, scrollRef]);
+  }, [anchor, colRef, scrollRef]);
 }
 
 // ── Largeur de lecture ───────────────────────────────────────────────────────
@@ -298,37 +324,39 @@ export function formatWordStats(markdown: string): string | null {
 
 export function OutlineMetaButton({ open, onToggle }: { open: boolean; onToggle: () => void }) {
   return (
-    <Button
-      variant="ghost"
-      size="sm"
-      onPress={onToggle}
-      className="sn-hit h-7 min-w-0 gap-1 px-2 text-xs"
-      style={{ color: open ? "var(--accent)" : "var(--text-muted)" }}
-      aria-label="Plan"
-      aria-expanded={open}
-      aria-haspopup="dialog"
-      data-outline-trigger
-    >
-      <ListDashes size={13} weight={open ? "bold" : "regular"} />
-      Plan
-    </Button>
+    <Tooltip content="Plan de la note (Ctrl+Alt+↑/↓ pour sauter de titre en titre)">
+      <Button
+        variant="ghost"
+        size="icon"
+        onPress={onToggle}
+        className="sn-hit h-7 w-7 min-w-7"
+        style={{ color: open ? "var(--accent)" : "var(--text-muted)" }}
+        aria-label="Plan"
+        aria-expanded={open}
+        aria-haspopup="dialog"
+        data-outline-trigger
+      >
+        <ListDashes size={14} weight={open ? "bold" : "regular"} />
+      </Button>
+    </Tooltip>
   );
 }
 
 export function ReadingWidthButton({ full, onToggle }: { full: boolean; onToggle: () => void }) {
   return (
-    <Button
-      variant="ghost"
-      size="sm"
-      onPress={onToggle}
-      className="sn-hit h-7 min-w-0 gap-1 px-2 text-xs"
-      style={{ color: full ? "var(--accent)" : "var(--text-muted)" }}
-      aria-label="Pleine largeur"
-      aria-pressed={full}
-    >
-      {full ? <ArrowsInLineHorizontal size={13} /> : <ArrowsOutLineHorizontal size={13} />}
-      Pleine largeur
-    </Button>
+    <Tooltip content={full ? "Largeur de lecture" : "Pleine largeur"}>
+      <Button
+        variant="ghost"
+        size="icon"
+        onPress={onToggle}
+        className="sn-hit h-8 w-8 min-w-8"
+        style={{ color: full ? "var(--accent)" : "var(--text-muted)" }}
+        aria-label="Pleine largeur"
+        aria-pressed={full}
+      >
+        {full ? <ArrowsInLineHorizontal size={15} /> : <ArrowsOutLineHorizontal size={15} />}
+      </Button>
+    </Tooltip>
   );
 }
 
@@ -336,54 +364,68 @@ export function ReadingWidthButton({ full, onToggle }: { full: boolean; onToggle
 
 export function OutlineStickyBar({
   current,
+  available,
   open,
   onToggle,
+  trailing,
 }: {
   current: OutlineHeading | null;
+  /** La note a un plan : en haut de note, la barre se réduit à un bouton « Plan », sans bandeau. */
+  available: boolean;
   open: boolean;
   onToggle: () => void;
+  /** Boutons calés à droite de la barre, sur la même ligne que « Plan ». */
+  trailing?: ReactNode;
 }) {
-  if (!current) return null;
+  if (!current && !available && !trailing) return null;
   return (
-    <div className="sn-no-print pointer-events-none absolute left-0 right-3 top-0 z-[var(--z-raised)]">
+    // Sur téléphone la barre de défilement flotte : le filet va jusqu'au bord.
+    <div className="sn-no-print pointer-events-none absolute left-0 right-0 top-0 z-[var(--z-raised)] md:right-3">
       <div
         className="sn-note-gutter flex h-9 items-center md:h-8"
-        style={{
-          backgroundColor: "color-mix(in srgb, var(--surface-0) 92%, transparent)",
-          borderBottom: "1px solid var(--border-subtle)",
-          backdropFilter: "blur(6px)",
-        }}
+        style={
+          current
+            ? {
+                // Opaque : un grand titre qui passe dessous laissait une traînée floue.
+                backgroundColor: "var(--surface-0)",
+                borderBottom: "1px solid var(--border-subtle)",
+              }
+            : undefined
+        }
       >
-        <Button
+        {(current || available) && <Button
           variant="ghost"
           size="sm"
           onPress={onToggle}
           className="sn-hit pointer-events-auto -ml-2 h-8 min-w-0 max-w-full gap-1.5 px-2 text-xs"
           style={{ color: "var(--text-secondary)" }}
-          aria-label={`Plan de la note, section courante : ${current.text}`}
+          aria-label={current ? `Plan de la note, section courante : ${current.text}` : "Ouvrir le plan de la note"}
           aria-expanded={open}
           aria-haspopup="dialog"
           data-outline-trigger
         >
           <ListDashes size={13} className="shrink-0" />
-          <span className="truncate font-medium">{current.text}</span>
+          <span className="truncate font-medium">{current ? current.text : "Plan"}</span>
           <CaretDown size={10} className="shrink-0" />
-        </Button>
+        </Button>}
+        {trailing && <div className="pointer-events-auto -mr-2 ml-auto flex shrink-0 items-center gap-0.5">{trailing}</div>}
       </div>
+      {/* Fondu sous la barre : la ligne qui passe dessous s'estompe au lieu d'être tranchée net. */}
+      {current && <div aria-hidden className="h-4" style={{ background: "linear-gradient(var(--surface-0) 40%, transparent)" }} />}
     </div>
   );
 }
 
 // ── Liste des titres ─────────────────────────────────────────────────────────
 
-function CopyLinkButton({ blockId, label }: { blockId: string; label: string }) {
+function CopyLinkButton({ anchor, label }: { anchor: string; label: string }) {
   const feedback = useActionFeedback();
   return (
     <Tooltip content={feedback.state === "error" ? (feedback.error ?? "Copie impossible") : "Copier le lien vers ce titre"}>
       <Button
         variant="ghost"
         size="icon"
-        onPress={() => void feedback.run(() => navigator.clipboard.writeText(headingUrl(blockId)))}
+        onPress={() => void feedback.run(() => navigator.clipboard.writeText(headingUrl(anchor)))}
         className="sn-hit h-8 w-8 min-w-8 shrink-0"
         style={{ color: "var(--text-muted)" }}
         aria-label={`Copier le lien vers « ${label} »`}
@@ -430,9 +472,29 @@ function OutlineList({
                 fontWeight: h.level === 1 || current ? 600 : 400,
               }}
             >
-              <span className="truncate">{h.text}</span>
+              <span className="min-w-0 truncate">{h.text}</span>
+              {h.tags.slice(0, 2).map((t) => {
+                const kind = tagKind(t);
+                return (
+                  <span
+                    key={t}
+                    className="shrink-0 rounded px-1 text-[10px] font-semibold leading-4"
+                    style={{
+                      backgroundColor: kind ? `var(--sn-tag-${kind}-bg)` : "var(--surface-2)",
+                      color: kind ? `var(--sn-tag-${kind}-fg)` : "var(--text-secondary)",
+                    }}
+                  >
+                    #{t}
+                  </span>
+                );
+              })}
+              {h.tags.length > 2 && (
+                <span className="shrink-0 text-[10px]" style={{ color: "var(--text-muted)" }}>
+                  +{h.tags.length - 2}
+                </span>
+              )}
             </Button>
-            <CopyLinkButton blockId={h.id} label={h.text} />
+            <CopyLinkButton anchor={h.anchor} label={h.text} />
           </li>
         );
       })}
@@ -485,7 +547,8 @@ function OutlinePanel({
       role="dialog"
       aria-label="Plan de la note"
       data-outline-panel
-      className={`sn-no-print sn-overlay-in absolute right-3 z-[var(--z-dropdown)] max-h-[min(70%,28rem)] w-[min(22rem,calc(100%-1.5rem))] overflow-y-auto rounded-[var(--radius-lg)] p-1.5 ${belowBar ? "top-10" : "top-2"}`}
+      // Sous le libellé « ☰ section » de la barre collante, dans la colonne de texte : à droite, il couvrait les Marges IA.
+      className={`sn-no-print sn-overlay-in absolute left-[max(0.5rem,calc(var(--sn-note-gutter,1rem)_-_0.5rem))] z-[var(--z-dropdown)] max-h-[min(calc(100%_-_3rem),28rem)] w-[min(24rem,calc(100%-1.5rem))] overflow-y-auto rounded-[var(--radius-lg)] p-1.5 ${belowBar ? "top-9 md:top-8" : "top-2"}`}
       style={{
         backgroundColor: "var(--surface-1)",
         border: "1px solid var(--border)",

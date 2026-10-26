@@ -156,7 +156,7 @@ function GitStatusFooter() {
 function RecentList() {
   const router = useRouter();
   const { data, isError, isLoading } = trpc.entities.list.useQuery(
-    { limit: 5, sortBy: "updatedAt", sortOrder: "desc" },
+    { limit: 10, sortBy: "updatedAt", sortOrder: "desc" },
     { retry: false, staleTime: 120_000, gcTime: 10 * 60_000 },
   );
 
@@ -205,7 +205,9 @@ function RecentList() {
     );
   }
 
-  if (data.items.length === 0) {
+  // Modèles et routines semés portent TEMPLATE_SEED_TS (2000-01-01) : jamais touchés, ils s'affichaient « il y a 9795 j ».
+  const recent = data.items.filter((e) => e.updatedAt > "2000-01-02").slice(0, 5);
+  if (recent.length === 0) {
     return (
       <p className="px-3 py-2 text-xs" style={{ color: "var(--text-muted)" }}>
         Aucun fichier récent
@@ -215,7 +217,7 @@ function RecentList() {
 
   return (
     <>
-      {data.items.map((entity) => (
+      {recent.map((entity) => (
         <Button
           key={entity.id}
           variant="ghost"

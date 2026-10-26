@@ -67,15 +67,16 @@ function StatusRow({
         <Icon size={15} style={{ color: "var(--text-secondary)" }} />
       </span>
       <span className="min-w-0 flex-1">
+        {/* Deux lignes plutôt qu'une ellipse : « IA en pause sur mobile — l'analys… » ne disait plus rien. */}
         <span
-          className="block truncate text-[15px] font-medium"
+          className="line-clamp-2 block text-[15px] font-medium"
           style={{ color: "var(--text-primary)" }}
         >
           {label}
         </span>
         {detail && (
           <span
-            className="block truncate text-[12px]"
+            className="line-clamp-2 block text-[12px]"
             style={{ color: "var(--text-muted)" }}
           >
             {detail}

@@ -17,7 +17,7 @@ import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useLongPress } from "@/hooks/useLongPress";
-import { beginNoteDrag, isNotePinned } from "./hooks";
+import { beginNoteDrag, isNotePinned, noteDragRecentlyActive } from "./hooks";
 
 /** Largeur (px) d'un bouton d'action révélé par le swipe tactile. */
 const SWIPE_ACTION_WIDTH = 76;
@@ -60,7 +60,32 @@ interface NoteListItemProps {
 
 export function NoteListItem({ note, isActive, onClick, onHover, getPreview, onDelete, sortable, onRename, onArchive, onDragNote, mountLabel, onPin, onDuplicate, onMove }: NoteListItemProps) {
   const [hovered, setHovered] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  useEffect(() => {
+    if (!dragging) return undefined;
+    const end = () => setDragging(false);
+    // `drop` aussi : le dragend n'atteint pas la ligne si un re-rendu l'a remplacée.
+    window.addEventListener("dragend", end, true);
+    window.addEventListener("drop", end, true);
+    return () => {
+      window.removeEventListener("dragend", end, true);
+      window.removeEventListener("drop", end, true);
+    };
+  }, [dragging]);
+  // Pendant un glisser HTML5, le navigateur n'envoie pas de mouseleave : sans ça, la ligne survolée au départ restait en survol.
+  useEffect(() => {
+    if (!hovered) return undefined;
+    const reset = () => setHovered(false);
+    window.addEventListener("dragstart", reset, true);
+    window.addEventListener("drop", reset, true);
+    return () => {
+      window.removeEventListener("dragstart", reset, true);
+      window.removeEventListener("drop", reset, true);
+    };
+  }, [hovered]);
   const [isRenaming, setIsRenaming] = useState(false);
+  const hasRowActions = Boolean(onDelete || onArchive || onPin || onDuplicate || onMove);
+  const showActions = hasRowActions && hovered && !isRenaming;
   const t = useTranslations("notes");
   const ctxMenu = useContextMenu();
   const { toast } = useToast();
@@ -201,7 +226,7 @@ export function NoteListItem({ note, isActive, onClick, onHover, getPreview, onD
   // Desktop seulement — au tactile le survol n'existe pas.
   const containerRef = useRef<HTMLDivElement | null>(null);
   const previewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [hoverPreview, setHoverPreview] = useState<{ top: number; left: number; excerpt: string } | null>(null);
+  const [hoverPreview, setHoverPreview] = useState<{ top?: number; bottom?: number; left: number; width: number; excerpt: string } | null>(null);
 
   const cancelPreview = useCallback(() => {
     if (previewTimer.current) {
@@ -212,7 +237,7 @@ export function NoteListItem({ note, isActive, onClick, onHover, getPreview, onD
   }, []);
 
   const schedulePreview = useCallback(() => {
-    if (!getPreview) return;
+    if (!getPreview || noteDragRecentlyActive()) return;
     if (typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches) return;
     if (previewTimer.current) clearTimeout(previewTimer.current);
     previewTimer.current = setTimeout(() => {
@@ -222,14 +247,19 @@ export function NoteListItem({ note, isActive, onClick, onHover, getPreview, onD
         const el = containerRef.current;
         if (body === null || !el) return;
         const rect = el.getBoundingClientRect();
-        const excerpt = body
-          .replace(/[#>*`~_\[\]|-]/g, " ")
+        const flat = body
+          // Marques de titre retirées, mais le « # » des tags reste : « TODO » seul ne se lisait plus comme un tag.
+          .replace(/^\s*#{1,6}\s+/gm, "")
+          .replace(/[>*`~_\[\]|-]/g, " ")
           .replace(/\s+/g, " ")
-          .trim()
-          .slice(0, 320);
+          .trim();
+        const excerpt = flat.length > 200 ? `${flat.slice(0, 200).replace(/\s+\S*$/, "")}…` : flat;
+        // Sous la ligne, dans la colonne de liste (au-dessus en bas d'écran) : à droite, la carte recouvrait la note ouverte ou l'écran vide.
+        const below = rect.bottom + 260 < window.innerHeight;
         setHoverPreview({
-          top: Math.max(8, Math.min(rect.top, window.innerHeight - 260)),
-          left: rect.right + 8,
+          ...(below ? { top: rect.bottom + 4 } : { bottom: window.innerHeight - rect.top + 4 }),
+          left: rect.left + 8,
+          width: Math.max(220, rect.width - 16),
           excerpt,
         });
       })();
@@ -312,13 +342,24 @@ export function NoteListItem({ note, isActive, onClick, onHover, getPreview, onD
   const longPress = useLongPress((x, y) => {
     if (isRenaming) return;
     longPressFired.current = true;
-    ctxMenu.openAt(x, y, buildItems());
+    ctxMenu.openAt(x, belowRow(y), buildItems());
   });
+
+  // Jamais au-dessus du bas de la ligne : ancré au doigt ou au pointeur, le menu recouvrait le titre de la note visée.
+  const belowRow = (y: number) => Math.max(y, (containerRef.current?.getBoundingClientRect().bottom ?? y) + 2);
 
   const openActions = (e: React.MouseEvent) => {
     e.stopPropagation();
     e.preventDefault();
-    ctxMenu.open(e, buildItems());
+    ctxMenu.openAt(e.clientX, belowRow(e.clientY), buildItems());
+  };
+
+  // À droite de la colonne : posé sur la liste, le menu du bouton « … » masquait les dates des lignes suivantes.
+  const openActionsBeside = (e: React.MouseEvent<HTMLElement>) => {
+    e.stopPropagation();
+    e.preventDefault();
+    const btn = e.currentTarget.getBoundingClientRect();
+    ctxMenu.openAt((containerRef.current?.getBoundingClientRect().right ?? btn.right) + 4, btn.top, buildItems());
   };
 
   const handleRenameCommit = async (newTitle: string) => {
@@ -360,6 +401,8 @@ export function NoteListItem({ note, isActive, onClick, onHover, getPreview, onD
       {...(sortable ? attributes : {})}
       className="relative overflow-hidden"
       onMouseEnter={() => {
+        // Le navigateur rejoue un survol au dépôt, sous un pointeur qui n'a pas bougé vers la ligne.
+        if (noteDragRecentlyActive()) return;
         setHovered(true);
         onHover?.();
         if (!isRenaming) schedulePreview();
@@ -458,6 +501,7 @@ export function NoteListItem({ note, isActive, onClick, onHover, getPreview, onD
         onDragStart={onDragNote && !isRenaming && !isMobile ? (e) => {
           cancelPreview();
           beginNoteDrag(e, note.id, note.title);
+          setDragging(true);
           onDragNote(note.id);
         } : undefined}
         className="sn-pressable w-full text-left focus-visible:outline-none"
@@ -479,7 +523,7 @@ export function NoteListItem({ note, isActive, onClick, onHover, getPreview, onD
           paddingLeft: sortable && hovered ? "8px" : undefined,
           // Archived rows are visible (when the toggle reveals them) but
           // visually demoted so they don't compete with active notes.
-          opacity: isArchived ? 0.6 : 1,
+          opacity: dragging ? 0.45 : isArchived ? 0.6 : 1,
           cursor: onDragNote && !isRenaming ? "grab" : undefined,
         }}
       >
@@ -506,21 +550,24 @@ export function NoteListItem({ note, isActive, onClick, onHover, getPreview, onD
                   } : undefined}
                   tabIndex={onRename ? 0 : undefined}
                 >
-                  {isPinned && (
-                    <PushPin
-                      size={11}
-                      weight="fill"
-                      role="img"
-                      aria-label="Épinglée"
-                      className="mr-1 inline-block align-[-1px]"
-                      style={{ color: "var(--accent)" }}
-                    />
-                  )}
                   {note.title}
                 </h3>
+                {/* À droite, avant la date : en tête du titre, la punaise décalait la note épinglée de ses voisines. */}
+                {isPinned && (
+                  <PushPin
+                    size={12}
+                    weight="fill"
+                    role="img"
+                    aria-label="Épinglée"
+                    className="ml-auto mt-1 flex-shrink-0"
+                    style={{ color: "var(--text-secondary)" }}
+                  />
+                )}
                 <span
                   className="flex-shrink-0 text-[11px]"
-                  style={{ color: "var(--text-muted)" }}
+                  // Au survol, la date s'écarte pour le bouton « … » (24 px, ancré à droite) au lieu de disparaître.
+                  // Emplacement du « … » réservé en permanence : décalée au survol seulement, la date sortait de l'alignement des autres lignes.
+                  style={{ color: "var(--text-muted)", marginRight: hasRowActions && (!isMobile || showActions) ? 28 : undefined }}
                 >
                   {formatRelativeDate(note.updatedAt, dateFormat)}
                 </span>
@@ -611,13 +658,12 @@ export function NoteListItem({ note, isActive, onClick, onHover, getPreview, onD
       </button>
       </div>
 
-      {(onDelete || onArchive || onPin || onDuplicate || onMove) && hovered && !isRenaming && (
+      {showActions && (
         <button
-          onClick={openActions}
+          onClick={openActionsBeside}
           aria-label="Actions de la note"
           title="Actions"
-          // Opaque idle state — covers the date pill underneath. Hover
-          // bumps the icon to the accent color so the menu trigger is
+          // Hover bumps the icon to the accent color so the menu trigger is
           // visually distinct from the row's "selected" state.
           // Justified native: context-menu positioning requires clientX/clientY.
           className="sn-motion-colors absolute right-3 top-3 flex h-6 w-6 items-center justify-center rounded-md border border-[var(--border-subtle)] bg-[var(--surface-1)] text-[var(--text-muted)] shadow-sm hover:border-[var(--accent)] hover:bg-[var(--surface-2)] hover:text-[var(--accent)]"
@@ -634,7 +680,7 @@ export function NoteListItem({ note, isActive, onClick, onHover, getPreview, onD
         createPortal(
           <div
             className="sn-note-preview"
-            style={{ top: hoverPreview.top, left: hoverPreview.left }}
+            style={{ top: hoverPreview.top, bottom: hoverPreview.bottom, left: hoverPreview.left, width: hoverPreview.width }}
             role="tooltip"
           >
             <p className="sn-note-preview__title">{note.title}</p>

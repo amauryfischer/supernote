@@ -5,7 +5,8 @@ import { createInlineContentSpec } from "@blocknote/core";
 
 const TAG_KINDS: Record<string, string> = {
   TODO: "todo", AFAIRE: "todo",
-  FIXME: "bug", BUG: "bug", URGENT: "bug",
+  FIXME: "bug", BUG: "bug",
+  URGENT: "urgent",
   IDEE: "idea", IDEA: "idea", NOTE: "idea",
   QUESTION: "question",
   DONE: "done", FAIT: "done",

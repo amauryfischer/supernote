@@ -212,10 +212,10 @@ export function NoteFind({ scrollRef, focusTick, onClose, onChange, className }:
     <div
       role="search"
       className={cn(
-        "sn-no-print absolute z-20 flex max-w-[calc(100%-1rem)] items-center gap-0.5 rounded-[var(--radius-md)] border px-1.5 py-0.5 shadow-lg",
+        "sn-no-print absolute z-20 flex max-w-[calc(100%-1rem)] items-center gap-0.5 rounded-[var(--radius-md)] border border-[var(--border)] px-1.5 py-0.5 shadow-lg focus-within:border-[var(--accent)]",
         className,
       )}
-      style={{ backgroundColor: "var(--surface-1)", borderColor: "var(--border)" }}
+      style={{ backgroundColor: "var(--surface-1)" }}
     >
       <MagnifyingGlass size={14} aria-hidden style={{ color: "var(--text-muted)", flexShrink: 0 }} />
       <Input
@@ -229,7 +229,9 @@ export function NoteFind({ scrollRef, focusTick, onClose, onChange, className }:
         spellCheck={false}
         enterKeyHint="search"
         className="h-8 border-0 bg-transparent px-1.5 py-0 focus:ring-0"
-        wrapperClassName="w-28 min-w-0 md:w-48"
+        // L'anneau global :focus-visible (hors @layer) bat les utilitaires : le focus se lit sur la bordure de la barre.
+        style={{ outline: "none" }}
+        wrapperClassName="min-w-0 flex-1 md:w-48 md:flex-initial"
       />
       <span
         aria-live="polite"

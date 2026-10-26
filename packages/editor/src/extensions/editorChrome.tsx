@@ -910,6 +910,18 @@ export function SupernoteSideMenu() {
 
 const TOUCH_HANDLE_SIZE = 36;
 
+function scrollClip(el: Element): { top: number; bottom: number } {
+  for (let p = el.parentElement; p; p = p.parentElement) {
+    const cs = getComputedStyle(p);
+    if (cs.overflowY === "auto" || cs.overflowY === "scroll") {
+      const r = p.getBoundingClientRect();
+      // scroll-padding-top = bande que l'hôte couvre d'une barre collante (plan, loupe mobile).
+      return { top: r.top + (parseFloat(cs.scrollPaddingTop) || 0), bottom: r.bottom };
+    }
+  }
+  return { top: 0, bottom: window.innerHeight };
+}
+
 /**
  * Déclencheur du même <SupernoteBlockMenu> sans souris. Le ⠿ ne vit qu'au
  * survol, et le `contextmenu` d'un appui long arrive après que le navigateur a
@@ -933,9 +945,12 @@ export function SupernoteTouchBlockHandle() {
     const bump = () => setTick((v) => v + 1);
     window.addEventListener("scroll", bump, true);
     window.addEventListener("resize", bump);
+    // Un en-tête qui se replie ou se déplie (transition CSS) déplace l'éditeur sans défilement.
+    window.addEventListener("transitionend", bump, true);
     return () => {
       window.removeEventListener("scroll", bump, true);
       window.removeEventListener("resize", bump);
+      window.removeEventListener("transitionend", bump, true);
     };
   }, [coarse]);
 
@@ -943,6 +958,8 @@ export function SupernoteTouchBlockHandle() {
 
   let block: BlockMenuBlock | null = null;
   let rect: DOMRect | null = null;
+  let clip = { top: 0, bottom: window.innerHeight };
+  let laneRight = window.innerWidth;
   if (coarse) {
     try {
       // Avec une sélection de texte, c'est la barre de formatage qui prend la place.
@@ -951,12 +968,15 @@ export function SupernoteTouchBlockHandle() {
         const el = editor.domElement?.querySelector(`[data-id="${cursorBlock.id}"]`);
         block = cursorBlock as unknown as BlockMenuBlock;
         rect = el?.getBoundingClientRect() ?? null;
+        if (el) clip = scrollClip(el);
+        laneRight = editor.domElement?.getBoundingClientRect().right ?? laneRight;
       }
     } catch {
       /* état transitoire de l'éditeur (remplacement du document) : pas de poignée */
     }
   }
-  const visible = rect != null && rect.bottom > 0 && rect.top < window.innerHeight;
+  // Borné à la zone qui défile : un bloc passé sous l'en-tête laissait la poignée collée en haut de l'écran.
+  const visible = rect != null && rect.bottom > clip.top && rect.top < clip.bottom;
 
   return (
     <>
@@ -976,8 +996,9 @@ export function SupernoteTouchBlockHandle() {
               width: TOUCH_HANDLE_SIZE,
               height: TOUCH_HANDLE_SIZE,
               fontSize: "1.1rem",
-              left: Math.min(rect.right, window.innerWidth) - TOUCH_HANDLE_SIZE - 2,
-              top: Math.max(rect.top - 2, 8),
+              // Dans la voie que editor.css réserve à droite des blocs : sur la fin de ligne, elle masquait le texte.
+              left: Math.min(rect.right + 4, laneRight - TOUCH_HANDLE_SIZE),
+              top: Math.max(rect.top - 2, clip.top + 4),
               background: "var(--surface-1, #fff)",
               border: "1px solid var(--border-subtle, #e5e7eb)",
               opacity: 0.85,

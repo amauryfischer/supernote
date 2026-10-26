@@ -120,6 +120,7 @@ export const MobileTopBar = memo(function MobileTopBar() {
   const {
     mobileTitle,
     mobileSubtitle,
+    mobileTitleHidden,
     mobileHeaderActions,
     mobileBack,
   } = useShellChrome();
@@ -249,7 +250,10 @@ export const MobileTopBar = memo(function MobileTopBar() {
           <div className="w-3" />
         )}
 
-        <div className="flex min-w-0 flex-1 flex-col justify-center px-1">
+        <div
+          className="flex min-w-0 flex-1 flex-col justify-center px-1"
+          style={{ opacity: mobileTitleHidden ? 0 : 1, transition: "opacity var(--sn-dur-2) var(--sn-ease-glide)" }}
+        >
           <div
             className="truncate text-[15px] font-semibold leading-tight"
             style={{ color: "var(--text-primary)" }}

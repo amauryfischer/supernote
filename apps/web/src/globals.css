@@ -594,7 +594,7 @@ html, body {
 /* Mobile fullscreen drawer override — HeroUI's `Drawer` sets a 85vh
    max-height AND a 24px padding on the inner `.drawer__dialog--bottom`,
    regardless of the outer container's height/width. Adding the
-   `fullscreen-drawer` class on the wrapper bypasses both so the sheet
+   `fullscreen-drawer` class (posée sur le dialog par le wrapper) bypasses both so the sheet
    truly fills the viewport edge-to-edge with no internal gutter — the
    wrapped page content owns its own padding. */
 /* ── DataGrid (Bases) micro-interactions ─────────────────────────────────── */
@@ -671,7 +671,7 @@ html, body {
   height: 12px;
 }
 
-.fullscreen-drawer .drawer__dialog--bottom {
+.fullscreen-drawer.drawer__dialog--bottom {
   height: 100% !important;
   max-height: 100% !important;
   padding: 0 !important;
@@ -990,14 +990,14 @@ html, body {
 @media (prefers-reduced-motion: no-preference) {
   .sn-note-preview {
     animation: sn-preview-in 140ms cubic-bezier(0.16, 1, 0.3, 1);
-    transform-origin: left center;
+    transform-origin: top center;
   }
 }
 
 @keyframes sn-preview-in {
   from {
     opacity: 0;
-    transform: translateX(-4px) scale(0.98);
+    transform: translateY(-4px) scale(0.98);
   }
   to {
     opacity: 1;
@@ -1204,7 +1204,7 @@ html, body {
   }
 }
 
-/* Bloc ciblé par un lien profond `?block=` : tinte accent qui s'estompe. */
+/* Bloc ciblé par un lien vers un titre (`?heading=`) : tinte accent qui s'estompe. */
 @keyframes sn-block-target {
   0%, 55% { background-color: color-mix(in srgb, var(--accent) 16%, transparent); }
   100% { background-color: transparent; }
@@ -1228,47 +1228,6 @@ html, body {
 .sn-meta-collapse__inner {
   overflow: hidden;
   min-height: 0;
-}
-
-/* Handle discret à cheval sur la bordure header/éditeur : pill fine, opacité
- * basse au repos, pleine au survol/focus. La zone de hit tactile est étendue
- * via ::before (~34px de haut) sans grossir le visuel. */
-.sn-meta-handle {
-  position: absolute;
-  left: 50%;
-  top: -9px;
-  transform: translateX(-50%);
-  z-index: 5;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 44px;
-  height: 18px;
-  border-radius: 9999px;
-  border: 1px solid var(--border-subtle);
-  background-color: var(--surface-1);
-  color: var(--text-muted);
-  opacity: 0.55;
-  /* Pas de .sn-pressable ici : son :active { scale } écraserait translateX. */
-  transition: var(--sn-transition-colors),
-              opacity var(--sn-dur-2) var(--sn-ease-standard),
-              transform var(--sn-dur-1) var(--sn-ease-spring);
-}
-
-.sn-meta-handle:active {
-  transform: translateX(-50%) scale(0.92);
-}
-
-.sn-meta-handle::before {
-  content: "";
-  position: absolute;
-  inset: -8px;
-}
-
-.sn-meta-handle:hover,
-.sn-meta-handle:focus-visible {
-  opacity: 1;
-  color: var(--text-secondary);
 }
 
 /* ════════════════════════════════════════════════════════════════════════
@@ -1669,6 +1628,11 @@ html, body {
   transform: scale(0.96);
 }
 
+/* Une ligne qu'on glisse garde :active pendant et après le glisser HTML5 : rétrécie, elle semblait décalée. */
+.sn-pressable[draggable="true"]:active {
+  transform: none;
+}
+
 /* Subtle hover lift for cards / interactive tiles. Réservé aux pointeurs qui
  * survolent réellement : sur tactile, `:hover` reste collé après un tap et la
  * tuile garde une élévation qui ne veut plus rien dire. */
@@ -1934,21 +1898,27 @@ html, body {
 :root {
   --sn-tag-todo-fg: #b45309;     --sn-tag-todo-bg: #fef3c7;
   --sn-tag-bug-fg: #b91c1c;      --sn-tag-bug-bg: #fee2e2;
+  --sn-tag-urgent-fg: #be185d;   --sn-tag-urgent-bg: #fce7f3;
   --sn-tag-idea-fg: #1d4ed8;     --sn-tag-idea-bg: #dbeafe;
   --sn-tag-question-fg: #6d28d9; --sn-tag-question-bg: #ede9fe;
   --sn-tag-done-fg: #15803d;     --sn-tag-done-bg: #dcfce7;
   --sn-find-bg: rgb(250 204 21 / 0.45);
   --sn-find-current-bg: rgb(251 146 60 / 0.7);
+  --sn-find-mark: #eab308;
+  --sn-find-current-mark: #ea580c;
 }
 
 [data-theme="dark"] {
   --sn-tag-todo-fg: #fbbf24;     --sn-tag-todo-bg: rgb(251 191 36 / 0.2);
   --sn-tag-bug-fg: #f87171;      --sn-tag-bug-bg: rgb(248 113 113 / 0.2);
+  --sn-tag-urgent-fg: #f472b6;   --sn-tag-urgent-bg: rgb(244 114 182 / 0.2);
   --sn-tag-idea-fg: #60a5fa;     --sn-tag-idea-bg: rgb(96 165 250 / 0.2);
   --sn-tag-question-fg: #a78bfa; --sn-tag-question-bg: rgb(167 139 250 / 0.2);
   --sn-tag-done-fg: #4ade80;     --sn-tag-done-bg: rgb(74 222 128 / 0.2);
   --sn-find-bg: rgb(250 204 21 / 0.35);
   --sn-find-current-bg: rgb(251 146 60 / 0.6);
+  --sn-find-mark: #facc15;
+  --sn-find-current-mark: #fb923c;
 }
 
 ::highlight(sn-find) {

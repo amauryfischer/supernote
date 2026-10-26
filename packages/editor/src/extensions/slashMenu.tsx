@@ -547,7 +547,8 @@ export function SupernoteSuggestionMenu(
     if (item.group !== currentGroup) {
       currentGroup = item.group;
       rows.push(
-        <div key={`group-${currentGroup}`} className="sn-slash-menu__label">
+        // Un groupe revient plusieurs fois dans la liste : clé par nom = doublons, React laissait des titres orphelins en filtrant.
+        <div key={`group-${i}-${currentGroup}`} className="sn-slash-menu__label">
           {currentGroup}
         </div>
       );

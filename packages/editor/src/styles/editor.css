@@ -23,6 +23,7 @@
   background: transparent;
   /* Anchor for the SmoothCaret overlay (and entity-picker overlay). */
   position: relative;
+  container-type: inline-size;
 }
 
 /* BlockNote pose `.light`/`.dark` sur son conteneur, et le thème HeroUI
@@ -70,6 +71,25 @@
 .sn-editor-wrapper .bn-editor {
   padding: 0;
   caret-color: var(--accent);
+}
+
+/* Un titre qui déborde d'un mot ne laisse pas ce mot seul sur sa ligne. */
+.sn-editor-wrapper [data-content-type="heading"] { text-wrap: balance; }
+
+/* BlockNote met le H1 à 3em : ~48 px dans une colonne étroite (téléphone, ou desktop avec liste, minimap et
+ * panneau ouverts), trois lignes et un mot coupé en deux pour un titre court. */
+@container (max-width: 560px) {
+  /* Le niveau 1 est la valeur par défaut : BlockNote n'écrit alors pas de data-level. */
+  .sn-editor-wrapper [data-content-type="heading"] { --level: 1.6em; }
+  .sn-editor-wrapper [data-content-type="heading"][data-level="2"] { --level: 1.35em; }
+  .sn-editor-wrapper [data-content-type="heading"][data-level="3"] { --level: 1.15em; }
+}
+
+/* Voie de la poignée tactile du bloc (36 px), placée par SupernoteTouchBlockHandle. */
+@media (any-pointer: coarse) {
+  .sn-editor-wrapper .bn-editor[contenteditable="true"] {
+    padding-right: 44px;
+  }
 }
 
 .sn-editor-wrapper .bn-block {
@@ -645,6 +665,13 @@
   padding-right: 4px;
 }
 
+/* Sans survol (téléphone), un toucher émet un mousemove : la poignée desktop surgissait à x = 0, doublon de la poignée tactile. */
+@media (hover: none) {
+  .sn-side-menu {
+    display: none;
+  }
+}
+
 @media (prefers-reduced-motion: no-preference) {
   .sn-side-menu {
     animation: sn-fade-in 120ms ease;
@@ -1053,6 +1080,7 @@
 /* Tags à sens (TODO, BUG…) : couleur par `data-tag-kind`, posé par tag.ts ; jetons définis dans globals.css. */
 .sn-tag[data-tag-kind="todo"] { background: var(--sn-tag-todo-bg, #fef3c7); color: var(--sn-tag-todo-fg, #b45309); }
 .sn-tag[data-tag-kind="bug"] { background: var(--sn-tag-bug-bg, #fee2e2); color: var(--sn-tag-bug-fg, #b91c1c); }
+.sn-tag[data-tag-kind="urgent"] { background: var(--sn-tag-urgent-bg, #fce7f3); color: var(--sn-tag-urgent-fg, #be185d); }
 .sn-tag[data-tag-kind="idea"] { background: var(--sn-tag-idea-bg, #dbeafe); color: var(--sn-tag-idea-fg, #1d4ed8); }
 .sn-tag[data-tag-kind="question"] { background: var(--sn-tag-question-bg, #ede9fe); color: var(--sn-tag-question-fg, #6d28d9); }
 .sn-tag[data-tag-kind="done"] { background: var(--sn-tag-done-bg, #dcfce7); color: var(--sn-tag-done-fg, #15803d); }
@@ -1490,9 +1518,24 @@
   transform: rotate(0deg);
 }
 
+/* Texte en pseudo-élément : hors textContent, donc invisible pour la minimap, le plan et la recherche. */
+.sn-fold-toggle__chevron::before {
+  content: "›";
+}
+
 .sn-fold-toggle__count {
   font-size: 0.75rem;
   white-space: nowrap;
+}
+
+/* Replié, le compteur est la seule trace du contenu masqué : en pastille, pas en gris pâle. */
+.sn-folded .sn-fold-toggle:not(:hover) {
+  color: var(--text-secondary, #4b5563);
+  background: var(--surface-2, #f3f4f6);
+}
+
+.sn-fold-toggle__count::before {
+  content: attr(data-label);
 }
 
 /* La cible tactile de 32px ne doit pas agrandir la ligne du titre. */

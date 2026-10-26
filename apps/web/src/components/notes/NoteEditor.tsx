@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Spinner } from "@heroui/react";
 import dynamic from "next/dynamic";
-import { CaretDown, CaretRight, Calendar, Tag, FloppyDisk, Microphone, Sparkle, X, CheckCircle, WarningCircle, Presentation, FilePdf, Stop, CodeSimple, ShareNetwork, MapTrifold, MagnifyingGlass } from "@phosphor-icons/react";
+import { CaretRight, Calendar, Tag, FloppyDisk, Microphone, Sparkle, X, CheckCircle, WarningCircle, Presentation, FilePdf, Stop, CodeSimple, ShareNetwork, MapTrifold, MagnifyingGlass, SlidersHorizontal } from "@phosphor-icons/react";
 import Link from "next/link";
 import { Fragment } from "react";
 import { TagSelector } from "@/components/tags/TagSelector";
@@ -55,14 +55,14 @@ import {
   OutlineSurface,
   ReadingWidthButton,
   formatWordStats,
-  useBlockDeepLink,
-  useDeepLinkBlockId,
+  useHeadingDeepLink,
+  useDeepLinkHeading,
   useNoteOutline,
   useReadingGutter,
   useReadingWidthPref,
 } from "./NoteOutline";
 import { Backlinks } from "./BacklinksPanel";
-import { useAiMarginsChrome } from "@/components/shell/shell-chrome-context";
+import { useAiMarginsChrome, useMobileTitleHidden } from "@/components/shell/shell-chrome-context";
 import {
   bestBlockMatchIndex,
   isAiMarginsEnabled,
@@ -75,10 +75,10 @@ import {
 import { blockSnippet, useAiMargins } from "@/hooks/useAiMargins";
 import { isAiRuntimeAllowed } from "@/lib/ai/ai-runtime";
 import { PresentationMode } from "./PresentationMode";
-import { ContextMenu, useContextMenu, Tooltip, type ContextMenuItemDef } from "@supernote/ui";
+import { ContextMenu, Separator, useContextMenu, Tooltip, type ContextMenuItemDef } from "@supernote/ui";
 import { useVoiceDictation } from "@/hooks/useVoiceDictation";
 import { MoveNoteModal } from "./MoveNoteModal";
-import { useDuplicateNote, useFolderPaths, useMoveNote, useRenameFolder } from "./hooks";
+import { NOTE_DUPLICATE_EVENT, NOTE_OUTLINE_EVENT, useDuplicateNote, useFolderPaths, useMoveNote, useRenameFolder } from "./hooks";
 import { useRouter } from "next/navigation";
 import { useSettings } from "@/components/settings/SettingsContext";
 import { useDateFormat } from "@/lib/dateFormat";
@@ -148,6 +148,8 @@ const MARGIN_COLUMN_MIN_WIDTH = 880;
  * notifications`). On monte à 880 mais on ne redescend qu'à 840.
  */
 const MARGIN_COLUMN_DROP_WIDTH = 840;
+/** Un rendu de NoteEditor coûte ~140 ms : les marges IA ne sont prévenues qu'à la pause de frappe. */
+const MARGINS_TICK_MS = 400;
 
 /**
  * Espacement des re-sondes Ollama. Sans réessai, un hoquet réseau d'une seconde
@@ -273,6 +275,8 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
   const isMobile = useIsMobile();
   const keyboardOpen = useKeyboardOpen();
   const hideToolbarForKeyboard = isMobile && keyboardOpen;
+  const [heroCollapsed, setHeroCollapsed] = useState(false);
+  useMobileTitleHidden(isMobile && !heroCollapsed && !hideToolbarForKeyboard);
   const [title, setTitle] = useState(note.title);
   // Couverture posée → sert de fond au bloc titre (cf. CoverBackdrop). Repliée
   // pendant l'édition clavier mobile (focus = espace maximal).
@@ -363,8 +367,8 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
   const noteRootRef = useRef<HTMLDivElement>(null);
   const find = useNoteFind(noteRootRef);
   const [findState, setFindState] = useState<FindState>(NO_FIND);
-  // `?block=` (lien vers un titre) prime sur « Reprendre où j'en étais ».
-  const deepLinkBlockId = useDeepLinkBlockId(note.id);
+  // `?heading=` (lien vers un titre) prime sur « Reprendre où j'en étais ».
+  const deepLinkHeading = useDeepLinkHeading(note.id);
   const [bodyVersion, setBodyVersion] = useState(0);
   const [presenting, setPresenting] = useState(false);
   // Surlignage du bloc correspondant au commentaire IA survolé (overlay hors
@@ -399,6 +403,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
   const bodyRef = useRef<string>(note.body);
   const publishedImagesRef = useRef(new Set<string>());
   const imagesTimerRef = useRef<number | undefined>(undefined);
+  const marginsTickRef = useRef<number | undefined>(undefined);
   const purgeShareRef = useRef<string | null>(null);
   // Note réellement affichée, lisible depuis une closure survivante (le toast
   // « Annuler » vit dans un portail et peut être cliqué après un changement de
@@ -416,6 +421,21 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
   // Factory exposed by SupernoteEditor to insert AI answers token by token.
   const editorStreamRef = useRef<(() => StreamingInsertHandle) | null>(null);
   const editorContainerRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const c = editorContainerRef.current;
+    if (!isMobile || !c) {
+      setHeroCollapsed(false);
+      return undefined;
+    }
+    const onScroll = () => {
+      // Hystérésis (replié passé 48 px, rouvert tout en haut) ; une note trop courte ne se replie pas,
+      // sinon le scroller agrandi ramènerait scrollTop à 0 et l'en-tête clignoterait.
+      if (c.scrollTop > 48 && c.scrollHeight - c.clientHeight > 220) setHeroCollapsed(true);
+      else if (c.scrollTop <= 0) setHeroCollapsed(false);
+    };
+    c.addEventListener("scroll", onScroll, { passive: true });
+    return () => c.removeEventListener("scroll", onScroll);
+  }, [isMobile]);
   // Dictée vocale : on ouvre un handle d'insertion en flux au démarrage, on y
   // appose chaque segment FINAL (l'interim n'est jamais inséré), puis on
   // finalise (end) ou on annule (cancel si rien n'a été dicté) à l'arrêt.
@@ -703,6 +723,13 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
       showToast("Impossible de dupliquer la note");
     }
   }, [duplicateNote, note.id, note.folderPath, router]);
+  useEffect(() => {
+    const onDuplicate = (e: Event) => {
+      if ((e as CustomEvent<{ noteId: string }>).detail?.noteId === note.id) void handleDuplicate();
+    };
+    window.addEventListener(NOTE_DUPLICATE_EVENT, onDuplicate);
+    return () => window.removeEventListener(NOTE_DUPLICATE_EVENT, onDuplicate);
+  }, [note.id, handleDuplicate]);
   // Une seule liste d'actions pour les deux chemins d'ouverture (clic droit et
   // appui long) : deux listes divergeraient dès la première action ajoutée.
   const breadcrumbMenuItems = useCallback(
@@ -956,7 +983,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
     lastPosRestoredRef.current = false;
     userTookOverRef.current = false;
     userScrolledRef.current = false;
-    const pos = deepLinkBlockId ? null : readLastPos(note.id);
+    const pos = deepLinkHeading ? null : readLastPos(note.id);
     pendingRestoreRef.current = pos;
     if (!pos) {
       lastPosRestoredRef.current = true; // rien à restaurer → saves autorisés
@@ -1307,8 +1334,10 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
       triggerAutoSave(markdown, title);
       scheduleAutoTitle(markdown);
       scheduleAutoTag(markdown);
-      // Tick léger pour réveiller les marges IA (debounce côté panneau).
-      if (marginsOn) setBodyVersion((v) => v + 1);
+      if (marginsOn) {
+        window.clearTimeout(marginsTickRef.current);
+        marginsTickRef.current = window.setTimeout(() => setBodyVersion((v) => v + 1), MARGINS_TICK_MS);
+      }
       if (share) {
         window.clearTimeout(imagesTimerRef.current);
         imagesTimerRef.current = window.setTimeout(() => {
@@ -1571,7 +1600,8 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
   // Lecture DOM seule (selectionchange) — aucune mutation du subtree PM.
   useEffect(() => {
     if (!marginsOn) { setActiveBlockText(null); return undefined; }
-    const onSel = () => {
+    let timer: number | undefined;
+    const read = () => {
       const col = editorColRef.current;
       const sel = document.getSelection();
       const node = sel?.anchorNode;
@@ -1583,8 +1613,16 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
       const text = el?.classList?.contains("bn-block-content") ? (el.textContent ?? "") : null;
       setActiveBlockText((prev) => (prev === text ? prev : text));
     };
+    // Chaque frappe déplace le caret : lu à la pause, sinon un rendu complet par touche.
+    const onSel = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(read, MARGINS_TICK_MS);
+    };
     document.addEventListener("selectionchange", onSel);
-    return () => document.removeEventListener("selectionchange", onSel);
+    return () => {
+      window.clearTimeout(timer);
+      document.removeEventListener("selectionchange", onSel);
+    };
   }, [marginsOn]);
 
   // Écrit un corps venu d'ailleurs que la frappe (correction IA, annulation) :
@@ -1706,10 +1744,27 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
   const [outlineOpen, setOutlineOpen] = useState(false);
   const closeOutline = useCallback(() => setOutlineOpen(false), []);
   const toggleOutline = useCallback(() => setOutlineOpen((o) => !o), []);
+  useEffect(() => {
+    const onOutline = (e: Event) => {
+      if ((e as CustomEvent<{ noteId: string }>).detail?.noteId === note.id) setOutlineOpen(true);
+    };
+    window.addEventListener(NOTE_OUTLINE_EVENT, onOutline);
+    return () => window.removeEventListener(NOTE_OUTLINE_EVENT, onOutline);
+  }, [note.id]);
   const [fullWidth, toggleFullWidth] = useReadingWidthPref();
   // 268 = colonne Marges IA (260) + gouttière (8).
   useReadingGutter(noteRootRef, editorContainerRef, fullWidth, marginsColumn ? 268 : 0);
-  useBlockDeepLink(deepLinkBlockId, editorColRef, editorContainerRef);
+  const [paneRow, setPaneRow] = useState<HTMLDivElement | null>(null);
+  const [paneWidth, setPaneWidth] = useState(Number.POSITIVE_INFINITY);
+  useEffect(() => {
+    if (!paneRow) return undefined;
+    const ro = new ResizeObserver(() => setPaneWidth(paneRow.clientWidth));
+    ro.observe(paneRow);
+    return () => ro.disconnect();
+  }, [paneRow]);
+  // Sous ~600 px de texte, la colonne de 160 px coûte plus à la lecture qu'elle n'apporte : elle passe en rail.
+  const minimapRail = !isMobile && paneWidth - (marginsColumn ? 268 : 0) < 760;
+  useHeadingDeepLink(deepLinkHeading, editorColRef, editorContainerRef);
   const wordStats = useMemo(() => formatWordStats(note.body), [note.body]);
 
   // Quand la colonne intégrée ne tient pas, le panneau droit prend le relais :
@@ -1922,7 +1977,10 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
         className="sn-no-print"
         style={{ display: hideToolbarForKeyboard ? "none" : undefined }}
       >
-        {/* Hero : breadcrumb + titre posés SUR la couverture (si présente). */}
+        {/* Hero : breadcrumb + titre posés SUR la couverture (si présente). Replié au défilement
+            sur téléphone : la barre du haut porte déjà le titre. */}
+        <div className="sn-meta-collapse" data-open={heroCollapsed ? "false" : "true"}>
+        <div className="sn-meta-collapse__inner">
         <div
           className={`sn-note-hero group relative sn-note-gutter pb-4 pt-4 md:pb-5 md:pt-6${
             coverActive ? " sn-note-hero--cover flex flex-col justify-end" : ""
@@ -1976,36 +2034,35 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
               {isSuggesting ? "..." : "Suggérer un titre"}
             </Button>
           )}
+          {/* Sur la ligne du titre : seule sur la sienne, l'icône coûtait 40 px de hauteur à chaque note. */}
+          {shareEnabled && (
+            <Tooltip content={share ? "Partagée · gérer les liens" : "Partager"}>
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="Partager"
+                className="sn-hit h-8 w-8 min-w-8 shrink-0"
+                style={{ color: share ? "var(--accent)" : "var(--text-muted)" }}
+                onPress={() => setShareOpen(true)}
+              >
+                <ShareNetwork size={15} weight={share ? "fill" : "regular"} />
+              </Button>
+            </Tooltip>
+          )}
             </div>
-            {(shareEnabled || collab.peers.length > 0) && (
-              <div className="mt-1 flex flex-wrap items-center gap-2">
-                {shareEnabled && (
-                  <Tooltip content={share ? "Partagée · gérer les liens" : "Partager"}>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      aria-label="Partager"
-                      className="h-8 w-8 min-w-8"
-                      style={{ color: share ? "var(--accent)" : "var(--text-muted)" }}
-                      onPress={() => setShareOpen(true)}
-                    >
-                      <ShareNetwork size={15} weight={share ? "fill" : "regular"} />
-                    </Button>
-                  </Tooltip>
-                )}
-                {collab.peers.length > 0 && (
-                  <div role="group" className="flex flex-wrap items-center gap-1.5 text-xs text-[var(--text-muted)]" aria-label="Personnes connectées">
-                    {collab.peers.map((p, i) => (
-                      <span key={`${p.name}-${i}`} className="inline-flex items-center gap-1">
-                        <span className="h-2 w-2 rounded-full" style={{ background: p.color }} aria-hidden />
-                        {p.name}
-                      </span>
-                    ))}
-                  </div>
-                )}
+            {collab.peers.length > 0 && (
+              <div role="group" className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-[var(--text-muted)]" aria-label="Personnes connectées">
+                {collab.peers.map((p, i) => (
+                  <span key={`${p.name}-${i}`} className="inline-flex items-center gap-1">
+                    <span className="h-2 w-2 rounded-full" style={{ background: p.color }} aria-hidden />
+                    {p.name}
+                  </span>
+                ))}
               </div>
             )}
           </div>
+        </div>
+        </div>
         </div>
 
         {/* Métadonnées (date, tags, ambiance, actions) — repliées par défaut,
@@ -2043,7 +2100,9 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
           />
           {!icon && <IconButton onChange={handleIconChange} />}
           {!cover && <CoverButton onChange={handleCoverChange} />}
+          <Separator orientation="vertical" className="mx-1 h-4 self-center" />
           {ollamaReady && (
+            <Tooltip content="Marges IA">
             <Button
               variant="ghost"
               size="icon"
@@ -2066,18 +2125,19 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
                     void utilsForTags.entities.list.invalidate({ typeId: "note" });
                   });
               }}
-              className="sn-hit h-7 min-w-0 gap-1 px-2 text-xs"
+              className="sn-hit h-7 w-7 min-w-7"
               style={{ color: aiMargins ? "var(--accent)" : "var(--text-muted)" }}
               aria-label="Marges IA"
               aria-pressed={aiMargins}
             >
-              <Sparkle size={13} weight={aiMargins ? "fill" : "regular"} />
-              Marges IA
+              <Sparkle size={14} weight={aiMargins ? "fill" : "regular"} />
             </Button>
+            </Tooltip>
           )}
+          <Tooltip content="Mode HTML">
           <Button
             variant="ghost"
-            size="sm"
+            size="icon"
             onPress={() => {
               const next = !htmlMode;
               setHtmlMode(next);
@@ -2086,76 +2146,80 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
                 fields: { mode: next ? "html" : "" },
               });
             }}
-            className="sn-hit h-7 min-w-0 gap-1 px-2 text-xs"
+            className="sn-hit h-7 w-7 min-w-7"
             style={{ color: htmlMode ? "var(--accent)" : "var(--text-muted)" }}
             aria-label="Mode HTML"
             aria-pressed={htmlMode}
           >
-            <CodeSimple size={13} weight={htmlMode ? "fill" : "regular"} />
-            Mode HTML
+            <CodeSimple size={14} weight={htmlMode ? "fill" : "regular"} />
           </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onPress={toggleMinimap}
-            className="sn-hit h-7 min-w-0 gap-1 px-2 text-xs"
-            style={{ color: minimapOn ? "var(--accent)" : "var(--text-muted)" }}
-            aria-label="Minimap"
-            aria-pressed={minimapOn}
-          >
-            <MapTrifold size={13} weight={minimapOn ? "fill" : "regular"} />
-            Minimap
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onPress={find.show}
-            className="sn-hit h-7 min-w-0 gap-1 px-2 text-xs"
-            style={{ color: find.open ? "var(--accent)" : "var(--text-muted)" }}
-            aria-label="Rechercher dans la note"
-            aria-pressed={find.open}
-          >
-            <MagnifyingGlass size={13} />
-            Rechercher
-          </Button>
-          <OutlineMetaButton open={outlineOpen} onToggle={toggleOutline} />
-          {!isMobile && <ReadingWidthButton full={fullWidth} onToggle={toggleFullWidth} />}
-          {gmailConnected && (
+          </Tooltip>
+          <Tooltip content="Minimap">
             <Button
               variant="ghost"
-              size="sm"
+              size="icon"
+              onPress={toggleMinimap}
+              className="sn-hit h-7 w-7 min-w-7"
+              style={{ color: minimapOn ? "var(--accent)" : "var(--text-muted)" }}
+              aria-label="Minimap"
+              aria-pressed={minimapOn}
+            >
+              <MapTrifold size={14} weight={minimapOn ? "fill" : "regular"} />
+            </Button>
+          </Tooltip>
+          <Tooltip content="Rechercher dans la note (Ctrl+F)">
+            <Button
+              variant="ghost"
+              size="icon"
+              onPress={find.show}
+              className="sn-hit h-7 w-7 min-w-7"
+              style={{ color: find.open ? "var(--accent)" : "var(--text-muted)" }}
+              aria-label="Rechercher dans la note"
+              aria-pressed={find.open}
+            >
+              <MagnifyingGlass size={14} />
+            </Button>
+          </Tooltip>
+          <OutlineMetaButton open={outlineOpen} onToggle={toggleOutline} />
+          {gmailConnected && (
+            <Tooltip content="Emailer cette note">
+            <Button
+              variant="ghost"
+              size="icon"
               onPress={() => void handleEmailNote()}
               isDisabled={emailing}
-              className="sn-hit h-7 min-w-0 gap-1 px-2 text-xs"
+              className="sn-hit h-7 w-7 min-w-7"
               style={{ color: "var(--text-muted)" }}
               aria-label="Emailer cette note"
             >
-              <EnvelopeSimple size={13} />
-              Emailer
+              <EnvelopeSimple size={14} />
             </Button>
+            </Tooltip>
           )}
+          <Tooltip content="Présenter la note">
           <Button
             variant="ghost"
-            size="sm"
+            size="icon"
             onPress={() => setPresenting(true)}
-            className="sn-hit h-7 min-w-0 gap-1 px-2 text-xs"
+            className="sn-hit h-7 w-7 min-w-7"
             style={{ color: "var(--text-muted)" }}
             aria-label="Présenter la note"
           >
-            <Presentation size={13} />
-            Présenter
+            <Presentation size={14} />
           </Button>
+          </Tooltip>
+          <Tooltip content="Exporter en PDF">
           <Button
             variant="ghost"
-            size="sm"
+            size="icon"
             onPress={() => window.print()}
-            className="sn-hit h-7 min-w-0 gap-1 px-2 text-xs"
+            className="sn-hit h-7 w-7 min-w-7"
             style={{ color: "var(--text-muted)" }}
             aria-label="Exporter en PDF"
           >
-            <FilePdf size={13} />
-            PDF
+            <FilePdf size={14} />
           </Button>
+          </Tooltip>
           {/* Dictée vocale — Web Speech API du navigateur, zéro dépendance.
               Masquée si non supportée (Firefox). Le bouton pulse pendant
               l'écoute ; l'arrêt est aussi atteignable depuis la chip flottante
@@ -2164,9 +2228,9 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
             <Tooltip content={voice.listening ? "Arrêter la dictée" : "Dictée vocale"}>
               <Button
                 variant="ghost"
-                size="sm"
+                size="icon"
                 onPress={handleToggleVoice}
-                className="sn-hit h-7 min-w-0 gap-1 px-2 text-xs"
+                className="sn-hit h-7 w-7 min-w-7"
                 style={{
                   color: voice.listening ? "var(--accent)" : "var(--text-muted)",
                   animation: voice.listening
@@ -2178,8 +2242,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
                 }
                 aria-pressed={voice.listening}
               >
-                <Microphone size={13} weight={voice.listening ? "fill" : "regular"} />
-                Dictée
+                <Microphone size={14} weight={voice.listening ? "fill" : "regular"} />
               </Button>
             </Tooltip>
           )}
@@ -2189,30 +2252,27 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
           </div>
         </div>
 
-        {/* Séparateur header/éditeur + handle de dépliage des métadonnées. */}
-        <div className="relative" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
-          <Button
-            variant="ghost"
-            onPress={toggleMetaBar}
-            aria-expanded={metaOpen}
-            aria-controls="note-meta-bar"
-            aria-label={metaOpen ? "Masquer les outils de la note" : "Afficher les outils de la note"}
-            className="sn-meta-handle h-auto min-w-0 p-0"
-          >
-            <CaretDown
-              size={11}
-              className="sn-motion-glide"
-              style={{ transform: metaOpen ? "rotate(180deg)" : undefined }}
-            />
-          </Button>
-        </div>
+        <div style={{ borderBottom: "1px solid var(--border-subtle)" }} />
       </div>
 
-      <div className="relative flex min-h-0 flex-1">
+      <div ref={setPaneRow} className="relative flex min-h-0 flex-1">
       <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+      {find.open && (
+        // Dans le flux, au-dessus du texte qu'elle décale : posée par-dessus, elle masquait la barre collante
+        // et la première ligne. Calée sur le bord droit du texte, hors de la colonne des Marges IA.
+        <div className="sn-note-gutter flex shrink-0 justify-end py-1.5" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
+          <NoteFind
+            scrollRef={editorContainerRef}
+            focusTick={find.focusTick}
+            onClose={find.hide}
+            onChange={setFindState}
+            className={`relative w-full max-w-none shadow-none md:w-auto${marginsColumn ? " md:mr-[268px]" : ""}`}
+          />
+        </div>
+      )}
       <div
         ref={editorContainerRef}
-        className="min-w-0 flex-1 overflow-y-auto"
+        className="min-w-0 flex-1 overflow-y-auto scroll-pt-10"
         onMouseDown={(e) => {
           // Click dans la zone padding hors block : routé vers le caret.
           // Position Y détermine si on focus le premier (clic au-dessus) ou
@@ -2344,7 +2404,50 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
         <Backlinks entityId={note.id} className="sn-no-print sn-note-gutter pb-16 pt-4 md:pb-8" />
       </div>
       {/* Hors du conteneur de défilement : la minimap lit son texte et son premier enfant. */}
-      <OutlineStickyBar current={outlineCurrent} open={outlineOpen} onToggle={toggleOutline} />
+      <OutlineStickyBar
+        current={find.open ? null : outlineCurrent}
+        available={outlineHeadings.length > 1 && !find.open}
+        open={outlineOpen}
+        onToggle={toggleOutline}
+        // Dans la barre plutôt qu'en flottant : la loupe et la pastille des outils chevauchaient la bordure et « Plan ».
+        trailing={find.open ? null : (
+          <>
+            {!isMobile && <ReadingWidthButton full={fullWidth} onToggle={toggleFullWidth} />}
+            <Tooltip content={metaOpen ? "Masquer les outils de la note" : "Afficher les outils de la note"}>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onPress={() => {
+                    // En-tête replié au défilement (téléphone) : les outils s'y déplieraient hors de vue.
+                    if (heroCollapsed) {
+                      setHeroCollapsed(false);
+                      if (!metaOpen) toggleMetaBar();
+                    } else toggleMetaBar();
+                  }}
+                  aria-expanded={metaOpen}
+                  aria-controls="note-meta-bar"
+                  aria-label={metaOpen ? "Masquer les outils de la note" : "Afficher les outils de la note"}
+                  className="sn-hit h-8 w-8 min-w-8"
+                  style={{ color: metaOpen ? "var(--text-primary)" : "var(--text-muted)" }}
+                >
+                  <SlidersHorizontal size={15} weight={metaOpen ? "bold" : "regular"} />
+                </Button>
+            </Tooltip>
+            {isMobile && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onPress={find.show}
+                aria-label="Rechercher dans la note"
+                className="sn-hit h-8 w-8 min-w-8"
+                style={{ color: "var(--text-muted)" }}
+              >
+                <MagnifyingGlass size={16} />
+              </Button>
+            )}
+          </>
+        )}
+      />
       <OutlineSurface
         open={outlineOpen}
         onClose={closeOutline}
@@ -2353,32 +2456,10 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
         currentId={outlineCurrentId}
         colRef={editorColRef}
         scrollRef={editorContainerRef}
-        belowBar={outlineCurrent !== null}
+        belowBar={outlineHeadings.length > 1}
       />
       </div>
-      {minimapOn && <NoteMinimap scrollRef={editorContainerRef} overlay={isMobile} find={findState} />}
-      {find.open && (
-        <NoteFind
-          scrollRef={editorContainerRef}
-          focusTick={find.focusTick}
-          onClose={find.hide}
-          onChange={setFindState}
-          className={`right-2 top-2 ${minimapOn ? "md:right-[8.5rem]" : "md:right-4"}`}
-        />
-      )}
-      {isMobile && !find.open && (
-        // La barre méta est repliée par défaut : sans ce bouton, la recherche serait hors d'atteinte au doigt.
-        <Button
-          variant="ghost"
-          size="icon"
-          onPress={find.show}
-          aria-label="Rechercher dans la note"
-          className="sn-hit sn-no-print absolute right-2 top-2 z-20 h-9 w-9 min-w-9 rounded-full border opacity-90 shadow-md"
-          style={{ backgroundColor: "var(--surface-1)", borderColor: "var(--border)", color: "var(--text-muted)" }}
-        >
-          <MagnifyingGlass size={16} />
-        </Button>
-      )}
+      {minimapOn && <NoteMinimap scrollRef={editorContainerRef} overlay={isMobile} rail={minimapRail} find={findState} />}
       </div>
       <NoteFormulaModalHost
         stubBase={{ id: "_note", name: "Note", plural: "Notes", fields: [], defaultPath: "", fileNamePattern: "{name}" }}

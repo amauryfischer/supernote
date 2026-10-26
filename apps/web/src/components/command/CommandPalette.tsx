@@ -158,9 +158,10 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const router = useRouter();
   const pathname = usePathname();
 
-  // Reset query + sélection à l'ouverture
+  // Remise à zéro à la fermeture : faite à l'ouverture, elle passait après la présélection du premier
+  // item par cmdk, qui restait surligné sans aperçu.
   useEffect(() => {
-    if (open) {
+    if (!open) {
       setQuery("");
       setActiveValue("");
     }

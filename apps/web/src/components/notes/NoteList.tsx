@@ -310,12 +310,17 @@ export function NoteList({
    * single anonymous bucket so the existing flat render is preserved.
    */
   const groups = useMemo(() => {
+    // Un groupe à part : seule une punaise de 12 px distinguait une note épinglée d'un tri par date.
+    const pinned = isGlobalSearch ? [] : filtered.filter(isNotePinned);
+    const rest = pinned.length > 0 ? filtered.filter((n) => !isNotePinned(n)) : filtered;
+    const pinnedGroup = pinned.length > 0 ? [{ key: "__pinned__", label: t("pinnedGroup") as string | null, notes: pinned }] : [];
     if (!selectedFolder || isGlobalSearch) {
-      return [{ key: "", label: null as string | null, notes: filtered }];
+      if (rest.length === 0) return pinnedGroup;
+      return [...pinnedGroup, { key: "", label: pinned.length > 0 ? t("otherNotes") : null, notes: rest }];
     }
     const prefix = `${selectedFolder}/`;
     const buckets = new Map<string, Note[]>();
-    for (const n of filtered) {
+    for (const n of rest) {
       let rel = "";
       if (n.folderPath === selectedFolder) {
         rel = "";
@@ -336,7 +341,7 @@ export function NoteList({
     const subs = [...buckets.entries()]
       .sort(([a], [b]) => a.localeCompare(b, "fr"))
       .map(([key, ns]) => ({ key, label: key, notes: ns }));
-    const result: { key: string; label: string | null; notes: Note[] }[] = [];
+    const result: { key: string; label: string | null; notes: Note[] }[] = [...pinnedGroup];
     if (root.length > 0) result.push({ key: "", label: t("thisFolder"), notes: root });
     result.push(...subs);
     return result;
@@ -561,9 +566,9 @@ export function NoteList({
         )}
       </div>
 
-      {/* Footer */}
+      {/* Sur téléphone, la barre du haut porte déjà le nombre de notes, et ce pied passait sous le bouton flottant. */}
       <div
-        className="px-4 py-2"
+        className="hidden px-4 py-2 md:block"
         style={{ borderTop: "1px solid var(--border-subtle)" }}
       >
         <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>

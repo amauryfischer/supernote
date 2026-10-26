@@ -21,6 +21,10 @@ import {
   useRenameFolder,
   useRenameNote,
   useMoveNote,
+  useTogglePin,
+  isNotePinned,
+  NOTE_DUPLICATE_EVENT,
+  NOTE_OUTLINE_EVENT,
 } from "@/components/notes/hooks";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
@@ -46,7 +50,7 @@ import {
 import { useShortcuts } from "@/lib/keyboard";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { forgetRecentNote, getPreviousNoteId, trackNoteOpen } from "@/lib/recent-notes";
-import { ArrowUUpLeft, Article, Plus, ShareNetwork, SquareSplitHorizontal } from "@phosphor-icons/react";
+import { ArrowUUpLeft, Article, Copy, ListDashes, Plus, PushPin, ShareNetwork, SquareSplitHorizontal } from "@phosphor-icons/react";
 import { NOTE_SHARE_EVENT } from "@/lib/share/collab";
 import { useShareEnabled } from "@/lib/share/shareApi";
 import { useCreateDraft } from "@/components/notes/useCreateDraft";
@@ -569,6 +573,7 @@ function NoteDetailContent() {
   const shareEnabled = useShareEnabled();
   // Un balayage depuis le bord gauche se battrait avec le geste retour système.
   const previousNoteId = isMobile ? getPreviousNoteId(params.id) : null;
+  const { togglePin } = useTogglePin();
   const mobileActions: MobileHeaderAction[] = isMobile
     ? [
         ...(previousNoteId
@@ -604,6 +609,32 @@ function NoteDetailContent() {
                 icon: ShareNetwork,
                 label: "Partager",
                 onPress: () => window.dispatchEvent(new CustomEvent(NOTE_SHARE_EVENT, { detail: { noteId: params.id } })),
+              } satisfies MobileHeaderAction,
+            ]
+          : []),
+        ...(note
+          ? [
+              {
+                id: "pin-note",
+                icon: PushPin,
+                label: isNotePinned(note) ? "Désépingler" : "Épingler",
+                onPress: () => void togglePin(note.id, !isNotePinned(note)),
+              } satisfies MobileHeaderAction,
+            ]
+          : []),
+        ...(note && viewMode === "note"
+          ? [
+              {
+                id: "outline-note",
+                icon: ListDashes,
+                label: "Plan de la note",
+                onPress: () => window.dispatchEvent(new CustomEvent(NOTE_OUTLINE_EVENT, { detail: { noteId: params.id } })),
+              } satisfies MobileHeaderAction,
+              {
+                id: "duplicate-note",
+                icon: Copy,
+                label: "Dupliquer",
+                onPress: () => window.dispatchEvent(new CustomEvent(NOTE_DUPLICATE_EVENT, { detail: { noteId: params.id } })),
               } satisfies MobileHeaderAction,
             ]
           : []),

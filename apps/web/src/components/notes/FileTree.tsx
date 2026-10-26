@@ -2032,13 +2032,14 @@ function FolderNode({
           // vertical du parent — inerte au niveau racine (pas de parent).
           ...(depth > 0 ? { ["--sn-tree-elbow-x" as string]: `${elbowX(depth)}px` } : null),
           borderRadius: "6px",
-          outlineStyle: isReparentTarget ? "dashed" : "solid",
+          // Pointillé pour un dépôt : en trait plein noir, la cible se lisait comme un anneau de focus.
+          outlineStyle: isReparentTarget || isDragOver ? "dashed" : "solid",
           outlineWidth: "2px",
           outlineColor:
             isNestTarget || isReparentTarget || isDragOver
               ? "var(--accent)"
               : "transparent",
-          outlineOffset: isReparentTarget ? "2px" : "-1px",
+          outlineOffset: isReparentTarget ? "2px" : isDragOver ? "-3px" : "-1px",
           backgroundColor:
             isNestTarget || isDragOver ? "var(--accent-subtle)" : "transparent",
         }}
@@ -2174,7 +2175,11 @@ function FolderNode({
                 dossier vide se lit déjà à son absence de chevron. Même
                 grammaire que TagTree — `(N)` en `text-muted`, jamais de
                 pastille — et même infobulle explicite. */}
-            {recursiveCount > 0 && (
+            {isDragOver ? (
+              <span className="ml-1 mr-1 flex-shrink-0 text-xs font-medium" style={{ color: "var(--text-primary)" }}>
+                Déplacer ici
+              </span>
+            ) : recursiveCount > 0 && (
               <span
                 className="ml-1 flex-shrink-0 text-xs tabular-nums"
                 style={{ color: "var(--text-muted)" }}

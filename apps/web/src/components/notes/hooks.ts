@@ -506,6 +506,11 @@ const DUPLICATE_SKIPPED_FIELDS = new Set([
  * de la copie. `draft` porte l'état non encore enregistré de l'éditeur : sans
  * lui, la copie partirait de la dernière sauvegarde (débouncée).
  */
+/** Demande au NoteEditor monté de dupliquer sa note depuis l'état affiché (menu mobile de la page). */
+export const NOTE_DUPLICATE_EVENT = "supernote:note-duplicate";
+/** Demande au NoteEditor monté d'ouvrir son plan (menu mobile de la page). */
+export const NOTE_OUTLINE_EVENT = "supernote:note-outline";
+
 export function useDuplicateNote() {
   const { createNote } = useCreateNote();
   const duplicateNote = useCallback(
@@ -745,7 +750,23 @@ export const NOTE_DRAG_MIME = "application/x-supernote-note";
  * remplace l'aperçu par une pastille portant le titre — l'aperçu par défaut est
  * la ligne entière, extrait et étiquettes compris.
  */
+let noteDragEndedAt: number | null = Number.NEGATIVE_INFINITY;
+
+/** Vrai pendant un glisser de note et la seconde qui suit : le survol qui reprend au dépôt n'est pas une intention. */
+export function noteDragRecentlyActive(): boolean {
+  return noteDragEndedAt === null || Date.now() - noteDragEndedAt < 1000;
+}
+
 export function beginNoteDrag(e: React.DragEvent, noteId: string, title: string): void {
+  noteDragEndedAt = null;
+  // `drop` aussi : une ligne déplacée vers un autre dossier quitte la liste, son `dragend` n'atteint plus window.
+  const ended = new AbortController();
+  const end = () => {
+    noteDragEndedAt = Date.now();
+    ended.abort();
+  };
+  window.addEventListener("dragend", end, { capture: true, signal: ended.signal });
+  window.addEventListener("drop", end, { capture: true, signal: ended.signal });
   e.dataTransfer.setData(NOTE_DRAG_MIME, noteId);
   e.dataTransfer.effectAllowed = "move";
   const ghost = document.createElement("div");

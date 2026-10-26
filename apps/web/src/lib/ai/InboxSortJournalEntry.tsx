@@ -475,18 +475,25 @@ export function InboxSortJournalRow({ onClose }: { onClose?: () => void }) {
           className="h-auto w-full justify-start gap-3 rounded-none px-4 py-3 text-left"
           style={{ color: "var(--text-primary)" }}
         >
-          <FolderSimple
-            size={18}
-            weight={proposals.length > 0 || moves > 0 ? "fill" : "regular"}
-            style={{ color: statusColor(status, proposals.length > 0) }}
-          />
+          {/* Même tuile que les lignes d'état voisines du tiroir. */}
+          <span
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full"
+            style={{ backgroundColor: "var(--surface-2)" }}
+          >
+            <FolderSimple
+              size={15}
+              weight={proposals.length > 0 || moves > 0 ? "fill" : "regular"}
+              style={{ color: statusColor(status, proposals.length > 0) }}
+            />
+          </span>
           <span className="flex min-w-0 flex-1 flex-col">
             <span className="truncate text-[15px] font-medium">{headline}</span>
             <span
               className="truncate text-[12px] font-normal"
               style={{ color: "var(--text-muted)" }}
             >
-              {inboxSortStatusLabel(status)}
+              {/* La carte « État » juste au-dessus donne déjà la phrase entière. */}
+              {status.phase === "mobile" ? "En pause sur mobile" : inboxSortStatusLabel(status)}
             </span>
           </span>
           <CaretRight size={14} style={{ color: "var(--text-muted)" }} />

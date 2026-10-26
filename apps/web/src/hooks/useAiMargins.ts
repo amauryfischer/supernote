@@ -48,6 +48,8 @@ const MAX_BLOCKS_PER_RUN = 4;
 const CARET_DEBOUNCE_MS = 3500;
 /** Battement entre deux blocs, pour que les commentaires apparaissent un par un. */
 const BEAT_MS = 160;
+/** Au-delà, le panneau devient une liste à éplucher : la suivante prend la place d'une carte traitée. */
+const MAX_VISIBLE_COMMENTS = 3;
 /** Borne dure de la boucle « Tout réanalyser » : 4 blocs par lot. */
 const MAX_FULL_PASS_BATCHES = 200;
 
@@ -222,10 +224,13 @@ export function useAiMargins({
     });
 
   // Reconstruit la liste affichée depuis le cache, dans l'ordre des blocs.
+  const lastBlocksRef = useRef<NoteBlock[]>([]);
   const rebuild = useCallback((blocks: NoteBlock[]) => {
+    lastBlocksRef.current = blocks;
     const cache = cacheRef.current;
     const out: DisplayComment[] = [];
     for (const b of blocks) {
+      if (out.length >= MAX_VISIBLE_COMMENTS) break;
       if (dismissedRef.current?.has(dismissKey(b.hash))) continue;
       const c = cache.get(cacheKey(b.hash));
       if (c) out.push({ block: b, comment: c });
@@ -443,9 +448,9 @@ export function useAiMargins({
     (block: NoteBlock) => {
       dismissedRef.current?.set(dismissKey(block.hash), Date.now());
       if (dismissedRef.current) saveDismissedComments(dismissedRef.current);
-      setComments((prev) => prev.filter((c) => c.block.hash !== block.hash));
+      rebuild(lastBlocksRef.current);
     },
-    [dismissKey],
+    [dismissKey, rebuild],
   );
 
   /**

@@ -150,6 +150,10 @@ interface ShellChromeContextValue {
   mobileSubtitle: string | null;
   setMobileSubtitle: (subtitle: string | null) => void;
 
+  /** Titre et sous-titre estompés : la page les affiche déjà en grand juste dessous. */
+  mobileTitleHidden: boolean;
+  setMobileTitleHidden: (hidden: boolean) => void;
+
   /** Floating action button config. `null` hides the FAB. */
   mobileFab: MobileFabConfig | null | false;
   setMobileFab: (config: MobileFabConfig | null | false) => void;
@@ -259,6 +263,7 @@ export function ShellChromeProvider({ children }: { children: React.ReactNode })
   // `MobileShell` to populate the top bar and FAB.
   const [mobileTitle, setMobileTitleState] = useState<string | null>(null);
   const [mobileSubtitle, setMobileSubtitleState] = useState<string | null>(null);
+  const [mobileTitleHidden, setMobileTitleHidden] = useState(false);
   const [mobileFab, setMobileFabState] = useState<MobileFabConfig | null | false>(null);
   const [mobileHeaderActions, setMobileHeaderActionsState] = useState<MobileHeaderAction[]>([]);
   const [mobileBack, setMobileBackState] = useState<(() => void) | null>(null);
@@ -453,6 +458,8 @@ export function ShellChromeProvider({ children }: { children: React.ReactNode })
       setMobileTitle,
       mobileSubtitle,
       setMobileSubtitle,
+      mobileTitleHidden,
+      setMobileTitleHidden,
       mobileFab,
       setMobileFab,
       mobileHeaderActions,
@@ -489,6 +496,8 @@ export function ShellChromeProvider({ children }: { children: React.ReactNode })
       setMobileTitle,
       mobileSubtitle,
       setMobileSubtitle,
+      mobileTitleHidden,
+      setMobileTitleHidden,
       mobileFab,
       setMobileFab,
       mobileHeaderActions,
@@ -556,6 +565,17 @@ export function useShellChrome(): ShellChromeContextValue {
     );
   }
   return ctx;
+}
+
+/** Estompe le titre de la barre mobile tant que `hidden` (motif « grand titre » : il revient au défilement). */
+export function useMobileTitleHidden(hidden: boolean): void {
+  const ctx = useContext(ShellChromeContext);
+  useEffect(() => {
+    if (!ctx) return warnMissingProvider("useMobileTitleHidden");
+    ctx.setMobileTitleHidden(hidden);
+    return () => ctx.setMobileTitleHidden(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hidden]);
 }
 
 /**

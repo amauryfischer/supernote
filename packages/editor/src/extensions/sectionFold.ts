@@ -166,12 +166,12 @@ function createToggle(view: EditorView, section: Section): HTMLElement {
   const chevron = document.createElement("span");
   chevron.className = "sn-fold-toggle__chevron";
   chevron.setAttribute("aria-hidden", "true");
-  chevron.textContent = "›";
   btn.append(chevron);
   if (section.folded) {
     const label = document.createElement("span");
     label.className = "sn-fold-toggle__count";
-    label.textContent = `${n} ${n > 1 ? "blocs masqués" : "bloc masqué"}`;
+    label.setAttribute("aria-hidden", "true");
+    label.dataset.label = `${n} ${n > 1 ? "blocs masqués" : "bloc masqué"}`;
     btn.append(label);
   }
 

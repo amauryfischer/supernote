@@ -27,6 +27,7 @@ import {
 import { memo, useCallback, useEffect, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { NotificationBadge, useNotifications } from "@supernote/notifications/renderer";
 import { useVault } from "@/lib/pwa/PwaVaultSetup";
+import { useOnlineSync } from "@/lib/online-sync/OnlineSyncProvider";
 import { usePluginEnabled } from "@/hooks/usePluginEnabled";
 import { MobileVaultSwitcher } from "./MobileVaultSwitcher";
 import { MobileStatusCard } from "./MobileStatusCard";
@@ -181,7 +182,17 @@ export const MoreDrawer = memo(function MoreDrawer({
       ? activeEntry!.name
       : vault!.vaultName ?? (vault!.state === "degraded" ? "Aucun vault" : "Supernote")
     : "Supernote";
-  const vaultSubtitle = isCloudVault ? "Cloud · temps réel" : "Supernote · vault local";
+  const syncStatus = useOnlineSync()?.status;
+  // « Temps réel » seulement quand la synchro l'est : la carte « État » juste dessous affichait le contraire.
+  const vaultSubtitle = !isCloudVault
+    ? "Supernote · vault local"
+    : syncStatus === "connected"
+      ? "Cloud · temps réel"
+      : syncStatus === "disabled"
+        ? "Cloud · sans synchro"
+        : syncStatus
+          ? "Cloud · hors ligne"
+          : "Cloud";
 
   const gateEnabled: Record<NavGate, boolean> = {
     routines: routinesEnabled,

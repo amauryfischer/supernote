@@ -55,14 +55,15 @@ export function Drawer({
         isDismissable={isDismissable}
         className="fixed inset-0 z-[var(--z-overlay)] bg-[var(--surface-0)]/60 backdrop-blur-sm"
       >
-        <DrawerContent
-          placement={placement}
-          className={cn(
-            "fixed z-[var(--z-modal)] border-[var(--border-subtle)] bg-[var(--surface-1)] [box-shadow:var(--shadow-2xl)]",
-            className
-          )}
-        >
-          <DrawerDialog>
+        {/* Content est le calque plein écran qui place le panneau ; taille et fond vont sur Dialog, sinon une
+            feuille du bas de 65vh se retrouve collée en haut. Le padding est porté par Header/Body/Footer. */}
+        <DrawerContent placement={placement} className="z-[var(--z-modal)]">
+          <DrawerDialog
+            className={cn(
+              "border-[var(--border-subtle)] bg-[var(--surface-1)] p-0 [box-shadow:var(--shadow-2xl)]",
+              className
+            )}
+          >
             {title && (
               <DrawerHeader className="flex items-center justify-between border-b border-[var(--border-subtle)] px-6 py-4">
                 <DrawerHeading className="text-base font-semibold text-[var(--text-primary)]">

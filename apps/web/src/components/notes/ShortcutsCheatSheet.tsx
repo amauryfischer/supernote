@@ -21,8 +21,9 @@ const CATEGORY_LABELS: Record<string, string> = {
   ia: "IA",
 };
 
-// Raccourcis globaux (CommandSurface), hors éditeur : affichage seul.
+// Raccourcis hors éditeur (CommandSurface, NoteFind) : affichage seul.
 const APP_NAV_SHORTCUTS = [
+  { label: "Rechercher dans la note", combo: "mod+f" },
   { label: "Note précédente (appli installée)", combo: "ctrl+tab" },
   { label: "Note précédente (onglet navigateur)", combo: "ctrl+alt+arrowleft" },
 ] as const;
