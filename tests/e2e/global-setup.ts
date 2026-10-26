@@ -43,6 +43,11 @@ export default async function globalSetup(config: FullConfig): Promise<void> {
   await warm(cloudPage, "/agenda", () =>
     cloudPage.getByRole("heading", { name: "Connecte d'abord ton compte Google" }).first().waitFor({ timeout: 60_000 }),
   );
+  // Page de note + éditeur BlockNote (20-qol-notes, 21-notes-dnd) : route `/notes/[id]` lazy et très lourde à froid.
+  await warm(cloudPage, "/notes", async () => {
+    await cloudPage.getByRole("button", { name: "Nouvelle note", exact: true }).first().click();
+    await cloudPage.locator(".bn-editor").first().waitFor({ timeout: 60_000 });
+  });
   await cloud.close();
 
   await browser.close();

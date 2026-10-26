@@ -202,3 +202,51 @@ export async function openNewNote(page: Page, title: string): Promise<void> {
   await page.locator(".bn-editor").first().waitFor();
   await page.getByLabel("Titre de la note").fill(title);
 }
+
+/** Appel tRPC direct au worker du coffre (même chemin que le client) ; réessaie tant que le coffre n'est pas prêt. */
+export async function workerCall<T>(page: Page, type: "query" | "mutation", path: string, input: unknown): Promise<T> {
+  await page.waitForFunction(() => "__supernoteWorker" in window);
+  return page.evaluate(
+    async ({ type, path, input }) => {
+      const worker = (window as unknown as { __supernoteWorker: Worker }).__supernoteWorker;
+      const call = (id: string) =>
+        new Promise<{ ok: boolean; result?: unknown }>((resolve) => {
+          const onMessage = (e: MessageEvent) => {
+            if ((e.data as { id?: string } | null)?.id !== id) return;
+            worker.removeEventListener("message", onMessage);
+            resolve(e.data as { ok: boolean; result?: unknown });
+          };
+          worker.addEventListener("message", onMessage);
+          worker.postMessage({ id, type, path, input });
+        });
+      for (let attempt = 0; attempt < 60; attempt++) {
+        const res = await call(`e2e-${path}-${attempt}-${Math.random()}`);
+        if (res.ok) return res.result;
+        await new Promise((r) => setTimeout(r, 500));
+      }
+      throw new Error("coffre jamais prêt");
+    },
+    { type, path, input },
+  ) as Promise<T>;
+}
+
+/** Crée une note directement dans le coffre (sans passer par l'UI) et renvoie son id. */
+export async function seedNote(
+  page: Page,
+  note: { title: string; body: string; folder?: string; fields?: Record<string, unknown> },
+): Promise<string> {
+  const slug = note.title.toLowerCase().normalize("NFD").replace(/[^a-z0-9\s-]/g, "").trim().replace(/\s+/g, "-");
+  const { id } = await workerCall<{ id: string }>(page, "mutation", "entities.create", {
+    typeId: "note",
+    fields: { ...note.fields, title: note.title, filePath: `${note.folder ?? "Inbox"}/${slug}.md` },
+    body: note.body,
+    tags: [],
+  });
+  return id;
+}
+
+/** Ouvre une note par son URL et attend que l'éditeur soit monté. */
+export async function openNote(page: Page, id: string, search = ""): Promise<void> {
+  await page.goto(`/notes/${id}${search}`);
+  await page.locator(".bn-editor").first().waitFor({ timeout: 60_000 });
+}
