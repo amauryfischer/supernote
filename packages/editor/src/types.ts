@@ -182,6 +182,15 @@ export interface SupernoteEditorProps {
    * absent, le bloc affiche son iframe pubhtml self-contained.
    */
   renderGoogleSheet?: (props: { spreadsheetId: string; gid: string; url: string; onClear: () => void }) => React.ReactNode;
+  /**
+   * Crée la note d'une sous-page et renvoie son id (null = abandon). Sans lui,
+   * l'entrée slash « Page » n'existe pas.
+   */
+  createSubpage?: () => Promise<string | null>;
+  /** Ouvre la sous-page juste créée par l'entrée slash « Page ». */
+  onOpenSubpage?: (noteId: string) => void;
+  /** Renderer de la carte de sous-page ; absent → repli statique « Page ». */
+  renderSubpage?: (props: { noteId: string }) => React.ReactNode;
   /** API d'embed Gmail (Phase 2) : rendu d'un thread + picker d'email. */
   gmailEmbed?: GmailEmbedApi;
   /**

@@ -22,6 +22,7 @@ import {
   formulaBlockSpec,
   formulaInlineSpec,
 } from "./blocks/index.js";
+import { subpageBlockSpec } from "./blocks/subpage.js";
 
 // Drop BlockNote's default checkListItem so our HeroUI-rendered version
 // takes its slot. We keep the `checkListItem` block name so existing
@@ -43,6 +44,7 @@ export const supernoteSchema = BlockNoteSchema.create({
     googleSheet: googleSheetBlockSpec(),
     htmlArtifact: htmlArtifactBlockSpec(),
     gmailMessage: gmailMessageBlockSpec(),
+    subpage: subpageBlockSpec(),
   },
   inlineContentSpecs: {
     ...defaultInlineContentSpecs,

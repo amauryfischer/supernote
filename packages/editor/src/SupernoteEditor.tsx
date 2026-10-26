@@ -21,6 +21,7 @@ import {
   GoogleSheetProvider,
   GmailEmbedProvider,
 } from "./blocks/index.js";
+import { SubpageProvider } from "./blocks/subpage.js";
 import { markdownToBlocks, blocksToMarkdown } from "./serialization/index.js";
 import { trace } from "./freeze-trace.js";
 import {
@@ -88,6 +89,9 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
     renderDoodle,
     renderGoogleSheet,
     gmailEmbed,
+    createSubpage,
+    onOpenSubpage,
+    renderSubpage,
     aiClient,
     aiPromptResolver,
     noteTitle,
@@ -119,6 +123,11 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
 
   const onAskAiRef = useRef(onAskAi);
   onAskAiRef.current = onAskAi;
+
+  const createSubpageRef = useRef(createSubpage);
+  createSubpageRef.current = createSubpage;
+  const onOpenSubpageRef = useRef(onOpenSubpage);
+  onOpenSubpageRef.current = onOpenSubpage;
 
   const onEditorReadyRef = useRef(onEditorReady);
   onEditorReadyRef.current = onEditorReady;
@@ -563,7 +572,13 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
 
   const getItems = useCallback(
     async (query: string) => {
-      const items = getSupernoteSlashMenuItems(editor, openPicker, onAskAiRef.current);
+      const create = createSubpageRef.current;
+      const items = getSupernoteSlashMenuItems(
+        editor,
+        openPicker,
+        onAskAiRef.current,
+        create ? { create, open: (noteId) => onOpenSubpageRef.current?.(noteId) } : undefined,
+      );
       if (!query) return items;
       const q = query.toLowerCase().trim();
 
@@ -760,6 +775,7 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
     <DoodleProvider renderer={doodleRenderer}>
     <GoogleSheetProvider renderer={googleSheetRenderer}>
     <GmailEmbedProvider api={gmailEmbedApi}>
+    <SubpageProvider renderer={renderSubpage ?? null}>
     <div
       ref={wrapperRef}
       className={`sn-editor-wrapper${live ? " sn-editor-live" : ""}${dimInactiveBlocks ? " sn-dim-blocks" : ""}${className ? ` ${className}` : ""}`}
@@ -833,6 +849,7 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
         />
       )}
     </div>
+    </SubpageProvider>
     </GmailEmbedProvider>
     </GoogleSheetProvider>
     </DoodleProvider>
