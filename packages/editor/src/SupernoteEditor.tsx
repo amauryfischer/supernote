@@ -671,6 +671,8 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
   const onContextMenu = useCallback(
     (e: React.MouseEvent) => {
       if (!aiEnabled) return;
+      // ⚠️ L'appui long tactile émet contextmenu au relâcher : l'intercepter masquait le menu natif Copier et le champ du menu volait la sélection.
+      if (e.nativeEvent instanceof PointerEvent && (e.nativeEvent.pointerType === "touch" || e.nativeEvent.pointerType === "pen")) return;
       const hasSel =
         (editor.getSelectedText?.() ?? "").length > 0 ||
         (editor.getSelection()?.blocks?.length ?? 0) > 0;
