@@ -478,8 +478,8 @@ export function NoteListItem({ note, isActive, onClick, onHover, getPreview, onD
           longPress.onTouchMove(e);
           handleTouchMove(e);
         }}
-        onTouchEnd={() => {
-          longPress.onTouchEnd();
+        onTouchEnd={(e) => {
+          longPress.onTouchEnd(e);
           handleTouchEnd();
         }}
         onTouchCancel={() => {

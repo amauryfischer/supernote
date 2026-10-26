@@ -124,6 +124,8 @@ test.describe("20 — QoL notes (desktop)", () => {
   });
 
   test("un #TODO dans le texte apparaît comme pastille ambre dans la minimap, pas dans une note sans tag", async ({ page }) => {
+    // Assez large pour la minimap complète : réduite en rail, elle ne trace rien sur une note sans tag.
+    await page.setViewportSize({ width: 2400, height: 900 });
     const [, tagged] = await seedAndOpen(page, [
       { title: "Sans tag", body: PLAIN_BODY },
       { title: "Avec tag", body: LONG_BODY },
@@ -135,8 +137,7 @@ test.describe("20 — QoL notes (desktop)", () => {
     await expect.poll(() => minimapInk(page, "main", "amber")).toBeGreaterThan(0);
   });
 
-  // FIXME SQ-72 : rouge sur l'arbre intégré. (1) le chevron « › » du repli entre dans textContent : libellés « Gamma› » (plan, barre collante) ; (2) après un saut depuis le plan, la barre collante garde la section précédente (bloc à 48 px, h2 à 66 px > seuil 56 px). (1) est corrigé sur main non commité ; réactiver (test.fixme -> test) une fois (1) et (2) intégrés.
-  test.fixme("plan : titre collant après défilement, liste des titres, clic → le titre arrive en haut", async ({ page }) => {
+  test("plan : titre collant après défilement, liste des titres, clic → le titre arrive en haut", async ({ page }) => {
     await seedAndOpen(page, [{ title: "Plan", body: LONG_BODY }], { metaBar: true });
     const sticky = page.getByRole("button", { name: /^Plan de la note, section courante/ });
     await expect(sticky).toHaveCount(0);
@@ -148,18 +149,19 @@ test.describe("20 — QoL notes (desktop)", () => {
 
     await sticky.click();
     const panel = page.getByRole("dialog", { name: "Plan de la note" });
-    for (const title of ["Alpha", "Beta", "Gamma", "Delta"]) await expect(panel.getByRole("button", { name: title, exact: true })).toBeVisible();
+    // La ligne porte aussi les tags de sa section (« Delta #TODO »).
+    for (const title of ["Alpha", "Beta", "Gamma", "Delta"]) await expect(panel.getByRole("button", { name: new RegExp(`^${title}( |$)`) })).toBeVisible();
     await expect(panel.getByRole("button", { name: "Gamma", exact: true })).toHaveAttribute("aria-current", "location");
 
-    await panel.getByRole("button", { name: "Delta", exact: true }).click();
+    await panel.getByRole("button", { name: /^Delta( |$)/ }).click();
     await expect(panel).toHaveCount(0);
     // Défilement fluide : le titre se pose à ~48 px du haut de la zone de texte.
     await expect.poll(() => headingOffset(page, "Delta")).toBeGreaterThan(30);
     await expect.poll(() => headingOffset(page, "Delta")).toBeLessThan(70);
     await expect(sticky).toHaveAccessibleName("Plan de la note, section courante : Delta");
 
-    // Le bouton « Plan » de la barre d'outils ouvre la même liste.
-    await page.getByRole("button", { name: "Plan", exact: true }).click();
+    // Le bouton « Plan » de la barre d'outils ouvre la même liste (la note s'appelle aussi « Plan » dans l'arbre).
+    await page.locator("#note-meta-bar").getByRole("button", { name: "Plan", exact: true }).click();
     await expect(page.getByRole("dialog", { name: "Plan de la note" })).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(page.getByRole("dialog", { name: "Plan de la note" })).toHaveCount(0);
@@ -177,12 +179,11 @@ test.describe("20 — QoL notes (desktop)", () => {
     await expect.poll(() => selectedHeading(page)).toBe("Beta");
   });
 
-  // FIXME SQ-72 : rouge sur l'arbre intégré. (1) libellé « Copier le lien vers « Gamma› » » (chevron dans textContent) ; (2) les ids de bloc BlockNote sont régénérés à chaque chargement : ?block= ne retrouve pas le titre dans un chargement neuf. Réactiver une fois l'id de bloc stable ou le lien ancré autrement.
-  test.fixme("« Copier le lien » d'un titre puis ouverture de ?block= : le bloc est dans la vue, malgré la position reprise", async ({ page }) => {
+  test("« Copier le lien » d'un titre puis ouverture de ?heading= : le titre est dans la vue, malgré la position reprise", async ({ page }) => {
     const [id] = await seedAndOpen(page, [{ title: "Lien", body: LONG_BODY }], { metaBar: true });
     await page.getByRole("button", { name: "Plan", exact: true }).click();
     await page.getByRole("dialog", { name: "Plan de la note" }).getByRole("button", { name: "Copier le lien vers « Gamma »", exact: true }).click();
-    await expect.poll(() => readClipboard(page)).toContain("?block=");
+    await expect.poll(() => readClipboard(page)).toContain("?heading=");
     const url = await readClipboard(page);
     expect(new URL(url).pathname).toBe(`/notes/${id}`);
 
@@ -315,8 +316,10 @@ test.describe("20 — QoL notes (desktop)", () => {
     await page.keyboard.press("Control+k");
     const palette = page.locator("[cmdk-root]");
     await expect(palette.getByText("Récents", { exact: true })).toBeVisible();
-    await expect(palette.getByText("Note B", { exact: true })).toBeVisible();
-    await expect(palette.getByText("Note A", { exact: true })).toBeVisible();
+    // Dans le groupe : l'aperçu de l'élément présélectionné répète son titre.
+    const recents = palette.getByLabel("Récents");
+    await expect(recents.getByText("Note B", { exact: true })).toBeVisible();
+    await expect(recents.getByText("Note A", { exact: true })).toBeVisible();
     // La note courante n'est pas proposée.
     await expect(palette.getByText("Note C", { exact: true })).toHaveCount(0);
     await page.keyboard.press("Escape");
@@ -365,10 +368,11 @@ test.describe("20 — QoL notes (mobile)", () => {
 
   const horizontalOverflow = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
 
-  const floatingLoupe = (page: Page) => page.locator('button.rounded-full[aria-label="Rechercher dans la note"]');
+  /** Loupe de la barre « Plan » (hors barre d'outils de la note). */
+  const floatingLoupe = (page: Page) =>
+    page.locator('xpath=//button[@aria-label="Rechercher dans la note"][not(ancestor::*[@id="note-meta-bar"])]');
 
-  // FIXME SQ-72 : rouge sur l'arbre intégré : la poignée tactile « Options du bloc » recouvre la loupe flottante (premier bloc focalisé). Corrigé sur main non commité (scroll-pt-10, loupe top-0) ; réactiver après intégration.
-  test.fixme("la loupe flottante reste atteignable au doigt quand le curseur est dans le premier bloc", async ({ page }) => {
+  test("la loupe flottante reste atteignable au doigt quand le curseur est dans le premier bloc", async ({ page }) => {
     await seedAndOpen(page, [{ title: "Savane", body: LONG_BODY }]);
     const loupe = floatingLoupe(page);
     await expect(loupe).toBeVisible();
@@ -383,7 +387,7 @@ test.describe("20 — QoL notes (mobile)", () => {
     await seedAndOpen(page, [{ title: "Savane", body: LONG_BODY }]);
     const loupe = floatingLoupe(page);
     await page.getByRole("button", { name: "Afficher les outils de la note" }).tap();
-    await page.locator('button:not(.rounded-full)[aria-label="Rechercher dans la note"]').tap();
+    await page.locator('#note-meta-bar button[aria-label="Rechercher dans la note"]').tap();
 
     const search = page.getByRole("search");
     await expect(search).toBeVisible();
@@ -403,8 +407,7 @@ test.describe("20 — QoL notes (mobile)", () => {
     expect(await horizontalOverflow(page)).toBeLessThanOrEqual(0);
   });
 
-  // FIXME SQ-72 : rouge sur l'arbre intégré : ligne du plan nommée « Gamma› » (chevron du repli dans textContent). Corrigé sur main non commité (chevron en ::before) ; réactiver après intégration.
-  test.fixme("le plan s'ouvre en feuille, toucher un titre y mène ; le pied de note tient sans débordement", async ({ page }) => {
+  test("le plan s'ouvre en feuille, toucher un titre y mène ; le pied de note tient sans débordement", async ({ page }) => {
     await seedAndOpen(page, [{ title: "Plan", body: LONG_BODY }]);
     await page.getByRole("button", { name: "Afficher les outils de la note" }).tap();
     await page.getByRole("button", { name: "Plan", exact: true }).tap();
@@ -438,8 +441,9 @@ test.describe("20 — QoL notes (mobile)", () => {
     await page.getByRole("button", { name: "Recherche", exact: true }).tap();
     const palette = page.locator("[cmdk-root]");
     await expect(palette.getByText("Récents", { exact: true })).toBeVisible();
-    await expect(palette.getByText("Note A", { exact: true })).toBeVisible();
-    await expect(palette.getByText("Note B", { exact: true })).toBeVisible();
+    const recents = palette.getByLabel("Récents");
+    await expect(recents.getByText("Note A", { exact: true })).toBeVisible();
+    await expect(recents.getByText("Note B", { exact: true })).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(palette).toHaveCount(0);
 

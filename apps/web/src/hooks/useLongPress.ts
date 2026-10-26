@@ -17,7 +17,7 @@ import { haptic } from "@/lib/haptic";
 interface LongPressHandlers {
   onTouchStart: (e: React.TouchEvent) => void;
   onTouchMove: (e: React.TouchEvent) => void;
-  onTouchEnd: () => void;
+  onTouchEnd: (e?: React.TouchEvent) => void;
   onTouchCancel: () => void;
 }
 
@@ -30,6 +30,7 @@ export function useLongPress(
 ): LongPressHandlers {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const start = useRef<{ x: number; y: number } | null>(null);
+  const fired = useRef(false);
 
   const clear = useCallback(() => {
     if (timer.current !== null) {
@@ -46,8 +47,10 @@ export function useLongPress(
       if (!t) return;
       const { clientX, clientY } = t;
       start.current = { x: clientX, y: clientY };
+      fired.current = false;
       timer.current = setTimeout(() => {
         haptic(15);
+        fired.current = true;
         callback(clientX, clientY);
         timer.current = null;
       }, delay);
@@ -67,10 +70,20 @@ export function useLongPress(
     [clear, moveTolerance],
   );
 
+  const onTouchEnd = useCallback(
+    (e?: React.TouchEvent) => {
+      // Le clic de compatibilité émis au relâcher tomberait hors du menu ouvert par l'appui long et le refermerait.
+      if (fired.current && e?.cancelable) e.preventDefault();
+      fired.current = false;
+      clear();
+    },
+    [clear],
+  );
+
   return {
     onTouchStart,
     onTouchMove,
-    onTouchEnd: clear,
+    onTouchEnd,
     onTouchCancel: clear,
   };
 }
