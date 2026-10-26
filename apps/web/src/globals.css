@@ -1005,6 +1005,51 @@ html, body {
   }
 }
 
+/* ── Glisser une note ────────────────────────────────────────────────────────
+ * `.sn-drag-ghost` : pastille-titre qui remplace l'aperçu natif (ligne entière)
+ * du glisser HTML5 — hors écran, le navigateur la photographie au dragstart.
+ * `--live` : même pastille rendue dans le DragOverlay de dnd-kit, qui la
+ * positionne lui-même. */
+.sn-drag-ghost {
+  position: fixed;
+  top: -1000px;
+  left: 0;
+  max-width: 240px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--accent);
+  background: var(--surface-1);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+.sn-drag-ghost--live {
+  position: static;
+  width: max-content;
+  cursor: grabbing;
+}
+
+/* Confirmation d'un dépôt : le dossier récepteur s'éclaire puis retombe, en
+ * lieu et place d'un toast de succès. */
+.sn-drop-flash::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 6px;
+  background: var(--accent);
+  pointer-events: none;
+  animation: sn-drop-flash calc(var(--sn-dur-5) * 2) var(--sn-ease-out) both;
+}
+@keyframes sn-drop-flash {
+  from { opacity: 0.3; }
+  to { opacity: 0; }
+}
+
 .sn-note-preview__title {
   margin: 0;
   font-size: 0.85rem;

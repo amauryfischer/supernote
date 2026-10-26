@@ -318,9 +318,8 @@ function NotesPageContent() {
 
   const handleMoveNote = useCallback(async (noteId: string, folderPath: string): Promise<void> => {
     try {
+      // Pas de toast de succès : le dossier récepteur clignote et s'ouvre (FileTree.handleDropNote).
       await moveNote(noteId, folderPath);
-      const leaf = folderPath.split("/").pop() ?? folderPath;
-      toast({ title: `Note déplacée dans « ${leaf} »` });
     } catch {
       toast({ title: "Impossible de déplacer la note", variant: "danger" });
     }

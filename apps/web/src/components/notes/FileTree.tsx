@@ -94,7 +94,7 @@ import { useTranslations } from "next-intl";
 import { Button, Input, ContextMenu, Tooltip, useContextMenu, useToast, type ContextMenuItemDef } from "@supernote/ui";
 import { useRouter } from "next/navigation";
 import { ConnectVaultModal } from "./ConnectVaultModal";
-import { useUpdateFolder, useReorderFolders, useMoveFolder } from "./hooks";
+import { useUpdateFolder, useReorderFolders, useMoveFolder, beginNoteDrag, NOTE_DRAG_MIME } from "./hooks";
 import { trpc, trpcVanillaClient } from "@/lib/trpc/client";
 import { folderAccentVars } from "@/lib/folderAccent";
 import { useConfirm } from "@/hooks/usePrompt";
@@ -110,6 +110,7 @@ import {
 } from "@/lib/online-sync/room-id";
 import {
   DndContext,
+  DragOverlay,
   closestCenter,
   KeyboardSensor,
   MouseSensor,
@@ -500,7 +501,9 @@ function rowEdge(height: number): number {
  * Les notes passent donc sur le même moteur que les dossiers.
  *
  * Le drop natif reste branché côté dossier : il sert encore à l'import de
- * fichiers depuis le bureau et aux cartes de la NoteList.
+ * fichiers depuis le bureau et aux lignes de la NoteList. C'est aussi le chemin
+ * du glisser à la souris depuis la ligne entière (la poignée dnd-kit, 20px, est
+ * la voie tactile) ; les deux convergent sur `handleDropNote`.
  */
 const NOTE_DRAG_PREFIX = "note:";
 
@@ -676,12 +679,15 @@ interface FolderDndContextValue {
   nestTarget: string | null;
   reparentTarget: string | null;
   childOrders: Map<string, string[]>;
+  /** Dossier qui vient de recevoir une note — porte le clignotement de confirmation. */
+  droppedPath: string | null;
 }
 
 const FolderDndContext = createContext<FolderDndContextValue>({
   nestTarget: null,
   reparentTarget: null,
   childOrders: new Map(),
+  droppedPath: null,
 });
 
 // ── MountContext — racines de montage + action de déconnexion ─────────────────
@@ -1094,6 +1100,28 @@ export function FileTree({
   const [childOrders, setChildOrders] = useState<Map<string, string[]>>(new Map());
   const [nestTarget, setNestTarget] = useState<string | null>(null);
   const [reparentTarget, setReparentTarget] = useState<string | null>(null);
+  // Titre de la note saisie par la poignée dnd-kit : alimente l'aperçu qui suit le doigt.
+  const [dragNoteTitle, setDragNoteTitle] = useState<string | null>(null);
+  // Retour de succès sans toast : le dossier qui reçoit une note clignote, et
+  // s'ouvre pour montrer son nouveau contenu.
+  const [droppedPath, setDroppedPath] = useState<string | null>(null);
+  const droppedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (droppedTimerRef.current) clearTimeout(droppedTimerRef.current);
+  }, []);
+
+  // Point de convergence des deux moteurs de glisser (natif depuis une ligne,
+  // dnd-kit depuis la poignée) : un seul endroit déplace, ouvre et signale.
+  const handleDropNote = useCallback(
+    (noteId: string, folderPath: string) => {
+      onDropNote?.(noteId, folderPath);
+      setExpanded(folderPath, true);
+      setDroppedPath(folderPath);
+      if (droppedTimerRef.current) clearTimeout(droppedTimerRef.current);
+      droppedTimerRef.current = setTimeout(() => setDroppedPath(null), 900);
+    },
+    [onDropNote, setExpanded],
+  );
 
   // PointerSensor seul ne permet pas de glisser au doigt dans une liste qui
   // défile : dès que le doigt bouge, le navigateur arbitre en faveur du scroll
@@ -1132,10 +1160,32 @@ export function FileTree({
     [orderedFolders],
   );
 
-  const handleDragStart = useCallback((_event: DragStartEvent) => {
+  const handleDragStart = useCallback(
+    (event: DragStartEvent) => {
+      setNestTarget(null);
+      setReparentTarget(null);
+      const id = String(event.active.id);
+      const noteId = id.startsWith(NOTE_DRAG_PREFIX) ? id.slice(NOTE_DRAG_PREFIX.length) : null;
+      setDragNoteTitle(noteId ? (notes.find((n) => n.id === noteId)?.title || "Sans titre") : null);
+    },
+    [notes],
+  );
+
+  // Échap (ou toute annulation) ne passe PAS par `onDragEnd` : sans ce
+  // handler le dossier survolé restait surligné après l'annulation.
+  const handleDragCancel = useCallback(() => {
     setNestTarget(null);
     setReparentTarget(null);
+    setDragNoteTitle(null);
   }, []);
+
+  // Survol prolongé d'un dossier replié pendant un glisser dnd-kit : il
+  // s'ouvre, comme dans le glisser natif (cf. FolderNode.handleDragOver).
+  useEffect(() => {
+    if (!nestTarget || isExpanded(nestTarget)) return undefined;
+    const timer = setTimeout(() => setExpanded(nestTarget, true), 600);
+    return () => clearTimeout(timer);
+  }, [nestTarget, isExpanded, setExpanded]);
 
   const handleDragOver = useCallback((event: DragOverEvent) => {
     const overId = event.over ? String(event.over.id) : null;
@@ -1156,6 +1206,7 @@ export function FileTree({
       const { active, over } = event;
       setNestTarget(null);
       setReparentTarget(null);
+      setDragNoteTitle(null);
       if (!over || active.id === over.id) return;
 
       const activePath = String(active.id);
@@ -1166,8 +1217,7 @@ export function FileTree({
         if (!overId.startsWith("nest:")) return;
         const targetPath = overId.slice(5);
         if (targetPath === MOUNT_PATH_PREFIX || targetPath.startsWith(`${MOUNT_PATH_PREFIX}/`)) return;
-        onDropNote?.(activePath.slice(NOTE_DRAG_PREFIX.length), targetPath);
-        setExpanded(targetPath, true);
+        handleDropNote(activePath.slice(NOTE_DRAG_PREFIX.length), targetPath);
         return;
       }
 
@@ -1213,7 +1263,7 @@ export function FileTree({
         setChildOrders((m) => new Map(m).set(activeParent, prev)),
       );
     },
-    [orderedFolders, childOrders, reorderFolders, moveFolder, setExpanded, onDropNote],
+    [orderedFolders, childOrders, reorderFolders, moveFolder, setExpanded, handleDropNote],
   );
 
   return (
@@ -1301,13 +1351,14 @@ export function FileTree({
         <MountContext.Provider value={mountCtx}>
         <NoteTreeContext.Provider value={noteCtx}>
         <NewDriveDocContext.Provider value={onNewDriveDoc ?? null}>
-        <FolderDndContext.Provider value={{ nestTarget, reparentTarget, childOrders }}>
+        <FolderDndContext.Provider value={{ nestTarget, reparentTarget, childOrders, droppedPath }}>
           <DndContext
             sensors={dndSensors}
             collisionDetection={folderTreeCollision}
             onDragStart={handleDragStart}
             onDragOver={handleDragOver}
             onDragEnd={handleDragEnd}
+            onDragCancel={handleDragCancel}
           >
             <nav className="flex-1 overflow-y-auto p-2" onKeyDown={handleTreeKeyDown}>
               {filterEmpty && (
@@ -1343,7 +1394,7 @@ export function FileTree({
                       openPicker={openPicker}
                       depth={0}
                       notes={notes}
-                      onDropNote={onDropNote}
+                      onDropNote={handleDropNote}
                       isPinned
                     />
                   </SortableContext>
@@ -1377,7 +1428,7 @@ export function FileTree({
                     openPicker={openPicker}
                     depth={0}
                     notes={notes}
-                    onDropNote={onDropNote}
+                    onDropNote={handleDropNote}
                   />
                 ))}
               </SortableContext>
@@ -1385,6 +1436,11 @@ export function FileTree({
                 <NoteRows notes={rootNotes} depth={0} folderPath="" onSelectFolder={onSelectFolder} />
               )}
             </nav>
+            {/* Les lignes de note n'ont pas de transform dnd-kit (contrairement
+                aux dossiers triables) : sans aperçu, rien ne suivait le doigt. */}
+            <DragOverlay dropAnimation={null}>
+              {dragNoteTitle !== null && <div className="sn-drag-ghost sn-drag-ghost--live">{dragNoteTitle}</div>}
+            </DragOverlay>
           </DndContext>
         </FolderDndContext.Provider>
         </NewDriveDocContext.Provider>
@@ -1528,9 +1584,10 @@ function FolderNode({
   // ── DnD wiring (single context at FileTree level) ────────────────────────
   // All folders participate in the single top-level SortableContext for
   // reordering AND in their own "nest:" / "reparent:" droppable zones.
-  const { nestTarget, reparentTarget, childOrders } = useContext(FolderDndContext);
+  const { nestTarget, reparentTarget, childOrders, droppedPath } = useContext(FolderDndContext);
   const isNestTarget = nestTarget === folder.path;
   const isReparentTarget = reparentTarget === folder.path;
+  const isDropped = droppedPath === folder.path;
 
   const orderedChildren = useMemo(() => {
     const kids = folder.children ?? [];
@@ -1766,39 +1823,46 @@ function FolderNode({
     [folder.path, toast, utils],
   );
 
+  const clearExpandTimer = () => {
+    if (dragExpandTimerRef.current) {
+      clearTimeout(dragExpandTimerRef.current);
+      dragExpandTimerRef.current = null;
+    }
+  };
+  useEffect(() => clearExpandTimer, []);
+
   const handleDragOver = (e: React.DragEvent) => {
     // Sous-arbre monté : en lecture seule. On refuse d'être cible de drop
     // (import de fichier ou déplacement de note) — le worker rejetterait
     // l'écriture, autant ne pas l'afficher comme cible valide.
     if (isMountScoped) return;
-    // Accept native file drops OR note-card drags (text/plain).
+    // Accept native file drops OR note drags (type dédié, cf. NOTE_DRAG_MIME).
     const hasFiles = e.dataTransfer.types.includes("Files");
-    const hasNote = e.dataTransfer.types.includes("text/plain");
+    const hasNote = e.dataTransfer.types.includes(NOTE_DRAG_MIME);
     if (!hasFiles && !hasNote) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = hasFiles ? "copy" : "move";
     const innerFolder = (e.target as Element).closest("[data-folder-drop]");
     if (innerFolder && innerFolder !== e.currentTarget) {
       if (isDragOver) setIsDragOver(false);
+      clearExpandTimer();
       return;
     }
-    if (!isDragOver) {
-      setIsDragOver(true);
-      if (hasKids && !expanded) {
-        dragExpandTimerRef.current = setTimeout(() => {
-          setExpanded(folder.path, true);
-        }, 600);
-      }
+    if (!isDragOver) setIsDragOver(true);
+    // `dragover` se répète toutes les ~50ms : le garde sur le timer évite d'en
+    // empiler un par événement (le premier, orphelin, n'était jamais annulé).
+    if (hasKids && !expanded && !dragExpandTimerRef.current) {
+      dragExpandTimerRef.current = setTimeout(() => {
+        dragExpandTimerRef.current = null;
+        setExpanded(folder.path, true);
+      }, 600);
     }
   };
 
   const handleDragLeave = (e: React.DragEvent) => {
     if (!e.currentTarget.contains(e.relatedTarget as Node)) {
       setIsDragOver(false);
-      if (dragExpandTimerRef.current) {
-        clearTimeout(dragExpandTimerRef.current);
-        dragExpandTimerRef.current = null;
-      }
+      clearExpandTimer();
     }
   };
 
@@ -1808,16 +1872,13 @@ function FolderNode({
     e.preventDefault();
     e.stopPropagation();
     setIsDragOver(false);
-    if (dragExpandTimerRef.current) {
-      clearTimeout(dragExpandTimerRef.current);
-      dragExpandTimerRef.current = null;
-    }
-    // Native file drop takes priority over note-card drag.
+    clearExpandTimer();
+    // Native file drop takes priority over note drag.
     if (e.dataTransfer.files.length > 0) {
       void handleFilesDrop(e.dataTransfer.files);
       return;
     }
-    const noteId = e.dataTransfer.getData("text/plain");
+    const noteId = e.dataTransfer.getData(NOTE_DRAG_MIME);
     if (noteId && onDropNote) onDropNote(noteId, folder.path);
   };
 
@@ -1964,7 +2025,7 @@ function FolderNode({
         // and settles on the shared token instead of snapping, and self-
         // degrades to instant under reduced-motion. The outline stays crisp
         // (instant) so the drop boundary is never ambiguous mid-glide.
-        className={`sn-motion-colors group relative flex items-center${depth > 0 ? " sn-tree-elbow" : ""}`}
+        className={`sn-motion-colors group relative flex items-center${depth > 0 ? " sn-tree-elbow" : ""}${isDropped ? " sn-drop-flash" : ""}`}
         onContextMenu={handleContextMenu}
         style={{
           // Coude horizontal (::before) qui raccroche la ligne au trait
@@ -2292,9 +2353,9 @@ function NoteRows({ notes, depth, folderPath, onSelectFolder }: NoteRowsProps) {
 /**
  * Une note dans l'arbre. Alignée sur le titre des sous-dossiers de même
  * niveau : un espaceur de 16px occupe la colonne du chevron (une note n'a rien
- * à déplier), puis glyphe + titre. Draggable en natif (`text/plain` = id) pour
- * réutiliser le drop des FolderNode et déplacer la note d'un dossier à l'autre
- * sans passer par la liste centrale.
+ * à déplier), puis glyphe + titre. Draggable en natif (cf. `beginNoteDrag`)
+ * pour réutiliser le drop des FolderNode et déplacer la note d'un dossier à
+ * l'autre sans passer par la liste centrale.
  *
  * Actions (renommer / archiver / supprimer) : clic droit sur la ligne à la
  * souris, appui long au doigt, touche Menu au clavier — comme les lignes de
@@ -2458,11 +2519,8 @@ function NoteRow({ note, depth }: { note: TreeNote; depth: number }) {
           // Repère de la navigation ↑/↓ (cf. handleTreeKeyDown) : les notes
           // font partie du parcours, comme dans un explorateur.
           data-tree-row
-          draggable
-          onDragStart={(e) => {
-            e.dataTransfer.setData("text/plain", note.id);
-            e.dataTransfer.effectAllowed = "move";
-          }}
+          draggable={!isMountScoped}
+          onDragStart={(e) => beginNoteDrag(e, note.id, note.title)}
           onClick={() => {
             if (longPressFired.current) {
               longPressFired.current = false;

@@ -8,9 +8,9 @@
  * the note already lives in is highlighted and disabled — selecting it is
  * a no-op.
  *
- * Submission is two clicks: pick the folder, the modal closes and calls
- * `onConfirm(newFolderPath)`. The caller is responsible for the actual
- * `entities.update({ filePath })` round-trip.
+ * Submission is two clicks: pick the folder (or Enter to take the first match),
+ * the modal closes and calls `onConfirm(newFolderPath)`. The caller is
+ * responsible for the actual move round-trip.
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -71,9 +71,11 @@ export function MoveNoteModal({
 
   if (!open) return null;
 
+  const firstTarget = filtered.find((p) => p !== currentFolder);
+
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center p-4 pt-24"
+      className="fixed inset-0 z-50 flex items-start justify-center p-4 pt-[10vh] md:pt-24"
       style={{ backgroundColor: "rgba(0,0,0,0.4)" }}
       onClick={onCancel}
       role="presentation"
@@ -114,6 +116,12 @@ export function MoveNoteModal({
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && firstTarget) {
+                e.preventDefault();
+                onConfirm(firstTarget);
+              }
+            }}
             placeholder="Filtrer les dossiers…"
             className="w-full bg-transparent text-sm outline-none"
             style={{ color: "var(--text-primary)" }}
@@ -139,7 +147,7 @@ export function MoveNoteModal({
                     onPress={() => {
                       if (!isCurrent) onConfirm(path);
                     }}
-                    className="flex w-full items-center gap-2 px-4 py-2 text-left text-sm transition-colors disabled:cursor-default"
+                    className="flex min-h-11 w-full items-center gap-2 px-4 py-2 text-left text-sm transition-colors disabled:cursor-default md:min-h-0"
                     style={{
                       color: isCurrent
                         ? "var(--text-muted)"

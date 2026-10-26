@@ -6,10 +6,10 @@
  * browser without File System Access API).
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useToast } from "@supernote/ui";
-import { trpc, hasWorkerBackend } from "@/lib/trpc/client";
+import { trpc, trpcVanillaClient, hasWorkerBackend } from "@/lib/trpc/client";
 import { isWorkerReady } from "@/lib/trpc/browser-link";
 import {
   NOTES,
@@ -22,10 +22,12 @@ import {
 import {
   entitySummaryToNote,
   entityToNote,
+  folderFromFilePath,
   foldersFromPaths,
   noteFilePath,
 } from "./adapters";
 import { isSystemFolder } from "@/lib/system-folders";
+import { MOUNT_PATH_PREFIX } from "@/lib/online-sync/room-id";
 import type { FieldValue } from "@supernote/ipc";
 import { useSettings } from "@/components/settings/SettingsContext";
 import { isAttachmentPath } from "@/lib/attachments-path";
@@ -207,6 +209,28 @@ export function useFolderTree(): UseFolderTreeResult {
     isLoading: false,
     isFallback: false,
   };
+}
+
+/**
+ * Chemins de tous les dossiers, aplatis : les destinations proposées par
+ * `MoveNoteModal`. Les coffres montés (`@mounts/…`) et leurs configs sont
+ * en lecture seule — le worker refuse d'y déplacer une note, autant ne pas
+ * les offrir.
+ */
+export function useFolderPaths(): string[] {
+  const { folders } = useFolderTree();
+  return useMemo(() => {
+    const out: string[] = [];
+    const walk = (nodes: Folder[]) => {
+      for (const f of nodes) {
+        if (f.path === MOUNT_PATH_PREFIX || f.path === "VaultMounts") continue;
+        out.push(f.path);
+        if (f.children?.length) walk(f.children);
+      }
+    };
+    walk(folders);
+    return out;
+  }, [folders]);
 }
 
 // ── useCreateFolder ───────────────────────────────────────────────────────────
@@ -395,6 +419,10 @@ export function useNote(id: string): UseNoteResult {
 export interface CreateNoteOptions {
   folder: string;
   title: string;
+  body?: string;
+  tags?: string[];
+  /** Champs repris tels quels (duplication) ; `title` et `filePath` restent pilotés ici. */
+  fields?: Record<string, FieldValue>;
 }
 
 export function useCreateNote() {
@@ -420,9 +448,9 @@ export function useCreateNote() {
       const filePath = noteFilePath(opts.folder, opts.title);
       const entity = await mutation.mutateAsync({
         typeId: "note",
-        fields: { title: opts.title, filePath },
-        body: "",
-        tags: [],
+        fields: { ...opts.fields, title: opts.title, filePath },
+        body: opts.body ?? "",
+        tags: opts.tags ?? [],
       });
       // Optimistic insert: patch the created entity straight into the list
       // cache so the caller can navigate immediately with the note already
@@ -457,6 +485,52 @@ export function useNewInboxNote(): () => Promise<void> {
       toast({ title: "Impossible de créer la note", variant: "danger" });
     }
   }, [createNote, router, toast]);
+}
+
+// ── useDuplicateNote ──────────────────────────────────────────────────────────
+
+/**
+ * Champs qui ne se copient pas : l'identité (`id`, `type`, `filePath`), le
+ * titre (réécrit), le pointeur de canevas (`canvasFile` désignerait le
+ * `.excalidraw` de l'ORIGINAL — le blob hydraté `canvas` suffit, la création en
+ * écrit un neuf), et l'état propre à l'original (archivage, épingle, rang
+ * manuel). Les champs de partage `share*` ne se copient pas non plus : la copie
+ * n'est pas partagée.
+ */
+const DUPLICATE_SKIPPED_FIELDS = new Set([
+  "id", "type", "title", "filePath", "canvasFile", "archivedAt", "pinned", "sortOrder",
+]);
+
+/**
+ * Duplique une note dans son dossier, sous « <titre> (copie) », et renvoie l'id
+ * de la copie. `draft` porte l'état non encore enregistré de l'éditeur : sans
+ * lui, la copie partirait de la dernière sauvegarde (débouncée).
+ */
+export function useDuplicateNote() {
+  const { createNote } = useCreateNote();
+  const duplicateNote = useCallback(
+    async (
+      id: string,
+      draft?: { title?: string; body?: string; tags?: string[] },
+    ): Promise<string> => {
+      const src = await trpcVanillaClient.entities.get.query({ id });
+      const srcTitle = draft?.title ?? entityToNote(src).title;
+      const fields: Record<string, FieldValue> = {};
+      for (const [key, value] of Object.entries(src.fields)) {
+        if (DUPLICATE_SKIPPED_FIELDS.has(key) || key.startsWith("share")) continue;
+        fields[key] = value;
+      }
+      return createNote({
+        folder: folderFromFilePath(src.filePath),
+        title: `${srcTitle || "Sans titre"} (copie)`,
+        body: draft?.body ?? src.body,
+        tags: draft?.tags ?? src.tags,
+        fields,
+      });
+    },
+    [createNote],
+  );
+  return { duplicateNote };
 }
 
 // ── useCreateDriveDoc ─────────────────────────────────────────────────────────
@@ -617,6 +691,70 @@ export function useMoveNote() {
   );
 
   return { moveNote, isPending: mutation.isPending };
+}
+
+// ── useTogglePin ──────────────────────────────────────────────────────────────
+
+/** Épinglée = `fields.pinned === true` (le booléen YAML est relu tel quel par le worker). */
+export function isNotePinned(note: { fields?: Record<string, unknown> }): boolean {
+  return note.fields?.["pinned"] === true;
+}
+
+/**
+ * Épingle / désépingle une note via `fields.pinned`. La liste est patchée dans
+ * le cache avant la réponse du worker pour que la note change de rang aussitôt ;
+ * l'invalidation finale réconcilie, y compris en cas d'échec (le patch saute).
+ */
+export function useTogglePin() {
+  const utils = trpc.useUtils();
+  const togglePin = useCallback(
+    async (id: string, pinned: boolean): Promise<void> => {
+      utils.entities.list.setData({ typeId: "note", limit: 500, offset: 0 }, (old) =>
+        old
+          ? {
+              ...old,
+              items: old.items.map((item) =>
+                item.id === id ? { ...item, fields: { ...item.fields, pinned } } : item,
+              ),
+            }
+          : old,
+      );
+      try {
+        await trpcVanillaClient.entities.update.mutate({ id, fields: { pinned } });
+        void utils.entities.get.invalidate({ id });
+      } finally {
+        void utils.entities.list.invalidate();
+      }
+    },
+    [utils],
+  );
+  return { togglePin };
+}
+
+// ── Glisser une note ──────────────────────────────────────────────────────────
+
+/**
+ * Type MIME du glisser natif d'une note. Dédié, et non `text/plain` : un texte
+ * sélectionné puis lâché sur un dossier de l'arbre se faisait passer pour un id
+ * de note.
+ */
+export const NOTE_DRAG_MIME = "application/x-supernote-note";
+
+/**
+ * Amorce le glisser natif d'une note (liste centrale ET arbre) : pose l'id et
+ * remplace l'aperçu par une pastille portant le titre — l'aperçu par défaut est
+ * la ligne entière, extrait et étiquettes compris.
+ */
+export function beginNoteDrag(e: React.DragEvent, noteId: string, title: string): void {
+  e.dataTransfer.setData(NOTE_DRAG_MIME, noteId);
+  e.dataTransfer.effectAllowed = "move";
+  const ghost = document.createElement("div");
+  ghost.className = "sn-drag-ghost";
+  ghost.textContent = title || "Sans titre";
+  document.body.appendChild(ghost);
+  e.dataTransfer.setDragImage(ghost, 14, 16);
+  // Le navigateur photographie l'élément pendant `dragstart` : retrait au tick suivant.
+  setTimeout(() => ghost.remove(), 0);
 }
 
 // ── useDeleteNote ─────────────────────────────────────────────────────────────

@@ -1,10 +1,11 @@
 "use client";
 
 import { Archive, ArrowsDownUp, CaretDoubleLeft, FileText, MagnifyingGlass, Plus, SortAscending, Warning } from "@phosphor-icons/react";
-import { Button, Input } from "@supernote/ui";
+import { Button, Input, useToast } from "@supernote/ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Note } from "./fixtures";
 import { NoteListItem } from "./NoteListItem";
+import { MoveNoteModal } from "./MoveNoteModal";
 import { useTranslations } from "next-intl";
 import {
   DndContext,
@@ -21,7 +22,7 @@ import {
   verticalListSortingStrategy,
   arrayMove,
 } from "@dnd-kit/sortable";
-import { useReorderNotes } from "./hooks";
+import { isNotePinned, useDuplicateNote, useFolderPaths, useMoveNote, useReorderNotes, useTogglePin } from "./hooks";
 import { trpc } from "@/lib/trpc/client";
 import { cloudRoomSlug, cloudVaultId, MOUNT_PATH_PREFIX } from "@/lib/online-sync/room-id";
 
@@ -114,6 +115,32 @@ export function NoteList({
   const t = useTranslations("notes");
   const tCommon = useTranslations("common");
   const { reorderNotes } = useReorderNotes();
+  const { toast } = useToast();
+  const { moveNote } = useMoveNote();
+  const { duplicateNote } = useDuplicateNote();
+  const { togglePin } = useTogglePin();
+  const folderPaths = useFolderPaths();
+  // Note dont le sélecteur de dossier est ouvert (« Déplacer… » du menu de ligne).
+  const [moveTarget, setMoveTarget] = useState<Note | null>(null);
+
+  const confirmMove = useCallback(
+    async (note: Note, folder: string) => {
+      setMoveTarget(null);
+      try {
+        await moveNote(note.id, folder);
+      } catch {
+        toast({ title: "Impossible de déplacer la note", variant: "danger" });
+      }
+    },
+    [moveNote, toast],
+  );
+
+  const duplicateAndOpen = useCallback(
+    async (note: Note) => {
+      onSelectNote(await duplicateNote(note.id));
+    },
+    [duplicateNote, onSelectNote],
+  );
 
   // ── Provenance (vault mounts) ──────────────────────────────────────────────
   // Les notes hissées d'un coffre monté portent un chemin préfixé par
@@ -182,7 +209,7 @@ export function NoteList({
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
-  const filtered = useMemo(() => {
+  const sortedNotes = useMemo(() => {
     const q = query.toLowerCase().trim();
     // When the user is searching, expand the haystack to the full vault if
     // available — otherwise typing "leroy merlin" while parked in `Inbox`
@@ -228,6 +255,13 @@ export function NoteList({
       return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
     });
   }, [notes, allNotes, query, sortKey, manualOrder, showArchived]);
+
+  // Les notes épinglées passent devant, quel que soit le tri (tri stable : le
+  // rang relatif de chaque moitié est conservé).
+  const filtered = useMemo(
+    () => [...sortedNotes.filter(isNotePinned), ...sortedNotes.filter((n) => !isNotePinned(n))],
+    [sortedNotes],
+  );
 
   // When switching away from manual sort, clear the optimistic order so a
   // subsequent switch back reflects the latest persisted state.
@@ -307,6 +341,18 @@ export function NoteList({
     result.push(...subs);
     return result;
   }, [filtered, selectedFolder, isGlobalSearch, t]);
+
+  // Pas d'écriture dans un coffre monté (lecture seule, le worker refuse) ni en
+  // mode démo (pas de worker) : ces entrées de menu disparaissent.
+  const rowActions = (note: Note) => {
+    const path = note.filePath ?? note.folderPath;
+    if (isFallback || path.startsWith(`${MOUNT_PATH_PREFIX}/`)) return {};
+    return {
+      onPin: (pinned: boolean) => togglePin(note.id, pinned),
+      onDuplicate: () => duplicateAndOpen(note),
+      onMove: () => setMoveTarget(note),
+    };
+  };
 
   return (
     <div
@@ -466,6 +512,7 @@ export function NoteList({
                     onArchive={onArchiveNote ? (a) => onArchiveNote(note.id, a) : undefined}
                     onDragNote={onDragNote}
                     mountLabel={mountLabelForNote(note)}
+                    {...rowActions(note)}
                     sortable
                   />
                 </div>
@@ -505,6 +552,7 @@ export function NoteList({
                     onArchive={onArchiveNote ? (a) => onArchiveNote(note.id, a) : undefined}
                     onDragNote={onDragNote}
                     mountLabel={mountLabelForNote(note)}
+                    {...rowActions(note)}
                   />
                 </div>
               ))}
@@ -522,6 +570,14 @@ export function NoteList({
           {isLoading ? tCommon("loading") : `${filtered.length} note${filtered.length !== 1 ? "s" : ""}`}
         </span>
       </div>
+
+      <MoveNoteModal
+        open={moveTarget !== null}
+        folders={folderPaths}
+        currentFolder={moveTarget?.folderPath ?? ""}
+        onConfirm={(folder) => moveTarget && void confirmMove(moveTarget, folder)}
+        onCancel={() => setMoveTarget(null)}
+      />
     </div>
   );
 }

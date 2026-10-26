@@ -1,6 +1,6 @@
 "use client";
 
-import { Archive, ArrowUUpLeft, DotsThree, DotsSixVertical, Plugs, Trash } from "@phosphor-icons/react";
+import { Archive, ArrowUUpLeft, Copy, DotsThree, DotsSixVertical, FolderOpen, Plugs, PushPin, PushPinSlash, Trash } from "@phosphor-icons/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { formatRelativeDate, type Note } from "./fixtures";
@@ -16,6 +16,8 @@ import { CanvasMinimap } from "./CanvasMinimap";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { useLongPress } from "@/hooks/useLongPress";
+import { beginNoteDrag, isNotePinned } from "./hooks";
 
 /** Largeur (px) d'un bouton d'action révélé par le swipe tactile. */
 const SWIPE_ACTION_WIDTH = 76;
@@ -41,6 +43,12 @@ interface NoteListItemProps {
   onArchive?: (archived: boolean) => Promise<void>;
   /** Called when a cross-panel drag towards the FileTree begins. */
   onDragNote?: (noteId: string) => void;
+  /** Épingler / désépingler. Absent (coffre monté, démo) → l'entrée de menu disparaît. */
+  onPin?: (pinned: boolean) => Promise<void>;
+  /** Dupliquer la note dans son dossier puis l'ouvrir. */
+  onDuplicate?: () => Promise<void>;
+  /** Ouvre le sélecteur de dossier — seul chemin de déplacement au doigt (une seule colonne à l'écran). */
+  onMove?: () => void;
   /**
    * Libellé du coffre monté d'où provient la note (chemin préfixé par
    * `@mounts/<slug>/`). `undefined` pour une note native du coffre courant →
@@ -50,7 +58,7 @@ interface NoteListItemProps {
   mountLabel?: string;
 }
 
-export function NoteListItem({ note, isActive, onClick, onHover, getPreview, onDelete, sortable, onRename, onArchive, onDragNote, mountLabel }: NoteListItemProps) {
+export function NoteListItem({ note, isActive, onClick, onHover, getPreview, onDelete, sortable, onRename, onArchive, onDragNote, mountLabel, onPin, onDuplicate, onMove }: NoteListItemProps) {
   const [hovered, setHovered] = useState(false);
   const [isRenaming, setIsRenaming] = useState(false);
   const t = useTranslations("notes");
@@ -90,6 +98,10 @@ export function NoteListItem({ note, isActive, onClick, onHover, getPreview, onD
   });
 
   const isArchived = !!note.archivedAt;
+  const isPinned = isNotePinned(note);
+  // Pièce jointe (image, pdf, Doc Drive…) : la copier dupliquerait le pointeur,
+  // pas le fichier.
+  const isFileBacked = typeof note.fields?.["attachmentFile"] === "string";
 
   // ── Swipe-to-reveal actions (mobile) ────────────────────────────────────
   // Au tactile il n'y a ni survol ni clic droit : on glisse la ligne vers la
@@ -232,7 +244,39 @@ export function NoteListItem({ note, isActive, onClick, onHover, getPreview, onD
   // right-click anywhere on the row. Archive sits BEFORE delete so a misclick
   // on the destructive item is less likely; when the note is already archived
   // the label flips to "Désarchiver" with a restore icon.
+  const failToast = (title: string) => toast({ title, variant: "danger" });
   const buildItems = (): ContextMenuItemDef[] => [
+    ...(onPin
+      ? [{
+          key: "pin",
+          label: isPinned ? "Désépingler" : "Épingler",
+          icon: isPinned ? <PushPinSlash size={14} /> : <PushPin size={14} />,
+          onPress: () => {
+            void onPin(!isPinned).catch(() =>
+              failToast(isPinned ? "Impossible de désépingler la note" : "Impossible d'épingler la note"),
+            );
+          },
+        }]
+      : []),
+    ...(onDuplicate
+      ? [{
+          key: "duplicate",
+          label: "Dupliquer",
+          icon: <Copy size={14} />,
+          isDisabled: isFileBacked,
+          onPress: () => {
+            void onDuplicate().catch(() => failToast("Impossible de dupliquer la note"));
+          },
+        }]
+      : []),
+    ...(onMove
+      ? [{
+          key: "move",
+          label: "Déplacer…",
+          icon: <FolderOpen size={14} />,
+          onPress: onMove,
+        }]
+      : []),
     {
       key: "archive",
       label: isArchived ? t("unarchiveNote") : t("archiveNote"),
@@ -259,6 +303,17 @@ export function NoteListItem({ note, isActive, onClick, onHover, getPreview, onD
       onPress: () => onDelete?.(),
     },
   ];
+
+  // Appui long = clic droit du doigt : sans survol ni bouton « … », c'est le
+  // seul accès au menu (donc à « Déplacer… ») sur un écran tactile. Le `click`
+  // de synthèse qui suit le relâchement est avalé, sinon la note s'ouvrirait
+  // derrière le menu.
+  const longPressFired = useRef(false);
+  const longPress = useLongPress((x, y) => {
+    if (isRenaming) return;
+    longPressFired.current = true;
+    ctxMenu.openAt(x, y, buildItems());
+  });
 
   const openActions = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -371,23 +426,38 @@ export function NoteListItem({ note, isActive, onClick, onHover, getPreview, onD
           touchAction: swipeEnabled ? "pan-y" : undefined,
           position: "relative",
         }}
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
-        onTouchCancel={handleTouchEnd}
+        onTouchStart={(e) => {
+          longPressFired.current = false;
+          longPress.onTouchStart(e);
+          handleTouchStart(e);
+        }}
+        onTouchMove={(e) => {
+          longPress.onTouchMove(e);
+          handleTouchMove(e);
+        }}
+        onTouchEnd={() => {
+          longPress.onTouchEnd();
+          handleTouchEnd();
+        }}
+        onTouchCancel={() => {
+          longPress.onTouchCancel();
+          handleTouchEnd();
+        }}
       >
       <button
-        onClick={
-          swipeOffset > 0
-            ? () => closeSwipe()
-            : isRenaming
-              ? undefined
-              : onClick
-        }
+        onClick={() => {
+          if (longPressFired.current) {
+            longPressFired.current = false;
+          } else if (swipeOffset > 0) {
+            closeSwipe();
+          } else if (!isRenaming) {
+            onClick();
+          }
+        }}
         draggable={!!onDragNote && !isRenaming && !isMobile}
         onDragStart={onDragNote && !isRenaming && !isMobile ? (e) => {
-          e.dataTransfer.setData("text/plain", note.id);
-          e.dataTransfer.effectAllowed = "move";
+          cancelPreview();
+          beginNoteDrag(e, note.id, note.title);
           onDragNote(note.id);
         } : undefined}
         className="sn-pressable w-full text-left focus-visible:outline-none"
@@ -436,6 +506,16 @@ export function NoteListItem({ note, isActive, onClick, onHover, getPreview, onD
                   } : undefined}
                   tabIndex={onRename ? 0 : undefined}
                 >
+                  {isPinned && (
+                    <PushPin
+                      size={11}
+                      weight="fill"
+                      role="img"
+                      aria-label="Épinglée"
+                      className="mr-1 inline-block align-[-1px]"
+                      style={{ color: "var(--accent)" }}
+                    />
+                  )}
                   {note.title}
                 </h3>
                 <span
@@ -531,7 +611,7 @@ export function NoteListItem({ note, isActive, onClick, onHover, getPreview, onD
       </button>
       </div>
 
-      {(onDelete || onArchive) && hovered && !isRenaming && (
+      {(onDelete || onArchive || onPin || onDuplicate || onMove) && hovered && !isRenaming && (
         <button
           onClick={openActions}
           aria-label="Actions de la note"
