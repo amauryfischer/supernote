@@ -76,13 +76,26 @@
 /* Un titre qui déborde d'un mot ne laisse pas ce mot seul sur sa ligne. */
 .sn-editor-wrapper [data-content-type="heading"] { text-wrap: balance; }
 
-/* BlockNote met le H1 à 3em : ~48 px dans une colonne étroite (téléphone, ou desktop avec liste, minimap et
- * panneau ouverts), trois lignes et un mot coupé en deux pour un titre court. */
+/* Échelle sous le titre de la note (44 px) : à 3em/2em, BlockNote faisait des titres de bloc qui lui disputaient la page.
+ * Le niveau 1 est la valeur par défaut : BlockNote n'écrit alors pas de data-level. */
+.sn-editor-wrapper [data-content-type="heading"] { --level: 1.6em; font-weight: 650; letter-spacing: -0.015em; }
+.sn-editor-wrapper [data-content-type="heading"][data-level="2"] { --level: 1.35em; font-weight: 650; letter-spacing: -0.012em; }
+.sn-editor-wrapper [data-content-type="heading"][data-level="3"] { --level: 1.12em; font-weight: 600; }
 @container (max-width: 560px) {
-  /* Le niveau 1 est la valeur par défaut : BlockNote n'écrit alors pas de data-level. */
-  .sn-editor-wrapper [data-content-type="heading"] { --level: 1.6em; }
-  .sn-editor-wrapper [data-content-type="heading"][data-level="2"] { --level: 1.35em; }
-  .sn-editor-wrapper [data-content-type="heading"][data-level="3"] { --level: 1.15em; }
+  .sn-editor-wrapper [data-content-type="heading"] { --level: 1.4em; }
+  .sn-editor-wrapper [data-content-type="heading"][data-level="2"] { --level: 1.2em; }
+  .sn-editor-wrapper [data-content-type="heading"][data-level="3"] { --level: 1.06em; }
+}
+
+.sn-editor-wrapper [data-content-type="paragraph"] .bn-inline-content { line-height: 1.62; }
+.sn-editor-wrapper .bn-block-outer:not(:first-child):has(> .bn-block > .bn-block-content[data-content-type="heading"]) {
+  margin-top: 0.6em;
+}
+
+/* Case vide sans bord : 1,2:1 sur le fond, sous le seuil WCAG 1.4.11. */
+.sn-checkitem .checkbox:not([data-selected]) .checkbox__control {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px color-mix(in oklab, var(--text-primary) 45%, transparent);
 }
 
 /* Voie de la poignée tactile du bloc (36 px), placée par SupernoteTouchBlockHandle. */

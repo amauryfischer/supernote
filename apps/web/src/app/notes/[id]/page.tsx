@@ -39,7 +39,7 @@ import {
   FolderSimple,
   ListBullets,
 } from "@phosphor-icons/react";
-import { folderAccentVars, folderColorFromTree } from "@/lib/folderAccent";
+import { folderAccentVars, folderColorFromTree, folderDomainVars } from "@/lib/folderAccent";
 import {
   useMobileFab,
   useMobileHeaderActions,
@@ -519,6 +519,7 @@ function NoteDetailContent() {
 
   const editorAccentColor = folderColorFromTree(selectedFolder, foldersLoading ? [] : folders);
   const editorAccentStyle = folderAccentVars(editorAccentColor) ?? {};
+  const domainStyle = folderDomainVars(note?.folderPath ?? selectedFolder, foldersLoading ? [] : folders);
 
   // Publish the folder accent override to the shell so the sidebar / topbar /
   // right panel inherit the tint while the user is in this folder. Cleared
@@ -726,7 +727,7 @@ function NoteDetailContent() {
 
       <div
         className="flex flex-1 flex-col overflow-hidden"
-        style={{ backgroundColor: "var(--surface-0)", ...editorAccentStyle }}
+        style={{ backgroundColor: "var(--surface-0)", ...editorAccentStyle, ...domainStyle }}
       >
         {noteLoading ? (
           <NoteLoadingSkeleton />

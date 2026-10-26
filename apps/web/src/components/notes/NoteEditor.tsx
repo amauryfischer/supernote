@@ -3,12 +3,13 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Spinner } from "@heroui/react";
 import dynamic from "next/dynamic";
-import { CaretRight, Calendar, Tag, FloppyDisk, Microphone, Sparkle, X, CheckCircle, WarningCircle, Presentation, FilePdf, Stop, CodeSimple, ShareNetwork, MapTrifold, MagnifyingGlass, SlidersHorizontal } from "@phosphor-icons/react";
+import { CaretRight, Calendar, Tag, FloppyDisk, Microphone, Sparkle, X, CheckCircle, WarningCircle, Presentation, FilePdf, Stop, CodeSimple, ShareNetwork, MapTrifold, MagnifyingGlass, SlidersHorizontal, FolderSimple, LinkSimple } from "@phosphor-icons/react";
 import Link from "next/link";
 import { Fragment } from "react";
 import { TagSelector } from "@/components/tags/TagSelector";
 import { formatRelativeDate, type Note } from "./fixtures";
-import { useUpdateNote } from "./hooks";
+import { useFolderTree, useUpdateNote } from "./hooks";
+import { folderDomainVars } from "@/lib/folderAccent";
 import type { SupernoteEditorProps, LinkTitleResolver, EntityRef, StreamingInsertHandle, SupernoteEditorApi } from "@supernote/editor";
 import { createOllamaClient } from "@supernote/ai/ollama";
 import type { AIActionId } from "@supernote/ai/actions";
@@ -1360,8 +1361,8 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
   );
 
   const handleTitleChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const next = e.target.value;
+    (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+      const next = e.target.value.replace(/\s*\n\s*/g, " ");
       titleRef.current = next;
       setTitle(next);
       // Live-sync the title into the notes list cache so the middle column
@@ -1766,6 +1767,26 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
   const minimapRail = !isMobile && paneWidth - (marginsColumn ? 268 : 0) < 760;
   useHeadingDeepLink(deepLinkHeading, editorColRef, editorContainerRef);
   const wordStats = useMemo(() => formatWordStats(note.body), [note.body]);
+  const titleFieldRef = useRef<HTMLTextAreaElement>(null);
+  useLayoutEffect(() => {
+    const el = titleFieldRef.current;
+    if (!el) return;
+    const fit = () => {
+      el.style.height = "0px";
+      el.style.height = `${el.scrollHeight}px`;
+    };
+    fit();
+    let width = el.clientWidth;
+    const ro = new ResizeObserver(() => {
+      if (el.clientWidth === width) return;
+      width = el.clientWidth;
+      fit();
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [title]);
+  const { folders } = useFolderTree();
+  const domainVars = useMemo(() => folderDomainVars(note.folderPath, folders), [note.folderPath, folders]);
 
   // Quand la colonne intégrée ne tient pas, le panneau droit prend le relais :
   // un commentaire de marge doit rester visible PENDANT qu'on écrit, ce que la
@@ -1903,6 +1924,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
     <div
       ref={noteRootRef}
       className={`flex h-full flex-col overflow-hidden ${ambianceClass(ambiance, typo)}`}
+      style={domainVars}
       onDragOver={preventFileOpen}
       onDrop={preventFileOpen}
     >
@@ -1994,22 +2016,25 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
               onLongPress={openBreadcrumbTouchMenu}
               onRenameFolder={handleRenameBreadcrumbFolder}
             />
-            <div className="flex items-center gap-2">
+            <div className="flex items-start gap-2">
           {icon && <NoteIcon icon={icon} onChange={handleIconChange} />}
-          <input
-            type="text"
+          {/* textarea et non input : un titre long passe à la ligne au lieu d'être coupé dans une colonne étroite. */}
+          <textarea
+            ref={titleFieldRef}
+            rows={1}
             value={title}
             onChange={handleTitleChange}
-            // `leading-tight` sur 20px donne une boîte de 25px, alors que poser
-            // le curseur dans le titre est le premier geste d'une note.
-            className="sn-note-title sn-hit w-full bg-transparent text-xl font-bold leading-tight outline-none"
+            onKeyDown={(e) => {
+              if (e.key === "Enter") e.preventDefault();
+            }}
+            className="sn-note-title sn-hit block w-full resize-none overflow-hidden bg-transparent text-[32px] font-bold leading-[1.08] tracking-[-0.03em] outline-none md:text-[44px]"
             style={{ color: "var(--text-primary)" }}
             placeholder="Sans titre"
             aria-label="Titre de la note"
           />
           {titleAiBadge && (
             <span
-              className="flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium"
+              className="mt-2.5 flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium md:mt-3"
               style={{ backgroundColor: "var(--accent-subtle)", color: "var(--accent)" }}
               title="Titre suggéré par l'IA"
             >
@@ -2017,22 +2042,19 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
             </span>
           )}
           {ollamaReady && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onPress={runSuggestTitle}
-              isDisabled={isSuggesting}
-              className="sn-hit h-7 min-w-0 shrink-0 gap-1 rounded border px-2 text-xs hover:opacity-80 disabled:opacity-50"
-              style={{
-                borderColor: "var(--border)",
-                color: "var(--text-secondary)",
-                backgroundColor: "var(--surface-1)",
-              }}
-              aria-label="Suggérer un titre"
-            >
-              <Sparkle size={12} />
-              {isSuggesting ? "..." : "Suggérer un titre"}
-            </Button>
+            <Tooltip content="Suggérer un titre">
+              <Button
+                variant="ghost"
+                size="icon"
+                onPress={runSuggestTitle}
+                isDisabled={isSuggesting}
+                className="sn-hit mt-0.5 h-8 w-8 min-w-8 shrink-0 md:mt-1"
+                style={{ color: "var(--text-muted)" }}
+                aria-label="Suggérer un titre"
+              >
+                {isSuggesting ? <Spinner size="sm" /> : <Sparkle size={15} />}
+              </Button>
+            </Tooltip>
           )}
           {/* Sur la ligne du titre : seule sur la sienne, l'icône coûtait 40 px de hauteur à chaque note. */}
           {shareEnabled && (
@@ -2041,7 +2063,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
                 variant="ghost"
                 size="icon"
                 aria-label="Partager"
-                className="sn-hit h-8 w-8 min-w-8 shrink-0"
+                className="sn-hit mt-0.5 h-8 w-8 min-w-8 shrink-0 md:mt-1"
                 style={{ color: share ? "var(--accent)" : "var(--text-muted)" }}
                 onPress={() => setShareOpen(true)}
               >
@@ -2050,6 +2072,14 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
             </Tooltip>
           )}
             </div>
+            <NoteVitals
+              noteId={note.id}
+              body={note.body}
+              tags={metaOpen ? [] : tags}
+              onShowBacklinks={() =>
+                noteRootRef.current?.querySelector('section[aria-label="Liens entrants"]')?.scrollIntoView({ block: "start" })
+              }
+            />
             {collab.peers.length > 0 && (
               <div role="group" className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-[var(--text-muted)]" aria-label="Personnes connectées">
                 {collab.peers.map((p, i) => (
@@ -2252,7 +2282,6 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
           </div>
         </div>
 
-        <div style={{ borderBottom: "1px solid var(--border-subtle)" }} />
       </div>
 
       <div ref={setPaneRow} className="relative flex min-h-0 flex-1">
@@ -2486,18 +2515,16 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
 
       {/* Footer */}
       <div
-        className="sn-no-print sn-note-gutter flex items-center justify-between py-3"
+        className="sn-no-print sn-note-gutter group/foot flex items-center justify-between py-3"
         style={{ borderTop: "1px solid var(--border-subtle)" }}
       >
         <span className="flex flex-wrap items-center gap-x-3 text-xs" style={{ color: "var(--text-muted)" }}>
           <span>Modifié {formatRelativeDate(note.updatedAt, dateFormatPref).toLowerCase()}</span>
           {wordStats && <span className="tabular-nums">{wordStats}</span>}
         </span>
-        {/* Le glisser-déposer de fichier n'existe pas au doigt : sur mobile ce
-         * hint annonce un geste impraticable, et il passe sous le FAB. On le
-         * réserve donc aux pointeurs fins. */}
+        {/* Pas au doigt : le glisser-déposer de fichier n'y existe pas. Révélé au survol, il bruitait le pied en permanence. */}
         {!isMobile && (
-          <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+          <span className="text-xs opacity-0 transition-opacity group-hover/foot:opacity-100" style={{ color: "var(--text-muted)" }}>
             Glissez un fichier audio ou image pour transcrire / OCR
           </span>
         )}
@@ -2533,6 +2560,89 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
+
+const TASK_LINE = /^\s*(?:[-*+]|\d+[.)])\s+\[([ xX])\]/gm;
+
+function ProgressRing({ value }: { value: number }) {
+  const r = 5.5;
+  const c = 2 * Math.PI * r;
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden className="-rotate-90 shrink-0">
+      <circle cx="7" cy="7" r={r} fill="none" strokeWidth="2" style={{ stroke: "var(--border)" }} />
+      {value > 0 && (
+        <circle
+          cx="7"
+          cy="7"
+          r={r}
+          fill="none"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeDasharray={`${c * value} ${c}`}
+          style={{ stroke: "var(--sn-domain-tint, var(--text-primary))" }}
+        />
+      )}
+    </svg>
+  );
+}
+
+interface NoteVitalsProps {
+  noteId: string;
+  body: string;
+  tags: string[];
+  onShowBacklinks: () => void;
+}
+
+/** Ce que la note contient et ce qui la cite, lu d'un coup d'œil sous le titre. */
+function NoteVitals({ noteId, body, tags, onShowBacklinks }: NoteVitalsProps) {
+  // Même clé que `Backlinks` en pied de note : une seule requête au worker.
+  const { data: backlinks } = trpc.entities.getBacklinks.useQuery({ id: noteId }, { retry: false, staleTime: 0 });
+  const tasks = useMemo(() => {
+    let done = 0;
+    let total = 0;
+    for (const m of body.matchAll(TASK_LINE)) {
+      total++;
+      if (m[1] !== " ") done++;
+    }
+    return { done, total };
+  }, [body]);
+  const links = backlinks?.length ?? 0;
+  if (tasks.total === 0 && links === 0 && tags.length === 0) return null;
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12.5px]" style={{ color: "var(--text-muted)" }}>
+      {tasks.total > 0 && (
+        <span className="inline-flex items-center gap-1.5">
+          <ProgressRing value={tasks.done / tasks.total} />
+          <span className="font-semibold tabular-nums" style={{ color: "var(--text-primary)" }}>
+            {tasks.done}/{tasks.total}
+          </span>
+          {tasks.total > 1 ? "tâches" : "tâche"}
+        </span>
+      )}
+      {links > 0 && (
+        <Button
+          variant="ghost"
+          size="sm"
+          onPress={onShowBacklinks}
+          className="sn-hit h-auto min-w-0 gap-1.5 rounded px-1 py-0.5 text-[12.5px] font-normal hover:bg-[var(--surface-2)]"
+          style={{ color: "var(--text-muted)", marginInline: "-0.25rem" }}
+        >
+          <LinkSimple size={13} weight="bold" aria-hidden />
+          <span className="font-semibold tabular-nums" style={{ color: "var(--text-primary)" }}>
+            {links}
+          </span>
+          {links > 1 ? "liens entrants" : "lien entrant"}
+        </Button>
+      )}
+      {tags.length > 0 && (
+        <span className="inline-flex flex-wrap items-center gap-x-2" style={{ color: "var(--sn-domain-tint, var(--text-secondary))" }}>
+          {tags.map((tag) => (
+            <span key={tag}>#{tag}</span>
+          ))}
+        </span>
+      )}
+    </div>
+  );
+}
 
 interface SaveIndicatorProps {
   status: SaveStatus;
@@ -2649,7 +2759,7 @@ function FolderBreadcrumb({
   return (
     <nav
       aria-label="Dossier"
-      className="mb-1 flex flex-wrap items-center gap-0.5 text-xs"
+      className="mb-2 flex flex-wrap items-center gap-0.5 text-[12.5px]"
       style={{ color: "var(--text-muted)" }}
       onContextMenu={onContextMenu}
       {...longPressHandlers}
@@ -2659,6 +2769,7 @@ function FolderBreadcrumb({
           : undefined
       }
     >
+      <FolderSimple size={13} weight="fill" aria-hidden className="mr-1 shrink-0" style={{ color: "var(--sn-domain)" }} />
       {crumbs.map((c, i) => (
         <Fragment key={c.href}>
           {i > 0 && (

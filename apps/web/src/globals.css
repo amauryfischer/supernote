@@ -34,6 +34,11 @@
   --font-sans: "Inter Variable", "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
   --font-mono: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, "SFMono-Regular", monospace;
 
+  /* Teinte de domaine (dossier racine) : luminance et chroma par thème, teinte posée par folderDomainVars. */
+  --sn-domain-l: 0.6;
+  --sn-domain-c: 0.12;
+  --sn-domain: var(--text-muted);
+
   /* Papier sur bureau : le contenu est la surface la plus claire, le chrome
      (sidebar, topbar, panneau droit) est en retrait tonal. */
   --surface-0: oklch(1 0 0);
@@ -243,6 +248,8 @@
 }
 
 [data-theme="dark"] {
+  --sn-domain-l: 0.76;
+  --sn-domain-c: 0.1;
   /* Miroir : le contenu reste la surface la plus claire, le chrome s'enfonce. */
   --surface-0: oklch(0.185 0.008 265);
   --surface-1: oklch(0.212 0.009 265);
@@ -1163,13 +1170,13 @@ html, body {
   top: 0;
   bottom: 4px;
   width: 1px;
-  background: var(--border-subtle);
+  background: color-mix(in oklab, var(--sn-domain) 32%, var(--border-subtle));
   pointer-events: none;
   transition: var(--sn-transition-colors);
 }
 
 .sn-tree-branch:hover::before {
-  background: color-mix(in srgb, var(--accent) 45%, var(--border-subtle));
+  background: color-mix(in oklab, var(--sn-domain) 60%, var(--border-subtle));
 }
 
 .sn-tree-elbow::before {
@@ -1179,8 +1186,48 @@ html, body {
   top: 50%;
   width: 8px;
   height: 1px;
-  background: var(--border-subtle);
+  background: color-mix(in oklab, var(--sn-domain) 32%, var(--border-subtle));
   pointer-events: none;
+}
+
+/* Chemin allumé : tronc tracé par segments sur chaque frère, pour s'arrêter au coude de la ligne ouverte au lieu de filer jusqu'au bas de la branche. */
+.sn-tree-branch > * {
+  position: relative;
+}
+.sn-tree-branch > :has(~ :is([data-tree-current], :has([data-tree-current])))::after,
+.sn-tree-branch > :is([data-tree-current], :has([data-tree-current]))::after {
+  content: "";
+  position: absolute;
+  left: calc(var(--sn-tree-guide-x, 28px) - 0.25px);
+  top: 0;
+  bottom: 0;
+  width: 1.5px;
+  background: var(--sn-domain);
+  box-shadow: 0 0 6px color-mix(in oklab, var(--sn-domain) 50%, transparent);
+  pointer-events: none;
+}
+.sn-tree-branch > :is([data-tree-current], :has([data-tree-current]))::after {
+  bottom: auto;
+  height: 16.75px;
+}
+[data-folder-drop]:has([data-tree-current]) > .sn-tree-elbow::before,
+.sn-tree-elbow[data-tree-current]::before {
+  height: 1.5px;
+  background: var(--sn-domain);
+  box-shadow: 0 0 6px color-mix(in oklab, var(--sn-domain) 60%, transparent);
+}
+
+/* Braise : modifié dans les dernières 24 h. */
+.sn-ember {
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-radius: 9999px;
+  /* Couleur braise fixe : en teinte de dossier, elle virait au gris sur Inbox et se confondait avec la sélection. */
+  background: oklch(0.72 0.17 50);
+  box-shadow:
+    0 0 0 2.5px oklch(0.72 0.17 50 / 0.18),
+    0 0 8px 1px oklch(0.72 0.17 50 / 0.6);
 }
 
 /* ── Gouttière latérale d'une note ───────────────────────────────────────── */

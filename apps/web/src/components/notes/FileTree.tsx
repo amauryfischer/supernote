@@ -89,14 +89,14 @@ import {
 import { CustomFolderGlyph } from "./CustomFolderGlyph";
 import { IconPickerGrid } from "./FolderIconPickerGrid";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import type { Folder as FolderType } from "./fixtures";
+import { formatRelativeDate, type Folder as FolderType } from "./fixtures";
 import { useTranslations } from "next-intl";
 import { Button, Input, ContextMenu, Tooltip, useContextMenu, useToast, type ContextMenuItemDef } from "@supernote/ui";
 import { useRouter } from "next/navigation";
 import { ConnectVaultModal } from "./ConnectVaultModal";
 import { useUpdateFolder, useReorderFolders, useMoveFolder, beginNoteDrag, NOTE_DRAG_MIME } from "./hooks";
 import { trpc, trpcVanillaClient } from "@/lib/trpc/client";
-import { folderAccentVars } from "@/lib/folderAccent";
+import { derivedDomainColor } from "@/lib/folderAccent";
 import { useConfirm } from "@/hooks/usePrompt";
 import { useLongPress } from "@/hooks/useLongPress";
 import { GOOGLE_DOC_KINDS, type GoogleDocKind } from "@/lib/google-drive";
@@ -270,6 +270,7 @@ export interface TreeNote {
   id: string;
   title: string;
   folderPath: string;
+  updatedAt?: string;
   fields?: Record<string, unknown>;
 }
 
@@ -488,6 +489,23 @@ const ROW_EDGE_PX = 6;
 /** Bordure effective : jamais plus du quart d'une rangée courte. */
 function rowEdge(height: number): number {
   return Math.min(ROW_EDGE_PX, height * 0.25);
+}
+
+const CURRENT_ROW_BG = "color-mix(in oklab, var(--sn-domain) 13%, transparent)";
+const DAY_MS = 86_400_000;
+
+/** Braise : modifiée dans les dernières 24 h, elle refroidit avec l'âge. */
+function Ember({ at }: { at: number }) {
+  const age = Date.now() - at;
+  if (!at || age > DAY_MS) return null;
+  return (
+    <span
+      aria-hidden
+      className="sn-ember"
+      style={{ opacity: 1 - 0.6 * (age / DAY_MS) }}
+      title={`Modifié ${formatRelativeDate(new Date(at).toISOString()).toLowerCase()}`}
+    />
+  );
 }
 
 /**
@@ -1360,7 +1378,7 @@ export function FileTree({
             onDragEnd={handleDragEnd}
             onDragCancel={handleDragCancel}
           >
-            <nav className="flex-1 overflow-y-auto p-2" onKeyDown={handleTreeKeyDown}>
+            <nav className="flex-1 overflow-y-auto p-2 pb-[calc(6rem+env(safe-area-inset-bottom))] md:pb-2" onKeyDown={handleTreeKeyDown}>
               {filterEmpty && (
                 // `role="status"` : le résultat d'une frappe doit être annoncé,
                 // sinon un lecteur d'écran voit l'arbre se vider sans un mot.
@@ -1506,7 +1524,7 @@ interface FolderNodeProps {
   ) => void;
   openPicker: (kind: PickerKind, path: string, e: React.MouseEvent) => void;
   depth: number;
-  notes: { folderPath: string }[];
+  notes: { folderPath: string; updatedAt?: string }[];
   onDropNote?: (noteId: string, folderPath: string) => void;
   /** When true, hide the drag handle (used for the pinned Inbox row). */
   isPinned?: boolean;
@@ -1535,7 +1553,7 @@ function FolderNode({
   // nœud est déplié. Un dossier sans sous-dossier mais avec des notes doit
   // rester dépliable : `hasKids` remplace `hasChildren` partout où il s'agit
   // de « ce nœud a-t-il quelque chose à montrer ».
-  const { notesByFolder } = useContext(NoteTreeContext);
+  const { notesByFolder, selectedNoteId } = useContext(NoteTreeContext);
   const childNotes = notesByFolder.get(folder.path) ?? [];
   const hasKids = hasChildren || childNotes.length > 0;
   // Expanded state is hoisted to FileTree (persisted in localStorage) so it
@@ -1544,6 +1562,7 @@ function FolderNode({
   const { isExpanded, setExpanded } = useExpanded();
   const expanded = isExpanded(folder.path);
   const isSelected = selectedFolder === folder.path;
+  const isOnPath = isSelected || !!selectedFolder?.startsWith(`${folder.path}/`);
   const { toast } = useToast();
   const utils = trpc.useUtils();
   // Racine de coffre monté ? (par chemin — seules les top-level y figurent).
@@ -1613,16 +1632,15 @@ function FolderNode({
   // "reparent:" droppable — edge zones (top/bottom 30%) when crossing parent levels.
   const { setNodeRef: reparentRef } = useDroppable({ id: `reparent:${folder.path}` });
 
-  // Recursive count: notes whose folderPath equals this folder OR begins with
-  // "<folder.path>/" — i.e. notes nested at any depth underneath. Computed
-  // here rather than memoized because the folder tree is small (tens of
-  // entries) and the notes array is bounded by the tRPC limit (500), so the
-  // O(n) scan per node is well under a millisecond on every render.
+  // Pas de mémo : l'arbre compte quelques dizaines de dossiers et `notes` est borné à 500 par le worker.
   const prefix = folder.path + "/";
-  const recursiveCount = notes.reduce(
-    (acc, n) => (n.folderPath === folder.path || n.folderPath.startsWith(prefix) ? acc + 1 : acc),
-    0,
-  );
+  let recursiveCount = 0;
+  let freshest = 0;
+  for (const n of notes) {
+    if (n.folderPath !== folder.path && !n.folderPath.startsWith(prefix)) continue;
+    recursiveCount++;
+    if (n.updatedAt) freshest = Math.max(freshest, Date.parse(n.updatedAt));
+  }
 
   // Click on the row → just SELECT. Never toggle. The chevron is the sole
   // affordance for expand/collapse so accidental clicks don't collapse a
@@ -1884,12 +1902,12 @@ function FolderNode({
 
   // Teinte des coffres montés — couleur du type `vault_mount` (#8b5cf6).
   const MOUNT_TINT = "#8b5cf6";
-  // Prefer the explicit folder color; falls through to the selection-aware
-  // default so legacy folders (no color set) still pick up the accent. Les
-  // racines de montage utilisent leur teinte violette dédiée.
-  const iconColor = isMountRoot
+  const iconColor = isMountRoot ? MOUNT_TINT : "var(--sn-domain)";
+  // Une couleur posée par l'utilisateur teinte aussi le libellé ; la teinte dérivée reste au glyphe.
+  const labelColor = isMountRoot
     ? MOUNT_TINT
-    : folder.color ?? (isSelected ? "var(--accent)" : "var(--text-secondary)");
+    : folder.color ?? (isOnPath ? "var(--text-primary)" : "var(--text-secondary)");
+  const domainColor = folder.color ?? (depth === 0 ? derivedDomainColor(folder.path) : null);
 
   // Eager glyphs for mount roots and the default folder look. Selected folders
   // show `FolderOpen` only when no custom icon is set — once the user picks an
@@ -1912,15 +1930,8 @@ function FolderNode({
       <StaticIcon size={14} color={iconColor} weight="regular" />
     );
 
-  // When the selected row has a custom color, derive per-row accent vars so
-  // the highlight uses the folder's own color instead of the global accent.
-  const selectedAccent = isSelected ? folderAccentVars(folder.color) : null;
-  const selectedBg = selectedAccent
-    ? selectedAccent["--accent-subtle"]
-    : isSelected ? "var(--accent-subtle)" : undefined;
-  const selectedFg = selectedAccent
-    ? selectedAccent["--accent"]
-    : isSelected ? "var(--accent)" : "var(--text-secondary)";
+  // Note ouverte : c'est sa ligne qui porte le fond, le dossier n'est plus qu'une étape du chemin allumé.
+  const isCurrentRow = isSelected && selectedNoteId === null;
 
   // Indentation : échelle unique `rowPaddingLeft` (cf. « Tree geometry »). La
   // base de 20px dégage la gouttière du drag-handle, qui est positionné en
@@ -1935,9 +1946,9 @@ function FolderNode({
   const sharedRowStyle: React.CSSProperties = {
     paddingLeft: `${rowPaddingLeft(depth)}px`,
     ["--sn-row-tint" as string]: mountRowBg,
-    backgroundColor: selectedBg,
-    color: selectedFg,
-    fontWeight: isMountRoot ? 500 : isSelected ? 500 : 400,
+    backgroundColor: isCurrentRow ? CURRENT_ROW_BG : undefined,
+    color: isOnPath ? "var(--text-primary)" : "var(--text-secondary)",
+    fontWeight: isMountRoot || isOnPath ? 500 : 400,
   };
   /** Renommage inline autorisé : handler fourni ET nœud non monté (lecture seule). */
   const canRenameInline = !!onRenameFolderInline && !isMountScoped;
@@ -2014,13 +2025,14 @@ function FolderNode({
     <div
       ref={sortableNodeRef}
       data-folder-drop={folder.path}
-      style={sortableDndStyle}
+      style={domainColor ? { ...sortableDndStyle, ["--sn-domain" as string]: domainColor } : sortableDndStyle}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
       <div
         ref={(el) => { nestNodeRef(el); reparentRef(el); rowRef.current = el; }}
+        data-tree-current={isSelected || undefined}
         // .sn-motion-colors → the drop-target tint (background-color) eases in
         // and settles on the shared token instead of snapping, and self-
         // degrades to instant under reduced-motion. The outline stays crisp
@@ -2155,11 +2167,7 @@ function FolderNode({
             {folderGlyph}
             <span
               className="flex-1 truncate text-left"
-              // Le label suit la même couleur que l'icône : un dossier teinté
-              // colore icône ET texte (sinon seule l'icône prenait la couleur,
-              // le texte restant gris hors sélection — `iconColor` couvre déjà
-              // les cas couleur custom / sélection / montage).
-              style={{ color: iconColor }}
+              style={{ color: labelColor }}
               // Renommage inline (double-clic / F2) supprimé sur les nœuds
               // montés : leur chemin est virtuel et en lecture seule.
               onDoubleClick={canRenameInline ? (e) => {
@@ -2170,22 +2178,21 @@ function FolderNode({
             >
               {folder.name}
             </span>
-            {/* Compteur muet à zéro : « (0) » sur chaque dossier vide alignait
-                une colonne de zéros qui ne porte aucun état, alors que le
-                dossier vide se lit déjà à son absence de chevron. Même
-                grammaire que TagTree — `(N)` en `text-muted`, jamais de
-                pastille — et même infobulle explicite. */}
+            {/* Compteur muet à zéro : le dossier vide se lit déjà à son absence de chevron. */}
             {isDragOver ? (
               <span className="ml-1 mr-1 flex-shrink-0 text-xs font-medium" style={{ color: "var(--text-primary)" }}>
                 Déplacer ici
               </span>
             ) : recursiveCount > 0 && (
-              <span
-                className="ml-1 flex-shrink-0 text-xs tabular-nums"
-                style={{ color: "var(--text-muted)" }}
-                title={`${recursiveCount} note${recursiveCount > 1 ? "s" : ""}`}
-              >
-                ({recursiveCount})
+              <span className="ml-1 flex flex-shrink-0 items-center gap-1.5">
+                {!expanded && <Ember at={freshest} />}
+                <span
+                  className="min-w-5 text-right text-xs tabular-nums"
+                  style={{ color: "var(--text-muted)" }}
+                  title={`${recursiveCount} note${recursiveCount > 1 ? "s" : ""}`}
+                >
+                  {recursiveCount}
+                </span>
               </span>
             )}
           </button>
@@ -2295,7 +2302,7 @@ function NoteGlyph({ note, color }: { note: TreeNote; color: string }): React.JS
   // à dessin n'a jamais eu d'icône dans l'arbre. On garde `canvas` en second
   // pour les entités déjà hydratées par une visite.
   if (fields["canvasFile"] || fields["canvas"]) {
-    return <Graph size={14} color={color} weight="regular" />;
+    return <Graph size={14} color={color} weight="regular" className="shrink-0" />;
   }
   const attachment = typeof fields["attachmentFile"] === "string" ? fields["attachmentFile"] : "";
   const dot = attachment.lastIndexOf(".");
@@ -2303,10 +2310,10 @@ function NoteGlyph({ note, color }: { note: TreeNote; color: string }): React.JS
   const driveKind = ext ? DRIVE_EXT_TO_KIND.get(ext) : undefined;
   if (driveKind) {
     const Icon = DRIVE_DOC_ICONS[driveKind];
-    return <Icon size={14} color={color} weight="regular" />;
+    return <Icon size={14} color={color} weight="regular" className="shrink-0" />;
   }
-  if (attachment) return <Paperclip size={14} color={color} weight="regular" />;
-  return <FileText size={14} color={color} weight="regular" />;
+  if (attachment) return <Paperclip size={14} color={color} weight="regular" className="shrink-0" />;
+  return <FileText size={14} color={color} weight="regular" className="shrink-0" />;
 }
 
 interface NoteRowsProps {
@@ -2383,7 +2390,6 @@ function NoteRow({ note, depth }: { note: TreeNote; depth: number }) {
   // Voir FolderNode : amène la ligne dans le viewport quand elle est ouverte.
   const rowRef = useRef<HTMLDivElement>(null);
   const isSelected = selectedNoteId === note.id;
-  const fg = isSelected ? "var(--accent)" : "var(--text-secondary)";
   // Note appartenant à un coffre monté : sous-arbre en lecture seule (le
   // worker rejette les écritures). Aucune action de mutation proposée — même
   // règle que les FolderNode `isMountScoped`.
@@ -2467,8 +2473,8 @@ function NoteRow({ note, depth }: { note: TreeNote; depth: number }) {
 
   const rowStyle: React.CSSProperties = {
     paddingLeft: `${rowPaddingLeft(depth)}px`,
-    backgroundColor: isSelected ? "var(--accent-subtle)" : undefined,
-    color: fg,
+    backgroundColor: isSelected ? CURRENT_ROW_BG : undefined,
+    color: isSelected ? "var(--text-primary)" : "var(--text-secondary)",
     fontWeight: isSelected ? 500 : 400,
   };
 
@@ -2480,6 +2486,7 @@ function NoteRow({ note, depth }: { note: TreeNote; depth: number }) {
   return (
     <div
       ref={(el) => { rowRef.current = el; dragNodeRef(el); }}
+      data-tree-current={isSelected || undefined}
       className="sn-tree-elbow group relative flex items-center"
       style={{ ["--sn-tree-elbow-x" as string]: `${elbowX(depth)}px`, opacity: isDragging ? 0.4 : 1 }}
       onContextMenu={openMenu}
@@ -2509,7 +2516,7 @@ function NoteRow({ note, depth }: { note: TreeNote; depth: number }) {
           style={rowStyle}
         >
           <span aria-hidden className="w-4 flex-shrink-0" />
-          <NoteGlyph note={note} color={isSelected ? "var(--accent)" : "var(--text-muted)"} />
+          <NoteGlyph note={note} color={isSelected ? "var(--sn-domain)" : "var(--text-muted)"} />
           <InlineRenameInput
             initialValue={note.title}
             onCommit={(value) => void handleRenameCommit(value)}
@@ -2551,14 +2558,10 @@ function NoteRow({ note, depth }: { note: TreeNote; depth: number }) {
           {/* Colonne du chevron, laissée vide : aligne le glyphe des notes sur
               celui des sous-dossiers de même niveau. */}
           <span aria-hidden className="w-4 flex-shrink-0" />
-          <NoteGlyph note={note} color={isSelected ? "var(--accent)" : "var(--text-muted)"} />
-          {/* Pas de double-clic « renommer » ici (contrairement aux dossiers
-              et à la NoteList) : le premier clic navigue déjà vers la note, ce
-              qui remonte l'arbre depuis /notes et ferait disparaître l'input.
-              Le renommage passe par le menu contextuel — clic droit, appui
-              long, ou touche Menu / Shift+F10 depuis cette rangée focalisée,
-              dont le `contextmenu` remonte au handler du conteneur. */}
-          <span className="flex-1 truncate text-left">{note.title || "Sans titre"}</span>
+          <NoteGlyph note={note} color={isSelected ? "var(--sn-domain)" : "var(--text-muted)"} />
+          {/* Pas de double-clic « renommer » : le premier clic navigue déjà vers la note et démonterait l'input. */}
+          <span className="min-w-0 truncate text-left">{note.title || "Sans titre"}</span>
+          {!isSelected && note.updatedAt && <Ember at={Date.parse(note.updatedAt)} />}
         </button>
       )}
     </div>

@@ -6,6 +6,7 @@
  */
 
 import type { Folder } from "@/components/notes/fixtures";
+import { nameToHue } from "@/components/contacts/utils";
 
 /**
  * Parse "#rrggbb" or "#rgb" hex strings into the canonical 7-char form
@@ -67,6 +68,20 @@ export function folderColorFromTree(
     segments.pop();
   }
   return null;
+}
+
+const DOMAIN_HUES = [25, 55, 95, 145, 180, 215, 245, 275, 305, 340];
+
+/** Teinte dérivée du nom d'un dossier racine ; Inbox reste neutre. La luminance vit dans les tokens `--sn-domain-l/c` (clair/sombre). */
+export function derivedDomainColor(rootName: string): string | null {
+  if (!rootName || rootName === "Inbox") return null;
+  return `oklch(var(--sn-domain-l) var(--sn-domain-c) ${DOMAIN_HUES[Math.floor(nameToHue(rootName) / 36)]})`;
+}
+
+/** `--sn-domain` d'une note ou d'un dossier : couleur posée sur lui ou un ancêtre, sinon teinte de sa racine. */
+export function folderDomainVars(folderPath: string | null, folders: Folder[]): Record<string, string> {
+  const color = folderColorFromTree(folderPath, folders) ?? derivedDomainColor(folderPath?.split("/")[0] ?? "");
+  return color ? { "--sn-domain": color, "--sn-domain-tint": color } : {};
 }
 
 function collectColors(nodes: Folder[], out: Map<string, string>): void {
