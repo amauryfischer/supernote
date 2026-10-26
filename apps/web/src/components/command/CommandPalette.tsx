@@ -29,6 +29,8 @@ import { trpc, hasWorkerBackend } from "@/lib/trpc/client";
 import { isWorkerReady } from "@/lib/trpc/browser-link";
 import type { SearchResult } from "@supernote/ipc";
 import { getFrecencyMap, getRecents, type RecentEntry } from "@/lib/navigation/recents";
+import { getRecentNotes } from "@/lib/recent-notes";
+import { useNoteList } from "@/components/notes/hooks";
 import { CommandPreview } from "./CommandPreview";
 
 // ---------------------------------------------------------------------------
@@ -174,11 +176,43 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     () => (open ? getFrecencyMap() : new Map<string, number>()),
     [open],
   );
-  // On exclut la page courante : proposer « revenir ici » n'a pas de sens.
+  // On exclut la page courante : proposer « revenir ici » n'a pas de sens. Les
+  // notes ont leur propre groupe « Récents » (chronologique) plus bas.
   const visibleRecents = useMemo(
-    () => recents.filter((r) => r.href !== pathname),
+    () => recents.filter((r) => r.href !== pathname && !r.href.startsWith("/notes/")),
     [recents, pathname],
   );
+
+  // 8 dernières notes ouvertes, hors note courante. La liste du coffre (cache
+  // tRPC partagé) écarte les notes supprimées et donne titre/dossier à jour ;
+  // tant qu'elle est indisponible ou tronquée (limite 500), on affiche le stocké.
+  const { notes: vaultNotes, isLoading: notesLoading, isError: notesError, isFallback } =
+    useNoteList(null);
+  const currentNoteId = /^\/notes\/([^/]+)/.exec(pathname ?? "")?.[1];
+  const recentNoteResults = useMemo<SearchResult[]>(() => {
+    if (!open) return [];
+    const live =
+      notesLoading || notesError || isFallback || vaultNotes.length >= 500
+        ? null
+        : new Map(vaultNotes.map((n) => [n.id, n]));
+    return getRecentNotes()
+      .filter((r) => r.id !== currentNoteId && (!live || live.has(r.id)))
+      .slice(0, 8)
+      .map((r) => {
+        const fresh = live?.get(r.id);
+        return {
+          entityId: r.id,
+          typeId: "note",
+          typeName: "",
+          filePath: fresh?.folderPath ?? r.folder,
+          title: fresh?.title ?? r.title,
+          excerpts: [],
+          score: 0,
+          semantic: false,
+          tags: [],
+        };
+      });
+  }, [open, vaultNotes, notesLoading, notesError, isFallback, currentNoteId]);
   // Résultats synthétiques pour les récents-entité : donne à l'aperçu un titre
   // instantané et au raccourci « ouvrir en aperçu » (⌘↵) un résultat cible, le
   // temps que `entities.get` renvoie le corps complet.
@@ -270,15 +304,17 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
       activeEntityId
         ? entityResults.find((r) => r.entityId === activeEntityId) ??
           recentResults.find((r) => r.entityId === activeEntityId) ??
+          recentNoteResults.find((r) => r.entityId === activeEntityId) ??
           null
         : null,
-    [activeEntityId, entityResults, recentResults],
+    [activeEntityId, entityResults, recentResults, recentNoteResults],
   );
   // Colonne d'aperçu réservée dès qu'une recherche (ou le groupe Récents)
   // remonte des entités : évite que la modale ne saute en largeur quand on passe
   // d'une note à une commande. Le contenu reste vide gracieusement si l'item
   // actif n'est pas une entité.
-  const showPreviewColumn = entityResults.length > 0 || recentResults.length > 0;
+  const showPreviewColumn =
+    entityResults.length > 0 || recentResults.length > 0 || recentNoteResults.length > 0;
 
   const handleSelect = useCallback(
     async (cmdId: string) => {
@@ -442,12 +478,24 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
                 : `Aucun résultat pour "${query}"`}
             </Command.Empty>
 
-            {/* Récents & fréquents — état par défaut de la palette (requête
-                vide) : les pages qu'on revisite plutôt qu'une liste statique.
-                Rendus comme les entités pour hériter de l'aperçu + du highlight
-                cmdk. Les commandes restent affichées dessous. */}
-            {trimmedQuery.length === 0 && visibleRecents.length > 0 && (
+            {/* Récents (dernières notes) puis pages fréquentes — état par défaut
+                de la palette (requête vide). Rendus comme les entités pour
+                hériter de l'aperçu + du highlight cmdk. Les commandes restent
+                affichées dessous. */}
+            {trimmedQuery.length === 0 && recentNoteResults.length > 0 && (
               <Command.Group heading="Récents" className="px-2">
+                {recentNoteResults.map((r) => (
+                  <EntityCommandItem
+                    key={r.entityId}
+                    result={r}
+                    onSelect={handleEntitySelect}
+                  />
+                ))}
+              </Command.Group>
+            )}
+
+            {trimmedQuery.length === 0 && visibleRecents.length > 0 && (
+              <Command.Group heading="Pages fréquentes" className="px-2">
                 {visibleRecents.map((entry) => (
                   <RecentCommandItem
                     key={entry.href}

@@ -45,7 +45,8 @@ import {
 } from "@/components/shell/shell-chrome-context";
 import { useShortcuts } from "@/lib/keyboard";
 import { useIsMobile } from "@/hooks/useIsMobile";
-import { Article, Plus, ShareNetwork, SquareSplitHorizontal } from "@phosphor-icons/react";
+import { forgetRecentNote, getPreviousNoteId, trackNoteOpen } from "@/lib/recent-notes";
+import { ArrowUUpLeft, Article, Plus, ShareNetwork, SquareSplitHorizontal } from "@phosphor-icons/react";
 import { NOTE_SHARE_EVENT } from "@/lib/share/collab";
 import { useShareEnabled } from "@/lib/share/shareApi";
 import { useCreateDraft } from "@/components/notes/useCreateDraft";
@@ -121,7 +122,16 @@ function NoteDetailContent() {
   const folderParam = searchParams.get("folder");
   const viewParam = parseViewMode(searchParams.get("view"));
 
-  const { note, isLoading: noteLoading } = useNote(params.id);
+  const { note, isLoading: noteLoading, isError: noteError } = useNote(params.id);
+
+  // `note` peut être la note précédente (placeholderData) le temps du chargement.
+  useEffect(() => {
+    if (note?.id !== params.id) return;
+    trackNoteOpen({ id: note.id, title: note.title || "Sans titre", folder: note.folderPath });
+  }, [params.id, note?.id, note?.title, note?.folderPath]);
+  useEffect(() => {
+    if (noteError) forgetRecentNote(params.id);
+  }, [noteError, params.id]);
 
   // Initial folder selection priority:
   //   1. `?folder=` query param  (set by /notes when navigating in)
@@ -445,6 +455,7 @@ function NoteDetailContent() {
   const handleDeleteConfirm = useCallback(async () => {
     if (!deleteTarget) return;
     await deleteNote(deleteTarget);
+    forgetRecentNote(deleteTarget);
     setDeleteTarget(null);
     // Deleting a note OTHER than the one being edited (via the list's
     // context menu) shouldn't navigate — the open note still exists.
@@ -556,8 +567,20 @@ function NoteDetailContent() {
       : "Note";
   useMobileTitle(isMobile ? mobileTitle : null, isMobile && folderName ? folderName : null);
   const shareEnabled = useShareEnabled();
+  // Un balayage depuis le bord gauche se battrait avec le geste retour système.
+  const previousNoteId = isMobile ? getPreviousNoteId(params.id) : null;
   const mobileActions: MobileHeaderAction[] = isMobile
     ? [
+        ...(previousNoteId
+          ? [
+              {
+                id: "previous-note",
+                icon: ArrowUUpLeft,
+                label: "Note précédente",
+                onPress: () => router.push(`/notes/${previousNoteId}`),
+              } satisfies MobileHeaderAction,
+            ]
+          : []),
         {
           id: "view-toggle",
           icon: viewMode === "note" ? SquareSplitHorizontal : Article,

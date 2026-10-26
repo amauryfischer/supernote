@@ -21,6 +21,12 @@ const CATEGORY_LABELS: Record<string, string> = {
   ia: "IA",
 };
 
+// Raccourcis globaux (CommandSurface), hors éditeur : affichage seul.
+const APP_NAV_SHORTCUTS = [
+  { label: "Note précédente (appli installée)", combo: "ctrl+tab" },
+  { label: "Note précédente (onglet navigateur)", combo: "ctrl+alt+arrowleft" },
+] as const;
+
 interface ShortcutsCheatSheetProps {
   isOpen: boolean;
   onClose: () => void;
@@ -52,7 +58,12 @@ export function ShortcutsCheatSheet({ isOpen, onClose }: ShortcutsCheatSheetProp
     );
   }, [search]);
 
-  const hasResults = grouped.size > 0 || filteredBuiltins.length > 0;
+  const filteredAppNav = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return q ? APP_NAV_SHORTCUTS.filter((s) => s.label.toLowerCase().includes(q)) : APP_NAV_SHORTCUTS;
+  }, [search]);
+
+  const hasResults = grouped.size > 0 || filteredBuiltins.length > 0 || filteredAppNav.length > 0;
 
   return (
     <Modal
@@ -127,6 +138,34 @@ export function ShortcutsCheatSheet({ isOpen, onClose }: ShortcutsCheatSheetProp
                 </div>
               </div>
             ))}
+
+            {filteredAppNav.length > 0 && (
+              <div>
+                <p className="sn-eyebrow mb-1.5">Navigation entre notes</p>
+                <div
+                  className="overflow-hidden rounded-xl"
+                  style={{ backgroundColor: "var(--surface-2)" }}
+                >
+                  {filteredAppNav.map((shortcut, idx) => (
+                    <div
+                      key={shortcut.combo}
+                      className="flex items-center justify-between gap-3 px-4 py-2.5"
+                      style={{
+                        borderBottom:
+                          idx === filteredAppNav.length - 1
+                            ? undefined
+                            : "1px solid var(--border-subtle)",
+                      }}
+                    >
+                      <span className="text-sm" style={{ color: "var(--text-primary)" }}>
+                        {shortcut.label}
+                      </span>
+                      <Badge className="font-mono text-xs">{prettyCombo(shortcut.combo)}</Badge>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {filteredBuiltins.length > 0 && (
               <div>

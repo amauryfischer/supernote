@@ -2,10 +2,11 @@
 
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useAppTheme } from "@supernote/ui";
 
-import { useShortcut } from "@/lib/keyboard/hooks";
+import { useShortcut, useShortcuts } from "@/lib/keyboard/hooks";
+import { getPreviousNoteId } from "@/lib/recent-notes";
 import { useRegisterCommands } from "@/lib/commands/hooks";
 import { buildSeedCommands } from "@/lib/commands/seed";
 import { UnifiedSearchModal } from "@/components/mail/UnifiedSearchModal";
@@ -180,6 +181,35 @@ export function CommandSurface() {
       return true;
     },
   });
+
+  // Note précédente. ⚠️ Un onglet de navigateur garde Ctrl+Tab (la page ne le
+  // reçoit qu'en PWA installée) : Ctrl+Alt+← est la voie qui marche partout.
+  const { pathname } = useLocation();
+  const pathnameRef = useRef(pathname);
+  pathnameRef.current = pathname;
+  const goPreviousNote = useCallback(() => {
+    const currentId = /^\/notes\/([^/]+)/.exec(pathnameRef.current)?.[1] ?? null;
+    const previousId = getPreviousNoteId(currentId);
+    if (!previousId) return false;
+    navigate(`/notes/${previousId}`);
+    return true;
+  }, [navigate]);
+  useShortcuts([
+    {
+      id: "notes.previous",
+      keys: "ctrl+tab",
+      scope: "global",
+      description: "Revenir à la note précédente",
+      handler: goPreviousNote,
+    },
+    {
+      id: "notes.previous-alt",
+      keys: "ctrl+alt+arrowleft",
+      scope: "global",
+      description: "Revenir à la note précédente (onglet navigateur)",
+      handler: goPreviousNote,
+    },
+  ]);
 
   // Cmd+N — handled inside the notes view (see /notes & /notes/[id]) so it
   // can call the real `handleNewNote` with the active folder. Registering it
