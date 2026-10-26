@@ -65,7 +65,7 @@ import { PresentationMode } from "./PresentationMode";
 import { ContextMenu, useContextMenu, Tooltip, type ContextMenuItemDef } from "@supernote/ui";
 import { useVoiceDictation } from "@/hooks/useVoiceDictation";
 import { MoveNoteModal } from "./MoveNoteModal";
-import { useFolderTree, useMoveNote, useRenameFolder } from "./hooks";
+import { useDuplicateNote, useFolderPaths, useMoveNote, useRenameFolder } from "./hooks";
 import { useRouter } from "next/navigation";
 import { useSettings } from "@/components/settings/SettingsContext";
 import { useDateFormat } from "@/lib/dateFormat";
@@ -593,19 +593,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
   // ── Move-to-folder wiring ──────────────────────────────────────────────────
   const router = useRouter();
   const ctxMenu = useContextMenu();
-  const { folders } = useFolderTree();
-  // Flatten the folder tree into a list of full slash-paths for the picker.
-  const folderPaths = useMemo(() => {
-    const out: string[] = [];
-    function walk(nodes: typeof folders) {
-      for (const f of nodes) {
-        out.push(f.path);
-        if (f.children && f.children.length > 0) walk(f.children);
-      }
-    }
-    walk(folders);
-    return out;
-  }, [folders]);
+  const folderPaths = useFolderPaths();
   // Le nom de fichier final est résolu par le worker : un `filePath` explicite
   // est refusé si la destination est occupée, y compris par un `.md` orphelin
   // que le cache client ne voit pas.
@@ -671,6 +659,21 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
     },
     [note.id, note.filePath, note.folderPath, moveNote, utilsForTags, router],
   );
+  // La copie part de l'état affiché (titre, corps, tags en cours de frappe),
+  // pas de la dernière sauvegarde débouncée.
+  const { duplicateNote } = useDuplicateNote();
+  const handleDuplicate = useCallback(async () => {
+    try {
+      const id = await duplicateNote(note.id, {
+        title: titleRef.current,
+        body: bodyRef.current,
+        tags: tagsRef.current,
+      });
+      router.push(`/notes/${id}?folder=${encodeURIComponent(note.folderPath)}`);
+    } catch {
+      showToast("Impossible de dupliquer la note");
+    }
+  }, [duplicateNote, note.id, note.folderPath, router]);
   // Une seule liste d'actions pour les deux chemins d'ouverture (clic droit et
   // appui long) : deux listes divergeraient dès la première action ajoutée.
   const breadcrumbMenuItems = useCallback(
@@ -680,8 +683,13 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
         label: "Déplacer dans un autre dossier…",
         onPress: () => setMoveModalOpen(true),
       },
+      {
+        key: "duplicate",
+        label: "Dupliquer la note",
+        onPress: () => void handleDuplicate(),
+      },
     ],
-    [],
+    [handleDuplicate],
   );
   const openBreadcrumbContextMenu = useCallback(
     (e: React.MouseEvent) => {
