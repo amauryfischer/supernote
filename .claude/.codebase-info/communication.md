@@ -1,6 +1,6 @@
 # Communication
 
-*Last Updated: 2026-10-10*
+*Last Updated: 2026-10-26*
 
 Trois canaux : le thread principal parle au worker, le worker parle au thread principal, et l'application parle au serveur de synchronisation.
 
@@ -86,13 +86,17 @@ Même mécanique de jeton que Gmail via `googleRequest`, état de reconnexion su
 
 REST sur `/api/share/*` : propriétaire authentifié par l'en-tête `x-share-owner`, invité par un jeton `Bearer` signé en HMAC, obtenu par `POST /api/share/links/:slug/unlock`. Co-édition Yjs par WebSocket sur `/collab` (Hocuspocus 4.7.0 via `crossws`) ; la lecture seule y est imposée côté serveur, et un refus arrive au client avec une raison `gone`, `forbidden` ou `unavailable`. Détail, modèle et pièges dans [sharing.md](sharing.md).
 
+## Titre d'une URL collée
+
+`GET /api/unfurl?url=` → `{ title }` (`apps/web/unfurl.mjs`). Coller une URL seule dans une note insère d'abord le lien nu, puis `pasteLinkTitle.ts` (éditeur, prop `resolveLinkTitle`) remplace son texte par le titre distant. Le serveur fait une requête sortante pour un visiteur anonyme : tout le fichier est une garde SSRF. http/https et ports 80/443 seulement, nom résolu côté serveur avec **toutes** les adresses publiques (`isPublicAddress`), connexion forcée sur l'IP validée contre le DNS-rebinding, 3 redirections revalidées, 5 s, 200 Ko de `text/html` au plus, 30 requêtes par minute et par adresse. Le corps distant n'est jamais renvoyé. En e2e (namespace sans réseau), la route est mockée par `page.route`.
+
 ## Montages de coffres
 
 Un coffre peut en monter d'autres comme sous-dossiers. `MountSyncManager` tient un client de synchronisation par montage. La provenance d'une entité montée est portée par la colonne `entity.sourceVaultId`.
 
 ## Côté serveur
 
-`apps/web/server.mjs` ne monte `/api/sync/*` que si `DATABASE_URL` est défini, et ne charge `better-sqlite3` qu'à ce moment. Sans cette variable, le déploiement garde sa garantie de zéro dépendance à l'exécution.
+`/api/unfurl` est toujours monté, sans état ni base. `apps/web/server.mjs` ne monte `/api/sync/*` que si `DATABASE_URL` est défini, et ne charge `better-sqlite3` qu'à ce moment. Sans cette variable, le déploiement garde sa garantie de zéro dépendance à l'exécution.
 
 En développement, un middleware de `vite.config.ts` monte le même backend, à la même condition.
 

@@ -1,6 +1,6 @@
 # Motifs et pièges
 
-*Last Updated: 2026-10-10*
+*Last Updated: 2026-10-26*
 
 Les motifs récurrents du dépôt, et surtout les contraintes que le code ne dit pas tout seul. Commence par la section sur les propriétés de champ qui disparaissent si tu touches aux champs, c'est le piège le plus coûteux. Les pièges de la co-édition sont dans [sharing.md](sharing.md).
 
@@ -41,7 +41,7 @@ Les paquets `@supernote/*` sont consommés par leur `dist/`, jamais par leur sou
 
 Conséquence : **modifier le TypeScript d'un paquet n'a aucun effet tant que `pnpm build:packages` n'a pas tourné.** Il n'y a pas de mode watch dans `turbo.json`.
 
-Une exception utile : le CSS de l'éditeur est exporté depuis `src/`, donc un simple rechargement suffit pour une modification de style.
+Une exception utile : le CSS de l'éditeur est exporté depuis `src/`, donc un simple rechargement suffit pour une modification de style. ⚠️ Vite dev ne reprend pas toujours une modification de `packages/editor/src/styles/editor.css` seule : `touch apps/web/src/globals.css` force la recompilation.
 
 ## ⚠️ Pièges ProseMirror
 
@@ -51,7 +51,20 @@ Deux bugs vécus, tous deux coûteux à retrouver.
 
 **La sélection collapsée.** Un toggle React sur un contrôle de la barre de formatage flottante qui monte un sous-menu au clic collapse la sélection, donc la barre se démonte avant que le menu paraisse. Le motif qui marche est dans `editorChrome.tsx` : capturer les bornes à l'ouverture, geler la boîte dans une ref, restaurer la sélection juste avant d'appliquer le style.
 
+**Texte injecté dans un bloc.** Un widget de décoration entre dans le `textContent` du bloc. Le chevron du repli de section (`sectionFold.ts`) faisait lire « Gamma› » au plan et à la barre collante. Chevron et compteur passent par `::before` / `content: attr(data-label)` dans `editor.css`, jamais par un nœud texte.
+
+**Ids de bloc instables.** BlockNote régénère les `data-id` à chaque chargement d'une note : un lien profond `?block=<id>` ne retrouve rien. Le lien vers un titre est `?heading=<ancre>`, slug du texte (`headingUrl` dans `NoteOutline.tsx`), qui prime sur la reprise de position.
+
 **Dédoublonnage forcé.** `vite.config.ts` force un exemplaire unique de chaque paquet ProseMirror. Deux copies déclenchent `RangeError: Duplicate use of selection JSON ID cell`, parce que ces paquets enregistrent des classes au chargement du module.
+
+## Vue de note : chrome et pièges tactiles
+
+- **Barre « Plan » collante** (`OutlineStickyBar`, `NoteOutline.tsx`) : titre courant + prop `trailing` qui porte le bouton curseurs (déplie la barre d'outils `#note-meta-bar`), la largeur de lecture (desktop) et la loupe (mobile). Elle se masque pendant une recherche.
+- **Recherche** (`NoteFind.tsx`, Mod+F) : dans le flux en tête de colonne, plus de loupe flottante. Surlignage par `CSS.highlights` (`sn-find`, `sn-find-current`).
+- **Minimap** (`NoteMinimap.tsx`, canvas, pas de clone DOM) : sous ~600 px de colonne elle devient un rail de 20 px. Pastilles de tags à droite, repères de recherche sur une bande gauche (`--sn-find-mark`, `--sn-find-current-mark`). En rail, une note sans tag ne trace **rien**. Sur mobile, le rail n'apparaît qu'au défilement et pendant une recherche.
+- **Tailles de titres** : `@container (max-width: 560px)` sur `.sn-editor-wrapper` (`container-type: inline-size`), pas une media query. La colonne rétrécit aussi sur desktop quand les panneaux sont ouverts.
+- ⚠️ **Appui long** (`hooks/useLongPress.ts`) : quand l'appui long a tiré, `onTouchEnd(e)` fait `preventDefault`. Sinon le clic de compatibilité émis au relâcher retombe sur la ligne, hors du menu ouvert dessous, et le referme. Les appelants doivent transmettre l'événement (`{...longPress}` le fait).
+- ⚠️ **Palette cmdk contrôlée** (`CommandPalette.tsx`) : remettre l'état à zéro **à la fermeture**, pas à l'ouverture. À l'ouverture, le reset écrase la présélection du premier élément « Récents » (`lib/recent-notes.ts`).
 
 ## Blocs personnalisés BlockNote
 
@@ -118,9 +131,9 @@ Côté Ollama, tout `createOllamaClient` doit recevoir `defaultModel` (`settings
 
 ## Vérification
 
-Pas de test unitaire, c'est une décision. `pnpm typecheck`, `pnpm lint` (garde d'imports), plus `pnpm test:e2e` : 77 tests Playwright chromium dans 20 specs, ~7 min à `--workers=2`. Le `webServer` reçoit `DATABASE_URL=file:./e2e-share.db` (ignoré par git), donc la synchro, le push et le partage tournent en e2e. `07-share.spec.ts` joue propriétaire et invité dans deux contextes. `07-push.spec.ts` pousse dans le service worker par CDP (`ServiceWorker.deliverPushMessage`) et exige `channel: "chromium"` : le headless shell refuse `showNotification`.
+Pas de test unitaire, c'est une décision. `pnpm typecheck`, `pnpm lint` (garde d'imports), plus `pnpm test:e2e` : 99 tests Playwright chromium dans 22 specs, à `--workers=2` (les seules `20-qol-notes` et `21-notes-dnd` prennent ~7 min). Le `webServer` reçoit `DATABASE_URL=file:./e2e-share.db` (ignoré par git), donc la synchro, le push et le partage tournent en e2e. `07-share.spec.ts` joue propriétaire et invité dans deux contextes. `07-push.spec.ts` pousse dans le service worker par CDP (`ServiceWorker.deliverPushMessage`) et exige `channel: "chromium"` : le headless shell refuse `showNotification`.
 
-Deux amorces dans `tests/e2e/helpers.ts`. `bootDegraded` pose `supernote.degraded` : pas de worker, rendu seulement. `bootCloud(page, { googleAccount? })` ouvre un coffre cloud neuf sur un **vrai worker OPFS** (seul mode où miroirs, modèles et routes worker tournent) et remplace GIS par un faux ; `mockGoogleApis(page, handler)` intercepte `www.googleapis.com` et rend le journal des appels. Tout nouveau scénario worker ou Google va là (`04-agenda.spec.ts`, `05-templates.spec.ts`, `06-mail.spec.ts`), pas dans un banc jetable. Gmail n'est pas sur `www.googleapis.com` : `06-mail.spec.ts` route lui-même `gmail.googleapis.com` pour servir une boîte d'un fil. Le serveur de test tourne sur un port dérivé du chemin du worktree (`sha256(__dirname)`, plage 3200-3599) en `--strictPort` et sans `reuseExistingServer` : chaque worktree a son serveur Vite, et le 3100, tenu par un service Windows invisible depuis WSL, reste évité. `NAV_ROUTES` (helpers) liste les routes testées par `03-navigate`.
+Deux amorces dans `tests/e2e/helpers.ts`. `bootDegraded` pose `supernote.degraded` : pas de worker, rendu seulement. `bootCloud(page, { googleAccount? })` ouvre un coffre cloud neuf sur un **vrai worker OPFS** (seul mode où miroirs, modèles et routes worker tournent) et remplace GIS par un faux ; `mockGoogleApis(page, handler)` intercepte `www.googleapis.com` et rend le journal des appels. Pour semer des notes : `workerCall` (route worker depuis la page), `seedNote`, `openNote`. Tout nouveau scénario worker ou Google va là (`04-agenda.spec.ts`, `05-templates.spec.ts`, `06-mail.spec.ts`), pas dans un banc jetable. Gmail n'est pas sur `www.googleapis.com` : `06-mail.spec.ts` route lui-même `gmail.googleapis.com` pour servir une boîte d'un fil. Le serveur de test tourne sur un port dérivé du chemin du worktree (`sha256(__dirname)`, plage 3200-3599) en `--strictPort` et sans `reuseExistingServer` : chaque worktree a son serveur Vite, et le 3100, tenu par un service Windows invisible depuis WSL, reste évité. `NAV_ROUTES` (helpers) liste les routes testées par `03-navigate`.
 
 ⚠️ Routes chargées en `lazy` : sur un Vite froid, le premier accès dépasse le timeout de 5 s d'`expect`. `tests/e2e/global-setup.ts` visite chaque route de `NAV_ROUTES` (dégradé et cloud) avant la suite pour payer cette compilation hors budget ; toute nouvelle route testée doit y passer, via `NAV_ROUTES` ou le préchauffage cloud. Deux `pnpm test:e2e` simultanés dans le même worktree échouent désormais au démarrage (port déjà pris), c'est voulu.
 

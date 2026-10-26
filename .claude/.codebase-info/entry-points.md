@@ -1,6 +1,6 @@
 # Points d'entrée
 
-*Last Updated: 2026-10-10*
+*Last Updated: 2026-10-26*
 
 ## Démarrage du navigateur
 
@@ -58,7 +58,7 @@ Le seuil est `MOBILE_MAX_WIDTH = 767` dans `hooks/useIsMobile.ts`, aligné sur l
 
 ## Serveur de production
 
-`apps/web/server.mjs`, lancé par le `Procfile`. Sert le `dist/` prébuild avec repli history-API et les types MIME corrects pour le wasm, les modules et les polices. Monte `/api/sync/*` uniquement si `DATABASE_URL` est défini, plus le back-office `/admin` si `ADMIN_TOKEN` l'est aussi, et `/api/push/*` avec son planificateur si les clés VAPID le sont.
+`apps/web/server.mjs`, lancé par le `Procfile`. Sert le `dist/` prébuild avec repli history-API et les types MIME corrects pour le wasm, les modules et les polices. Monte toujours `/api/unfurl` (titre d'une URL collée, `unfurl.mjs`, sans état ; en dev, le plugin `unfurlDevServer` de `vite.config.ts` branche le même handler). Monte `/api/sync/*` uniquement si `DATABASE_URL` est défini, plus le back-office `/admin` si `ADMIN_TOKEN` l'est aussi, et `/api/push/*` avec son planificateur si les clés VAPID le sont.
 
 Avec `DATABASE_URL`, il monte aussi le partage : `/api/share/*`, `/s/<slug>` réécrit vers `share.html`, et l'événement `upgrade` du serveur HTTP, dont seul `/collab` est accepté (WebSocket Hocuspocus), le reste étant détruit. Un `process.once("SIGTERM")` vide les stockages Yjs en attente, 8 s au plus, puis sort. Voir [sharing.md](sharing.md).
 

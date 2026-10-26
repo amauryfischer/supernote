@@ -1,6 +1,6 @@
 # Prise en main
 
-*Last Updated: 2026-10-10*
+*Last Updated: 2026-10-26*
 
 ## Démarrer
 
@@ -21,7 +21,7 @@ Au premier lancement, l'application demande un dossier de coffre. « Continuer s
 ```bash
 pnpm typecheck     # doit passer avant tout commit
 pnpm lint          # garde des imports @heroui/react (liste blanche)
-pnpm test:e2e      # 77 tests Playwright chromium, ~7 min à --workers=2
+pnpm test:e2e      # 99 tests Playwright chromium dans 22 specs, à --workers=2
 ```
 
 Il n'y a **pas de test unitaire** et c'est une décision. Ne crée pas de `*.test.ts`, ne réintroduis pas vitest. Le fichier `docs/dev/testing.md` dit le contraire : il est périmé, ignore-le.
