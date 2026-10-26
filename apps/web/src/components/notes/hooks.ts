@@ -667,7 +667,7 @@ export function useRenameNote() {
 // ── useMoveNote ───────────────────────────────────────────────────────────────
 
 /**
- * Déplace une note vers un dossier. Le nom de fichier final est résolu par le
+ * Déplace une note, avec ses sous-pages du même dossier, vers un dossier. Le nom de fichier final est résolu par le
  * worker (`entities.moveIfFree`), pas ici : un test côté client contre le cache
  * `entities.list` est plafonné à 500 notes, périmable, et aveugle aux `.md`
  * orphelins du disque — or `update({ filePath })` refuse désormais une
@@ -686,9 +686,15 @@ export function useMoveNote() {
       if (!hasBackend) return null;
       // `"."` = racine du coffre côté worker ; le schéma IPC refuse le vide.
       const folder = targetFolderPath.trim() || ".";
+      // Avant le déplacement : le filtre « même dossier » porte sur le dossier d'origine.
+      const { items: descendants } = await utils.entities.subpageDescendants.fetch({ id }, { staleTime: 0 });
       const result = await mutation.mutateAsync({ id, folder });
       if (!result.moved) return result;
       void utils.entities.get.invalidate({ id });
+      for (const child of descendants) {
+        await mutation.mutateAsync({ id: child.id, folder });
+        void utils.entities.get.invalidate({ id: child.id });
+      }
       void utils.entities.list.invalidate();
       return result;
     },

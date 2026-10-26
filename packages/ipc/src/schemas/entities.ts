@@ -138,6 +138,16 @@ export const MoveEntityIfFreeOutput = z.object({
 });
 export type MoveEntityIfFreeOutput = z.infer<typeof MoveEntityIfFreeOutput>;
 
+export const SubpageDescendantsInput = z.object({
+  id: z.string().min(1),
+});
+export type SubpageDescendantsInput = z.infer<typeof SubpageDescendantsInput>;
+
+export const SubpageDescendantsOutput = z.object({
+  items: z.array(z.object({ id: z.string(), filePath: z.string() })),
+});
+export type SubpageDescendantsOutput = z.infer<typeof SubpageDescendantsOutput>;
+
 export const DeleteEntityInput = z.object({
   id: z.string().min(1),
   moveToTrash: z.boolean().optional().default(true),

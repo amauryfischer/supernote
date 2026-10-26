@@ -683,6 +683,45 @@ export function buildRouter(
     return { items, total: items.length };
   };
 
+  // Descendants par `fields.parentId`, limités aux notes du dossier de la racine :
+  // une sous-page rangée ailleurs reste où elle est.
+  const entitiesSubpageDescendants = async (input: unknown): Promise<unknown> => {
+    const { id } = input as { id: string };
+    const root = row(db.exec(`SELECT filePath FROM entity WHERE id = ? AND vaultId = ?`, [id, vaultId]));
+    if (!root) throw new Error(`Entity not found: ${id}`);
+    const folderOf = (p: string): string => p.slice(0, Math.max(0, p.lastIndexOf("/")));
+    const rootFolder = folderOf(root["filePath"] as string);
+    const childrenOf = new Map<string, { id: string; filePath: string }[]>();
+    for (const r of rows(db.exec(
+      `SELECT id, filePath, json_extract(fields, '$.parentId') AS parentId
+         FROM entity
+        WHERE vaultId = ? AND typeId = 'note' AND json_extract(fields, '$.parentId') IS NOT NULL`,
+      [vaultId],
+    ))) {
+      const filePath = r["filePath"] as string;
+      if (folderOf(filePath) !== rootFolder) continue;
+      const parentId = String(r["parentId"]);
+      const list = childrenOf.get(parentId) ?? [];
+      list.push({ id: r["id"] as string, filePath });
+      childrenOf.set(parentId, list);
+    }
+    const visited = new Set<string>([id]);
+    const items: { id: string; filePath: string }[] = [];
+    for (let queue = [id]; queue.length > 0; ) {
+      const next: string[] = [];
+      for (const parent of queue) {
+        for (const child of childrenOf.get(parent) ?? []) {
+          if (visited.has(child.id)) continue;
+          visited.add(child.id);
+          items.push(child);
+          next.push(child.id);
+        }
+      }
+      queue = next;
+    }
+    return { items };
+  };
+
   const entitiesGet = async (input: unknown): Promise<unknown> => {
     const { id } = input as { id: string };
     const r = row(db.exec(
@@ -3876,6 +3915,7 @@ export function buildRouter(
     "entities.delete": entitiesDelete,
     "entities.search": entitiesSearch,
     "entities.listByDateRange": entitiesListByDateRange,
+    "entities.subpageDescendants": entitiesSubpageDescendants,
     "entities.graph": entitiesGraph,
     "entities.getRelated": entitiesGetRelated,
     "entities.getBacklinks": entitiesGetBacklinks,
