@@ -74,6 +74,9 @@ export type {
   GmailEmbedRenderProps,
 } from "./blocks/index.js";
 
+export { subpageBlockSpec, SubpageProvider } from "./blocks/subpage.js";
+export type { SubpageRenderer } from "./blocks/subpage.js";
+
 // Serialization utilities
 export { markdownToBlocks, blocksToMarkdown } from "./serialization/index.js";
 

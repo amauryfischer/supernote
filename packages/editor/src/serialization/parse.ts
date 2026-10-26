@@ -231,6 +231,12 @@ function parseLine(line: string): AnyBlock | null {
     };
   }
 
+  // Ligne entière seulement : `voir [subpage id="x"] ici` ou `[subpage]` restent du texte.
+  const subpageMatch = /^\[subpage id="([^"]+)"\]$/.exec(line.trim());
+  if (subpageMatch) {
+    return { type: "subpage", props: { noteId: unescapeAttr(subpageMatch[1] ?? "") } };
+  }
+
   // Embed: ![[target]] or ![[target|alias]]
   const embedMatch = /^!\[\[([^\]|]+)(?:\|([^\]]+))?\]\]$/.exec(line);
   if (embedMatch) {

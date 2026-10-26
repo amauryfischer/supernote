@@ -1,7 +1,7 @@
 // Extended slash menu items for Supernote custom blocks
 
 import React, { useCallback, useRef, useState } from "react";
-import type { BlockNoteEditor } from "@blocknote/core";
+import { insertOrUpdateBlockForSlashMenu, type BlockNoteEditor } from "@blocknote/core";
 import {
   getDefaultReactSlashMenuItems,
   type DefaultReactSuggestionItem,
@@ -260,7 +260,8 @@ function makeDateItems(editor: BlockNoteEditor<any, any, any>): DefaultReactSugg
 export function getSupernoteSlashMenuItems(
   editor: BlockNoteEditor<any, any, any>,
   openPicker: (cfg: EntityLinkItemConfig) => void,
-  onAskAi?: () => void
+  onAskAi?: () => void,
+  subpage?: { create: () => Promise<string | null>; open: (noteId: string) => void },
 ): DefaultReactSuggestionItem[] {
   const defaults = getDefaultReactSlashMenuItems(editor);
 
@@ -517,7 +518,30 @@ export function getSupernoteSlashMenuItems(
 
   const aiItems: DefaultReactSuggestionItem[] = onAskAi ? [makeAskAiItem(onAskAi)] : [];
 
-  return [...defaults, ...calloutItems, codeItem, embedItem, databaseViewItem, googleSheetItem, htmlItem, gmailItem, formulaItem, ...liveFormulaItems, doodleItem, ...makeDateItems(editor), ...entityLinkItems, ...aiItems];
+  const subpageItems: DefaultReactSuggestionItem[] = subpage
+    ? [
+        {
+          title: "Page",
+          subtext: "Crée une sous-page dans cette note",
+          group: "Links",
+          aliases: ["page", "sous-page", "wiki"],
+          icon: <span aria-hidden="true">▤</span>,
+          async onItemClick() {
+            const noteId = await subpage.create();
+            if (!noteId) return;
+            const block = insertOrUpdateBlockForSlashMenu(editor, {
+              type: "subpage" as any,
+              props: { noteId },
+            } as any);
+            // Carte contentEditable=false : sans paragraphe derrière, le curseur n'a plus de cible.
+            if (!editor.getNextBlock(block)) editor.insertBlocks([{ type: "paragraph" } as any], block, "after");
+            subpage.open(noteId);
+          },
+        },
+      ]
+    : [];
+
+  return [...defaults, ...calloutItems, codeItem, embedItem, databaseViewItem, googleSheetItem, htmlItem, gmailItem, formulaItem, ...liveFormulaItems, doodleItem, ...makeDateItems(editor), ...entityLinkItems, ...subpageItems, ...aiItems];
 }
 
 // ── Suggestion menu renderer ──────────────────────────────────────────────────

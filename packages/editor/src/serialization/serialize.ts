@@ -222,6 +222,9 @@ function blockToMarkdownLine(block: AnyBlock): string {
       return `[gmail threadId="${escapeAttr(threadId)}"]`;
     }
 
+    case "subpage":
+      return `[subpage id="${escapeAttr((props.noteId as string) ?? "")}"]`;
+
     default:
       return serializeInlineContent(block.content);
   }
