@@ -1551,3 +1551,19 @@
     transition-duration: 0.01ms;
   }
 }
+
+/* Numérotation par compteurs CSS : le plugin d'index de BlockNote 0.50 part d'une transaction vide à l'ouverture
+ * et ne pose aucun data-index tant qu'on n'a pas tapé dans la liste (« . » sans chiffre).
+ * shortcut: ignore la prop `start` (liste qui commence à N), à reprendre si on en importe. */
+.bn-block-group {
+  counter-reset: sn-ol;
+}
+.bn-block-outer:has(> .bn-block > .bn-block-content[data-content-type="numberedListItem"]) {
+  counter-increment: sn-ol;
+}
+.bn-block-outer:not(:has(> .bn-block > .bn-block-content[data-content-type="numberedListItem"])) {
+  counter-reset: sn-ol;
+}
+.bn-block-content[data-content-type="numberedListItem"]::before {
+  content: counter(sn-ol) "." !important;
+}
