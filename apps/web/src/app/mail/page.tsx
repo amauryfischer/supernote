@@ -1051,13 +1051,6 @@ export default function MailPage() {
       if (!clientId || bulkBusy) return;
       const ids = group.items.map((it) => it.id);
       if (ids.length === 0) return;
-      const ok = await confirm({
-        title: `Supprimer ${ids.length} email${ids.length > 1 ? "s" : ""} ?`,
-        description: `Tous les emails du groupe « ${group.title} » seront déplacés dans la corbeille.`,
-        destructive: true,
-        confirmLabel: "Supprimer",
-      });
-      if (!ok) return;
       setBulkBusy(true);
       for (const id of ids) dropThreadFromList(id);
       bumpTriaged(ids.length);
@@ -1080,7 +1073,7 @@ export default function MailPage() {
         void loadList(query);
       }
     },
-    [clientId, bulkBusy, confirm, dropThreadFromList, loadList, query, commitMutation],
+    [clientId, bulkBusy, dropThreadFromList, loadList, query, commitMutation],
   );
 
   const markGroupRead = useCallback(

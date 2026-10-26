@@ -20,8 +20,8 @@
 
 import { isSelfAddress, runLocalPrompt } from "./mail-ai";
 
-/** Budget de mots d'un résumé de liste (la demande : « une trentaine de mots »). */
-export const SUMMARY_MAX_WORDS = 30;
+/** Budget de mots d'un résumé de liste : un TL;DR qui se lit d'un coup d'œil. */
+export const SUMMARY_MAX_WORDS = 15;
 
 /** Corps total injecté dans le prompt, tous messages confondus. */
 const MAX_BODY_CHARS = 1_500;
@@ -115,7 +115,7 @@ export function buildListSummaryPrompt(thread: SummarizableThread): string {
     body ? `Contenu :\n${body}` : "Contenu : (indisponible — résume l'objet)",
     "",
     "Contraintes :",
-    `- ${SUMMARY_MAX_WORDS} mots maximum, UNE seule phrase, en français ;`,
+    `- TL;DR : ${SUMMARY_MAX_WORDS} mots maximum, style télégraphique (ex. « Devis signé, facture attendue vendredi »), en français ;`,
     intent,
     "- n'écris pas « cet email », « ce message », « l'expéditeur » : va droit au fait ;",
     "- n'invente aucune information absente du contenu ;",
@@ -173,7 +173,8 @@ export async function summarizeForList(thread: SummarizableThread): Promise<stri
  * voulue (un fil inchangé n'est jamais re-résumé). PUR.
  */
 export function threadFingerprint(item: { date: string }): string {
-  return item.date ?? "";
+  // Préfixe de version : changer le prompt périme les résumés déjà stockés.
+  return `tldr:${item.date ?? ""}`;
 }
 
 /** Résumé déjà stocké sur l'item, si l'empreinte correspond toujours. PUR. */

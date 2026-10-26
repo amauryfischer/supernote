@@ -190,14 +190,15 @@ export function threadSubject(thread: MailAiThread): string {
 // ── Builders de prompt (PURS, testés) ───────────────────────────────────────
 
 /**
- * Prompt de résumé d'un fil. Demande un résumé concis en français + les points
+ * Prompt de résumé d'un fil. TL;DR télégraphique en français : une ligne + au plus 3 puces
  * d'action. Déterministe : sérialise le fil tel quel. PUR.
  */
 export function buildSummaryPrompt(thread: MailAiThread): string {
   return [
     "Tu es un assistant qui résume des fils d'emails en français.",
-    "Résume le fil de discussion ci-dessous de façon concise (5 lignes max).",
-    "Mentionne les décisions prises et les éventuelles actions attendues.",
+    "Donne un TL;DR du fil ci-dessous, style télégraphique, sans phrase d'introduction :",
+    "- une ligne de 15 mots maximum qui dit l'essentiel ;",
+    "- puis, seulement s'il y en a, au plus 3 puces « - » de 8 mots maximum : décisions prises, actions attendues (qui, quoi, quand).",
     "Ne mentionne PAS d'information absente du fil. Réponds en français.",
     "",
     `Objet du fil : ${threadSubject(thread)}`,
