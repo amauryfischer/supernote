@@ -49,6 +49,18 @@ import { NoteIcon, IconButton, asIcon } from "./NoteIcon";
 import { AiMarginsPanel } from "./AiMarginsPanel";
 import { NoteMinimap, useMinimapPref } from "./NoteMinimap";
 import { NO_FIND, NoteFind, useNoteFind, type FindState } from "./NoteFind";
+import {
+  OutlineMetaButton,
+  OutlineStickyBar,
+  OutlineSurface,
+  ReadingWidthButton,
+  formatWordStats,
+  useBlockDeepLink,
+  useDeepLinkBlockId,
+  useNoteOutline,
+  useReadingGutter,
+  useReadingWidthPref,
+} from "./NoteOutline";
 import { Backlinks } from "./BacklinksPanel";
 import { useAiMarginsChrome } from "@/components/shell/shell-chrome-context";
 import {
@@ -340,6 +352,8 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
   const noteRootRef = useRef<HTMLDivElement>(null);
   const find = useNoteFind(noteRootRef);
   const [findState, setFindState] = useState<FindState>(NO_FIND);
+  // `?block=` (lien vers un titre) prime sur « Reprendre où j'en étais ».
+  const deepLinkBlockId = useDeepLinkBlockId(note.id);
   const [bodyVersion, setBodyVersion] = useState(0);
   const [presenting, setPresenting] = useState(false);
   // Surlignage du bloc correspondant au commentaire IA survolé (overlay hors
@@ -923,7 +937,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
     lastPosRestoredRef.current = false;
     userTookOverRef.current = false;
     userScrolledRef.current = false;
-    const pos = readLastPos(note.id);
+    const pos = deepLinkBlockId ? null : readLastPos(note.id);
     pendingRestoreRef.current = pos;
     if (!pos) {
       lastPosRestoredRef.current = true; // rien à restaurer → saves autorisés
@@ -1667,6 +1681,18 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
   // les mêmes cartes que le panneau droit affiche (cf. `useAiMarginsChrome`).
   const marginsColumn = marginsOn && marginsWide === true;
 
+  // Plan de la note, lien profond, largeur de lecture (cf. NoteOutline.tsx).
+  const { headings: outlineHeadings, currentId: outlineCurrentId, passedFirst } = useNoteOutline(editorColRef, editorContainerRef);
+  const outlineCurrent = passedFirst ? (outlineHeadings.find((h) => h.id === outlineCurrentId) ?? null) : null;
+  const [outlineOpen, setOutlineOpen] = useState(false);
+  const closeOutline = useCallback(() => setOutlineOpen(false), []);
+  const toggleOutline = useCallback(() => setOutlineOpen((o) => !o), []);
+  const [fullWidth, toggleFullWidth] = useReadingWidthPref();
+  // 268 = colonne Marges IA (260) + gouttière (8).
+  useReadingGutter(noteRootRef, editorContainerRef, fullWidth, marginsColumn ? 268 : 0);
+  useBlockDeepLink(deepLinkBlockId, editorColRef, editorContainerRef);
+  const wordStats = useMemo(() => formatWordStats(note.body), [note.body]);
+
   // Quand la colonne intégrée ne tient pas, le panneau droit prend le relais :
   // un commentaire de marge doit rester visible PENDANT qu'on écrit, ce que la
   // feuille plein écran qu'il remplace rendait impossible.
@@ -1879,7 +1905,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
       >
         {/* Hero : breadcrumb + titre posés SUR la couverture (si présente). */}
         <div
-          className={`sn-note-hero group relative px-4 pb-4 pt-4 md:px-10 md:pb-5 md:pt-6${
+          className={`sn-note-hero group relative sn-note-gutter pb-4 pt-4 md:pb-5 md:pt-6${
             coverActive ? " sn-note-hero--cover flex flex-col justify-end" : ""
           }`}
         >
@@ -1967,7 +1993,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
             dépliables via le handle discret posé sur la bordure ci-dessous. */}
         <div className="sn-meta-collapse" data-open={metaOpen ? "true" : "false"} id="note-meta-bar">
           <div className="sn-meta-collapse__inner">
-            <div className="px-4 pb-4 pt-3 md:px-10 md:pb-6">
+            <div className="sn-note-gutter pb-4 pt-3 md:pb-6">
               <div className="flex flex-wrap items-center gap-3">
           <EditableNoteDate
             noteId={note.id}
@@ -2073,6 +2099,8 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
             <MagnifyingGlass size={13} />
             Rechercher
           </Button>
+          <OutlineMetaButton open={outlineOpen} onToggle={toggleOutline} />
+          {!isMobile && <ReadingWidthButton full={fullWidth} onToggle={toggleFullWidth} />}
           {gmailConnected && (
             <Button
               variant="ghost"
@@ -2162,6 +2190,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
       </div>
 
       <div className="relative flex min-h-0 flex-1">
+      <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
       <div
         ref={editorContainerRef}
         className="min-w-0 flex-1 overflow-y-auto"
@@ -2206,7 +2235,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
           selection?.addRange(range);
         }}
       >
-        <div className="flex gap-2 px-4 py-4 md:px-10 md:py-6">
+        <div className="sn-note-gutter flex gap-2 py-4 md:py-6">
           <div ref={editorColRef} className="relative min-w-0 flex-1">
             {blockHighlight && (
               <div
@@ -2286,11 +2315,26 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
         </div>
         {/* Read-only summary of todos extracted from this note. Pure
             projection of the markdown body — no extra fetch, no entities. */}
-        <AssociatedTodos noteId={note.id} body={note.body} />
+        <div className="sn-note-gutter-inset">
+          <AssociatedTodos noteId={note.id} body={note.body} />
+        </div>
         {/* En pied de note plutôt que dans la barre méta repliée ou le panneau
             droit (masquable, accaparé par les suggestions IA) : visible sous le
             texte, sur desktop comme sur mobile. pb-16 : dégage le FAB mobile. */}
-        <Backlinks entityId={note.id} className="sn-no-print px-4 pb-16 pt-4 md:px-10 md:pb-8" />
+        <Backlinks entityId={note.id} className="sn-no-print sn-note-gutter pb-16 pt-4 md:pb-8" />
+      </div>
+      {/* Hors du conteneur de défilement : la minimap lit son texte et son premier enfant. */}
+      <OutlineStickyBar current={outlineCurrent} open={outlineOpen} onToggle={toggleOutline} />
+      <OutlineSurface
+        open={outlineOpen}
+        onClose={closeOutline}
+        isMobile={isMobile}
+        headings={outlineHeadings}
+        currentId={outlineCurrentId}
+        colRef={editorColRef}
+        scrollRef={editorContainerRef}
+        belowBar={outlineCurrent !== null}
+      />
       </div>
       {minimapOn && <NoteMinimap scrollRef={editorContainerRef} overlay={isMobile} find={findState} />}
       {find.open && (
@@ -2341,11 +2385,12 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
 
       {/* Footer */}
       <div
-        className="sn-no-print flex items-center justify-between px-4 py-3 md:px-10"
+        className="sn-no-print sn-note-gutter flex items-center justify-between py-3"
         style={{ borderTop: "1px solid var(--border-subtle)" }}
       >
-        <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-          Modifié {formatRelativeDate(note.updatedAt, dateFormatPref).toLowerCase()}
+        <span className="flex flex-wrap items-center gap-x-3 text-xs" style={{ color: "var(--text-muted)" }}>
+          <span>Modifié {formatRelativeDate(note.updatedAt, dateFormatPref).toLowerCase()}</span>
+          {wordStats && <span className="tabular-nums">{wordStats}</span>}
         </span>
         {/* Le glisser-déposer de fichier n'existe pas au doigt : sur mobile ce
          * hint annonce un geste impraticable, et il passe sous le FAB. On le

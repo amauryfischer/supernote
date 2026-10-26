@@ -1138,6 +1138,33 @@ html, body {
   pointer-events: none;
 }
 
+/* ── Gouttière latérale d'une note ───────────────────────────────────────── */
+
+/* Même arête gauche pour le titre, la barre méta, le texte et le pied. La
+ * valeur desktop est mesurée sur le conteneur de défilement (useReadingGutter,
+ * NoteOutline.tsx) : colonne de lecture centrée, ou 2.5rem en pleine largeur. */
+.sn-note-gutter {
+  padding-inline: 1rem;
+}
+/* Pour un enfant qui porte déjà sa propre marge de 2.5rem (AssociatedTodos). */
+.sn-note-gutter-inset {
+  padding-inline: 0;
+}
+@media (min-width: 768px) {
+  .sn-note-gutter {
+    padding-inline: var(--sn-note-gutter, 2.5rem);
+  }
+  .sn-note-gutter-inset {
+    padding-inline: calc(var(--sn-note-gutter, 2.5rem) - 2.5rem);
+  }
+}
+
+/* Bloc ciblé par un lien profond `?block=` : tinte accent qui s'estompe. */
+@keyframes sn-block-target {
+  0%, 55% { background-color: color-mix(in srgb, var(--accent) 16%, transparent); }
+  100% { background-color: transparent; }
+}
+
 /* ── Note metadata bar collapse ──────────────────────────────────────────── */
 
 /* Rangée métadonnées de note repliable dans les deux sens : grid-template-rows
