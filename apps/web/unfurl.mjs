@@ -22,6 +22,7 @@ const MAX_TITLE_LENGTH = 200;
 const MAX_URL_LENGTH = 2048;
 const RATE_LIMIT = 30;
 const RATE_WINDOW_MS = 60_000;
+const RATE_MAX_ENTRIES = 5000;
 
 class UnfurlError extends Error {
   constructor(status, code) {
@@ -229,18 +230,49 @@ function attribute(tag, name) {
   return m ? (m[1] ?? m[2] ?? m[3]) : undefined;
 }
 
-/** `og:title` d'abord, sinon `<title>` ; entités décodées, espaces normalisés, 200 caractères au plus. */
+const MAX_HEAD_CHARS = 32 * 1024;
+
+/** Index de `<name` suivi d'une frontière de mot (équivalent de \b), à partir de `from`, ou -1. */
+function indexOfTag(lc, name, from) {
+  for (let i = lc.indexOf("<" + name, from); i !== -1; i = lc.indexOf("<" + name, i + 1)) {
+    if (!/\w/.test(lc[i + name.length + 1] ?? "")) return i;
+  }
+  return -1;
+}
+
+/**
+ * `og:title` d'abord, sinon `<title>` ; entités décodées, espaces normalisés, 200 caractères au plus.
+ * Balayage linéaire (indexOf) sur un en-tête borné : des regex sur des balises non fermées répétées
+ * étaient quadratiques et bloquaient la boucle d'événements du serveur.
+ */
 export function extractTitle(html) {
+  let head = html.slice(0, MAX_HEAD_CHARS);
+  // Minuscules ASCII seulement : toLowerCase() peut changer la longueur et décaler les index.
+  let lc = head.replace(/[A-Z]+/g, (m) => m.toLowerCase());
+  const end = lc.indexOf("</head");
+  if (end !== -1) {
+    head = head.slice(0, end);
+    lc = lc.slice(0, end);
+  }
   let raw;
-  for (const tag of html.match(/<meta\b[^>]*>/gi) ?? []) {
+  for (let i = indexOfTag(lc, "meta", 0); i !== -1; ) {
+    const close = lc.indexOf(">", i);
+    if (close === -1) break;
+    const tag = head.slice(i, close + 1);
     const key = (attribute(tag, "property") ?? attribute(tag, "name"))?.toLowerCase();
     const content = attribute(tag, "content");
     if (key === "og:title" && content?.trim()) {
       raw = content;
       break;
     }
+    i = indexOfTag(lc, "meta", close + 1);
   }
-  raw ??= /<title\b[^>]*>([\s\S]*?)<\/title>/i.exec(html)?.[1];
+  if (raw === undefined) {
+    const open = indexOfTag(lc, "title", 0);
+    const gt = open === -1 ? -1 : lc.indexOf(">", open);
+    const close = gt === -1 ? -1 : lc.indexOf("</title>", gt);
+    if (close !== -1) raw = head.slice(gt + 1, close);
+  }
   if (!raw) return null;
   // eslint-disable-next-line no-control-regex
   const title = decodeEntities(raw).replace(/[\u0000-\u001f\u007f\s]+/g, " ").trim().slice(0, MAX_TITLE_LENGTH).trim();
@@ -286,7 +318,11 @@ function clientIp(req) {
 
 function rateLimited(ip) {
   const now = Date.now();
-  if (hits.size > 5000) for (const [k, v] of hits) if (v.resetAt <= now) hits.delete(k);
+  if (hits.size >= RATE_MAX_ENTRIES) {
+    for (const [k, v] of hits) if (v.resetAt <= now) hits.delete(k);
+    // X-Forwarded-For est falsifiable hors routeur : la table reste bornée, la plus ancienne sort.
+    if (hits.size >= RATE_MAX_ENTRIES) hits.delete(hits.keys().next().value);
+  }
   const entry = hits.get(ip);
   if (!entry || entry.resetAt <= now) {
     hits.set(ip, { count: 1, resetAt: now + RATE_WINDOW_MS });
