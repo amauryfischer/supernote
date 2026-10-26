@@ -40,6 +40,7 @@ import { ACTION_META } from "./keymap/actions.js";
 import { attachCheckShortcut } from "./extensions/checkShortcut.js";
 import { smartTypographyExtension } from "./extensions/smartTypography.js";
 import { attachHtmlPaste } from "./extensions/htmlPaste.js";
+import { attachPasteLinkTitle } from "./extensions/pasteLinkTitle.js";
 import {
   attachContinueChecklistOnEnter,
   enterTagExtension,
@@ -93,8 +94,12 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
     smartTypography = true,
     getKeymapBindings,
     files,
+    resolveLinkTitle,
     collaboration,
   } = props;
+
+  const resolveLinkTitleRef = useRef(resolveLinkTitle);
+  resolveLinkTitleRef.current = resolveLinkTitle;
 
   // Adaptateur fichiers lu par référence : les options BlockNote sont figées
   // au montage (deps []), la note courante change, elle.
@@ -205,6 +210,13 @@ export function SupernoteEditor(props: SupernoteEditorProps): React.JSX.Element 
     if (!el) return undefined;
     return attachHtmlPaste(el, () => blockNoteRef.current);
   }, []);
+
+  // Coller une URL seule → lien titré (cf. pasteLinkTitle.ts).
+  useEffect(() => {
+    const el = wrapperRef.current;
+    if (!el) return undefined;
+    return attachPasteLinkTitle(el, () => editor, () => resolveLinkTitleRef.current);
+  }, [editor]);
 
   // `x ` → checkListItem shortcut. Implemented as a post-commit watcher on
   // BlockNote's onChange (rather than a Tiptap input rule) because the

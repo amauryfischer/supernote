@@ -16,6 +16,7 @@ import { createServer } from "node:http";
 import { readFile, stat } from "node:fs/promises";
 import { join, extname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { handleUnfurl } from "./unfurl.mjs";
 
 const DIST = join(fileURLToPath(new URL(".", import.meta.url)), "dist");
 const PORT = Number(process.env.PORT) || 3100;
@@ -142,6 +143,9 @@ function send(res, status, body, headers = {}) {
 
 const server = createServer(async (req, res) => {
   try {
+    // Titre d'une URL collée : sans état ni base, toujours monté.
+    if ((req.url ?? "").startsWith("/api/unfurl") && (await handleUnfurl(req, res))) return;
+
     // Realtime sync routes (+ /admin) take precedence over static serving.
     if (syncBackend.enabled) {
       const handled = await syncBackend.handle(req, res);

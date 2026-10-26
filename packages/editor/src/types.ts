@@ -76,6 +76,8 @@ export interface SupernoteEditorApi {
  * en URL affichable (BlockNote `resolveFileUrl`) — indispensable côté web où
  * les fichiers vivent derrière le worker (FSA/OPFS) et pas sur une URL http.
  */
+export type LinkTitleResolver = (url: string) => Promise<string | null>;
+
 export interface EditorFileAdapter {
   /** Persiste le fichier et retourne le chemin à écrire dans le markdown. */
   upload: (file: File) => Promise<string>;
@@ -188,6 +190,12 @@ export interface SupernoteEditorProps {
    * Lu au montage uniquement — passer un objet stable.
    */
   files?: EditorFileAdapter;
+  /**
+   * Titre d'une page web. Fourni, coller une URL seule (sans sélection) insère un
+   * lien dont le texte est l'URL, remplacé par ce titre à sa résolution s'il n'a
+   * pas été modifié entre-temps. `null` ou rejet : l'URL reste. Lu à chaque collage.
+   */
+  resolveLinkTitle?: LinkTitleResolver;
   /** Map résolue combo->actionId pour les raccourcis éditeur. Défaut : registre. */
   getKeymapBindings?: () => Record<string, string>;
   /** Co-édition : le document vient de Yjs, `initialMarkdown` est ignoré. Lu au montage seulement. */
