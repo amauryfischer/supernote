@@ -9,6 +9,8 @@ import {
   UpdateEntityInput,
   MoveEntityIfFreeInput,
   MoveEntityIfFreeOutput,
+  SubpageDescendantsInput,
+  SubpageDescendantsOutput,
   DeleteEntityInput,
   SearchEntitiesInput,
   SearchEntitiesOutput,
@@ -90,6 +92,17 @@ export const entitiesRouter = router({
     .output(MoveEntityIfFreeOutput)
     .mutation(() => {
       throw notImplemented("entities.moveIfFree");
+    }),
+
+  /**
+   * Sous-pages (`fields.parentId`) joignables depuis `id`, en ne traversant que
+   * des notes du même dossier que lui. La racine est exclue ; les cycles sont coupés.
+   */
+  subpageDescendants: publicProcedure
+    .input(SubpageDescendantsInput)
+    .output(SubpageDescendantsOutput)
+    .query(() => {
+      throw notImplemented("entities.subpageDescendants");
     }),
 
   /** Delete an entity (moves to trash by default). */
