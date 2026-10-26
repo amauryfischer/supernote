@@ -56,9 +56,11 @@ interface NoteListItemProps {
    * `sync.listMounts` (le slug seul ne porte pas le nom humain).
    */
   mountLabel?: string;
+  /** Titre de la page parente quand la note est une sous-page (mention « dans X »). */
+  parentLabel?: string;
 }
 
-export function NoteListItem({ note, isActive, onClick, onHover, getPreview, onDelete, sortable, onRename, onArchive, onDragNote, mountLabel, onPin, onDuplicate, onMove }: NoteListItemProps) {
+export function NoteListItem({ note, isActive, onClick, onHover, getPreview, onDelete, sortable, onRename, onArchive, onDragNote, mountLabel, parentLabel, onPin, onDuplicate, onMove }: NoteListItemProps) {
   const [hovered, setHovered] = useState(false);
   const [dragging, setDragging] = useState(false);
   useEffect(() => {
@@ -584,7 +586,7 @@ export function NoteListItem({ note, isActive, onClick, onHover, getPreview, onD
             </p>
           )}
 
-          {(isArchived || note.tags.length > 0 || attachmentBadge || mountLabel) && !isRenaming && (
+          {(isArchived || note.tags.length > 0 || attachmentBadge || mountLabel || parentLabel) && !isRenaming && (
             <div className="mt-2 flex flex-wrap gap-1">
               {attachmentBadge && (
                 <span
@@ -613,6 +615,11 @@ export function NoteListItem({ note, isActive, onClick, onHover, getPreview, onD
                 >
                   <Plugs size={10} weight="fill" />
                   <span className="truncate">{mountLabel}</span>
+                </span>
+              )}
+              {parentLabel && (
+                <span className="min-w-0 max-w-full truncate py-0.5 text-[10px]" style={{ color: "var(--text-muted)" }}>
+                  dans {parentLabel}
                 </span>
               )}
               {isArchived && (
