@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Spinner } from "@heroui/react";
 import dynamic from "next/dynamic";
-import { CaretDown, CaretRight, Calendar, Tag, FloppyDisk, Microphone, Sparkle, X, CheckCircle, WarningCircle, Presentation, FilePdf, Stop, CodeSimple, ShareNetwork } from "@phosphor-icons/react";
+import { CaretDown, CaretRight, Calendar, Tag, FloppyDisk, Microphone, Sparkle, X, CheckCircle, WarningCircle, Presentation, FilePdf, Stop, CodeSimple, ShareNetwork, MapTrifold } from "@phosphor-icons/react";
 import Link from "next/link";
 import { Fragment } from "react";
 import { TagSelector } from "@/components/tags/TagSelector";
@@ -47,6 +47,7 @@ import { HtmlNoteView } from "./HtmlNoteView";
 import { createVaultFileAdapter } from "@/lib/vault-file-adapter";
 import { NoteIcon, IconButton, asIcon } from "./NoteIcon";
 import { AiMarginsPanel } from "./AiMarginsPanel";
+import { NoteMinimap, useMinimapPref } from "./NoteMinimap";
 import { Backlinks } from "./BacklinksPanel";
 import { useAiMarginsChrome } from "@/components/shell/shell-chrome-context";
 import {
@@ -334,6 +335,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
   // chaque rendu de ce composant.
   const aiRuntimeAllowed = useMemo(() => !isMobile && isAiRuntimeAllowed(), [isMobile]);
   const aiMargins = aiRuntimeAllowed && (marginsOverride ?? marginsGlobal);
+  const [minimapOn, toggleMinimap] = useMinimapPref();
   const [bodyVersion, setBodyVersion] = useState(0);
   const [presenting, setPresenting] = useState(false);
   // Surlignage du bloc correspondant au commentaire IA survolé (overlay hors
@@ -2042,6 +2044,18 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
             <CodeSimple size={13} weight={htmlMode ? "fill" : "regular"} />
             Mode HTML
           </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onPress={toggleMinimap}
+            className="sn-hit h-7 min-w-0 gap-1 px-2 text-xs"
+            style={{ color: minimapOn ? "var(--accent)" : "var(--text-muted)" }}
+            aria-label="Minimap"
+            aria-pressed={minimapOn}
+          >
+            <MapTrifold size={13} weight={minimapOn ? "fill" : "regular"} />
+            Minimap
+          </Button>
           {gmailConnected && (
             <Button
               variant="ghost"
@@ -2130,10 +2144,10 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
         </div>
       </div>
 
-      {/* Editor area */}
+      <div className="relative flex min-h-0 flex-1">
       <div
         ref={editorContainerRef}
-        className="flex-1 overflow-y-auto"
+        className="min-w-0 flex-1 overflow-y-auto"
         onMouseDown={(e) => {
           // Click dans la zone padding hors block : routé vers le caret.
           // Position Y détermine si on focus le premier (clic au-dessus) ou
@@ -2259,6 +2273,8 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
             droit (masquable, accaparé par les suggestions IA) : visible sous le
             texte, sur desktop comme sur mobile. pb-16 : dégage le FAB mobile. */}
         <Backlinks entityId={note.id} className="sn-no-print px-4 pb-16 pt-4 md:px-10 md:pb-8" />
+      </div>
+      {minimapOn && <NoteMinimap scrollRef={editorContainerRef} overlay={isMobile} />}
       </div>
       <NoteFormulaModalHost
         stubBase={{ id: "_note", name: "Note", plural: "Notes", fields: [], defaultPath: "", fileNamePattern: "{name}" }}
