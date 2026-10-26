@@ -492,6 +492,9 @@ importers:
       '@tiptap/core':
         specifier: 3.22.5
         version: 3.22.5(@tiptap/pm@3.22.5)
+      '@tiptap/pm':
+        specifier: 3.22.5
+        version: 3.22.5
       shiki:
         specifier: ^3.23.0
         version: 3.23.0

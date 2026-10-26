@@ -192,4 +192,6 @@ export interface SupernoteEditorProps {
   getKeymapBindings?: () => Record<string, string>;
   /** Co-édition : le document vient de Yjs, `initialMarkdown` est ignoré. Lu au montage seulement. */
   collaboration?: EditorCollaboration;
+  /** Clé de persistance (localStorage) des sections repliées, ex. l'id de la note. Sans clé : état en mémoire. Lue au montage seulement. */
+  foldStorageKey?: string;
 }

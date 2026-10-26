@@ -5,6 +5,8 @@ import {
   collectHeadingStarts, resolveHeadingTarget,
 } from "../extensions/blockNavShortcuts.js";
 import { duplicateCurrentBlock } from "../extensions/blockOpsShortcuts.js";
+import { copySelectionAsMarkdown } from "../extensions/copyMarkdown.js";
+import { toggleSectionAtCursor } from "../extensions/sectionFold.js";
 
 function jumpBlock(editor: Editor, dir: "up" | "down"): boolean {
   const head = editor.state.selection.head;
@@ -47,6 +49,10 @@ export const EDITOR_ACTIONS: readonly EditorAction[] = [
   // Édition
   { id: "edition.selectParagraph", label: "Sélectionner le paragraphe", category: "edition",
     defaultCombo: "mod+shift+a", run: ({ editor }) => selectParagraph(editor) },
+  { id: "edition.toggleFold", label: "Replier / déplier la section", category: "edition",
+    defaultCombo: "mod+alt+f", run: ({ editor }) => toggleSectionAtCursor(editor.view) },
+  { id: "edition.copyMarkdown", label: "Copier en Markdown", category: "edition",
+    defaultCombo: "mod+shift+c", run: ({ editor, blockNote }) => (blockNote ? copySelectionAsMarkdown(editor, blockNote) : false) },
 ];
 
 export const ACTION_META: readonly EditorActionMeta[] = EDITOR_ACTIONS.map(
