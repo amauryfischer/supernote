@@ -24,6 +24,7 @@ import {
 } from "@dnd-kit/sortable";
 import { isNotePinned, useDuplicateNote, useFolderPaths, useMoveNote, useReorderNotes, useTogglePin } from "./hooks";
 import { trpc } from "@/lib/trpc/client";
+import { nestSubpages } from "@/lib/subpages";
 import { cloudRoomSlug, cloudVaultId, MOUNT_PATH_PREFIX } from "@/lib/online-sync/room-id";
 
 type SortKey = "updatedAt" | "title" | "manual";
@@ -174,6 +175,17 @@ export function NoteList({
     },
     [mountLabelBySlug],
   );
+
+  // Sous-pages : « dans <parente> » pour toute note enfant au sens de nestSubpages (cycle, parente archivée ou ailleurs → rien).
+  const parentLabelById = useMemo(() => {
+    const source = allNotes ?? notes;
+    const titleById = new Map(source.map((n) => [n.id, n.title]));
+    const labels = new Map<string, string>();
+    for (const [parentId, kids] of nestSubpages(source).childrenOf) {
+      for (const kid of kids) labels.set(kid.id, titleById.get(parentId) ?? "");
+    }
+    return labels;
+  }, [allNotes, notes]);
 
   // Hover prefetch — warms the `entities.get` cache before the click so the
   // editor opens instantly instead of flashing a skeleton. Skipped in demo /
@@ -517,6 +529,7 @@ export function NoteList({
                     onArchive={onArchiveNote ? (a) => onArchiveNote(note.id, a) : undefined}
                     onDragNote={onDragNote}
                     mountLabel={mountLabelForNote(note)}
+                    parentLabel={parentLabelById.get(note.id)}
                     {...rowActions(note)}
                     sortable
                   />
@@ -557,6 +570,7 @@ export function NoteList({
                     onArchive={onArchiveNote ? (a) => onArchiveNote(note.id, a) : undefined}
                     onDragNote={onDragNote}
                     mountLabel={mountLabelForNote(note)}
+                    parentLabel={parentLabelById.get(note.id)}
                     {...rowActions(note)}
                   />
                 </div>
