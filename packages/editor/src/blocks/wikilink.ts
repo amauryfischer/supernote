@@ -19,7 +19,6 @@ export const wikilinkInlineSpec = createInlineContentSpec(
       pill.setAttribute("data-wikilink-target", inlineContent.props.target);
       pill.setAttribute("contenteditable", "false");
       pill.setAttribute("role", "link");
-      pill.setAttribute("tabindex", "0");
 
       const label = inlineContent.props.alias || inlineContent.props.target;
       pill.textContent = `[[${label}]]`;

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, type PointerEvent, type RefObject } from "react";
 import { NO_FIND, type FindState } from "./NoteFind";
+import { TAG_COLORS_EVENT } from "./useTagColors";
 
 interface NoteMinimapProps {
   scrollRef: RefObject<HTMLDivElement | null>;
@@ -11,6 +12,8 @@ interface NoteMinimapProps {
   rail?: boolean;
   /** Résultats de la recherche dans la note, tracés en traits pleine largeur. */
   find?: FindState;
+  /** Clic droit sur la pastille d'un tag inline. */
+  onTagContextMenu?: (path: string, rect: DOMRect) => void;
 }
 
 const MOBILE_HIDE_DELAY_MS = 1200;
@@ -44,6 +47,11 @@ interface TagMark {
   label: string;
   kind: TagKind | undefined;
   y: number;
+  /** Seulement pour une pastille de l'éditeur ; un « #tag » resté en texte n'a pas de ligne `tag` à recolorer. */
+  path?: string;
+  /** Couleur choisie par l'utilisateur, lue sur la pastille (useTagColors). */
+  fg?: string;
+  bg?: string;
 }
 
 /** Tronque avec « … » pour tenir dans `max` px ; vide si même une lettre ne tient pas. */
@@ -76,12 +84,13 @@ export function useMinimapPref(): [boolean, () => void] {
 const railRadius = (width: number) => Math.min(5, width / 2 - 1.5);
 
 // Canvas plutôt que clone DOM : un double du texte casserait les getByText des e2e et rechargerait les iframes.
-export function NoteMinimap({ scrollRef, overlay = false, rail = false, find = NO_FIND }: NoteMinimapProps) {
+export function NoteMinimap({ scrollRef, overlay = false, rail = false, find = NO_FIND, onTagContextMenu }: NoteMinimapProps) {
   const compact = overlay || rail;
   const rootRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const findCanvasRef = useRef<HTMLCanvasElement>(null);
   const pillColRef = useRef(0);
+  const hitsRef = useRef<{ path: string; x: number; y: number; w: number; h: number }[]>([]);
   const viewportRef = useRef<HTMLDivElement>(null);
   const cursorRef = useRef<HTMLDivElement>(null);
   const findRef = useRef(find);
@@ -218,7 +227,9 @@ export function NoteMinimap({ scrollRef, overlay = false, rail = false, find = N
         if (!seenPills.has(pill)) {
           seenPills.add(pill);
           const path = pill.getAttribute("data-tag-path") ?? text.replace(/^#/, "");
-          tags.push({ label: `#${path}`, kind: tagKind(path), y });
+          const pcs = getComputedStyle(pill);
+          const custom = pcs.getPropertyValue("--sn-tag-color").trim() !== "";
+          tags.push({ label: `#${path}`, kind: tagKind(path), y, path, ...(custom && { fg: pcs.color, bg: pcs.backgroundColor }) });
         }
         continue;
       }
@@ -249,6 +260,8 @@ export function NoteMinimap({ scrollRef, overlay = false, rail = false, find = N
     const palette = getComputedStyle(rootRef.current ?? c);
     const token = (name: string) => palette.getPropertyValue(name).trim();
 
+    const hits: typeof hitsRef.current = [];
+    hitsRef.current = hits;
     // Rail : trop étroit pour du texte, chaque tag y devient une pastille ronde de sa couleur.
     if (compact) {
       const r = railRadius(width);
@@ -260,8 +273,9 @@ export function NoteMinimap({ scrollRef, overlay = false, rail = false, find = N
         const cx = width - r - 1;
         ctx.beginPath();
         ctx.arc(cx, y, r, 0, Math.PI * 2);
-        ctx.fillStyle = t.kind ? token(`--sn-tag-${t.kind}-fg`) : token("--accent");
+        ctx.fillStyle = t.fg ?? (t.kind ? token(`--sn-tag-${t.kind}-fg`) : token("--accent"));
         ctx.fill();
+        if (t.path) hits.push({ path: t.path, x: cx - r, y: y - r, w: 2 * r, h: 2 * r });
         // Liseré du fond : deux pastilles voisines restent deux pastilles, pas une grappe.
         ctx.lineWidth = 1.5;
         ctx.strokeStyle = token("--surface-0") || "#fff";
@@ -293,7 +307,7 @@ export function NoteMinimap({ scrollRef, overlay = false, rail = false, find = N
         label = `${label.slice(0, -2)}…`;
         w = ctx.measureText(label + more).width + PILL_PAD * 2;
       }
-      return { label: label + more, kind: first.kind, x: Math.max(1, width - w - 2), top: first.y - pillH / 2, w };
+      return { label: label + more, kind: first.kind, fg: first.fg, bg: first.bg, path: first.path, x: Math.max(1, width - w - 2), top: first.y - pillH / 2, w };
     });
 
     // Colonne réservée aux pastilles : la silhouette du texte est tassée à sa gauche, jamais dessous.
@@ -329,13 +343,14 @@ export function NoteMinimap({ scrollRef, overlay = false, rail = false, find = N
 
     ctx.font = `700 ${PILL_PX}px ${palette.fontFamily}`;
     for (const p of pills) {
-      const fg = p.kind ? token(`--sn-tag-${p.kind}-fg`) : token("--text-primary");
+      if (p.path) hits.push({ path: p.path, x: p.x, y: p.top, w: p.w, h: pillH });
+      const fg = p.fg ?? (p.kind ? token(`--sn-tag-${p.kind}-fg`) : token("--text-primary"));
       ctx.clearRect(p.x, p.top, p.w, pillH);
       ctx.beginPath();
       ctx.roundRect(p.x + 0.5, p.top + 0.5, p.w - 1, pillH - 1, 3);
-      ctx.fillStyle = p.kind ? token(`--sn-tag-${p.kind}-bg`) : token("--surface-2");
+      ctx.fillStyle = p.bg ?? (p.kind ? token(`--sn-tag-${p.kind}-bg`) : token("--surface-2"));
       ctx.fill();
-      ctx.strokeStyle = p.kind ? fg : token("--accent");
+      ctx.strokeStyle = p.kind || p.fg ? fg : token("--accent");
       ctx.lineWidth = 1;
       ctx.stroke();
       ctx.fillStyle = fg;
@@ -402,6 +417,7 @@ export function NoteMinimap({ scrollRef, overlay = false, rail = false, find = N
       cursorFrame = requestAnimationFrame(updateCursor);
     };
     document.addEventListener("selectionchange", onSelection);
+    window.addEventListener(TAG_COLORS_EVENT, schedule);
     paint();
     return () => {
       window.clearTimeout(timer);
@@ -409,6 +425,7 @@ export function NoteMinimap({ scrollRef, overlay = false, rail = false, find = N
       cancelAnimationFrame(frame);
       cancelAnimationFrame(cursorFrame);
       document.removeEventListener("selectionchange", onSelection);
+      window.removeEventListener(TAG_COLORS_EVENT, schedule);
       mo.disconnect();
       ro.disconnect();
       c.removeEventListener("scroll", onScroll);
@@ -424,7 +441,7 @@ export function NoteMinimap({ scrollRef, overlay = false, rail = false, find = N
 
   const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
     const c = scrollRef.current;
-    if (!c) return;
+    if (!c || e.button !== 0) return;
     const s = scaleRef.current;
     const y = e.clientY - e.currentTarget.getBoundingClientRect().top;
     const top = c.scrollTop * s;
@@ -464,6 +481,15 @@ export function NoteMinimap({ scrollRef, overlay = false, rail = false, find = N
       onPointerMove={onPointerMove}
       onPointerUp={endDrag}
       onPointerCancel={endDrag}
+      onContextMenu={(e) => {
+        const box = e.currentTarget.getBoundingClientRect();
+        const x = e.clientX - box.left;
+        const y = e.clientY - box.top;
+        const hit = hitsRef.current.find((h) => x >= h.x - 2 && x <= h.x + h.w + 2 && y >= h.y - 2 && y <= h.y + h.h + 2);
+        if (!hit || !onTagContextMenu) return;
+        e.preventDefault();
+        onTagContextMenu(hit.path, new DOMRect(box.left + hit.x, box.top + hit.y, hit.w, hit.h));
+      }}
       onWheel={(e) => {
         if (scrollRef.current) scrollRef.current.scrollTop += e.deltaY;
       }}

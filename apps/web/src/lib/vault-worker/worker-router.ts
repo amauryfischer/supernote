@@ -2775,6 +2775,8 @@ export function buildRouter(
       label?: string;
       color?: string | null;
     };
+    // Un tag tapé dans une note n'a pas toujours sa ligne : le recolorer depuis l'éditeur la crée.
+    if (!findTagByPath(path)) await tagsCreate({ path, label });
     const existing = findTagByPath(path);
     if (!existing) throw new Error(`tags.update: tag '${path}' not found`);
     const newLabel = label ?? (existing["label"] as string);

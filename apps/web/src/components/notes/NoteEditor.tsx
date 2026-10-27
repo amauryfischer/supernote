@@ -49,6 +49,7 @@ import { createVaultFileAdapter } from "@/lib/vault-file-adapter";
 import { NoteIcon, IconButton, asIcon } from "./NoteIcon";
 import { AiMarginsPanel } from "./AiMarginsPanel";
 import { NoteMinimap, useMinimapPref } from "./NoteMinimap";
+import { useTagColors } from "./useTagColors";
 import { NO_FIND, NoteFind, useNoteFind, type FindState } from "./NoteFind";
 import {
   OutlineMetaButton,
@@ -643,6 +644,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
   // ── Move-to-folder wiring ──────────────────────────────────────────────────
   const router = useRouter();
   const ctxMenu = useContextMenu();
+  const tagColors = useTagColors(editorContainerRef);
   const folderPaths = useFolderPaths();
   // Le nom de fichier final est résolu par le worker : un `filePath` explicite
   // est refusé si la destination est occupée, y compris par un `.md` orphelin
@@ -2488,7 +2490,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
         belowBar={outlineHeadings.length > 1}
       />
       </div>
-      {minimapOn && <NoteMinimap scrollRef={editorContainerRef} overlay={isMobile} rail={minimapRail} find={findState} />}
+      {minimapOn && <NoteMinimap scrollRef={editorContainerRef} overlay={isMobile} rail={minimapRail} find={findState} onTagContextMenu={tagColors.openPicker} />}
       </div>
       <NoteFormulaModalHost
         stubBase={{ id: "_note", name: "Note", plural: "Notes", fields: [], defaultPath: "", fileNamePattern: "{name}" }}
@@ -2555,6 +2557,7 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
         />
       )}
       <ContextMenu state={ctxMenu.state} onClose={ctxMenu.close} />
+      {tagColors.picker}
     </div>
   );
 }

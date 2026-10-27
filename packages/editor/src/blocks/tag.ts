@@ -36,8 +36,17 @@ export const tagInlineSpec = createInlineContentSpec(
       if (kind) pill.setAttribute("data-tag-kind", kind);
       pill.setAttribute("contenteditable", "false");
       pill.setAttribute("role", "link");
-      pill.setAttribute("tabindex", "0");
       pill.textContent = `#${inlineContent.props.path}`;
+
+      // Pastille non sélectionnable : sans ça, un clic dessus laissait le curseur où il était et Effacer ne l'atteignait pas.
+      pill.addEventListener("mousedown", (e) => {
+        if (e.button !== 0 || !pill.parentNode) return;
+        e.preventDefault();
+        (pill.closest(".ProseMirror") as HTMLElement | null)?.focus({ preventScroll: true });
+        const box = pill.getBoundingClientRect();
+        const index = Array.prototype.indexOf.call(pill.parentNode.childNodes, pill) as number;
+        window.getSelection()?.collapse(pill.parentNode, e.clientX > box.left + box.width / 2 ? index + 1 : index);
+      });
 
       pill.addEventListener("click", () => {
         const event = new CustomEvent("supernote:tag-click", {

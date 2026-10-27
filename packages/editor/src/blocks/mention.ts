@@ -50,7 +50,6 @@ export const mentionInlineSpec = createInlineContentSpec(
       pill.setAttribute("data-mention-name", inlineContent.props.name);
       pill.setAttribute("data-mention-type", inlineContent.props.entityType);
       pill.setAttribute("contenteditable", "false");
-      pill.setAttribute("tabindex", "0");
       pill.href = hrefForEntity(
         inlineContent.props.id,
         inlineContent.props.entityType
