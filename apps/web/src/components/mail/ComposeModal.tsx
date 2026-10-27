@@ -437,11 +437,14 @@ export function ComposeModal({
                 <Button
                   variant="primary"
                   className="ml-1 flex items-center gap-1.5"
-                  isDisabled={busy}
+                  isDisabled={busy || (recipients.length === 0 && !toInput.trim())}
                   onPress={() => void submitSend()}
                 >
                   <FeedbackIcon state={sendFb.state} error={sendFb.error} idle={<PaperPlaneTilt size={15} />} />
                   {confirmArmed ? "Confirmer l'envoi" : "Envoyer"}
+                  <kbd aria-hidden className="hidden rounded-[3px] px-1 font-mono text-[10px] leading-4 opacity-70 md:inline" style={{ boxShadow: "inset 0 0 0 1px currentColor" }}>
+                    ⌘↵
+                  </kbd>
                 </Button>
                 </Tooltip>
               </header>

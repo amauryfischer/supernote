@@ -129,12 +129,21 @@ function ensureLinkHook(): void {
     }
     if (blockRemote) {
       const attrs = tag === "A" || tag === "AREA" ? REMOTE_URL_ATTRS : [...REMOTE_URL_ATTRS, "href", "xlink:href"];
+      let stripped = false;
       for (const name of attrs) {
         const value = node.getAttribute(name);
         if (value !== null && isRemoteUrl(value)) {
           node.removeAttribute(name);
           blockedCount++;
+          stripped = true;
         }
+      }
+      // Une img privée de src garde width/height : cadre cassé + vide. !important bat les `img{display:block}` des gabarits.
+      if (stripped && tag === "IMG") {
+        node.removeAttribute("width");
+        node.removeAttribute("height");
+        node.removeAttribute("alt");
+        node.setAttribute("style", "display: none !important");
       }
     }
     if (node.hasAttribute("style")) {
@@ -252,6 +261,18 @@ export function splitSignatureHtml(html: string): { body: string; signature: str
     if (!el.isConnected) continue;
     parts.push(el.outerHTML);
     el.remove();
+  }
+  if (parts.length === 0) {
+    // Sans marqueur : une bannière image finale (signature en image) se replie aussi.
+    let tail: Node | null = root.lastChild;
+    while (tail && tail.nodeType === 1 && (tail.textContent ?? "").trim() === "" && !(tail as Element).querySelector("img") && (tail as Element).tagName !== "IMG")
+      tail = tail.previousSibling;
+    while (tail && tail.nodeType === 1 && (tail as Element).children.length === 1 && (tail.textContent ?? "").trim() === "" && (tail as Element).tagName !== "IMG")
+      tail = (tail as Element).lastElementChild;
+    if (tail && tail.nodeType === 1 && (tail.textContent ?? "").trim() === "" && ((tail as Element).tagName === "IMG" || (tail as Element).querySelector("img"))) {
+      parts.push((tail as Element).outerHTML);
+      tail.parentNode?.removeChild(tail);
+    }
   }
   if (parts.length === 0 || (root.textContent ?? "").trim() === "") return { body: html, signature: "" };
   return { body: root.innerHTML.trim(), signature: parts.join("") };

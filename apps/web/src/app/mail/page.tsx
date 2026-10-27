@@ -22,8 +22,11 @@ import {
   TextAlignLeft,
   Tag,
   CalendarBlank,
+  CaretDown,
 } from "@phosphor-icons/react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { createPortal } from "react-dom";
+import { TOPBAR_SEARCH_SLOT } from "@/components/shell/TopBar";
 import { useSettings } from "@/components/settings/SettingsContext";
 import { MAIL_SYNC_REQUEST_EVENT, useMailSyncAge } from "@/components/mail/MailSyncAge";
 import { AppShell, MobileSheet, useMobileTitle, useMobileFab, useMobileHeaderActions, useMobileBack } from "@/components/shell";
@@ -32,6 +35,10 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import { useGmailConnected } from "@/hooks/useGmailConnected";
 import { useConfirm } from "@/hooks/usePrompt";
 import { EmailThreadView, type EmailThreadHandle } from "@/components/mail/EmailThreadView";
+import { MailConsoleBar } from "@/components/mail/MailConsoleBar";
+import { MailCockpit } from "@/components/mail/MailCockpit";
+import { awaitsMyReply } from "@/lib/mail-awaiting";
+import { MAIL_SENT_EVENT } from "@/lib/mail-outgoing";
 import { MailOverlayList } from "@/components/mail/MailOverlayList";
 import { MailGroupList } from "@/components/mail/MailGroupList";
 import { useCaptureEmail } from "@/components/mail/useCaptureEmail";
@@ -151,7 +158,7 @@ import {
 import { confidenceThreshold } from "@/lib/mail-autolabel";
 import { prefersReducedMotion } from "@/lib/motion";
 import { useActionFeedback, FeedbackIcon } from "@/lib/action-feedback";
-import { useToast, Tooltip } from "@supernote/ui";
+import { useToast, Tooltip, DropdownMenu } from "@supernote/ui";
 import { useNewInboxNote } from "@/components/notes/hooks";
 
 type GroupRow = Extract<OverlayRow, { kind: "group" }>;
@@ -517,11 +524,19 @@ export default function MailPage() {
   const { rows: displayRows, markers: sectionMarkers } = useMemo(
     () =>
       flattenSections(
-        buildMailSections(rows, Date.now(), todoLabelIdSet(todoLabelIds)),
+        buildMailSections(rows, Date.now(), todoLabelIdSet(todoLabelIds), (it) =>
+          awaitsMyReply(it, selfAddresses),
+        ),
         collapsedSections,
       ),
-    [rows, collapsedSections, todoLabelIds],
+    [rows, collapsedSections, todoLabelIds, selfAddresses],
   );
+  const threadPosition = useMemo(() => {
+    if (!selectedThreadId) return null;
+    const singles = displayRows.flatMap((r) => (r.kind === "single" ? [r.item.id] : []));
+    const at = singles.indexOf(selectedThreadId);
+    return at < 0 ? null : { index: at + 1, total: singles.length };
+  }, [displayRows, selectedThreadId]);
   const todoCards = useMemo(
     () =>
       cumItems.flatMap<MailTodoCard>((item) => {
@@ -780,10 +795,12 @@ export default function MailPage() {
   const onPick = useCallback(
     (row: OverlayRow) => {
       setPeekList(false);
-      if (row.kind === "single") {
+      // Un groupe d'un seul fil n'a rien à déplier : on ouvre le fil.
+      const only = row.kind === "single" ? row.item : row.items.length === 1 ? row.items[0] : undefined;
+      if (only) {
         setSelectedGroup(null);
-        void openThread(row.item.id);
-      } else {
+        void openThread(only.id);
+      } else if (row.kind === "group") {
         setSelectedGroup(row);
         setPane("group");
         setSelectedThreadId(null);
@@ -1536,13 +1553,25 @@ export default function MailPage() {
     });
   }, [clientId, accountId, selectedThreadId, selectedGroup, query, loadList]);
 
+  // L'envoi part après la fenêtre « Annuler » : on relit le fil quand il est vraiment parti.
+  useEffect(() => {
+    const onSent = () => handleReplied();
+    window.addEventListener(MAIL_SENT_EVENT, onSent);
+    return () => window.removeEventListener(MAIL_SENT_EVENT, onSent);
+  }, [handleReplied]);
+
   // Triage émis DEPUIS le fil ouvert (TriageBar a déjà poussé Gmail).
   const handleTriaged = useCallback(
     (action: TriageAction) => {
       const id = selectedThreadId;
+      // Rafale : sur desktop, le fil suivant s'ouvre aussitôt, on ne repasse pas par la liste.
+      const singles = displayRows.flatMap((r) => (r.kind === "single" ? [r.item.id] : []));
+      const at = id ? singles.indexOf(id) : -1;
+      const next = at >= 0 ? (singles[at + 1] ?? singles[at - 1]) : undefined;
       setSelectedThreadId(null);
       setThread(null);
       if (!id) return;
+      if (next && !isMobile) void openThread(next);
       if (action === "archive") stripTodoLabels(id);
       dropThreadFromList(id);
       bumpTriaged();
@@ -1558,7 +1587,7 @@ export default function MailPage() {
       );
       offerUndo(id, action);
     },
-    [selectedThreadId, stripTodoLabels, offerUndo, patchMirror, dropThreadFromList],
+    [selectedThreadId, stripTodoLabels, offerUndo, patchMirror, dropThreadFromList, displayRows, isMobile, openThread],
   );
 
   // Le fil a déjà enregistré le changement (mirror + outbox) et resynchronisé ses labels.
@@ -1709,8 +1738,24 @@ export default function MailPage() {
     if (remoteSearch) setLocalCount(rows.length);
   }, [rows.length, remoteSearch]);
 
+  // Desktop : la recherche mail prend la place de la recherche globale dans la barre du haut.
+  const [searchSlot, setSearchSlot] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    setSearchSlot(document.getElementById(TOPBAR_SEARCH_SLOT));
+  }, []);
+
+  const consoleBar = (
+    <MailConsoleBar
+      inline={!isMobile}
+      items={rows.flatMap((r) => (r.kind === "single" ? [r.item] : r.items))}
+      selfEmails={selfAddresses}
+      position={threadPosition}
+    />
+  );
+
   const searchBox = (
     <MailSearchBar
+      inTopBar={Boolean(searchSlot) && !isMobile}
       value={searchText}
       onChange={onSearchChange}
       onSubmit={submitSearch}
@@ -2089,13 +2134,17 @@ export default function MailPage() {
 
   const unreadOf = (items: readonly { labelIds: string[] }[]) =>
     items.filter((it) => it.labelIds.includes("UNREAD")).length;
-  const tabs: { id: string; label: string; count?: number; unread: number }[] = [
-    { id: "inbox", label: "Inbox", unread: unreadOf(filterInboxItems(cumItems, groups)) },
+  const waitingOf = (items: readonly ThreadListItem[]) => items.filter((it) => awaitsMyReply(it, selfAddresses)).length;
+  const inboxItems = filterInboxItems(cumItems, groups);
+  const todoItems = todoCards.map((c) => c.item);
+  const tabs: { id: string; label: string; count?: number; unread: number; waiting: number }[] = [
+    { id: "inbox", label: "Inbox", count: inboxItems.length || undefined, unread: unreadOf(inboxItems), waiting: waitingOf(inboxItems) },
     {
       id: "todo",
       label: "Todo",
       count: todoCards.length || undefined,
-      unread: unreadOf(todoCards.map((c) => c.item)),
+      unread: unreadOf(todoItems),
+      waiting: waitingOf(todoItems),
     },
     ...groups.map((g) => {
       const items = filterGroupItems(cumItems, g);
@@ -2104,6 +2153,7 @@ export default function MailPage() {
         label: g.name,
         count: items.length || undefined,
         unread: unreadOf(items),
+        waiting: waitingOf(items),
       };
     }),
   ];
@@ -2124,7 +2174,7 @@ export default function MailPage() {
               <Tab
                 key={t.id}
                 id={t.id}
-                className="sn-motion-colors flex h-8 items-center gap-1.5 whitespace-nowrap rounded-full px-3.5 py-1 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-[var(--border-focus)]"
+                className="sn-motion-colors flex h-7 items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-0.5 text-[13px] font-medium outline-none focus-visible:ring-2 focus-visible:ring-[var(--border-focus)]"
                 style={
                   active
                     ? {
@@ -2135,34 +2185,31 @@ export default function MailPage() {
                     : { backgroundColor: "transparent", color: "var(--text-muted)" }
                 }
               >
+                {t.waiting > 0 && t.id === "inbox" && <span className="sn-ember" aria-hidden />}
                 {t.label}
-                {t.count ? ` · ${t.count}` : ""}
-                {t.unread > 0 && (
-                  <Badge
-                    size="sm"
-                    className="min-w-[1.125rem] justify-center tabular-nums"
-                    style={{ background: "var(--accent)", color: "var(--accent-foreground)" }}
+                {/* Un seul chiffre : les non-lus s'il y en a, sinon le total en retrait. */}
+                {(t.unread > 0 || t.count) && (
+                  <span
+                    className={`font-mono text-[11px] tabular-nums ${t.unread > 0 ? "font-semibold" : ""}`}
+                    style={{ color: t.unread > 0 ? "var(--text-primary)" : "var(--text-muted)" }}
                   >
-                    {t.unread}
-                    <span className="sr-only"> non lus</span>
-                  </Badge>
+                    {t.unread > 0 ? t.unread : t.count}
+                  </span>
                 )}
+                <span className="sr-only">
+                  {[
+                    t.unread > 0 && `${t.unread} non lus`,
+                    t.count && `${t.count} fils`,
+                    t.waiting > 0 && `${t.waiting} à toi de répondre`,
+                  ]
+                    .filter(Boolean)
+                    .join(", ")}
+                </span>
               </Tab>
             );
           })}
         </TabList>
       </TabsRoot>
-      <Tooltip content="Gérer les groupes mail">
-        <Button
-          size="icon"
-          variant="ghost"
-          onPress={() => setGroupsManagerOpen(true)}
-          aria-label="Gérer les groupes mail"
-          className="shrink-0"
-        >
-          <Faders size={16} />
-        </Button>
-      </Tooltip>
       {!isMobile && (
         <Tooltip content={todayOpen ? "Masquer la journée" : "Voir la journée (agenda)"}>
           <Button
@@ -2177,118 +2224,106 @@ export default function MailPage() {
           </Button>
         </Tooltip>
       )}
-      {/* Classement automatique : état et déclenchement manuel. */}
-      {settings.gmail.autoLabel && aiConfigured && (
-        <Tooltip
-          content={
-            autoLabel.busy
-              ? "Classement en cours…"
-              : autoLabel.remaining > 0
-                ? `${autoLabel.remaining} email(s) à classer — cliquer pour lancer`
-                : autoLabel.lastPass && autoLabel.lastPass.skipped > 0
-                  ? `Tout est passé — ${autoLabel.lastPass.skipped} fil(s) laissé(s) sans tag, confiance insuffisante`
-                  : "Tout est classé"
+      {/* IA regroupée sous un libellé : classer, résumer, interroger la boîte. */}
+      {aiConfigured && (
+        <DropdownMenu
+          trigger={
+            <Button
+              size="sm"
+              variant="ghost"
+              className="relative h-8 shrink-0 gap-1.5 px-2 text-[13px]"
+              aria-label="Actions IA"
+            >
+              {autoLabel.busy || listSummaries.busy ? <Spinner size="sm" aria-hidden /> : <Sparkle size={15} aria-hidden />}
+              IA
+              <CaretDown size={11} aria-hidden />
+              {((settings.gmail.autoLabel && autoLabel.remaining > 0) ||
+                (settings.gmail.listSummary && listSummaries.remaining > 0)) && (
+                <span aria-hidden className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full" style={{ background: "var(--accent)" }} />
+              )}
+            </Button>
           }
-        >
+          items={[
+            ...(settings.gmail.autoLabel
+              ? [
+                  {
+                    key: "classify",
+                    label: autoLabel.busy
+                      ? "Classement en cours…"
+                      : autoLabel.remaining > 0
+                        ? `Classer · ${autoLabel.remaining} à classer`
+                        : "Classer · tout est classé",
+                    startContent: <Sparkle size={14} />,
+                    isDisabled: autoLabel.busy,
+                  },
+                ]
+              : []),
+            ...(settings.gmail.listSummary
+              ? [
+                  {
+                    key: "summarize",
+                    label: listSummaries.busy
+                      ? "Résumés en cours…"
+                      : listSummaries.error
+                        ? `Résumer · ${listSummaries.error}`
+                        : listSummaries.remaining > 0
+                          ? `Résumer · ${listSummaries.remaining} sans résumé`
+                          : "Résumer · tout est résumé",
+                    startContent: <TextAlignLeft size={14} />,
+                    isDisabled: listSummaries.busy,
+                  },
+                ]
+              : []),
+            ...(accountId
+              ? [{ key: "assistant", label: "Assistant de boîte", startContent: <ChatCircleDots size={14} />, shortcut: "i" }]
+              : []),
+          ]}
+          onAction={(key) => {
+            if (key === "classify") void autoLabel.runNow();
+            else if (key === "summarize") void listSummaries.runNow();
+            else if (key === "assistant") navigate("/ai");
+          }}
+        />
+      )}
+      {/* Réglages rares regroupés : la rangée ne garde que l'usage quotidien. */}
+      <DropdownMenu
+        trigger={
           <Button
             size="icon"
             variant="ghost"
-            className="shrink-0"
-            aria-label="Classer les emails avec l'IA locale"
-            isDisabled={autoLabel.busy}
-            onPress={autoLabel.runNow}
+            className="relative shrink-0"
+            aria-label={suggestionCount > 0 ? `Réglages de la boîte, ${suggestionCount} règle(s) proposée(s)` : "Réglages de la boîte"}
           >
-            {autoLabel.busy ? (
-              <Spinner size="sm" aria-hidden />
-            ) : (
-              <Sparkle size={16} style={autoLabel.remaining > 0 ? { color: "var(--accent)" } : undefined} />
+            <Faders size={16} />
+            {suggestionCount > 0 && (
+              <span aria-hidden className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full" style={{ background: "var(--accent)" }} />
             )}
           </Button>
-        </Tooltip>
-      )}
-      {/* Mini-résumés de liste : état et déclenchement manuel. */}
-      {settings.gmail.listSummary && aiConfigured && (
-        <Tooltip
-          content={
-            listSummaries.busy
-              ? "Résumés en cours…"
-              : listSummaries.error
-                ? `${listSummaries.error} — cliquer pour réessayer`
-                : listSummaries.remaining > 0
-                ? `${listSummaries.remaining} email(s) sans résumé — cliquer pour lancer`
-                : "Tous les fils sont résumés"
-          }
-        >
-          <Button
-            size="icon"
-            variant="ghost"
-            className="shrink-0"
-            aria-label="Résumer les emails avec l'IA locale"
-            isDisabled={listSummaries.busy}
-            onPress={listSummaries.runNow}
-          >
-            {listSummaries.busy ? (
-              <Spinner size="sm" aria-hidden />
-            ) : (
-              <TextAlignLeft
-                size={16}
-                style={
-                  listSummaries.error
-                    ? { color: "var(--danger)" }
-                    : listSummaries.remaining > 0
-                      ? { color: "var(--accent)" }
-                      : undefined
-                }
-              />
-            )}
-          </Button>
-        </Tooltip>
-      )}
-      {/* Règles locales + propositions issues des gestes répétés. */}
-      <Tooltip
-        content={
-          suggestionCount > 0
-            ? `${suggestionCount} règle(s) proposée(s)`
-            : "Règles de la boîte"
         }
-      >
-        <Button
-          size="icon"
-          variant="ghost"
-          className="shrink-0"
-          aria-label="Règles de la boîte"
-          onPress={() => setRulesOpen(true)}
-        >
-          <Funnel size={16} style={suggestionCount > 0 ? { color: "var(--accent)" } : undefined} />
-        </Button>
-      </Tooltip>
-      {/* Assistant de boîte (questions en langage naturel, IA locale). */}
-      {aiConfigured && accountId && (
-        <Tooltip content="Assistant (i)">
-          <Button
-            size="icon"
-            variant="ghost"
-            className="shrink-0"
-            aria-label="Ouvrir l'assistant"
-            onPress={() => navigate("/ai")}
-          >
-            <ChatCircleDots size={16} />
-          </Button>
-        </Tooltip>
-      )}
-      {!isMobile && (
-        <Tooltip content="Gérer les labels">
-          <Button
-            size="icon"
-            variant="ghost"
-            onPress={() => setLabelsManagerOpen(true)}
-            aria-label="Gérer les labels"
-            className="shrink-0"
-          >
-            <Tag size={16} />
-          </Button>
-        </Tooltip>
-      )}
+        sections={[
+          {
+            key: "boite",
+            title: "Réglages de la boîte",
+            items: [
+              { key: "groups", label: "Groupes mail (onglets)", startContent: <Faders size={14} /> },
+              {
+                key: "rules",
+                label:
+                  suggestionCount > 0
+                    ? `Règles · ${suggestionCount} proposée${suggestionCount > 1 ? "s" : ""}`
+                    : "Règles de la boîte",
+                startContent: <Funnel size={14} />,
+              },
+              ...(isMobile ? [] : [{ key: "labels", label: "Labels", startContent: <Tag size={14} /> }]),
+            ],
+          },
+        ]}
+        onAction={(key) => {
+          if (key === "groups") setGroupsManagerOpen(true);
+          else if (key === "rules") setRulesOpen(true);
+          else if (key === "labels") setLabelsManagerOpen(true);
+        }}
+      />
       {!isMobile && (
         <Tooltip content="Raccourcis clavier (?)">
           <Button
@@ -2303,6 +2338,8 @@ export default function MailPage() {
         </Tooltip>
       )}
       <div className="ml-auto flex shrink-0 items-center gap-1">
+        {/* Desktop : compteurs dans la rangée des onglets, la liste commence tout de suite. */}
+        {!isMobile && consoleBar}
         {/* Rappels de relance en attente. */}
         <MailFollowupBadge onOpenThread={(id) => void openThread(id)} />
         <MailSnoozedBadge clientId={clientId} onOpenThread={(id) => void openThread(id)} />
@@ -2380,7 +2417,7 @@ export default function MailPage() {
         <PushPromptBanner onOpenSync={() => navigate("/parametres")} />
         {/* Mobile : la recherche est repliée derrière l'action d'en-tête (la
             liste garde toute la hauteur) ; desktop : toujours visible. */}
-        {(!isMobile || mobileSearchOpen) && searchBox}
+        {isMobile ? mobileSearchOpen && searchBox : !searchSlot && searchBox}
         {!activeGroup && bulkBar}
         {/* `relative` = bloc englobant : sans ça, un descendant `position:absolute`
             (ex. span interne de la Checkbox HeroUI) prend `html` comme référent,
@@ -2443,6 +2480,7 @@ export default function MailPage() {
           )}
           {!listLoading && !listError && rows.length > 0 && (
             <>
+              {isMobile && consoleBar}
               <MailOverlayList
                 rows={displayRows}
                 activeKey={activeKey}
@@ -2465,6 +2503,7 @@ export default function MailPage() {
                 onSwipeRow={isMobile ? handleSwipeRow : undefined}
                 onLongPressRow={isMobile ? handleLongPressRow : undefined}
                 summaries={listSummaries.summaries}
+                selfEmails={selfAddresses}
                 sections={sectionMarkers}
                 onToggleSection={toggleSection}
                 onMarkSectionRead={markThreadsRead}
@@ -2526,6 +2565,7 @@ export default function MailPage() {
           onMarkAllRead={() => void markGroupRead(selectedGroup)}
           deleteBusy={bulkBusy}
           summaries={listSummaries.summaries}
+          selfEmails={selfAddresses}
           labelNames={labelNames}
           labelColors={labelColors}
           groupLabelId={selectedGroupLabelId}
@@ -2676,6 +2716,8 @@ export default function MailPage() {
                 <EmailThreadView
                   ref={threadRef}
                   thread={thread}
+                  listSummary={listSummaries.summaries.get(thread.id)}
+                  onClose={isMobile ? undefined : closeThread}
                   selfEmail={settings.gmail.connectedEmail}
                   /* La page possède le clavier (useMailKeyboard) → pas de second
                      listener dans la vue fil. */
@@ -2713,13 +2755,7 @@ export default function MailPage() {
         </div>
       )}
       {!threadLoading && !threadError && !thread && (
-        <div
-          className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center"
-          style={{ color: "var(--text-muted)" }}
-        >
-          <EnvelopeOpen size={32} weight="thin" aria-hidden />
-          <p className="text-sm">Sélectionne un email pour le lire ici.</p>
-        </div>
+        <MailCockpit showToday={!todayOpen} />
       )}
     </div>
   );
@@ -2879,6 +2915,7 @@ export default function MailPage() {
                 onMarkAllRead={() => void markGroupRead(selectedGroup)}
                 deleteBusy={bulkBusy}
                 summaries={listSummaries.summaries}
+                selfEmails={selfAddresses}
                 labelNames={labelNames}
                 labelColors={labelColors}
                 groupLabelId={selectedGroupLabelId}
@@ -2902,29 +2939,23 @@ export default function MailPage() {
   }
 
   // Desktop : la boîte reste en fond, le fil s'affiche en drawer par-dessus.
-  const drawerLeft = peekList ? "62%" : "18rem";
+  const drawerLeft = peekList ? "50%" : "23rem";
   const slide = `left ${prefersReducedMotion() ? "0ms" : "var(--sn-dur-4)"} var(--sn-ease-out)`;
 
   return (
     <AppShell>
       <div className="flex h-full flex-col overflow-hidden">
+        {searchSlot && createPortal(searchBox, searchSlot)}
         {tabStrip}
         <GmailReconnectBanner clientId={clientId} />
         <div className="flex min-h-0 flex-1 overflow-hidden">
         <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
           {selectedThreadId ? (
             <>
-              <div className="absolute inset-0 overflow-hidden">{pane1}</div>
-              {!peekList && (
-                <button
-                  type="button"
-                  onClick={closeThread}
-                  aria-label="Fermer l'email (revenir à la boîte)"
-                  title="Cliquer pour revenir à la boîte"
-                  className="absolute inset-y-0 left-0 z-10 cursor-pointer transition-colors hover:bg-[color-mix(in_oklch,var(--accent)_8%,transparent)]"
-                  style={{ width: drawerLeft }}
-                />
-              )}
+              {/* Rail : la boîte (ou le groupe ouvert) reste navigable à gauche du fil. */}
+              <div className="absolute inset-y-0 left-0 overflow-hidden" style={{ width: drawerLeft }}>
+                {selectedGroup ? pane2 : pane1}
+              </div>
               <div
                 className="sn-overlay-in absolute inset-y-0 right-0 z-20 flex overflow-hidden"
                 style={{
@@ -2959,11 +2990,6 @@ export default function MailPage() {
                     />
                   )}
                 </button>
-                {selectedGroup && (
-                  <div className="h-full shrink-0 overflow-hidden" style={{ flexBasis: "18rem" }}>
-                    {pane2}
-                  </div>
-                )}
                 <div className="h-full min-w-0 flex-1 overflow-hidden">{pane3}</div>
               </div>
             </>
@@ -2976,7 +3002,8 @@ export default function MailPage() {
             </>
           ) : (
             <>
-              <div className="h-full shrink-0 overflow-hidden" style={{ flexBasis: "50%" }}>
+              {/* La liste est l'outil principal ; le cockpit n'en est que le complément. */}
+              <div className="h-full shrink-0 overflow-hidden" style={{ flexBasis: "60%" }}>
                 {pane1}
               </div>
               <div className="h-full min-w-0 flex-1 overflow-hidden">{pane3}</div>

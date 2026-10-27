@@ -30,6 +30,8 @@ export const MAX_ATTEMPTS = 5;
 
 /** Émis à chaque changement de la file (badge, liste des envois programmés). */
 export const MAIL_OUTGOING_EVENT = "supernote:mail-outgoing";
+/** Émis quand un message a réellement quitté la file (detail : `{ threadId? }`). */
+export const MAIL_SENT_EVENT = "supernote:mail-sent";
 
 export interface OutgoingMessage {
   id: string;

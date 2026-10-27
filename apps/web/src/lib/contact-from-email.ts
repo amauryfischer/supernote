@@ -176,6 +176,12 @@ export function prettyOrgName(label: string): string {
 
 // ─── Devinette complète ─────────────────────────────────────────────────────
 
+/** Adresse de machine (noreply, notifications…) ou de boîte générique (contact@…) : pas une personne. */
+export function isMachineAddress(address: string): boolean {
+  const local = address.trim().toLowerCase().split("@")[0] ?? "";
+  return AUTOMATED_LOCAL.test(local) || local.includes("noreply") || GENERIC_LOCAL.test(local);
+}
+
 export function guessContactFromEmail(
   from: { name: string; email: string },
   bodyText: string,

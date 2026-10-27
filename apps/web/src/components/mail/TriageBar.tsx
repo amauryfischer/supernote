@@ -98,20 +98,28 @@ export function TriageBar({ clientId, threadId, onTriaged, onTriage }: TriageBar
 
   return (
     <div className="flex items-center gap-1" role="group" aria-label="Triage du fil">
-      <Tooltip content={tip("archive", "Fait (e)")}>
+      <Tooltip content={tip("archive", `Fait (${shortcutKey("archive")})`)}>
         <Button
           variant="ghost"
-          size="icon"
+          size="sm"
           onPress={() => handleSimple("archive")}
           isDisabled={busy}
-          className="h-9"
+          className="h-9 gap-1.5 px-2 md:border md:border-[var(--border-subtle)]"
           aria-label="Fait"
         >
           {icon("archive", <CheckCircle size={18} weight="bold" aria-hidden />)}
+          <span className="hidden text-[13px] font-medium md:inline">Fait</span>
+          <kbd
+            aria-hidden
+            className="hidden rounded-[3px] border px-1 font-mono text-[10px] leading-4 md:inline"
+            style={{ borderColor: "var(--border)", color: "var(--text-muted)" }}
+          >
+            {shortcutKey("archive")}
+          </kbd>
         </Button>
       </Tooltip>
 
-      <Tooltip content={tip("snooze", "Reporter (h)")}>
+      <Tooltip content={tip("snooze", `Reporter (${shortcutKey("snoozeMenu")})`)}>
         <Button
           variant="ghost"
           size="icon"

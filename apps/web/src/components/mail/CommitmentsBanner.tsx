@@ -1,6 +1,8 @@
 "use client";
 
-import { ArrowBendUpLeft, CheckSquare, Clock, X } from "@phosphor-icons/react";
+import { useState } from "react";
+import { useSearchParams } from "react-router-dom";
+import { ArrowBendUpLeft, CaretDown, CaretRight, CheckSquare, Clock, X } from "@phosphor-icons/react";
 import { Button, Tooltip } from "@supernote/ui";
 import type { EmailThread } from "@/lib/gmail";
 import { FeedbackIcon, useActionFeedback } from "@/lib/action-feedback";
@@ -43,12 +45,12 @@ function Row({
   const pending = c.status === "suggested";
 
   return (
-    <li className="flex min-h-10 items-center gap-2 py-1">
+    <li className="flex min-h-9 items-center gap-2 py-0.5">
       <span className="sn-eyebrow sn-eyebrow--compact shrink-0">{mine ? "Je dois" : "On me doit"}</span>
       <span className="min-w-0 flex-1 text-sm" style={{ color: "var(--text-primary)" }}>
         <span className="line-clamp-2">{c.text}</span>
         <span
-          className="block text-xs tabular-nums"
+          className="block font-mono text-[11px] tabular-nums"
           style={{ color: isOverdue(c.due) ? "var(--danger, #c0392b)" : "var(--text-muted)" }}
         >
           {c.who ? `${c.who} · ` : ""}
@@ -116,21 +118,44 @@ export function CommitmentsBanner({
   onDraft: (text: string) => void;
 }) {
   const tc = useThreadCommitments(thread, accountId, selfEmails);
+  const [params] = useSearchParams();
+  // Arrivée depuis « relancer » du volet Aujourd'hui : déjà déplié sur l'action.
+  const [open, setOpen] = useState(() => params.get("engagements") === "1");
   const visible = (tc?.items ?? []).filter(
     (c) => c.status === "suggested" || (c.status === "accepted" && c.direction === "eux" && isOverdue(c.due)),
   );
   if (!tc || visible.length === 0) return null;
+  const owed = visible.filter((c) => c.direction !== "moi").length;
+  const owing = visible.length - owed;
+  const overdue = visible.some((c) => isOverdue(c.due));
+  const Caret = open ? CaretDown : CaretRight;
   return (
-    <section
-      aria-label="Engagements"
-      className="mb-3 rounded-lg border px-3 py-1"
-      style={{ borderColor: "var(--border-subtle)", background: "var(--surface-1)" }}
-    >
-      <ul className="flex flex-col divide-y" style={{ borderColor: "var(--border-subtle)" }}>
-        {visible.map((c) => (
-          <Row key={c.key} c={c} tc={tc} messageCount={thread.messages.length} onDraft={onDraft} />
-        ))}
-      </ul>
+    <section aria-label="Engagements" className="rounded-md border" style={{ borderColor: "var(--border-subtle)" }}>
+      <Button
+        variant="ghost"
+        size="sm"
+        aria-expanded={open}
+        className="h-7 min-h-7 w-full justify-start gap-1.5 rounded-md px-2 text-[12px]"
+        style={{ color: "var(--text-muted)" }}
+        onPress={() => setOpen((o) => !o)}
+      >
+        <span className="font-mono tabular-nums">
+          {[owed > 0 && `${owed} on me doit`, owing > 0 && `${owing} je dois`].filter(Boolean).join(" · ")}
+        </span>
+        {overdue && (
+          <span className="font-mono" style={{ color: "var(--danger)" }}>
+            · en retard
+          </span>
+        )}
+        <Caret size={11} aria-hidden />
+      </Button>
+      {open && (
+        <ul className="flex flex-col divide-y border-t px-2" style={{ borderColor: "var(--border-subtle)" }}>
+          {visible.map((c) => (
+            <Row key={c.key} c={c} tc={tc} messageCount={thread.messages.length} onDraft={onDraft} />
+          ))}
+        </ul>
+      )}
     </section>
   );
 }

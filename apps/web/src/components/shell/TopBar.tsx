@@ -211,6 +211,8 @@ function ThemeToggleButton() {
 
 // ── TopBar ────────────────────────────────────────────────────────────────────
 
+export const TOPBAR_SEARCH_SLOT = "sn-topbar-search-slot";
+
 export const TopBar = memo(function TopBar() {
   const { toggleRightPanel, rightPanelVisible } = useShellChrome();
   const handleNewNote = useNewInboxNote();
@@ -233,8 +235,13 @@ export const TopBar = memo(function TopBar() {
       </div>
 
       {/* La palette ⌘K en barre centrée, seule affordance de recherche du
-          shell (le rail n'a pas de champ). */}
-      <SearchTrigger className="w-[min(380px,34vw)]" />
+          shell (le rail n'a pas de champ). Sur /mail, la page y monte sa propre
+          recherche (portail) : un seul champ à l'écran, ⌘K reste au clavier. */}
+      {onMail ? (
+        <div id={TOPBAR_SEARCH_SLOT} className="flex w-[min(480px,38vw)] justify-center" />
+      ) : (
+        <SearchTrigger className="w-[min(380px,34vw)]" />
+      )}
 
       <div className="flex shrink-0 items-center justify-end gap-1">
         <GitSyncIndicator />

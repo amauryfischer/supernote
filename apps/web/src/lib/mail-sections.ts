@@ -22,6 +22,7 @@
 import { rowHasStar, type OverlayRow } from "./mail-overlay";
 
 export type MailSectionId =
+  | "awaiting"
   | "starred"
   | "todo"
   | "today"
@@ -38,6 +39,7 @@ export interface MailSection {
 
 /** Libellés affichés, dans l'ordre d'apparition. */
 const SECTION_TITLES: Record<MailSectionId, string> = {
+  awaiting: "À toi de répondre",
   starred: "Étoilés",
   todo: "Todo",
   today: "Aujourd'hui",
@@ -48,9 +50,11 @@ const SECTION_TITLES: Record<MailSectionId, string> = {
 };
 
 /** Ordre canonique des sections. */
+// Ce qui demande une action d'abord, puis ce que l'utilisateur a mis de côté, puis la chronologie.
 const SECTION_ORDER: readonly MailSectionId[] = [
-  "todo",
+  "awaiting",
   "starred",
+  "todo",
   "today",
   "yesterday",
   "week",
@@ -117,10 +121,10 @@ function splitRow(row: OverlayRow, test: (it: RowItem) => boolean, suffix: strin
   const rest = row.items.filter((it) => !test(it));
   const latest = (items: RowItem[]) =>
     items.reduce((max, it) => (it.date > max ? it.date : max), "");
-  return [
-    { ...row, key: `${row.key}${suffix}`, items: hit, count: hit.length, date: latest(hit) },
-    { ...row, items: rest, count: rest.length, date: latest(rest) },
-  ];
+  // Une moitié réduite à un fil redevient une ligne seule : un « groupe » de 1 masquerait l'expéditeur.
+  const part = (items: RowItem[], key: string): OverlayRow =>
+    items.length === 1 ? { kind: "single", item: items[0]! } : { ...row, key, items, count: items.length, date: latest(items) };
+  return [part(hit, `${row.key}${suffix}`), part(rest, row.key)];
 }
 
 /**
@@ -132,19 +136,24 @@ export function buildMailSections(
   rows: readonly OverlayRow[],
   now: number,
   todoLabelIds: ReadonlySet<string>,
+  isAwaiting: (it: RowItem) => boolean = () => false,
 ): MailSection[] {
   const isTodo = (it: RowItem) => it.labelIds.some((id) => todoLabelIds.has(id));
   const isStarred = (it: RowItem) => it.labelIds.includes("STARRED");
   const buckets = new Map<MailSectionId, OverlayRow[]>();
+  // Étoiler ou passer en Todo, c'est ranger : le fil quitte « À toi » pour sa section.
   const split = rows
     .flatMap((r) => splitRow(r, isTodo, "#todo"))
-    .flatMap((r) => (rowItems(r).some(isTodo) ? [r] : splitRow(r, isStarred, "#star")));
+    .flatMap((r) => (rowItems(r).some(isTodo) ? [r] : splitRow(r, isStarred, "#star")))
+    .flatMap((r) => (rowItems(r).some(isTodo) || rowHasStar(r) ? [r] : splitRow(r, isAwaiting, "#await")));
   for (const row of split) {
     const id = rowItems(row).some(isTodo)
       ? "todo"
       : rowHasStar(row)
         ? "starred"
-        : timeBucket(row, now);
+        : rowItems(row).some(isAwaiting)
+          ? "awaiting"
+          : timeBucket(row, now);
     const arr = buckets.get(id);
     if (arr) arr.push(row);
     else buckets.set(id, [row]);
@@ -212,7 +221,7 @@ const COLLAPSED_KEY = "supernote.mail.collapsedSections";
 
 // Le stockage garde les ÉCARTS à ce défaut, pas l'état brut : une valeur
 // enregistrée avant l'ajout d'une section repliée par défaut reste valable.
-const DEFAULT_COLLAPSED: readonly MailSectionId[] = ["todo"];
+const DEFAULT_COLLAPSED: readonly MailSectionId[] = ["todo", "starred"];
 
 function flipDefaults(ids: Iterable<MailSectionId>): Set<MailSectionId> {
   const out = new Set(DEFAULT_COLLAPSED);

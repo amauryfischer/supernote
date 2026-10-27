@@ -23,6 +23,7 @@ import {
   recordFailure,
   loadOutgoing,
   MAIL_OUTGOING_EVENT,
+  MAIL_SENT_EVENT,
   type OutgoingMessage,
 } from "@/lib/mail-outgoing";
 
@@ -81,6 +82,7 @@ export function MailOutgoingRunner() {
         void send(m)
           .then(() => {
             cancelOutgoing(m.id); // sorti de la file : c'est parti
+            window.dispatchEvent(new CustomEvent(MAIL_SENT_EVENT, { detail: { threadId: m.threadId } }));
             toastRef.current({ title: "Message envoyé", variant: "success" });
           })
           .catch((err: unknown) => {

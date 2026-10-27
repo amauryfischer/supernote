@@ -5,7 +5,11 @@ import { Trash, EnvelopeOpen, Sparkle, Star } from "@phosphor-icons/react";
 import type { GmailLabelColor, ThreadListItem } from "@/lib/gmail";
 import { RowLabelChips } from "./LabelMarker";
 import { formatMailDateTime } from "@/lib/mail-date";
-import { initials, avatarColor } from "@/lib/mail-avatar";
+import { awaitsMyReply, isSelfAddress } from "@/lib/mail-awaiting";
+
+// Label nommé d'après une boîte (alias de réception) : pas un tag.
+const EMAIL_LIKE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const NO_SELF: readonly string[] = [];
 import { SwipeableRow, type SwipeAction } from "./SwipeableRow";
 
 export function MailGroupList({
@@ -18,6 +22,7 @@ export function MailGroupList({
   onMarkAllRead,
   deleteBusy,
   summaries,
+  selfEmails = NO_SELF,
   labelNames,
   labelColors,
   groupLabelId,
@@ -40,6 +45,7 @@ export function MailGroupList({
   deleteBusy?: boolean;
   /** threadId → mini-résumé IA, affiché sous l'objet (cf. MailOverlayList). */
   summaries?: ReadonlyMap<string, string>;
+  selfEmails?: readonly string[];
   labelNames?: ReadonlyMap<string, string>;
   labelColors?: ReadonlyMap<string, GmailLabelColor>;
   /** Label du groupe ouvert : commun à toutes les lignes, donc pas répété en pastille. */
@@ -92,8 +98,8 @@ export function MailGroupList({
         const active = activeThreadId === it.id;
         const cursored = cursorIndex === idx;
         const unread = it.labelIds.includes("UNREAD");
-        const avatar = avatarColor(it.from.email || it.from.name || title);
-        const mono = initials(it.from.name ?? "", it.from.email ?? "");
+        const awaiting = awaitsMyReply(it, selfEmails);
+        const mine = isSelfAddress(it.from.email, selfEmails);
         const aiSummary = summaries?.get(it.id);
         const starred = it.labelIds.includes("STARRED");
         const row = (
@@ -105,42 +111,37 @@ export function MailGroupList({
             aria-selected={active || cursored}
             // Curseur clavier (non ouvert) = anneau accent ; ouvert = accent-subtle
             // + barre à gauche (cohérent avec MailOverlayList).
-            className={`h-auto w-full justify-start whitespace-normal rounded-lg px-3 py-2 text-left${
-              cursored && !active ? " ring-2 ring-inset ring-[var(--accent)]" : ""
-            }`}
-            style={
-              active
-                ? { backgroundColor: "var(--accent-subtle)", boxShadow: "inset 3px 0 0 0 var(--accent)" }
-                : undefined
-            }
+            className="h-auto min-h-0 w-full justify-start whitespace-normal rounded-none border-b px-3 py-2 text-left"
+            style={{
+              borderColor: "var(--border-subtle)",
+              ...(active
+                ? { backgroundColor: "var(--accent-subtle)", boxShadow: "inset 2px 0 0 0 var(--accent)" }
+                : cursored
+                  ? { backgroundColor: "var(--surface-2, var(--accent-subtle))", boxShadow: "inset 2px 0 0 0 var(--text-muted)" }
+                  : awaiting
+                    ? { boxShadow: "inset 2px 0 0 0 oklch(0.72 0.17 50)" }
+                    : {}),
+            }}
           >
             <span className="flex w-full min-w-0 items-start gap-2.5">
-              {/* Monogramme expéditeur + pastille non-lu (parité MailOverlayList) :
-                  repère visuel + scan rapide des fils non lus dans un groupe. */}
-              <span className="relative shrink-0">
-                <span
-                  aria-hidden
-                  className="flex h-8 w-8 items-center justify-center rounded-lg text-xs font-semibold"
-                  style={{ backgroundColor: avatar.bg, color: avatar.fg }}
-                >
-                  {mono}
-                </span>
-                {unread && (
-                  <span
-                    aria-label="Non lu"
-                    title="Non lu"
-                    className="absolute -left-1 -top-1 h-2.5 w-2.5 rounded-full"
-                    style={{ backgroundColor: "var(--accent)", boxShadow: "0 0 0 2px var(--surface-0)" }}
-                  />
-                )}
+              <span className="flex h-5 w-2.5 shrink-0 items-center justify-center" aria-hidden>
+                {awaiting ? (
+                  <span className="sn-ember" />
+                ) : unread ? (
+                  <span className="h-1.5 w-1.5 rounded-full" style={{ background: "var(--accent)" }} />
+                ) : null}
               </span>
+              {(unread || awaiting) && (
+                <span className="sr-only">{[unread && "Non lu", awaiting && "À toi de répondre"].filter(Boolean).join(", ")}</span>
+              )}
               <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                 <span className="flex items-baseline justify-between gap-2">
                   <span
-                    className={`truncate text-sm ${unread ? "font-semibold" : "font-medium"}`}
-                    style={{ color: "var(--text-primary)" }}
+                    className={`truncate text-[13px] ${unread ? "font-semibold" : "font-medium"}`}
+                    style={{ color: mine ? "var(--text-muted)" : "var(--text-primary)" }}
+                    title={it.from.email}
                   >
-                    {it.from.name || it.from.email}
+                    {mine ? "Moi ↗" : it.from.name || it.from.email}
                   </span>
                   <span className="flex shrink-0 items-center gap-1.5">
                     {/* Natif : interactif imbriqué dans la ligne-Button (cf. MailOverlayList). */}
@@ -166,39 +167,39 @@ export function MailGroupList({
                         <Star
                           size={14}
                           weight={starred ? "fill" : "regular"}
-                          style={{ color: starred ? "var(--warning)" : "var(--text-muted)" }}
+                          style={{ color: starred ? "var(--text-primary)" : "var(--text-muted)" }}
                         />
                       </span>
                     )}
-                    <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+                    <span
+                      className="font-mono text-[11px] tabular-nums"
+                      style={{ color: awaiting ? "oklch(0.72 0.17 50)" : "var(--text-muted)" }}
+                    >
                       {formatMailDateTime(it.date)}
                     </span>
                   </span>
                 </span>
                 <span className="flex min-w-0 items-center gap-1.5">
-                  <span className="min-w-0 flex-1 truncate text-sm" style={{ color: "var(--text-secondary)" }}>
+                  <span
+                    className={`min-w-0 truncate text-[13px] ${unread ? "font-semibold" : ""}`}
+                    style={{ color: unread || awaiting ? "var(--text-primary)" : "var(--text-secondary)" }}
+                  >
                     {it.subject}
                   </span>
                   <RowLabelChips
-                    labelIds={it.labelIds.filter((id) => id !== groupLabelId)}
+                    labelIds={it.labelIds.filter((id) => id !== groupLabelId && !EMAIL_LIKE.test(labelNames?.get(id) ?? ""))}
                     names={labelNames}
                     colors={labelColors}
                   />
                 </span>
                 {aiSummary && (
                   <span
-                    className="flex min-w-0 items-start gap-1 text-xs"
-                    style={{ color: "var(--text-muted)" }}
-                    title="Résumé par l'IA locale"
+                    className="flex min-w-0 items-start gap-1.5 text-[12px] leading-snug"
+                    style={{ color: "var(--text-secondary)" }}
+                    title={`Résumé par l'IA locale : ${aiSummary}`}
                   >
-                    <Sparkle
-                      size={11}
-                      weight="fill"
-                      aria-hidden
-                      className="mt-0.5 shrink-0"
-                      style={{ color: "var(--accent)" }}
-                    />
-                    <span className="line-clamp-2 min-w-0">{aiSummary}</span>
+                    <Sparkle size={10} weight="fill" aria-hidden className="mt-[3px] shrink-0" style={{ color: "var(--text-muted)" }} />
+                    <span className={`min-w-0 ${active || cursored ? "line-clamp-2" : "truncate"}`}>{aiSummary}</span>
                   </span>
                 )}
               </span>

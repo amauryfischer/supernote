@@ -29,10 +29,10 @@ import { rowCheckState } from "@/lib/mail-selection";
 import { QUADRANTS, type EisenhowerQuadrant } from "@/lib/mail-eisenhower";
 import { SNOOZE_PRESETS, type TriageAction } from "@/lib/mail-triage";
 import type { GmailLabelColor } from "@/lib/gmail";
-import { initials, avatarColor } from "@/lib/mail-avatar";
 import { formatMailDate } from "@/lib/mail-date";
+import { awaitsMyReply, isSelfAddress } from "@/lib/mail-awaiting";
 import { SwipeableRow, type SwipeAction } from "./SwipeableRow";
-import { LabelMarker, RowLabelChips, labelChipStyle } from "./LabelMarker";
+import { LabelMarker, RowLabelChips, labelChipSoftStyle } from "./LabelMarker";
 
 /** Données partagées par toutes les lignes — évite de threader une douzaine de
  *  props à travers `MailRow`. */
@@ -58,6 +58,7 @@ interface SharedRowProps {
   onLongPressRow?: (row: OverlayRow) => void;
   /** threadId → mini-résumé IA. Remplace le snippet Gmail quand il existe. */
   summaries?: ReadonlyMap<string, string>;
+  selfEmails: readonly string[];
 }
 
 /**
@@ -69,13 +70,21 @@ interface SharedRowProps {
 const VIRTUALIZE_THRESHOLD = 60;
 
 /** Hauteur estimée d'une ligne (avant mesure réelle). */
-const ROW_ESTIMATE = 62;
+const ROW_ESTIMATE = 36;
+
+const EMBER = "oklch(0.72 0.17 50)";
+const DAY_MS = 86_400_000;
+
+function waitAge(iso: string): string {
+  const days = Math.floor((Date.now() - new Date(iso).getTime()) / DAY_MS);
+  return Number.isNaN(days) || days < 1 ? "" : `${days} j`;
+}
+const NO_SELF: readonly string[] = [];
+// Label nommé d'après une boîte (alias de réception) : pas un tag, il ne s'affiche pas en chip.
+const EMAIL_LIKE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /** Hauteur estimée d'un en-tête de section (avant mesure réelle). */
 const HEADER_ESTIMATE = 34;
-
-/** Expéditeurs distincts montrés dans la pile d'avatars d'un groupe. */
-const SENDER_STACK_MAX = 4;
 
 /** Objets d'un groupe-tag montrés en aperçu sur sa ligne. */
 const GROUP_SUBJECT_MAX = 3;
@@ -114,6 +123,7 @@ export function MailOverlayList({
   onSwipeRow,
   onLongPressRow,
   summaries,
+  selfEmails = NO_SELF,
   sections,
   onToggleSection,
   onMarkSectionRead,
@@ -179,6 +189,8 @@ export function MailOverlayList({
    * Absent → comportement historique (snippet).
    */
   summaries?: ReadonlyMap<string, string>;
+  /** Adresses « à moi » : un fil dont le dernier message n'en vient pas attend ta réponse. */
+  selfEmails?: readonly string[];
   /**
    * En-têtes de section à insérer dans la liste (cf. `mail-sections`). Chaque
    * marqueur dit AVANT quelle ligne se poser ; `rows` est déjà dans l'ordre
@@ -298,6 +310,7 @@ export function MailOverlayList({
     onSwipeRow,
     onLongPressRow,
     summaries,
+    selfEmails,
   };
 
   return (
@@ -305,7 +318,7 @@ export function MailOverlayList({
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
         {virtualized ? (
           <div
-            className="relative w-full"
+            className="@container relative w-full"
             role="listbox"
             aria-label="Boîte mail"
             style={{ height: virtualizer.getTotalSize() }}
@@ -317,7 +330,7 @@ export function MailOverlayList({
                   key={entryKey(entry, v.index)}
                   ref={virtualizer.measureElement}
                   data-index={v.index}
-                  className="absolute left-0 top-0 w-full pb-1"
+                  className="absolute left-0 top-0 w-full"
                   style={{ transform: `translateY(${v.start}px)` }}
                 >
                   {entry.kind === "header" ? (
@@ -335,7 +348,7 @@ export function MailOverlayList({
             })}
           </div>
         ) : (
-          <div className="flex flex-col gap-1" role="listbox" aria-label="Boîte mail">
+          <div className="@container flex flex-col" role="listbox" aria-label="Boîte mail">
             {entries.map((entry, i) =>
               entry.kind === "header" ? (
                 <MailSectionHeader
@@ -377,49 +390,6 @@ export function MailOverlayList({
 }
 
 /**
- * Pile d'avatars des expéditeurs d'un groupe (repère : les « bundles » de
- * Shortwave). Dit QUI est dans le paquet avant de l'ouvrir — un compteur seul
- * ne le dit pas. Décoratif : le texte de la ligne porte déjà l'information, d'où
- * `aria-hidden` (sinon le lecteur d'écran récite des initiales).
- */
-function SenderStack({
-  senders,
-  size,
-}: {
-  senders: { name: string; email: string }[];
-  size: number;
-}) {
-  return (
-    <span className="flex shrink-0 items-center" aria-hidden>
-      {senders.map((sender, i) => {
-        const color = avatarColor(sender.email || sender.name);
-        return (
-          <span
-            key={`${sender.email || sender.name}:${i}`}
-            className={`flex items-center justify-center rounded-md font-semibold ${
-              i > 0 ? "-ml-1.5" : ""
-            }`}
-            style={{
-              width: size,
-              height: size,
-              fontSize: Math.round(size * 0.42),
-              backgroundColor: color.bg,
-              color: color.fg,
-              // Liseré à la couleur du fond : sépare deux pastilles qui se
-              // chevauchent, quel que soit le thème.
-              boxShadow: "0 0 0 1.5px var(--surface-0)",
-              zIndex: senders.length - i,
-            }}
-          >
-            {initials(sender.name, sender.email)}
-          </span>
-        );
-      })}
-    </span>
-  );
-}
-
-/**
  * Mini-en-tête de section : libellé, compteur (non lus / total), repli, et
  * « tout marquer lu » quand il reste des non-lus. Deux Boutons FRÈRES et non
  * imbriqués — une action dans un bouton ne serait atteignable ni au clavier ni
@@ -440,8 +410,8 @@ function MailSectionHeader({
   return (
     <div
       role="presentation"
-      className={`flex items-center gap-1 px-1 pb-0.5 ${first ? "pt-0.5" : "mt-1 pt-2"}`}
-      style={first ? undefined : { borderTop: "1px solid var(--border-subtle)" }}
+      className={`flex items-center gap-1 border-b px-1 pb-0.5 ${first ? "pt-0.5" : "pt-3"}`}
+      style={{ borderColor: "var(--border)" }}
     >
       <Button
         variant="ghost"
@@ -461,14 +431,14 @@ function MailSectionHeader({
           style={{ color: "var(--text-muted)" }}
         />
         <span
-          className="sn-eyebrow sn-eyebrow--compact truncate"
-          style={{ color: "var(--text-muted)" }}
+          className="truncate font-mono text-[10.5px] uppercase tracking-[0.08em]"
+          style={{ color: marker.id === "awaiting" ? EMBER : "var(--text-muted)" }}
         >
           {marker.title}
         </span>
         <span
-          className={`shrink-0 text-[11px] ${marker.unread > 0 ? "font-bold" : ""}`}
-          style={{ color: marker.unread > 0 ? "var(--accent)" : "var(--text-muted)" }}
+          className="shrink-0 font-mono text-[10.5px] tabular-nums"
+          style={{ color: marker.unread > 0 ? "var(--text-primary)" : "var(--text-muted)" }}
         >
           {marker.unread > 0 ? `${marker.unread}/${marker.count}` : marker.count}
         </span>
@@ -508,6 +478,7 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
     onSwipeRow,
     onLongPressRow,
     summaries,
+    selfEmails,
   } = shared;
 
   const key = row.kind === "single" ? `t:${row.item.id}` : row.key;
@@ -563,213 +534,148 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
   const aiSummary = previewItem ? summaries?.get(previewItem.id) : undefined;
   const preview = aiSummary ?? previewItem?.snippet ?? "";
   const aiPreview = Boolean(aiSummary);
-  const avatar = avatarColor(fromAddr?.email || fromAddr?.name || title);
-  const mono = initials(fromAddr?.name ?? "", fromAddr?.email ?? title);
-  // Groupe à plusieurs expéditeurs → pile d'avatars plutôt qu'un monogramme
-  // unique, qui ne représenterait que le premier du paquet.
-  const stack = row.kind === "group" ? distinctSenders(row, SENDER_STACK_MAX) : [];
-  const showStack = stack.length > 1;
+
+  // Console : une ligne = statut · qui · quoi · quand, colonnes fixes pour lire 300 mails/jour en diagonale.
+  const who =
+    row.kind === "group" && row.groupType === "label" ? (
+      <span
+        className="inline-flex min-w-0 items-center gap-1 rounded-[4px] px-1.5 text-[12px] font-medium leading-5"
+        style={labelChipSoftStyle(labelColor)}
+        title={title}
+      >
+        <LabelMarker color={labelColor} size={10} />
+        <span className="truncate">{title.replace(/^Supernote\//, "")}</span>
+      </span>
+    ) : row.kind === "single" && isSelfAddress(row.item.from.email, selfEmails) ? (
+      // Dernier message de moi : la balle est chez eux.
+      <span className="truncate" style={{ color: "var(--text-muted)" }} title="Dernier message envoyé par moi : la balle est chez eux">
+        Moi <span className="font-mono text-[11px]">↗</span>
+      </span>
+    ) : (
+      <span className="truncate">{title}</span>
+    );
+  const senders = row.kind === "group" ? distinctSenders(row, 6).map((f) => f.name || f.email).join(", ") : "";
+  // Braise : le dernier message vient d'une personne, la balle est dans ton camp.
+  const awaitingCount = (row.kind === "single" ? [row.item] : row.items).filter((it) =>
+    awaitsMyReply(it, selfEmails),
+  ).length;
+  const awaiting = awaitingCount > 0;
+  const focused = activeKey === key || cursored;
+  const rowBg: CSSProperties | undefined =
+    activeKey === key
+      ? { backgroundColor: "var(--accent-subtle)", boxShadow: "inset 2px 0 0 0 var(--accent)" }
+      : cursored
+        ? { backgroundColor: "var(--surface-2, var(--accent-subtle))", boxShadow: "inset 2px 0 0 0 var(--text-muted)" }
+        : awaiting
+          ? { boxShadow: `inset 2px 0 0 0 ${EMBER}` }
+          : undefined;
+  const chips = singleItem ? (
+    <RowLabelChips
+      labelIds={singleItem.labelIds.filter((id) => !EMAIL_LIKE.test(labelNames?.get(id) ?? ""))}
+      names={labelNames}
+      colors={labelColors}
+    />
+  ) : null;
 
   const rowButton = (
     <Button
       data-mail-row-index={idx}
       variant="ghost"
       onPress={() => onPick(row)}
-      className={`h-auto w-full min-w-0 flex-1 justify-start whitespace-normal rounded-lg px-2.5 text-left ${
-        isLabel ? "py-1.5" : "py-2.5"
-      }${
-        cursored && activeKey !== key
-          ? " ring-2 ring-inset ring-[var(--accent)] ring-offset-0"
-          : ""
-      }`}
-      // Ligne ouverte : surlignage SOBRE (accent-subtle + barre accent à
-      // gauche), cohérent avec l'item actif de la sidebar — pas un bloc
-      // plein.
-      style={
-        activeKey === key
-          ? { backgroundColor: "var(--accent-subtle)", boxShadow: "inset 3px 0 0 0 var(--accent)" }
-          : undefined
-      }
-      aria-selected={cursored || activeKey === key}
+      className="h-auto min-h-0 w-full min-w-0 flex-1 justify-start whitespace-normal rounded-none px-2.5 py-1.5 text-left @xl:py-[7px]"
+      style={rowBg}
+      aria-selected={focused}
     >
-      {isLabel ? (
-        /* Groupe-label COMPACT : une seule ligne = le badge/tag coloré (nom
-           + couleur Gmail, comme dans le fil) + compteur + date. Pas d'avatar
-           icône (sans information), ni objet/aperçu du 1ᵉʳ mail (on ouvre le
-           groupe pour les voir). */
-        <span className="flex w-full min-w-0 items-center gap-2">
-          <span
-            className="inline-flex min-w-0 items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium"
-            style={labelChipStyle(labelColor)}
-          >
-            <LabelMarker color={labelColor} size={11} />
-            <span className="truncate">{title}</span>
+      <span className="grid w-full min-w-0 grid-cols-[10px_minmax(0,1fr)_auto] items-center gap-x-2.5 gap-y-0.5 @xl:grid-cols-[10px_144px_minmax(0,1fr)_auto] @xl:gap-x-3">
+        <span className="col-start-1 row-start-1 flex items-center justify-center" aria-hidden>
+          {awaiting ? (
+            <span className="sn-ember" />
+          ) : unread ? (
+            <span className="h-1.5 w-1.5 rounded-full" style={{ background: "var(--accent)" }} />
+          ) : null}
+        </span>
+        {(unread || awaiting) && (
+          <span className="sr-only">
+            {[unread && "Non lu", awaiting && "À toi de répondre"].filter(Boolean).join(", ")}
           </span>
+        )}
+
+        <span
+          title={senders || fromAddr?.email || undefined}
+          className={`col-start-2 row-start-1 flex min-w-0 items-baseline gap-1.5 text-[13px] ${unread ? "font-semibold" : "font-medium"}`}
+          style={{ color: unread || awaiting ? "var(--text-primary)" : "var(--text-secondary)" }}
+        >
+          {who}
           {row.kind === "group" && row.count > 1 && (
             <span
-              className={`shrink-0 rounded-full px-1.5 text-xs ${groupUnread > 0 ? "font-bold" : ""}`}
-              title={
-                groupUnread > 0
-                  ? `${groupUnread} non lu${groupUnread > 1 ? "s" : ""} sur ${row.count}`
-                  : `${row.count} fils`
-              }
-              style={{ background: "var(--accent-subtle)", color: "var(--accent)" }}
+              className="shrink-0 font-mono text-[10.5px] tabular-nums"
+              title={groupUnread > 0 ? `${groupUnread} non lu${groupUnread > 1 ? "s" : ""} sur ${row.count}` : `${row.count} fils`}
+              style={{ color: groupUnread > 0 ? "var(--text-primary)" : "var(--text-muted)" }}
             >
-              {groupUnread > 0 ? `${groupUnread}/${row.count}` : row.count}
+              {groupUnread > 0 ? `${groupUnread}/${row.count}` : `×${row.count}`}
             </span>
           )}
-          {/* Sous md, la pile d'avatars prendrait la place des objets. */}
-          {showStack && (
-            <span className="hidden shrink-0 md:inline-flex">
-              <SenderStack senders={stack} size={16} />
-            </span>
-          )}
-          {/* Objets du paquet : un groupe-tag qui n'affiche que son nom et un
-              compteur oblige à l'ouvrir pour savoir ce qu'il contient. Les
-              premiers objets suffisent à décider (repère : Shortwave). */}
-          {row.kind === "group" && (
-            <span
-              className="min-w-0 flex-1 truncate text-[13px]"
-              style={{ color: "var(--text-secondary)" }}
-            >
+        </span>
+
+        <span className="col-start-2 col-end-4 row-start-2 flex min-w-0 items-center gap-1.5 text-[13px] @xl:col-start-3 @xl:col-end-4 @xl:row-start-1">
+          {row.kind === "group" ? (
+            <span className="min-w-0 flex-1 truncate" style={{ color: "var(--text-secondary)" }}>
               {row.items.slice(0, GROUP_SUBJECT_MAX).map((it, i) => (
                 <span key={it.id}>
-                  {i > 0 && <span style={{ color: "var(--border)" }}>{"  |  "}</span>}
+                  {i > 0 && <span style={{ color: "var(--text-muted)" }}>{" · "}</span>}
                   <span
-                    style={
-                      it.labelIds.includes("UNREAD")
-                        ? { fontWeight: 600, color: "var(--text-primary)" }
-                        : undefined
-                    }
+                    style={it.labelIds.includes("UNREAD") ? { fontWeight: 600, color: "var(--text-primary)" } : undefined}
                   >
                     {it.subject || "(sans objet)"}
                   </span>
                 </span>
               ))}
             </span>
-          )}
-          {starred && (
-            <Star
-              size={13}
-              weight="fill"
-              aria-label="Contient un message étoilé"
-              className="shrink-0"
-              style={{ color: "var(--warning)" }}
-            />
-          )}
-          <span className="ml-auto shrink-0 text-xs" style={{ color: "var(--text-muted)" }}>
-            {formatMailDate(date)}
-          </span>
-        </span>
-      ) : (
-      <span className="flex w-full min-w-0 items-start gap-2.5">
-        {/* Monogramme expéditeur (signature visuelle) : initiales sur fond
-            déterministe sobre. Pastille non-lu en surimpression coin
-            haut-gauche. */}
-        <span className="relative shrink-0">
-          {showStack ? (
-            <SenderStack senders={stack} size={28} />
           ) : (
-            <span
-              aria-hidden
-              className="flex h-8 w-8 items-center justify-center rounded-lg text-xs font-semibold"
-              style={{ backgroundColor: avatar.bg, color: avatar.fg }}
-            >
-              {mono}
-            </span>
-          )}
-          {unread && (
-            <span
-              aria-label="Non lu"
-              title="Non lu"
-              className="absolute -left-1 -top-1 h-2.5 w-2.5 rounded-full"
-              style={{ backgroundColor: "var(--accent)", boxShadow: "0 0 0 2px var(--surface-0)" }}
-            />
-          )}
-        </span>
-
-        {/* Colonne texte : objet · expéditeur sur UNE ligne, puis l'aperçu.
-            L'objet d'abord (c'est lui qu'on lit pour décider), l'expéditeur
-            à sa droite pour le qualifier — ça rend une ligne de hauteur par
-            rapport à l'empilement expéditeur / objet / aperçu. */}
-        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <span className="flex min-w-0 items-baseline gap-2">
-            <span
-              className={`min-w-0 flex-1 truncate text-sm ${unread ? "font-semibold" : "font-medium"}`}
-              style={{ color: "var(--text-primary)" }}
-            >
-              {subject || "(sans objet)"}
-            </span>
-            {singleItem && (
-              <RowLabelChips labelIds={singleItem.labelIds} names={labelNames} colors={labelColors} />
-            )}
-            {row.kind === "group" && row.count > 1 && (
+            <>
               <span
-                className={`shrink-0 rounded-full px-1.5 text-xs ${groupUnread > 0 ? "font-bold" : ""}`}
-                title={
-                  groupUnread > 0
-                    ? `${groupUnread} non lu${groupUnread > 1 ? "s" : ""} sur ${row.count}`
-                    : `${row.count} fils`
-                }
-                style={{ background: "var(--accent-subtle)", color: "var(--accent)" }}
+                className={`min-w-0 truncate ${unread ? "font-semibold" : ""}`}
+                style={{ color: unread || awaiting ? "var(--text-primary)" : "var(--text-secondary)" }}
               >
-                {groupUnread > 0 ? `${groupUnread}/${row.count}` : row.count}
+                {subject || "(sans objet)"}
               </span>
-            )}
-            <span
-              className="hidden max-w-[45%] shrink-0 truncate text-xs md:inline"
-              style={{ color: "var(--text-muted)" }}
-              title={title}
-            >
-              {title}
-            </span>
-          </span>
-          {(preview || title) && (
-            /* Résumé IA : deux lignes (une trentaine de mots ne tient pas sur
-               une ligne tronquée). Snippet Gmail : une ligne, comme avant.
-               Sous md, l'expéditeur ouvre cette ligne : à droite de l'objet il
-               ne lui laissait que quelques lettres. */
-            <span
-              className={`flex min-w-0 items-start gap-1 text-xs ${
-                aiPreview ? "" : "truncate"
-              } ${preview ? "" : "md:hidden"}`}
-              style={{ color: "var(--text-muted)" }}
-              title={aiPreview ? "Résumé par l'IA locale" : undefined}
-            >
-              {aiPreview && (
-                <Sparkle
-                  size={11}
-                  weight="fill"
-                  aria-hidden
-                  className="mt-0.5 shrink-0"
-                  style={{ color: "var(--accent)" }}
-                />
-              )}
-              <span className={aiPreview ? "line-clamp-2 min-w-0" : "min-w-0 truncate"}>
-                <span className="font-medium md:hidden" style={{ color: "var(--text-secondary)" }}>
-                  {title}
-                  {preview && " · "}
+              {chips}
+              {preview && !focused && (
+                <span
+                  className="hidden min-w-[35%] flex-1 items-center gap-1 @xl:flex"
+                  style={{ color: "var(--text-muted)" }}
+                  title={aiPreview ? `Résumé par l'IA locale : ${preview}` : preview}
+                >
+                  <span aria-hidden>—</span>
+                  <span className="min-w-0 truncate">{preview}</span>
                 </span>
-                {preview}
-              </span>
-            </span>
+              )}
+            </>
           )}
         </span>
 
-        {/* Méta droite : étoile + date SUR LA MÊME LIGNE. Empilées, elles
-            imposaient une deuxième ligne à un fil sans aperçu — la moitié de
-            la ligne était alors du vide. */}
-        <span className="flex shrink-0 items-center gap-1.5">
-          {/* Étoile : native (interactive imbriquée dans la ligne-Button →
-              pas de Button HeroUI nesté). stopPropagation = ne pas ouvrir
-              le fil. Sur un groupe : indicateur passif non cliquable. */}
+        {/* Desktop : ligne compacte, résumé déplié sur la ligne active (pas dans le rail, le fil l'affiche) ; mobile : toujours. */}
+        {preview && row.kind === "single" && (
+          <span
+            className={`col-start-2 col-end-4 row-start-3 hidden min-w-0 items-start gap-1.5 text-[12px] leading-snug max-md:flex @xl:col-start-3 @xl:col-end-5 @xl:row-start-2${focused ? " @xl:flex" : ""}`}
+            style={{ color: aiPreview ? "var(--text-secondary)" : "var(--text-muted)" }}
+            title={aiPreview ? `Résumé par l'IA locale : ${preview}` : preview}
+          >
+            {aiPreview && (
+              <Sparkle size={10} weight="fill" aria-hidden className="mt-[3px] shrink-0" style={{ color: "var(--text-muted)" }} />
+            )}
+            <span className="line-clamp-2 min-w-0">{preview}</span>
+          </span>
+        )}
+
+        <span className="col-start-3 row-start-1 flex shrink-0 items-center gap-1.5 @xl:col-start-4">
           {singleItem && onToggleStar ? (
             <span
               role="button"
               tabIndex={0}
               aria-label={starred ? "Retirer l'étoile" : "Mettre une étoile"}
               aria-pressed={starred}
-              className="inline-flex shrink-0 cursor-pointer p-0.5 max-md:-m-2 max-md:p-2.5"
+              className={`inline-flex shrink-0 cursor-pointer p-0.5 max-md:-m-2 max-md:p-2.5${starred ? "" : " sn-reveal"}`}
               onClick={(e) => {
                 e.stopPropagation();
                 onToggleStar(singleItem.id, singleItem.labelIds);
@@ -782,28 +688,22 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
                 }
               }}
             >
-              <Star
-                size={14}
-                weight={starred ? "fill" : "regular"}
-                style={{ color: starred ? "var(--warning)" : "var(--text-muted)" }}
-              />
+              <Star size={13} weight={starred ? "fill" : "regular"} style={{ color: starred ? "var(--text-primary)" : "var(--text-muted)" }} />
             </span>
           ) : (
-            starred && (
-              <Star
-                size={14}
-                weight="fill"
-                aria-label="Contient un message étoilé"
-                style={{ color: "var(--warning)" }}
-              />
-            )
+            starred && <Star size={13} weight="fill" aria-label="Contient un message étoilé" style={{ color: "var(--text-primary)" }} />
           )}
-          <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-            {formatMailDate(date)}
+          <span
+            className="min-w-[3.25rem] text-right font-mono text-[11px] tabular-nums"
+            style={{ color: awaiting ? EMBER : unread ? "var(--text-primary)" : "var(--text-muted)" }}
+            title={formatMailDate(date)}
+          >
+            {/* En attente de moi : l'âge compte plus que la date. */}
+            {((awaiting || (singleItem && isSelfAddress(singleItem.from.email, selfEmails))) && waitAge(date)) ||
+              formatMailDate(date)}
           </span>
         </span>
       </span>
-      )}
     </Button>
   );
 
@@ -849,8 +749,8 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
   const body = (
     <div
       ref={drop.setNodeRef}
-      className={`group/row flex items-center gap-1${selectable ? " group" : ""}`}
-      style={{ ...dragMove, ...dropStyle }}
+      className="group group/row flex items-center gap-1 border-b"
+      style={{ borderColor: "var(--border-subtle)", ...dragMove, ...dropStyle }}
       onContextMenu={(e) => {
         e.preventDefault();
         onOpenContext({ x: e.clientX, y: e.clientY, row });
@@ -869,6 +769,8 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
           <DotsSixVertical size={15} weight="bold" aria-hidden />
         </span>
       )}
+      {/* Même gouttière que la poignée : les groupes restent alignés sur la grille des lignes seules. */}
+      {dndEnabled && !draggableActive && <span aria-hidden className="w-4 shrink-0 max-md:hidden" />}
       {selectable && (
         <Checkbox
           isSelected={checkState === "checked"}

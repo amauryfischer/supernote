@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, forwardRef, useImperativeHandle, type ReactNode } from "react";
-import { ArrowSquareOut, Plus, X, Tag, MagnifyingGlass, Check, PaperPlaneTilt, Quotes, Paperclip, Star, Envelope, ArrowBendUpRight, Sparkle, MagicWand, ArrowsClockwise, CaretUp, DotsThreeVertical, Copy, Image as ImageIcon, SpeakerSlash, UserMinus, UserPlus, WarningCircle, ShareNetwork, ArrowBendUpLeft, FilePlus, Database } from "@phosphor-icons/react";
+import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, forwardRef, useImperativeHandle, type ReactNode } from "react";
+import { ArrowSquareOut, Plus, X, Tag, MagnifyingGlass, Check, PaperPlaneTilt, Quotes, Paperclip, Star, Envelope, ArrowBendUpRight, Sparkle, MagicWand, ArrowsClockwise, CaretUp, DotsThreeVertical, Copy, Image as ImageIcon, SpeakerSlash, UserMinus, UserPlus, WarningCircle, ShareNetwork, ArrowBendUpLeft, ArrowBendDoubleUpLeft, FilePlus, Database, CaretRight } from "@phosphor-icons/react";
 import { Spinner, Popover } from "@heroui/react";
 import { useToast, Tooltip, Badge, Button, Input } from "@supernote/ui";
 import { useActionFeedback, FeedbackIcon } from "@/lib/action-feedback";
@@ -79,7 +79,7 @@ import { dedupeEmails, parseRecipientInput } from "@/lib/mail-recipients";
 import { RecipientField, useRecipientSuggestions } from "./ComposeModal";
 import { TriageBar } from "./TriageBar";
 import { EnrichContactFromEmail } from "./EnrichContactFromEmail";
-import { LabelMarker, LabelStyleGrid, labelChipStyle } from "./LabelMarker";
+import { LabelMarker, LabelStyleGrid, labelChipSoftStyle } from "./LabelMarker";
 import { EmailToEventButton } from "./EmailToEventButton";
 import { MailEisenhowerPicker } from "./MailEisenhowerPicker";
 import { ExtractActionsButton } from "./ExtractActionsButton";
@@ -95,18 +95,17 @@ import {
   type EisenhowerQuadrant,
 } from "@/lib/mail-eisenhower";
 import { QuickRepliesRow } from "./QuickRepliesRow";
+import { useQuickReplies } from "./useQuickReplies";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { createPortal } from "react-dom";
 import { useMobileBottomBar } from "@/components/shell/shell-chrome-context";
 import { shortcutKey } from "@/lib/mail-shortcuts";
 import { useKeyboardViewport } from "@/hooks/useKeyboardOpen";
-import { useMailQuickRepliesChrome } from "@/components/shell/shell-chrome-context";
 import {
   isAiConfigured,
   summarizeThread,
   toMailAiThread,
   suggestQuadrant,
-  instantReplies,
   type MailAiThread,
 } from "@/lib/mail-ai";
 
@@ -127,6 +126,7 @@ function moveMenuFocus(e: React.KeyboardEvent<HTMLElement>) {
 // Ligne de menu pour une action SIMPLE (Button direct) : pleine largeur, alignée
 // à gauche, padding tactile (~36px de haut ≥ cible 32px mobile).
 const REPLY_RESTORE_EVENT = "supernote:mail-reply-restore";
+const EMAIL_NAME = /^[^\s@/]+@[^\s@/]+\.[^\s@/]+$/;
 
 const MENU_ROW =
   "flex h-auto w-full items-center justify-start gap-2.5 rounded-md px-3 py-2 text-sm";
@@ -246,6 +246,10 @@ interface EmailThreadViewProps {
   /** Capture du fil (menu « Plus », desktop — la barre du haut mobile les porte déjà). */
   onCaptureNote?: () => void;
   onCaptureBase?: () => void;
+  /** Résumé déjà calculé pour la liste : affiché en tête du fil sans relancer l'IA. */
+  listSummary?: string;
+  /** Ferme le fil (desktop) : bouton à gauche de l'en-tête. */
+  onClose?: () => void;
 }
 
 export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProps>(
@@ -267,6 +271,8 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
       draftsBusy = false,
       onCaptureNote,
       onCaptureBase,
+      listSummary,
+      onClose,
     },
     ref,
   ) {
@@ -356,7 +362,10 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
     };
   }, [clientId]);
 
-  const current = useMemo(() => resolveUserLabels(labelIds, allLabels), [labelIds, allLabels]);
+  const resolved = useMemo(() => resolveUserLabels(labelIds, allLabels), [labelIds, allLabels]);
+  // Un label nommé comme une adresse est l'alias de réception, pas un classement.
+  const aliasLabels = resolved.filter((l) => EMAIL_NAME.test(l.name));
+  const current = resolved.filter((l) => !EMAIL_NAME.test(l.name));
   const addable = useMemo(
     () => allLabels.filter((l) => !labelIds.includes(l.id)),
     [allLabels, labelIds],
@@ -397,6 +406,25 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
   // brouillons IA sont gérés par le parent (colonne dédiée) → `loadDraft` y
   // injecte le texte choisi.
   const replyTaRef = useRef<HTMLTextAreaElement>(null);
+  // Replié, le textarea n'est pas monté : le focus attend le rendu qui le déplie.
+  const pendingFocusRef = useRef(false);
+  const focusComposer = () => {
+    setReplyOpen(true);
+    const ta = replyTaRef.current;
+    // Focus synchrone quand c'est possible : iOS n'ouvre le clavier que dans le geste.
+    if (!ta) {
+      pendingFocusRef.current = true;
+      return;
+    }
+    ta.scrollIntoView({ block: "nearest" });
+    ta.focus();
+  };
+  useEffect(() => {
+    if (!pendingFocusRef.current || !replyTaRef.current) return;
+    pendingFocusRef.current = false;
+    replyTaRef.current.scrollIntoView({ block: "nearest" });
+    replyTaRef.current.focus();
+  });
   const isMobile = useIsMobile();
   // Sur téléphone, les actions du fil prennent la place de la nav du bas (au pouce).
   const bottomSlot = useMobileBottomBar(isMobile && !embedded);
@@ -421,11 +449,6 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
   // MailEisenhowerPicker (ouvre le Popover sur la cellule). Réinitialisé par fil.
   const [suggestedQuadrant, setSuggestedQuadrant] = useState<EisenhowerQuadrant | null>(null);
   const [suggestBusy, setSuggestBusy] = useState(false);
-  // Réponses éclair : propositions très courtes, générées à l'ouverture du fil.
-  // `dismissed` évite qu'elles reviennent après un rejet explicite.
-  const [quickReplies, setQuickReplies] = useState<string[]>([]);
-  const [quickBusy, setQuickBusy] = useState(false);
-  const [quickDismissed, setQuickDismissed] = useState(false);
   const signature = settings.gmail.signature ?? "";
   const replyFileImageRef = useRef<HTMLInputElement>(null);
 
@@ -459,8 +482,6 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
     setSummary(null);
     setSummaryOpen(false);
     setSuggestedQuadrant(null);
-    setQuickReplies([]);
-    setQuickDismissed(false);
   }, [thread]);
 
   // Sauvegarde automatique de la réponse en cours (débattue).
@@ -495,7 +516,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
     if (!ta) return;
     ta.style.height = "auto";
     if (replyOverlay) return;
-    ta.style.height = `${Math.min(ta.scrollHeight, 260)}px`;
+    ta.style.height = `${Math.min(ta.scrollHeight, window.innerHeight * 0.45)}px`;
   }, [replyBody, replyOverlay]);
 
   // Gate d'affichage des features IA : visibles seulement si un modèle Ollama
@@ -506,58 +527,38 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
     [thread, selfEmail, settings.gmail.aliases],
   );
 
-  // Réponses éclair : générées à l'ouverture du fil, seulement si l'IA locale
-  // est configurée, qu'on n'est pas en embed, et que le DERNIER message n'est
-  // pas de moi (sinon il n'y a rien à répondre). Léger décalage pour ne pas
-  // concurrencer le chargement du fil lui-même.
   const lastFromMe =
     (thread.messages[thread.messages.length - 1]?.from.email ?? "").toLowerCase() ===
     (selfEmail ?? "").toLowerCase();
-
-  const runQuickReplies = useCallback(async () => {
-    setQuickBusy(true);
-    try {
-      const list = await instantReplies(aiThread);
-      setQuickReplies(list);
-    } catch {
-      // Ollama injoignable : on masque simplement la rangée, sans toast — elle
-      // n'a pas été demandée explicitement.
-      setQuickReplies([]);
-    } finally {
-      setQuickBusy(false);
-    }
-  }, [aiThread]);
-
-  useEffect(() => {
-    if (embedded || !aiConfigured || !clientId) return undefined;
-    if (quickDismissed || lastFromMe) return undefined;
-    if (!thread.messages.length) return undefined;
-    const id = setTimeout(() => void runQuickReplies(), 400);
-    return () => clearTimeout(id);
-    // Une seule génération par fil : `runQuickReplies` dépend d'`aiThread`, lui
-    // -même dérivé du fil.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [thread.id, embedded, aiConfigured, clientId, quickDismissed, lastFromMe]);
-
-  const composerCompact =
-    isMobile && !replyOpen && !replyBody.trim() && replyAttachments.length === 0;
+  const composerIdle = !replyOpen && !replyBody.trim() && replyAttachments.length === 0;
+  const composerCompact = isMobile && composerIdle;
+  // Desktop : une barre d'actions tant qu'on n'écrit pas, la lecture garde la hauteur.
+  const composerCollapsed = !isMobile && composerIdle;
+  const canReply = !embedded && !!clientId && !!replyParams.to;
+  const quick = useQuickReplies(thread.id, aiThread, canReply && aiConfigured && replyOpen && !lastFromMe);
   const quickRepliesShown =
-    !embedded && !!clientId && !!replyParams.to && aiConfigured && (quickBusy || quickReplies.length > 0);
-  const quickRepliesConfig = {
-    items: quickReplies,
-    busy: quickBusy,
-    onPick: (text: string) => {
-      setReplyBody((prev) => (prev.trim() ? `${prev}\n\n${text}` : text));
-      requestAnimationFrame(() => replyTaRef.current?.focus());
-      setQuickReplies([]);
-    },
-    onDismiss: () => {
-      setQuickReplies([]);
-      setQuickDismissed(true);
-    },
+    canReply && replyOpen && !replyBody.trim() && (quick.busy || quick.items.length > 0);
+  const pickQuickReply = (text: string) => {
+    setReplyBody(text);
+    focusComposer();
   };
-  // Sur mobile le panneau droit n'existe pas : la rangée reste sous le fil.
-  useMailQuickRepliesChrome(quickRepliesShown && !isMobile ? quickRepliesConfig : null);
+  const composerRef = useRef<HTMLDivElement>(null);
+  // Le composeur déplié (sticky) recouvre la fin du fil : on remonte pour lire
+  // le dernier message en entier au-dessus, sans jamais en perdre le début.
+  useEffect(() => {
+    if (!replyOpen) return undefined;
+    const raf = requestAnimationFrame(() => {
+      const box = composerRef.current;
+      const last = box?.parentElement?.querySelector("[data-last-message]");
+      let scroller = box?.parentElement ?? null;
+      while (scroller && !/(auto|scroll)/.test(getComputedStyle(scroller).overflowY)) scroller = scroller.parentElement;
+      if (!box || !last || !scroller) return;
+      const overlap = last.getBoundingClientRect().bottom - box.getBoundingClientRect().top;
+      const room = last.getBoundingClientRect().top - scroller.getBoundingClientRect().top - 8;
+      if (overlap > 0) scroller.scrollBy({ top: Math.min(overlap, Math.max(0, room)) });
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [replyOpen, quickRepliesShown]);
 
   const runSummary = async () => {
     if (summaryBusy) return;
@@ -918,14 +919,12 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
     () => ({
       loadDraft: (text: string) => {
         setReplyBody((prev) => (prev.trim() ? `${prev}\n\n${text}` : text));
-        requestAnimationFrame(() => replyTaRef.current?.focus());
+        focusComposer();
       },
-      focusReply: () => {
-        requestAnimationFrame(() => replyTaRef.current?.focus());
-      },
+      focusReply: focusComposer,
       replyAll: () => {
         setReplyToAll(true);
-        requestAnimationFrame(() => replyTaRef.current?.focus());
+        focusComposer();
       },
       openLabelPicker: openPicker,
       toggleStar: () => void onToggleStar(),
@@ -957,7 +956,11 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
   // Adresse du correspondant (celle vers laquelle on répond = l'externe X, cf.
   // pickReplyTo) → affichée + copiable dans l'en-tête.
   const recipientEmail = replyParams.to || correspondentMsg?.from.email || "";
-  const lastRecipients = recipientsLine(thread.messages[thread.messages.length - 1], selfEmail);
+  const recipients = recipientsLine(correspondentMsg ?? thread.messages[thread.messages.length - 1], selfEmail);
+  const recipientName =
+    thread.messages
+      .flatMap((m) => [m.from, ...m.to, ...(m.cc ?? [])])
+      .find((a) => a.email.toLowerCase() === recipientEmail.toLowerCase() && a.name)?.name ?? "";
   const copyRecipient = () => {
     if (recipientEmail) void copyRecipientFb.run(() => navigator.clipboard.writeText(recipientEmail));
   };
@@ -967,7 +970,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
     // que le composeur de réponse (spacer `flex-1` + sticky ci-dessous) soit
     // poussé EN BAS du panneau même quand le fil est court. En embed (bloc note)
     // : hauteur naturelle, pas de composeur.
-    <div className={`flex flex-col gap-3${embedded ? "" : " min-h-full"}`}>
+    <div className={`flex flex-col gap-2${embedded ? "" : " min-h-full"}`}>
       {/* En-tête (sujet + actions + labels) ÉPINGLÉ en haut du panneau dès md.
           Sur téléphone, l'en-tête entier mangerait un tiers de l'écran : il se
           dissout (`contents`) et seule la rangée d'actions reste épinglée.
@@ -975,8 +978,8 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
           toute la largeur ; fond opaque + bordure bas pour que les messages
           passent DERRIÈRE. Pas en embed. */}
       <div
-        className={`flex flex-col gap-2${
-          embedded ? "" : " -mx-4 border-b px-4 pb-2 pt-1 max-md:contents md:sticky md:top-0 md:z-10"
+        className={`flex flex-col gap-1.5${
+          embedded ? "" : " -mx-4 border-b px-4 pb-1.5 pt-1 max-md:contents md:sticky md:top-0 md:z-10"
         }`}
         style={
           embedded
@@ -992,6 +995,19 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
           }`}
         >
           <div className="flex min-w-0 items-center gap-1.5 md:flex-1">
+            {onClose && !isMobile && (
+              <Tooltip content="Fermer · Échap">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Fermer l'email"
+                  className="-ml-1.5 h-8 min-h-8 w-8 min-w-8 shrink-0"
+                  onPress={onClose}
+                >
+                  <X size={15} aria-hidden />
+                </Button>
+              </Tooltip>
+            )}
             {subject ? (
               <h2
                 className={`line-clamp-2 min-w-0 flex-1 text-base font-semibold md:truncate${bottomSlot ? " max-md:sr-only" : ""}`}
@@ -1022,10 +1038,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
                   size="icon"
                   aria-label="Répondre"
                   className="h-10 min-h-10 w-10 min-w-10"
-                  onPress={() => {
-                    replyTaRef.current?.scrollIntoView({ block: "nearest" });
-                    replyTaRef.current?.focus();
-                  }}
+                  onPress={focusComposer}
                 >
                   <ArrowBendUpLeft size={20} aria-hidden />
                 </Button>
@@ -1055,7 +1068,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
                   <Star
                     size={18}
                     weight={starred ? "fill" : "regular"}
-                    style={{ color: starred ? "var(--warning)" : undefined }}
+                    style={{ color: starred ? "var(--text-primary)" : undefined }}
                     aria-hidden
                   />
                 </Button>
@@ -1066,14 +1079,16 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
             )}
             {!embedded && (
               <Popover isOpen={moreOpen} onOpenChange={setMoreOpen}>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  aria-label="Plus d'actions"
-                  className="h-9 min-h-9 w-9 min-w-9 shrink-0"
-                >
-                  <DotsThreeVertical size={18} aria-hidden />
-                </Button>
+                <Tooltip content="Plus d'actions">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label="Plus d'actions"
+                    className="h-9 min-h-9 w-9 min-w-9 shrink-0"
+                  >
+                    <DotsThreeVertical size={18} aria-hidden />
+                  </Button>
+                </Tooltip>
                 <Popover.Content className="w-72 p-1">
                   <Popover.Dialog className="outline-none">
                     <div className="flex max-h-[70vh] flex-col gap-0.5 overflow-y-auto" onKeyDown={moveMenuFocus}>
@@ -1288,13 +1303,16 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
           </div>,
           )}
         </div>
-        {/* Adresse du correspondant + copie rapide (QoL : récupérer l'email sans
-            ouvrir le composeur). Masqué en embed / si pas d'adresse. */}
-        {!embedded && recipientEmail && (
-          <div className="flex min-w-0 items-center gap-1 pl-0.5">
-            <span className="max-w-[45%] shrink-0 truncate text-xs" style={{ color: "var(--text-muted)" }}>
-              {recipientEmail}
-            </span>
+        {/* En rédaction, l'en-tête se réduit à l'objet : la hauteur va au message lu. */}
+        {!embedded && recipientEmail && !replyOpen && (
+          <div className="flex min-w-0 items-center gap-1 pl-0.5 text-xs" style={{ color: "var(--text-muted)" }}>
+            <span className="shrink-0">De</span>
+            {recipientName && recipientName.toLowerCase() !== recipientEmail.toLowerCase() && (
+              <span className="max-w-[30%] shrink-0 truncate font-medium" style={{ color: "var(--text-secondary)" }}>
+                {recipientName}
+              </span>
+            )}
+            <span className="max-w-[35%] shrink-0 truncate font-mono text-[11px]">{recipientEmail}</span>
             <Tooltip content={copyRecipientFb.state === "success" ? "Copiée" : (copyRecipientFb.error ?? "Copier l'adresse")}>
               <Button
                 variant="ghost"
@@ -1309,13 +1327,17 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
             {correspondentMsg && (
               <EnrichContactFromEmail message={correspondentMsg} open={contactOpen} onOpenChange={setContactOpen} />
             )}
-            {lastRecipients.text && (
+            {recipients.text && (
+              <span className="min-w-0 truncate" title={recipients.title}>
+                {recipients.text}
+              </span>
+            )}
+            {aliasLabels.length > 0 && (
               <span
-                className="min-w-0 truncate text-xs"
-                style={{ color: "var(--text-muted)" }}
-                title={lastRecipients.title}
+                className="ml-auto min-w-0 truncate pl-2 font-mono text-[11px]"
+                title="Adresse de réception"
               >
-                {lastRecipients.text}
+                reçu via {aliasLabels.map((l) => l.name).join(", ")}
               </span>
             )}
           </div>
@@ -1341,12 +1363,13 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
             note="Le fil est publié tel qu'il est maintenant, sans pièces jointes. Les réponses suivantes n'y apparaîtront pas."
           />
         )}
-        <div className="flex flex-wrap items-center gap-1.5">
+        <div className={`flex-wrap items-center gap-1.5 ${replyOpen ? "hidden" : "flex"}`}>
           {current.map((l) => (
             <span
               key={l.id}
-              className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium"
-              style={labelChipStyle(l.color)}
+              title={l.name}
+              className="inline-flex h-5 items-center gap-1 rounded-full pl-2 text-[11px] font-medium"
+              style={labelChipSoftStyle(l.color)}
             >
               <LabelMarker color={l.color} size={10} />
               {/* Clic sur le nom → menu couleur + style (enregistrés dans la couleur Gmail). */}
@@ -1364,7 +1387,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
                 className="-my-1.5 inline-flex h-8 min-h-8 max-w-[12rem] items-center bg-transparent p-0 font-medium hover:opacity-70"
                 style={{ color: "inherit" }}
               >
-                <span className="truncate">{l.name}</span>
+                <span className="truncate">{l.name.replace(/^Supernote\//, "")}</span>
               </Button>
               <Button
                 variant="ghost"
@@ -1373,7 +1396,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
                 aria-label={`Retirer le label ${l.name}`}
                 /* Icône petite mais zone cliquable ≥32px (cible tactile) ; marge
                    négative pour ne pas gonfler la hauteur du badge. */
-                className="-my-1.5 ml-0.5 inline-flex h-8 min-h-8 w-8 min-w-8 shrink-0 items-center justify-center p-0 hover:opacity-70"
+                className="-my-1.5 -ml-1 inline-flex h-8 min-h-8 w-7 min-w-7 shrink-0 items-center justify-center p-0 hover:opacity-70"
               >
                 <X size={10} />
               </Button>
@@ -1386,7 +1409,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
               size="icon"
               onPress={openPicker}
               aria-label="Ajouter un label (touche l)"
-              className="flex h-7 min-h-7 w-7 min-w-7 items-center justify-center rounded-full p-0 max-md:h-8 max-md:min-h-8 max-md:w-8 max-md:min-w-8"
+              className="flex h-5 min-h-5 w-5 min-w-5 items-center justify-center rounded-full p-0 max-md:h-8 max-md:min-h-8 max-md:w-8 max-md:min-w-8"
               style={{ border: "1px dashed var(--border)", color: "var(--text-muted)" }}
             >
               <Plus size={12} weight="bold" />
@@ -1396,84 +1419,88 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
 
       </div>
 
-      {aiConfigured && summaryOpen && (
-        <div
-          className="rounded-xl border px-3 py-2.5"
-          style={{ background: "var(--surface-1)", borderColor: "var(--border-subtle)" }}
-        >
-          <div className="flex items-center justify-between gap-2">
-            <span
-              className="flex items-center gap-1.5 text-xs font-semibold"
-              style={{ color: "var(--text-primary)" }}
-            >
-              <Sparkle size={13} style={{ color: "var(--accent)" }} /> Résumé IA
+      {aiConfigured && !embedded && (
+        <div className="rounded-md border" style={{ borderColor: "var(--border-subtle)" }}>
+          <div className="flex min-h-7 items-center gap-1.5 pl-2 pr-1">
+            <Sparkle size={12} aria-hidden className="shrink-0" style={{ color: "var(--text-muted)" }} />
+            <span className="shrink-0 font-mono text-[10.5px] uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>
+              Résumé IA
             </span>
-            <div className="flex shrink-0 items-center gap-1">
-              <Button
-                variant="ghost"
-                size="sm"
-                onPress={() => void runSummary()}
-                isDisabled={summaryBusy}
-                aria-label="Régénérer le résumé"
-                className="h-auto min-h-0 px-1.5 py-0.5 text-xs"
-              >
-                <ArrowsClockwise size={12} /> Régénérer
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                onPress={() => setSummaryOpen(false)}
-                aria-label="Replier le résumé"
-                className="h-auto min-h-0 min-w-0 p-1"
-              >
-                <CaretUp size={12} />
-              </Button>
-            </div>
-          </div>
-          <div className="mt-1.5">
-            {summaryBusy ? (
-              <span className="flex items-center gap-2 text-sm" style={{ color: "var(--text-muted)" }}>
-                <Spinner size="sm" /> Génération du résumé…
+            {!summaryOpen && listSummary && (
+              <span className="min-w-0 flex-1 truncate text-[12.5px]" style={{ color: "var(--text-secondary)" }} title={listSummary}>
+                {listSummary}
               </span>
-            ) : summaryError ? (
-              <p role="alert" className="text-sm" style={{ color: "var(--danger)" }}>
-                Résumé impossible : {summaryError}
-              </p>
-            ) : summary ? (
-              <p
-                className="whitespace-pre-wrap break-words text-sm"
-                style={{ color: "var(--text-secondary)" }}
-              >
-                {summary}
-              </p>
-            ) : (
-              <p className="text-sm italic" style={{ color: "var(--text-muted)" }}>
-                Aucun résumé pour le moment.
-              </p>
             )}
+            {(summaryOpen || !listSummary) && <span className="flex-1" aria-hidden />}
+            {summaryOpen && summary !== null && !summaryBusy && (
+              <Tooltip content="Régénérer le résumé">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onPress={() => void runSummary()}
+                  aria-label="Régénérer le résumé"
+                  className="h-6 min-h-6 w-6 min-w-6"
+                >
+                  <ArrowsClockwise size={12} aria-hidden />
+                </Button>
+              </Tooltip>
+            )}
+            <Button
+              variant="ghost"
+              size="sm"
+              onPress={onSummaryClick}
+              isDisabled={summaryBusy}
+              aria-expanded={summaryOpen}
+              className="h-6 min-h-6 gap-1 px-1.5 text-[11.5px]"
+              style={{ color: "var(--text-secondary)" }}
+            >
+              {summaryBusy ? (
+                <Spinner size="sm" />
+              ) : summaryOpen ? (
+                <CaretUp size={11} aria-hidden />
+              ) : summary !== null ? (
+                <CaretRight size={11} aria-hidden />
+              ) : null}
+              {summaryOpen ? "Replier" : summary !== null ? "Afficher" : listSummary ? "Détailler" : "Générer"}
+            </Button>
           </div>
+          {summaryOpen && (
+            <div className="border-t px-2.5 py-1.5" style={{ borderColor: "var(--border-subtle)" }}>
+              {summaryBusy ? (
+                <span className="text-[12.5px]" style={{ color: "var(--text-muted)" }}>
+                  Génération du résumé…
+                </span>
+              ) : summaryError ? (
+                <p role="alert" className="text-[12.5px]" style={{ color: "var(--danger)" }}>
+                  Résumé impossible : {summaryError}
+                </p>
+              ) : (
+                <p className="whitespace-pre-wrap break-words text-[13px]" style={{ color: "var(--text-secondary)" }}>
+                  {summary ?? "Aucun résumé pour le moment."}
+                </p>
+              )}
+            </div>
+          )}
         </div>
       )}
 
+      <ThreadTrunk
+        messages={thread.messages}
+        selfEmail={selfEmail}
+        clientId={clientId}
+        forwardNotes={(id) => forwardsById.get(id)?.map((f) => forwardLabel(f, selfEmail))}
+      />
+
+      {/* Sous le dernier message, près de la réponse : arrivé en différé, il ne décale pas la lecture. */}
       <CommitmentsBanner
         thread={thread}
         accountId={selfEmail ?? ""}
         selfEmails={aiThread.selfEmails ?? []}
         onDraft={(text) => {
           setReplyBody(text);
-          requestAnimationFrame(() => replyTaRef.current?.focus());
+          focusComposer();
         }}
       />
-
-      {thread.messages.map((m) => (
-        <MessageBubble
-          key={m.id}
-          message={m}
-          kind={classifyBubble(m.from.email, selfEmail)}
-          clientId={clientId}
-          forwardNotes={forwardsById.get(m.id)?.map((f) => forwardLabel(f, selfEmail))}
-        />
-      ))}
 
       {/* Mode embed : pas de composeur inline (on ne répond pas depuis un bloc
           note) → lien direct vers le fil dans Gmail à la place. */}
@@ -1502,17 +1529,63 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
 
       {!embedded && clientId && replyParams.to && (
         <div
+          ref={composerRef}
           className={
             replyOverlay
               ? "fixed inset-x-0 z-[var(--z-sticky)] flex flex-col border-t px-4 pb-2 pt-[calc(env(safe-area-inset-top)+0.5rem)]"
-              : "sticky bottom-0 mt-1 border-t px-1 pb-2 pt-2"
+              : composerCollapsed
+                ? "sticky bottom-0 -mx-4 border-t px-4 py-1"
+                : "sticky bottom-0 mt-1 border-t px-1 pb-2 pt-2"
           }
           style={{ background: "var(--surface-1)", borderColor: "var(--border-subtle)", ...replyOverlay }}
         >
-          {quickRepliesShown && composerCompact && (
-            <QuickRepliesRow {...quickRepliesConfig} className="mb-1.5" />
+          {composerCollapsed ? (
+            <div className="flex h-8 items-center gap-1" role="toolbar" aria-label="Répondre au fil">
+              <ComposeAction label="Répondre" shortcut={shortcutKey("reply")} onPress={focusComposer}>
+                <ArrowBendUpLeft size={14} aria-hidden />
+              </ComposeAction>
+              {hasCc && (
+                <ComposeAction
+                  label="Répondre à tous"
+                  shortcut={shortcutKey("replyAll")}
+                  onPress={() => {
+                    setReplyToAll(true);
+                    focusComposer();
+                  }}
+                >
+                  <ArrowBendDoubleUpLeft size={14} aria-hidden />
+                </ComposeAction>
+              )}
+              {onForward && (
+                <ComposeAction label="Transférer" shortcut={shortcutKey("forward")} onPress={onForwardClick}>
+                  <ArrowBendUpRight size={14} aria-hidden />
+                </ComposeAction>
+              )}
+              {aiConfigured && onGenerateDrafts && (
+                <ComposeAction
+                  label="Brouillon IA"
+                  shortcut={shortcutKey("aiDraft")}
+                  isDisabled={draftsBusy}
+                  onPress={onGenerateDrafts}
+                >
+                  {draftsBusy ? <Spinner size="sm" /> : <MagicWand size={14} aria-hidden />}
+                </ComposeAction>
+              )}
+            </div>
+          ) : (
+          <>
+          {quickRepliesShown && (
+            <QuickRepliesRow
+              items={quick.items}
+              busy={quick.busy}
+              onPick={pickQuickReply}
+              onDismiss={quick.dismiss}
+              altShortcuts
+              className="mb-1.5"
+            />
           )}
-          {!composerCompact && <ComposerToolbar
+          {/* Desktop : la barre de format attend le premier mot, la hauteur reste au message lu. */}
+          {!composerCompact && (isMobile || replyBody.trim() !== "") && <ComposerToolbar
             textareaRef={replyTaRef}
             value={replyBody}
             onChange={setReplyBody}
@@ -1550,6 +1623,19 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
               // La complétion de modèles passe en premier : quand la liste est
               // ouverte, ↵ insère au lieu d'envoyer.
               if (snippets.handleKeyDown(e)) return;
+              // e.code : sur Mac, ⌥1 produit « ¡ » dans e.key.
+              const quickIndex = e.altKey ? ["Digit1", "Digit2", "Digit3"].indexOf(e.code) : -1;
+              if (quickRepliesShown && quick.items[quickIndex]) {
+                e.preventDefault();
+                pickQuickReply(quick.items[quickIndex]);
+                return;
+              }
+              if (e.key === "Escape" && !replyBody.trim() && replyAttachments.length === 0) {
+                e.preventDefault();
+                setReplyOpen(false);
+                e.currentTarget.blur();
+                return;
+              }
               if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
                 e.preventDefault();
                 void submitReply("send");
@@ -1589,8 +1675,8 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
             placeholder={`Répondre à ${replyParams.to}…`}
             className={`w-full resize-none overflow-y-auto rounded-lg border px-3 py-2 text-sm outline-none${replyOverlay ? " flex-1" : ""}`}
             style={{
-              minHeight: composerCompact ? "2.5rem" : "4.75rem",
-              maxHeight: replyOverlay ? undefined : "260px",
+              minHeight: composerCompact ? "2.5rem" : "4.5rem",
+              maxHeight: replyOverlay ? undefined : "45vh",
               borderColor: "var(--border-subtle)",
               background: "var(--surface-0, var(--background))",
               color: "var(--text-primary)",
@@ -1781,6 +1867,8 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
               </Button>
             </div>
           </div>}
+          </>
+          )}
         </div>
       )}
 
@@ -1807,6 +1895,43 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
   );
   },
 );
+
+function ComposeAction({
+  label,
+  shortcut,
+  onPress,
+  isDisabled,
+  children,
+}: {
+  label: string;
+  shortcut: string;
+  onPress: () => void;
+  isDisabled?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      aria-label={`${label} (${shortcut})`}
+      aria-keyshortcuts={shortcut}
+      isDisabled={isDisabled}
+      className="h-8 min-h-8 gap-1.5 px-2 text-[12.5px]"
+      style={{ color: "var(--text-secondary)" }}
+      onPress={onPress}
+    >
+      {children}
+      <span>{label}</span>
+      <kbd
+        aria-hidden
+        className="rounded-[3px] border px-1 font-mono text-[10px] leading-4"
+        style={{ borderColor: "var(--border)", color: "var(--text-muted)" }}
+      >
+        {shortcut}
+      </kbd>
+    </Button>
+  );
+}
 
 /** Monté seulement une fois le Cc ouvert : les suggestions lisent les envoyés Gmail, inutile dans un fil embarqué. */
 function ReplyCcField({
@@ -2087,9 +2212,9 @@ function ColorMenu({
 }
 
 // Alpha plutôt que luminosité fixe : la même teinte reste lisible en clair et en sombre.
-function senderTint(key: string): { bg: string; border: string } {
+function senderTint(key: string): { bg: string; border: string; ink: string } {
   const h = senderHue(key);
-  return { bg: `hsl(${h} 70% 50% / 0.14)`, border: `hsl(${h} 70% 50% / 0.35)` };
+  return { bg: `hsl(${h} 70% 50% / 0.14)`, border: `hsl(${h} 70% 50% / 0.35)`, ink: `hsl(${h} 65% 48%)` };
 }
 
 const MAIL_FRAME_CSS = `
@@ -2125,7 +2250,7 @@ function MailHtmlFrame({
   const [height, setHeight] = useState(0);
   const srcDoc = useMemo(
     () =>
-      `<!doctype html><html><head><meta charset="utf-8"><base target="_blank"><style>${MAIL_FRAME_CSS}</style>${styles}</head><body><div id="sn-root">${html}</div></body></html>`,
+      `<!doctype html><html><head><meta charset="utf-8"><base target="_blank"><style>${MAIL_FRAME_CSS}</style>${styles}</head><body><div id="sn-root" style="padding:0 12px">${html}</div></body></html>`,
     [html, styles],
   );
 
@@ -2227,12 +2352,116 @@ function recipientsLine(message: EmailMessage | undefined, selfEmail?: string): 
     ]
       .filter(Boolean)
       .join(sep);
-  return { text: parts("à ", "cc ", who, " · "), title: parts("À : ", "Cc : ", (a) => a.email, "\n") };
+  return { text: parts("→ ", "cc ", who, " · "), title: parts("À : ", "Cc : ", (a) => a.email, "\n") };
 }
 
 function subscribeImageSenders(onChange: () => void): () => void {
   window.addEventListener(MAIL_IMAGE_SENDERS_EVENT, onChange);
   return () => window.removeEventListener(MAIL_IMAGE_SENDERS_EVENT, onChange);
+}
+
+const EMBER = "oklch(0.72 0.17 50)";
+
+/**
+ * Fil en frise : un tronc vertical relie les messages, seuls le dernier et ceux
+ * qu'on ouvre sont dépliés, les autres tiennent sur une ligne. Le dernier
+ * message s'allume en braise quand la réponse t'attend (il n'est pas de toi).
+ */
+// Le snippet Gmail embarque la citation (« De : X <…> », « Le … a écrit : ») : l'aperçu replié s'arrête avant.
+function stripQuotedTail(snippet: string): string {
+  const cut = snippet.search(/\s(De|From)\s?:\s|\sLe .{4,60} a écrit\s?:|\sOn .{4,60} wrote:/);
+  return cut > 0 ? snippet.slice(0, cut) : snippet;
+}
+
+function ThreadTrunk({
+  messages,
+  selfEmail,
+  clientId,
+  forwardNotes,
+}: {
+  messages: EmailMessage[];
+  selfEmail: string | undefined;
+  clientId: string;
+  forwardNotes: (messageId: string) => Array<{ label: string; title: string }> | undefined;
+}) {
+  const lastId = messages[messages.length - 1]?.id;
+  const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set(lastId ? [lastId] : []));
+  // Fil rechargé (réponse envoyée, nouveau message) : le nouveau dernier s'ouvre.
+  useEffect(() => {
+    if (lastId) setOpen((prev) => (prev.has(lastId) ? prev : new Set(prev).add(lastId)));
+  }, [lastId]);
+  const closed = messages.filter((m) => !open.has(m.id)).length;
+  const lastMine = messages.length > 0 && classifyBubble(messages[messages.length - 1]!.from.email, selfEmail) === "mine";
+
+  return (
+    <div className="flex flex-col">
+      {closed > 2 && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="mb-1 h-7 self-start px-2 font-mono text-[11px]"
+          style={{ color: "var(--text-muted)" }}
+          onPress={() => setOpen(new Set(messages.map((m) => m.id)))}
+        >
+          {closed} messages repliés · tout déplier
+        </Button>
+      )}
+      <ol className="flex flex-col">
+        {messages.map((m, i) => {
+          const kind = classifyBubble(m.from.email, selfEmail);
+          const isLast = i === messages.length - 1;
+          const hot = isLast && !lastMine;
+          const isOpen = open.has(m.id);
+          return (
+            <li key={m.id} className="relative pb-2 pl-6" data-last-message={isLast || undefined}>
+              {!isLast && (
+                <span
+                  aria-hidden
+                  className="absolute bottom-0 left-[5px] top-5 w-px"
+                  style={{ background: "var(--border)" }}
+                />
+              )}
+              <span
+                aria-hidden
+                className="absolute left-0 top-[11px] h-[11px] w-[11px] rounded-full"
+                style={
+                  hot
+                    ? { background: EMBER, boxShadow: `0 0 0 3px oklch(0.72 0.17 50 / 0.18), 0 0 10px 1px oklch(0.72 0.17 50 / 0.6)` }
+                    : kind === "mine"
+                      ? { background: "var(--surface-1)", boxShadow: "inset 0 0 0 1.5px var(--text-muted)" }
+                      : { background: senderTint(m.from.email || m.from.name).ink, boxShadow: "0 0 0 3px var(--surface-1)" }
+                }
+              />
+              {hot && <span className="sr-only">À toi de répondre</span>}
+              {isOpen ? (
+                <MessageBubble message={m} kind={kind} clientId={clientId} forwardNotes={forwardNotes(m.id)} />
+              ) : (
+                <Button
+                  variant="ghost"
+                  aria-label={`Déplier le message de ${kind === "mine" ? "moi" : m.from.name || m.from.email}`}
+                  className="h-auto min-h-0 w-full justify-start gap-2 rounded-md px-2 py-1.5 text-left"
+                  onPress={() => setOpen((prev) => new Set(prev).add(m.id))}
+                >
+                  <span
+                    className="max-w-[35%] shrink-0 truncate text-[12.5px] font-medium"
+                    style={{ color: kind === "mine" ? "var(--text-secondary)" : senderTint(m.from.email || m.from.name).ink }}
+                  >
+                    {kind === "mine" ? "Moi" : m.from.name || m.from.email}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate text-[12.5px]" style={{ color: "var(--text-muted)" }}>
+                    {stripQuotedTail(m.snippet)}
+                  </span>
+                  <span className="shrink-0 font-mono text-[11px] tabular-nums" style={{ color: "var(--text-muted)" }}>
+                    {formatMailDateTime(m.date ?? "")}
+                  </span>
+                </Button>
+              )}
+            </li>
+          );
+        })}
+      </ol>
+    </div>
+  );
 }
 
 function MessageBubble({
@@ -2302,10 +2531,12 @@ function MessageBubble({
   return (
     <div className="flex">
       <div
-        className="w-full min-w-0 overflow-hidden rounded-2xl border px-3.5 py-2.5"
+        className="w-full min-w-0 overflow-hidden rounded-lg border px-3 py-2"
         style={{
           backgroundColor: templated ? "transparent" : tint ? tint.bg : "var(--accent-subtle)",
           borderColor: templated ? "var(--border-subtle)" : tint ? tint.border : "var(--border-subtle)",
+          // Un mail mis en page garde son fond : la couleur de la personne passe par la tranche.
+          ...(templated && tint && { borderLeft: `3px solid ${tint.ink}` }),
         }}
       >
         <div className="mb-1 flex items-baseline justify-between gap-3">
@@ -2321,9 +2552,11 @@ function MessageBubble({
                 style={{ backgroundColor: "var(--success)" }}
               />
             )}
-            <span className="truncate">{mine ? "Moi" : message.from.name || message.from.email}</span>
+            <span className="truncate" style={tint ? { color: tint.ink } : undefined}>
+              {mine ? "Moi" : message.from.name || message.from.email}
+            </span>
           </span>
-          <span className="flex shrink-0 items-center gap-1 text-[11px]" style={{ color: "var(--text-muted)" }}>
+          <span className="flex shrink-0 items-center gap-1 font-mono text-[11px] tabular-nums" style={{ color: "var(--text-muted)" }}>
             {date}
             {canCopy && (
               <Tooltip content={copyFb.state === "success" ? "Copié" : (copyFb.error ?? "Copier le message")}>
@@ -2373,8 +2606,8 @@ function MessageBubble({
                 html={htmlParts.body}
                 styles={htmlParts.styles}
                 templated={templated}
-                className={templated ? "-mx-3.5" : undefined}
-                style={{ color: "var(--text-secondary)", ...(templated && { width: "calc(100% + 1.75rem)", maxWidth: "none" }) }}
+                className={templated ? "-mx-3" : undefined}
+                style={{ color: "var(--text-secondary)", ...(templated && { width: "calc(100% + 1.5rem)", maxWidth: "none" }) }}
               />
             )}
             {htmlParts.signature && (

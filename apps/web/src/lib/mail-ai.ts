@@ -282,16 +282,17 @@ export function buildInstantRepliesPrompt(thread: MailAiThread): string {
     serializeThread(thread),
     "",
     "Contraintes :",
-    "- une réponse par ligne, préfixée d'un tiret ;",
-    "- une à deux phrases maximum, prêtes à envoyer telles quelles ;",
+    "- une réponse par ligne, préfixée d'un tiret, sans numérotation ;",
+    "- 40 caractères maximum chacune, prêtes à envoyer telles quelles ;",
     "- trois intentions différentes (par exemple : accepter, décliner, demander une précision) ;",
-    "- même langue que le fil, ton professionnel, pas de formule de politesse longue ;",
+    "- en français, en reprenant le tutoiement ou le vouvoiement du fil ;",
+    "- ton professionnel, pas de formule de politesse ;",
     "- aucune signature, aucun objet, aucun commentaire de ta part.",
   ].join("\n");
 }
 
-/** Longueur au-delà de laquelle une « réponse éclair » n'en est plus une. */
-const MAX_INSTANT_REPLY_CHARS = 220;
+// Marge au-delà des 40 demandés : un petit modèle déborde souvent un peu.
+const MAX_INSTANT_REPLY_CHARS = 80;
 
 /**
  * Découpe la réponse du modèle en propositions courtes. Tolérant aux préfixes
@@ -303,10 +304,23 @@ export function parseInstantReplies(raw: string): string[] {
   for (const line of (raw ?? "").split(/\r?\n/)) {
     const cleaned = line
       .trim()
-      .replace(/^[-*\u2022]\s*/, "")
-      .replace(/^\d+[.)]\s*/, "")
+      // Puce et numéro peuvent se cumuler (« 1. - … ») : on retire tout préfixe de liste.
+      .replace(/^(?:(?:[-*\u2022\u2013\u2014]|\d+[.)])\s*)+/, "")
       .replace(/^["\u00ab\u00bb\s]+|["\u00ab\u00bb\s]+$/g, "")
       .trim();
+    // Les petits modèles titrent leurs propositions (« Option 1 : Acceptation (tutoiement) : … ») :
+    // on garde le texte, et une ligne qui n'est qu'un titre est sautée.
+    const titled = /^(?:option|réponse|proposition|choix)\s*\d*\s*[:.)\-\u2013\u2014]\s*/i.test(cleaned);
+    const body = cleaned
+      .replace(/^(?:option|réponse|proposition|choix)\s*\d*\s*[:.)\-\u2013\u2014]\s*/i, "")
+      .replace(/^[^:.!?]{1,40}\([^)]*\)\s*:\s*/, "")
+      .trim();
+    if (titled && (body === "" || /\)$/.test(body))) continue;
+    if (body !== cleaned) {
+      if (body.length >= 3 && body.length <= MAX_INSTANT_REPLY_CHARS && !out.includes(body)) out.push(body);
+      if (out.length === 3) break;
+      continue;
+    }
     if (cleaned.length < 3 || cleaned.length > MAX_INSTANT_REPLY_CHARS) continue;
     // Une ligne qui se termine par « : » introduit une liste, pas une réponse.
     if (cleaned.endsWith(":")) continue;

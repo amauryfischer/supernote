@@ -35,6 +35,8 @@ export function MailSearchBar({
   localCount,
   /** true quand les résultats affichés viennent de Gmail (recherche validée). */
   remote,
+  /** Montée dans la barre du haut : filtres et aides passent en menu déroulant au focus. */
+  inTopBar = false,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -43,6 +45,7 @@ export function MailSearchBar({
   inputRef?: RefObject<HTMLInputElement | null>;
   localCount: number | null;
   remote: boolean;
+  inTopBar?: boolean;
 }) {
   const [focused, setFocused] = useState(false);
   const [history, setHistory] = useState<string[]>([]);
@@ -67,15 +70,25 @@ export function MailSearchBar({
   const showHints = focused && value.trim().length > 0;
 
   return (
-    <div ref={wrapRef} className="relative flex flex-col gap-1.5 p-3">
-      <div className="flex gap-2">
+    <div ref={wrapRef} className={inTopBar ? "relative w-full" : "relative flex flex-col gap-1.5 px-2.5 pb-1.5 pt-2.5"}>
+      <div className="flex items-center gap-1">
+        <div className="relative min-w-0 flex-1">
+        <MagnifyingGlass
+          size={14}
+          aria-hidden
+          className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2"
+          style={{ color: "var(--text-muted)" }}
+        />
         <Input
           ref={inputRef}
+          spellCheck={false}
+          autoCorrect="off"
+          autoCapitalize="off"
           value={value}
           onChange={(e) => onChange(e.target.value)}
           onFocus={() => setFocused(true)}
-          placeholder="Rechercher dans les mails  (/)"
-          className="flex-1"
+          placeholder="Rechercher dans les mails"
+          className={`h-8 w-full pl-8 text-[13px] ${value ? "pr-24" : "pr-8"}`}
           aria-label="Rechercher dans les emails"
           onKeyDown={(e) => {
             if (e.key === "Enter") {
@@ -91,6 +104,15 @@ export function MailSearchBar({
             }
           }}
         />
+        {/* Une seule recherche : filtre local à la frappe, ↵ élargit à tout Gmail. */}
+        <kbd
+          aria-hidden
+          className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded-[3px] border px-1 font-mono text-[10px] leading-4"
+          style={{ borderColor: "var(--border)", color: "var(--text-muted)" }}
+        >
+          {value ? "↵ tout Gmail" : "/"}
+        </kbd>
+        </div>
         {value && (
           <Tooltip content="Effacer la recherche">
             <Button
@@ -103,18 +125,17 @@ export function MailSearchBar({
             </Button>
           </Tooltip>
         )}
-        <Tooltip content="Chercher dans tout Gmail (↵)">
-          <Button
-            size="icon"
-            variant="ghost"
-            onPress={() => onSubmit(value)}
-            aria-label="Chercher dans tout Gmail"
-          >
-            <MagnifyingGlass size={16} />
-          </Button>
-        </Tooltip>
       </div>
 
+      {(!inTopBar || (focused && (chips.length > 0 || showHints))) && (
+        <div
+          className={
+            inTopBar
+              ? "absolute left-0 right-0 top-full z-30 mt-1 flex flex-col gap-1.5 rounded-lg border p-2 shadow-lg"
+              : "contents"
+          }
+          style={inTopBar ? { background: "var(--surface-0)", borderColor: "var(--border-subtle)" } : undefined}
+        >
       {/* Puces des filtres actifs. */}
       {chips.length > 0 && (
         <div className="flex flex-wrap items-center gap-1">
@@ -177,10 +198,13 @@ export function MailSearchBar({
         </div>
       )}
 
+        </div>
+      )}
+
       {/* Historique (champ vide + focus). */}
       {showPanel && (
         <div
-          className="absolute left-3 right-3 top-[3.25rem] z-30 rounded-lg border p-1 shadow-lg"
+          className={`absolute z-30 rounded-lg border p-1 shadow-lg ${inTopBar ? "left-0 right-0 top-full mt-1" : "left-3 right-3 top-[3.25rem]"}`}
           style={{ background: "var(--surface-0)", borderColor: "var(--border-subtle)" }}
         >
           <div className="flex items-center justify-between px-2 py-1">

@@ -98,6 +98,12 @@ export function labelChipStyle(color: GmailLabelColor | undefined): CSSPropertie
   }
 }
 
+/** Rendu teinté doux quel que soit le style stocké : jamais de fond plein saturé dans une liste ou un fil. */
+export function labelChipSoftStyle(color: GmailLabelColor | undefined): CSSProperties {
+  const tint = labelTint(color);
+  return { backgroundColor: `color-mix(in srgb, ${tint} 14%, transparent)`, color: ink(tint) };
+}
+
 const ROW_LABELS_MAX = 3;
 
 /** Pastilles minuscules des labels utilisateur d'un email, pour les lignes de liste ; au-delà de 3, un « +n ». */
@@ -117,10 +123,10 @@ export function RowLabelChips({
         <span
           key={id}
           title={names?.get(id)}
-          className="max-w-[5rem] shrink-0 truncate rounded-full px-1.5 text-[10px] font-medium leading-4 md:max-w-[8rem]"
-          style={labelChipStyle(colors?.get(id))}
+          className="max-w-[5rem] shrink-0 truncate rounded-full px-1.5 text-[10px] font-medium leading-[18px] md:max-w-[8rem]"
+          style={labelChipSoftStyle(colors?.get(id))}
         >
-          {names?.get(id)}
+          {names?.get(id)?.replace(/^Supernote\//, "")}
         </span>
       ))}
       {ids.length > ROW_LABELS_MAX && (

@@ -101,14 +101,7 @@ export function TodayPanel({ onClose }: { onClose?: () => void }) {
         )}
       </div>
 
-      {!connected ? (
-        <div className="flex flex-col items-start gap-2 px-4 py-3 text-sm" style={{ color: "var(--text-secondary)" }}>
-          <p>Connecte Google Agenda pour voir ta journée ici.</p>
-          <Button variant="outline" size="sm" onPress={() => navigate("/agenda")}>
-            Aller à l'agenda
-          </Button>
-        </div>
-      ) : (
+      {!connected ? null : (
         <>
           {next && (
             <div className="mx-3 mb-3 flex flex-col gap-2 rounded-lg border p-3" style={{ borderColor: "var(--border-subtle)", background: "var(--surface-1)" }}>
@@ -182,6 +175,15 @@ export function TodayPanel({ onClose }: { onClose?: () => void }) {
       )}
 
       <CommitmentsTodaySection />
+      {/* Sans agenda, l'invitation passe après ce qui est actionnable. */}
+      {!connected && (
+        <div className="mt-auto flex items-center justify-between gap-2 border-t px-4 py-2 text-xs" style={{ borderColor: "var(--border-subtle)", color: "var(--text-muted)" }}>
+          <span>Agenda non connecté</span>
+          <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onPress={() => navigate("/agenda")}>
+            Connecter
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
