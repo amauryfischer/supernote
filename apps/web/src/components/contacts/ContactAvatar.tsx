@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { avatarStyle, getInitials } from "./utils";
 
 interface ContactAvatarProps {
@@ -7,16 +8,23 @@ interface ContactAvatarProps {
   photoUrl?: string;
   size?: number;
   className?: string;
+  /** Image plus petite (px naturels) = image de repli du service → initiales. */
+  minImageSize?: number;
 }
 
-export function ContactAvatar({ name, photoUrl, size = 36, className = "" }: ContactAvatarProps) {
+export function ContactAvatar({ name, photoUrl, size = 36, className = "", minImageSize = 0 }: ContactAvatarProps) {
   const style = avatarStyle(name);
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
 
-  if (photoUrl) {
+  if (photoUrl && photoUrl !== failedUrl) {
     return (
       <img
         src={photoUrl}
         alt={name}
+        onError={() => setFailedUrl(photoUrl)}
+        onLoad={(e) => {
+          if (e.currentTarget.naturalWidth < minImageSize) setFailedUrl(photoUrl);
+        }}
         width={size}
         height={size}
         className={`rounded-full object-cover ${className}`}

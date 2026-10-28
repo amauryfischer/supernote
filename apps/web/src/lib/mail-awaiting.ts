@@ -3,7 +3,7 @@ import { isMachineAddress } from "@/lib/contact-from-email";
 
 // Gmail range déjà ici les envois automatiques (promos, réseaux, notifications, forums).
 // Domaines grand public : partager le domaine n'y fait pas un collègue.
-const PUBLIC_DOMAINS = new Set(["gmail.com", "googlemail.com", "outlook.com", "outlook.fr", "hotmail.com", "hotmail.fr", "live.fr", "yahoo.com", "yahoo.fr", "icloud.com", "me.com", "laposte.net", "orange.fr", "free.fr", "sfr.fr", "wanadoo.fr", "proton.me", "protonmail.com"]);
+export const PUBLIC_DOMAINS = new Set(["gmail.com", "googlemail.com", "outlook.com", "outlook.fr", "hotmail.com", "hotmail.fr", "live.fr", "yahoo.com", "yahoo.fr", "icloud.com", "me.com", "laposte.net", "orange.fr", "free.fr", "sfr.fr", "wanadoo.fr", "proton.me", "protonmail.com"]);
 
 const domainOf = (email: string) => email.slice(email.lastIndexOf("@") + 1);
 

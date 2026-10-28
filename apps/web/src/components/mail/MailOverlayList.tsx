@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Button } from "@supernote/ui";
 import { Checkbox } from "@supernote/ui";
-import { Star, DotsSixVertical, Sparkle, CaretDown, Checks } from "@phosphor-icons/react";
+import { Star, DotsSixVertical, Sparkle, CaretDown, Checks, Clock, Trash } from "@phosphor-icons/react";
 import {
   DndContext,
   useDraggable,
@@ -30,7 +30,8 @@ import { QUADRANTS, type EisenhowerQuadrant } from "@/lib/mail-eisenhower";
 import { SNOOZE_PRESETS, type TriageAction } from "@/lib/mail-triage";
 import type { GmailLabelColor } from "@/lib/gmail";
 import { formatMailDate } from "@/lib/mail-date";
-import { awaitsMyReply, isSelfAddress } from "@/lib/mail-awaiting";
+import { PUBLIC_DOMAINS, awaitsMyReply, isSelfAddress } from "@/lib/mail-awaiting";
+import { ContactAvatar } from "@/components/contacts/ContactAvatar";
 import { SwipeableRow, type SwipeAction } from "./SwipeableRow";
 import { LabelMarker, RowLabelChips, labelChipSoftStyle } from "./LabelMarker";
 
@@ -56,6 +57,8 @@ interface SharedRowProps {
   onSwipeRow?: (row: OverlayRow, action: SwipeAction) => void;
   /** Appui long (mobile) : feuille d'actions de la ligne. */
   onLongPressRow?: (row: OverlayRow) => void;
+  onSnoozeRow?: (row: OverlayRow) => void;
+  onTriageRow?: (row: OverlayRow, action: TriageAction, until?: number) => void;
   /** threadId → mini-résumé IA. Remplace le snippet Gmail quand il existe. */
   summaries?: ReadonlyMap<string, string>;
   selfEmails: readonly string[];
@@ -98,6 +101,14 @@ type ListEntry =
   | { kind: "header"; marker: MailSectionMarker }
   | { kind: "row"; row: OverlayRow; idx: number };
 
+// Logo du domaine expéditeur (cache navigateur 7 j) ; domaine inconnu = globe 16 px de Google → initiales.
+// shortcut: garde les 2 derniers labels, rate les suffixes type co.uk ; passer à une liste PSL si ça gêne.
+function senderLogoUrl(email: string): string | undefined {
+  const domain = email.slice(email.lastIndexOf("@") + 1).toLowerCase().split(".").slice(-2).join(".");
+  if (!domain.includes(".") || PUBLIC_DOMAINS.has(domain)) return undefined;
+  return `https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://${domain}&size=64`;
+}
+
 /** Clé React stable d'une entrée (l'id du fil / du groupe, jamais l'index). */
 function entryKey(entry: ListEntry | undefined, fallback: number): string | number {
   if (!entry) return fallback;
@@ -116,6 +127,7 @@ export function MailOverlayList({
   onToggleRowSelection,
   onConvertRowToTodo,
   onTriageRow,
+  onSnoozeRow,
   onMarkRowRead,
   onApplyLabel,
   userLabels,
@@ -160,6 +172,8 @@ export function MailOverlayList({
   onConvertRowToTodo?: (row: OverlayRow, quadrant: EisenhowerQuadrant) => void;
   /** Clic droit : triage rapide d'une ligne single (`until` = échéance snooze). */
   onTriageRow?: (row: OverlayRow, action: TriageAction, until?: number) => void;
+  /** Bouton « Reporter » au survol : ouvre le SnoozeMenu de la page sur cette ligne. */
+  onSnoozeRow?: (row: OverlayRow) => void;
   /** Clic droit : marquer lu/non-lu une ligne single. */
   onMarkRowRead?: (row: OverlayRow, read: boolean) => void;
   /**
@@ -309,6 +323,8 @@ export function MailOverlayList({
     onOpenContext: setCtx,
     onSwipeRow,
     onLongPressRow,
+    onSnoozeRow,
+    onTriageRow,
     summaries,
     selfEmails,
   };
@@ -477,6 +493,8 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
     onOpenContext,
     onSwipeRow,
     onLongPressRow,
+    onSnoozeRow,
+    onTriageRow,
     summaries,
     selfEmails,
   } = shared;
@@ -602,9 +620,18 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
 
         <span
           title={senders || fromAddr?.email || undefined}
-          className={`col-start-2 row-start-1 flex min-w-0 items-baseline gap-1.5 text-[13px] ${unread ? "font-semibold" : "font-medium"}`}
+          className={`col-start-2 row-start-1 flex min-w-0 items-center gap-1.5 text-[13px] ${unread ? "font-semibold" : "font-medium"}`}
           style={{ color: unread || awaiting ? "var(--text-primary)" : "var(--text-secondary)" }}
         >
+          {fromAddr && (
+            <ContactAvatar
+              name={fromAddr.name || fromAddr.email}
+              photoUrl={senderLogoUrl(fromAddr.email)}
+              size={18}
+              minImageSize={32}
+              className="shrink-0 bg-[var(--surface-2)]"
+            />
+          )}
           {who}
           {row.kind === "group" && row.count > 1 && (
             <span
@@ -669,27 +696,26 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
         )}
 
         <span className="col-start-3 row-start-1 flex shrink-0 items-center gap-1.5 @xl:col-start-4">
+          {singleItem && onSnoozeRow && (
+            <RowIconAction label="Reporter" className="max-md:hidden" onAct={() => onSnoozeRow(row)}>
+              <Clock size={13} style={{ color: "var(--text-muted)" }} />
+            </RowIconAction>
+          )}
+          {singleItem && onTriageRow && (
+            <RowIconAction label="Supprimer" className="max-md:hidden" onAct={() => onTriageRow(row, "delete")}>
+              <Trash size={13} style={{ color: "var(--text-muted)" }} />
+            </RowIconAction>
+          )}
           {singleItem && onToggleStar ? (
-            <span
-              role="button"
-              tabIndex={0}
-              aria-label={starred ? "Retirer l'étoile" : "Mettre une étoile"}
-              aria-pressed={starred}
-              className={`inline-flex shrink-0 cursor-pointer p-0.5 max-md:-m-2 max-md:p-2.5${starred ? "" : " sn-reveal"}`}
-              onClick={(e) => {
-                e.stopPropagation();
-                onToggleStar(singleItem.id, singleItem.labelIds);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  onToggleStar(singleItem.id, singleItem.labelIds);
-                }
-              }}
+            <RowIconAction
+              label={starred ? "Retirer l'étoile" : "Mettre une étoile"}
+              pressed={starred}
+              reveal={!starred}
+              className="max-md:-m-2 max-md:p-2.5"
+              onAct={() => onToggleStar(singleItem.id, singleItem.labelIds)}
             >
               <Star size={13} weight={starred ? "fill" : "regular"} style={{ color: starred ? "var(--text-primary)" : "var(--text-muted)" }} />
-            </span>
+            </RowIconAction>
           ) : (
             starred && <Star size={13} weight="fill" aria-label="Contient un message étoilé" style={{ color: "var(--text-primary)" }} />
           )}
@@ -796,6 +822,47 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
     >
       {body}
     </SwipeableRow>
+  );
+}
+
+/** Action d'icône imbriquée dans la ligne-Button : span natif (un bouton dans un bouton serait invalide), le clic ne doit pas ouvrir le fil. */
+function RowIconAction({
+  label,
+  pressed,
+  reveal = true,
+  className = "",
+  onAct,
+  children,
+}: {
+  label: string;
+  pressed?: boolean;
+  reveal?: boolean;
+  className?: string;
+  onAct: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <span
+      role="button"
+      tabIndex={0}
+      aria-label={label}
+      aria-pressed={pressed}
+      title={label}
+      className={`${reveal ? "sn-reveal " : ""}inline-flex shrink-0 cursor-pointer rounded p-0.5 hover:bg-[var(--surface-2)] ${className}`}
+      onClick={(e) => {
+        e.stopPropagation();
+        onAct();
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          e.stopPropagation();
+          onAct();
+        }
+      }}
+    >
+      {children}
+    </span>
   );
 }
 

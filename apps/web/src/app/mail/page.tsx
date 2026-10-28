@@ -2496,6 +2496,7 @@ export default function MailPage() {
                 onToggleRowSelection={isMobile ? undefined : toggleRowSelected}
                 onConvertRowToTodo={handleConvertRow}
                 onTriageRow={handleTriageRow}
+                onSnoozeRow={(row) => row.kind === "single" && setSnoozeTarget({ id: row.item.id, subject: row.item.subject })}
                 onMarkRowRead={handleMarkRowRead}
                 onApplyLabel={isMobile ? undefined : handleApplyLabel}
                 userLabels={labelNames}
