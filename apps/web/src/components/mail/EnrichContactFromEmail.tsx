@@ -11,8 +11,7 @@
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Spinner } from "@heroui/react";
-import { UserPlus } from "@phosphor-icons/react";
-import { Modal, Tooltip, Button, Badge, Input } from "@supernote/ui";
+import { Modal, Button, Badge, Input } from "@supernote/ui";
 import { trpc } from "@/lib/trpc/client";
 import { useEntityMutations } from "@/components/bases/hooks";
 import { contactFormToEntityFields, entityToContact } from "@/components/contacts/entityAdapter";
@@ -35,48 +34,26 @@ import {
 } from "@/lib/contact-from-email";
 import type { EmailMessage } from "@/lib/gmail";
 import type { EntitySummary, FieldValue } from "@supernote/ipc";
-import { useActionFeedback, FeedbackIcon } from "@/lib/action-feedback";
+import { useActionFeedback } from "@/lib/action-feedback";
 
 export interface EnrichContactFromEmailProps {
-  /** Message dont on lit l'expéditeur et la signature (`bodyText`). */
-  message: EmailMessage;
-  /** Contrôlé par le fil : le menu « Plus » ouvre la même modale que le bouton icône. */
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
+  /** Message dont on lit l'expéditeur et la signature (`bodyText`) ; null = modale fermée. */
+  message: EmailMessage | null;
+  onClose: () => void;
 }
 
-const LABEL = "Créer / compléter le contact";
-
-/** Bouton icône (à côté de l'adresse du correspondant) et sa modale. */
-export function EnrichContactFromEmail({ message, open, onOpenChange }: EnrichContactFromEmailProps) {
-  const fb = useActionFeedback();
-  if (!message.from.email) return null;
-
+/** Modale « Créer / compléter le contact », ouverte depuis le menu d'une adresse ou le menu « Plus ». */
+export function EnrichContactFromEmail({ message, onClose }: EnrichContactFromEmailProps) {
   return (
-    <>
-      <Tooltip content={LABEL}>
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label={LABEL}
-          className="sn-hit h-6 min-h-6 w-6 min-w-6 shrink-0"
-          onPress={() => onOpenChange(true)}
-        >
-          <FeedbackIcon state={fb.state} size={13} idle={<UserPlus size={13} />} />
-        </Button>
-      </Tooltip>
-      <Modal
-        isOpen={open}
-        onOpenChange={onOpenChange}
-        title="Contact depuis l'email"
-        size="lg"
-        className="max-h-[calc(100dvh-2rem)] overflow-y-auto"
-      >
-        {open && (
-          <ContactForm message={message} onSaved={fb.succeed} onDone={() => onOpenChange(false)} />
-        )}
-      </Modal>
-    </>
+    <Modal
+      isOpen={Boolean(message?.from.email)}
+      onOpenChange={(open) => !open && onClose()}
+      title="Contact depuis l'email"
+      size="lg"
+      className="max-h-[calc(100dvh-2rem)] overflow-y-auto"
+    >
+      {message?.from.email && <ContactForm message={message} onDone={onClose} />}
+    </Modal>
   );
 }
 
@@ -108,11 +85,9 @@ function text(v: unknown): string {
 
 function ContactForm({
   message,
-  onSaved,
   onDone,
 }: {
   message: EmailMessage;
-  onSaved: () => void;
   onDone: () => void;
 }) {
   const saveFb = useActionFeedback();
@@ -251,7 +226,6 @@ function ContactForm({
       return true;
     });
     if (!done) return;
-    onSaved();
     onDone();
   };
 

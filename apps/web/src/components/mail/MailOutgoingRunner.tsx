@@ -47,6 +47,7 @@ export function MailOutgoingRunner() {
       if (m.kind === "reply" && m.threadId) {
         await sendReply(clientId, {
           threadId: m.threadId,
+          ...(m.from ? { from: m.from } : {}),
           to: m.to,
           ...(m.cc?.length ? { cc: m.cc } : {}),
           ...(m.bcc?.length ? { bcc: m.bcc } : {}),

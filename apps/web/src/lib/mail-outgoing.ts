@@ -37,6 +37,7 @@ export interface OutgoingMessage {
   id: string;
   /** `reply` porte threadId / inReplyTo ; `message` est un envoi hors fil. */
   kind: "message" | "reply";
+  from?: string;
   to: string[];
   cc?: string[];
   bcc?: string[];

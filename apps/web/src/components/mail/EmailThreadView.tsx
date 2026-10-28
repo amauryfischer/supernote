@@ -3,7 +3,7 @@
 import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, forwardRef, useImperativeHandle, type ReactNode } from "react";
 import { ArrowSquareOut, Plus, X, Tag, MagnifyingGlass, Check, PaperPlaneTilt, Quotes, Paperclip, Star, Envelope, ArrowBendUpRight, Sparkle, MagicWand, ArrowsClockwise, CaretUp, DotsThreeVertical, Copy, Image as ImageIcon, SpeakerSlash, UserMinus, UserPlus, WarningCircle, ShareNetwork, ArrowBendUpLeft, ArrowBendDoubleUpLeft, FilePlus, Database, CaretRight } from "@phosphor-icons/react";
 import { Spinner, Popover } from "@heroui/react";
-import { useToast, Tooltip, Badge, Button, Input } from "@supernote/ui";
+import { useToast, Tooltip, Badge, Button, Input, ContextMenu, useContextMenu, Select } from "@supernote/ui";
 import { useActionFeedback, FeedbackIcon } from "@/lib/action-feedback";
 import { useSettings } from "@/components/settings/SettingsContext";
 import { ShareDialog } from "@/components/share/ShareDialog";
@@ -298,7 +298,9 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
     setEmailShare(shareAccount, thread.id, share);
     setEmailShareState(share);
   };
-  const [contactOpen, setContactOpen] = useState(false);
+  // Message dont l'expéditeur alimente la fiche contact (null = modale fermée).
+  const [contactMsg, setContactMsg] = useState<EmailMessage | null>(null);
+  const addrMenu = useContextMenu();
   const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
   // Éditeur de couleur d'un label appliqué : id du label ciblé + ancre du badge.
   const [colorEdit, setColorEdit] = useState<{ id: string; color: GmailLabelColor | undefined; rect: DOMRect } | null>(
@@ -385,20 +387,28 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
   const replySendFb = useActionFeedback();
   const replyDraftFb = useActionFeedback();
   const replyBusy = replySendFb.isPending || replyDraftFb.isPending;
-  const copyRecipientFb = useActionFeedback();
   const [replyNotice, setReplyNotice] = useState<{ tone: "danger" | "warning"; text: string } | null>(null);
   // Mobile : le composeur reste une ligne tant qu'on n'y a pas touché — déplié
   // d'office, il mangeait un tiers de l'écran au-dessus du fil.
   const [replyOpen, setReplyOpen] = useState(false);
   // Toggle « Répondre à tous » : défaut = réponse simple. Pas de Cc à ajouter
   // (seul le destinataire principal) → l'option est sans effet, on la masque.
-  const [replyToAll, setReplyToAll] = useState(false);
   const hasCc = replyAll.cc.length > 0;
-  // Cc ajoutés à la main, en plus de ceux que « Répondre à tous » reprend du fil.
+  // Destinataires modifiables (façon Shortwave) : une ligne résumé qui se déplie en De / À / Cc.
+  const [replyTo, setReplyTo] = useState<string[]>([]);
+  const [replyToInput, setReplyToInput] = useState("");
   const [replyCc, setReplyCc] = useState<string[]>([]);
   const [replyCcInput, setReplyCcInput] = useState("");
-  const [replyCcOpen, setReplyCcOpen] = useState(false);
+  const [replyFrom, setReplyFrom] = useState("");
+  const [replyFieldsOpen, setReplyFieldsOpen] = useState(false);
+  const replyToId = useId();
   const replyCcId = useId();
+  const fromChoices = dedupeEmails([settings.gmail.connectedEmail || selfEmail || "", ...settings.gmail.aliases]);
+  const applyReplyAll = () => {
+    setReplyTo((prev) => dedupeEmails([...prev, replyAll.to]));
+    setReplyCc((prev) => dedupeEmails([...prev, ...replyAll.cc]));
+  };
+  const replyAllPending = hasCc && replyAll.cc.some((e) => !replyCc.includes(e) && !replyTo.includes(e));
   // Pièces jointes de la réponse en cours (réinitialisées au changement de fil).
   const [replyAttachments, setReplyAttachments] = useState<PendingAttachment[]>([]);
   const replyFileRef = useRef<HTMLInputElement>(null);
@@ -461,7 +471,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
       if (!saved) return;
       setReplyBody(saved.body);
       setReplyCc(saved.cc ?? []);
-      setReplyCcOpen(Boolean(saved.cc?.length));
+      setReplyFieldsOpen(Boolean(saved.cc?.length));
       setReplyOpen(true);
     };
     window.addEventListener(REPLY_RESTORE_EVENT, restore);
@@ -475,9 +485,11 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
     setReplyBody(saved?.body ?? "");
     setReplyCc(saved?.cc ?? []);
     setReplyCcInput("");
-    setReplyCcOpen(Boolean(saved?.cc?.length));
+    setReplyTo(replyParams.to ? [replyParams.to] : []);
+    setReplyToInput("");
+    setReplyFrom("");
+    setReplyFieldsOpen(Boolean(saved?.cc?.length));
     setReplyOpen(false);
-    setReplyToAll(false);
     setReplyAttachments([]);
     setSummary(null);
     setSummaryOpen(false);
@@ -670,7 +682,9 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
     setReplyBody("");
     setReplyCc([]);
     setReplyCcInput("");
-    setReplyCcOpen(false);
+    setReplyTo(replyParams.to ? [replyParams.to] : []);
+    setReplyToInput("");
+    setReplyFieldsOpen(false);
     setReplyAttachments([]);
   };
 
@@ -678,8 +692,14 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
     const typed = replyBody.trim();
     if (!typed || !clientId) return;
     // Inclut une adresse tapée mais non encore validée (pas de perte silencieuse).
-    const extraCc = dedupeEmails([...replyCc, ...parseRecipientInput(replyCcInput)]);
-    const cc = dedupeEmails([...(replyToAll && hasCc ? replyAll.cc : []), ...extraCc]);
+    const to = dedupeEmails([...replyTo, ...parseRecipientInput(replyToInput)]);
+    const cc = dedupeEmails([...replyCc, ...parseRecipientInput(replyCcInput)]);
+    if (!to.length) {
+      setReplyFieldsOpen(true);
+      setReplyNotice({ tone: "warning", text: "Ajoute au moins un destinataire." });
+      return;
+    }
+    const from = replyFrom || undefined;
     const attachments = replyAttachments.length ? toOutgoing(replyAttachments) : undefined;
     // Signature ajoutée si elle manque ; part HTML seulement s'il y a de la mise
     // en forme ou une image inline (sinon le message reste en texte pur).
@@ -701,7 +721,8 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
             {
               kind: "reply",
               threadId: replyParams.threadId,
-              to: replyParams.to ? [replyParams.to] : [],
+              ...(from ? { from } : {}),
+              to,
               ...(cc.length ? { cc } : {}),
               subject: replyParams.subject,
               body,
@@ -714,7 +735,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
               ...(sendAt !== undefined ? { sendAt } : {}),
               label: "Réponse envoyée",
               onCancel: () => {
-                saveAutoDraft({ key: threadDraftKey(thread.id), body: typed, cc: extraCc });
+                saveAutoDraft({ key: threadDraftKey(thread.id), body: typed, cc });
                 window.dispatchEvent(new CustomEvent(REPLY_RESTORE_EVENT, { detail: thread.id }));
               },
             },
@@ -731,6 +752,8 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
       () =>
         createDraft(clientId, {
           ...replyParams,
+          ...(from ? { from } : {}),
+          to,
           ...(cc.length ? { cc } : {}),
           body,
           ...(html ? { html } : {}),
@@ -923,7 +946,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
       },
       focusReply: focusComposer,
       replyAll: () => {
-        setReplyToAll(true);
+        applyReplyAll();
         focusComposer();
       },
       openLabelPicker: openPicker,
@@ -953,17 +976,37 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
       ? [...thread.messages].reverse().find((m) => m.from.email.toLowerCase() !== self)
       : thread.messages[thread.messages.length - 1]) ?? null;
 
-  // Adresse du correspondant (celle vers laquelle on répond = l'externe X, cf.
-  // pickReplyTo) → affichée + copiable dans l'en-tête.
-  const recipientEmail = replyParams.to || correspondentMsg?.from.email || "";
-  const recipients = recipientsLine(correspondentMsg ?? thread.messages[thread.messages.length - 1], selfEmail);
-  const recipientName =
-    thread.messages
-      .flatMap((m) => [m.from, ...m.to, ...(m.cc ?? [])])
-      .find((a) => a.email.toLowerCase() === recipientEmail.toLowerCase() && a.name)?.name ?? "";
-  const copyRecipient = () => {
-    if (recipientEmail) void copyRecipientFb.run(() => navigator.clipboard.writeText(recipientEmail));
+  const headerMsg = correspondentMsg ?? thread.messages[thread.messages.length - 1]!;
+  // Fiche contact d'une adresse : son dernier message s'il en a écrit un (signature exploitable), sinon l'adresse seule.
+  const contactFor = (addr: EmailAddress): EmailMessage =>
+    [...thread.messages].reverse().find((m) => m.from.email.toLowerCase() === addr.email.toLowerCase()) ?? {
+      ...headerMsg,
+      from: addr,
+      bodyText: "",
+      bodyHtml: undefined,
+      snippet: "",
+    };
+  const openAddrMenu = (e: React.MouseEvent, addr: EmailAddress) => {
+    addrMenu.open(e, [
+      {
+        key: "copy",
+        label: "Copier l'adresse",
+        icon: <Copy size={14} />,
+        onPress: () => void navigator.clipboard.writeText(addr.email),
+      },
+      {
+        key: "contact",
+        label: "Créer / compléter le contact",
+        icon: <UserPlus size={14} />,
+        onPress: () => setContactMsg(contactFor(addr)),
+      },
+    ]);
   };
+  const addrGroups = [
+    { label: "De", list: [headerMsg.from] },
+    { label: "À", list: headerMsg.to },
+    { label: "Cc", list: headerMsg.cc ?? [] },
+  ].filter((g) => g.list.some((a) => a.email));
 
   return (
     // En pane (non-embed) : on remplit la hauteur du conteneur scrollable pour
@@ -1156,7 +1199,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
                           onPress={() => {
                             // La modale vit hors du menu : ouverte dedans, le popover resterait par-dessus.
                             setMoreOpen(false);
-                            setContactOpen(true);
+                            setContactMsg(correspondentMsg);
                           }}
                         >
                           <UserPlus size={16} />
@@ -1304,34 +1347,18 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
           )}
         </div>
         {/* En rédaction, l'en-tête se réduit à l'objet : la hauteur va au message lu. */}
-        {!embedded && recipientEmail && !replyOpen && (
-          <div className="flex min-w-0 items-center gap-1 pl-0.5 text-xs" style={{ color: "var(--text-muted)" }}>
-            <span className="shrink-0">De</span>
-            {recipientName && recipientName.toLowerCase() !== recipientEmail.toLowerCase() && (
-              <span className="max-w-[30%] shrink-0 truncate font-medium" style={{ color: "var(--text-secondary)" }}>
-                {recipientName}
+        <EnrichContactFromEmail message={contactMsg} onClose={() => setContactMsg(null)} />
+        <ContextMenu state={addrMenu.state} onClose={addrMenu.close} />
+        {!embedded && addrGroups.length > 0 && !replyOpen && (
+          <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-0.5 pl-0.5 text-xs" style={{ color: "var(--text-muted)" }}>
+            {addrGroups.map((g) => (
+              <span key={g.label} className="flex min-w-0 flex-wrap items-center gap-x-0.5">
+                <span className="mr-0.5 shrink-0">{g.label}</span>
+                {g.list.map((a) => (
+                  <AddressChip key={a.email} address={a} onMenu={(e) => openAddrMenu(e, a)} />
+                ))}
               </span>
-            )}
-            <span className="max-w-[35%] shrink-0 truncate font-mono text-[11px]">{recipientEmail}</span>
-            <Tooltip content={copyRecipientFb.state === "success" ? "Copiée" : (copyRecipientFb.error ?? "Copier l'adresse")}>
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label="Copier l'adresse"
-                className="sn-hit h-6 min-h-6 w-6 min-w-6 shrink-0"
-                onPress={copyRecipient}
-              >
-                <FeedbackIcon state={copyRecipientFb.state} error={copyRecipientFb.error} size={12} idle={<Copy size={12} />} />
-              </Button>
-            </Tooltip>
-            {correspondentMsg && (
-              <EnrichContactFromEmail message={correspondentMsg} open={contactOpen} onOpenChange={setContactOpen} />
-            )}
-            {recipients.text && (
-              <span className="min-w-0 truncate" title={recipients.title}>
-                {recipients.text}
-              </span>
-            )}
+            ))}
             {aliasLabels.length > 0 && (
               <span
                 className="ml-auto min-w-0 truncate pl-2 font-mono text-[11px]"
@@ -1549,7 +1576,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
                   label="Répondre à tous"
                   shortcut={shortcutKey("replyAll")}
                   onPress={() => {
-                    setReplyToAll(true);
+                    applyReplyAll();
                     focusComposer();
                   }}
                 >
@@ -1758,31 +1785,62 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
           )}
           {!composerCompact && <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2">
             <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs" style={{ color: "var(--text-muted)" }}>
-              <span className="min-w-0 truncate">
-                À : {replyToAll && hasCc ? replyAll.to : replyParams.to}
-                {replyToAll && hasCc && ` · Cc : ${replyAll.cc.join(", ")}`}
-              </span>
-              {!replyCcOpen && (
+              {!replyFieldsOpen && (
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="sn-hit px-2 text-xs text-[var(--text-muted)]"
-                  aria-label="Ajouter des destinataires en copie (Cc)"
+                  className="sn-hit h-auto min-h-6 min-w-0 justify-start px-1 text-left text-xs font-normal"
+                  style={{ color: "var(--text-muted)" }}
+                  aria-label="Modifier l'expéditeur et les destinataires"
                   onPress={() => {
-                    setReplyCcOpen(true);
-                    requestAnimationFrame(() => document.getElementById(replyCcId)?.focus());
+                    setReplyFieldsOpen(true);
+                    requestAnimationFrame(() => document.getElementById(replyToId)?.focus());
                   }}
                 >
-                  Cc
+                  <span className="truncate">
+                    À : {replyTo.join(", ") || "—"}
+                    {replyCc.length > 0 && ` · Cc : ${replyCc.join(", ")}`}
+                  </span>
                 </Button>
               )}
               <span className="hidden shrink-0 md:inline">⌘/Ctrl+↵ pour envoyer</span>
             </div>
-            {replyCcOpen && (
-              <div className="sn-motion-colors flex basis-full items-start gap-2 border-b border-[var(--border-subtle)] focus-within:border-[var(--border-focus)]">
-                <label htmlFor={replyCcId} className="pt-2 text-xs text-[var(--text-muted)]">
-                  Cc
-                </label>
+            {replyFieldsOpen && (
+              <div className="flex basis-full flex-col">
+                <div className="flex items-center gap-2 border-b border-[var(--border-subtle)] py-0.5">
+                  <span className="w-6 shrink-0 text-xs text-[var(--text-muted)]">De</span>
+                  {fromChoices.length > 1 ? (
+                    <Select
+                      aria-label="Adresse d'envoi"
+                      options={fromChoices.map((e) => ({ key: e, label: e }))}
+                      selectedKey={replyFrom || fromChoices[0]}
+                      onSelectionChange={(k) => setReplyFrom(k === fromChoices[0] ? "" : k)}
+                      className="min-w-0 flex-1"
+                      triggerClassName="h-8 border-0 bg-transparent px-0 font-mono text-xs shadow-none"
+                    />
+                  ) : (
+                    <span className="font-mono text-xs" style={{ color: "var(--text-secondary)" }}>
+                      {fromChoices[0]}
+                    </span>
+                  )}
+                </div>
+                <div className="sn-motion-colors flex items-start gap-2 border-b border-[var(--border-subtle)] focus-within:border-[var(--border-focus)]">
+                  <label htmlFor={replyToId} className="w-6 shrink-0 pt-2 text-xs text-[var(--text-muted)]">
+                    À
+                  </label>
+                  <ReplyCcField
+                    id={replyToId}
+                    messages={thread.messages}
+                    value={replyTo}
+                    onChange={setReplyTo}
+                    input={replyToInput}
+                    onInputChange={setReplyToInput}
+                  />
+                </div>
+                <div className="sn-motion-colors flex items-start gap-2 border-b border-[var(--border-subtle)] focus-within:border-[var(--border-focus)]">
+                  <label htmlFor={replyCcId} className="w-6 shrink-0 pt-2 text-xs text-[var(--text-muted)]">
+                    Cc
+                  </label>
                 <ReplyCcField
                   id={replyCcId}
                   messages={thread.messages}
@@ -1791,6 +1849,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
                   input={replyCcInput}
                   onInputChange={setReplyCcInput}
                 />
+                </div>
               </div>
             )}
             <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2 md:shrink-0">
@@ -1807,13 +1866,12 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
                   </Button>
                 </Tooltip>
               )}
-              {hasCc && (
+              {replyAllPending && (
                 <Button
-                  variant={replyToAll ? "primary" : "ghost"}
+                  variant="ghost"
                   size="sm"
-                  onPress={() => setReplyToAll((v) => !v)}
-                  aria-pressed={replyToAll}
-                  aria-label="Répondre à tous : inclure tous les participants du fil en copie"
+                  onPress={applyReplyAll}
+                  aria-label="Répondre à tous : ajouter tous les participants du fil"
                 >
                   Répondre à tous
                 </Button>
@@ -2339,20 +2397,27 @@ function MailHtmlFrame({
   );
 }
 
-/** « à X, Y · cc Z » (moi = compte connecté) + adresses complètes pour l'infobulle. */
-function recipientsLine(message: EmailMessage | undefined, selfEmail?: string): { text: string; title: string } {
-  if (!message) return { text: "", title: "" };
-  const self = (selfEmail ?? "").toLowerCase();
-  const who = (a: EmailAddress) => (a.email.toLowerCase() === self ? "moi" : a.name || a.email);
-  const cc = message.cc ?? [];
-  const parts = (to: string, ccLabel: string, fmt: (a: EmailAddress) => string, sep: string) =>
-    [
-      message.to.length ? `${to}${message.to.map(fmt).join(", ")}` : "",
-      cc.length ? `${ccLabel}${cc.map(fmt).join(", ")}` : "",
-    ]
-      .filter(Boolean)
-      .join(sep);
-  return { text: parts("→ ", "cc ", who, " · "), title: parts("À : ", "Cc : ", (a) => a.email, "\n") };
+/** Adresse de l'en-tête : clic = copie, clic droit = menu (copier, fiche contact). */
+function AddressChip({ address, onMenu }: { address: EmailAddress; onMenu: (e: React.MouseEvent) => void }) {
+  const fb = useActionFeedback();
+  return (
+    // Clic droit pris sur l'enveloppe : le Button react-aria ne relaie pas onContextMenu.
+    <span onContextMenu={onMenu} className="min-w-0 max-w-full">
+      <Tooltip content={fb.state === "success" ? "Copiée" : (fb.error ?? `${address.name ? `${address.name} · ` : ""}clic : copier · clic droit : plus`)}>
+        <Button
+          variant="ghost"
+          size="sm"
+          aria-label={`Copier ${address.email}`}
+          className="sn-hit h-6 min-h-6 max-w-full gap-1 px-1 font-mono text-[11px] font-normal"
+          style={{ color: "var(--text-secondary)" }}
+          onPress={() => void fb.run(() => navigator.clipboard.writeText(address.email))}
+        >
+          <span className="truncate">{address.email}</span>
+          {fb.state !== "idle" && <FeedbackIcon state={fb.state} error={fb.error} size={11} idle={null} />}
+        </Button>
+      </Tooltip>
+    </span>
+  );
 }
 
 function subscribeImageSenders(onChange: () => void): () => void {
@@ -2412,6 +2477,13 @@ function ThreadTrunk({
           const isLast = i === messages.length - 1;
           const hot = isLast && !lastMine;
           const isOpen = open.has(m.id);
+          const toggle = () =>
+            setOpen((prev) => {
+              const next = new Set(prev);
+              if (!next.delete(m.id)) next.add(m.id);
+              return next;
+            });
+          const who = kind === "mine" ? "moi" : m.from.name || m.from.email;
           return (
             <li key={m.id} className="relative pb-2 pl-6" data-last-message={isLast || undefined}>
               {!isLast && (
@@ -2421,26 +2493,35 @@ function ThreadTrunk({
                   style={{ background: "var(--border)" }}
                 />
               )}
-              <span
-                aria-hidden
-                className="absolute left-0 top-[11px] h-[11px] w-[11px] rounded-full"
-                style={
-                  hot
-                    ? { background: EMBER, boxShadow: `0 0 0 3px oklch(0.72 0.17 50 / 0.18), 0 0 10px 1px oklch(0.72 0.17 50 / 0.6)` }
-                    : kind === "mine"
-                      ? { background: "var(--surface-1)", boxShadow: "inset 0 0 0 1.5px var(--text-muted)" }
-                      : { background: senderTint(m.from.email || m.from.name).ink, boxShadow: "0 0 0 3px var(--surface-1)" }
-                }
-              />
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label={`${isOpen ? "Replier" : "Déplier"} le message de ${who}`}
+                aria-expanded={isOpen}
+                className="absolute -left-[10px] top-[2px] h-8 min-h-8 w-8 min-w-8 rounded-full bg-transparent p-0"
+                onPress={toggle}
+              >
+                <span
+                  aria-hidden
+                  className="h-[11px] w-[11px] rounded-full"
+                  style={
+                    hot
+                      ? { background: EMBER, boxShadow: `0 0 0 3px oklch(0.72 0.17 50 / 0.18), 0 0 10px 1px oklch(0.72 0.17 50 / 0.6)` }
+                      : kind === "mine"
+                        ? { background: "var(--surface-1)", boxShadow: "inset 0 0 0 1.5px var(--text-muted)" }
+                        : { background: senderTint(m.from.email || m.from.name).ink, boxShadow: "0 0 0 3px var(--surface-1)" }
+                  }
+                />
+              </Button>
               {hot && <span className="sr-only">À toi de répondre</span>}
               {isOpen ? (
-                <MessageBubble message={m} kind={kind} clientId={clientId} forwardNotes={forwardNotes(m.id)} />
+                <MessageBubble message={m} kind={kind} clientId={clientId} forwardNotes={forwardNotes(m.id)} onCollapse={toggle} />
               ) : (
                 <Button
                   variant="ghost"
-                  aria-label={`Déplier le message de ${kind === "mine" ? "moi" : m.from.name || m.from.email}`}
+                  aria-label={`Déplier le message de ${who}`}
                   className="h-auto min-h-0 w-full justify-start gap-2 rounded-md px-2 py-1.5 text-left"
-                  onPress={() => setOpen((prev) => new Set(prev).add(m.id))}
+                  onPress={toggle}
                 >
                   <span
                     className="max-w-[35%] shrink-0 truncate text-[12.5px] font-medium"
@@ -2469,11 +2550,13 @@ function MessageBubble({
   kind,
   clientId,
   forwardNotes,
+  onCollapse,
 }: {
   message: EmailMessage;
   kind: BubbleKind;
   clientId: string;
   forwardNotes?: Array<{ label: string; title: string }> | undefined;
+  onCollapse?: () => void;
 }) {
   const mine = kind === "mine";
   const internal = kind === "internal";
@@ -2540,8 +2623,12 @@ function MessageBubble({
         }}
       >
         <div className="mb-1 flex items-baseline justify-between gap-3">
-          <span
-            className="flex min-w-0 items-center gap-1.5 text-xs font-medium"
+          <Button
+            variant="ghost"
+            aria-label={`Replier le message de ${mine ? "moi" : message.from.name || message.from.email}`}
+            isDisabled={!onCollapse}
+            onPress={onCollapse}
+            className="-my-1 -ml-1 h-auto min-h-6 min-w-0 flex-1 justify-start gap-1.5 bg-transparent px-1 py-0.5 text-xs font-medium disabled:opacity-100"
             style={{ color: "var(--text-primary)" }}
           >
             {internal && (
@@ -2555,7 +2642,7 @@ function MessageBubble({
             <span className="truncate" style={tint ? { color: tint.ink } : undefined}>
               {mine ? "Moi" : message.from.name || message.from.email}
             </span>
-          </span>
+          </Button>
           <span className="flex shrink-0 items-center gap-1 font-mono text-[11px] tabular-nums" style={{ color: "var(--text-muted)" }}>
             {date}
             {canCopy && (

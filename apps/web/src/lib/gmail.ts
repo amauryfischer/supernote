@@ -1323,6 +1323,8 @@ function quoteFilename(name: string): string {
  * Pur, testable.
  */
 export function buildRawMessage(input: {
+  /** Adresse d'envoi (alias « Envoyer en tant que » de Gmail) ; absente = compte connecté. */
+  from?: string;
   to?: string | string[];
   cc?: string | string[];
   bcc?: string | string[];
@@ -1335,6 +1337,8 @@ export function buildRawMessage(input: {
   attachments?: OutgoingAttachment[];
 }): string {
   const headers: string[] = [];
+  const from = sanitizeHeaderValue(input.from ?? "").trim();
+  if (from) headers.push(`From: ${from}`);
   // Anti-injection d'en-têtes : on retire CR/LF/contrôle de TOUTES les valeurs
   // d'en-tête avant assemblage (cf. sanitizeHeaderValue). In-Reply-To/References
   // viennent d'emails reçus (Message-ID non fiable) → strictement à filtrer.
@@ -1447,6 +1451,7 @@ export interface DraftResult {
 export async function createDraft(
   clientId: string,
   input: {
+    from?: string;
     to?: string | string[];
     cc?: string | string[];
     bcc?: string | string[];
@@ -1496,6 +1501,7 @@ export async function sendReply(
   clientId: string,
   input: {
     threadId: string;
+    from?: string;
     to?: string | string[];
     cc?: string | string[];
     bcc?: string | string[];
