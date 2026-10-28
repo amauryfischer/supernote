@@ -2560,14 +2560,18 @@ export default function MailPage() {
             void openThread(id);
           }}
           onToggleStar={toggleRowStar}
-          selectedIds={selectedThreadIds}
-          onToggleSelect={(id) => toggleThreadSelected(id)}
+          selectedThreadIds={selectedThreadIds}
+          onToggleRowSelection={toggleRowSelected}
+          onConvertRowToTodo={handleConvertRow}
+          onTriageRow={handleTriageRow}
+          onSnoozeRow={(row) => row.kind === "single" && setSnoozeTarget({ id: row.item.id, subject: row.item.subject })}
+          onMarkRowRead={handleMarkRowRead}
           onDeleteAll={() => void deleteGroup(selectedGroup)}
           onMarkAllRead={() => void markGroupRead(selectedGroup)}
           deleteBusy={bulkBusy}
           summaries={listSummaries.summaries}
           selfEmails={selfAddresses}
-          labelNames={labelNames}
+          userLabels={labelNames}
           labelColors={labelColors}
           groupLabelId={selectedGroupLabelId}
         />
@@ -2910,14 +2914,16 @@ export default function MailPage() {
                 activeThreadId={selectedThreadId ?? undefined}
                 onPick={(id) => void openThread(id)}
                 onToggleStar={toggleRowStar}
-                onSwipe={(id, action) => triageThread(id, action)}
-                onLongPress={(item) => handleLongPressRow({ kind: "single", item })}
+                onSwipeRow={handleSwipeRow}
+                onLongPressRow={handleLongPressRow}
+                onTriageRow={handleTriageRow}
+                onMarkRowRead={handleMarkRowRead}
                 onDeleteAll={() => void deleteGroup(selectedGroup)}
                 onMarkAllRead={() => void markGroupRead(selectedGroup)}
                 deleteBusy={bulkBusy}
                 summaries={listSummaries.summaries}
                 selfEmails={selfAddresses}
-                labelNames={labelNames}
+                userLabels={labelNames}
                 labelColors={labelColors}
                 groupLabelId={selectedGroupLabelId}
               />

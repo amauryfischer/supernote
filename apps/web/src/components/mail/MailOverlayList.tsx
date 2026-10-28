@@ -59,6 +59,8 @@ interface SharedRowProps {
   onLongPressRow?: (row: OverlayRow) => void;
   onSnoozeRow?: (row: OverlayRow) => void;
   onTriageRow?: (row: OverlayRow, action: TriageAction, until?: number) => void;
+  indexAttr: RowIndexAttr;
+  hideLabelId?: string;
   /** threadId → mini-résumé IA. Remplace le snippet Gmail quand il existe. */
   summaries?: ReadonlyMap<string, string>;
   selfEmails: readonly string[];
@@ -109,6 +111,8 @@ function senderLogoUrl(email: string): string | undefined {
   return `https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://${domain}&size=64`;
 }
 
+type RowIndexAttr = "data-mail-row-index" | "data-mail-group-index";
+
 /** Clé React stable d'une entrée (l'id du fil / du groupe, jamais l'index). */
 function entryKey(entry: ListEntry | undefined, fallback: number): string | number {
   if (!entry) return fallback;
@@ -140,7 +144,13 @@ export function MailOverlayList({
   onToggleSection,
   onMarkSectionRead,
   menuRequest = 0,
+  indexAttr = "data-mail-row-index",
+  hideLabelId,
 }: {
+  /** Marqueur DOM d'index de ligne, suivi par le curseur clavier de la page (liste principale ou volet de groupe). */
+  indexAttr?: RowIndexAttr;
+  /** Label commun à toutes les lignes (volet d'un groupe-tag) : pas répété en pastille. */
+  hideLabelId?: string;
   /** Incrémenté par la page (touche « . ») : ouvre le menu de la ligne `selectedIndex`. */
   menuRequest?: number;
   rows: OverlayRow[];
@@ -300,7 +310,7 @@ export function MailOverlayList({
   useEffect(() => {
     if (!menuRequest || selectedIndex == null || selectedIndex < 0) return;
     const row = rows[selectedIndex];
-    const el = document.querySelector(`[data-mail-row-index="${selectedIndex}"]`);
+    const el = document.querySelector(`[${indexAttr}="${selectedIndex}"]`);
     if (!row || !el) return;
     const r = el.getBoundingClientRect();
     setCtx({ x: r.left + 24, y: r.bottom, row });
@@ -325,6 +335,8 @@ export function MailOverlayList({
     onLongPressRow,
     onSnoozeRow,
     onTriageRow,
+    indexAttr,
+    hideLabelId,
     summaries,
     selfEmails,
   };
@@ -495,6 +507,8 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
     onLongPressRow,
     onSnoozeRow,
     onTriageRow,
+    indexAttr,
+    hideLabelId,
     summaries,
     selfEmails,
   } = shared;
@@ -589,7 +603,7 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
           : undefined;
   const chips = singleItem ? (
     <RowLabelChips
-      labelIds={singleItem.labelIds.filter((id) => !EMAIL_LIKE.test(labelNames?.get(id) ?? ""))}
+      labelIds={singleItem.labelIds.filter((id) => id !== hideLabelId && !EMAIL_LIKE.test(labelNames?.get(id) ?? ""))}
       names={labelNames}
       colors={labelColors}
     />
@@ -597,11 +611,10 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
 
   const rowButton = (
     <Button
-      data-mail-row-index={idx}
+      {...{ [indexAttr]: idx }}
       variant="ghost"
       onPress={() => onPick(row)}
       className="h-auto min-h-0 w-full min-w-0 flex-1 justify-start whitespace-normal rounded-none px-2.5 py-1.5 text-left @xl:py-[7px]"
-      style={rowBg}
       aria-selected={focused}
     >
       <span className="grid w-full min-w-0 grid-cols-[10px_minmax(0,1fr)_auto] items-center gap-x-2.5 gap-y-0.5 @xl:grid-cols-[10px_144px_minmax(0,1fr)_auto] @xl:gap-x-3">
@@ -623,15 +636,6 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
           className={`col-start-2 row-start-1 flex min-w-0 items-center gap-1.5 text-[13px] ${unread ? "font-semibold" : "font-medium"}`}
           style={{ color: unread || awaiting ? "var(--text-primary)" : "var(--text-secondary)" }}
         >
-          {fromAddr && (
-            <ContactAvatar
-              name={fromAddr.name || fromAddr.email}
-              photoUrl={senderLogoUrl(fromAddr.email)}
-              size={18}
-              minImageSize={32}
-              className="shrink-0 bg-[var(--surface-2)]"
-            />
-          )}
           {who}
           {row.kind === "group" && row.count > 1 && (
             <span
@@ -733,11 +737,7 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
     </Button>
   );
 
-  // Toute ligne est enveloppée pour porter le clic droit (menu contextuel)
-  // et, en mode sélection, la Checkbox à côté du Button (jamais imbriquée —
-  // un control interactif dans un Button serait invalide). La case n'apparaît
-  // qu'au survol tant qu'aucune sélection n'est active ; visible dès qu'une
-  // case (ou la ligne) est cochée. Hit-target tactile ≥32px.
+  // L'avatar et sa case vivent hors du Button (un contrôle dans un Button serait invalide).
   const showBox = selectable && (anySelected || checkState !== "unchecked");
 
   // Style DnD : la ligne draggée suit le pointeur (translate) et s'estompe ;
@@ -775,13 +775,14 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
   const body = (
     <div
       ref={drop.setNodeRef}
-      className="group group/row flex items-center gap-1 border-b"
-      style={{ borderColor: "var(--border-subtle)", ...dragMove, ...dropStyle }}
+      className="group group/row relative flex items-start border-b"
+      style={{ borderColor: "var(--border-subtle)", ...rowBg, ...dragMove, ...dropStyle }}
       onContextMenu={(e) => {
         e.preventDefault();
         onOpenContext({ x: e.clientX, y: e.clientY, row });
       }}
     >
+      {/* Poignée en surimpression dans la marge gauche : visible au survol, sans réserver de colonne. */}
       {draggableActive && (
         <span
           ref={drag.setNodeRef}
@@ -789,27 +790,41 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
           {...drag.attributes}
           aria-label="Glisser cet email vers un tag"
           title="Glisser vers un tag"
-          className="flex h-8 w-4 shrink-0 cursor-grab items-center justify-center rounded text-[var(--text-muted)] opacity-0 transition-[opacity,color] hover:text-[var(--accent)] focus-visible:opacity-100 group-hover/row:opacity-100 group-focus-within/row:opacity-100 max-md:hidden"
+          className="absolute inset-y-0 left-0 z-[1] flex w-2.5 cursor-grab items-center justify-center text-[var(--text-muted)] opacity-0 transition-[opacity,color] hover:text-[var(--accent)] focus-visible:opacity-100 group-hover/row:opacity-100 max-md:hidden"
           style={{ touchAction: "none" }}
         >
-          <DotsSixVertical size={15} weight="bold" aria-hidden />
+          <DotsSixVertical size={12} weight="bold" aria-hidden />
         </span>
       )}
-      {/* Même gouttière que la poignée : les groupes restent alignés sur la grille des lignes seules. */}
-      {dndEnabled && !draggableActive && <span aria-hidden className="w-4 shrink-0 max-md:hidden" />}
-      {selectable && (
-        <Checkbox
-          isSelected={checkState === "checked"}
-          isIndeterminate={checkState === "indeterminate"}
-          onChange={() => onToggleRowSelection!(row)}
-          className={`shrink-0 pl-1 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 ${
-            showBox ? "opacity-100" : "opacity-0"
-          }`}
-          aria-label={
-            checkState === "checked" ? "Désélectionner cette ligne" : "Sélectionner cette ligne"
-          }
-        />
-      )}
+      {/* Avatar ; la case à cocher prend sa place au survol de l'avatar ou dès qu'une sélection existe. */}
+      <span className="group/av relative ml-2.5 mt-[7px] flex h-[18px] w-[18px] shrink-0 items-center justify-center @xl:mt-2">
+        {fromAddr && (
+          <span
+            className={`flex transition-opacity ${selectable ? "group-hover/av:opacity-0 group-focus-within/av:opacity-0" : ""} ${showBox ? "opacity-0" : ""}`}
+          >
+            <ContactAvatar
+              name={fromAddr.name || fromAddr.email}
+              photoUrl={senderLogoUrl(fromAddr.email)}
+              size={18}
+              minImageSize={32}
+              className="shrink-0 bg-[var(--surface-2)]"
+            />
+          </span>
+        )}
+        {selectable && (
+          <Checkbox
+            isSelected={checkState === "checked"}
+            isIndeterminate={checkState === "indeterminate"}
+            onChange={() => onToggleRowSelection!(row)}
+            className={`absolute inset-0 flex items-center justify-center transition-opacity group-hover/av:opacity-100 focus-within:opacity-100 ${
+              showBox ? "opacity-100" : "opacity-0"
+            }`}
+            aria-label={
+              checkState === "checked" ? "Désélectionner cette ligne" : "Sélectionner cette ligne"
+            }
+          />
+        )}
+      </span>
       {rowButton}
     </div>
   );
