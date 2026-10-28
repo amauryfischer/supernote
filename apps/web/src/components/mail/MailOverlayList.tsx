@@ -2,7 +2,7 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Button } from "@supernote/ui";
+import { Button, Tooltip } from "@supernote/ui";
 import { Checkbox } from "@supernote/ui";
 import { Star, DotsSixVertical, Sparkle, CaretDown, Checks, Clock, Trash } from "@phosphor-icons/react";
 import {
@@ -575,7 +575,6 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
         style={labelChipSoftStyle(labelColor)}
         title={title}
       >
-        <LabelMarker color={labelColor} size={10} />
         <span className="truncate">{title.replace(/^Supernote\//, "")}</span>
       </span>
     ) : row.kind === "single" && isSelfAddress(row.item.from.email, selfEmails) ? (
@@ -700,29 +699,7 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
         )}
 
         <span className="col-start-3 row-start-1 flex shrink-0 items-center gap-1.5 @xl:col-start-4">
-          {singleItem && onSnoozeRow && (
-            <RowIconAction label="Reporter" className="max-md:hidden" onAct={() => onSnoozeRow(row)}>
-              <Clock size={13} style={{ color: "var(--text-muted)" }} />
-            </RowIconAction>
-          )}
-          {singleItem && onTriageRow && (
-            <RowIconAction label="Supprimer" className="max-md:hidden" onAct={() => onTriageRow(row, "delete")}>
-              <Trash size={13} style={{ color: "var(--text-muted)" }} />
-            </RowIconAction>
-          )}
-          {singleItem && onToggleStar ? (
-            <RowIconAction
-              label={starred ? "Retirer l'étoile" : "Mettre une étoile"}
-              pressed={starred}
-              reveal={!starred}
-              className="max-md:-m-2 max-md:p-2.5"
-              onAct={() => onToggleStar(singleItem.id, singleItem.labelIds)}
-            >
-              <Star size={13} weight={starred ? "fill" : "regular"} style={{ color: starred ? "var(--text-primary)" : "var(--text-muted)" }} />
-            </RowIconAction>
-          ) : (
-            starred && <Star size={13} weight="fill" aria-label="Contient un message étoilé" style={{ color: "var(--text-primary)" }} />
-          )}
+          {starred && <Star size={13} weight="fill" aria-label="Étoilé" style={{ color: "var(--text-primary)" }} />}
           <span
             className="min-w-[3.25rem] text-right font-mono text-[11px] tabular-nums"
             style={{ color: awaiting ? EMBER : unread ? "var(--text-primary)" : "var(--text-muted)" }}
@@ -798,6 +775,15 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
       )}
       {/* Avatar ; la case à cocher prend sa place au survol de l'avatar ou dès qu'une sélection existe. */}
       <span className="group/av relative ml-2.5 mt-[7px] flex h-[18px] w-[18px] shrink-0 items-center justify-center @xl:mt-2">
+        {/* Groupe-tag : le marqueur du tag tient la place de l'avatar, la pastille ne garde que le nom. */}
+        {!fromAddr && isLabel && (
+          <span
+            className={`flex transition-opacity ${selectable ? "group-hover/av:opacity-0 group-focus-within/av:opacity-0" : ""} ${showBox ? "opacity-0" : ""}`}
+            style={{ color: labelChipSoftStyle(labelColor).color }}
+          >
+            <LabelMarker color={labelColor} size={14} />
+          </span>
+        )}
         {fromAddr && (
           <span
             className={`flex transition-opacity ${selectable ? "group-hover/av:opacity-0 group-focus-within/av:opacity-0" : ""} ${showBox ? "opacity-0" : ""}`}
@@ -826,6 +812,37 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
         )}
       </span>
       {rowButton}
+      {singleItem && (onToggleStar || onSnoozeRow || onTriageRow) && (
+        // Hors du Button de ligne (pas de bouton dans un bouton) ; survol souris seulement, le tactile a le glissement et l'appui long.
+        <div
+          className="pointer-events-none absolute right-2 top-1 z-[1] flex items-center gap-0.5 rounded-md border p-0.5 opacity-0 group-focus-within/row:pointer-events-auto group-focus-within/row:opacity-100 group-hover/row:pointer-events-auto group-hover/row:opacity-100 max-md:hidden"
+          style={{
+            background: "var(--surface-1)",
+            borderColor: "var(--border-subtle)",
+            boxShadow: "0 1px 2px 0 rgb(0 0 0 / 0.05)",
+            transition: "var(--sn-transition-opacity)",
+          }}
+        >
+          {onToggleStar && (
+            <RowAction
+              label={starred ? "Retirer l'étoile" : "Mettre une étoile"}
+              onPress={() => onToggleStar(singleItem.id, singleItem.labelIds)}
+            >
+              <Star size={14} weight={starred ? "fill" : "regular"} />
+            </RowAction>
+          )}
+          {onSnoozeRow && (
+            <RowAction label="Reporter" onPress={() => onSnoozeRow(row)}>
+              <Clock size={14} />
+            </RowAction>
+          )}
+          {onTriageRow && (
+            <RowAction label="Supprimer" onPress={() => onTriageRow(row, "delete")}>
+              <Trash size={14} />
+            </RowAction>
+          )}
+        </div>
+      )}
     </div>
   );
 
@@ -840,44 +857,20 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
   );
 }
 
-/** Action d'icône imbriquée dans la ligne-Button : span natif (un bouton dans un bouton serait invalide), le clic ne doit pas ouvrir le fil. */
-function RowIconAction({
-  label,
-  pressed,
-  reveal = true,
-  className = "",
-  onAct,
-  children,
-}: {
-  label: string;
-  pressed?: boolean;
-  reveal?: boolean;
-  className?: string;
-  onAct: () => void;
-  children: ReactNode;
-}) {
+function RowAction({ label, onPress, children }: { label: string; onPress: () => void; children: ReactNode }) {
   return (
-    <span
-      role="button"
-      tabIndex={0}
-      aria-label={label}
-      aria-pressed={pressed}
-      title={label}
-      className={`${reveal ? "sn-reveal " : ""}inline-flex shrink-0 cursor-pointer rounded p-0.5 hover:bg-[var(--surface-2)] ${className}`}
-      onClick={(e) => {
-        e.stopPropagation();
-        onAct();
-      }}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          e.stopPropagation();
-          onAct();
-        }
-      }}
-    >
-      {children}
-    </span>
+    <Tooltip content={label}>
+      <Button
+        variant="ghost"
+        size="icon"
+        aria-label={label}
+        className="h-7 min-h-7 w-7 min-w-7"
+        style={{ color: "var(--text-secondary)" }}
+        onPress={onPress}
+      >
+        {children}
+      </Button>
+    </Tooltip>
   );
 }
 
