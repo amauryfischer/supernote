@@ -489,7 +489,8 @@ export function buildMailRoutes(
         `UPDATE entity SET fields = ?, updatedAt = ? WHERE id = ?`,
         [JSON.stringify(merged), ts, entityId],
       );
-      const full = { id: entityId, typeId, fields: merged, updatedAt: ts };
+      // filePath voyage dans l'op sync : absent, le récepteur l'écraserait par "".
+      const full = { id: entityId, typeId, typeName: typeId, fields: merged, filePath, updatedAt: ts };
       try { hooks.onEntityUpdated?.(full, { ...full, fields: oldFields }); } catch (e) { console.warn(`[hook] onEntityUpdated (${typeId})`, e); }
     } else {
       const fields: Record<string, unknown> = { ...base, ...patch };

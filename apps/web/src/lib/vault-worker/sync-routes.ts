@@ -203,7 +203,15 @@ export function buildSyncRoutes(
         const typeRow = row(db.exec(`SELECT name, fields FROM entity_type WHERE id = ?`, [payload.typeId]));
         const typeName = (typeRow?.["name"] as string | undefined) ?? (payload.typeName || payload.typeId);
         // Mounted ops store under `@mounts/<slug>/…`; native ops keep their path.
-        const { filePath: storedPath } = resolveMountWrite(payload.filePath, provenance);
+        // Un chemin vide (ops eac/mail_commitment d'avant le correctif, encore dans
+        // l'op-log) garde le chemin local : "" revendiqué bloquait toutes les autres ops.
+        const storedPath = payload.filePath
+          ? resolveMountWrite(payload.filePath, provenance).filePath
+          : ((existing?.["filePath"] as string | undefined) ?? "");
+        if (!storedPath) {
+          skipped++;
+          continue;
+        }
         // Guard against filePath collisions with a DIFFERENT entity (the
         // unique(vaultId, filePath) constraint). Don't clobber a local note.
         const pathOwner = row(db.exec(
