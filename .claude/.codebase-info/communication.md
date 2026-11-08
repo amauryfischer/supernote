@@ -1,6 +1,6 @@
 # Communication
 
-*Last Updated: 2026-10-26*
+*Last Updated: 2026-11-08*
 
 Trois canaux : le thread principal parle au worker, le worker parle au thread principal, et l'application parle au serveur de synchronisation.
 
@@ -81,6 +81,10 @@ Les écritures (triage, labels, étoile, lu) passent par l'outbox `mail_outbox` 
 Même mécanique de jeton que Gmail via `googleRequest`, état de reconnexion suivi par famille de scopes (`googleReconnectRequired("calendar")`). Scopes `calendar.events` et `calendar.calendarlist.readonly`. `lib/gcal.ts` parle à l'API v3 ; `lib/calendar-sync.ts` vide `cal_outbox` puis tire une fenêtre glissante J−60 → J+180 par agenda coché : complète une fois par jour, delta par `updatedMin` + `showDeleted` sinon. ⚠️ Pas de `syncToken` : Google l'interdit avec `timeMin`/`timeMax`. `CalendarRunner` (monté dans `RootLayout.tsx`) synchronise toutes les 5 min et au retour sur l'onglet, **seulement avec un jeton en cache** : sans jeton, `/agenda` affiche « Synchro en pause · Reprendre » (le clic est le geste qui autorise la popup GIS). Une demande de synchro pendant un tour en cours en relance un seul derrière lui. Les écritures passent `sendUpdates=all` (invités prévenus), sauf le glisser dans la grille (`sendUpdates: "none"` dans le payload de l'outbox).
 
 **Blocs de tâche.** Planifier un todo, un email todo ou une tâche de note crée un événement Google dont `extendedProperties.private.supernoteRef` porte la référence de la tâche (`todo:<id>`, `mail:<threadId>`, `checklist:<noteId>:<djb2>`, voir `lib/agenda/task-ref.ts`). La propriété n'est envoyée qu'au POST : un PATCH fusionne les objets côté Google et la garde. Le lien voyage donc entre appareils par Google, et « planifié » se dérive des blocs à venir (`useScheduledBlocks`), sans rien stocker sur la tâche.
+
+## Synchro dossier ↔ Google Drive
+
+Un dossier du coffre lié à un dossier Drive (clic droit sur le dossier, ou Réglages → Google Drive), synchronisé dans les deux sens. Liaisons par appareil en `localStorage` (`supernote.driveSync.links`, clé par `vaultId`, `lib/drive-sync/links.ts`). Le réseau reste sur le thread principal : `lib/drive-sync/drive-api.ts` (tout via `googleRequest`, scope `drive` complet, famille de scopes `"drive"`), `engine.ts` (une passe : rapprochement par état, puis `id` de frontmatter, puis chemin + contenu ; conflit = note sœur « (conflit Drive …) » ; suppression = corbeille Drive), `DriveSyncRunner` (5 min, retour sur l'onglet, `ENTITY_CHANGE` sous un dossier lié). Comme l'agenda, rien sans jeton en cache : la liaison passe « en pause ». Côté worker, `drive-sync-routes.ts` lit le `.md` exact sur disque (hash SHA-256 stable, sinon écho) et écrit via `entities.*` pour que les hooks propagent au salon. Couvert par `tests/e2e/26-drive-sync.spec.ts` (Drive simulé).
 
 ## Partage par lien et co-édition
 

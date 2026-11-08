@@ -1,6 +1,6 @@
 # Motifs et pièges
 
-*Last Updated: 2026-10-27*
+*Last Updated: 2026-11-08*
 
 Les motifs récurrents du dépôt, et surtout les contraintes que le code ne dit pas tout seul. Commence par la section sur les propriétés de champ qui disparaissent si tu touches aux champs, c'est le piège le plus coûteux. Les pièges de la co-édition sont dans [sharing.md](sharing.md).
 
@@ -107,6 +107,10 @@ Une passe IA de fond (`lib/ai/InboxAutoSort.tsx`, `components/mail/CommitmentsRu
 ## Retour d'action : le bouton, pas le toast
 
 L'utilisateur refuse les toasts de confirmation. `apps/web/src/lib/action-feedback.tsx` porte le retour sur le bouton : `useActionFeedback()` rend `run(fn, onError?)`, qui ne lève jamais, et `<FeedbackIcon>` montre spinner, coche ou avertissement à la place de l'icône. Succès déjà visible dans l'UI : rien. Erreur d'un bouton : message dans son `Tooltip`, ou bandeau `role="alert"` dans un composeur ou une modale. Un `toast` ne reste que pour un échec sans contrôle d'origine ni rollback visible, ou pour « Annuler » une action destructrice (corbeille, fenêtre d'annulation d'envoi de `useDeferredSend`). Le module mail est migré ; le reste de l'app ne l'est pas encore.
+
+## Raccourcis clavier : un seul registre
+
+Tout raccourci passe par `useShortcut(s)` (`lib/keyboard/`), écouteur unique en capture dans `ShortcutProvider`. Séquences « g m » (espace entre les pas, repère « g … » à l'écran), touches simples coupées dans un champ, un menu/listbox ouvert ou sous une modale (`aria-modal`). Un handler qui renvoie `false` laisse passer la touche : c'est ainsi que `j`/`k` (`lib/keyboard/list-cursor.ts`, lignes marquées `data-kb-item`) cèdent au clavier du mail, qui garde son propre écouteur (`useMailKeyboard`, accords `g i/t/s`). Raccourcis de navigation = champ `shortcut` de `NAV_ITEMS` (`lib/navigation/catalog.ts`), affiché dans le rail et la palette. Aide `Ctrl+/` générée depuis le registre ; `;` pose des lettres d'accès (`components/command/LetterHints.tsx`). Couvert par `tests/e2e/25-navigation-clavier.spec.ts`.
 
 ## ⚠️ Deux versions de zod coexistent
 
