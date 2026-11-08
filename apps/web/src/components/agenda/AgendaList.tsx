@@ -159,6 +159,7 @@ function ScheduleCard({
   const awaiting = event.selfResponse === "needsAction";
   return (
     <button
+      data-kb-item
       type="button"
       aria-label={`${event.sourceRef ? "Tâche : " : ""}${event.summary}, ${formatSpan(event)}`}
       onClick={(e) => onSelect(e.currentTarget)}

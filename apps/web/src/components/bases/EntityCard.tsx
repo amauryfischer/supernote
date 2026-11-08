@@ -101,6 +101,7 @@ export function EntityCard({
 
   return (
     <div
+      data-kb-item
       role="button"
       tabIndex={0}
       aria-label={`Ouvrir ${title}`}

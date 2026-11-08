@@ -289,6 +289,7 @@ export function TodoRow({
           column also hosts the optional email-source preview line below. */}
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <Button
+          data-kb-item
           variant="ghost"
           onPress={selectionMode ? onToggleSelect : onEdit}
           // Ouvrir la tâche = ce bouton, et lui seul : le `role="button"` que

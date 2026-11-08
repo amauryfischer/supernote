@@ -13,7 +13,7 @@ export interface RailGroup {
 }
 
 interface RailItemProps {
-  item: Pick<NavItem, "href" | "icon">;
+  item: Pick<NavItem, "href" | "icon" | "shortcut">;
   active: boolean;
   label: string;
   badgeCount?: number;
@@ -23,10 +23,11 @@ interface RailItemProps {
 const RailItem = memo(function RailItem({ item, active, label, badgeCount = 0, tour }: RailItemProps) {
   const router = useRouter();
   return (
-    <Tooltip content={label} placement="right" delay={150}>
+    <Tooltip content={item.shortcut ? `${label} · ${item.shortcut.toUpperCase()}` : label} placement="right" delay={150}>
       <Button
         variant="ghost"
         size="icon"
+        aria-keyshortcuts={item.shortcut}
         onClick={() => router.push(item.href)}
         aria-label={label}
         aria-current={active ? "page" : undefined}

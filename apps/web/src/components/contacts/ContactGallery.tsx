@@ -43,7 +43,7 @@ export function ContactGallery({ contacts, selectedIds, onToggleSelect, orgNames
               aria-label={selected ? "Désélectionner" : "Sélectionner"}
             />
 
-            <Link href={`/contacts/${contact.id}`} className="flex flex-col items-center gap-2 text-center">
+            <Link data-kb-item href={`/contacts/${contact.id}`} className="flex flex-col items-center gap-2 text-center">
               <ContactAvatar name={contact.name} photoUrl={contact.photoUrl} size={64} />
               <div>
                 <p className="font-semibold text-sm" style={{ color: "var(--text-primary)" }}>

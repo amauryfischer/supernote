@@ -490,6 +490,7 @@ export function NoteListItem({ note, isActive, onClick, onHover, getPreview, onD
         }}
       >
       <button
+        data-kb-item
         onClick={() => {
           if (longPressFired.current) {
             longPressFired.current = false;

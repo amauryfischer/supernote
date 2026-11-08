@@ -4,7 +4,7 @@ export type ShortcutScope = "global" | "editor" | "modal";
 
 export interface Shortcut {
   id: string;
-  /** Keyboard combo, e.g. "mod+k", "mod+shift+p", "esc" */
+  /** Combo ("mod+k", "esc") ou séquence de deux pas séparés par un espace ("g m"). */
   keys: string;
   scope?: ShortcutScope;
   description: string;

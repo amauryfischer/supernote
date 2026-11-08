@@ -4,14 +4,20 @@ import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAppTheme } from "@supernote/ui";
+import { useTranslations } from "next-intl";
 
 import { useShortcut, useShortcuts } from "@/lib/keyboard/hooks";
+import { useShortcutContext, type Shortcut } from "@/lib/keyboard";
+import { moveListCursor } from "@/lib/keyboard/list-cursor";
+import { NAV_ITEMS, NAV_SETTINGS } from "@/lib/navigation/catalog";
 import { getPreviousNoteId } from "@/lib/recent-notes";
 import { useRegisterCommands } from "@/lib/commands/hooks";
 import { buildSeedCommands } from "@/lib/commands/seed";
 import { UnifiedSearchModal } from "@/components/mail/UnifiedSearchModal";
 import { useNewInboxNote } from "@/components/notes/hooks";
 import { TEMPLATE_PICKER_EVENT, openTemplatePicker } from "@/components/templates/template-picker-event";
+import { KeyboardHelpModal } from "./KeyboardHelpModal";
+import { LetterHints } from "./LetterHints";
 
 // CommandPalette pulls in the entire command catalogue UI; defer it until the
 // user actually opens the palette. The first Cmd+K mounts it; subsequent opens
@@ -76,6 +82,61 @@ export function CommandSurface() {
     [navigate, toggleTheme, toggleRightPanel, newNote],
   );
   useRegisterCommands(commands);
+
+  const t = useTranslations();
+  const { listShortcuts } = useShortcutContext();
+  const [helpShortcuts, setHelpShortcuts] = useState<Shortcut[] | null>(null);
+  const openHelp = useCallback(() => setHelpShortcuts(listShortcuts()), [listShortcuts]);
+  const [hintsOpen, setHintsOpen] = useState(false);
+  const closeHints = useCallback(() => setHintsOpen(false), []);
+  useRegisterCommands(
+    useMemo(
+      () => [{ id: "help.shortcuts", label: "Raccourcis clavier", icon: "keyboard", group: "tools" as const, shortcut: "mod+/", keywords: ["clavier", "aide", "touches"], run: openHelp }],
+      [openHelp],
+    ),
+  );
+
+  useShortcuts([
+    ...NAV_ITEMS.filter((item) => item.shortcut).map((item) => ({
+      id: `nav.go${item.href}`,
+      keys: item.shortcut ?? "",
+      description: `Aller à : ${t(item.labelKey)}`,
+      handler: () => {
+        navigate(item.href);
+        return true;
+      },
+    })),
+    {
+      id: "nav.go.settings",
+      keys: "mod+,",
+      description: `Aller à : ${t(NAV_SETTINGS.labelKey)}`,
+      handler: () => {
+        navigate(NAV_SETTINGS.href);
+        return true;
+      },
+    },
+    { id: "list.next", keys: "j", description: "Ligne suivante", handler: () => moveListCursor(1) },
+    { id: "list.previous", keys: "k", description: "Ligne précédente", handler: () => moveListCursor(-1) },
+    {
+      id: "hints.open",
+      keys: ";",
+      description: "Lettres d'accès sur les boutons visibles",
+      handler: () => {
+        setHintsOpen(true);
+        return true;
+      },
+    },
+    // AZERTY : « / » demande Maj, donc Ctrl+/ arrive en Ctrl+Maj+/.
+    ...["mod+/", "mod+shift+/"].map((keys) => ({
+      id: `help.shortcuts.${keys}`,
+      keys,
+      description: "Raccourcis clavier",
+      handler: () => {
+        openHelp();
+        return true;
+      },
+    })),
+  ]);
 
   const openPalette = useCallback(() => setPaletteOpen(true), []);
   const closePalette = useCallback(() => setPaletteOpen(false), []);
@@ -235,6 +296,10 @@ export function CommandSurface() {
   return (
     <>
       {paletteOpen && <CommandPalette open={paletteOpen} onClose={closePalette} />}
+      {hintsOpen && <LetterHints onClose={closeHints} />}
+      {helpShortcuts && (
+        <KeyboardHelpModal isOpen onClose={() => setHelpShortcuts(null)} shortcuts={helpShortcuts} />
+      )}
       <UnifiedSearchModal isOpen={unifiedOpen} onClose={() => setUnifiedOpen(false)} />
       {templatePickerOpen !== null && (
         <TemplatePickerModal isOpen={templatePickerOpen} onOpenChange={setTemplatePickerOpen} />

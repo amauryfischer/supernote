@@ -48,6 +48,8 @@ export interface NavItem {
   icon: PhosphorIcon;
   group: NavGroupId;
   gate?: NavGate;
+  /** Séquence clavier « g + lettre ». `i`, `t`, `s` restent aux accords du mail. */
+  shortcut?: string;
 }
 
 /** Ordre d'affichage des groupes, identique desktop et mobile. */
@@ -69,18 +71,18 @@ export const NAV_HEADERLESS_GROUPS: ReadonlySet<NavGroupId> = new Set<NavGroupId
 
 /** Items de la nav principale (scrollable), dans l'ordre. */
 export const NAV_ITEMS: readonly NavItem[] = [
-  { href: "/mail", labelKey: "nav.mail", icon: EnvelopeSimple, group: "navigation" },
-  { href: "/agenda", labelKey: "nav.agenda", icon: CalendarBlank, group: "navigation" },
-  { href: "/ai", labelKey: "nav.ai", icon: Robot, group: "navigation" },
+  { href: "/mail", labelKey: "nav.mail", icon: EnvelopeSimple, group: "navigation", shortcut: "g m" },
+  { href: "/agenda", labelKey: "nav.agenda", icon: CalendarBlank, group: "navigation", shortcut: "g a" },
+  { href: "/ai", labelKey: "nav.ai", icon: Robot, group: "navigation", shortcut: "g o" },
 
-  { href: "/notes", labelKey: "nav.notes", icon: FileText, group: "knowledge" },
-  { href: "/todos", labelKey: "nav.todos", icon: CheckSquare, group: "knowledge" },
-  { href: "/habits", labelKey: "nav.habits", icon: GridNine, group: "knowledge" },
-  { href: "/contacts", labelKey: "nav.contacts", icon: Users, group: "knowledge" },
-  { href: "/carte", labelKey: "nav.graph", icon: Graph, group: "knowledge" },
-  { href: "/finance", labelKey: "nav.finance", icon: Wallet, group: "knowledge" },
+  { href: "/notes", labelKey: "nav.notes", icon: FileText, group: "knowledge", shortcut: "g n" },
+  { href: "/todos", labelKey: "nav.todos", icon: CheckSquare, group: "knowledge", shortcut: "g d" },
+  { href: "/habits", labelKey: "nav.habits", icon: GridNine, group: "knowledge", shortcut: "g h" },
+  { href: "/contacts", labelKey: "nav.contacts", icon: Users, group: "knowledge", shortcut: "g c" },
+  { href: "/carte", labelKey: "nav.graph", icon: Graph, group: "knowledge", shortcut: "g v" },
+  { href: "/finance", labelKey: "nav.finance", icon: Wallet, group: "knowledge", shortcut: "g f" },
 
-  { href: "/tags", labelKey: "nav.tags", icon: Tag, group: "tools" },
+  { href: "/tags", labelKey: "nav.tags", icon: Tag, group: "tools", shortcut: "g e" },
   { href: "/templates", labelKey: "nav.templates", icon: FileDashed, group: "tools" },
   { href: "/variables", labelKey: "nav.variables", icon: Function, group: "tools" },
   { href: "/routines", labelKey: "nav.routines", icon: Lightning, group: "tools", gate: "routines" },

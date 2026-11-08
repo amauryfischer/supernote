@@ -15,6 +15,7 @@ import {
   Users,
   Lightning,
   Folder,
+  Keyboard,
   type Icon as PhosphorIcon,
 } from "@phosphor-icons/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -50,6 +51,7 @@ const ICON_MAP: Record<string, PhosphorIcon> = {
   "sun": Sun,
   "zap": Lightning,
   "book-open": BookOpen,
+  keyboard: Keyboard,
 };
 
 function CommandIcon({ name, size = 15 }: { name?: string; size?: number }) {
@@ -69,7 +71,7 @@ const isMac =
 
 function ShortcutHint({ keys }: { keys: string }) {
   const parts = keys
-    .split("+")
+    .split(/[+ ]/)
     .map((k) => {
       if (k === "mod") return isMac ? "⌘" : "Ctrl";
       if (k === "shift") return "⇧";

@@ -1,3 +1,4 @@
+import { NAV_ITEMS } from "@/lib/navigation/catalog";
 import type { Command } from "./types";
 
 export interface SeedCommandDeps {
@@ -19,7 +20,7 @@ export interface SeedCommandDeps {
  */
 export function buildSeedCommands(deps: SeedCommandDeps): Command[] {
   const { navigate, toggleTheme, toggleRightPanel, newNote, newNoteFromTemplate } = deps;
-  return [
+  const commands: Command[] = [
     // ---- Création ----------------------------------------------------------
     {
       id: "note.create",
@@ -148,4 +149,8 @@ export function buildSeedCommands(deps: SeedCommandDeps): Command[] {
       run: () => navigate("/recherche"),
     },
   ];
+  return commands.map((c) => ({
+    ...c,
+    shortcut: c.shortcut ?? NAV_ITEMS.find((item) => `nav.${item.href.slice(1)}` === c.id)?.shortcut,
+  }));
 }
