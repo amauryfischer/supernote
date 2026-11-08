@@ -399,6 +399,19 @@ CREATE TABLE IF NOT EXISTS "cal_outbox" (
     "lastError" TEXT
 );
 
+-- Synchro dossier ↔ Google Drive : état d'accord par fichier, local à l'appareil (hors op-log).
+CREATE TABLE IF NOT EXISTS "drive_sync_file" (
+    "linkId" TEXT NOT NULL,
+    "driveFileId" TEXT NOT NULL,
+    "entityId" TEXT NOT NULL,
+    "relPath" TEXT NOT NULL,
+    "driveMd5" TEXT NOT NULL,
+    "localHash" TEXT NOT NULL,
+    "syncedAt" INTEGER NOT NULL,
+    PRIMARY KEY ("linkId", "driveFileId")
+);
+CREATE INDEX IF NOT EXISTS "drive_sync_file_entity_idx" ON "drive_sync_file" ("linkId", "entityId");
+
 CREATE INDEX IF NOT EXISTS "cal_event_account_start_idx" ON "cal_event" ("accountId", "startAt");
 CREATE INDEX IF NOT EXISTS "cal_outbox_account_status_idx" ON "cal_outbox" ("accountId", "status");
 

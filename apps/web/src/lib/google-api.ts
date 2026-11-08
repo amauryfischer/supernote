@@ -39,10 +39,11 @@ export function isTransientGoogleError(err: unknown): boolean {
 // Valeur historique conservée : les écouteurs Gmail existants s'y abonnent déjà.
 export const GOOGLE_AUTH_EVENT = "supernote:gmail-auth";
 
-export type GoogleScopeFamily = "gmail" | "calendar";
+export type GoogleScopeFamily = "gmail" | "calendar" | "drive";
 
 export function scopeFamily(scope: string): GoogleScopeFamily {
-  return scope.includes("/auth/calendar") ? "calendar" : "gmail";
+  if (scope.includes("/auth/calendar")) return "calendar";
+  return scope.includes("/auth/drive") ? "drive" : "gmail";
 }
 
 const failedScopes = new Set<string>();

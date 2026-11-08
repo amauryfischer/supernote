@@ -17,6 +17,7 @@ import { viewsRouter } from "./views.router.js";
 import { mailRouter } from "./mail.router.js";
 import { calendarRouter } from "./calendar.router.js";
 import { pushRouter } from "./push.router.js";
+import { driveSyncRouter } from "./drive-sync.router.js";
 
 /**
  * Root tRPC router for the Supernote IPC bridge.
@@ -45,6 +46,7 @@ export const appRouter = router({
   mail: mailRouter,
   calendar: calendarRouter,
   push: pushRouter,
+  driveSync: driveSyncRouter,
 });
 
 export type AppRouter = typeof appRouter;
@@ -68,4 +70,5 @@ export { searchRouter, type SearchRouter } from "./search.router.js";
 export { systemRouter, type SystemRouter } from "./system.router.js";
 export { calendarRouter, type CalendarRouter } from "./calendar.router.js";
 export { pushRouter, type PushRouter } from "./push.router.js";
+export { driveSyncRouter, type DriveSyncRouter } from "./drive-sync.router.js";
 export { mailRouter, type MailRouter } from "./mail.router.js";

@@ -34,6 +34,8 @@ import { MailOutgoingRunner } from "@/components/mail/MailOutgoingRunner";
 import { MailFollowupRunner } from "@/components/mail/MailFollowupRunner";
 import { CommitmentsRunner } from "@/components/mail/CommitmentsRunner";
 import { CalendarRunner } from "@/components/agenda/CalendarRunner";
+import { DriveSyncRunner } from "@/lib/drive-sync/DriveSyncRunner";
+import { DriveSyncPicker } from "@/lib/drive-sync/DriveSyncPicker";
 import { GoogleTokenRunner } from "@/lib/GoogleTokenRunner";
 import { PushScheduleRunner } from "@/lib/push/PushScheduleRunner";
 
@@ -79,6 +81,8 @@ export function RootLayout() {
                 <GoogleTokenRunner />
                 {/* Miroir de l'agenda : synchro et file d'écriture, hors de /agenda aussi. */}
                 <CalendarRunner />
+                <DriveSyncRunner />
+                <DriveSyncPicker />
                 {/* Vault auto-init status banner (only meaningful in Electron;
                     in PWA mode it stays silent). */}
                 <VaultInitBanner />

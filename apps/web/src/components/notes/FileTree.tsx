@@ -3,6 +3,7 @@
 import {
   Airplane,
   Archive,
+  ArrowsLeftRight,
   At,
   Book,
   Bookmark,
@@ -95,11 +96,12 @@ import { Button, Input, ContextMenu, Tooltip, useContextMenu, useToast, type Con
 import { useRouter } from "next/navigation";
 import { ConnectVaultModal } from "./ConnectVaultModal";
 import { useUpdateFolder, useReorderFolders, useMoveFolder, beginNoteDrag, NOTE_DRAG_MIME } from "./hooks";
-import { trpc, trpcVanillaClient } from "@/lib/trpc/client";
+import { hasWorkerBackend, trpc, trpcVanillaClient } from "@/lib/trpc/client";
 import { derivedDomainColor } from "@/lib/folderAccent";
 import { useConfirm } from "@/hooks/usePrompt";
 import { useLongPress } from "@/hooks/useLongPress";
 import { GOOGLE_DOC_KINDS, type GoogleDocKind } from "@/lib/google-drive";
+import { openDriveSyncFor } from "@/lib/drive-sync/links";
 import { DRIVE_DOC_ICONS, DRIVE_DOC_ORDER } from "./driveDocMeta";
 import {
   cloudRoomSlug,
@@ -1739,6 +1741,16 @@ function FolderNode({
               },
             };
           })
+        : []),
+      ...(onNewDriveDoc && hasWorkerBackend()
+        ? [
+            {
+              key: "drive-sync",
+              label: "Synchroniser avec Drive…",
+              icon: <ArrowsLeftRight size={14} />,
+              onPress: () => openDriveSyncFor(folder.path),
+            },
+          ]
         : []),
       {
         key: "rename",

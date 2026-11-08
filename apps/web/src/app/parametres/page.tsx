@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Button } from "@supernote/ui";
 import {
   Gear,
@@ -79,7 +80,11 @@ function TabContent({ active, onOpenSync }: { active: SettingsTab; onOpenSync: (
 }
 
 function SettingsContent() {
-  const [activeTab, setActiveTab] = useState<SettingsTab>("general");
+  const [params] = useSearchParams();
+  const [activeTab, setActiveTab] = useState<SettingsTab>(() => {
+    const wanted = params.get("tab");
+    return NAV_ITEMS.find((n) => n.id === wanted)?.id ?? "general";
+  });
   const { saveSettings, isSaving } = useSettings();
   const t = useTranslations();
   const isMobile = useIsMobile();

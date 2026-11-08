@@ -2,11 +2,13 @@
 
 import { useState } from "react";
 import { Button, Input } from "@supernote/ui";
-import { GoogleLogo, LinkSimple, Plug, Warning, CheckCircle, MagnifyingGlass } from "@phosphor-icons/react";
+import { GoogleLogo, LinkSimple, Plug, Warning, CheckCircle, MagnifyingGlass, ArrowsLeftRight } from "@phosphor-icons/react";
 import { useSettings } from "../SettingsContext";
 import { SettingRow } from "../SettingRow";
 import { SettingSection } from "../SettingSection";
 import { useVault } from "@/lib/pwa/PwaVaultSetup";
+import { hasWorkerBackend } from "@/lib/trpc/client";
+import { DriveSyncLinks } from "../drive-sync/DriveSyncLinks";
 import {
   requestAccessToken,
   getUserEmail,
@@ -251,6 +253,16 @@ export function GoogleDriveTab() {
           </SettingRow>
         )}
       </SettingSection>
+
+      {isConnected && hasWorkerBackend() && (
+        <SettingSection
+          title="Dossiers synchronisés"
+          description="Un dossier du coffre et un dossier de ton Drive restent identiques, dans les deux sens, toutes les 5 min. Les notes y sont des fichiers .md. Un conflit crée une copie ; une suppression passe par la corbeille Drive."
+          icon={<ArrowsLeftRight size={16} />}
+        >
+          <DriveSyncLinks clientId={googleDrive.clientId.trim()} />
+        </SettingSection>
+      )}
 
       <SettingSection
         title="Comment ça marche"

@@ -40,6 +40,8 @@ const DRIVE_FILE_SCOPE = "https://www.googleapis.com/auth/drive.file";
 // consentement aux comptes déjà connectés (incrémental, géré par GIS).
 const OAUTH_SCOPE = `${DRIVE_SCOPE} ${SHEETS_SCOPE} ${DRIVE_FILE_SCOPE}`;
 const DRIVE_API_BASE = "https://www.googleapis.com/drive/v3";
+/** Accès complet : `drive.file` ne permet pas de modifier un `.md` créé à la main dans Drive (synchro de dossier). */
+export const DRIVE_FULL_SCOPE = "https://www.googleapis.com/auth/drive";
 const SHEETS_API_BASE = "https://sheets.googleapis.com/v4/spreadsheets";
 // Chaîne dupliquée depuis gmail.ts (import impossible : gmail.ts importe déjà
 // google-drive.ts, un import retour créerait un cycle).

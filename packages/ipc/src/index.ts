@@ -88,3 +88,4 @@ export * from "./schemas/system.js";
 export * from "./schemas/mail.js";
 export * from "./schemas/calendar.js";
 export * from "./schemas/push.js";
+export * from "./schemas/drive-sync.js";

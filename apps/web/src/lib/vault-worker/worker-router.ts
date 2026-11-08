@@ -13,6 +13,7 @@
 import type { Database } from "./sqlite-adapter";
 import { row, rows, runInTransaction, type SqlValue, type SqlRow } from "./sql";
 import { buildCalendarRoutes } from "./calendar-routes";
+import { buildDriveSyncRoutes } from "./drive-sync-routes";
 import { buildChecklistRoutes } from "./checklists";
 import { buildMailRoutes } from "./mail-routes";
 import { buildSyncRoutes } from "./sync-routes";
@@ -42,6 +43,7 @@ import {
   isExcalidrawExt,
   isAttachmentExt,
   writeVaultFile,
+  readVaultFile,
   readVaultFileBinary,
   writeVaultFileBinary,
   deleteVaultFile,
@@ -3972,6 +3974,12 @@ export function buildRouter(
 
 
     ...buildCalendarRoutes(db, vaultId),
+    ...buildDriveSyncRoutes(db, vaultId, {
+      readText: (path) => readVaultFile(vaultHandle, path.split("/")),
+      create: entitiesCreate,
+      update: entitiesUpdate,
+      remove: entitiesDelete,
+    }),
     ...buildChecklistRoutes(db, vaultId),
     ...mail.routes,
     ...buildSyncRoutes(db, vaultHandle, vaultId, mail.mirror),
