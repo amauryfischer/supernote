@@ -44,6 +44,10 @@ export function DriveSyncRunner() {
           }
           try {
             const report = await syncLink(clientId, link);
+            if (report.uploaded + report.downloaded + report.deleted + report.conflicts > 0) {
+              // Les écritures de la passe passent par le client vanilla : on réveille TanStack Query comme la synchro en ligne.
+              window.dispatchEvent(new CustomEvent("supernote:index-progress", { detail: { indexed: 1, total: 1 } }));
+            }
             patchLink(vaultId, link.id, {
               lastSyncAt: Date.now(),
               lastError: report.errors ? `${report.errors} fichier(s) en erreur` : undefined,

@@ -1,3 +1,6 @@
+import { useSyncExternalStore } from "react";
+import { getLastVaultReady } from "@/lib/trpc/browser-link";
+
 /** Liaisons « dossier du coffre ↔ dossier Drive », propres à l'appareil, rangées par coffre. */
 
 export interface DriveSyncLink {
@@ -57,4 +60,27 @@ export function addLink(vaultId: string, vaultFolder: string, folder: { id: stri
 /** Ouvre le choix du dossier Drive pour `vaultFolder` ; à appeler depuis un geste (la popup Google en dépend). */
 export function openDriveSyncFor(vaultFolder: string): void {
   window.dispatchEvent(new CustomEvent(DRIVE_SYNC_OPEN_EVENT, { detail: { vaultFolder } }));
+}
+
+const subscribeLinks = (cb: () => void) => {
+  window.addEventListener(DRIVE_SYNC_LINKS_EVENT, cb);
+  window.addEventListener("supernote:vault-ready", cb);
+  return () => {
+    window.removeEventListener(DRIVE_SYNC_LINKS_EVENT, cb);
+    window.removeEventListener("supernote:vault-ready", cb);
+  };
+};
+
+/** Liaison active du dossier `path` (lui-même, pas un parent), pour le repère de l'arbre. */
+export function useDriveLink(path: string): DriveSyncLink | null {
+  const json = useSyncExternalStore(
+    subscribeLinks,
+    () => {
+      const vaultId = getLastVaultReady()?.vaultId;
+      const link = vaultId ? readLinks(vaultId).find((l) => l.vaultFolder === path) : undefined;
+      return link ? JSON.stringify(link) : "";
+    },
+    () => "",
+  );
+  return json ? (JSON.parse(json) as DriveSyncLink) : null;
 }

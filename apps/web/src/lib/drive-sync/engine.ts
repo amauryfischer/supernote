@@ -9,6 +9,7 @@ import {
   trash,
   uploadContent,
   uploadNew,
+  type NativeFile,
   type RemoteFile,
 } from "./drive-api";
 
@@ -46,7 +47,8 @@ export async function syncLink(clientId: string, link: DriveSyncLink): Promise<D
     listFolderTree(clientId, link.driveFolderId),
     rpc.stateList.query({ linkId: link.id }),
   ]);
-  const { files: remote, folders } = tree;
+  const [mdState, nativeState] = [state.filter((s) => s.driveMd5 !== NATIVE), state.filter((s) => s.driveMd5 === NATIVE)];
+  const { files: remote, natives, folders } = tree;
   const localById = new Map(local.map((l) => [l.entityId, l]));
   const remoteById = new Map(remote.map((r) => [r.id, r]));
   const claimedLocal = new Set<string>();
@@ -131,7 +133,7 @@ export async function syncLink(clientId: string, link: DriveSyncLink): Promise<D
     }
   };
 
-  for (const s of state) {
+  for (const s of mdState) {
     const l = localById.get(s.entityId);
     const r = remoteById.get(s.driveFileId);
     if (l) claimedLocal.add(l.entityId);
@@ -181,5 +183,57 @@ export async function syncLink(clientId: string, link: DriveSyncLink): Promise<D
     if (!claimedLocal.has(l.entityId)) await guarded(l.filePath, () => pushNew(l));
   }
 
+  await syncNatives(clientId, link, natives, nativeState, report);
   return report;
+}
+
+/** Marque d'état d'un pointeur : pas de contenu à comparer, seul l'existence compte. */
+export const NATIVE = "native";
+
+async function syncNatives(clientId: string, link: DriveSyncLink, natives: NativeFile[], state: DriveSyncStateRow[], report: DriveSyncReport) {
+  const pointers = await rpc.localPointers.query({ prefix: link.vaultFolder });
+  const pointerById = new Map(pointers.map((p) => [p.entityId, p]));
+  const nativeById = new Map(natives.map((n) => [n.id, n]));
+  const seen = new Set<string>();
+  const forget = (driveFileId: string) => rpc.stateRemove.mutate({ linkId: link.id, driveFileId });
+  const place = async (n: NativeFile) => {
+    const p = await rpc.putPointer.mutate({ filePath: `${link.vaultFolder}/${n.relPath}`, content: n.pointer });
+    await rpc.stateUpsert.mutate({
+      linkId: link.id, driveFileId: n.id, entityId: p.entityId, relPath: n.relPath, driveMd5: NATIVE, localHash: NATIVE, syncedAt: Date.now(),
+    });
+    report.downloaded++;
+  };
+  for (const s of state) {
+    seen.add(s.driveFileId);
+    const p = pointerById.get(s.entityId);
+    const n = nativeById.get(s.driveFileId);
+    try {
+      if (p && n && n.relPath !== s.relPath) {
+        // Renommé ou déplacé sur Drive : le pointeur suit.
+        await rpc.deleteLocal.mutate({ entityId: p.entityId });
+        await place(n);
+      } else if (p && !n) {
+        await rpc.deleteLocal.mutate({ entityId: p.entityId });
+        await forget(s.driveFileId);
+        report.deleted++;
+      } else if (!p && n) {
+        // Pointeur supprimé dans le coffre : le document part à la corbeille Drive (30 jours), comme une note.
+        await trash(clientId, n.id);
+        await forget(s.driveFileId);
+        report.deleted++;
+      } else if (!p && !n) await forget(s.driveFileId);
+    } catch (err) {
+      report.errors++;
+      console.warn("[drive-sync] fichier Google", s.relPath, err);
+    }
+  }
+  for (const n of natives) {
+    if (seen.has(n.id)) continue;
+    try {
+      await place(n);
+    } catch (err) {
+      report.errors++;
+      console.warn("[drive-sync] fichier Google", n.relPath, err);
+    }
+  }
 }

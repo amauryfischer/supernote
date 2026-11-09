@@ -1364,6 +1364,33 @@ export function buildRouter(
     return { filePath: target, moved: true };
   };
 
+  // Même adoption que le reindex pour une pièce jointe (note sans `.md`), mais immédiate : pointeurs Google de la synchro Drive.
+  const adoptAttachmentFile = async (filePath: string, content: string): Promise<{ entityId: string; filePath: string }> => {
+    const wanted = sanitizePath(filePath);
+    if (!wanted || isMountedPath(wanted)) throw new Error(`Chemin refusé : ${filePath}`);
+    const dot = wanted.lastIndexOf(".");
+    const taken = async (p: string) =>
+      !!row(db.exec(`SELECT 1 FROM entity WHERE vaultId = ? AND filePath = ? LIMIT 1`, [vaultId, p])) || (await fileExistsAt(p));
+    let relativePath = wanted;
+    for (let n = 2; (await taken(relativePath)) && n < 9999; n++) relativePath = `${wanted.slice(0, dot)}-${n}${wanted.slice(dot)}`;
+    await writeVaultFile(vaultHandle, relativePath.split("/"), content);
+    const name = relativePath.split("/").pop() ?? relativePath;
+    const fields = { title: name.replace(/\.[^.]+$/, ""), attachmentFile: name };
+    const entityId = generateId();
+    const ts = now();
+    runInTransaction(db, () => {
+      db.run(
+        `INSERT INTO entity (id, vaultId, typeId, filePath, fields, body, fileHash, createdAt, updatedAt)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [entityId, vaultId, "note", relativePath, JSON.stringify(fields), "", null, ts, ts],
+      );
+      tombstoneClear(db, entityId);
+      const r = row(db.exec(`SELECT id, typeId, filePath, fields, body FROM entity WHERE id = ?`, [entityId]));
+      if (r) ftsAdd(db, entityToDoc(r));
+    });
+    return { entityId, filePath: relativePath };
+  };
+
   const entitiesDelete = async (input: unknown): Promise<unknown> => {
     const { id } = input as { id: string };
     return runSerialized(id, async () => {
@@ -3979,6 +4006,7 @@ export function buildRouter(
       create: entitiesCreate,
       update: entitiesUpdate,
       remove: entitiesDelete,
+      adoptFile: adoptAttachmentFile,
     }),
     ...buildChecklistRoutes(db, vaultId),
     ...mail.routes,

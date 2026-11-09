@@ -35,6 +35,10 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import { Plus } from "@phosphor-icons/react";
 import { useSettings } from "@/components/settings/SettingsContext";
 import { type GoogleDocKind, GOOGLE_DOC_KINDS } from "@/lib/google-drive";
+import { createLinkedGoogleFile } from "@/lib/drive-sync/new-doc";
+import { NATIVE_KINDS, pointerContent } from "@/lib/drive-sync/drive-api";
+import { getLastVaultReady } from "@/lib/trpc/browser-link";
+import { hasWorkerBackend, trpcVanillaClient } from "@/lib/trpc/client";
 import { NewItemSheet } from "@/components/notes/NewItemSheet";
 import { useCreateDraft } from "@/components/notes/useCreateDraft";
 import { useGmailConnected } from "@/hooks/useGmailConnected";
@@ -136,12 +140,34 @@ function NotesPageContent() {
       });
       if (raw === null) return; // annulé
       const name = raw.trim() || meta.defaultName;
+      const openInApp = (id: string) => {
+        setSelectedFolder(folder);
+        selectedFolderRef.current = folder;
+        window.dispatchEvent(new CustomEvent("supernote:index-progress", { detail: { indexed: 1, total: 1 } }));
+        router.push(`/notes/${id}?folder=${encodeURIComponent(folder)}`);
+      };
       try {
+        const vaultId = getLastVaultReady()?.vaultId;
+        const clientId = settings.googleDrive.clientId.trim();
+        // Dossier synchronisé avec Drive : créé dans le dossier Drive lié, ouvert dans Supernote.
+        const linkedId =
+          vaultId && hasWorkerBackend() ? await createLinkedGoogleFile(clientId, vaultId, folder, name, meta.mimeType) : null;
+        if (linkedId) return openInApp(linkedId);
         const { url, placedInFolder } = await createDriveDoc({ kind, folder, name });
-        // Pas de fichier local écrit : on ouvre le Doc tout de suite ; il
-        // apparaîtra dans le dossier de l'app après la synchro Google Drive
-        // Desktop (le `.gdoc` est créé par Drive, pas par nous → pas de blocage
-        // Chrome sur l'écriture des extensions Google).
+        // Coffre cloud : un pointeur local ouvre le Doc dans Supernote. Coffre disque : Chrome refuse
+        // d'écrire un `.gdoc`, Drive Desktop le redescendra ; on ouvre alors Google dans un onglet.
+        const docId = /\/d\/([\w-]{8,})/.exec(url)?.[1];
+        if (docId && hasWorkerBackend()) {
+          try {
+            const pointer = await trpcVanillaClient.driveSync.putPointer.mutate({
+              filePath: `${folder}/${name}${NATIVE_KINDS[meta.mimeType]?.ext ?? ".gdoc"}`,
+              content: pointerContent(docId, meta.mimeType),
+            });
+            return openInApp(pointer.entityId);
+          } catch (err) {
+            console.info("[handleNewDriveDoc] pointeur local impossible, ouverture dans Google", err);
+          }
+        }
         if (typeof window !== "undefined") window.open(url, "_blank", "noopener");
         toast({
           title: `${meta.label} créé dans Drive`,
@@ -154,7 +180,7 @@ function NotesPageContent() {
         toast({ title: `Impossible de créer le ${meta.label}`, variant: "danger" });
       }
     },
-    [createDriveDoc, prompt, toast],
+    [createDriveDoc, prompt, toast, router, settings.googleDrive.clientId],
   );
 
   const handleNewDraft = useCallback(async () => {

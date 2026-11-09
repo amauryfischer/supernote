@@ -182,4 +182,31 @@ test("26 — synchro d'un dossier avec Drive (Drive simulé)", async ({ page }) 
   await workerCall(page, "mutation", "entities.delete", { id: betaId });
   await syncOnce(page);
   expect(betaRemote.trashed).toBe(true);
+  // g) repère sur le dossier lié dans l'arbre (navigation sans rechargement : le jeton Drive vit en mémoire)
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await page.keyboard.press("g");
+  await page.keyboard.press("n");
+  await expect(page).toHaveURL(/\/notes/);
+  await expect(page.getByRole("img", { name: /Synchronisé avec Drive/ }).first()).toBeVisible();
+
+  // h) Google Doc créé sur Drive → pointeur dans le coffre, ouvert par GDocViewer
+  drive.add("Rapport", root.id, "application/vnd.google-apps.document");
+  await syncOnce(page);
+  const pointers = await workerCall<Array<{ filePath: string }>>(page, "query", "driveSync.localPointers", { prefix: "Projets" });
+  expect(pointers.map((p) => p.filePath)).toContain("Projets/Rapport.gdoc");
+  drive.writes = [];
+  await syncOnce(page);
+  expect(drive.writes).toEqual([]);
+
+  // i) « Nouveau Google Docs ici » dans un dossier lié : créé dans le dossier Drive, ouvert dans Supernote
+  await page.getByText("Projets", { exact: true }).first().click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Nouveau Google Docs ici" }).click();
+  const nameInput = page.getByRole("dialog").getByRole("textbox");
+  await nameInput.fill("Compte rendu");
+  await nameInput.press("Enter");
+  await expect(page).toHaveURL(/\/notes\/[^?]+\?folder=Projets/);
+  expect([...drive.files.values()].some((f) => f.name === "Compte rendu" && f.parents.includes(root.id))).toBe(true);
+  drive.writes = [];
+  await syncOnce(page);
+  expect(drive.writes).toEqual([]);
 });

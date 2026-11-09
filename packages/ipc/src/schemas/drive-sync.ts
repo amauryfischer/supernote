@@ -36,3 +36,9 @@ export const DriveSyncLinkInput = z.object({ linkId: z.string() });
 export const DriveSyncStateRemoveInput = z.object({ linkId: z.string(), driveFileId: z.string() });
 export const DriveSyncStateListOutput = z.array(DriveSyncStateRowSchema);
 export const DriveSyncOkOutput = z.object({ ok: z.literal(true) });
+
+/** Pointeur local (`.gdoc`/`.gsheet`/`.gslides`) vers un fichier Google natif d'un dossier lié. */
+export const DriveSyncPointerSchema = z.object({ entityId: z.string(), filePath: z.string() });
+export type DriveSyncPointer = z.infer<typeof DriveSyncPointerSchema>;
+export const DriveSyncPointersOutput = z.array(DriveSyncPointerSchema);
+export const DriveSyncPutPointerInput = z.object({ filePath: z.string(), content: z.string() });

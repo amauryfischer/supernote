@@ -5,6 +5,23 @@ const API = "https://www.googleapis.com/drive/v3";
 const UPLOAD = "https://www.googleapis.com/upload/drive/v3";
 const FOLDER_MIME = "application/vnd.google-apps.folder";
 
+/** Fichiers Google natifs : reflétés dans le coffre par un pointeur `.gdoc`/`.gsheet`/`.gslides`, ouvert dans GDocViewer. */
+export const NATIVE_KINDS: Record<string, { ext: string; urlType: string }> = {
+  "application/vnd.google-apps.document": { ext: ".gdoc", urlType: "document" },
+  "application/vnd.google-apps.spreadsheet": { ext: ".gsheet", urlType: "spreadsheets" },
+  "application/vnd.google-apps.presentation": { ext: ".gslides", urlType: "presentation" },
+};
+
+export interface NativeFile {
+  id: string;
+  /** Chemin relatif du pointeur local (nom Drive + extension du type). */
+  relPath: string;
+  pointer: string;
+}
+
+export const pointerContent = (id: string, mimeType: string) =>
+  JSON.stringify({ url: `https://docs.google.com/${NATIVE_KINDS[mimeType]?.urlType ?? "document"}/d/${id}/edit`, doc_id: id });
+
 export interface RemoteFile {
   id: string;
   parentId: string;
@@ -43,8 +60,12 @@ export const listChildFolders = async (clientId: string, parentId: string) =>
 
 /** `.md` du dossier lié et de ses sous-dossiers ; `folders` = chemin relatif → id (racine = ""). */
 // shortcut: une requête par sous-dossier ; passer à `changes.list` au-delà de ~50 sous-dossiers ou si le quota bronche.
-export async function listFolderTree(clientId: string, rootId: string): Promise<{ files: RemoteFile[]; folders: Map<string, string> }> {
+export async function listFolderTree(
+  clientId: string,
+  rootId: string,
+): Promise<{ files: RemoteFile[]; natives: NativeFile[]; folders: Map<string, string> }> {
   const files: RemoteFile[] = [];
+  const natives: NativeFile[] = [];
   const folders = new Map<string, string>([["", rootId]]);
   const queue: Array<[string, string]> = [["", rootId]];
   for (let next = queue.shift(); next; next = queue.shift()) {
@@ -56,10 +77,12 @@ export async function listFolderTree(clientId: string, rootId: string): Promise<
         queue.push([rel, item.id]);
       } else if (/\.(md|markdown)$/i.test(item.name)) {
         files.push({ id: item.id, parentId: id, relPath: rel, md5: item.md5Checksum ?? "" });
+      } else if (NATIVE_KINDS[item.mimeType]) {
+        natives.push({ id: item.id, relPath: `${rel}${NATIVE_KINDS[item.mimeType]?.ext}`, pointer: pointerContent(item.id, item.mimeType) });
       }
     }
   }
-  return { files, folders };
+  return { files, natives, folders };
 }
 
 export async function createFolder(clientId: string, name: string, parentId: string): Promise<string> {
@@ -126,4 +149,23 @@ export async function moveRename(clientId: string, fileId: string, name: string,
 
 export async function trash(clientId: string, fileId: string): Promise<void> {
   await call(clientId, `${API}/files/${fileId}?fields=id`, { method: "PATCH", json: true, body: JSON.stringify({ trashed: true }) });
+}
+
+/** Id du sous-dossier `relDir` sous `rootId`, résolu par nom et créé au besoin (sans lister tout l'arbre). */
+export async function folderIdFor(clientId: string, rootId: string, relDir: string): Promise<string> {
+  let parent = rootId;
+  for (const seg of relDir.split("/").filter(Boolean)) {
+    const hit = (await listChildFolders(clientId, parent)).find((f) => f.name === seg);
+    parent = hit ? hit.id : await createFolder(clientId, seg, parent);
+  }
+  return parent;
+}
+
+export async function createNative(clientId: string, name: string, mimeType: string, parentId: string): Promise<string> {
+  const res = await call<{ id: string }>(clientId, `${API}/files?fields=id`, {
+    method: "POST",
+    json: true,
+    body: JSON.stringify({ name, mimeType, parents: [parentId] }),
+  });
+  return res.id;
 }

@@ -16,9 +16,12 @@ interface DriveSyncDeps {
   create(input: unknown): Promise<unknown>;
   update(input: unknown): Promise<unknown>;
   remove(input: unknown): Promise<unknown>;
+  /** Écrit un fichier pièce jointe et l'adopte comme note (comme le fait le reindex) ; renvoie id et chemin final. */
+  adoptFile(filePath: string, content: string): Promise<{ entityId: string; filePath: string }>;
 }
 
 const isMarkdown = (p: string) => /\.(md|markdown)$/i.test(p);
+const isGooglePointer = (p: string) => /\.(gdoc|gsheet|gslides)$/i.test(p);
 
 export function buildDriveSyncRoutes(db: Database, vaultId: string, deps: DriveSyncDeps): Record<string, RouteHandler> {
   const entityPath = (id: string): string | null =>
@@ -43,6 +46,23 @@ export function buildDriveSyncRoutes(db: Database, vaultId: string, deps: DriveS
       const out: DriveSyncLocalFile[] = [];
       for (const r of found) out.push(await snapshot(r["id"] as string, r["filePath"] as string));
       return out;
+    },
+
+    "driveSync.localPointers": async (input) => {
+      const { prefix } = input as { prefix: string };
+      return rows(
+        db.exec(
+          `SELECT id, filePath FROM entity WHERE vaultId = ? AND sourceVaultId IS NULL AND substr(filePath, 1, ?) = ?`,
+          [vaultId, prefix.length + 1, `${prefix}/`],
+        ),
+      )
+        .filter((r) => isGooglePointer(r["filePath"] as string))
+        .map((r) => ({ entityId: r["id"] as string, filePath: r["filePath"] as string }));
+    },
+
+    "driveSync.putPointer": async (input) => {
+      const { filePath, content } = input as { filePath: string; content: string };
+      return deps.adoptFile(filePath, content);
     },
 
     "driveSync.applyRemote": async (input) => {

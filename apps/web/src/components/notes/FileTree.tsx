@@ -4,6 +4,7 @@ import {
   Airplane,
   Archive,
   ArrowsLeftRight,
+  GoogleDriveLogo,
   At,
   Book,
   Bookmark,
@@ -101,7 +102,7 @@ import { derivedDomainColor } from "@/lib/folderAccent";
 import { useConfirm } from "@/hooks/usePrompt";
 import { useLongPress } from "@/hooks/useLongPress";
 import { GOOGLE_DOC_KINDS, type GoogleDocKind } from "@/lib/google-drive";
-import { openDriveSyncFor } from "@/lib/drive-sync/links";
+import { openDriveSyncFor, useDriveLink } from "@/lib/drive-sync/links";
 import { DRIVE_DOC_ICONS, DRIVE_DOC_ORDER } from "./driveDocMeta";
 import {
   cloudRoomSlug,
@@ -1571,6 +1572,7 @@ function FolderNode({
   const { mountRoots, onDisconnectMount } = useContext(MountContext);
   // Présent uniquement quand Google Drive est connecté (cf. FileTreeProps).
   const onNewDriveDoc = useContext(NewDriveDocContext);
+  const driveLink = useDriveLink(folder.path);
   const mountMeta = mountRoots.get(folder.path) ?? null;
   const isMountRoot = mountMeta !== null;
   // « Scoped » = ce nœud est la racine d'un montage OU imbriqué sous un
@@ -2190,6 +2192,17 @@ function FolderNode({
             >
               {folder.name}
             </span>
+            {driveLink && (
+              <span
+                role="img"
+                aria-label={`Synchronisé avec Drive : ${driveLink.driveFolderPath}`}
+                title={`Synchronisé avec ${driveLink.driveFolderPath}${driveLink.lastError === "pause" ? " (en pause)" : ""}`}
+                className="ml-1 flex flex-shrink-0 items-center"
+                style={{ color: driveLink.enabled && driveLink.lastError !== "pause" ? "var(--text-muted)" : "var(--color-warning, #d97706)" }}
+              >
+                <GoogleDriveLogo size={13} />
+              </span>
+            )}
             {/* Compteur muet à zéro : le dossier vide se lit déjà à son absence de chevron. */}
             {isDragOver ? (
               <span className="ml-1 mr-1 flex-shrink-0 text-xs font-medium" style={{ color: "var(--text-primary)" }}>

@@ -11,6 +11,9 @@ import {
   DriveSyncStateRemoveInput,
   DriveSyncStateListOutput,
   DriveSyncOkOutput,
+  DriveSyncPointerSchema,
+  DriveSyncPointersOutput,
+  DriveSyncPutPointerInput,
 } from "../schemas/drive-sync.js";
 
 /** Implémenté par le worker du coffre (`apps/web/src/lib/vault-worker/drive-sync-routes.ts`). */
@@ -20,6 +23,12 @@ export const driveSyncRouter = router({
   }),
   applyRemote: publicProcedure.input(DriveSyncApplyRemoteInput).output(DriveSyncApplyRemoteOutput).mutation(() => {
     throw notImplemented("driveSync.applyRemote");
+  }),
+  localPointers: publicProcedure.input(DriveSyncLocalFilesInput).output(DriveSyncPointersOutput).query(() => {
+    throw notImplemented("driveSync.localPointers");
+  }),
+  putPointer: publicProcedure.input(DriveSyncPutPointerInput).output(DriveSyncPointerSchema).mutation(() => {
+    throw notImplemented("driveSync.putPointer");
   }),
   deleteLocal: publicProcedure.input(DriveSyncDeleteLocalInput).output(DriveSyncOkOutput).mutation(() => {
     throw notImplemented("driveSync.deleteLocal");
