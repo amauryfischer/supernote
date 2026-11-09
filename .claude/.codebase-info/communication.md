@@ -1,6 +1,6 @@
 # Communication
 
-*Last Updated: 2026-11-08*
+*Last Updated: 2026-11-09*
 
 Trois canaux : le thread principal parle au worker, le worker parle au thread principal, et l'application parle au serveur de synchronisation.
 
@@ -84,7 +84,7 @@ Même mécanique de jeton que Gmail via `googleRequest`, état de reconnexion su
 
 ## Synchro dossier ↔ Google Drive
 
-Un dossier du coffre lié à un dossier Drive (clic droit sur le dossier, ou Réglages → Google Drive), synchronisé dans les deux sens. Liaisons par appareil en `localStorage` (`supernote.driveSync.links`, clé par `vaultId`, `lib/drive-sync/links.ts`). Le réseau reste sur le thread principal : `lib/drive-sync/drive-api.ts` (tout via `googleRequest`, scope `drive` complet, famille de scopes `"drive"`), `engine.ts` (une passe : rapprochement par état, puis `id` de frontmatter, puis chemin + contenu ; conflit = note sœur « (conflit Drive …) » ; suppression = corbeille Drive), `DriveSyncRunner` (5 min, retour sur l'onglet, `ENTITY_CHANGE` sous un dossier lié). Comme l'agenda, rien sans jeton en cache : la liaison passe « en pause ». Côté worker, `drive-sync-routes.ts` lit le `.md` exact sur disque (hash SHA-256 stable, sinon écho) et écrit via `entities.*` pour que les hooks propagent au salon. Couvert par `tests/e2e/26-drive-sync.spec.ts` (Drive simulé).
+Un dossier du coffre lié à un dossier Drive (clic droit sur le dossier, ou Réglages → Google Drive), synchronisé dans les deux sens. Liaisons par appareil en `localStorage` (`supernote.driveSync.links`, clé par `vaultId`, `lib/drive-sync/links.ts`). Le réseau reste sur le thread principal : `lib/drive-sync/drive-api.ts` (tout via `googleRequest`, scope `drive` complet, famille de scopes `"drive"`), `engine.ts` (une passe : rapprochement par état, puis `id` de frontmatter, puis chemin + contenu ; conflit = note sœur « (conflit Drive …) » ; suppression = corbeille Drive), `DriveSyncRunner` (5 min, retour sur l'onglet, `ENTITY_CHANGE` sous un dossier lié). Comme l'agenda, rien sans jeton en cache : la liaison passe « en pause ». Côté worker, `drive-sync-routes.ts` lit le `.md` exact sur disque (hash SHA-256 stable, sinon écho) et écrit via `entities.*` pour que les hooks propagent au salon. Les Docs/Sheets/Slides du dossier lié sont reflétés en pointeurs `.gdoc`/`.gsheet`/`.gslides` (`driveSync.putPointer`, état `driveMd5 = "native"`), ouverts par `GDocViewer` ; « Nouveau Google Doc ici » passe par `lib/drive-sync/new-doc.ts`. Couvert par `tests/e2e/26-drive-sync.spec.ts` (Drive simulé).
 
 ## Partage par lien et co-édition
 
