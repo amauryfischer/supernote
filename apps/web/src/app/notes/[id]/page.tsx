@@ -56,8 +56,8 @@ import { useShareEnabled } from "@/lib/share/shareApi";
 import { useCreateDraft } from "@/components/notes/useCreateDraft";
 import { useGmailConnected } from "@/hooks/useGmailConnected";
 import { Button, useToast } from "@supernote/ui";
+import { NoteViewSwitch, type NoteViewMode } from "@/components/notes/NoteViewSwitch";
 
-type NoteViewMode = "note" | "canvas";
 
 function parseViewMode(raw: string | null): NoteViewMode {
   return raw === "canvas" ? "canvas" : "note";
@@ -860,26 +860,7 @@ function ViewToggle({ mode, onChange, focusMode, onToggleFocusMode }: ViewToggle
       className="flex shrink-0 items-center justify-between gap-1 px-10 pt-4"
       style={{ backgroundColor: "var(--surface-0)" }}
     >
-      <div
-        className="inline-flex items-center rounded-md p-0.5"
-        style={{
-          backgroundColor: "var(--surface-2)",
-          border: "1px solid var(--border-subtle)",
-        }}
-        role="tablist"
-        aria-label="Vue de la note"
-      >
-        <ViewToggleButton
-          active={mode === "note"}
-          onClick={() => onChange("note")}
-          label="Note"
-        />
-        <ViewToggleButton
-          active={mode === "canvas"}
-          onClick={() => onChange("canvas")}
-          label="Canvas"
-        />
-      </div>
+      <NoteViewSwitch mode={mode} onChange={onChange} />
       <Button
         variant="outline"
         size="sm"
@@ -898,34 +879,6 @@ function ViewToggle({ mode, onChange, focusMode, onToggleFocusMode }: ViewToggle
         <span>{focusMode ? "Quitter focus" : "Focus"}</span>
       </Button>
     </div>
-  );
-}
-
-function ViewToggleButton({
-  active,
-  onClick,
-  label,
-}: {
-  active: boolean;
-  onClick: () => void;
-  label: string;
-}) {
-  return (
-    <Button
-      variant="ghost"
-      size="sm"
-      onPress={onClick}
-      className="rounded px-3 py-1 text-xs font-medium transition-colors"
-      style={{
-        backgroundColor: active ? "var(--surface-0)" : "transparent",
-        color: active ? "var(--text-primary)" : "var(--text-muted)",
-        boxShadow: active ? "0 1px 2px rgba(0,0,0,0.06)" : "none",
-        minWidth: 0,
-        height: "auto",
-      }}
-    >
-      {label}
-    </Button>
   );
 }
 

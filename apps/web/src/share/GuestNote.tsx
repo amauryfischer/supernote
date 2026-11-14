@@ -2,10 +2,11 @@ import { useEffect, useMemo, useState, type MouseEvent } from "react";
 import dynamic from "next/dynamic";
 import * as Y from "yjs";
 import { HocuspocusProvider } from "@hocuspocus/provider";
-import { Button, Input, Tabs } from "@supernote/ui";
+import { Button, Input } from "@supernote/ui";
 import { Spinner } from "@heroui/react";
 import { COLLAB_FRAGMENT, SupernoteEditor } from "@supernote/editor";
 import type { CanvasDocument } from "@supernote/canvas";
+import { NoteViewSwitch, type NoteViewMode } from "@/components/notes/NoteViewSwitch";
 import { collabUrl, colorFor, sanitizePeerAwareness } from "@/lib/share/collab";
 import { fetchBlobUrl, fetchCanvas, fetchMeta, type Access } from "./guest-api";
 
@@ -18,11 +19,6 @@ const SupernoteCanvas = dynamic(() => canvasModule().then((m) => ({ default: m.S
     </div>
   ),
 });
-
-const VIEW_TABS = [
-  { key: "note", label: "Note" },
-  { key: "canvas", label: "Canvas" },
-];
 
 const NAME_KEY = "supernote.share.guestName";
 
@@ -61,7 +57,7 @@ export function GuestNote({
   const [joined, setJoined] = useState(!writable || !!readName());
   const [synced, setSynced] = useState(false);
   const [canvas, setCanvas] = useState<CanvasDocument | null>(null);
-  const [view, setView] = useState<"note" | "canvas">("note");
+  const [view, setView] = useState<NoteViewMode>("note");
 
   useEffect(() => {
     let alive = true;
@@ -184,7 +180,7 @@ export function GuestNote({
       className={canvasMode ? "fixed inset-0 z-10 flex flex-col gap-2 bg-[var(--surface-0)] p-2 md:p-4" : "flex flex-col gap-4"}
       onClickCapture={blockInternalLinks}
     >
-      <div className={canvasMode ? "flex items-center gap-3 px-2" : "flex flex-col gap-4"}>
+      <div className={canvasMode ? "flex items-center gap-3 px-2" : "flex flex-col items-start gap-4"}>
         <h1
           className={
             canvasMode
@@ -194,14 +190,7 @@ export function GuestNote({
         >
           {title || "Note partagée"}
         </h1>
-        {canvas && (
-          <Tabs
-            items={VIEW_TABS}
-            selectedKey={view}
-            onSelectionChange={(k) => setView(k === "canvas" ? "canvas" : "note")}
-            className={canvasMode ? "w-48 shrink-0 [&_[role=tabpanel]]:hidden" : "[&_[role=tabpanel]]:hidden"}
-          />
-        )}
+        {canvas && <NoteViewSwitch mode={view} onChange={setView} />}
       </div>
       {/* Masqué plutôt que démonté : l'éditeur garde son état Yjs et son curseur. */}
       <div className={view === "canvas" ? "hidden" : undefined}>
