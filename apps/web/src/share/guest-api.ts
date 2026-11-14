@@ -75,6 +75,13 @@ export async function fetchEmail(slug: string, token: string): Promise<EmailSnap
   throw new Error(`content ${res.status}`);
 }
 
+export async function fetchCanvas(slug: string, token: string): Promise<string | null> {
+  const res = await fetch(`${base(slug)}/canvas`, { headers: { authorization: `Bearer ${token}` } });
+  if (res.ok) return res.text();
+  if (res.status === 404) return null;
+  throw new Error(`canvas ${res.status}`);
+}
+
 export async function fetchBlobUrl(slug: string, token: string, path: string): Promise<string> {
   const res = await fetch(`${base(slug)}/blob?path=${encodeURIComponent(path)}`, {
     headers: { authorization: `Bearer ${token}` },

@@ -92,6 +92,7 @@ import { publishNoteImages } from "@/lib/share/noteImages";
 import {
   createShareResource,
   deleteShareResource,
+  publishShareCanvas,
   renameShareResource,
   seedShareDoc,
   useShareEnabled,
@@ -1447,6 +1448,22 @@ export function NoteEditor({ note, dimBlocks = false }: NoteEditorProps) {
     if (normalizeEol(md).trimEnd() !== normalizeEol(bodyRef.current).trimEnd()) handleEditorChange(md);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [collab.collaboration]);
+
+  // La vue canvas vit hors du document Yjs : republiée à chaque ouverture, ce qui couvre aussi les notes partagées avant son existence.
+  useEffect(() => {
+    if (collab.status !== "ready" || !share) return;
+    // Lecture hors cache : ne pas réécrire l'entrée qui alimente l'éditeur pendant le recalage Yjs → .md.
+    void trpcVanillaClient.entities.get
+      .query({ id: note.id })
+      .then((fresh) => {
+        const canvas = fresh.fields["canvas"];
+        if (typeof canvas === "string" && canvas) {
+          return publishShareCanvas({ resourceId: share.id, ownerKey: share.key }, canvas);
+        }
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [collab.status, share?.id, share?.key, note.id]);
 
   useEffect(() => {
     if (!shareEnabled) return undefined;

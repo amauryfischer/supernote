@@ -102,6 +102,17 @@ export async function publishShareBlob(share: OwnedShare, path: string, blob: Bl
   await call(`/resources/${share.resourceId}/blob?path=${encodeURIComponent(path)}`, { method: "PUT", body: blob }, share);
 }
 
+/** Instantané de la vue canvas, en lecture seule pour l'invité : il n'entre pas dans le document Yjs. */
+export async function publishShareCanvas(share: OwnedShare, canvasJson: string): Promise<void> {
+  await call(`/resources/${share.resourceId}/canvas`, { method: "PUT", body: canvasJson }, share);
+}
+
+export function noteShare(fields: Record<string, unknown> | undefined): OwnedShare | null {
+  const resourceId = typeof fields?.["shareId"] === "string" ? fields["shareId"] : "";
+  const ownerKey = typeof fields?.["shareKey"] === "string" ? fields["shareKey"] : "";
+  return resourceId && ownerKey ? { resourceId, ownerKey } : null;
+}
+
 export function shareUrl(slug: string): string {
   return `${window.location.origin}/s/${slug}`;
 }

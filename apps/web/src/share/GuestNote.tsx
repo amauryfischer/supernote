@@ -1,11 +1,28 @@
 import { useEffect, useMemo, useState, type MouseEvent } from "react";
+import dynamic from "next/dynamic";
 import * as Y from "yjs";
 import { HocuspocusProvider } from "@hocuspocus/provider";
-import { Button, Input } from "@supernote/ui";
+import { Button, Input, Tabs } from "@supernote/ui";
 import { Spinner } from "@heroui/react";
 import { COLLAB_FRAGMENT, SupernoteEditor } from "@supernote/editor";
+import type { CanvasDocument } from "@supernote/canvas";
 import { collabUrl, colorFor, sanitizePeerAwareness } from "@/lib/share/collab";
-import { fetchBlobUrl, fetchMeta, type Access } from "./guest-api";
+import { fetchBlobUrl, fetchCanvas, fetchMeta, type Access } from "./guest-api";
+
+const canvasModule = () => import("@supernote/canvas");
+const SupernoteCanvas = dynamic(() => canvasModule().then((m) => ({ default: m.SupernoteCanvas })), {
+  ssr: false,
+  loading: () => (
+    <div className="flex h-full items-center justify-center">
+      <Spinner aria-label="Chargement du canvas" />
+    </div>
+  ),
+});
+
+const VIEW_TABS = [
+  { key: "note", label: "Note" },
+  { key: "canvas", label: "Canvas" },
+];
 
 const NAME_KEY = "supernote.share.guestName";
 
@@ -43,6 +60,23 @@ export function GuestNote({
   const [name, setName] = useState(readName);
   const [joined, setJoined] = useState(!writable || !!readName());
   const [synced, setSynced] = useState(false);
+  const [canvas, setCanvas] = useState<CanvasDocument | null>(null);
+  const [view, setView] = useState<"note" | "canvas">("note");
+
+  useEffect(() => {
+    let alive = true;
+    void fetchCanvas(slug, access.accessToken)
+      .then(async (json) => {
+        if (!json) return;
+        const doc = (await canvasModule()).parseCanvas(json);
+        const visible = (doc.excalidrawElements ?? []).some((e) => !e["isDeleted"]) || doc.nodes.length > 0;
+        if (alive && visible) setCanvas(doc);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [slug, access.accessToken]);
 
   const session = useMemo(() => {
     if (!joined) return null;
@@ -147,17 +181,34 @@ export function GuestNote({
   return (
     <div className="flex flex-col gap-4" onClickCapture={blockInternalLinks}>
       <h1 className="break-words text-2xl font-semibold [text-wrap:balance]">{title || "Note partagée"}</h1>
-      <SupernoteEditor
-        readOnly={!writable}
-        collaboration={{
-          fragment: session.doc.getXmlFragment(COLLAB_FRAGMENT),
-          provider: { awareness: session.provider.awareness ?? undefined },
-          user: { name: userName, color: colorFor(userName) },
-        }}
-        renderDatabaseView={Unavailable}
-        renderFormula={Unavailable}
-        files={files}
-      />
+      {canvas && (
+        <Tabs
+          items={VIEW_TABS}
+          selectedKey={view}
+          onSelectionChange={(k) => setView(k === "canvas" ? "canvas" : "note")}
+          className="[&_[role=tabpanel]]:hidden"
+        />
+      )}
+      {/* Masqué plutôt que démonté : l'éditeur garde son état Yjs et son curseur. */}
+      <div className={view === "canvas" ? "hidden" : undefined}>
+        <SupernoteEditor
+          readOnly={!writable}
+          collaboration={{
+            fragment: session.doc.getXmlFragment(COLLAB_FRAGMENT),
+            provider: { awareness: session.provider.awareness ?? undefined },
+            user: { name: userName, color: colorFor(userName) },
+          }}
+          renderDatabaseView={Unavailable}
+          renderFormula={Unavailable}
+          files={files}
+        />
+      </div>
+      {/* Monté seulement visible : Excalidraw mesure son conteneur au montage, à 0 sous display:none. */}
+      {view === "canvas" && canvas && (
+        <div className="h-[70dvh] min-h-80 overflow-hidden rounded-lg border border-[var(--border-subtle)]">
+          <SupernoteCanvas initialData={canvas} readOnly />
+        </div>
+      )}
     </div>
   );
 }

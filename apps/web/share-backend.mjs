@@ -22,6 +22,8 @@ const IMAGE_TYPES = {
   png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif",
   webp: "image/webp", avif: "image/avif",
 };
+// Sans extension : `PUT /blob` exige une extension d'image, il ne peut donc pas écraser la vue canvas.
+const CANVAS_BLOB_PATH = "canvas";
 
 const newId = (bytes) => randomBytes(bytes).toString("base64url");
 const sha256hex = (s) => createHash("sha256").update(s).digest("hex");
@@ -310,6 +312,15 @@ export async function createShareBackend() {
       send(res, 200, { ok: true });
     }],
 
+    ["PUT", /^\/api\/share\/resources\/([\w-]+)\/canvas$/, async (req, res, [id]) => {
+      const resource = await ownedResource(req, id);
+      if (resource.kind !== "note") return send(res, 400, { error: "not a note" });
+      const bytes = await readBody(req, MAX_BLOB_BYTES);
+      if (bytes.length === 0) return send(res, 400, { error: "empty body" });
+      await store.putBlob(id, CANVAS_BLOB_PATH, bytes);
+      send(res, 200, { ok: true });
+    }],
+
     ["PATCH", /^\/api\/share\/links\/([\w-]+)$/, async (req, res, [slug]) => {
       const { link } = await ownedLink(req, slug);
       const body = await readJson(req);
@@ -379,6 +390,18 @@ export async function createShareBackend() {
         "Cache-Control": "private, max-age=300",
         "X-Content-Type-Options": "nosniff",
         "Content-Security-Policy": "sandbox; default-src 'none'; style-src 'unsafe-inline'",
+      });
+      res.end(bytes);
+    }],
+
+    ["GET", /^\/api\/share\/links\/([\w-]+)\/canvas$/, async (req, res, [slug]) => {
+      const link = await accessLink(req, slug);
+      const bytes = await store.getBlob(link.resourceId, CANVAS_BLOB_PATH);
+      if (!bytes) return send(res, 404, { reason: "missing" });
+      res.writeHead(200, {
+        "Content-Type": "application/json; charset=utf-8",
+        "Cache-Control": "no-store",
+        "X-Content-Type-Options": "nosniff",
       });
       res.end(bytes);
     }],

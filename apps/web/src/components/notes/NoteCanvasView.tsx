@@ -28,6 +28,7 @@ import type {
   EntityRef as CanvasEntityRef,
 } from "@supernote/canvas";
 import { trpc, trpcVanillaClient } from "@/lib/trpc/client";
+import { noteShare, publishShareCanvas } from "@/lib/share/shareApi";
 import type { Note } from "./fixtures";
 import { entityToNote } from "./adapters";
 import { EntityLinkPicker } from "./EntityLinkPicker";
@@ -494,6 +495,8 @@ function NoteCanvasViewInner({ note }: NoteCanvasViewProps) {
             fields: { canvas: payload },
           });
           lastSerializedRef.current = payload;
+          const share = noteShare(note.fields);
+          if (share) void publishShareCanvas(share, payload).catch(() => {});
           setSaveStatus("saved");
           console.info(`[NoteCanvasView] save complete id=${note.id}`);
           void utilsRef.current.entities.get.invalidate({ id: note.id });
