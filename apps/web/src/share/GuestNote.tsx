@@ -178,17 +178,31 @@ export function GuestNote({
   };
 
   const userName = writable ? name.trim() : "Lecteur";
+  const canvasMode = view === "canvas" && canvas !== null;
   return (
-    <div className="flex flex-col gap-4" onClickCapture={blockInternalLinks}>
-      <h1 className="break-words text-2xl font-semibold [text-wrap:balance]">{title || "Note partagée"}</h1>
-      {canvas && (
-        <Tabs
-          items={VIEW_TABS}
-          selectedKey={view}
-          onSelectionChange={(k) => setView(k === "canvas" ? "canvas" : "note")}
-          className="[&_[role=tabpanel]]:hidden"
-        />
-      )}
+    <div
+      className={canvasMode ? "fixed inset-0 z-10 flex flex-col gap-2 bg-[var(--surface-0)] p-2 md:p-4" : "flex flex-col gap-4"}
+      onClickCapture={blockInternalLinks}
+    >
+      <div className={canvasMode ? "flex items-center gap-3 px-2" : "flex flex-col gap-4"}>
+        <h1
+          className={
+            canvasMode
+              ? "min-w-0 flex-1 truncate text-lg font-semibold"
+              : "break-words text-2xl font-semibold [text-wrap:balance]"
+          }
+        >
+          {title || "Note partagée"}
+        </h1>
+        {canvas && (
+          <Tabs
+            items={VIEW_TABS}
+            selectedKey={view}
+            onSelectionChange={(k) => setView(k === "canvas" ? "canvas" : "note")}
+            className={canvasMode ? "w-48 shrink-0 [&_[role=tabpanel]]:hidden" : "[&_[role=tabpanel]]:hidden"}
+          />
+        )}
+      </div>
       {/* Masqué plutôt que démonté : l'éditeur garde son état Yjs et son curseur. */}
       <div className={view === "canvas" ? "hidden" : undefined}>
         <SupernoteEditor
@@ -204,9 +218,9 @@ export function GuestNote({
         />
       </div>
       {/* Monté seulement visible : Excalidraw mesure son conteneur au montage, à 0 sous display:none. */}
-      {view === "canvas" && canvas && (
-        <div className="h-[70dvh] min-h-80 overflow-hidden rounded-lg border border-[var(--border-subtle)]">
-          <SupernoteCanvas initialData={canvas} readOnly />
+      {canvasMode && (
+        <div className="min-h-0 flex-1 overflow-hidden rounded-lg border border-[var(--border-subtle)]">
+          <SupernoteCanvas initialData={canvas ?? undefined} readOnly fitToContent />
         </div>
       )}
     </div>

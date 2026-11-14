@@ -58,6 +58,7 @@ interface ExcalidrawImperativeLike {
   updateScene: (scene: { elements: ExcalidrawElementLike[] }) => void;
   getSceneElements: () => readonly ExcalidrawElementLike[];
   getAppState: () => { width: number; height: number; scrollX: number; scrollY: number; zoom: { value: number } };
+  scrollToContent: (target?: undefined, opts?: { fitToViewport?: boolean; viewportZoomFactor?: number; maxZoom?: number }) => void;
 }
 
 /** Custom data shape carried by entity-ref rectangles. */
@@ -131,6 +132,8 @@ export interface DrawLayerProps {
    */
   onEntityNavigate?: (entityId: string, entityType: string) => void;
   readOnly?: boolean;
+  /** Cadre tout le dessin dans la vue au premier affichage. */
+  fitToContent?: boolean;
 }
 
 const TOOLBAR_STYLE: React.CSSProperties = {
@@ -393,10 +396,11 @@ const TOOLBAR_MINIMAL_BREAKPOINT = 360;
 
 /** Full-screen Excalidraw layer; entity refs live inside the same scene. */
 export const DrawLayer = forwardRef<DrawLayerHandle, DrawLayerProps>(function DrawLayer(
-  { initialElements, onChange, onLinkEntity, onEntityNavigate, readOnly },
+  { initialElements, onChange, onLinkEntity, onEntityNavigate, readOnly, fitToContent },
   ref
 ) {
   const apiRef = useRef<ExcalidrawImperativeLike | null>(null);
+  const fittedRef = useRef(false);
   // Pin `initialData` to the elements captured at FIRST render of this
   // DrawLayer mount. Two failure modes we're avoiding:
   //   1. Recreating the object on every render — Excalidraw re-syncs its
@@ -459,9 +463,16 @@ export const DrawLayer = forwardRef<DrawLayerHandle, DrawLayerProps>(function Dr
       const len = Array.isArray(elements) ? elements.length : -1;
       const apType = (appState as { type?: string } | undefined)?.type ?? "?";
       console.info(`[DrawLayer] excalidraw onChange — elements=${len} appStateType=${apType}`);
+      // Le premier onChange suit la restauration de la scène : avant, il n'y a rien à cadrer.
+      if (fitToContent && !fittedRef.current && len > 0) {
+        fittedRef.current = true;
+        requestAnimationFrame(() =>
+          apiRef.current?.scrollToContent(undefined, { fitToViewport: true, viewportZoomFactor: 0.9, maxZoom: 2 }),
+        );
+      }
       onChange?.(elements as ExcalidrawElementLike[]);
     },
-    [onChange]
+    [onChange, fitToContent]
   );
 
   // onLinkOpen fires when the user clicks the link icon on any element. We

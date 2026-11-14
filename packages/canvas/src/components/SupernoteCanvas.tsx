@@ -339,6 +339,7 @@ export function SupernoteCanvas({
   onLinkEntity,
   onEntityNavigate,
   readOnly = false,
+  fitToContent,
   className,
 }: SupernoteCanvasProps) {
   // One-shot legacy migration. Any typed nodes in the incoming doc are
@@ -519,6 +520,7 @@ export function SupernoteCanvas({
           onLinkEntity={drawLayerOnLinkEntity}
           onEntityNavigate={onEntityNavigate}
           readOnly={readOnly}
+          fitToContent={fitToContent}
         />
       </div>
     </div>

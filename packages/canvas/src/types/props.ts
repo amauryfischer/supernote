@@ -69,5 +69,7 @@ export interface SupernoteCanvasProps {
   onEntityNavigate?: (entityId: string, entityType: string) => void;
 
   readOnly?: boolean;
+  /** Cadre tout le dessin dans la vue au premier affichage. */
+  fitToContent?: boolean;
   className?: string;
 }
