@@ -1,6 +1,6 @@
 # Partage par lien et co-édition
 
-*Last Updated: 2026-09-23*
+*Last Updated: 2026-11-14*
 
 Une note ou un fil de mail se partage par lien public, avec ou sans mot de passe, avec ou sans date d'expiration. Une note se partage en lecture ou en écriture, et s'édite à plusieurs en temps réel, curseurs visibles. Un fil de mail est un instantané figé, en texte seul et en lecture seule.
 
@@ -26,6 +26,7 @@ Le serveur n'existe que si `DATABASE_URL` est défini, comme la synchronisation 
 Une **ressource** (`note` ou `email`) porte une clé propriétaire, dont le serveur ne garde que le hash. Elle a **plusieurs liens**. Chacun a son slug, son mode (`read` ou `write`, `write` réservé aux notes), son mot de passe facultatif, son expiration, son libellé et sa révocation douce (`revokedAt`).
 
 - Pour une note, l'état Yjs est dans `collab_doc`, et les images publiées sont dans `share_blob`.
+- La **vue canvas** d'une note (`fields.canvas`) n'entre pas dans le document Yjs : c'est un instantané en lecture seule, même sur un lien en écriture, rangé dans `share_blob` sous la clé `canvas`. Comme cette clé n'a pas d'extension, `PUT /blob` ne peut pas l'écraser. Le propriétaire l'écrit par `PUT /resources/:id/canvas`, l'invité la lit par `GET /links/:slug/canvas`. Elle est republiée quand une note partagée s'ouvre (`NoteEditor`, une fois la co-édition à l'état `ready`) et à chaque sauvegarde du canvas (`NoteCanvasView`). `GuestNote` n'affiche les onglets Note et Canvas que si la scène contient au moins un élément.
 - Pour un mail, l'instantané est dans la ressource elle-même : 200 messages au plus, sans pièces jointes.
 
 La clé propriétaire vit côté client :
@@ -68,6 +69,7 @@ Hocuspocus 4.7.0 est branché par `crossws` sur l'événement `upgrade` du serve
 
 ⚠️ **La prop `collaboration` n'est lue qu'au montage** (`useCreateBlockNote` a des dépendances vides). `NoteEditor` remonte l'éditeur par `key` quand il entre ou sort du mode co-édition.
 
+- Le canvas modifié hors de la vue canvas (synchro en ligne, `.excalidraw` édité à la main) n'est republié qu'à la prochaine ouverture de la note par le propriétaire.
 - Le SVG n'est pas dans `IMAGE_TYPES` : l'invité lit les images en URL `blob:`, qui appartient à l'origine de l'app et ne porte pas la CSP de la réponse.
 - Un lecteur ne publie aucune awareness (`setLocalState(null)` à la construction du provider).
 - Les liens v1, des pages HTML figées de la table `share`, restent servis tels quels par `/s/<slug>`.
