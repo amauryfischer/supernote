@@ -169,13 +169,24 @@ export async function incrementalSync(
   // L'historique couvre toute la boîte (envoyés, archives, labels) : relire chaque fil
   // touché dépassait le quota Gmail par minute, figeait le curseur et rejouait la même
   // rafale à chaque passe. Seuls comptent les fils du miroir et ceux qui touchent l'INBOX.
-  const mirrored = new Set(
+  const mirrored = new Map(
     await trpcVanillaClient.mail.listThreads
       .query({ accountId, labelId: "INBOX", limit: 500 })
-      .then((r) => r.items.map((it) => it.id)),
+      .then((r) => r.items.map((it) => [it.id, it.historyId ?? null] as const)),
   );
   const inbox = new Set(hist.inboxThreadIds ?? []);
-  hist.changedThreadIds = hist.changedThreadIds.filter((id) => mirrored.has(id) || inbox.has(id));
+  const touched = hist.threadHistoryIds ?? {};
+  // Un fil du miroir déjà relu après son dernier changement est sauté : une passe interrompue
+  // par le quota garde le curseur, mais la suivante ne relit que les fils ratés.
+  const isId = (s: string | null | undefined): s is string => !!s && /^\d+$/.test(s);
+  const upToDate = (id: string) => {
+    const mirror = mirrored.get(id);
+    const last = touched[id];
+    return isId(mirror) && isId(last) && BigInt(mirror) >= BigInt(last);
+  };
+  hist.changedThreadIds = hist.changedThreadIds.filter((id) =>
+    mirrored.has(id) ? !upToDate(id) : inbox.has(id),
+  );
   if (hist.changedThreadIds.length > FULL_SYNC_PAGES * PAGE_SIZE) return false;
 
   // Rafraîchir AUSSI la liste des labels : l'historique Gmail couvre les

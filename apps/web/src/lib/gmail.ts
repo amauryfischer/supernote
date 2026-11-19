@@ -555,8 +555,10 @@ export interface GmailHistoryResult {
   historyId?: string;
   /** Thread ids touchés (ajout / suppression de message / changement de label). */
   changedThreadIds: string[];
-  /** Sous-ensemble entré, sorti ou resté dans l'INBOX, ou supprimé. */
+  /** Sous-ensemble entré, sorti ou resté dans l'INBOX. */
   inboxThreadIds?: string[];
+  /** Dernier enregistrement d'historique par fil, comparable au `historyId` d'un fil. */
+  threadHistoryIds?: Record<string, string>;
 }
 
 /**
@@ -576,6 +578,7 @@ export async function listHistory(
 ): Promise<GmailHistoryResult> {
   const changed = new Set<string>();
   const inbox = new Set<string>();
+  const threadHistoryIds: Record<string, string> = {};
   let latest = startHistoryId;
   let pageToken: string | undefined;
   do {
@@ -590,6 +593,7 @@ export async function listHistory(
     }
     const json = (await res.json()) as {
       history?: Array<{
+        id?: string;
         messages?: Array<{ id?: string; threadId?: string }>;
         messagesAdded?: Array<{ message?: HistoryMessage }>;
         messagesDeleted?: Array<{ message?: HistoryMessage }>;
@@ -607,8 +611,15 @@ export async function listHistory(
         (h.labelsAdded ?? []).map((x) => x.message ?? {}),
         (h.labelsRemoved ?? []).map((x) => x.message ?? {}),
       ];
-      for (const pool of pools) for (const m of pool) if (m.threadId) changed.add(m.threadId);
-      for (const x of h.messagesDeleted ?? []) if (x.message?.threadId) inbox.add(x.message.threadId);
+      for (const pool of pools) {
+        for (const m of pool) {
+          if (!m.threadId) continue;
+          changed.add(m.threadId);
+          if (h.id) threadHistoryIds[m.threadId] = h.id;
+        }
+      }
+      // Pas de `messagesDeleted` : une suppression ne concerne que les fils du miroir, déjà couverts
+      // par l'appelant ; la compter relisait à chaque passe des dizaines de fils purgés (404).
       for (const x of [...(h.messagesAdded ?? []), ...(h.labelsAdded ?? []), ...(h.labelsRemoved ?? [])]) {
         if (x.message?.threadId && x.message.labelIds?.includes("INBOX")) inbox.add(x.message.threadId);
       }
@@ -619,7 +630,7 @@ export async function listHistory(
     if (json.historyId) latest = json.historyId;
     pageToken = json.nextPageToken;
   } while (pageToken);
-  return { ok: true, historyId: latest, changedThreadIds: [...changed], inboxThreadIds: [...inbox] };
+  return { ok: true, historyId: latest, changedThreadIds: [...changed], inboxThreadIds: [...inbox], threadHistoryIds };
 }
 
 /**
@@ -767,7 +778,15 @@ async function gmailBatchGet<T>(
   const results = new Map<string, T | GoogleApiError>();
   for (let i = 0; i < items.length; i += GMAIL_BATCH_CHUNK) {
     const chunk = items.slice(i, i + GMAIL_BATCH_CHUNK);
-    const parsed = await gmailBatchFetchChunk<T>(clientId, chunk);
+    let parsed: Map<string, T | GoogleApiError> | null;
+    try {
+      parsed = await gmailBatchFetchChunk<T>(clientId, chunk);
+    } catch (err) {
+      // Garde quota levée en cours de route : les lots déjà lus restent acquis, le reste échoue par id.
+      if (!(err instanceof GoogleApiError)) throw err;
+      for (const { id } of items.slice(i)) results.set(id, err);
+      break;
+    }
     if (parsed) {
       for (const [id, v] of parsed) results.set(id, v);
       continue;
