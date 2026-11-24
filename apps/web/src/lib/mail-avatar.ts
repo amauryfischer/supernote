@@ -44,12 +44,8 @@ export function senderHue(key: string): number {
   return hashKey((key ?? "").trim().toLowerCase()) % 360;
 }
 
-/**
- * Couleur déterministe et SOBRE (faible saturation) pour un monogramme, dérivée
- * d'une clé (email/nom). Fond clair, texte foncé même teinte → contraste
- * suffisant. Pur.
- */
+/** Couleurs du monogramme d'une personne : la même teinte que sa bulle dans le fil (`senderTint`). */
 export function avatarColor(key: string): AvatarColor {
   const h = senderHue(key);
-  return { bg: `hsl(${h} 42% 90%)`, fg: `hsl(${h} 40% 34%)` };
+  return { bg: `hsl(${h} 70% 50% / 0.28)`, fg: `color-mix(in oklab, hsl(${h} 65% 48%) 45%, var(--text-primary))` };
 }

@@ -129,7 +129,7 @@ const CSP_DIRECTIVES = [
   // Gmail/Drive/OAuth + Unsplash + backend de sync same-origin.
   "connect-src 'self' blob: https://accounts.google.com https://oauth2.googleapis.com https://www.googleapis.com https://gmail.googleapis.com https://api.unsplash.com https://images.unsplash.com",
   // Embed Google Sheets + iframe GIS.
-  "frame-src 'self' https://docs.google.com https://accounts.google.com",
+  "frame-src 'self' blob: https://docs.google.com https://accounts.google.com",
   "worker-src 'self' blob:",
   "object-src 'none'",
   "base-uri 'self'",

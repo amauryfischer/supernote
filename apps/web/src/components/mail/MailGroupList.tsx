@@ -2,7 +2,7 @@
 
 import { useMemo, type ComponentProps } from "react";
 import { Tooltip, Button } from "@supernote/ui";
-import { Trash, EnvelopeOpen } from "@phosphor-icons/react";
+import { Trash, EnvelopeOpen, CheckCircle } from "@phosphor-icons/react";
 import type { ThreadListItem } from "@/lib/gmail";
 import type { OverlayRow } from "@/lib/mail-overlay";
 import { MailOverlayList } from "./MailOverlayList";
@@ -17,6 +17,7 @@ export function MailGroupList({
   cursorIndex,
   onPick,
   onDeleteAll,
+  onArchiveAll,
   onMarkAllRead,
   deleteBusy,
   groupLabelId,
@@ -30,6 +31,7 @@ export function MailGroupList({
   onPick: (threadId: string) => void;
   /** Présent → affiche un bouton « tout supprimer » dans l'en-tête du groupe. */
   onDeleteAll?: () => void;
+  onArchiveAll?: () => void;
   /** Présent → affiche « tout marquer comme lu » (si ≥1 non lu). */
   onMarkAllRead?: () => void;
   deleteBusy?: boolean;
@@ -49,6 +51,19 @@ export function MailGroupList({
             <Tooltip content="Tout marquer comme lu">
               <Button size="icon" variant="ghost" aria-label="Tout marquer comme lu" onPress={onMarkAllRead}>
                 <EnvelopeOpen size={16} />
+              </Button>
+            </Tooltip>
+          )}
+          {onArchiveAll && items.length > 0 && (
+            <Tooltip content="Archiver tout le groupe">
+              <Button
+                size="icon"
+                variant="ghost"
+                aria-label="Archiver tout le groupe"
+                isDisabled={deleteBusy}
+                onPress={onArchiveAll}
+              >
+                <CheckCircle size={16} weight="bold" />
               </Button>
             </Tooltip>
           )}

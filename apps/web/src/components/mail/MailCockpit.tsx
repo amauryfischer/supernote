@@ -1,16 +1,22 @@
 "use client";
 
+import type { ComponentProps } from "react";
 import { TodayPanel } from "@/components/agenda/TodayPanel";
+import { MailAiguillage } from "./MailAiguillage";
 
 /**
- * Volet de droite quand aucun fil n'est ouvert : la journée (agenda, je dois / on me
- * doit). « À toi de répondre » vit en tête de liste, pas ici, pour ne pas le lire deux fois.
+ * Volet de droite quand aucun fil n'est ouvert : l'aiguillage (chaque mail sur la voie
+ * de son destin), puis la journée si le panneau Aujourd'hui n'est pas déjà ouvert.
  */
-export function MailCockpit({ showToday }: { showToday: boolean }) {
-  if (!showToday) return null;
+export function MailCockpit({ showToday, ...aiguillage }: { showToday: boolean } & ComponentProps<typeof MailAiguillage>) {
   return (
-    <div className="flex h-full flex-col overflow-y-auto">
-      <TodayPanel />
+    <div className="@container flex h-full flex-col overflow-y-auto">
+      <MailAiguillage {...aiguillage} />
+      {showToday && (
+        <div className="shrink-0 border-t" style={{ borderColor: "var(--border)" }}>
+          <TodayPanel />
+        </div>
+      )}
     </div>
   );
 }

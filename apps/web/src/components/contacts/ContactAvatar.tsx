@@ -10,10 +10,12 @@ interface ContactAvatarProps {
   className?: string;
   /** Image plus petite (px naturels) = image de repli du service → initiales. */
   minImageSize?: number;
+  /** Remplace la couleur dérivée du nom (ex. teinte d'expéditeur partagée avec le fil de mail). */
+  colors?: { bg: string; fg: string };
 }
 
-export function ContactAvatar({ name, photoUrl, size = 36, className = "", minImageSize = 0 }: ContactAvatarProps) {
-  const style = avatarStyle(name);
+export function ContactAvatar({ name, photoUrl, size = 36, className = "", minImageSize = 0, colors }: ContactAvatarProps) {
+  const style = colors ? { backgroundColor: colors.bg, color: colors.fg } : avatarStyle(name);
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
 
   if (photoUrl && photoUrl !== failedUrl) {

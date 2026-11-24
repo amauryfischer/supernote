@@ -7,25 +7,26 @@ import { Tooltip, Button } from "@supernote/ui";
 import { useSettings } from "@/components/settings/SettingsContext";
 import { trpcVanillaClient } from "@/lib/trpc/client";
 import { MAIL_SYNCED_EVENT, MAIL_SYNC_STATE_EVENT, mirrorAvailable } from "@/lib/mail-mirror";
-import { isMailSyncing, mailSyncFailed } from "@/lib/mail-sync";
+import { isMailSyncing, mailSyncFailure, mailSyncFailureLabel } from "@/lib/mail-sync";
+import { googleCallStats } from "@/lib/google-api";
 import { formatAgo } from "@/lib/dateFormat";
 
 /** Demande à la page /mail une resynchro complète (Gmail → miroir → liste). */
 export const MAIL_SYNC_REQUEST_EVENT = "supernote:mail-sync-request";
 
 /** Âge de la dernière synchro Gmail réussie (« il y a 2 min »), `null` si inconnue ; `syncing` pendant une synchro. */
-export function useMailSyncAge(): { age: string | null; syncing: boolean; failed: boolean } {
+export function useMailSyncAge(): { age: string | null; syncing: boolean; failed: string | null } {
   const { settings } = useSettings();
   const accountId = settings.gmail.connectedEmail;
   const [lastSyncAt, setLastSyncAt] = useState(0);
   const [, setTick] = useState(0);
   const [syncing, setSyncing] = useState(isMailSyncing);
-  const [failed, setFailed] = useState(mailSyncFailed);
+  const [failure, setFailure] = useState(mailSyncFailure);
 
   useEffect(() => {
     const onState = () => {
       setSyncing(isMailSyncing());
-      setFailed(mailSyncFailed());
+      setFailure(mailSyncFailure());
     };
     onState();
     window.addEventListener(MAIL_SYNC_STATE_EVENT, onState);
@@ -53,18 +54,25 @@ export function useMailSyncAge(): { age: string | null; syncing: boolean; failed
     };
   }, [accountId]);
 
-  return { age: lastSyncAt ? formatAgo(lastSyncAt) : null, syncing, failed };
+  return {
+    age: lastSyncAt ? formatAgo(lastSyncAt) : null,
+    syncing,
+    failed: failure ? mailSyncFailureLabel(failure) : null,
+  };
 }
 
 export function MailSyncAge() {
   const { settings } = useSettings();
   const { age, syncing, failed } = useMailSyncAge();
   if (!settings.gmail.connectedEmail) return null;
-  const label = failed
-    ? `Synchro échouée — dernière réussie : ${age ?? "jamais"}`
-    : age
-      ? `Synchronisé ${age}`
-      : "Jamais synchronisé";
+  const calls = googleCallStats("gmail");
+  const label = [
+    failed ? `${failed} — dernière réussie : ${age ?? "jamais"}` : age ? `Synchronisé ${age}` : "Jamais synchronisé",
+    calls &&
+      `${calls.minute === Math.floor(Date.now() / 60_000) ? calls.count : 0} appels Gmail cette minute, pic ${calls.peak} (${formatAgo(calls.peakAt)})`,
+  ]
+    .filter(Boolean)
+    .join(" · ");
   return (
     <span
       className="ml-2 flex shrink-0 items-center gap-1 whitespace-nowrap text-[12px]"
@@ -79,7 +87,7 @@ export function MailSyncAge() {
       ) : (
         <>
           {failed && <WarningCircle size={14} weight="fill" aria-hidden />}
-          {failed ? "Échec de synchro" : age}
+          {failed ?? age}
         </>
       )}
       <Tooltip content={`${label} · Synchroniser maintenant`}>

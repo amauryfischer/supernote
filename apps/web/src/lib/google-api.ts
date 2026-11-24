@@ -143,6 +143,54 @@ export function noteGoogleApiFailure(
   return error;
 }
 
+const callsKey = (family: GoogleScopeFamily) => `supernote.googleCalls.${family}`;
+
+export interface GoogleCallStats {
+  /** Minute courante (epoch / 60 000) et appels émis pendant celle-ci. */
+  minute: number;
+  count: number;
+  peak: number;
+  peakAt: number;
+}
+
+/** Appels émis par cette app, tous onglets confondus — à comparer au quota vu dans la console GCP. */
+export function googleCallStats(family: GoogleScopeFamily): GoogleCallStats | null {
+  try {
+    const raw = localStorage.getItem(callsKey(family));
+    return raw ? (JSON.parse(raw) as GoogleCallStats) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Compte `n` appels ; un lot batch compte ses sous-requêtes (c'est ce que Google facture). */
+export function noteGoogleCalls(family: GoogleScopeFamily, n = 1): void {
+  const now = Date.now();
+  const minute = Math.floor(now / 60_000);
+  const prev = googleCallStats(family);
+  const count = (prev?.minute === minute ? prev.count : 0) + n;
+  const peaked = !prev || count > prev.peak;
+  try {
+    localStorage.setItem(
+      callsKey(family),
+      JSON.stringify({
+        minute,
+        count,
+        peak: peaked ? count : prev.peak,
+        peakAt: peaked ? now : prev.peakAt,
+      } satisfies GoogleCallStats),
+    );
+  } catch {
+    /* stockage indisponible : pas de compteur */
+  }
+}
+
+/** Fin de la garde de quota en cours pour cette famille, sinon `null`. */
+export function googleQuotaBlockedUntil(family: GoogleScopeFamily): number | null {
+  const blocked = readQuotaBlock(family);
+  return blocked && blocked.until > Date.now() ? blocked.until : null;
+}
+
 /** Sur 401, le token est oublié et l'appel rejoué une fois ; un second refus lève la reconnexion. */
 export async function googleRequest(
   clientId: string,
@@ -156,6 +204,7 @@ export async function googleRequest(
   if (blocked && blocked.until > Date.now()) throw new GoogleApiError(blocked.status, blocked.message);
   for (let attempt = 0; ; attempt++) {
     const token = await acquireToken(clientId, scope);
+    noteGoogleCalls(family);
     const res = await fetch(url, {
       method: init.method ?? "GET",
       headers: {

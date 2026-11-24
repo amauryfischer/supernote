@@ -46,6 +46,7 @@ export type MailActionId =
   | "todoDelegate"
   | "todoEliminate"
   | "select"
+  | "selectAll"
   | "rowMenu"
   | "undo"
   // Rédaction
@@ -274,6 +275,14 @@ export const MAIL_SHORTCUTS: MailBinding[] = [
     keys: [["x"]],
     display: "x",
     label: "Cocher / décocher la ligne",
+    group: "Triage",
+    contexts: ["list", "group"],
+  },
+  {
+    id: "selectAll",
+    keys: [["*", "a"]],
+    display: "* puis a",
+    label: "Tout cocher / décocher",
     group: "Triage",
     contexts: ["list", "group"],
   },

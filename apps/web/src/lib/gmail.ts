@@ -21,6 +21,7 @@ import {
   isTransientGoogleError,
   markScopeRecovered,
   noteGoogleApiFailure,
+  noteGoogleCalls,
 } from "./google-api";
 
 export {
@@ -728,6 +729,7 @@ async function gmailBatchFetchChunkNow<T>(
   chunk: Array<{ id: string; path: string }>,
 ): Promise<Map<string, T | GoogleApiError> | null> {
   const boundary = `batch_${Math.random().toString(36).slice(2)}`;
+  noteGoogleCalls("gmail", chunk.length - 1);
   const res = await googleRequest(
     clientId,
     GMAIL_READONLY_SCOPE,
@@ -836,6 +838,44 @@ async function getThreadListItemsBatch(
   );
   const out = new Map<string, ThreadListItem | GoogleApiError>();
   for (const [id, res] of raw) out.set(id, res instanceof GoogleApiError ? res : buildThreadListItem(id, res));
+  return out;
+}
+
+const UNANSWERED_MIN_AGE_MS = 3 * 86_400_000;
+
+/**
+ * Fils où le dernier message est de moi, sans réponse depuis 3 à 30 jours.
+ * `from` porte le DESTINATAIRE (c'est lui qu'on attend), pas l'expéditeur.
+ */
+export async function listUnansweredSent(
+  clientId: string,
+  selfAddresses: string[],
+  max = 40,
+): Promise<ThreadListItem[]> {
+  const self = new Set(selfAddresses.map((a) => a.toLowerCase()));
+  const page = await searchThreadsPage(clientId, "in:sent -in:inbox -in:chats older_than:3d newer_than:30d", {
+    maxResults: max,
+  });
+  const raw = await gmailBatchGet<{ snippet?: string; historyId?: string; messages?: GmailRawMessage[] }>(
+    clientId,
+    page.items.map(({ id }) => ({
+      id,
+      path: `/threads/${encodeURIComponent(id)}?${THREAD_METADATA_QS}&metadataHeaders=To`,
+    })),
+  );
+  const out: ThreadListItem[] = [];
+  for (const { id } of page.items) {
+    const res = raw.get(id);
+    if (res === undefined || res instanceof GoogleApiError) continue;
+    const item = buildThreadListItem(id, res);
+    if (!self.has(item.from.email.toLowerCase())) continue;
+    // `older_than` filtre au message : un fil relancé hier sortirait quand même.
+    if (Date.now() - (Date.parse(item.date) || 0) < UNANSWERED_MIN_AGE_MS) continue;
+    const to = res.messages?.at(-1)?.payload?.headers?.find((h) => h.name.toLowerCase() === "to")?.value ?? "";
+    const recipient = parseAddressList(to).find((a) => !self.has(a.email.toLowerCase()));
+    // Un mail à soi-même n'attend personne.
+    if (recipient) out.push({ ...item, from: recipient });
+  }
   return out;
 }
 
@@ -1613,31 +1653,40 @@ export function formatBytes(bytes: number): string {
   return `${rounded} ${units[exp]}`;
 }
 
-/**
- * Télécharge une pièce jointe et déclenche un téléchargement navigateur (Blob du
- * bon mimeType → `<a download>`). Effet de bord DOM — non pur. Le contenu n'est
- * JAMAIS interprété comme HTML (Blob brut), donc pas de surface XSS.
- */
-export async function downloadAttachment(
-  clientId: string,
-  attachment: EmailAttachment,
-): Promise<void> {
+/** Contenu d'une pièce jointe en Blob typé. Jamais interprété comme HTML par nos soins : pas de surface XSS. */
+export async function fetchAttachmentBlob(clientId: string, attachment: EmailAttachment): Promise<Blob> {
   const { data } = await fetchAttachment(clientId, attachment.messageId, attachment.attachmentId);
-  const bytes = base64UrlToBytes(data);
   // Copie dans un ArrayBuffer propre pour satisfaire BlobPart (évite SharedArrayBuffer).
-  const buf = bytes.slice().buffer;
-  const blob = new Blob([buf], {
+  return new Blob([base64UrlToBytes(data).slice().buffer], {
     type: attachment.mimeType || "application/octet-stream",
   });
+}
+
+/** Déclenche le téléchargement navigateur d'un Blob (`<a download>`). */
+export function saveBlobAs(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
   try {
     const a = document.createElement("a");
     a.href = url;
-    a.download = attachment.filename || "piece-jointe";
+    a.download = filename;
     document.body.appendChild(a);
     a.click();
     a.remove();
   } finally {
     URL.revokeObjectURL(url);
   }
+}
+
+/** Pièce reçue → pièce sortante (base64 standard), pour la transférer telle quelle. */
+export async function fetchOutgoingAttachment(
+  clientId: string,
+  attachment: EmailAttachment,
+): Promise<OutgoingAttachment & { size: number }> {
+  const { data } = await fetchAttachment(clientId, attachment.messageId, attachment.attachmentId);
+  return {
+    filename: attachment.filename || "piece-jointe",
+    mimeType: attachment.mimeType || "application/octet-stream",
+    base64: data.replace(/-/g, "+").replace(/_/g, "/"),
+    size: attachment.size,
+  };
 }

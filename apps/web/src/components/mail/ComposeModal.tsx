@@ -85,6 +85,7 @@ export function ComposeModal({
   initialSubject = "",
   initialBody = "",
   thread,
+  initialAttachments,
   correspondents = [],
   restore,
   onSendCancelled,
@@ -96,6 +97,8 @@ export function ComposeModal({
   initialBody?: string;
   /** Transfert : part dans le fil d'origine, qui garde la trace du transfert. */
   thread?: ForwardThread | undefined;
+  /** Transfert : fichiers du message d'origine, déjà chargés. */
+  initialAttachments?: PendingAttachment[] | undefined;
   /** Expéditeurs déjà vus (liste mail chargée), proposés en autocomplétion. */
   correspondents?: EmailAddress[];
   /** Message rendu à l'édition après « Annuler l'envoi », pièces jointes comprises. */
@@ -170,7 +173,7 @@ export function ComposeModal({
       setCcOpen(false);
       setSubject(initialSubject);
       setBody(withSignature(initialBody, signature));
-      setAttachments([]);
+      setAttachments(initialAttachments ?? []);
       setRestored(false);
     }
     setToInput("");
@@ -178,7 +181,7 @@ export function ComposeModal({
     setBccInput("");
     setOrgOpen(false);
     setNotice(null);
-  }, [isOpen, restore, initialTo, initialSubject, initialBody, signature]);
+  }, [isOpen, restore, initialTo, initialSubject, initialBody, initialAttachments, signature]);
 
   // Sauvegarde automatique pendant la frappe : fermer la fenêtre ou recharger
   // l'onglet ne perd plus le message en cours. Débattue pour ne pas écrire à

@@ -4,7 +4,33 @@ import { useMemo } from "react";
 import type { ThreadListItem } from "@/lib/gmail";
 import { awaitsMyReply } from "@/lib/mail-awaiting";
 
-const EMBER = "oklch(0.72 0.17 50)";
+/** Valeur de console : libellé minuscule au-dessus, chiffre mono en grand. */
+export function MailStat({
+  label,
+  value,
+  hot = false,
+  strong = false,
+}: {
+  label: string;
+  value: string | number;
+  /** Braise : la valeur réclame une action. */
+  hot?: boolean;
+  strong?: boolean;
+}) {
+  return (
+    <span className="flex flex-col items-start gap-[3px] leading-none">
+      <span className="font-mono text-[9px] uppercase leading-none tracking-[0.08em]" style={{ color: "var(--text-muted)" }}>
+        {label}
+      </span>
+      <span
+        className="font-mono text-[15px] font-semibold leading-none tabular-nums"
+        style={{ color: hot ? "var(--sn-ember-ink)" : strong ? "var(--text-primary)" : "var(--text-secondary)" }}
+      >
+        {value}
+      </span>
+    </span>
+  );
+}
 
 const KEYS: Array<[string, string]> = [
   ["j k", "naviguer"],
@@ -54,22 +80,29 @@ export function MailConsoleBar({
     ["fils", items.length, false],
   ];
 
+  const values = stats.map(([label, value, hot]) => (
+    <MailStat
+      key={label}
+      label={label}
+      value={value}
+      hot={hot}
+      strong={value > 0 && label.startsWith("non lu")}
+    />
+  ));
+
   if (inline) {
     return (
-      <div className="mr-2 flex shrink-0 items-baseline gap-3 font-mono text-[11px] tabular-nums" style={{ color: "var(--text-muted)" }}>
+      <div className="mr-2 flex shrink-0 items-end gap-4">
         {position && (
-          <span style={{ color: "var(--text-secondary)" }} aria-label={`Fil ${position.index} sur ${position.total}`}>
+          <span
+            className="font-mono text-[11px] tabular-nums"
+            style={{ color: "var(--text-secondary)" }}
+            aria-label={`Fil ${position.index} sur ${position.total}`}
+          >
             {position.index}/{position.total}
           </span>
         )}
-        {stats.map(([label, value, hot]) => (
-          <span key={label} className="flex items-baseline gap-1">
-            <span className="text-[12.5px] font-medium" style={{ color: hot ? EMBER : "var(--text-secondary)" }}>
-              {value}
-            </span>
-            <span className="text-[10px] uppercase tracking-[0.06em]">{label}</span>
-          </span>
-        ))}
+        {values}
       </div>
     );
   }
@@ -77,22 +110,10 @@ export function MailConsoleBar({
   return (
     <div className="@container">
     <div
-      className="mb-1 flex items-center gap-4 border-b px-2.5 pb-2 pt-1 font-mono text-[11px] tabular-nums"
+      className="mb-1 flex items-end gap-4 border-b px-2.5 pb-2.5 pt-1.5 font-mono text-[11px] tabular-nums"
       style={{ borderColor: "var(--border)", color: "var(--text-muted)" }}
     >
-      <div className="flex min-w-0 shrink-0 flex-wrap items-baseline gap-x-3 gap-y-1">
-        {stats.map(([label, value, hot]) => (
-          <span key={label} className="flex items-baseline gap-1">
-            <span
-              className="text-[13px] font-medium"
-              style={{ color: hot ? "oklch(0.72 0.17 50)" : value > 0 && label.startsWith("non lu") ? "var(--text-primary)" : "var(--text-secondary)" }}
-            >
-              {value}
-            </span>
-            <span className="uppercase tracking-[0.06em] text-[10px]">{label}</span>
-          </span>
-        ))}
-      </div>
+      <div className="flex min-w-0 shrink-0 flex-wrap items-end gap-x-5 gap-y-2">{values}</div>
 
       <span className="flex-1" />
       {position && (

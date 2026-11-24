@@ -5,6 +5,7 @@ import { Button } from "@supernote/ui";
 import { Tag } from "@phosphor-icons/react";
 import type { GmailLabelColor } from "@/lib/gmail";
 import type { LabelStyle } from "@/components/settings/types";
+import { classifyLabel, voieColor } from "@/lib/mail-destins";
 
 export const LABEL_STYLES: readonly { id: LabelStyle; name: string }[] = [
   { id: "solid", name: "Plein" },
@@ -119,7 +120,23 @@ export function RowLabelChips({
   const ids = names ? labelIds.filter((id) => names.has(id)) : [];
   return (
     <>
-      {ids.slice(0, ROW_LABELS_MAX).map((id) => (
+      {ids.slice(0, ROW_LABELS_MAX).map((id) => {
+        const voie = classifyLabel(names?.get(id) ?? "");
+        if (!voie) return null;
+        const tint = voieColor(voie.kind, voie.title);
+        return (
+          <span
+            key={id}
+            title={names?.get(id)}
+            className="flex max-w-[6rem] shrink-0 items-center gap-1 rounded-full px-1.5 text-[10px] font-medium leading-[18px] md:max-w-[9rem]"
+            style={{ backgroundColor: `color-mix(in srgb, ${tint} 14%, transparent)`, color: "var(--text-primary)" }}
+          >
+            <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: tint }} />
+            <span className="truncate">{voie.title}</span>
+          </span>
+        );
+      })}
+      {ids.slice(0, ROW_LABELS_MAX).filter((id) => !classifyLabel(names?.get(id) ?? "")).map((id) => (
         <span
           key={id}
           title={names?.get(id)}

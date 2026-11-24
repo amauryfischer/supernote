@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, forwardRef, useImperativeHandle, type ReactNode } from "react";
+import { spanLabel } from "@/lib/mail-age";
 import { ArrowSquareOut, Plus, X, Tag, MagnifyingGlass, Check, PaperPlaneTilt, Quotes, Paperclip, Star, Envelope, ArrowBendUpRight, Sparkle, MagicWand, ArrowsClockwise, CaretUp, DotsThreeVertical, Copy, Image as ImageIcon, SpeakerSlash, UserMinus, UserPlus, WarningCircle, ShareNetwork, ArrowBendUpLeft, ArrowBendDoubleUpLeft, FilePlus, Database, CaretRight } from "@phosphor-icons/react";
 import { Spinner, Popover } from "@heroui/react";
+import { AttachmentPreviewModal } from "./AttachmentPreviewModal";
 import { useToast, Tooltip, Badge, Button, Input, ContextMenu, useContextMenu, Select } from "@supernote/ui";
 import { useActionFeedback, FeedbackIcon } from "@/lib/action-feedback";
 import { useSettings } from "@/components/settings/SettingsContext";
@@ -19,7 +21,6 @@ import {
   buildGmailDraftUrl,
   buildGmailThreadUrl,
   classifyBubble,
-  downloadAttachment,
   formatBytes,
   type EmailThread,
   type EmailMessage,
@@ -231,7 +232,14 @@ interface EmailThreadViewProps {
    * ComposeModal pré-rempli (objet « Fwd: … » + corps cité), destinataire vide.
    * `thread` fait partir le transfert dans ce fil, pour le marquer sur l'original.
    */
-  onForward?: (prefill: { to?: string; subject: string; body: string; thread?: ForwardThread }) => void;
+  onForward?: (prefill: {
+    to?: string;
+    subject: string;
+    body: string;
+    thread?: ForwardThread;
+    /** Fichiers du message transféré, à rejoindre tels quels. */
+    attachments?: EmailAttachment[];
+  }) => void;
   /** Fil rangé dans un label todo, Gmail déjà poussé : `change` sert au miroir,
    *  `todoLabels` porte les labels tout juste créés. */
   onConvertedToTodo?: (
@@ -777,6 +785,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
       subject: buildForwardSubject(last.subject || thread.messages[0]?.subject || ""),
       body: buildForwardedBody(last),
       thread: { threadId: thread.id, ...replyHeaders(thread) },
+      attachments: last.attachments.filter((a) => !a.inline),
     });
   };
 
@@ -2272,7 +2281,7 @@ function ColorMenu({
 // Alpha plutôt que luminosité fixe : la même teinte reste lisible en clair et en sombre.
 function senderTint(key: string): { bg: string; border: string; ink: string } {
   const h = senderHue(key);
-  return { bg: `hsl(${h} 70% 50% / 0.14)`, border: `hsl(${h} 70% 50% / 0.35)`, ink: `hsl(${h} 65% 48%)` };
+  return { bg: `hsl(${h} 70% 50% / 0.14)`, border: `hsl(${h} 70% 50% / 0.35)`, ink: `color-mix(in oklab, hsl(${h} 65% 48%) 70%, var(--text-primary))` };
 }
 
 const MAIL_FRAME_CSS = `
@@ -2425,7 +2434,7 @@ function subscribeImageSenders(onChange: () => void): () => void {
   return () => window.removeEventListener(MAIL_IMAGE_SENDERS_EVENT, onChange);
 }
 
-const EMBER = "oklch(0.72 0.17 50)";
+const EMBER = "var(--sn-ember)";
 
 /**
  * Fil en frise : un tronc vertical relie les messages, seuls le dernier et ceux
@@ -2457,20 +2466,44 @@ function ThreadTrunk({
   }, [lastId]);
   const closed = messages.filter((m) => !open.has(m.id)).length;
   const lastMine = messages.length > 0 && classifyBubble(messages[messages.length - 1]!.from.email, selfEmail) === "mine";
+  const at = (m: EmailMessage | undefined) => new Date(m?.date ?? "").getTime();
+  const span = spanLabel(at(messages[messages.length - 1]) - at(messages[0]));
+  const idle = spanLabel(Date.now() - at(messages[messages.length - 1]));
+  const people = new Set(messages.map((m) => m.from.email.toLowerCase())).size;
 
   return (
     <div className="flex flex-col">
-      {closed > 2 && (
-        <Button
-          variant="ghost"
-          size="sm"
-          className="mb-1 h-7 self-start px-2 font-mono text-[11px]"
-          style={{ color: "var(--text-muted)" }}
-          onPress={() => setOpen(new Set(messages.map((m) => m.id)))}
-        >
-          {closed} messages repliés · tout déplier
-        </Button>
-      )}
+      {/* Mesures du fil : depuis quand la balle attend, puis volume et durée. */}
+      <div className="mb-2 flex flex-wrap items-end gap-x-4 gap-y-1 px-0.5">
+        <span className="flex flex-col gap-[3px] font-mono leading-none tabular-nums" style={{ color: "var(--text-muted)" }}>
+          <span className="text-[9px] uppercase tracking-[0.08em]">
+            {lastMine ? "sans réponse depuis" : "attend ta réponse depuis"}
+          </span>
+          <span className="flex items-baseline gap-2 text-[11px]">
+            <span
+              className="text-[15px] font-semibold"
+              style={{ color: lastMine ? "var(--text-secondary)" : "var(--sn-ember-ink)" }}
+            >
+              {idle || "—"}
+            </span>
+            {messages.length > 1 &&
+              [`${messages.length} messages`, people > 1 && `${people} personnes`, span && `sur ${span}`]
+                .filter(Boolean)
+                .join(" · ")}
+          </span>
+        </span>
+        {closed > 2 && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="-mb-1.5 ml-auto h-7 px-2 font-mono text-[11px]"
+            style={{ color: "var(--text-muted)" }}
+            onPress={() => setOpen(new Set(messages.map((m) => m.id)))}
+          >
+            {closed} repliés · tout déplier
+          </Button>
+        )}
+      </div>
       <ol className="flex flex-col">
         {messages.map((m, i) => {
           const kind = classifyBubble(m.from.email, selfEmail);
@@ -2484,6 +2517,12 @@ function ThreadTrunk({
               return next;
             });
           const who = kind === "mine" ? "moi" : m.from.name || m.from.email;
+          const prev = messages[i - 1];
+          // Délai de réponse : seulement quand la parole change de camp.
+          const reply =
+            prev && (classifyBubble(prev.from.email, selfEmail) === "mine") !== (kind === "mine")
+              ? spanLabel(at(m) - at(prev))
+              : "";
           return (
             <li key={m.id} className="relative pb-2 pl-6" data-last-message={isLast || undefined}>
               {!isLast && (
@@ -2506,7 +2545,7 @@ function ThreadTrunk({
                   className="h-[11px] w-[11px] rounded-full"
                   style={
                     hot
-                      ? { background: EMBER, boxShadow: `0 0 0 3px oklch(0.72 0.17 50 / 0.18), 0 0 10px 1px oklch(0.72 0.17 50 / 0.6)` }
+                      ? { background: EMBER, boxShadow: `0 0 0 3px color-mix(in oklab, ${EMBER} 18%, transparent), 0 0 10px 1px color-mix(in oklab, ${EMBER} 60%, transparent)` }
                       : kind === "mine"
                         ? { background: "var(--surface-1)", boxShadow: "inset 0 0 0 1.5px var(--text-muted)" }
                         : { background: senderTint(m.from.email || m.from.name).ink, boxShadow: "0 0 0 3px var(--surface-1)" }
@@ -2515,7 +2554,7 @@ function ThreadTrunk({
               </Button>
               {hot && <span className="sr-only">À toi de répondre</span>}
               {isOpen ? (
-                <MessageBubble message={m} kind={kind} clientId={clientId} forwardNotes={forwardNotes(m.id)} onCollapse={toggle} />
+                <MessageBubble message={m} kind={kind} clientId={clientId} forwardNotes={forwardNotes(m.id)} onCollapse={toggle} reply={reply} />
               ) : (
                 <Button
                   variant="ghost"
@@ -2532,6 +2571,15 @@ function ThreadTrunk({
                   <span className="min-w-0 flex-1 truncate text-[12.5px]" style={{ color: "var(--text-muted)" }}>
                     {stripQuotedTail(m.snippet)}
                   </span>
+                  {reply && (
+                    <span
+                      className="shrink-0 font-mono text-[10.5px] tabular-nums"
+                      style={{ color: "var(--text-secondary)" }}
+                      title={`Réponse en ${reply}`}
+                    >
+                      ↩ {reply}
+                    </span>
+                  )}
                   <span className="shrink-0 font-mono text-[11px] tabular-nums" style={{ color: "var(--text-muted)" }}>
                     {formatMailDateTime(m.date ?? "")}
                   </span>
@@ -2551,19 +2599,22 @@ function MessageBubble({
   clientId,
   forwardNotes,
   onCollapse,
+  reply = "",
 }: {
   message: EmailMessage;
   kind: BubbleKind;
   clientId: string;
   forwardNotes?: Array<{ label: string; title: string }> | undefined;
   onCollapse?: () => void;
+  /** Délai de réponse au message précédent (« 4 h »), vide s'il ne répond à personne. */
+  reply?: string;
 }) {
   const mine = kind === "mine";
   const internal = kind === "internal";
   const tint = mine ? null : senderTint(message.from.email || message.from.name);
   const files = message.attachments.filter((a) => !a.inline);
   const inlineImages = message.attachments.filter((a) => a.inline);
-  const date = formatMailDateTime(message.date ?? "");
+  const date = `${reply ? `↩ ${reply} · ` : ""}${formatMailDateTime(message.date ?? "")}`;
   const senderEmail = message.from.email.trim().toLowerCase();
   const senderTrusted = useSyncExternalStore(
     subscribeImageSenders,
@@ -2771,12 +2822,7 @@ function MessageBubble({
   );
 }
 
-/**
- * Chip de pièce jointe cliquable : icône trombone + nom + taille lisible.
- * Au clic, télécharge le contenu (scope readonly) et déclenche un download
- * navigateur via Blob (jamais de rendu HTML → pas de surface XSS). Cible tactile
- * suffisante (min-h-8) pour le mobile. État « busy » pendant le téléchargement.
- */
+/** Puce de pièce jointe : ouvre l'aperçu (qui porte Télécharger et Ranger dans le coffre). */
 function AttachmentChip({
   attachment,
   clientId,
@@ -2784,38 +2830,31 @@ function AttachmentChip({
   attachment: EmailAttachment;
   clientId: string;
 }) {
-  const fb = useActionFeedback();
-  const busy = fb.isPending;
-  const onDownload = () => {
-    if (!busy) void fb.run(() => downloadAttachment(clientId, attachment));
-  };
+  const [open, setOpen] = useState(false);
   return (
-    <Button
-      variant="ghost"
-      size="sm"
-      onPress={onDownload}
-      isDisabled={busy}
-      aria-label={`Télécharger ${attachment.filename}${attachment.size ? ` (${formatBytes(attachment.size)})` : ""}`}
-      className="flex h-auto min-h-8 max-w-full items-center gap-1.5 rounded-full px-2.5 py-1 text-xs"
-      style={{
-        border: "1px solid var(--border-subtle)",
-        backgroundColor: "var(--surface-2, var(--surface-1))",
-        color: "var(--text-secondary)",
-      }}
-    >
-      <FeedbackIcon
-        state={fb.state}
-        error={fb.error}
-        size={13}
-        idle={<Paperclip size={13} className="shrink-0" style={{ color: "var(--text-muted)" }} />}
-      />
-      <span className="min-w-0 truncate">{attachment.filename}</span>
-      {attachment.size > 0 && (
-        <span className="shrink-0" style={{ color: "var(--text-muted)" }}>
-          {fb.state === "error" ? "Échec" : formatBytes(attachment.size)}
-        </span>
-      )}
-    </Button>
+    <>
+      <Button
+        variant="ghost"
+        size="sm"
+        onPress={() => setOpen(true)}
+        aria-label={`Ouvrir ${attachment.filename}${attachment.size ? ` (${formatBytes(attachment.size)})` : ""}`}
+        className="flex h-auto min-h-8 max-w-full items-center gap-1.5 rounded-full px-2.5 py-1 text-xs"
+        style={{
+          border: "1px solid var(--border-subtle)",
+          backgroundColor: "var(--surface-2, var(--surface-1))",
+          color: "var(--text-secondary)",
+        }}
+      >
+        <Paperclip size={13} className="shrink-0" style={{ color: "var(--text-muted)" }} />
+        <span className="min-w-0 truncate">{attachment.filename}</span>
+        {attachment.size > 0 && (
+          <span className="shrink-0" style={{ color: "var(--text-muted)" }}>
+            {formatBytes(attachment.size)}
+          </span>
+        )}
+      </Button>
+      {open && <AttachmentPreviewModal attachment={attachment} clientId={clientId} onClose={() => setOpen(false)} />}
+    </>
   );
 }
 

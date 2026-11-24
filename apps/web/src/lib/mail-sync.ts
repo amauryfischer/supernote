@@ -41,6 +41,7 @@ import {
   MAIL_SYNC_STATE_EVENT,
 } from "@/lib/mail-mirror";
 import { swKvSet } from "@/lib/sw-kv";
+import { GoogleApiError, GoogleAuthError, googleQuotaBlockedUntil } from "@/lib/google-api";
 
 /** Gmail query that defines what the mirror seeds + tracks as "the list". */
 export const MIRROR_SYNC_QUERY = "in:inbox";
@@ -429,7 +430,7 @@ export function syncMailbox(clientId: string, accountId: string): Promise<void> 
   const running = inFlight.get(accountId);
   if (running) return running;
 
-  const task = (async () => {
+  const pass = async () => {
     await flushOutbox(clientId, accountId).catch(() => {
       /* outbox push is best-effort; the pull still proceeds */
     });
@@ -444,11 +445,18 @@ export function syncMailbox(clientId: string, accountId: string): Promise<void> 
     }
     const after = await trpcVanillaClient.mail.getState.query({ accountId });
     if (after.historyId) void swKvSet("mailHistoryId", after.historyId).catch(() => undefined);
-    lastSyncFailed = false;
+    lastSyncFailure = null;
     window.dispatchEvent(new CustomEvent(MAIL_SYNCED_EVENT));
-  })()
+  };
+  // Un seul onglet tire à la fois : les autres relisent le miroir au prochain passage.
+  const locked: Promise<void> = navigator.locks
+    ? navigator.locks.request(`supernote-mail-sync:${accountId}`, { ifAvailable: true }, async (lock) => {
+        if (lock) await pass();
+      }).then(() => undefined)
+    : pass();
+  const task = locked
     .catch((err: unknown) => {
-      lastSyncFailed = true;
+      lastSyncFailure = syncFailureOf(err);
       throw err;
     })
     .finally(() => {
@@ -461,11 +469,33 @@ export function syncMailbox(clientId: string, accountId: string): Promise<void> 
   return task;
 }
 
-let lastSyncFailed = false;
+export type MailSyncFailure = "quota" | "auth" | "offline" | "unknown";
 
-/** La dernière tentative de synchro a échoué (quota, jeton, réseau…). */
-export function mailSyncFailed(): boolean {
-  return lastSyncFailed;
+function syncFailureOf(err: unknown): MailSyncFailure {
+  if (err instanceof GoogleAuthError) return "auth";
+  if (!navigator.onLine) return "offline";
+  if (!(err instanceof GoogleApiError)) return "unknown";
+  if (err.status === 401) return "auth";
+  // Même test que la garde de `noteGoogleApiFailure` : un 403 de permission n'est pas un quota.
+  return err.status === 429 || (err.status === 403 && /rateLimit|quota/i.test(err.message)) ? "quota" : "unknown";
+}
+
+let lastSyncFailure: MailSyncFailure | null = null;
+
+/** Cause du dernier échec de synchro, `null` si la dernière passe a réussi. */
+export function mailSyncFailure(): MailSyncFailure | null {
+  return lastSyncFailure;
+}
+
+/** Libellé court de l'échec, affiché tel quel (desktop et titre mobile). */
+export function mailSyncFailureLabel(failure: MailSyncFailure): string {
+  if (failure === "auth") return "Reconnexion Google requise";
+  if (failure === "offline") return "Hors ligne";
+  if (failure === "unknown") return "Échec de synchro";
+  const until = googleQuotaBlockedUntil("gmail");
+  return until
+    ? `Quota Gmail atteint — reprise à ${new Date(until).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}`
+    : "Quota Gmail atteint";
 }
 
 export function isMailSyncing(): boolean {

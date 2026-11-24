@@ -23,6 +23,7 @@ import {
   Tag,
   CalendarBlank,
   CaretDown,
+  AddressBook,
 } from "@phosphor-icons/react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { createPortal } from "react-dom";
@@ -37,10 +38,14 @@ import { useConfirm } from "@/hooks/usePrompt";
 import { EmailThreadView, type EmailThreadHandle } from "@/components/mail/EmailThreadView";
 import { MailConsoleBar } from "@/components/mail/MailConsoleBar";
 import { MailCockpit } from "@/components/mail/MailCockpit";
+import { buildDestins } from "@/lib/mail-destins";
+import { VoieBanner } from "@/components/mail/MailAiguillage";
 import { awaitsMyReply } from "@/lib/mail-awaiting";
 import { MAIL_SENT_EVENT } from "@/lib/mail-outgoing";
 import { MailOverlayList } from "@/components/mail/MailOverlayList";
 import { MailGroupList } from "@/components/mail/MailGroupList";
+import { useAwaitingOthers } from "@/components/mail/useAwaitingOthers";
+import { ThreadDossier, threadCorrespondent, useThreadContact } from "@/components/mail/ThreadDossier";
 import { useCaptureEmail } from "@/components/mail/useCaptureEmail";
 import { CaptureEmailModal } from "@/components/mail/CaptureEmailModal";
 import { ComposeModal, type ComposeRestore } from "@/components/mail/ComposeModal";
@@ -75,7 +80,10 @@ import {
   type GmailLabel,
   type GmailLabelColor,
   type ThreadListItem,
+  fetchOutgoingAttachment,
+  type EmailAttachment,
 } from "@/lib/gmail";
+import type { PendingAttachment } from "@/lib/mail-attachments";
 import {
   removeSnooze,
   addSnooze,
@@ -170,6 +178,17 @@ const TRIAGE_DONE_LABEL: Record<TriageAction, string> = {
   delete: "Email supprimé",
 };
 
+type UndoTarget = { id: string; opId: string | null };
+
+const TRIAGE_DONE_PLURAL: Record<TriageAction, string> = {
+  archive: "emails archivés",
+  snooze: "emails reportés",
+  delete: "emails supprimés",
+};
+
+const undoLabel = (count: number, action: TriageAction) =>
+  count > 1 ? `${count} ${TRIAGE_DONE_PLURAL[action]}` : TRIAGE_DONE_LABEL[action];
+
 /** Durée du toast « Annuler » d'une suppression : assez longue pour cliquer (6 s). */
 const UNDO_TOAST_DURATION_MS = 6000;
 
@@ -197,6 +216,8 @@ function followCursor(el: HTMLElement, rowSelector: string) {
     el.focus({ preventScroll: true });
   }
 }
+
+const NO_COLLAPSED: ReadonlySet<MailSectionId> = new Set();
 
 export default function MailPage() {
   const { settings } = useSettings();
@@ -248,6 +269,7 @@ export default function MailPage() {
     [settings.gmail.connectedEmail, settings.gmail.aliases],
   );
 
+  const awaitingOthers = useAwaitingOthers(clientId, selfAddresses);
   const { captureToNote } = useCaptureEmail();
   const captureFb = useActionFeedback();
   const { toast } = useToast();
@@ -323,7 +345,7 @@ export default function MailPage() {
       ? syncStatus.syncing
         ? "Synchronisation…"
         : syncStatus.failed
-          ? "Échec de synchro — tirer pour réessayer"
+          ? `${syncStatus.failed} — tirer pour réessayer`
           : syncStatus.age
       : null,
   );
@@ -355,6 +377,7 @@ export default function MailPage() {
     subject: string;
     body: string;
     thread?: ForwardThread;
+    attachments?: PendingAttachment[];
     restore?: ComposeRestore;
   }>({ subject: "", body: "" });
   // Annonce vocale (lecteurs d'écran) du résultat de la dernière action.
@@ -379,10 +402,37 @@ export default function MailPage() {
   const newInboxNote = useNewInboxNote();
 
   // Transfert : pré-remplit le compose (objet « Fwd: … » + corps cité), To vide.
-  const handleForward = useCallback((prefill: { to?: string; subject: string; body: string; thread?: ForwardThread }) => {
-    setComposeInitial(prefill);
-    setComposeOpen(true);
-  }, []);
+  const forwardBusyRef = useRef(false);
+  const [forwardLoading, setForwardLoading] = useState(false);
+  const handleForward = useCallback(
+    async ({
+      attachments = [],
+      ...prefill
+    }: { to?: string; subject: string; body: string; thread?: ForwardThread; attachments?: EmailAttachment[] }) => {
+      // Un second déclenchement réinitialiserait le composeur déjà ouvert sur le premier.
+      if (forwardBusyRef.current) return;
+      let forwarded: PendingAttachment[] = [];
+      if (attachments.length > 0 && clientId) {
+        forwardBusyRef.current = true;
+        setForwardLoading(true);
+        // Une pièce illisible ne bloque pas le transfert : il part sans elle.
+        const fetched = await Promise.allSettled(attachments.map((a) => fetchOutgoingAttachment(clientId, a)));
+        forwarded = fetched.flatMap((r) => (r.status === "fulfilled" ? [r.value] : []));
+        forwardBusyRef.current = false;
+        setForwardLoading(false);
+        if (forwarded.length < attachments.length) {
+          toast({
+            title: `${attachments.length - forwarded.length} pièce(s) jointe(s) non reprise(s)`,
+            description: "Le transfert part sans elles : rejoins-les à la main.",
+            variant: "danger",
+          });
+        }
+      }
+      setComposeInitial({ ...prefill, attachments: forwarded });
+      setComposeOpen(true);
+    },
+    [clientId, toast],
+  );
 
   // Action « créer » → FAB sur mobile ; masqué dans un fil, où il couvrirait
   // le composer de réponse.
@@ -409,9 +459,17 @@ export default function MailPage() {
   // n'existe que sur desktop, donc inaccessible au doigt.
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   // Fil ouvert : ses actions (capture comprise) vivent dans « Plus » de la barre du bas.
+  const threadContact = useThreadContact(
+    useMemo(() => threadCorrespondent(thread, accountId), [thread, accountId]),
+  );
+  const [dossierSheet, setDossierSheet] = useState(false);
+  // Une ligne du dossier ouvre un autre fil : la feuille ne doit pas rester par-dessus.
+  useEffect(() => setDossierSheet(false), [selectedThreadId]);
   useMobileHeaderActions(
     connected && selectedThreadId
-      ? []
+      ? threadContact
+        ? [{ id: "mail-dossier", icon: AddressBook, label: "Dossier du contact", onPress: () => setDossierSheet(true) }]
+        : []
       : connected && !selectedGroup
       ? [
           {
@@ -433,7 +491,7 @@ export default function MailPage() {
           {
             id: "mail-today",
             icon: CalendarBlank,
-            label: "Aujourd'hui",
+            label: "Aiguillage et journée",
             onPress: () => setTodaySheet(true),
           },
           ...(settings.gmail.listSummary && aiConfigured
@@ -456,7 +514,14 @@ export default function MailPage() {
   );
 
   // Items visibles pour l'onglet ACTIF (lit des refs → callback stable).
+  const [voieId, setVoieId] = useState<string | null>(null);
+  const voieIdsRef = useRef<ReadonlySet<string> | null>(null);
   const computeVisible = useCallback((items: ThreadListItem[]): ThreadListItem[] => {
+    // Une voie de l'Aiguillage traverse les onglets : elle montre ses fils, où qu'ils soient rangés.
+    const voieIds = voieIdsRef.current;
+    if (voieIds) return items.filter((it) => voieIds.has(it.id));
+    // Onglet « En attente » : aucune ligne d'inbox derrière, sinon j/k/e agiraient sur des fils invisibles.
+    if (mailTabRef.current === "waiting") return [];
     const groupId = groupIdFromTab(mailTabRef.current);
     if (groupId !== null) {
       return filterGroupItems(items, groupsRef.current.find((g) => g.id === groupId));
@@ -527,9 +592,10 @@ export default function MailPage() {
         buildMailSections(rows, Date.now(), todoLabelIdSet(todoLabelIds), (it) =>
           awaitsMyReply(it, selfAddresses),
         ),
-        collapsedSections,
+        // Une voie montre tous ses fils : aucune section repliée ne doit en cacher.
+        voieId ? NO_COLLAPSED : collapsedSections,
       ),
-    [rows, collapsedSections, todoLabelIds, selfAddresses],
+    [rows, collapsedSections, todoLabelIds, selfAddresses, voieId],
   );
   const threadPosition = useMemo(() => {
     if (!selectedThreadId) return null;
@@ -557,6 +623,18 @@ export default function MailPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connected, workerReady]);
 
+  const destins = useMemo(() => buildDestins(cumItems, labelNames, selfAddresses), [cumItems, labelNames, selfAddresses]);
+  const voie = destins.find((d) => d.id === voieId && d.items.length > 0) ?? null;
+  const voieIds = useMemo(() => (voie ? new Set(voie.items.map((it) => it.id)) : null), [voie]);
+  voieIdsRef.current = voieIds;
+  const pickVoie = useCallback((id: string | null) => {
+    setVoieId(id);
+    if (id) setMailTab("inbox");
+  }, []);
+  useEffect(() => {
+    if (mailTab !== "inbox") setVoieId(null);
+  }, [mailTab]);
+
   // Bascule d'onglet inbox ↔ groupe : re-dérive les rows depuis les items déjà
   // chargés (mirror INBOX), sans refetch réseau → instantané.
   useEffect(() => {
@@ -565,7 +643,7 @@ export default function MailPage() {
       buildMailOverlay(computeVisible(cumItems), labelNames, selfAddresses, flatLabelIds()),
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mailTab, groups, cumItems, labelNames, selfAddresses, computeVisible, flatLabelIds]);
+  }, [mailTab, groups, cumItems, labelNames, selfAddresses, computeVisible, flatLabelIds, voieIds]);
 
   // Resynchro pendant la session : la liste suit Gmail sans rechargement. Jamais
   // sous une recherche, une sélection multiple ou un chargement, et jamais sans
@@ -842,17 +920,15 @@ export default function MailPage() {
 
   // ── Annuler (raccourci `z` ; pastille cliquable après chaque triage) ────────
   const lastUndoableRef = useRef<{
-    id: string;
+    targets: UndoTarget[];
     action: TriageAction;
-    opId: string | null;
     at: number;
   } | null>(null);
   // Pastille visible pendant UNDO_TOAST_DURATION_MS : état (pas juste le ref
   // ci-dessus) pour déclencher le rendu.
   const [undoBanner, setUndoBanner] = useState<{
-    id: string;
+    targets: UndoTarget[];
     action: TriageAction;
-    opId: string | null;
   } | null>(null);
   const undoBannerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => {
@@ -869,12 +945,12 @@ export default function MailPage() {
   }, []);
 
   const performUndo = useCallback(
-    (id: string, action: TriageAction, opId?: string | null) => {
+    (targets: UndoTarget[], action: TriageAction) => {
       if (!clientId) return;
       lastUndoableRef.current = null; // consommé
       if (undoBannerTimerRef.current) clearTimeout(undoBannerTimerRef.current);
       setUndoBanner(null);
-      const undo = (async () => {
+      const undoOne = async ({ id, opId }: UndoTarget) => {
         if (opId && mirrorAvailable() && accountId) {
           await mirrorCancelOutbox([opId]);
           const reverse: MirrorMutation =
@@ -883,13 +959,13 @@ export default function MailPage() {
               : { threadId: id, kind: "modifyLabels", addLabelIds: [INBOX_LABEL] };
           await mirrorApplyMutation(accountId, { ...reverse, enqueue: true });
           if (action === "snooze") removeSnooze(id);
-          pushOutboxNow();
         } else {
           await undoTriage(clientId, id, action);
         }
-      })();
-      undo
+      };
+      Promise.all(targets.map(undoOne))
         .then(() => {
+          pushOutboxNow();
           void loadList(query);
           setLiveMessage("Triage annulé");
         })
@@ -905,10 +981,10 @@ export default function MailPage() {
   );
 
   const offerUndo = useCallback(
-    (id: string, action: TriageAction, opId?: string | null) => {
-      setLiveMessage(TRIAGE_DONE_LABEL[action]);
-      if (!clientId) return;
-      const entry = { id, action, opId: opId ?? null };
+    (targets: UndoTarget[], action: TriageAction) => {
+      setLiveMessage(undoLabel(targets.length, action));
+      if (!clientId || targets.length === 0) return;
+      const entry = { targets, action };
       lastUndoableRef.current = { ...entry, at: Date.now() };
       setUndoBanner(entry);
       armUndoBannerTimer();
@@ -961,7 +1037,7 @@ export default function MailPage() {
       bumpTriaged();
       // Échec : le rechargement fait réapparaître le fil, c'est le retour visible.
       commitMutation(triageMutation(id, action), () => applyTriage(clientId, id, action))
-        .then((opId) => offerUndo(id, action, opId))
+        .then((opId) => offerUndo([{ id, opId: opId ?? null }], action))
         .catch((err) => {
           console.error(err);
           if (action === "snooze") removeSnooze(id);
@@ -1005,57 +1081,62 @@ export default function MailPage() {
   const clearSelection = useCallback(() => setSelectedThreadIds(new Set()), []);
 
   const runBulkAction = useCallback(
-    async (kind: "archive" | "delete" | "read") => {
-      if (!clientId || selectedThreadIds.size === 0 || bulkBusy) return;
-      const ids = [...selectedThreadIds];
+    async (kind: "archive" | "delete" | "read", ids: string[] = [...selectedThreadIds]) => {
+      if (!clientId || ids.length === 0 || bulkBusy) return;
       setBulkBusy(true);
       if (kind === "read") {
+        const strip = (it: ThreadListItem): ThreadListItem =>
+          ids.includes(it.id) ? { ...it, labelIds: it.labelIds.filter((l) => l !== "UNREAD") } : it;
+        // `cumItems` aussi : les lignes en sont reconstruites, les non-lus y reviendraient.
+        setCumItems((items) => items.map(strip));
         setRows((rs) =>
           rs.map<OverlayRow>((r) => {
-            const strip = (it: ThreadListItem): ThreadListItem =>
-              ids.includes(it.id)
-                ? { ...it, labelIds: it.labelIds.filter((l) => l !== "UNREAD") }
-                : it;
             return r.kind === "single"
               ? { ...r, item: strip(r.item) }
               : { ...r, items: r.items.map(strip) };
           }),
         );
       } else {
+        if (kind === "archive") for (const id of ids) stripTodoLabels(id);
         for (const id of ids) dropThreadFromList(id);
         bumpTriaged(ids.length);
       }
       try {
-        const triage: TriageAction = kind === "delete" ? "delete" : "archive";
-        await Promise.all(
-          ids.map((id) =>
-            kind === "read"
-              ? commitMutation({ threadId: id, kind: "modifyLabels", removeLabelIds: ["UNREAD"] }, () =>
-                  markThreadRead(clientId, id),
-                )
-              : commitMutation(triageMutation(id, triage), () => applyTriage(clientId, id, triage)),
-          ),
-        );
-        const title =
-          kind === "read"
-            ? `${ids.length} email(s) marqué(s) lu(s)`
-            : kind === "delete"
-              ? `${ids.length} email(s) supprimé(s)`
-              : `${ids.length} email(s) archivé(s)`;
-        setLiveMessage(title);
+        if (kind === "read") {
+          await Promise.all(
+            ids.map((id) =>
+              commitMutation({ threadId: id, kind: "modifyLabels", removeLabelIds: ["UNREAD"] }, () =>
+                markThreadRead(clientId, id),
+              ),
+            ),
+          );
+          setLiveMessage(`${ids.length} email(s) marqué(s) lu(s)`);
+        } else {
+          const targets = await Promise.all(
+            ids.map(async (id) => ({
+              id,
+              opId:
+                (await commitMutation(triageMutation(id, kind), () => applyTriage(clientId, id, kind))) ??
+                null,
+            })),
+          );
+          offerUndo(targets, kind);
+        }
       } catch (err) {
         console.error(err);
+        void loadList(query);
       } finally {
         setSelectedThreadIds(new Set());
         setBulkBusy(false);
-        void loadList(query);
       }
     },
     [
       clientId,
       selectedThreadIds,
       bulkBusy,
+      stripTodoLabels,
       dropThreadFromList,
+      offerUndo,
       loadList,
       query,
       commitMutation,
@@ -1063,34 +1144,17 @@ export default function MailPage() {
     ],
   );
 
-  const deleteGroup = useCallback(
-    async (group: GroupRow) => {
-      if (!clientId || bulkBusy) return;
-      const ids = group.items.map((it) => it.id);
-      if (ids.length === 0) return;
-      setBulkBusy(true);
-      for (const id of ids) dropThreadFromList(id);
-      bumpTriaged(ids.length);
+  const triageGroup = useCallback(
+    (group: GroupRow, kind: "archive" | "delete") => {
       setSelectedGroup(null);
       setSelectedThreadId(null);
       setThread(null);
-      try {
-        await Promise.all(
-          ids.map((id) =>
-            commitMutation(
-              { threadId: id, kind: "trash", removeLabelIds: [INBOX_LABEL], dropThread: true },
-              () => applyTriage(clientId, id, "delete"),
-            ),
-          ),
-        );
-      } catch (err) {
-        console.error(err);
-      } finally {
-        setBulkBusy(false);
-        void loadList(query);
-      }
+      void runBulkAction(
+        kind,
+        group.items.map((it) => it.id),
+      );
     },
-    [clientId, bulkBusy, dropThreadFromList, loadList, query, commitMutation],
+    [runBulkAction],
   );
 
   const markGroupRead = useCallback(
@@ -1585,7 +1649,7 @@ export default function MailPage() {
               dropThread: true,
             },
       );
-      offerUndo(id, action);
+      offerUndo([{ id, opId: null }], action);
     },
     [selectedThreadId, stripTodoLabels, offerUndo, patchMirror, dropThreadFromList, displayRows, isMobile, openThread],
   );
@@ -1871,6 +1935,13 @@ export default function MailPage() {
       if (it) assignQuadrant(it.id, quadrant);
     };
     const triage = (action: TriageAction) => () => {
+      // Hors fil ouvert, la sélection cochée prime sur le curseur ; `e` sur une
+      // ligne-groupe archive le groupe (annulable par `z`).
+      if (!selectedThreadId && action !== "snooze") {
+        if (selectedThreadIds.size > 0) return void runBulkAction(action);
+        const row = activeGroup ? undefined : displayRows[selectedRowIndex];
+        if (action === "archive" && row?.kind === "group") return triageGroup(row, "archive");
+      }
       const id = targetThreadId();
       if (id) triageThread(id, action);
     };
@@ -1978,10 +2049,18 @@ export default function MailPage() {
         const row = displayRows[selectedRowIndex];
         if (row) toggleRowSelected(row);
       },
+      selectAll: () => {
+        const items = activeGroup
+          ? activeGroup.items
+          : displayRows.flatMap((r) => (r.kind === "single" ? [r.item] : r.items));
+        setSelectedThreadIds((prev) =>
+          prev.size >= items.length ? new Set() : new Set(items.map((it) => it.id)),
+        );
+      },
       undo: () => {
         const last = lastUndoableRef.current;
         if (last && Date.now() - last.at < UNDO_WINDOW_MS) {
-          performUndo(last.id, last.action, last.opId);
+          performUndo(last.targets, last.action);
         }
       },
       reply: () => openThenIntent("reply"),
@@ -2015,6 +2094,9 @@ export default function MailPage() {
     loadList,
     query,
     targetThreadId,
+    selectedThreadIds,
+    runBulkAction,
+    triageGroup,
     targetSubject,
     targetItem,
     triageThread,
@@ -2146,6 +2228,9 @@ export default function MailPage() {
       unread: unreadOf(todoItems),
       waiting: waitingOf(todoItems),
     },
+    ...(awaitingOthers.length > 0 || mailTab === "waiting"
+      ? [{ id: "waiting", label: "En attente", count: awaitingOthers.length || undefined, unread: 0, waiting: 0 }]
+      : []),
     ...groups.map((g) => {
       const items = filterGroupItems(cumItems, g);
       return {
@@ -2408,6 +2493,28 @@ export default function MailPage() {
           />
         </div>
       </div>
+    ) : mailTab === "waiting" ? (
+      <div
+        className="flex h-full flex-col overflow-hidden"
+        style={{ borderRight: "1px solid var(--border-subtle)" }}
+      >
+        {isMobile && tabStrip}
+        <div className="flex-1 overflow-y-auto px-2 pb-4 pt-3">
+          {awaitingOthers.length === 0 ? (
+            <p className="px-3 py-6 text-sm" style={{ color: "var(--text-muted)" }}>
+              Personne ne te doit de réponse depuis plus de 3 jours.
+            </p>
+          ) : (
+            <MailGroupList
+              title="Sans réponse depuis 3 jours et plus"
+              items={awaitingOthers}
+              activeThreadId={selectedThreadId ?? undefined}
+              onPick={(id) => void openThread(id)}
+              summaries={listSummaries.summaries}
+            />
+          )}
+        </div>
+      </div>
     ) : (
       <div
         className="flex h-full flex-col overflow-hidden"
@@ -2481,6 +2588,7 @@ export default function MailPage() {
           {!listLoading && !listError && rows.length > 0 && (
             <>
               {isMobile && consoleBar}
+              {voie && <VoieBanner voie={voie} onClear={() => pickVoie(null)} />}
               <MailOverlayList
                 rows={displayRows}
                 activeKey={activeKey}
@@ -2566,7 +2674,8 @@ export default function MailPage() {
           onTriageRow={handleTriageRow}
           onSnoozeRow={(row) => row.kind === "single" && setSnoozeTarget({ id: row.item.id, subject: row.item.subject })}
           onMarkRowRead={handleMarkRowRead}
-          onDeleteAll={() => void deleteGroup(selectedGroup)}
+          onDeleteAll={() => triageGroup(selectedGroup, "delete")}
+          onArchiveAll={() => triageGroup(selectedGroup, "archive")}
           onMarkAllRead={() => void markGroupRead(selectedGroup)}
           deleteBusy={bulkBusy}
           summaries={listSummaries.summaries}
@@ -2760,7 +2869,12 @@ export default function MailPage() {
         </div>
       )}
       {!threadLoading && !threadError && !thread && (
-        <MailCockpit showToday={!todayOpen} />
+        <MailCockpit
+          showToday={!todayOpen}
+          destins={destins}
+          voieId={voie?.id ?? null}
+          onPickVoie={pickVoie}
+        />
       )}
     </div>
   );
@@ -2769,8 +2883,21 @@ export default function MailPage() {
   const overlays = (
     <>
       {isMobile && todaySheet && (
-        <MobileSheet isOpen onClose={() => setTodaySheet(false)} title="Aujourd'hui" size="lg">
-          <TodayPanel />
+        <MobileSheet isOpen onClose={() => setTodaySheet(false)} title="Boîte par destin" size="lg">
+          <MailCockpit
+            showToday
+            destins={destins}
+            voieId={voie?.id ?? null}
+            onPickVoie={(id) => {
+              setTodaySheet(false);
+              pickVoie(id);
+            }}
+          />
+        </MobileSheet>
+      )}
+      {isMobile && dossierSheet && threadContact && (
+        <MobileSheet isOpen onClose={() => setDossierSheet(false)} title="Dossier du contact" size="lg">
+          <ThreadDossier contact={threadContact} />
         </MobileSheet>
       )}
       <CaptureEmailModal
@@ -2785,6 +2912,7 @@ export default function MailPage() {
         initialSubject={composeInitial.subject}
         initialBody={composeInitial.body}
         thread={composeInitial.thread}
+        initialAttachments={composeInitial.attachments}
         restore={composeInitial.restore}
         onSendCancelled={(restore) => {
           setComposeInitial({
@@ -2835,6 +2963,21 @@ export default function MailPage() {
       )}
       {/* Pastille « Annuler » après un triage (archive/report/suppression) :
           même mécanisme que l'indicateur d'accord ci-dessus, pas de toast. */}
+      {forwardLoading && (
+        <div
+          className="pointer-events-none sn-pop-in fixed inset-x-0 z-50 flex justify-center px-4"
+          style={{ bottom: isMobile ? "calc(64px + env(safe-area-inset-bottom, 0px))" : "1rem" }}
+          role="status"
+        >
+          <div
+            className="flex items-center gap-2 rounded-full px-4 py-2 text-sm shadow-lg"
+            style={{ background: "var(--surface-2)", color: "var(--text-secondary)" }}
+          >
+            <Spinner size="sm" aria-hidden />
+            Récupération des pièces jointes…
+          </div>
+        </div>
+      )}
       {undoBanner && (
         <div
           className="pointer-events-none sn-pop-in fixed inset-x-0 z-50 flex justify-center px-4"
@@ -2848,13 +2991,13 @@ export default function MailPage() {
             onFocus={pauseUndoBanner}
             onBlur={armUndoBannerTimer}
           >
-            <span>{TRIAGE_DONE_LABEL[undoBanner.action]}</span>
+            <span>{undoLabel(undoBanner.targets.length, undoBanner.action)}</span>
             <Button
               variant="ghost"
               size="sm"
               className="min-h-[32px] min-w-[32px]"
-              aria-label={`Annuler : ${TRIAGE_DONE_LABEL[undoBanner.action]}`}
-              onPress={() => performUndo(undoBanner.id, undoBanner.action, undoBanner.opId)}
+              aria-label={`Annuler : ${undoLabel(undoBanner.targets.length, undoBanner.action)}`}
+              onPress={() => performUndo(undoBanner.targets, undoBanner.action)}
             >
               Annuler<span className="max-md:hidden">&nbsp;(z)</span>
             </Button>
@@ -2918,7 +3061,8 @@ export default function MailPage() {
                 onLongPressRow={handleLongPressRow}
                 onTriageRow={handleTriageRow}
                 onMarkRowRead={handleMarkRowRead}
-                onDeleteAll={() => void deleteGroup(selectedGroup)}
+                onDeleteAll={() => triageGroup(selectedGroup, "delete")}
+          onArchiveAll={() => triageGroup(selectedGroup, "archive")}
                 onMarkAllRead={() => void markGroupRead(selectedGroup)}
                 deleteBusy={bulkBusy}
                 summaries={listSummaries.summaries}
@@ -3021,9 +3165,9 @@ export default function MailPage() {
           <aside
             className="hidden h-full w-[300px] shrink-0 border-l xl:block"
             style={{ borderColor: "var(--border-subtle)", background: "var(--surface-0)" }}
-            aria-label="Aujourd'hui"
+            aria-label={threadContact ? "Dossier du contact" : "Aujourd'hui"}
           >
-            <TodayPanel onClose={toggleToday} />
+            <ThreadDossier contact={threadContact} fallback={<TodayPanel onClose={toggleToday} />} />
           </aside>
         )}
         </div>

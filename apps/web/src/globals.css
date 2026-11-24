@@ -1217,17 +1217,63 @@ html, body {
   box-shadow: 0 0 6px color-mix(in oklab, var(--sn-domain) 60%, transparent);
 }
 
-/* Braise : modifié dans les dernières 24 h. */
+/* Braise : modifié dans les dernières 24 h (arbre), ou balle dans ton camp (mail). */
+:root {
+  --sn-ember: oklch(0.72 0.17 50);
+  /* Braise en texte : assombrie en clair pour tenir 4,5:1 sur les surfaces. */
+  --sn-ember-ink: oklch(0.55 0.16 45);
+}
+[data-theme="dark"] {
+  --sn-ember-ink: var(--sn-ember);
+}
 .sn-ember {
   width: 6px;
   height: 6px;
   flex-shrink: 0;
   border-radius: 9999px;
   /* Couleur braise fixe : en teinte de dossier, elle virait au gris sur Inbox et se confondait avec la sélection. */
-  background: oklch(0.72 0.17 50);
+  background: var(--sn-ember);
   box-shadow:
-    0 0 0 2.5px oklch(0.72 0.17 50 / 0.18),
-    0 0 8px 1px oklch(0.72 0.17 50 / 0.6);
+    0 0 0 2.5px color-mix(in oklab, var(--sn-ember) 18%, transparent),
+    0 0 8px 1px color-mix(in oklab, var(--sn-ember) 60%, transparent);
+}
+/* Braise graduée : plus l'attente dure, plus elle chauffe (heatLevel, lib/mail-age.ts). */
+.sn-ember[data-heat="1"] {
+  width: 5px;
+  height: 5px;
+  box-shadow: none;
+}
+.sn-ember[data-heat="3"],
+.sn-ember[data-heat="4"] {
+  width: 7px;
+  height: 7px;
+  box-shadow:
+    0 0 0 3px color-mix(in oklab, var(--sn-ember) 24%, transparent),
+    0 0 12px 2px color-mix(in oklab, var(--sn-ember) 75%, transparent);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .sn-ember[data-heat="4"] {
+    animation: sn-ember-pulse 2.4s var(--sn-ease-standard) infinite;
+  }
+}
+@keyframes sn-ember-pulse {
+  50% {
+    box-shadow:
+      0 0 0 5px color-mix(in oklab, var(--sn-ember) 14%, transparent),
+      0 0 16px 3px color-mix(in oklab, var(--sn-ember) 55%, transparent);
+  }
+}
+
+/* Aiguillage du mail : les voies fréquentées « roulent » vers leur quai. */
+@media (prefers-reduced-motion: no-preference) {
+  .sn-track-flow {
+    animation: sn-track-flow 1.6s linear infinite;
+  }
+}
+@keyframes sn-track-flow {
+  to {
+    stroke-dashoffset: -16;
+  }
 }
 
 /* ── Gouttière latérale d'une note ───────────────────────────────────────── */

@@ -30,6 +30,8 @@ import { QUADRANTS, type EisenhowerQuadrant } from "@/lib/mail-eisenhower";
 import { SNOOZE_PRESETS, type TriageAction } from "@/lib/mail-triage";
 import type { GmailLabelColor } from "@/lib/gmail";
 import { formatMailDate } from "@/lib/mail-date";
+import { heatLevel, spanLabel } from "@/lib/mail-age";
+import { avatarColor } from "@/lib/mail-avatar";
 import { PUBLIC_DOMAINS, awaitsMyReply, isSelfAddress } from "@/lib/mail-awaiting";
 import { ContactAvatar } from "@/components/contacts/ContactAvatar";
 import { SwipeableRow, type SwipeAction } from "./SwipeableRow";
@@ -77,13 +79,10 @@ const VIRTUALIZE_THRESHOLD = 60;
 /** Hauteur estimée d'une ligne (avant mesure réelle). */
 const ROW_ESTIMATE = 36;
 
-const EMBER = "oklch(0.72 0.17 50)";
-const DAY_MS = 86_400_000;
-
-function waitAge(iso: string): string {
-  const days = Math.floor((Date.now() - new Date(iso).getTime()) / DAY_MS);
-  return Number.isNaN(days) || days < 1 ? "" : `${days} j`;
-}
+const EMBER = "var(--sn-ember)";
+const EMBER_INK = "var(--sn-ember-ink)";
+// Tranche gauche d'une ligne en attente : pâle à l'arrivée, pleine après 24 h.
+const HEAT_EDGE = ["", "45%", "70%", "100%", "100%"] as const;
 const NO_SELF: readonly string[] = [];
 // Label nommé d'après une boîte (alias de réception) : pas un tag, il ne s'affiche pas en chip.
 const EMAIL_LIKE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -438,9 +437,13 @@ function MailSectionHeader({
   return (
     <div
       role="presentation"
-      className={`flex items-center gap-1 border-b px-1 pb-0.5 ${first ? "pt-0.5" : "pt-3"}`}
-      style={{ borderColor: "var(--border)" }}
+      className={`relative flex items-center gap-1 px-1 pb-1 ${first ? "pt-0.5" : "pt-3"}`}
     >
+      <span
+        aria-hidden
+        className="absolute inset-x-0 bottom-0 h-px"
+        style={{ background: marker.id === "awaiting" ? EMBER : "var(--border)" }}
+      />
       <Button
         variant="ghost"
         size="sm"
@@ -460,15 +463,20 @@ function MailSectionHeader({
         />
         <span
           className="truncate font-mono text-[10.5px] uppercase tracking-[0.08em]"
-          style={{ color: marker.id === "awaiting" ? EMBER : "var(--text-muted)" }}
+          style={{ color: marker.id === "awaiting" ? EMBER_INK : "var(--text-muted)" }}
         >
           {marker.title}
         </span>
-        <span
-          className="shrink-0 font-mono text-[10.5px] tabular-nums"
-          style={{ color: marker.unread > 0 ? "var(--text-primary)" : "var(--text-muted)" }}
-        >
-          {marker.unread > 0 ? `${marker.unread}/${marker.count}` : marker.count}
+        <span className="ml-auto flex shrink-0 items-baseline font-mono tabular-nums" style={{ color: "var(--text-muted)" }}>
+          {marker.unread > 0 && (
+            <span
+              className="text-[13px] font-semibold"
+              style={{ color: marker.id === "awaiting" ? EMBER_INK : "var(--text-primary)" }}
+            >
+              {marker.unread}
+            </span>
+          )}
+          <span className="text-[10.5px]">{marker.unread > 0 ? `/${marker.count}` : marker.count}</span>
         </span>
       </Button>
       {marker.unread > 0 && onMarkRead && (
@@ -482,6 +490,7 @@ function MailSectionHeader({
           <Checks size={13} aria-hidden style={{ color: "var(--text-muted)" }} />
         </Button>
       )}
+      {!(marker.unread > 0 && onMarkRead) && <span aria-hidden className="w-8 shrink-0 md:w-6" />}
     </div>
   );
 }
@@ -591,6 +600,10 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
     awaitsMyReply(it, selfEmails),
   ).length;
   const awaiting = awaitingCount > 0;
+  const waitMs = Date.now() - new Date(date).getTime();
+  const heat = heatLevel(waitMs);
+  const lastFromMe = Boolean(singleItem && isSelfAddress(singleItem.from.email, selfEmails));
+  const age = awaiting || lastFromMe ? spanLabel(waitMs) : "";
   const focused = activeKey === key || cursored;
   const rowBg: CSSProperties | undefined =
     activeKey === key
@@ -598,7 +611,7 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
       : cursored
         ? { backgroundColor: "var(--surface-2, var(--accent-subtle))", boxShadow: "inset 2px 0 0 0 var(--text-muted)" }
         : awaiting
-          ? { boxShadow: `inset 2px 0 0 0 ${EMBER}` }
+          ? { boxShadow: `inset ${heat > 2 ? 3 : 2}px 0 0 0 color-mix(in oklab, ${EMBER} ${HEAT_EDGE[heat]}, transparent)` }
           : undefined;
   const hoverActions = Boolean(singleItem && (onToggleStar || onSnoozeRow || onTriageRow));
   const chips = singleItem ? (
@@ -620,7 +633,7 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
       <span className="grid w-full min-w-0 grid-cols-[10px_minmax(0,1fr)_auto] items-center gap-x-2.5 gap-y-0.5 @xl:grid-cols-[10px_144px_minmax(0,1fr)_auto] @xl:gap-x-3">
         <span className="col-start-1 row-start-1 flex items-center justify-center" aria-hidden>
           {awaiting ? (
-            <span className="sn-ember" />
+            <span className="sn-ember" data-heat={heat} />
           ) : unread ? (
             <span className="h-1.5 w-1.5 rounded-full" style={{ background: "var(--accent)" }} />
           ) : null}
@@ -648,7 +661,7 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
           )}
         </span>
 
-        <span className="col-start-2 col-end-4 row-start-2 flex min-w-0 items-center gap-1.5 text-[13px] @xl:col-start-3 @xl:col-end-4 @xl:row-start-1">
+        <span className="col-start-2 col-end-4 row-start-2 flex h-5 min-w-0 flex-wrap content-start items-center gap-x-1.5 overflow-hidden text-[13px] leading-5 @xl:col-start-3 @xl:col-end-4 @xl:row-start-1">
           {row.kind === "group" ? (
             <span className="min-w-0 flex-1 truncate" style={{ color: "var(--text-secondary)" }}>
               {row.items.slice(0, GROUP_SUBJECT_MAX).map((it, i) => (
@@ -664,16 +677,18 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
             </span>
           ) : (
             <>
-              <span
-                className={`min-w-0 truncate ${unread ? "font-semibold" : ""}`}
-                style={{ color: unread || awaiting ? "var(--text-primary)" : "var(--text-secondary)" }}
-              >
-                {subject || "(sans objet)"}
+              <span className="flex min-w-0 max-w-full items-center gap-1.5">
+                <span
+                  className={`min-w-0 truncate ${unread ? "font-semibold" : ""}`}
+                  style={{ color: unread || awaiting ? "var(--text-primary)" : "var(--text-secondary)" }}
+                >
+                  {subject || "(sans objet)"}
+                </span>
+                {chips}
               </span>
-              {chips}
               {preview && !focused && (
                 <span
-                  className="hidden min-w-[35%] flex-1 items-center gap-1 @xl:flex"
+                  className="hidden h-5 min-w-[7rem] flex-1 items-center gap-1 @xl:flex"
                   style={{ color: "var(--text-muted)" }}
                   title={aiPreview ? `Résumé par l'IA locale : ${preview}` : preview}
                 >
@@ -688,7 +703,7 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
         {/* Desktop : ligne compacte, résumé déplié sur la ligne active (pas dans le rail, le fil l'affiche) ; mobile : toujours. */}
         {preview && row.kind === "single" && (
           <span
-            className={`col-start-2 col-end-4 row-start-3 hidden min-w-0 items-start gap-1.5 text-[12px] leading-snug max-md:flex @xl:col-start-3 @xl:col-end-5 @xl:row-start-2${focused ? " @xl:flex" : ""}`}
+            className={`col-start-2 col-end-4 row-start-3 hidden min-w-0 items-start gap-1.5 text-[12px] leading-snug max-md:flex @xl:col-start-3 @xl:col-end-5 @xl:row-start-2 ${focused ? "@xl:flex" : ""}`}
             style={{ color: aiPreview ? "var(--text-secondary)" : "var(--text-muted)" }}
             title={aiPreview ? `Résumé par l'IA locale : ${preview}` : preview}
           >
@@ -700,19 +715,22 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
         )}
 
         <span
-          className={`col-start-3 row-start-1 flex shrink-0 items-center justify-end gap-1.5 @xl:col-start-4${
-            hoverActions ? " md:group-focus-within/row:invisible md:group-focus-within/row:min-w-[5.5rem] md:group-hover/row:invisible md:group-hover/row:min-w-[5.5rem]" : ""
+          className={`col-start-3 row-start-1 flex shrink-0 items-center justify-end gap-1.5 @xl:col-start-4 ${
+            hoverActions ? "md:group-focus-within/row:invisible md:group-focus-within/row:min-w-[5.5rem] md:group-hover/row:invisible md:group-hover/row:min-w-[5.5rem]" : ""
           }`}
         >
           {starred && <Star size={13} weight="fill" aria-label="Étoilé" style={{ color: "var(--text-primary)" }} />}
           <span
-            className="min-w-[3.25rem] text-right font-mono text-[11px] tabular-nums"
-            style={{ color: awaiting ? EMBER : unread ? "var(--text-primary)" : "var(--text-muted)" }}
-            title={formatMailDate(date)}
+            className={`min-w-[3.25rem] text-right font-mono tabular-nums ${awaiting && age ? "text-[12px] font-semibold" : "text-[11px]"}`}
+            style={{ color: awaiting ? EMBER_INK : unread ? "var(--text-primary)" : "var(--text-muted)" }}
+            title={
+              age
+                ? `${awaiting ? "Attend ta réponse" : "Sans réponse"} depuis ${age} · ${formatMailDate(date)}`
+                : formatMailDate(date)
+            }
           >
-            {/* En attente de moi : l'âge compte plus que la date. */}
-            {((awaiting || (singleItem && isSelfAddress(singleItem.from.email, selfEmails))) && waitAge(date)) ||
-              formatMailDate(date)}
+            {/* Balle en jeu (chez moi ou chez eux) : l'âge compte plus que la date. */}
+            {age || formatMailDate(date)}
           </span>
         </span>
       </span>
@@ -796,6 +814,7 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
             <ContactAvatar
               name={fromAddr.name || fromAddr.email}
               photoUrl={senderLogoUrl(fromAddr.email)}
+              colors={avatarColor(fromAddr.email || fromAddr.name)}
               size={18}
               minImageSize={32}
               className="shrink-0 bg-[var(--surface-2)]"
