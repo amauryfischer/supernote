@@ -13,6 +13,7 @@ import { MobileSheet } from "@/components/shell";
 import {
   CheckCircle,
   Clock,
+  ListChecks,
   Trash,
   Envelope,
   EnvelopeOpen,
@@ -28,6 +29,7 @@ export interface MailRowSheetProps {
   onClose: () => void;
   onOpen: (threadId: string) => void;
   onTriage: (threadId: string, action: TriageAction) => void;
+  onTodo: (threadId: string) => void;
   onSnoozeMenu: (threadId: string, subject: string) => void;
   onToggleStar: (threadId: string, labelIds: string[]) => void;
   onMarkRead: (item: ThreadListItem, read: boolean) => void;
@@ -64,6 +66,7 @@ export function MailRowSheet({
   onClose,
   onOpen,
   onTriage,
+  onTodo,
   onSnoozeMenu,
   onToggleStar,
   onMarkRead,
@@ -98,6 +101,11 @@ export function MailRowSheet({
             icon={<CheckCircle size={18} weight="bold" />}
             label="Fait"
             onPress={run(() => onTriage(item.id, "archive"))}
+          />
+          <SheetAction
+            icon={<ListChecks size={18} />}
+            label="En tâche, puis ranger"
+            onPress={run(() => onTodo(item.id))}
           />
           <SheetAction
             icon={<Clock size={18} />}

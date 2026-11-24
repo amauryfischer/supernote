@@ -24,6 +24,7 @@ import {
   CalendarBlank,
   CaretDown,
   AddressBook,
+  ListChecks,
 } from "@phosphor-icons/react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { createPortal } from "react-dom";
@@ -39,7 +40,8 @@ import { EmailThreadView, type EmailThreadHandle } from "@/components/mail/Email
 import { MailConsoleBar } from "@/components/mail/MailConsoleBar";
 import { MailCockpit } from "@/components/mail/MailCockpit";
 import { buildDestins } from "@/lib/mail-destins";
-import { VoieBanner } from "@/components/mail/MailAiguillage";
+import { VoieBanner, VoieStrip } from "@/components/mail/MailAiguillage";
+import { useSelfNotes } from "@/components/mail/useSelfNotes";
 import { awaitsMyReply } from "@/lib/mail-awaiting";
 import { MAIL_SENT_EVENT } from "@/lib/mail-outgoing";
 import { MailOverlayList } from "@/components/mail/MailOverlayList";
@@ -94,7 +96,7 @@ import {
   DEFAULT_SNOOZE_PRESET,
   type TriageAction,
 } from "@/lib/mail-triage";
-import { buildMailOverlay, type OverlayRow } from "@/lib/mail-overlay";
+import { buildMailOverlay, NO_GROUPING, type OverlayRow } from "@/lib/mail-overlay";
 import {
   mirrorAvailable,
   mirrorApplyMutation,
@@ -105,7 +107,8 @@ import {
 } from "@/lib/mail-mirror";
 import { ensureThread, prefetchThreadBodies, PREFETCH_THREAD_COUNT } from "@/lib/mail-sync";
 import { isWorkerReady } from "@/lib/trpc/browser-link";
-import { hasWorkerBackend } from "@/lib/trpc/client";
+import { hasWorkerBackend, trpcVanillaClient } from "@/lib/trpc/client";
+import { TODO_TYPE_ID } from "@/hooks/useTodoSync";
 import { isAiConfigured } from "@/lib/mail-ai";
 import { toggleRowSelection, pruneSelection } from "@/lib/mail-selection";
 import {
@@ -178,7 +181,7 @@ const TRIAGE_DONE_LABEL: Record<TriageAction, string> = {
   delete: "Email supprimé",
 };
 
-type UndoTarget = { id: string; opId: string | null };
+type UndoTarget = { id: string; opId: string | null; todoId?: string };
 
 const TRIAGE_DONE_PLURAL: Record<TriageAction, string> = {
   archive: "emails archivés",
@@ -186,8 +189,13 @@ const TRIAGE_DONE_PLURAL: Record<TriageAction, string> = {
   delete: "emails supprimés",
 };
 
-const undoLabel = (count: number, action: TriageAction) =>
+const plainUndoLabel = (count: number, action: TriageAction) =>
   count > 1 ? `${count} ${TRIAGE_DONE_PLURAL[action]}` : TRIAGE_DONE_LABEL[action];
+// Un fil passé en tâche n'est pas seulement archivé : la pastille doit le dire, c'est la seule confirmation.
+const undoLabelOf = (targets: readonly UndoTarget[], action: TriageAction) => {
+  const tasks = targets.filter((t) => t.todoId).length;
+  return tasks > 0 ? `${tasks} tâche${tasks > 1 ? "s créées" : " créée"}, fil${tasks > 1 ? "s rangés" : " rangé"}` : plainUndoLabel(targets.length, action);
+};
 
 /** Durée du toast « Annuler » d'une suppression : assez longue pour cliquer (6 s). */
 const UNDO_TOAST_DURATION_MS = 6000;
@@ -218,6 +226,7 @@ function followCursor(el: HTMLElement, rowSelector: string) {
 }
 
 const NO_COLLAPSED: ReadonlySet<MailSectionId> = new Set();
+const fold = (s: string) => s.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().trim();
 
 export default function MailPage() {
   const { settings } = useSettings();
@@ -508,14 +517,15 @@ export default function MailPage() {
       : [],
   );
 
+  const [voieId, setVoieId] = useState<string | null>(null);
+  const voieIdsRef = useRef<ReadonlySet<string> | null>(null);
   const flatLabelIds = useCallback(
-    () => flatLabelIdsForTab(mailTabRef.current, groupsRef.current),
+    // Une voie liste ses fils : sans cela elle se replie en une seule ligne « label ×30 ».
+    () => (voieIdsRef.current ? NO_GROUPING : flatLabelIdsForTab(mailTabRef.current, groupsRef.current)),
     [],
   );
 
   // Items visibles pour l'onglet ACTIF (lit des refs → callback stable).
-  const [voieId, setVoieId] = useState<string | null>(null);
-  const voieIdsRef = useRef<ReadonlySet<string> | null>(null);
   const computeVisible = useCallback((items: ThreadListItem[]): ThreadListItem[] => {
     // Une voie de l'Aiguillage traverse les onglets : elle montre ses fils, où qu'ils soient rangés.
     const voieIds = voieIdsRef.current;
@@ -623,7 +633,24 @@ export default function MailPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connected, workerReady]);
 
-  const destins = useMemo(() => buildDestins(cumItems, labelNames, selfAddresses), [cumItems, labelNames, selfAddresses]);
+  const selfNotes = useSelfNotes(clientId, selfAddresses[0] ?? "", cumItems.length > 0);
+  // Sous une recherche, `cumItems` porte les résultats : les voies gardent la dernière boîte connue.
+  const boxItemsRef = useRef(cumItems);
+  if (query === DEFAULT_MAIL_QUERY) boxItemsRef.current = cumItems;
+  const boxItems = boxItemsRef.current;
+  const destins = useMemo(
+    () => buildDestins(boxItems, labelNames, selfAddresses, selfNotes),
+    [boxItems, labelNames, selfAddresses, selfNotes],
+  );
+  const writeToVoie = useCallback(
+    (title: string, body: string) => {
+      const key = fold(title);
+      const to = cumItems.map((it) => it.from).find((f) => fold(f.name).split(/\s+/).includes(key))?.email;
+      setComposeInitial({ to, subject: "Points à voir ensemble", body });
+      setComposeOpen(true);
+    },
+    [cumItems],
+  );
   const voie = destins.find((d) => d.id === voieId && d.items.length > 0) ?? null;
   const voieIds = useMemo(() => (voie ? new Set(voie.items.map((it) => it.id)) : null), [voie]);
   voieIdsRef.current = voieIds;
@@ -950,7 +977,9 @@ export default function MailPage() {
       lastUndoableRef.current = null; // consommé
       if (undoBannerTimerRef.current) clearTimeout(undoBannerTimerRef.current);
       setUndoBanner(null);
-      const undoOne = async ({ id, opId }: UndoTarget) => {
+      const undoOne = async ({ id, opId, todoId }: UndoTarget) => {
+        // Le fil revient dans la boîte : la tâche qui le remplaçait ferait doublon.
+        if (todoId) await trpcVanillaClient.entities.delete.mutate({ id: todoId });
         if (opId && mirrorAvailable() && accountId) {
           await mirrorCancelOutbox([opId]);
           const reverse: MirrorMutation =
@@ -982,7 +1011,7 @@ export default function MailPage() {
 
   const offerUndo = useCallback(
     (targets: UndoTarget[], action: TriageAction) => {
-      setLiveMessage(undoLabel(targets.length, action));
+      setLiveMessage(undoLabelOf(targets, action));
       if (!clientId || targets.length === 0) return;
       const entry = { targets, action };
       lastUndoableRef.current = { ...entry, at: Date.now() };
@@ -1081,9 +1110,41 @@ export default function MailPage() {
   const clearSelection = useCallback(() => setSelectedThreadIds(new Set()), []);
 
   const runBulkAction = useCallback(
-    async (kind: "archive" | "delete" | "read", ids: string[] = [...selectedThreadIds]) => {
+    async (kind: "archive" | "delete" | "read" | "todo", ids: string[] = [...selectedThreadIds]) => {
       if (!clientId || ids.length === 0 || bulkBusy) return;
       setBulkBusy(true);
+      const triage: TriageAction = kind === "todo" || kind === "archive" ? "archive" : "delete";
+      const todoIds = new Map<string, string>();
+      if (kind === "todo") {
+        try {
+          // Les tâches d'abord : si une création échoue, rien n'a encore quitté la boîte.
+          for (const it of cumItems.filter((c) => ids.includes(c.id))) {
+            const created = await trpcVanillaClient.entities.create.mutate({
+              typeId: TODO_TYPE_ID,
+              fields: {
+                text: it.subject.replace(/^\s*((re|tr|fwd?|todo)\s*:\s*)+/i, "").trim() || it.snippet.slice(0, 120) || "(sans objet)",
+                done: false,
+                priority: 5,
+                // « high » = quadrant « Planifier » ; à « medium » la tâche tomberait dans « Éliminer ».
+                importance: "high",
+                urgent: false,
+                mailThreadId: it.id,
+                mailFromName: it.from.name,
+                mailFromEmail: it.from.email,
+                mailSnippet: it.snippet,
+              },
+            });
+            todoIds.set(it.id, created.id);
+          }
+        } catch (err) {
+          // Sans ce ménage, un nouvel essai doublerait les tâches déjà créées.
+          await Promise.allSettled([...todoIds.values()].map((id) => trpcVanillaClient.entities.delete.mutate({ id })));
+          setBulkBusy(false);
+          toast({ title: "Création des tâches échouée", description: err instanceof Error ? err.message : String(err), variant: "danger" });
+          return;
+        }
+        ids = [...todoIds.keys()];
+      }
       if (kind === "read") {
         const strip = (it: ThreadListItem): ThreadListItem =>
           ids.includes(it.id) ? { ...it, labelIds: it.labelIds.filter((l) => l !== "UNREAD") } : it;
@@ -1097,7 +1158,7 @@ export default function MailPage() {
           }),
         );
       } else {
-        if (kind === "archive") for (const id of ids) stripTodoLabels(id);
+        if (triage === "archive") for (const id of ids) stripTodoLabels(id);
         for (const id of ids) dropThreadFromList(id);
         bumpTriaged(ids.length);
       }
@@ -1115,12 +1176,13 @@ export default function MailPage() {
           const targets = await Promise.all(
             ids.map(async (id) => ({
               id,
+              todoId: todoIds.get(id),
               opId:
-                (await commitMutation(triageMutation(id, kind), () => applyTriage(clientId, id, kind))) ??
+                (await commitMutation(triageMutation(id, triage), () => applyTriage(clientId, id, triage))) ??
                 null,
             })),
           );
-          offerUndo(targets, kind);
+          offerUndo(targets, triage);
         }
       } catch (err) {
         console.error(err);
@@ -1141,6 +1203,8 @@ export default function MailPage() {
       query,
       commitMutation,
       setRows,
+      cumItems,
+      toast,
     ],
   );
 
@@ -1169,6 +1233,7 @@ export default function MailPage() {
           r.kind === "single" ? { ...r, item: strip(r.item) } : { ...r, items: r.items.map(strip) },
         ),
       );
+      setCumItems((items) => items.map(strip));
       setSelectedGroup((g) => (g ? { ...g, items: g.items.map(strip) } : g));
       try {
         await Promise.all(
@@ -1183,7 +1248,7 @@ export default function MailPage() {
         void loadList(query);
       }
     },
-    [clientId, loadList, query, commitMutation, setRows],
+    [clientId, loadList, query, commitMutation, setRows, setCumItems],
   );
 
   // ── Resynchronisation des labels optimistes ────────────────────────────────
@@ -2189,6 +2254,17 @@ export default function MailPage() {
             <EnvelopeOpen size={16} />
           </Button>
         </Tooltip>
+        <Tooltip content="En tâches, puis ranger">
+          <Button
+            size="icon"
+            variant="ghost"
+            aria-label="En tâches, puis ranger"
+            isDisabled={bulkBusy}
+            onPress={() => void runBulkAction("todo")}
+          >
+            <ListChecks size={16} />
+          </Button>
+        </Tooltip>
         <Tooltip content="Fait">
           <Button
             size="icon"
@@ -2588,7 +2664,7 @@ export default function MailPage() {
           {!listLoading && !listError && rows.length > 0 && (
             <>
               {isMobile && consoleBar}
-              {voie && <VoieBanner voie={voie} onClear={() => pickVoie(null)} />}
+              {voie ? <VoieBanner voie={voie} onWrite={writeToVoie} selfEmails={selfAddresses} summaries={listSummaries.summaries} onClear={() => pickVoie(null)} onArchiveAll={() => void runBulkAction("archive", voie.items.map((it) => it.id))} onTaskAll={selfNotes ? () => void runBulkAction("todo", voie.items.filter((it) => selfNotes.ids.has(it.id)).map((it) => it.id)) : undefined} /> : isMobile && <VoieStrip destins={destins} onPickVoie={pickVoie} />}
               <MailOverlayList
                 rows={displayRows}
                 activeKey={activeKey}
@@ -2613,6 +2689,7 @@ export default function MailPage() {
                 onLongPressRow={isMobile ? handleLongPressRow : undefined}
                 summaries={listSummaries.summaries}
                 selfEmails={selfAddresses}
+                selfNoteIds={selfNotes?.ids}
                 sections={sectionMarkers}
                 onToggleSection={toggleSection}
                 onMarkSectionRead={markThreadsRead}
@@ -2883,9 +2960,10 @@ export default function MailPage() {
   const overlays = (
     <>
       {isMobile && todaySheet && (
-        <MobileSheet isOpen onClose={() => setTodaySheet(false)} title="Boîte par destin" size="lg">
+        <MobileSheet isOpen onClose={() => setTodaySheet(false)} title="Aiguillage et journée" size="lg">
           <MailCockpit
             showToday
+            bare
             destins={destins}
             voieId={voie?.id ?? null}
             onPickVoie={(id) => {
@@ -2931,6 +3009,7 @@ export default function MailPage() {
         onClose={() => setSheetItem(null)}
         onOpen={(id) => void openThread(id)}
         onTriage={(id, action) => triageThread(id, action)}
+        onTodo={(id) => void runBulkAction("todo", [id])}
         onSnoozeMenu={(id, subject) => setSnoozeTarget({ id, subject })}
         onToggleStar={toggleRowStar}
         onMarkRead={(item, read) => handleMarkRowRead({ kind: "single", item }, read)}
@@ -2991,12 +3070,12 @@ export default function MailPage() {
             onFocus={pauseUndoBanner}
             onBlur={armUndoBannerTimer}
           >
-            <span>{undoLabel(undoBanner.targets.length, undoBanner.action)}</span>
+            <span>{undoLabelOf(undoBanner.targets, undoBanner.action)}</span>
             <Button
               variant="ghost"
               size="sm"
               className="min-h-[32px] min-w-[32px]"
-              aria-label={`Annuler : ${undoLabel(undoBanner.targets.length, undoBanner.action)}`}
+              aria-label={`Annuler : ${undoLabelOf(undoBanner.targets, undoBanner.action)}`}
               onPress={() => performUndo(undoBanner.targets, undoBanner.action)}
             >
               Annuler<span className="max-md:hidden">&nbsp;(z)</span>
@@ -3067,6 +3146,7 @@ export default function MailPage() {
                 deleteBusy={bulkBusy}
                 summaries={listSummaries.summaries}
                 selfEmails={selfAddresses}
+                selfNoteIds={selfNotes?.ids}
                 userLabels={labelNames}
                 labelColors={labelColors}
                 groupLabelId={selectedGroupLabelId}

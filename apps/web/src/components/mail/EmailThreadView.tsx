@@ -1445,10 +1445,11 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
               size="icon"
               onPress={openPicker}
               aria-label="Ajouter un label (touche l)"
-              className="flex h-5 min-h-5 w-5 min-w-5 items-center justify-center rounded-full p-0 max-md:h-8 max-md:min-h-8 max-md:w-8 max-md:min-w-8"
+              className="flex h-5 min-h-5 w-auto min-w-0 items-center justify-center gap-1 rounded-full px-2 text-[11px] max-md:h-8 max-md:min-h-8"
               style={{ border: "1px dashed var(--border)", color: "var(--text-muted)" }}
             >
-              <Plus size={12} weight="bold" />
+              <Plus size={11} weight="bold" />
+              Label
             </Button>
           </Tooltip>
         </div>

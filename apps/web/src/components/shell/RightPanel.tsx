@@ -39,8 +39,10 @@ function relativeTime(isoDate: string): string {
   return `il y a ${diffDays} j`;
 }
 
+const INTERNAL_TYPES = new Set(["email_ai_cache", "mail_commitment"]);
+
 function entityLabel(entity: { typeName: string; fields: Record<string, unknown> }): string {
-  const title = entity.fields["title"] ?? entity.fields["name"] ?? entity.fields["subject"];
+  const title = entity.fields["title"] ?? entity.fields["name"] ?? entity.fields["subject"] ?? entity.fields["text"];
   if (typeof title === "string" && title.trim()) return title;
   return entity.typeName;
 }
@@ -206,7 +208,8 @@ function RecentList() {
   }
 
   // Modèles et routines semés portent TEMPLATE_SEED_TS (2000-01-01) : jamais touchés, ils s'affichaient « il y a 9795 j ».
-  const recent = data.items.filter((e) => e.updatedAt > "2000-01-02").slice(0, 5);
+  // Les caches de l'IA mail sont des entités techniques : leur nom de table n'a rien à faire ici.
+  const recent = data.items.filter((e) => e.updatedAt > "2000-01-02" && !INTERNAL_TYPES.has(e.typeName)).slice(0, 5);
   if (recent.length === 0) {
     return (
       <p className="px-3 py-2 text-xs" style={{ color: "var(--text-muted)" }}>

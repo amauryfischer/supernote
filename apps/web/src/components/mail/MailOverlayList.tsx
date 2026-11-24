@@ -66,6 +66,7 @@ interface SharedRowProps {
   /** threadId → mini-résumé IA. Remplace le snippet Gmail quand il existe. */
   summaries?: ReadonlyMap<string, string>;
   selfEmails: readonly string[];
+  selfNoteIds?: ReadonlySet<string>;
 }
 
 /**
@@ -139,6 +140,7 @@ export function MailOverlayList({
   onLongPressRow,
   summaries,
   selfEmails = NO_SELF,
+  selfNoteIds,
   sections,
   onToggleSection,
   onMarkSectionRead,
@@ -214,6 +216,8 @@ export function MailOverlayList({
   summaries?: ReadonlyMap<string, string>;
   /** Adresses « à moi » : un fil dont le dernier message n'en vient pas attend ta réponse. */
   selfEmails?: readonly string[];
+  /** Fils que l'utilisateur s'est envoyés à lui-même : personne n'y doit de réponse. */
+  selfNoteIds?: ReadonlySet<string>;
   /**
    * En-têtes de section à insérer dans la liste (cf. `mail-sections`). Chaque
    * marqueur dit AVANT quelle ligne se poser ; `rows` est déjà dans l'ordre
@@ -338,6 +342,7 @@ export function MailOverlayList({
     hideLabelId,
     summaries,
     selfEmails,
+    selfNoteIds,
   };
 
   return (
@@ -520,6 +525,7 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
     hideLabelId,
     summaries,
     selfEmails,
+    selfNoteIds,
   } = shared;
 
   const key = row.kind === "single" ? `t:${row.item.id}` : row.key;
@@ -586,6 +592,10 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
       >
         <span className="truncate">{title.replace(/^Supernote\//, "")}</span>
       </span>
+    ) : row.kind === "single" && selfNoteIds?.has(row.item.id) ? (
+      <span className="truncate" style={{ color: "var(--text-muted)" }} title="Note que tu t'es envoyée">
+        Note à moi
+      </span>
     ) : row.kind === "single" && isSelfAddress(row.item.from.email, selfEmails) ? (
       // Dernier message de moi : la balle est chez eux.
       <span className="truncate" style={{ color: "var(--text-muted)" }} title="Dernier message envoyé par moi : la balle est chez eux">
@@ -602,7 +612,7 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
   const awaiting = awaitingCount > 0;
   const waitMs = Date.now() - new Date(date).getTime();
   const heat = heatLevel(waitMs);
-  const lastFromMe = Boolean(singleItem && isSelfAddress(singleItem.from.email, selfEmails));
+  const lastFromMe = Boolean(singleItem && isSelfAddress(singleItem.from.email, selfEmails) && !selfNoteIds?.has(singleItem.id));
   const age = awaiting || lastFromMe ? spanLabel(waitMs) : "";
   const focused = activeKey === key || cursored;
   const rowBg: CSSProperties | undefined =
@@ -710,7 +720,7 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
             {aiPreview && (
               <Sparkle size={10} weight="fill" aria-hidden className="mt-[3px] shrink-0" style={{ color: "var(--text-muted)" }} />
             )}
-            <span className="line-clamp-2 min-w-0">{preview}</span>
+            <span className="line-clamp-2 min-w-0 max-md:line-clamp-1">{preview}</span>
           </span>
         )}
 

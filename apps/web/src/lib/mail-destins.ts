@@ -26,7 +26,7 @@ export function classifyLabel(name: string): { kind: DestinKind; title: string }
   const todo = /^todo\s+(.+)$/i.exec(n);
   if (todo && !/^perso$/i.test(todo[1]!)) return { kind: "delegue", title: cap(todo[1]!) };
   if (/(codir|coger|daily|copil|cse|1-1|entretien|r[ée]union|comit[ée]|hebdo)/i.test(n)) return { kind: "reunion", title: cap(n) };
-  if (/d[ée]veloppement/i.test(n)) return { kind: "delegue", title: cap(n.replace(/d[ée]veloppement/i, "dév")) };
+  if (/d[ée]veloppement/i.test(n)) return { kind: "delegue", title: cap(n.replace(/d[ée]veloppement/i, "dev")) };
   if (/(week-?end|urgent|[àa] faire|r[ée]pondre|demain|semaine)/i.test(n)) return { kind: "quand", title: cap(n) };
   return null;
 }
@@ -74,6 +74,8 @@ export function buildDestins(
   items: readonly ThreadListItem[],
   labelNames: ReadonlyMap<string, string>,
   selfEmails: readonly string[],
+  /** Fils réellement envoyés à soi-même, relevés à `at` ; inconnu (null, ou fil plus récent) = on se rabat sur « dernier message de moi ». */
+  selfNotes: { ids: ReadonlySet<string>; at: number } | null = null,
 ): Destin[] {
   const byId = new Map<string, Destin>();
   const voie = (id: string, kind: DestinKind, title: string, labelId?: string): Destin => {
@@ -98,7 +100,7 @@ export function buildDestins(
       .filter((d): d is Destin => Boolean(d))
       .sort((a, b) => KIND_ORDER.indexOf(a.kind) - KIND_ORDER.indexOf(b.kind))[0];
     if (chosen) chosen.items.push(it);
-    else if (isSelfAddress(it.from.email, selfEmails)) note.items.push(it);
+    else if (isSelfAddress(it.from.email, selfEmails) && (!selfNotes || Date.parse(it.date) > selfNotes.at || selfNotes.ids.has(it.id))) note.items.push(it);
     else if (isMachineAddress(it.from.email) || it.labelIds.some((l) => l.startsWith("CATEGORY_") && l !== "CATEGORY_PERSONAL")) info.items.push(it);
     else undecided.push(it);
   }
