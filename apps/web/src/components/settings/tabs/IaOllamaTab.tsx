@@ -24,9 +24,10 @@ import { AUTO_TAG_ENABLED_KEY } from "@/hooks/useAutoTag";
 import { AI_MARGINS_ENABLED_KEY, isAiMarginsEnabled } from "@/lib/ai/blockComments";
 import { INBOX_SORT_ENABLED_KEY, isInboxSortEnabled } from "@/lib/ai/inboxSort";
 
-// Ordre = recommandation. Les 8 Go de VRAM sont partagés avec les modèles
-// d'OpenViking : `qwen3.5:9b` à côté d'eux débordait sur le CPU.
+// Ordre = recommandation, mesurée sur 12 vrais fils (2026-11-24) : gemma4:e4b donne 1 résumé faux sur 12,
+// qwen3.5:4b 6 sur 12. Les 8 Go de VRAM sont partagés avec OpenViking : un 9B déborde sur le CPU (8× plus lent).
 const FALLBACK_MODELS = [
+  "gemma4:e4b",
   "qwen3.5:4b",
   "llama3.2",
   "llama3.2:1b",

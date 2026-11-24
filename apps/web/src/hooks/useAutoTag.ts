@@ -31,7 +31,7 @@ const CACHE_MAX_ENTRIES = 50;
 const MAX_TAGS = 5;
 
 const ENABLED_KEY = "supernote.ai.autoTag";
-const FALLBACK_MODEL = "qwen3.5:4b";
+const FALLBACK_MODEL = "gemma4:e4b";
 
 /** Même source que useAutoTitle : les réglages, pas un miroir localStorage. */
 function readPreferredModel(): string {

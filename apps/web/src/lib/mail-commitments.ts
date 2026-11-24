@@ -39,7 +39,14 @@ export interface ThreadCommitments {
 
 const MAX_MESSAGES = 8;
 const MAX_BODY_CHARS = 1_500;
-const MIN_QUOTE_CHARS = 8;
+// En dessous, ce sont des acquiescements (« ok merci »), pas des promesses.
+const MIN_QUOTE_CHARS = 12;
+// Conditionnel, souhait, simple possibilité, politesse : pas une promesse ferme. Mesuré sur 12 vrais fils (2026-11-24) :
+// retire 3 faux engagements sur 6 sans en perdre un vrai. « je pourrai » (futur) reste une promesse, « je pourrais » non.
+const NOT_FIRM =
+  /(^|[\s,;:(«"'])(si (vous|tu|besoin|n[ée]cessaire|possible|jamais|cela|ça)|je (peux|pourrais)(?![a-zé])|nous (pouvons|pourrions)|on (peut|pourrait)(?![a-zé])|j'aimerais|je (souhaite(rais)?|voudrais)|il faudrait|l'id[ée]e serait|[ée]ventuellement|à (votre|ta) disposition|n'h[ée]site)/i;
+export const isFirmPromise = (quote: string): boolean => !NOT_FIRM.test(quote);
+console.assert(isFirmPromise("Je pourrai vous envoyer le devis lundi") && !isFirmPromise("Si tu veux, je regarde demain") && !isFirmPromise("Je pourrais passer jeudi"));
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 
 const norm = (s: string): string =>
@@ -76,33 +83,69 @@ function recentMessages(thread: EmailThread): EmailMessage[] {
   return thread.messages.slice(-MAX_MESSAGES);
 }
 
-function buildPrompt(thread: EmailThread, selfEmails: readonly string[]): string {
-  const blocks = recentMessages(thread).map((m, i) => {
-    const from = isSelfAddress(m.from.email, selfEmails) ? "Moi" : `${m.from.name || m.from.email} <${m.from.email}>`;
-    const to = m.to.map((a) => a.name || a.email).join(", ");
-    return [
-      `[message ${i + 1}]`,
-      `De : ${from}`,
-      `À : ${to}`,
-      `Date d'envoi : ${m.date ? isoDay(new Date(m.date)) : "inconnue"}`,
-      "",
-      (m.bodyText || m.snippet).slice(0, MAX_BODY_CHARS),
-    ].join("\n");
-  });
+const DAYS = ["dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi"];
+
+// Un message à la fois, et seulement « que promet SON auteur ? » : sur 12 vrais fils (2026-11-24), le fil entier
+// en une question trouvait 3 promesses sur 8, cette forme 6 sur 8, sans échéance inventée.
+const MAX_EXAMPLES = 4;
+const MAX_EXAMPLE_CHARS = 160;
+
+interface DecidedExamples {
+  accepted: string[];
+  dismissed: string[];
+}
+
+/** Ce que l'utilisateur a déjà confirmé ou écarté : ses tournures et celles de ses correspondants servent d'exemples au modèle. */
+async function loadDecidedExamples(): Promise<DecidedExamples> {
+  const out: DecidedExamples = { accepted: [], dismissed: [] };
+  try {
+    const res = await trpcVanillaClient.entities.list.query({ typeId: MAIL_COMMITMENT_TYPE_ID, limit: 1000 });
+    for (const e of res.items) {
+      for (const c of fromEntity(e)?.items ?? []) {
+        if (c.status === "suggested") continue;
+        const bucket = c.status === "accepted" ? out.accepted : out.dismissed;
+        const quote = c.quote.replace(/\s+/g, " ").trim().slice(0, MAX_EXAMPLE_CHARS);
+        if (!bucket.includes(quote)) bucket.push(quote);
+      }
+    }
+  } catch {
+    return { accepted: [], dismissed: [] };
+  }
+  // Les dernières décisions reflètent le mieux le goût actuel.
+  return { accepted: out.accepted.slice(-MAX_EXAMPLES), dismissed: out.dismissed.slice(-MAX_EXAMPLES) };
+}
+
+function examplesBlock(ex: DecidedExamples): string[] {
+  const list = (quotes: string[]) => quotes.map((q) => `- « ${q} »`);
   return [
-    "Tu repères les ENGAGEMENTS dans un fil d'emails, en français.",
-    "Un engagement : une personne promet de faire une action précise dans le futur (« je vous envoie le devis vendredi », « on vous rappelle lundi »).",
-    "Ce ne sont PAS des engagements : une demande faite à l'autre, une formule de politesse (« je reviens vers vous », « n'hésitez pas »), une action déjà faite.",
-    'Réponds UNIQUEMENT avec un objet JSON {"engagements": [...]} dont chaque élément est {"message": n, "direction": "moi" | "eux", "text": "...", "due": "AAAA-MM-JJ" | null, "quote": "..."}.',
-    "- message : numéro du message qui contient la promesse.",
-    '- direction : "moi" si c\'est Moi qui promets, "eux" si c\'est un correspondant.',
-    "- text : l'action, courte, à l'infinitif (« Envoyer le devis signé »).",
-    "- due : échéance résolue par rapport à la date d'envoi de CE message (« vendredi » = le vendredi qui suit cette date). null si aucune échéance.",
-    "- quote : la phrase du message qui contient la promesse, copiée mot pour mot.",
+    ...(ex.accepted.length ? ["L'utilisateur a déjà confirmé comme vraies promesses des phrases de ce genre :", ...list(ex.accepted)] : []),
+    ...(ex.dismissed.length ? ["Il a écarté des phrases de ce genre, ne relève rien de semblable :", ...list(ex.dismissed)] : []),
+  ];
+}
+
+function buildPrompt(m: EmailMessage, selfEmails: readonly string[], examples: DecidedExamples): string {
+  const author = isSelfAddress(m.from.email, selfEmails) ? "Moi" : m.from.name || m.from.email;
+  const sent = m.date ? new Date(m.date) : null;
+  const when = sent && !Number.isNaN(sent.getTime()) ? `, envoyé le ${DAYS[sent.getDay()]} ${isoDay(sent)}` : "";
+  return [
+    `Tu lis UN email écrit par ${author}${when}.`,
+    "Relève uniquement les phrases où L'AUTEUR s'engage à faire LUI-MÊME quelque chose plus tard.",
+    "Exemples à relever : « je vous envoie le devis vendredi », « je regarde ça », « je m'en occupe », « on vous rappelle lundi », « je te fais un retour demain ».",
+    "Ne relève PAS :",
+    "- ce que l'auteur demande à quelqu'un d'autre (« pouvez-vous… », « merci de… », « il faudrait que tu… », « peux-tu… ») ;",
+    "- ce qui est déjà fait (« j'ai envoyé », « c'est fait », « ci-joint ») ;",
+    "- les formules de politesse (« je reste à disposition », « n'hésitez pas », « je reviens vers vous ») ;",
+    "- les questions, les hypothèses (« si…, je pourrais »), les constats.",
+    "Test pour chaque phrase : son sujet est-il l'auteur (je, nous, on) ET annonce-t-elle une action à venir ? Sinon, ne la relève pas.",
+    ...examplesBlock(examples),
+    'Réponds UNIQUEMENT en JSON : {"engagements": [{"quote": "...", "text": "...", "due": "AAAA-MM-JJ" | null}]}.',
+    "- quote : la phrase copiée mot pour mot depuis l'email.",
+    "- text : l'action, courte, à l'infinitif.",
+    "- due : seulement si la phrase donne une échéance, calculée à partir de la date d'envoi ; sinon null.",
     'Aucun engagement : {"engagements": []}.',
     "",
-    "Fil :",
-    blocks.join("\n\n"),
+    "Email :",
+    (m.bodyText || m.snippet).slice(0, MAX_BODY_CHARS),
   ].join("\n");
 }
 
@@ -133,19 +176,16 @@ function parseRaw(raw: string): RawCommitment[] {
     : [];
 }
 
-function validate(raw: RawCommitment[], thread: EmailThread, selfEmails: readonly string[]): DetectedCommitment[] {
-  const msgs = recentMessages(thread);
+/** `seen` est partagé entre les messages d'un fil : une promesse recitée dans l'historique d'une réponse n'est comptée qu'une fois. */
+function validate(raw: RawCommitment[], msg: EmailMessage, selfEmails: readonly string[], seen: Set<string>): DetectedCommitment[] {
   const out: DetectedCommitment[] = [];
-  const seen = new Set<string>();
   for (const r of raw) {
     const text = typeof r.text === "string" ? r.text.trim() : "";
     const quote = typeof r.quote === "string" ? r.quote.trim() : "";
-    if (!text || quote.length < MIN_QUOTE_CHARS) continue;
+    if (!text || quote.length < MIN_QUOTE_CHARS || !isFirmPromise(quote)) continue;
 
-    // Anti-hallucination : la citation doit exister telle quelle.
-    // Le premier message qui la contient est l'original : les réponses suivantes la citent dans leur historique.
-    const msg = msgs.find((m) => norm(m.bodyText || m.snippet).includes(norm(quote)));
-    if (!msg) continue;
+    // Anti-hallucination : la citation doit exister telle quelle dans ce message.
+    if (!norm(msg.bodyText || msg.snippet).includes(norm(quote))) continue;
 
     // Le sens vient de l'expéditeur réel, pas du modèle.
     const mine = isSelfAddress(msg.from.email, selfEmails);
@@ -159,9 +199,9 @@ function validate(raw: RawCommitment[], thread: EmailThread, selfEmails: readonl
       if (detected && isoDay(detected) >= isoDay(sent)) due = isoDay(detected);
     }
 
+    if (seen.has(norm(quote))) continue;
+    seen.add(norm(quote));
     const key = djb2(`${msg.id}|${norm(quote)}`);
-    if (seen.has(key)) continue;
-    seen.add(key);
     out.push({
       key,
       direction: mine ? "moi" : "eux",
@@ -178,8 +218,16 @@ function validate(raw: RawCommitment[], thread: EmailThread, selfEmails: readonl
 
 export async function analyzeThread(thread: EmailThread, selfEmails: readonly string[]): Promise<DetectedCommitment[]> {
   if (thread.messages.length === 0) return [];
-  const raw = await runLocalPrompt(buildPrompt(thread, selfEmails), 0.1, "json");
-  return validate(parseRaw(raw), thread, selfEmails);
+  const seen = new Set<string>();
+  const out: DetectedCommitment[] = [];
+  const examples = await loadDecidedExamples();
+  // Du plus ancien au plus récent : le message d'origine d'une promesse passe avant ceux qui le citent.
+  for (const m of recentMessages(thread)) {
+    if (!(m.bodyText || m.snippet).trim()) continue;
+    const raw = await runLocalPrompt(buildPrompt(m, selfEmails, examples), 0.1, "json");
+    out.push(...validate(parseRaw(raw), m, selfEmails, seen));
+  }
+  return out;
 }
 
 /** Une décision de l'utilisateur survit aux réanalyses ; une suggestion non traitée suit la dernière passe. */

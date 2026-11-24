@@ -20,7 +20,7 @@ import { modelInstalled } from "@/lib/ai/blockComments";
 import { AI_MOBILE_NOTICE, isAiRuntimeAllowed } from "@/lib/ai/ai-runtime";
 import { getAiSettings } from "@/lib/ai/settings";
 
-const FALLBACK_MODEL = "qwen3.5:4b";
+const FALLBACK_MODEL = "gemma4:e4b";
 
 export type AiStatus =
   | "checking"

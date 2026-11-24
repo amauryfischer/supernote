@@ -15,7 +15,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   },
   ia: {
     autoTagging: true,
-    ollamaModel: "qwen3.5:4b",
+    ollamaModel: "gemma4:e4b",
     confidenceThreshold: 0.7,
     autoClassify: true,
     mentionDetection: true,
@@ -80,7 +80,7 @@ export const ACCENT_COLORS = [
 ];
 
 // SettingsProvider persiste tout l'objet au montage : un ancien défaut s'est figé dans le localStorage et masquerait le défaut courant.
-const RETIRED_DEFAULT_MODELS = new Set(["llama3.2", "qwen3.5:9b"]);
+const RETIRED_DEFAULT_MODELS = new Set(["llama3.2", "qwen3.5:9b", "qwen3.5:4b"]);
 
 export function migrateIa(ia: IaSettings): IaSettings {
   return RETIRED_DEFAULT_MODELS.has(ia.ollamaModel)
