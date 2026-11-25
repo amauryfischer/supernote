@@ -117,7 +117,7 @@ export function ExtractActionsButton({ thread }: ExtractActionsButtonProps) {
             idle={<ListPlus size={16} aria-hidden />}
           />
         )}
-        <span className="hidden sm:inline">Extraire les actions</span>
+        <span>Extraire les actions</span>
       </Button>
       <Popover.Content className="w-72 p-2">
         <Popover.Dialog className="outline-none">
