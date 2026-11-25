@@ -82,3 +82,12 @@ Aucun aiguillage ; 27 lignes, toutes à 34 px ; 88 notes à soi relevées par la
 - Mesure sur la vraie boîte : chaque ouverture de /mail coûtait ~60 appels Gmail, dont ~51 pour relire les 50 derniers envoyés (suggestions de destinataires). Mis en cache 24 h. La synchro seule coûte 3 appels. Le refus de quota vu au chargement venait d'une passe complète de rattrapage (pic de 288 appels), guérie d'elle-même ; le consommateur extérieur reste non identifié.
 - Cache des destinataires durci : clé par compte, jamais de liste vide figée, purgé à chaque envoi. Mesuré en prod après 681030f : ouverture de /mail = 3 appels Gmail au lieu de ~60.
 - Quota, pistes fermées : serveur de push hors de cause (2 push/min au plus, watch 1×/jour). Console Google Cloud inaccessible : validation en deux étapes exigée par Google depuis le 2026-10-20, à activer par Amaury.
+
+### Verdict d'Amaury (2026-11-25) : 5/10
+
+« On va pas assez loin sur les fonctionnalités et sur ce qu'on met en avant, ça manque d'une touche wow, un truc innovant qui fasse la différence. » Écart avec les juges (6,7) : 1,7 point. Le critère manquant n'est pas la finition mais une fonction différenciante mise en avant. Suite demandée : 10 agents Haiku en idéation, meilleure idée croisée avec mon avis.
+
+### Idéation à 10 agents Haiku (2026-11-25), un angle chacun, 30 idées
+
+Convergences (idées citées indépendamment) : sujet à plusieurs fils / « Tour de table » 9 agents sur 10 (4 premiers choix) ; ordre du jour de réunion lié à l'agenda 7 sur 10 (1 premier choix) ; délégation close sur la réponse réelle 3 ; notes à soi routées ou converties 3 ; séance de vidange bornée 1 ; table/dossier par personne 2 (proche de l'aiguillage rejeté).
+Mon croisement : retenir « Tour de table » en version déterministe (destinataires d'un envoi + réunion manuelle de fils, jamais de regroupement deviné), « Ordre du jour vivant » en second. Écarté : table par personne (redite de l'aiguillage), regroupement par objet ou IA (faux positifs). Verdict d'Amaury attendu avant toute mise en prod.
