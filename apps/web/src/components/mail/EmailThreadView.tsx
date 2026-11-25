@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, forwardRef, useImperativeHandle, type ReactNode } from "react";
 import { spanLabel } from "@/lib/mail-age";
-import { ArrowSquareOut, Plus, X, Tag, MagnifyingGlass, Check, PaperPlaneTilt, Quotes, Paperclip, Star, Envelope, ArrowBendUpRight, Sparkle, MagicWand, ArrowsClockwise, CaretUp, DotsThreeVertical, Copy, Image as ImageIcon, SpeakerSlash, UserMinus, UserPlus, WarningCircle, ShareNetwork, ArrowBendUpLeft, ArrowBendDoubleUpLeft, FilePlus, Database, CaretRight } from "@phosphor-icons/react";
+import { ArrowSquareOut, Plus, X, Tag, MagnifyingGlass, Check, PaperPlaneTilt, Quotes, Paperclip, Star, Envelope, ArrowBendUpRight, Sparkle, MagicWand, ArrowsClockwise, CaretUp, DotsThreeVertical, Copy, Image as ImageIcon, SpeakerSlash, UserMinus, UserPlus, WarningCircle, ShareNetwork, ArrowBendUpLeft, ArrowBendDoubleUpLeft, FilePlus, ListChecks, Database, CaretRight } from "@phosphor-icons/react";
 import { Spinner, Popover } from "@heroui/react";
 import { AttachmentPreviewModal } from "./AttachmentPreviewModal";
 import { useToast, Tooltip, Badge, Button, Input, ContextMenu, useContextMenu, Select } from "@supernote/ui";
@@ -253,6 +253,8 @@ interface EmailThreadViewProps {
   draftsBusy?: boolean;
   /** Capture du fil (menu « Plus », desktop — la barre du haut mobile les porte déjà). */
   onCaptureNote?: () => void;
+  /** Crée une tâche liée au fil puis le range (annulable depuis la page). */
+  onToTask?: () => void;
   onCaptureBase?: () => void;
   /** Résumé déjà calculé pour la liste : affiché en tête du fil sans relancer l'IA. */
   listSummary?: string;
@@ -278,6 +280,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
       onGenerateDrafts,
       draftsBusy = false,
       onCaptureNote,
+      onToTask,
       onCaptureBase,
       listSummary,
       onClose,
@@ -1172,6 +1175,21 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
                         </div>
                       )}
                       <p className="sn-eyebrow sn-eyebrow--compact px-3 pb-0.5 pt-2" aria-hidden>Capturer</p>
+                      {onToTask && (
+                        <Button
+                          variant="ghost"
+                          className={MENU_ROW}
+                          aria-label="En tâche, puis ranger"
+                          onPress={() => {
+                            setMoreOpen(false);
+                            onToTask();
+                          }}
+                        >
+                          <ListChecks size={16} />
+                          <span className="flex-1 text-left">En tâche, puis ranger</span>
+                          <kbd className="text-xs" style={{ color: "var(--text-muted)" }}>{shortcutKey("toTask")}</kbd>
+                        </Button>
+                      )}
                       {onCaptureNote && (
                         <Button
                           variant="ghost"

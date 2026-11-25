@@ -2885,6 +2885,7 @@ export default function MailPage() {
                   onGenerateDrafts={() => void drafts.generate()}
                   draftsBusy={drafts.busy}
                   onCaptureNote={() => void handleCaptureNote()}
+                  onToTask={() => thread && void runBulkAction("todo", [thread.id])}
                   onCaptureBase={() => setCaptureOpen(true)}
                 />
               </div>
