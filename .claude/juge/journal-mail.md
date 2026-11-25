@@ -49,3 +49,8 @@ Bilan de la passe : à chaque tour les deux juges préfèrent la version la plus
 ### Verdict d'Amaury (2026-11-24) : aiguillage supprimé
 
 « Je vois encore l'aiguillage qui était une mauvaise idée, à supprimer. » Volet, ruban mobile, bandeau de voie et `buildDestins` retirés. Restent : « Note à moi » sur les lignes, « En tâche(s), puis ranger », teinte des pastilles de label. Les juges préféraient chaque version à la précédente : leur avis ne valait rien ici.
+
+### Après le retrait (2026-11-25)
+
+- Nouvelle base : écran sans aiguillage (prod d863f81). Règle : raccourcir un geste existant, pas de surface nouvelle.
+- Raccourci `p` : « En tâche, puis ranger » sur le fil sélectionné ou ouvert, annulable par `z`, listé dans l'aide `?`. Prouvé au banc.

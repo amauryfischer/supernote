@@ -23,3 +23,11 @@ Référence de comparaison : Linear, Superhuman, Shortwave. Cible 9/10.
 - « Je m'attendais à une grosse refonte, je ne vois quasi aucun changement » : des retouches de style ne comptent pas. Le critère Caractère échoue si la structure de l'écran n'a pas changé.
 - « Plus qu'une boîte email, un outil à mon service » : le critère Information se lit comme **Utilité** — l'écran aide-t-il à décider du destin d'un mail (pour info, à voir avec X, pour telle réunion, à déléguer, note à soi, à répondre) et à agir dessus ?
 - « Surprends-moi, audace et caractère, système innovant ». L'IA « je dois / on me doit » se trompe : ce qui est affiché doit être vérifiable.
+
+## Décisions verrouillées (2026-11-24, verdict d'Amaury sur l'aiguillage)
+
+- « L'aiguillage était une mauvaise idée, à supprimer » : note d'Amaury ≈ 2/10, là où les juges donnaient 6,5-6,9 et préféraient chaque nouvelle version. Écart > 4 points : les juges ne voient pas l'utilité réelle.
+- Pas de vue « par destin » ni de voies : rien qui re-présente un tri qu'il fait déjà avec ses labels et ses onglets.
+- Trois surfaces nouvelles rejetées (Orbite, « À aiguiller », Aiguillage) ; gardées : des actions sur une ligne (« Note à moi », « En tâche, puis ranger »). Un changement se juge à ce test : ajoute-t-il une surface, ou raccourcit-il un geste qu'il fait déjà ?
+- Critère Caractère : une surface nouvelle ne rapporte aucun point si elle double une information déjà à l'écran.
+- Rien ne s'empile sur une idée qu'il n'a pas vue et validée à l'écran.

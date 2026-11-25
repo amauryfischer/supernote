@@ -45,6 +45,7 @@ export type MailActionId =
   | "todoSchedule"
   | "todoDelegate"
   | "todoEliminate"
+  | "toTask"
   | "select"
   | "selectAll"
   | "rowMenu"
@@ -267,6 +268,14 @@ export const MAIL_SHORTCUTS: MailBinding[] = [
     keys: [["4"], ["'"]],
     display: "4",
     label: "Todo : Éliminer",
+    group: "Triage",
+    contexts: ALL,
+  },
+  {
+    id: "toTask",
+    keys: [["p"]],
+    display: "p",
+    label: "En tâche, puis ranger",
     group: "Triage",
     contexts: ALL,
   },

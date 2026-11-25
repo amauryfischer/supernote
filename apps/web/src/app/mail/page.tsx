@@ -2032,6 +2032,10 @@ export default function MailPage() {
       todoSchedule: fileTodo("schedule"),
       todoDelegate: fileTodo("delegate"),
       todoEliminate: fileTodo("eliminate"),
+      toTask: () => {
+        const id = targetThreadId();
+        if (id) void runBulkAction("todo", [id]);
+      },
       mute: () => {
         const id = targetThreadId();
         if (!id) return;
