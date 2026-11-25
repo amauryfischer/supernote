@@ -71,8 +71,6 @@ export function rowHasStar(row: OverlayRow): boolean {
  */
 const EMAIL_LIKE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-/** À passer comme `flatLabelIds` : aucun regroupement, chaque fil garde sa ligne (une voie liste ses fils). */
-export const NO_GROUPING: ReadonlySet<string> = new Set();
 
 export function buildMailOverlay(
   items: ThreadListItem[],
@@ -82,9 +80,6 @@ export function buildMailOverlay(
   // n'apprendrait rien.
   flatLabelIds?: ReadonlySet<string>,
 ): OverlayRow[] {
-  if (flatLabelIds === NO_GROUPING) {
-    return items.map<OverlayRow>((item) => ({ kind: "single", item })).sort((a, b) => (a.kind === "single" && b.kind === "single" && a.item.date < b.item.date ? 1 : -1));
-  }
   const selfSet = new Set(
     (typeof selfEmails === "string" ? [selfEmails] : (selfEmails ?? []))
       .map((e) => e.trim().toLowerCase())

@@ -44,3 +44,8 @@ Bilan de la passe : à chaque tour les deux juges préfèrent la version la plus
 - Aperçu sur une ligne en mobile, « + Label » dans le fil ouvert.
 - Voies « à voir avec » et « délégué » : âge du fil le plus ancien (« délégué · 4 j »), date du dernier message du fil.
 - « Tout marquer comme lu » d'un groupe met aussi à jour la liste cumulée (corrigé, non exercé au banc).
+- Voies de réunion et « à voir avec » : bouton « Ouvrir l'ordre du jour en note » (note Inbox à cases à cocher, prouvé au banc).
+
+### Verdict d'Amaury (2026-11-24) : aiguillage supprimé
+
+« Je vois encore l'aiguillage qui était une mauvaise idée, à supprimer. » Volet, ruban mobile, bandeau de voie et `buildDestins` retirés. Restent : « Note à moi » sur les lignes, « En tâche(s), puis ranger », teinte des pastilles de label. Les juges préféraient chaque version à la précédente : leur avis ne valait rien ici.

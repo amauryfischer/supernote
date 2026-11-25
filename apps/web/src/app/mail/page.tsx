@@ -38,9 +38,6 @@ import { useGmailConnected } from "@/hooks/useGmailConnected";
 import { useConfirm } from "@/hooks/usePrompt";
 import { EmailThreadView, type EmailThreadHandle } from "@/components/mail/EmailThreadView";
 import { MailConsoleBar } from "@/components/mail/MailConsoleBar";
-import { MailCockpit } from "@/components/mail/MailCockpit";
-import { buildDestins } from "@/lib/mail-destins";
-import { VoieBanner, VoieStrip } from "@/components/mail/MailAiguillage";
 import { useSelfNotes } from "@/components/mail/useSelfNotes";
 import { awaitsMyReply } from "@/lib/mail-awaiting";
 import { MAIL_SENT_EVENT } from "@/lib/mail-outgoing";
@@ -96,7 +93,7 @@ import {
   DEFAULT_SNOOZE_PRESET,
   type TriageAction,
 } from "@/lib/mail-triage";
-import { buildMailOverlay, NO_GROUPING, type OverlayRow } from "@/lib/mail-overlay";
+import { buildMailOverlay, type OverlayRow } from "@/lib/mail-overlay";
 import {
   mirrorAvailable,
   mirrorApplyMutation,
@@ -225,8 +222,6 @@ function followCursor(el: HTMLElement, rowSelector: string) {
   }
 }
 
-const NO_COLLAPSED: ReadonlySet<MailSectionId> = new Set();
-const fold = (s: string) => s.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().trim();
 
 export default function MailPage() {
   const { settings } = useSettings();
@@ -500,7 +495,7 @@ export default function MailPage() {
           {
             id: "mail-today",
             icon: CalendarBlank,
-            label: "Aiguillage et journée",
+            label: "Aujourd'hui",
             onPress: () => setTodaySheet(true),
           },
           ...(settings.gmail.listSummary && aiConfigured
@@ -517,19 +512,10 @@ export default function MailPage() {
       : [],
   );
 
-  const [voieId, setVoieId] = useState<string | null>(null);
-  const voieIdsRef = useRef<ReadonlySet<string> | null>(null);
-  const flatLabelIds = useCallback(
-    // Une voie liste ses fils : sans cela elle se replie en une seule ligne « label ×30 ».
-    () => (voieIdsRef.current ? NO_GROUPING : flatLabelIdsForTab(mailTabRef.current, groupsRef.current)),
-    [],
-  );
+  const flatLabelIds = useCallback(() => flatLabelIdsForTab(mailTabRef.current, groupsRef.current), []);
 
   // Items visibles pour l'onglet ACTIF (lit des refs → callback stable).
   const computeVisible = useCallback((items: ThreadListItem[]): ThreadListItem[] => {
-    // Une voie de l'Aiguillage traverse les onglets : elle montre ses fils, où qu'ils soient rangés.
-    const voieIds = voieIdsRef.current;
-    if (voieIds) return items.filter((it) => voieIds.has(it.id));
     // Onglet « En attente » : aucune ligne d'inbox derrière, sinon j/k/e agiraient sur des fils invisibles.
     if (mailTabRef.current === "waiting") return [];
     const groupId = groupIdFromTab(mailTabRef.current);
@@ -602,10 +588,9 @@ export default function MailPage() {
         buildMailSections(rows, Date.now(), todoLabelIdSet(todoLabelIds), (it) =>
           awaitsMyReply(it, selfAddresses),
         ),
-        // Une voie montre tous ses fils : aucune section repliée ne doit en cacher.
-        voieId ? NO_COLLAPSED : collapsedSections,
+        collapsedSections,
       ),
-    [rows, collapsedSections, todoLabelIds, selfAddresses, voieId],
+    [rows, collapsedSections, todoLabelIds, selfAddresses],
   );
   const threadPosition = useMemo(() => {
     if (!selectedThreadId) return null;
@@ -634,33 +619,6 @@ export default function MailPage() {
   }, [connected, workerReady]);
 
   const selfNotes = useSelfNotes(clientId, selfAddresses[0] ?? "", cumItems.length > 0);
-  // Sous une recherche, `cumItems` porte les résultats : les voies gardent la dernière boîte connue.
-  const boxItemsRef = useRef(cumItems);
-  if (query === DEFAULT_MAIL_QUERY) boxItemsRef.current = cumItems;
-  const boxItems = boxItemsRef.current;
-  const destins = useMemo(
-    () => buildDestins(boxItems, labelNames, selfAddresses, selfNotes),
-    [boxItems, labelNames, selfAddresses, selfNotes],
-  );
-  const writeToVoie = useCallback(
-    (title: string, body: string) => {
-      const key = fold(title);
-      const to = cumItems.map((it) => it.from).find((f) => fold(f.name).split(/\s+/).includes(key))?.email;
-      setComposeInitial({ to, subject: "Points à voir ensemble", body });
-      setComposeOpen(true);
-    },
-    [cumItems],
-  );
-  const voie = destins.find((d) => d.id === voieId && d.items.length > 0) ?? null;
-  const voieIds = useMemo(() => (voie ? new Set(voie.items.map((it) => it.id)) : null), [voie]);
-  voieIdsRef.current = voieIds;
-  const pickVoie = useCallback((id: string | null) => {
-    setVoieId(id);
-    if (id) setMailTab("inbox");
-  }, []);
-  useEffect(() => {
-    if (mailTab !== "inbox") setVoieId(null);
-  }, [mailTab]);
 
   // Bascule d'onglet inbox ↔ groupe : re-dérive les rows depuis les items déjà
   // chargés (mirror INBOX), sans refetch réseau → instantané.
@@ -670,7 +628,7 @@ export default function MailPage() {
       buildMailOverlay(computeVisible(cumItems), labelNames, selfAddresses, flatLabelIds()),
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mailTab, groups, cumItems, labelNames, selfAddresses, computeVisible, flatLabelIds, voieIds]);
+  }, [mailTab, groups, cumItems, labelNames, selfAddresses, computeVisible, flatLabelIds]);
 
   // Resynchro pendant la session : la liste suit Gmail sans rechargement. Jamais
   // sous une recherche, une sélection multiple ou un chargement, et jamais sans
@@ -2664,7 +2622,6 @@ export default function MailPage() {
           {!listLoading && !listError && rows.length > 0 && (
             <>
               {isMobile && consoleBar}
-              {voie ? <VoieBanner voie={voie} onWrite={writeToVoie} selfEmails={selfAddresses} summaries={listSummaries.summaries} onClear={() => pickVoie(null)} onArchiveAll={() => void runBulkAction("archive", voie.items.map((it) => it.id))} onTaskAll={selfNotes ? () => void runBulkAction("todo", voie.items.filter((it) => selfNotes.ids.has(it.id)).map((it) => it.id)) : undefined} /> : isMobile && <VoieStrip destins={destins} onPickVoie={pickVoie} />}
               <MailOverlayList
                 rows={displayRows}
                 activeKey={activeKey}
@@ -2946,12 +2903,7 @@ export default function MailPage() {
         </div>
       )}
       {!threadLoading && !threadError && !thread && (
-        <MailCockpit
-          showToday={!todayOpen}
-          destins={destins}
-          voieId={voie?.id ?? null}
-          onPickVoie={pickVoie}
-        />
+        <div className="h-full overflow-y-auto">{!todayOpen && <TodayPanel />}</div>
       )}
     </div>
   );
@@ -2960,17 +2912,8 @@ export default function MailPage() {
   const overlays = (
     <>
       {isMobile && todaySheet && (
-        <MobileSheet isOpen onClose={() => setTodaySheet(false)} title="Aiguillage et journée" size="lg">
-          <MailCockpit
-            showToday
-            bare
-            destins={destins}
-            voieId={voie?.id ?? null}
-            onPickVoie={(id) => {
-              setTodaySheet(false);
-              pickVoie(id);
-            }}
-          />
+        <MobileSheet isOpen onClose={() => setTodaySheet(false)} title="Aujourd'hui" size="lg">
+          <TodayPanel />
         </MobileSheet>
       )}
       {isMobile && dossierSheet && threadContact && (

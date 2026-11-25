@@ -472,7 +472,11 @@ function MailSectionHeader({
         >
           {marker.title}
         </span>
-        <span className="ml-auto flex shrink-0 items-baseline font-mono tabular-nums" style={{ color: "var(--text-muted)" }}>
+        <span
+          className="ml-auto flex shrink-0 items-baseline font-mono tabular-nums"
+          style={{ color: "var(--text-muted)" }}
+          title={marker.unread > 0 ? `${marker.unread} non lu(s) sur ${marker.count}` : `${marker.count} fil(s)`}
+        >
           {marker.unread > 0 && (
             <span
               className="text-[13px] font-semibold"
@@ -485,15 +489,17 @@ function MailSectionHeader({
         </span>
       </Button>
       {marker.unread > 0 && onMarkRead && (
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8 shrink-0 md:h-6 md:w-6"
-          aria-label={`Marquer « ${marker.title} » comme lu`}
-          onPress={() => onMarkRead(marker.unreadIds)}
-        >
-          <Checks size={13} aria-hidden style={{ color: "var(--text-muted)" }} />
-        </Button>
+        <Tooltip content={`Marquer « ${marker.title} » comme lu`}>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 shrink-0 md:h-6 md:w-6"
+            aria-label={`Marquer « ${marker.title} » comme lu`}
+            onPress={() => onMarkRead(marker.unreadIds)}
+          >
+            <Checks size={13} aria-hidden style={{ color: "var(--text-muted)" }} />
+          </Button>
+        </Tooltip>
       )}
       {!(marker.unread > 0 && onMarkRead) && <span aria-hidden className="w-8 shrink-0 md:w-6" />}
     </div>

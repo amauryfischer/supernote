@@ -1264,18 +1264,6 @@ html, body {
   }
 }
 
-/* Aiguillage du mail : les voies fréquentées « roulent » vers leur quai. */
-@media (prefers-reduced-motion: no-preference) {
-  .sn-track-flow {
-    animation: sn-track-flow 1.6s linear infinite;
-  }
-}
-@keyframes sn-track-flow {
-  to {
-    stroke-dashoffset: -16;
-  }
-}
-
 /* ── Gouttière latérale d'une note ───────────────────────────────────────── */
 
 /* Même arête gauche pour le titre, la barre méta, le texte et le pied. La
