@@ -72,3 +72,5 @@ Note d'Amaury sur cet écran : demandée, pas encore donnée.
 
 **Bilan série 2** : 6,2/6,5 → 7,0/7,1 → 6,7/6,7. Leçon : ne pas corriger un défaut cité par un seul juge à la fois (labels) — c'est ce qui a fait reculer la note.
 - Après la série 2 : curseur clavier marqué par un liseré 3 px en couleur de texte (clair et sombre). Carte du dernier message laissée teintée : couleur par personne, validée en prod le 2026-10-27.
+- Bug corrigé : « En tâche, puis ranger » sur un fil ouvert hors de la liste chargée (recherche, onglet Todo, lien direct) ne faisait rien, en silence. Le fil ouvert sert maintenant de source ; prouvé au banc. Frise mobile : jour comparé en heure locale.
+- Abandonné sur avis : pas de refonte de la « grammaire de ligne » (idée d'un seul juge, la ligne était sur la liste « ne pas toucher » du tour 1), pas de série 3 tant que la preuve ne change pas (les juges plafonnent vers 7,5, écrit dans la grille).

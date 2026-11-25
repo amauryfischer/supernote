@@ -1076,7 +1076,14 @@ export default function MailPage() {
       if (kind === "todo") {
         try {
           // Les tâches d'abord : si une création échoue, rien n'a encore quitté la boîte.
-          for (const it of cumItems.filter((c) => ids.includes(c.id))) {
+          const known = cumItems.filter((c) => ids.includes(c.id));
+          // Fil ouvert depuis la recherche ou l'onglet Todo : absent de la liste chargée, on le lit dans le fil lui-même.
+          const last = thread?.messages.at(-1);
+          const opened =
+            thread && last && ids.includes(thread.id) && !known.some((c) => c.id === thread.id)
+              ? [{ id: thread.id, subject: thread.messages[0]?.subject ?? "", snippet: last.snippet ?? "", from: last.from }]
+              : [];
+          for (const it of [...known, ...opened]) {
             const created = await trpcVanillaClient.entities.create.mutate({
               typeId: TODO_TYPE_ID,
               fields: {
@@ -1102,6 +1109,10 @@ export default function MailPage() {
           return;
         }
         ids = [...todoIds.keys()];
+        if (ids.length === 0) {
+          setBulkBusy(false);
+          return;
+        }
       }
       if (kind === "read") {
         const strip = (it: ThreadListItem): ThreadListItem =>
