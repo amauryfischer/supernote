@@ -1160,7 +1160,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
                         >
                           <Envelope size={16} />
                           <span className="flex-1 text-left">Non lu</span>
-                          <kbd className="text-xs" style={{ color: "var(--text-muted)" }}>{shortcutKey("markUnread")}</kbd>
+                          <kbd className="text-xs max-md:hidden" style={{ color: "var(--text-muted)" }}>{shortcutKey("markUnread")}</kbd>
                         </Button>
                       )}
                       {clientId && (
@@ -1187,7 +1187,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
                         >
                           <ListChecks size={16} />
                           <span className="flex-1 text-left">En tâche, puis ranger</span>
-                          <kbd className="text-xs" style={{ color: "var(--text-muted)" }}>{shortcutKey("toTask")}</kbd>
+                          <kbd className="text-xs max-md:hidden" style={{ color: "var(--text-muted)" }}>{shortcutKey("toTask")}</kbd>
                         </Button>
                       )}
                       {onCaptureNote && (
@@ -1288,7 +1288,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
                         >
                           <ArrowBendUpRight size={16} />
                           <span className="flex-1 text-left">Transférer</span>
-                          <kbd className="text-xs" style={{ color: "var(--text-muted)" }}>{shortcutKey("forward")}</kbd>
+                          <kbd className="text-xs max-md:hidden" style={{ color: "var(--text-muted)" }}>{shortcutKey("forward")}</kbd>
                         </Button>
                       )}
                       {shareEnabled && shareAccount && (
@@ -1347,7 +1347,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
                         >
                           <SpeakerSlash size={16} />
                           <span className="flex-1 text-left">Ignorer ce fil</span>
-                          <kbd className="text-xs" style={{ color: "var(--text-muted)" }}>{shortcutKey("mute")}</kbd>
+                          <kbd className="text-xs max-md:hidden" style={{ color: "var(--text-muted)" }}>{shortcutKey("mute")}</kbd>
                         </Button>
                       )}
                       {clientId && correspondentMsg && (

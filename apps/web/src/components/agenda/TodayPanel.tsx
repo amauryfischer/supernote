@@ -83,7 +83,7 @@ export function TodayPanel({ onClose }: { onClose?: () => void }) {
           <h2 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
             Aujourd'hui
           </h2>
-          <p className="text-xs capitalize" style={{ color: "var(--text-muted)" }}>
+          <p className="text-xs first-letter:uppercase" style={{ color: "var(--text-muted)" }}>
             {formatDayLong(now)}
           </p>
         </div>

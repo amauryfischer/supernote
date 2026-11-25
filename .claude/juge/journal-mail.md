@@ -54,3 +54,14 @@ Bilan de la passe : à chaque tour les deux juges préfèrent la version la plus
 
 - Nouvelle base : écran sans aiguillage (prod d863f81). Règle : raccourcir un geste existant, pas de surface nouvelle.
 - Raccourci `p` : « En tâche, puis ranger » sur le fil sélectionné ou ouvert, annulable par `z`, listé dans l'aide `?`. Prouvé au banc.
+- « En tâche, puis ranger » dans le menu « Plus d'actions » du fil ouvert (c53e6d8), prouvé au banc mobile.
+- Libellé « Extraire les actions » rendu visible sur mobile (ligne du menu sans texte).
+- 2026-11-25 : Amaury autorise commit + déploiement de chaque lot vérifié sans redemander.
+
+### Série 2 — écran sans aiguillage (grille avec décisions verrouillées)
+
+| Tour | Juge A | Juge B | Correctifs |
+|---|---|---|---|
+| 1 | 6,2 | 6,5 | Communs corrigés : l'âge reste visible sur la ligne survolée/ouverte (actions à sa gauche) ; raccourcis clavier masqués dans le menu du fil sur mobile. Bug : « Novembre » → « novembre » (volet Aujourd'hui). Communs NON corrigés, à trancher par Amaury : la ligne sélectionnée se déplie (la liste saute au j/k) ; le panneau droit « Mes priorités » prend 1/5 de la largeur ; point orange à halo = « à toi » vs « non lu » peu lisible ; pastille Annuler qui recouvre la dernière ligne. |
+
+Note d'Amaury sur cet écran : demandée, pas encore donnée.

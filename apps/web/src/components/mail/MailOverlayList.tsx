@@ -732,10 +732,12 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
 
         <span
           className={`col-start-3 row-start-1 flex shrink-0 items-center justify-end gap-1.5 @xl:col-start-4 ${
-            hoverActions ? "md:group-focus-within/row:invisible md:group-focus-within/row:min-w-[5.5rem] md:group-hover/row:invisible md:group-hover/row:min-w-[5.5rem]" : ""
+            hoverActions ? "md:group-focus-within/row:pl-[5.75rem] md:group-hover/row:pl-[5.75rem]" : ""
           }`}
         >
-          {starred && <Star size={13} weight="fill" aria-label="Étoilé" style={{ color: "var(--text-primary)" }} />}
+          {starred && (
+            <Star size={13} weight="fill" aria-label="Étoilé" className={hoverActions ? "md:group-focus-within/row:hidden md:group-hover/row:hidden" : ""} style={{ color: "var(--text-primary)" }} />
+          )}
           <span
             className={`min-w-[3.25rem] text-right font-mono tabular-nums ${awaiting && age ? "text-[12px] font-semibold" : "text-[11px]"}`}
             style={{ color: awaiting ? EMBER_INK : unread ? "var(--text-primary)" : "var(--text-muted)" }}
@@ -853,9 +855,9 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
       </span>
       {rowButton}
       {hoverActions && singleItem && (
-        // Hors du Button de ligne (pas de bouton dans un bouton), posé sur la colonne date que le survol libère ; le tactile a le glissement et l'appui long.
+        // Hors du Button de ligne (pas de bouton dans un bouton), posé à gauche de l'âge, qui reste lisible ; le tactile a le glissement et l'appui long.
         <div
-          className="pointer-events-none absolute right-2.5 top-0.5 z-[1] flex items-center gap-0.5 opacity-0 group-focus-within/row:pointer-events-auto group-focus-within/row:opacity-100 group-hover/row:pointer-events-auto group-hover/row:opacity-100 max-md:hidden @xl:top-[3px]"
+          className="pointer-events-none absolute right-[4.5rem] top-0.5 z-[1] flex items-center gap-0.5 opacity-0 group-focus-within/row:pointer-events-auto group-focus-within/row:opacity-100 group-hover/row:pointer-events-auto group-hover/row:opacity-100 max-md:hidden @xl:top-[3px]"
           style={{ transition: "var(--sn-transition-opacity)" }}
         >
           {onToggleStar && (
