@@ -4,7 +4,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperti
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Button, Tooltip } from "@supernote/ui";
 import { Checkbox } from "@supernote/ui";
-import { Star, DotsSixVertical, Sparkle, CaretDown, Checks, Clock, Trash } from "@phosphor-icons/react";
+import { Star, DotsSixVertical, Sparkle, CaretDown, Checks, Clock, ListChecks, Trash } from "@phosphor-icons/react";
 import {
   DndContext,
   useDraggable,
@@ -60,6 +60,7 @@ interface SharedRowProps {
   /** Appui long (mobile) : feuille d'actions de la ligne. */
   onLongPressRow?: (row: OverlayRow) => void;
   onSnoozeRow?: (row: OverlayRow) => void;
+  onTaskRow?: (row: OverlayRow) => void;
   onTriageRow?: (row: OverlayRow, action: TriageAction, until?: number) => void;
   indexAttr: RowIndexAttr;
   hideLabelId?: string;
@@ -132,6 +133,7 @@ export function MailOverlayList({
   onConvertRowToTodo,
   onTriageRow,
   onSnoozeRow,
+  onTaskRow,
   onMarkRowRead,
   onApplyLabel,
   userLabels,
@@ -185,6 +187,7 @@ export function MailOverlayList({
   onTriageRow?: (row: OverlayRow, action: TriageAction, until?: number) => void;
   /** Bouton « Reporter » au survol : ouvre le SnoozeMenu de la page sur cette ligne. */
   onSnoozeRow?: (row: OverlayRow) => void;
+  onTaskRow?: (row: OverlayRow) => void;
   /** Clic droit : marquer lu/non-lu une ligne single. */
   onMarkRowRead?: (row: OverlayRow, read: boolean) => void;
   /**
@@ -337,6 +340,7 @@ export function MailOverlayList({
     onSwipeRow,
     onLongPressRow,
     onSnoozeRow,
+    onTaskRow,
     onTriageRow,
     indexAttr,
     hideLabelId,
@@ -526,6 +530,7 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
     onSwipeRow,
     onLongPressRow,
     onSnoozeRow,
+    onTaskRow,
     onTriageRow,
     indexAttr,
     hideLabelId,
@@ -732,7 +737,7 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
 
         <span
           className={`col-start-3 row-start-1 flex shrink-0 items-center justify-end gap-1.5 @xl:col-start-4 ${
-            hoverActions ? "md:group-focus-within/row:pl-[5.75rem] md:group-hover/row:pl-[5.75rem]" : ""
+            hoverActions ? "md:group-focus-within/row:pl-[7.5rem] md:group-hover/row:pl-[7.5rem]" : ""
           }`}
         >
           {starred && (
@@ -866,6 +871,11 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
               onPress={() => onToggleStar(singleItem.id, singleItem.labelIds)}
             >
               <Star size={14} weight={starred ? "fill" : "regular"} />
+            </RowAction>
+          )}
+          {onTaskRow && (
+            <RowAction label="En tâche, puis ranger (p)" onPress={() => onTaskRow(row)}>
+              <ListChecks size={14} />
             </RowAction>
           )}
           {onSnoozeRow && (

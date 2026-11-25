@@ -2642,6 +2642,7 @@ export default function MailPage() {
                 onConvertRowToTodo={handleConvertRow}
                 onTriageRow={handleTriageRow}
                 onSnoozeRow={(row) => row.kind === "single" && setSnoozeTarget({ id: row.item.id, subject: row.item.subject })}
+                onTaskRow={(row) => row.kind === "single" && void runBulkAction("todo", [row.item.id])}
                 onMarkRowRead={handleMarkRowRead}
                 onApplyLabel={isMobile ? undefined : handleApplyLabel}
                 userLabels={labelNames}
@@ -2711,6 +2712,7 @@ export default function MailPage() {
           onConvertRowToTodo={handleConvertRow}
           onTriageRow={handleTriageRow}
           onSnoozeRow={(row) => row.kind === "single" && setSnoozeTarget({ id: row.item.id, subject: row.item.subject })}
+          onTaskRow={(row) => row.kind === "single" && void runBulkAction("todo", [row.item.id])}
           onMarkRowRead={handleMarkRowRead}
           onDeleteAll={() => triageGroup(selectedGroup, "delete")}
           onArchiveAll={() => triageGroup(selectedGroup, "archive")}

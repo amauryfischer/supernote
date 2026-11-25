@@ -2592,15 +2592,21 @@ function ThreadTrunk({
                   </span>
                   {reply && (
                     <span
-                      className="shrink-0 font-mono text-[10.5px] tabular-nums max-md:hidden"
+                      className="shrink-0 font-mono text-[10.5px] tabular-nums"
                       style={{ color: "var(--text-secondary)" }}
                       title={`Réponse en ${reply}`}
                     >
                       ↩ {reply} ·
                     </span>
                   )}
-                  <span className="shrink-0 font-mono text-[11px] tabular-nums" style={{ color: "var(--text-muted)" }}>
+                  <span className="shrink-0 font-mono text-[11px] tabular-nums max-md:hidden" style={{ color: "var(--text-muted)" }}>
                     {formatMailDateTime(m.date ?? "")}
+                  </span>
+                  {/* Sur téléphone la date complète mangeait l'extrait : l'heure seule quand le jour ne change pas. */}
+                  <span className="shrink-0 font-mono text-[11px] tabular-nums md:hidden" style={{ color: "var(--text-muted)" }}>
+                    {i > 0 && (m.date ?? "").slice(0, 10) === (messages[i - 1]?.date ?? "").slice(0, 10)
+                      ? new Date(m.date ?? "").toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })
+                      : formatMailDateTime(m.date ?? "")}
                   </span>
                 </Button>
               )}
