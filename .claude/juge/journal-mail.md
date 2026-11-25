@@ -75,3 +75,7 @@ Note d'Amaury sur cet écran : demandée, pas encore donnée.
 - Bug corrigé : « En tâche, puis ranger » sur un fil ouvert hors de la liste chargée (recherche, onglet Todo, lien direct) ne faisait rien, en silence. Le fil ouvert sert maintenant de source ; prouvé au banc. Frise mobile : jour comparé en heure locale.
 - Abandonné sur avis : pas de refonte de la « grammaire de ligne » (idée d'un seul juge, la ligne était sur la liste « ne pas toucher » du tour 1), pas de série 3 tant que la preuve ne change pas (les juges plafonnent vers 7,5, écrit dans la grille).
 - « En tâche, puis ranger » sur un fil déjà en tâche ouverte : pas de seconde tâche, le fil est seulement rangé. Prouvé au banc.
+
+### Vérification sur la vraie boîte (2026-11-25, prod 8fff24c, lecture seule)
+
+Aucun aiguillage ; 27 lignes, toutes à 34 px ; 88 notes à soi relevées par la requête (cache à jour) ; les réponses à des tiers restent « Moi ↗ » et non « Note à moi » ; action « En tâche, puis ranger » présente au survol. Non essayé : `p` lui-même (aurait modifié la boîte). Vu : bandeau « Quota Gmail atteint » transitoire, disparu une minute plus tard ; la requête des notes à soi coûte un appel par 30 min, elle n'en est pas la cause.
