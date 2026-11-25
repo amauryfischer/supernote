@@ -1073,6 +1073,7 @@ export default function MailPage() {
       setBulkBusy(true);
       const triage: TriageAction = kind === "todo" || kind === "archive" ? "archive" : "delete";
       const todoIds = new Map<string, string>();
+      const tasked: string[] = [];
       if (kind === "todo") {
         try {
           // Les tâches d'abord : si une création échoue, rien n'a encore quitté la boîte.
@@ -1083,7 +1084,16 @@ export default function MailPage() {
             thread && last && ids.includes(thread.id) && !known.some((c) => c.id === thread.id)
               ? [{ id: thread.id, subject: thread.messages[0]?.subject ?? "", snippet: last.snippet ?? "", from: last.from }]
               : [];
+          // Un fil déjà en tâche ouverte n'en reçoit pas une seconde : il est seulement rangé.
+          const todos = await trpcVanillaClient.entities.list.query({ typeId: TODO_TYPE_ID, limit: 1000 });
+          const alreadyTasked = new Set(
+            todos.items.filter((e) => e.fields.done !== true).map((e) => e.fields.mailThreadId).filter((v): v is string => typeof v === "string"),
+          );
           for (const it of [...known, ...opened]) {
+            if (alreadyTasked.has(it.id)) {
+              tasked.push(it.id);
+              continue;
+            }
             const created = await trpcVanillaClient.entities.create.mutate({
               typeId: TODO_TYPE_ID,
               fields: {
@@ -1108,7 +1118,7 @@ export default function MailPage() {
           toast({ title: "Création des tâches échouée", description: err instanceof Error ? err.message : String(err), variant: "danger" });
           return;
         }
-        ids = [...todoIds.keys()];
+        ids = [...todoIds.keys(), ...tasked];
         if (ids.length === 0) {
           setBulkBusy(false);
           return;
