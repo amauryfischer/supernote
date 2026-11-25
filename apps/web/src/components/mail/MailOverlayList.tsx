@@ -630,11 +630,11 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
     activeKey === key
       ? { backgroundColor: "var(--accent-subtle)", boxShadow: "inset 2px 0 0 0 var(--accent)" }
       : cursored
-        ? { backgroundColor: "var(--surface-2, var(--accent-subtle))", boxShadow: "inset 2px 0 0 0 var(--text-muted)" }
+        ? { backgroundColor: "var(--surface-2, var(--accent-subtle))", boxShadow: "inset 3px 0 0 0 var(--text-primary)" }
         : awaiting
           ? { boxShadow: `inset ${heat > 2 ? 3 : 2}px 0 0 0 color-mix(in oklab, ${EMBER} ${HEAT_EDGE[heat]}, transparent)` }
           : undefined;
-  const hoverActions = Boolean(singleItem && (onToggleStar || onSnoozeRow || onTriageRow));
+  const hoverActions = Boolean(singleItem && (onToggleStar || onTaskRow || onSnoozeRow || onTriageRow));
   const chips = singleItem ? (
     <RowLabelChips
       labelIds={singleItem.labelIds.filter((id) => id !== hideLabelId && !EMAIL_LIKE.test(labelNames?.get(id) ?? ""))}

@@ -71,3 +71,4 @@ Note d'Amaury sur cet écran : demandée, pas encore donnée.
 | 3 | 6,7 | 6,7 | Recul (7,0/7,1 → 6,7) : le lot « labels qui cèdent la place » perdait de l'information (« Mel… », « Todo… ») — annulé. Communs corrigés : délai de réponse rendu à la frise mobile (heure seule quand le jour ne change pas) ; « En tâche, puis ranger » ajouté aux actions de survol d'une ligne. Les deux juges : 8 n'est pas atteignable par la finition seule (plafond 7,4-7,6), Caractère reste à 6,5 sans changement de structure. Série de 3 tours close. |
 
 **Bilan série 2** : 6,2/6,5 → 7,0/7,1 → 6,7/6,7. Leçon : ne pas corriger un défaut cité par un seul juge à la fois (labels) — c'est ce qui a fait reculer la note.
+- Après la série 2 : curseur clavier marqué par un liseré 3 px en couleur de texte (clair et sombre). Carte du dernier message laissée teintée : couleur par personne, validée en prod le 2026-10-27.
