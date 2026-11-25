@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { MAIL_SENT_EVENT } from "@/lib/mail-outgoing";
 import {
   ModalRoot,
   ModalBackdrop,
@@ -921,20 +922,33 @@ let sentRecipientsCache: Promise<EmailAddress[]> | null = null;
 const SENT_RECIPIENTS_KEY = "supernote.mail.sentRecipients";
 const SENT_RECIPIENTS_TTL_MS = 24 * 3_600_000;
 
-async function loadSentRecipients(clientId: string): Promise<EmailAddress[]> {
+async function loadSentRecipients(clientId: string, account: string): Promise<EmailAddress[]> {
   try {
-    const c = JSON.parse(localStorage.getItem(SENT_RECIPIENTS_KEY) ?? "null") as { clientId: string; at: number; list: EmailAddress[] } | null;
-    if (c?.clientId === clientId && Date.now() - c.at < SENT_RECIPIENTS_TTL_MS) return c.list;
+    const c = JSON.parse(localStorage.getItem(SENT_RECIPIENTS_KEY) ?? "null") as { account: string; at: number; list: EmailAddress[] } | null;
+    if (c?.account === account && Date.now() - c.at < SENT_RECIPIENTS_TTL_MS) return c.list;
   } catch {
     /* cache illisible : relu chez Gmail */
   }
   const list = await listSentRecipients(clientId, 50);
+  // Une liste vide est un échec (quota, hors ligne) : la figer 24 h priverait d'autocomplétion.
+  if (list.length === 0) return list;
   try {
-    localStorage.setItem(SENT_RECIPIENTS_KEY, JSON.stringify({ clientId, at: Date.now(), list }));
+    localStorage.setItem(SENT_RECIPIENTS_KEY, JSON.stringify({ account, at: Date.now(), list }));
   } catch {
     /* pas de cache : relu à la prochaine ouverture */
   }
   return list;
+}
+
+// Un envoi peut révéler un nouveau destinataire : la prochaine ouverture relit Gmail.
+if (typeof window !== "undefined") {
+  window.addEventListener(MAIL_SENT_EVENT, () => {
+    try {
+      localStorage.removeItem(SENT_RECIPIENTS_KEY);
+    } catch {
+      /* rien à purger */
+    }
+  });
 }
 
 const fold = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
@@ -948,7 +962,7 @@ export function useRecipientSuggestions(correspondents: EmailAddress[]): EmailAd
   useEffect(() => {
     if (!clientId) return undefined;
     let alive = true;
-    sentRecipientsCache ??= loadSentRecipients(clientId).catch(() => []);
+    sentRecipientsCache ??= loadSentRecipients(clientId, settings.gmail.connectedEmail).catch(() => []);
     void sentRecipientsCache.then((list) => {
       if (alive) setSent(list);
     });
