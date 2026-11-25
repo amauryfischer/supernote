@@ -2592,11 +2592,11 @@ function ThreadTrunk({
                   </span>
                   {reply && (
                     <span
-                      className="shrink-0 font-mono text-[10.5px] tabular-nums"
+                      className="shrink-0 font-mono text-[10.5px] tabular-nums max-md:hidden"
                       style={{ color: "var(--text-secondary)" }}
                       title={`Réponse en ${reply}`}
                     >
-                      ↩ {reply}
+                      ↩ {reply} ·
                     </span>
                   )}
                   <span className="shrink-0 font-mono text-[11px] tabular-nums" style={{ color: "var(--text-muted)" }}>

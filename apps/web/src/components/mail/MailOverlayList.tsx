@@ -468,7 +468,7 @@ function MailSectionHeader({
         />
         <span
           className="truncate font-mono text-[10.5px] uppercase tracking-[0.08em]"
-          style={{ color: marker.id === "awaiting" ? EMBER_INK : "var(--text-muted)" }}
+          style={{ color: marker.id === "awaiting" ? EMBER_INK : "var(--text-secondary)" }}
         >
           {marker.title}
         </span>
