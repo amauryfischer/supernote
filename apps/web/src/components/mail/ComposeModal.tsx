@@ -917,6 +917,26 @@ function Pill({
 // sur un 403 de quota l'entretiendrait.
 let sentRecipientsCache: Promise<EmailAddress[]> | null = null;
 
+// Sans ce cache, chaque ouverture de page relisait 50 messages envoyés (~250 unités de quota Gmail).
+const SENT_RECIPIENTS_KEY = "supernote.mail.sentRecipients";
+const SENT_RECIPIENTS_TTL_MS = 24 * 3_600_000;
+
+async function loadSentRecipients(clientId: string): Promise<EmailAddress[]> {
+  try {
+    const c = JSON.parse(localStorage.getItem(SENT_RECIPIENTS_KEY) ?? "null") as { clientId: string; at: number; list: EmailAddress[] } | null;
+    if (c?.clientId === clientId && Date.now() - c.at < SENT_RECIPIENTS_TTL_MS) return c.list;
+  } catch {
+    /* cache illisible : relu chez Gmail */
+  }
+  const list = await listSentRecipients(clientId, 50);
+  try {
+    localStorage.setItem(SENT_RECIPIENTS_KEY, JSON.stringify({ clientId, at: Date.now(), list }));
+  } catch {
+    /* pas de cache : relu à la prochaine ouverture */
+  }
+  return list;
+}
+
 const fold = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 
 /** Destinataires habituels (envoyés, par fréquence) + contacts du coffre + expéditeurs connus + mes adresses. */
@@ -928,7 +948,7 @@ export function useRecipientSuggestions(correspondents: EmailAddress[]): EmailAd
   useEffect(() => {
     if (!clientId) return undefined;
     let alive = true;
-    sentRecipientsCache ??= listSentRecipients(clientId, 50).catch(() => []);
+    sentRecipientsCache ??= loadSentRecipients(clientId).catch(() => []);
     void sentRecipientsCache.then((list) => {
       if (alive) setSent(list);
     });

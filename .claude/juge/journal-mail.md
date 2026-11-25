@@ -79,3 +79,4 @@ Note d'Amaury sur cet écran : demandée, pas encore donnée.
 ### Vérification sur la vraie boîte (2026-11-25, prod 8fff24c, lecture seule)
 
 Aucun aiguillage ; 27 lignes, toutes à 34 px ; 88 notes à soi relevées par la requête (cache à jour) ; les réponses à des tiers restent « Moi ↗ » et non « Note à moi » ; action « En tâche, puis ranger » présente au survol. Non essayé : `p` lui-même (aurait modifié la boîte). Vu : bandeau « Quota Gmail atteint » transitoire, disparu une minute plus tard ; la requête des notes à soi coûte un appel par 30 min, elle n'en est pas la cause.
+- Mesure sur la vraie boîte : chaque ouverture de /mail coûtait ~60 appels Gmail, dont ~51 pour relire les 50 derniers envoyés (suggestions de destinataires). Mis en cache 24 h. La synchro seule coûte 3 appels. Le refus de quota vu au chargement venait d'une passe complète de rattrapage (pic de 288 appels), guérie d'elle-même ; le consommateur extérieur reste non identifié.
