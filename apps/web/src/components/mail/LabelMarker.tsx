@@ -120,6 +120,7 @@ export function RowLabelChips({
   const ids = names ? labelIds.filter((id) => names.has(id)) : [];
   return (
     <>
+      {/* Le label cède la place avant l'objet : sans descendre sous quelques lettres, le nom entier reste en infobulle. */}
       {ids.slice(0, ROW_LABELS_MAX).map((id) => {
         const voie = classifyLabel(names?.get(id) ?? "");
         if (!voie) return null;
@@ -128,7 +129,7 @@ export function RowLabelChips({
           <span
             key={id}
             title={names?.get(id)}
-            className="flex max-w-[6rem] shrink-0 items-center gap-1 rounded-full px-1.5 text-[10px] font-medium leading-[18px] md:max-w-[9rem]"
+            className="flex min-w-[3.25rem] max-w-[6rem] shrink-[4] items-center gap-1 overflow-hidden rounded-full px-1.5 text-[10px] font-medium leading-[18px] md:max-w-[9rem]"
             style={{ backgroundColor: `color-mix(in srgb, ${tint} 14%, transparent)`, color: "var(--text-primary)" }}
           >
             <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: tint }} />
@@ -140,7 +141,7 @@ export function RowLabelChips({
         <span
           key={id}
           title={names?.get(id)}
-          className="max-w-[5rem] shrink-0 truncate rounded-full px-1.5 text-[10px] font-medium leading-[18px] md:max-w-[8rem]"
+          className="min-w-[3rem] max-w-[5rem] shrink-[4] truncate rounded-full px-1.5 text-[10px] font-medium leading-[18px] md:max-w-[8rem]"
           style={labelChipSoftStyle(colors?.get(id))}
         >
           {names?.get(id)?.replace(/^Supernote\//, "")}
