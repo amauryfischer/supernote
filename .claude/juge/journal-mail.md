@@ -91,3 +91,16 @@ Aucun aiguillage ; 27 lignes, toutes à 34 px ; 88 notes à soi relevées par la
 
 Convergences (idées citées indépendamment) : sujet à plusieurs fils / « Tour de table » 9 agents sur 10 (4 premiers choix) ; ordre du jour de réunion lié à l'agenda 7 sur 10 (1 premier choix) ; délégation close sur la réponse réelle 3 ; notes à soi routées ou converties 3 ; séance de vidange bornée 1 ; table/dossier par personne 2 (proche de l'aiguillage rejeté).
 Mon croisement : retenir « Tour de table » en version déterministe (destinataires d'un envoi + réunion manuelle de fils, jamais de regroupement deviné), « Ordre du jour vivant » en second. Écarté : table par personne (redite de l'aiguillage), regroupement par objet ou IA (faux positifs). Verdict d'Amaury attendu avant toute mise en prod.
+
+### Idéation à 10 agents, 2ᵉ passe (2026-11-25) : 40 idées → 18, classées
+
+Un angle par agent (temps, boucles ouvertes, pont coffre, gestes, répondre, premiers principes, inbox programmable, veille 2025-26, mobile, signature). Barème : utilité 30 %, wow 25 %, goûts verrouillés 20 %, faisabilité 15 %, mobile 10 %.
+Tête : 1. Parapheur (questions + promesses, 5 agents, 8,4) · 2. Réveil sur preuve — Relais, Quittance, réveils conditionnels (8,2) · 3. Gestes rejoués/prédits (8,1, registre « raccourcir », pas la touche wow) · 4. Ligne de flottaison boîte × agenda (7,8) · 5. Contrats de réponse (7,5) · 6. Relevé mail → ligne de Base (7,3, le plus différenciant, effort L).
+Écarté en tête d'affiche : Arrivée unique (section « Capture » dans /mail, proche des surfaces rejetées).
+
+### Prototype Parapheur (2026-11-25, branche, non déployé)
+
+- Grille : questions du dernier message reçu, mot pour mot, règles fixes (« ? », « merci de me confirmer… », « dis-moi »), politesse et signature écartées. `r` ouvre la grille tant que la réponse est vide ; o oui · n non · l « je reviens vers vous d'ici <jour> » · 1-3 créneau libre de l'agenda (questions de date, agenda synchronisé seulement) · e écrire. La réponse s'écrit sous « question » citée entre guillemets ; tranchée = citation suivie d'une réponse. Envoi retenu une fois si la grille a servi et qu'une question reste ouverte.
+- Promesses : phrases à la 1ʳᵉ personne, fermes, datées (`findFrenchDeadline`), repérées à la frappe ; éteintes par défaut, « Suivre » (⌥P) → à l'envoi tâche datée liée au fil + engagement « je dois » accepté ; retirés si l'envoi est annulé.
+- Mobile : « Répondre aux n questions » sur le composeur replié, une réponse par toucher, pas de clavier ouvert d'office.
+- Prouvé par e2e 27-parapheur (desktop clavier + mobile). Verdict d'Amaury attendu avant déploiement.
