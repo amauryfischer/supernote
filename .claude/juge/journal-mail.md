@@ -65,3 +65,4 @@ Bilan de la passe : à chaque tour les deux juges préfèrent la version la plus
 | 1 | 6,2 | 6,5 | Communs corrigés : l'âge reste visible sur la ligne survolée/ouverte (actions à sa gauche) ; raccourcis clavier masqués dans le menu du fil sur mobile. Bug : « Novembre » → « novembre » (volet Aujourd'hui). Communs NON corrigés, à trancher par Amaury : la ligne sélectionnée se déplie (la liste saute au j/k) ; le panneau droit « Mes priorités » prend 1/5 de la largeur ; point orange à halo = « à toi » vs « non lu » peu lisible ; pastille Annuler qui recouvre la dernière ligne. |
 
 Note d'Amaury sur cet écran : demandée, pas encore donnée.
+| 1 bis | — | — | Amaury : « comme tu veux, j'ai dit autonome full ». Ligne sélectionnée à hauteur constante (plus de saut sous j/k), aperçu sur la ligne. Gardés tels quels par choix : braise orange « à toi » (élément-signature, chaleur = âge), panneau droit du shell (bascule de l'utilisateur), pastille Annuler flottante. |

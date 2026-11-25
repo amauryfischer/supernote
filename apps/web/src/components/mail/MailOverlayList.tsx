@@ -702,7 +702,7 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
                 </span>
                 {chips}
               </span>
-              {preview && !focused && (
+              {preview && (
                 <span
                   className="hidden h-5 min-w-[7rem] flex-1 items-center gap-1 @xl:flex"
                   style={{ color: "var(--text-muted)" }}
@@ -716,10 +716,10 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
           )}
         </span>
 
-        {/* Desktop : ligne compacte, résumé déplié sur la ligne active (pas dans le rail, le fil l'affiche) ; mobile : toujours. */}
+        {/* Desktop : hauteur de ligne constante (rien ne saute sous j/k), l'aperçu tient sur la ligne ; mobile : aperçu dessous. */}
         {preview && row.kind === "single" && (
           <span
-            className={`col-start-2 col-end-4 row-start-3 hidden min-w-0 items-start gap-1.5 text-[12px] leading-snug max-md:flex @xl:col-start-3 @xl:col-end-5 @xl:row-start-2 ${focused ? "@xl:flex" : ""}`}
+            className={`col-start-2 col-end-4 row-start-3 hidden min-w-0 items-start gap-1.5 text-[12px] leading-snug max-md:flex @xl:col-start-3 @xl:col-end-5 @xl:row-start-2`}
             style={{ color: aiPreview ? "var(--text-secondary)" : "var(--text-muted)" }}
             title={aiPreview ? `Résumé par l'IA locale : ${preview}` : preview}
           >
