@@ -11,14 +11,19 @@ const days = (iso: string) => Math.max(0, Math.floor((Date.now() - new Date(iso)
 export function TourDeTable({
   tour,
   onRemind,
+  elsewhere = [],
   children,
 }: {
   tour: Tour;
   onRemind?: (emails: string[]) => void;
+  /** Silencieux du fil qui ont écrit dans un autre fil depuis la demande : pas relancés d'office. */
+  elsewhere?: readonly string[];
   children?: ReactNode;
 }) {
   const done = !tour.open && tour.missing.length === 0;
   const age = days(tour.askedAt);
+  const wroteElsewhere = (email: string) => elsewhere.includes(email.toLowerCase());
+  const toRemind = tour.missing.filter((a) => !wroteElsewhere(a.email));
   return (
     <div
       className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border px-3 py-2"
@@ -33,12 +38,12 @@ export function TourDeTable({
       <ul className="flex min-w-[11rem] flex-1 flex-wrap gap-1.5" aria-label="Réponses à ta demande">
         {tour.asked.map((a) => {
           const answered = !tour.open && tour.answered.includes(a);
-          const plain = tour.open;
+          const plain = tour.open || (!answered && wroteElsewhere(a.email));
           return (
             <li
               key={a.email}
-              title={plain ? a.name || a.email : `${a.name || a.email} — ${answered ? "a répondu" : `sans réponse depuis ${age} j`}`}
-              className="flex h-6 items-center gap-1.5 rounded-full border px-2 text-xs"
+              title={!tour.open && plain ? `${a.name || a.email} — a écrit dans un autre fil` : plain ? a.name || a.email : `${a.name || a.email} — ${answered ? "a répondu" : `sans réponse depuis ${age} j`}`}
+              className={`flex h-6 items-center gap-1.5 rounded-full border px-2 text-xs ${!tour.open && plain ? "border-dashed" : ""}`}
               style={{
                 borderColor: answered || plain ? "var(--border-subtle)" : "color-mix(in oklab, var(--sn-ember) 45%, transparent)",
                 color: answered ? "var(--text-muted)" : "var(--text-primary)",
@@ -60,10 +65,11 @@ export function TourDeTable({
           Tout le monde a répondu
         </span>
       ) : (
-        onRemind && (
-          <Button variant="outline" size="sm" onPress={() => onRemind(tour.missing.map((a) => a.email))}>
+        onRemind &&
+        toRemind.length > 0 && (
+          <Button variant="outline" size="sm" onPress={() => onRemind(toRemind.map((a) => a.email))}>
             <ArrowBendUpLeft size={14} aria-hidden />
-            Relancer {tour.missing.length === 1 ? shortName(tour.missing[0]!) : `les ${tour.missing.length}`}
+            Relancer {toRemind.length === 1 ? shortName(toRemind[0]!) : `les ${toRemind.length}`}
           </Button>
         )
       )}

@@ -74,14 +74,15 @@ function tallies(): Record<string, string> {
   }
 }
 
-/** Dernier décompte connu d'un sujet (« 4/6 ») : la liste l'affiche sans relire ses fils. */
-export function subjectTally(labelId: string): string | null {
-  return tallies()[labelId] ?? null;
+/** Dernier décompte connu d'un sujet ou d'un fil (« 4/6 ») : la liste l'affiche sans relire les messages. */
+export function subjectTally(id: string): string | null {
+  return tallies()[id] ?? null;
 }
 
 export function rememberSubjectTally(labelId: string, tour: TourDeTable | null): void {
   const all = tallies();
-  if (tour && !tour.open) all[labelId] = `${tour.answered.length}/${tour.asked.length}`;
+  // Tour bouclé : plus rien à suivre, la ligne redevient ordinaire.
+  if (tour && !tour.open && tour.missing.length > 0) all[labelId] = `${tour.answered.length}/${tour.asked.length}`;
   else delete all[labelId];
   try {
     localStorage.setItem(TALLY_KEY, JSON.stringify(all));

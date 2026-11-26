@@ -120,3 +120,7 @@ Tête : 1. Parapheur (questions + promesses, 5 agents, 8,4) · 2. Réveil sur pr
 - Relance mobile : non reproduite en vrai contexte mobile (bons destinataires), la capture jugée venait d'un redimensionnement du banc.
 - Corrigé au passage : le sujet créé depuis un fil ouvert restait à l'ancien décompte (labels du fil non relus, recherche Gmail en retard) → relecture jusqu'à 3 fois.
 - Non traité : l'ordre du jour ouvre une liste chronologique plate (juge B seul).
+- Tour 2 : A 6,3 (préfère la nouvelle version), B 6,0 (préfère la nouvelle version). Cités par les deux : la relance incluait ceux qui avaient écrit ailleurs ; rien de visible au repos ; titre du sujet tronqué dans la liste.
+- Correctifs : ceux qui ont écrit dans un autre fil passent en pastille neutre pointillée et sortent de la relance par défaut ; « Réunir N réponses d'autres fils » devient un vrai bouton ; la ligne d'un fil porte son décompte « 2/6 » une fois le fil ouvert (dernier connu, effacé quand tout le monde a répondu).
+- Non traité : titre de sujet tronqué (colonne « qui » à largeur fixe) ; colonne de droite vide (A seul) ; ordre du jour en liste plate (B seul, tour 1).
+- Plateau : +0,3 à +0,5 entre les deux tours. Le reproche restant commun est structurel (« rien ne se voit boîte fermée sans agenda connecté ») : à trancher par Amaury, pas par un tour de plus.

@@ -3036,7 +3036,7 @@ export default function MailPage() {
                   onRemindElsewhere={remindFromSubject}
                   onGatherStray={
                     strayReplies.length > 0
-                      ? { count: strayReplies.length, run: () => void gatherSubject([thread.id, ...strayReplies.map((it) => it.id)]) }
+                      ? { count: strayReplies.length, emails: strayReplies.map((it) => it.from.email.toLowerCase()), run: () => void gatherSubject([thread.id, ...strayReplies.map((it) => it.id)]) }
                       : undefined
                   }
                   hideTour={!isMobile && subjectStrip !== null}

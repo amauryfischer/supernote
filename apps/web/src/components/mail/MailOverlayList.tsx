@@ -594,7 +594,12 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
   const preview = aiSummary ?? previewItem?.snippet ?? "";
   const aiPreview = Boolean(aiSummary);
 
-  const tally = row.kind === "group" && row.subject ? subjectTally(row.key.slice("label:".length)) : null;
+  const tally =
+    row.kind === "single"
+      ? subjectTally(row.item.id)
+      : row.subject
+        ? subjectTally(row.key.slice("label:".length))
+        : null;
   // Console : une ligne = statut · qui · quoi · quand, colonnes fixes pour lire 300 mails/jour en diagonale.
   const who =
     row.kind === "group" && row.groupType === "label" ? (

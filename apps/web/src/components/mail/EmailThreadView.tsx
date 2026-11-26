@@ -55,7 +55,7 @@ import {
   type PendingAttachment,
 } from "@/lib/mail-attachments";
 import { buildReplyParams, pickReplyAll, buildQuotedBody, replyHeaders } from "@/lib/mail-reply";
-import { tourDeTable, type TourDeTable as TourDeTableData } from "@/lib/mail-tour";
+import { rememberSubjectTally, tourDeTable, type TourDeTable as TourDeTableData } from "@/lib/mail-tour";
 import { TourDeTable } from "./TourDeTable";
 import {
   buildForwardSubject,
@@ -284,7 +284,7 @@ interface EmailThreadViewProps {
   /** Tour de table du sujet (plusieurs fils) auquel ce fil appartient : remplace celui du fil seul. */
   subjectTour?: TourDeTableData | null;
   /** Des silencieux ont écrit dans d'autres fils depuis la demande : proposer de les réunir. */
-  onGatherStray?: { count: number; run: () => void };
+  onGatherStray?: { count: number; emails: string[]; run: () => void };
   /** Le volet du sujet, visible à côté, porte déjà le tour de table. */
   hideTour?: boolean;
   /** Relance demandée alors que la demande vit dans un autre fil du sujet. */
@@ -606,6 +606,8 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
 
   const ownTour = useMemo(() => tourDeTable([thread], aiThread.selfEmails ?? []), [thread, aiThread.selfEmails]);
   const tour = hideTour ? null : (subjectTour ?? ownTour);
+  // La liste affiche ce décompte sur la ligne du fil, sans le relire.
+  useEffect(() => rememberSubjectTally(thread.id, ownTour), [thread.id, ownTour]);
 
   const lastFromMe =
     (thread.messages[thread.messages.length - 1]?.from.email ?? "").toLowerCase() ===
@@ -1698,10 +1700,14 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
 
       {tour && (
         // La relance part du fil de la demande : ailleurs, ses réponses échapperaient au compte.
-        <TourDeTable tour={tour} onRemind={!tour.threadId || tour.threadId === thread.id ? remind : onRemindElsewhere}>
+        <TourDeTable
+          tour={tour}
+          elsewhere={onGatherStray?.emails}
+          onRemind={!tour.threadId || tour.threadId === thread.id ? remind : onRemindElsewhere}
+        >
           {onGatherStray && (
-            <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onPress={onGatherStray.run}>
-              {onGatherStray.count} réponse{onGatherStray.count > 1 ? "s" : ""} dans d'autres fils · réunir
+            <Button variant="outline" size="sm" onPress={onGatherStray.run}>
+              Réunir {onGatherStray.count} réponse{onGatherStray.count > 1 ? "s" : ""} d'autres fils
             </Button>
           )}
         </TourDeTable>
