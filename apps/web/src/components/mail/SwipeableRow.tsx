@@ -57,6 +57,12 @@ export function useSwipeGesture({
   // Le handler `touchend` lit la dernière position via une ref (l'état `dx` y serait périmé).
   const dxRef = useRef(0);
   dxRef.current = dx;
+  // Lus par ref : recréés à chaque rendu, ils relanceraient l'effet et annuleraient un appui long en cours.
+  const onSwipeRef = useRef(onSwipe);
+  onSwipeRef.current = onSwipe;
+  const onLongPressRef = useRef(onLongPress);
+  onLongPressRef.current = onLongPress;
+  const hasLongPress = Boolean(onLongPress);
 
   useEffect(() => {
     if (!el || disabled) return undefined;
@@ -81,11 +87,11 @@ export function useSwipeGesture({
       startY = t.clientY;
       decided = false;
       setAnimating(false);
-      if (onLongPress) {
+      if (hasLongPress) {
         longPressTimer = setTimeout(() => {
           cancelLongPress();
           haptic(15);
-          onLongPress();
+          onLongPressRef.current?.();
         }, 500);
       }
     };
@@ -125,7 +131,7 @@ export function useSwipeGesture({
         // dans le mouvement plutôt que de sauter.
         setDx(Math.sign(dxRef.current) * (el.offsetWidth || 320));
         setTimeout(() => {
-          onSwipe(action);
+          onSwipeRef.current(action);
           setDx(0);
           setAnimating(false);
         }, 160);
@@ -146,7 +152,7 @@ export function useSwipeGesture({
       el.removeEventListener("touchend", onEnd);
       el.removeEventListener("touchcancel", onEnd);
     };
-  }, [el, disabled, allowDelete, onSwipe, onLongPress]);
+  }, [el, disabled, allowDelete, hasLongPress]);
 
   // Pas de transform au repos : il changerait le bloc conteneur des `fixed` descendants.
   const style: CSSProperties | undefined =

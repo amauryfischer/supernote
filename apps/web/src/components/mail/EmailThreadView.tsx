@@ -196,6 +196,8 @@ const MENU_COMPONENT_ROW =
 export interface EmailThreadHandle {
   /** Charge un texte (ex. brouillon IA choisi) dans la zone de réponse + focus. */
   loadDraft: (text: string) => void;
+  /** Fil réellement monté : une commande destinée à un autre fil ne doit pas s'y appliquer. */
+  threadId: string;
   /** Prépare une relance adressée à ces seuls destinataires. */
   remind: (emails: string[]) => void;
   /** Prépare la relance des silencieux du tour de table, hors ceux qui ont écrit ailleurs. */
@@ -1116,6 +1118,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
   useImperativeHandle(
     ref,
     () => ({
+      threadId: thread.id,
       remind,
       remindSilent: () => {
         const skip = onGatherStray?.emails ?? [];

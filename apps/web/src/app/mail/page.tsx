@@ -874,7 +874,7 @@ export default function MailPage() {
   const subjectThreads = useSubjectThreads(
     clientId,
     accountId,
-    subjectLabelId ? (labelNames.get(subjectLabelId) ?? null) : null,
+    subjectLabelId,
     cumItems.filter((it) => subjectLabelId && it.labelIds.includes(subjectLabelId)).length,
   );
   const subjectTour = useMemo(
@@ -892,7 +892,7 @@ export default function MailPage() {
     if (!thread || (subjectLabelId && openThreadLabelIds.includes(subjectLabelId))) return [];
     const own = tourDeTable([thread], selfAddresses);
     if (!own) return [];
-    return strayRepliesOf(own, thread.id, cumItems);
+    return strayRepliesOf(own, thread.id, thread.messages[0]?.subject ?? "", cumItems);
   }, [thread, subjectLabelId, openThreadLabelIds, selfAddresses, cumItems]);
 
   // Recalé à chaque changement de liste : assez pour « dans 2 h », sans minuterie.
@@ -2832,14 +2832,19 @@ export default function MailPage() {
       </div>
     );
 
-  // Le composeur n'existe qu'une fois le fil monté et relu.
+  // La commande n'est passée qu'au fil visé, une fois monté : sinon la relance prendrait les
+  // destinataires du fil précédemment ouvert.
+  const whenThreadMounted = (threadId: string, run: (h: EmailThreadHandle) => void, tries = 25) => {
+    const h = threadRef.current;
+    if (h?.threadId === threadId) return void window.setTimeout(() => run(h), 150);
+    if (tries > 0) window.setTimeout(() => whenThreadMounted(threadId, run, tries - 1), 150);
+  };
   const remindSilent = (threadId: string) =>
-    void openThread(threadId).then(() => window.setTimeout(() => threadRef.current?.remindSilent(), 400));
+    void openThread(threadId).then(() => whenThreadMounted(threadId, () => threadRef.current?.remindSilent()));
   const remindFromSubject = (emails: string[]) => {
     const anchor = subjectTour?.threadId;
     if (!anchor) return;
-    // Le composeur n'existe qu'une fois le fil monté.
-    void openThread(anchor).then(() => window.setTimeout(() => threadRef.current?.remind(emails), 250));
+    void openThread(anchor).then(() => whenThreadMounted(anchor, () => threadRef.current?.remind(emails)));
   };
   const subjectStrip =
     subjectLabelId && selectedGroupLabelId === subjectLabelId && subjectTour ? (

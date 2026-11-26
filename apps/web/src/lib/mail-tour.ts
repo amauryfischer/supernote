@@ -70,15 +70,40 @@ function silentNames(silent: EmailAddress[]): string {
   return silent.length > 2 ? `${names} +${silent.length - 2}` : names;
 }
 
-/** Fils de la boîte où un silencieux du tour a écrit depuis la demande : sa réponse est probablement là. */
-export function strayReplies<T extends { id: string; date: string; from: EmailAddress }>(
+const words = (subject: string) =>
+  new Set(
+    subject
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .split(/[^a-z0-9]+/)
+      .filter((w) => w.length >= 4 && !["avec", "pour", "dans", "votre", "notre", "vous", "nous"].includes(w)),
+  );
+
+/**
+ * Fils de la boîte où un silencieux du tour a écrit depuis la demande, sur un objet apparenté
+ * (un mot significatif en commun) : sans cette parenté, un mail sans rapport le ferait passer
+ * pour quelqu'un qui a répondu.
+ */
+export function strayReplies<T extends { id: string; date: string; from: EmailAddress; subject: string }>(
   tour: TourDeTable,
   threadId: string,
+  subject: string,
   items: readonly T[],
 ): T[] {
   const missing = new Set(tour.missing.map((a) => a.email.toLowerCase()));
-  return items.filter((it) => it.id !== threadId && it.date > tour.askedAt && missing.has(it.from.email.toLowerCase()));
+  const asked = words(subject);
+  return items.filter(
+    (it) =>
+      it.id !== threadId &&
+      it.date > tour.askedAt &&
+      missing.has(it.from.email.toLowerCase()) &&
+      [...words(it.subject)].some((w) => asked.has(w)),
+  );
 }
+
+/** Marqueur d'une demande dont tous les silencieux ont peut-être répondu ailleurs : à vérifier, pas à relancer. */
+export const isUnsureTally = (tally: string) => tally.endsWith("?");
 
 // « v2 » : l'ancien format stockait un décompte « 2/6 ».
 const TALLY_KEY = "supernote.mail.subjectTally.v2";
@@ -106,6 +131,8 @@ export function rememberSubjectTally(id: string, tour: TourDeTable | null, elsew
   // Ceux qui ont écrit dans un autre fil ne sont pas à relancer : la ligne ne les nomme pas.
   const silent = tour && !tour.open ? tour.missing.filter((a) => !elsewhere.includes(a.email.toLowerCase())) : [];
   if (silent.length > 0) all[id] = silentNames(silent);
+  // Une supposition n'efface jamais une demande ouverte : elle reste signalée, à vérifier.
+  else if (tour && !tour.open && tour.missing.length > 0) all[id] = `${tour.missing.length} à réunir ?`;
   else delete all[id];
   try {
     localStorage.setItem(TALLY_KEY, JSON.stringify(all));

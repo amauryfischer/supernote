@@ -5,7 +5,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { Button, Tooltip } from "@supernote/ui";
 import { Checkbox } from "@supernote/ui";
 import { Star, DotsSixVertical, Sparkle, CaretDown, Checks, Clock, ListChecks, Trash, UsersThree, ArrowBendUpLeft } from "@phosphor-icons/react";
-import { subjectTally } from "@/lib/mail-tour";
+import { isUnsureTally, subjectTally } from "@/lib/mail-tour";
 import {
   DndContext,
   useDraggable,
@@ -703,7 +703,7 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
           {tally && (
             <span
               className="inline-flex min-w-0 shrink items-center gap-1 text-[11px] font-medium"
-              title={`Sans réponse : ${tally}`}
+              title={isUnsureTally(tally) ? "Réponses probablement arrivées dans d'autres fils : ouvre le fil pour les réunir" : `Sans réponse : ${tally}`}
               style={{ color: "var(--sn-ember-ink)" }}
             >
               <UsersThree size={11} aria-hidden className="shrink-0" />
@@ -925,7 +925,7 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
               <Star size={14} weight={starred ? "fill" : "regular"} />
             </RowAction>
           )}
-          {onRemindRow && tally && (
+          {onRemindRow && tally && !isUnsureTally(tally) && (
             <RowAction label={`Relancer ${tally}`} onPress={() => onRemindRow(row)}>
               <ArrowBendUpLeft size={14} />
             </RowAction>

@@ -23,7 +23,7 @@ import {
   UsersThree,
   ArrowBendUpLeft,
 } from "@phosphor-icons/react";
-import { subjectTally } from "@/lib/mail-tour";
+import { isUnsureTally, subjectTally } from "@/lib/mail-tour";
 import type { TriageAction } from "@/lib/mail-triage";
 import type { ThreadListItem } from "@/lib/gmail";
 
@@ -116,7 +116,7 @@ export function MailRowSheet({
             label="Fait"
             onPress={run(() => onTriage(item.id, "archive"))}
           />
-          {silent && (
+          {silent && !isUnsureTally(silent) && (
             <SheetAction
               icon={<ArrowBendUpLeft size={18} />}
               label={`Relancer ${silent}`}

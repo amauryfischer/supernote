@@ -63,7 +63,7 @@ export function useTourTallies(
         if (!thread) continue;
         seen.current.set(it.id, it.date);
         const tour = tourDeTable([thread], selfEmails);
-        const elsewhere = tour ? strayReplies(tour, it.id, items).map((s) => s.from.email.toLowerCase()) : [];
+        const elsewhere = tour ? strayReplies(tour, it.id, it.subject, items).map((s) => s.from.email.toLowerCase()) : [];
         rememberSubjectTally(it.id, tour, elsewhere);
       }
       saveSeen(seen.current);

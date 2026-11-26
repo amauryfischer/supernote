@@ -461,11 +461,13 @@ export interface ThreadsPage {
 export async function searchThreadsPage(
   clientId: string,
   query: string,
-  opts: { maxResults?: number; pageToken?: string } = {},
+  opts: { maxResults?: number; pageToken?: string; labelIds?: string[] } = {},
 ): Promise<ThreadsPage> {
   const maxResults = opts.maxResults ?? 20;
   const token = opts.pageToken ? `&pageToken=${encodeURIComponent(opts.pageToken)}` : "";
-  const qs = `?q=${encodeURIComponent(query)}&maxResults=${maxResults}${token}`;
+  // Par id : la syntaxe `label:<nom>` dépend d'une normalisation du nom que Gmail ne documente pas.
+  const labels = (opts.labelIds ?? []).map((id) => `&labelIds=${encodeURIComponent(id)}`).join("");
+  const qs = `?q=${encodeURIComponent(query)}&maxResults=${maxResults}${token}${labels}`;
   const json = await gmailFetch<{
     threads?: Array<{ id: string; snippet?: string; historyId?: string }>;
     nextPageToken?: string;
