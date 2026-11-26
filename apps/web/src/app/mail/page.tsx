@@ -2786,6 +2786,7 @@ export default function MailPage() {
                 onTriageRow={handleTriageRow}
                 onSnoozeRow={(row) => row.kind === "single" && setSnoozeTarget({ id: row.item.id, subject: row.item.subject })}
                 onTaskRow={(row) => row.kind === "single" && void runBulkAction("todo", [row.item.id])}
+                onRemindRow={(row) => row.kind === "single" && remindSilent(row.item.id)}
                 onMarkRowRead={handleMarkRowRead}
                 onApplyLabel={isMobile ? undefined : handleApplyLabel}
                 userLabels={labelNames}
@@ -2832,6 +2833,9 @@ export default function MailPage() {
       </div>
     );
 
+  // Le composeur n'existe qu'une fois le fil monté et relu.
+  const remindSilent = (threadId: string) =>
+    void openThread(threadId).then(() => window.setTimeout(() => threadRef.current?.remindSilent(), 400));
   const remindFromSubject = (emails: string[]) => {
     const anchor = subjectTour?.threadId;
     if (!anchor) return;
@@ -2874,6 +2878,7 @@ export default function MailPage() {
           onTriageRow={handleTriageRow}
           onSnoozeRow={(row) => row.kind === "single" && setSnoozeTarget({ id: row.item.id, subject: row.item.subject })}
           onTaskRow={(row) => row.kind === "single" && void runBulkAction("todo", [row.item.id])}
+                onRemindRow={(row) => row.kind === "single" && remindSilent(row.item.id)}
           onMarkRowRead={handleMarkRowRead}
           onDeleteAll={() => triageGroup(selectedGroup, "delete")}
           onArchiveAll={() => triageGroup(selectedGroup, "archive")}
@@ -3129,6 +3134,7 @@ export default function MailPage() {
         onOpen={(id) => void openThread(id)}
         onTriage={(id, action) => triageThread(id, action)}
         onTodo={(id) => void runBulkAction("todo", [id])}
+        onRemind={remindSilent}
         subjects={[...labelNames].filter(([, n]) => n.startsWith(SUBJECT_PREFIX)).map(([id, n]) => ({ id, title: n.replace(SUBJECT_PREFIX, "") }))}
         onNewSubject={(id) => void gatherSubject([id])}
         onAddToSubject={handleApplyLabel}

@@ -21,7 +21,9 @@ import {
   ArrowSquareOut,
   SpeakerSlash,
   UsersThree,
+  ArrowBendUpLeft,
 } from "@phosphor-icons/react";
+import { subjectTally } from "@/lib/mail-tour";
 import type { TriageAction } from "@/lib/mail-triage";
 import type { ThreadListItem } from "@/lib/gmail";
 
@@ -31,6 +33,7 @@ export interface MailRowSheetProps {
   onOpen: (threadId: string) => void;
   onTriage: (threadId: string, action: TriageAction) => void;
   onTodo: (threadId: string) => void;
+  onRemind: (threadId: string) => void;
   onSnoozeMenu: (threadId: string, subject: string) => void;
   onToggleStar: (threadId: string, labelIds: string[]) => void;
   onMarkRead: (item: ThreadListItem, read: boolean) => void;
@@ -72,6 +75,7 @@ export function MailRowSheet({
   onOpen,
   onTriage,
   onTodo,
+  onRemind,
   onSnoozeMenu,
   onToggleStar,
   onMarkRead,
@@ -82,6 +86,8 @@ export function MailRowSheet({
 }: MailRowSheetProps) {
   const unread = item?.labelIds.includes("UNREAD") ?? false;
   const starred = item?.labelIds.includes("STARRED") ?? false;
+
+  const silent = item ? subjectTally(item.id) : null;
 
   const run = (fn: () => void) => () => {
     fn();
@@ -110,6 +116,13 @@ export function MailRowSheet({
             label="Fait"
             onPress={run(() => onTriage(item.id, "archive"))}
           />
+          {silent && (
+            <SheetAction
+              icon={<ArrowBendUpLeft size={18} />}
+              label={`Relancer ${silent}`}
+              onPress={run(() => onRemind(item.id))}
+            />
+          )}
           <SheetAction
             icon={<ListChecks size={18} />}
             label="En tâche, puis ranger"

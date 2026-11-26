@@ -4,7 +4,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperti
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Button, Tooltip } from "@supernote/ui";
 import { Checkbox } from "@supernote/ui";
-import { Star, DotsSixVertical, Sparkle, CaretDown, Checks, Clock, ListChecks, Trash, UsersThree } from "@phosphor-icons/react";
+import { Star, DotsSixVertical, Sparkle, CaretDown, Checks, Clock, ListChecks, Trash, UsersThree, ArrowBendUpLeft } from "@phosphor-icons/react";
 import { subjectTally } from "@/lib/mail-tour";
 import {
   DndContext,
@@ -62,6 +62,8 @@ interface SharedRowProps {
   onLongPressRow?: (row: OverlayRow) => void;
   onSnoozeRow?: (row: OverlayRow) => void;
   onTaskRow?: (row: OverlayRow) => void;
+  /** Relance les silencieux d'une demande à plusieurs, sans passer par la lecture du fil. */
+  onRemindRow?: (row: OverlayRow) => void;
   onTriageRow?: (row: OverlayRow, action: TriageAction, until?: number) => void;
   indexAttr: RowIndexAttr;
   hideLabelId?: string;
@@ -135,6 +137,7 @@ export function MailOverlayList({
   onTriageRow,
   onSnoozeRow,
   onTaskRow,
+  onRemindRow,
   onMarkRowRead,
   onApplyLabel,
   userLabels,
@@ -189,6 +192,8 @@ export function MailOverlayList({
   /** Bouton « Reporter » au survol : ouvre le SnoozeMenu de la page sur cette ligne. */
   onSnoozeRow?: (row: OverlayRow) => void;
   onTaskRow?: (row: OverlayRow) => void;
+  /** Relance les silencieux d'une demande à plusieurs, sans passer par la lecture du fil. */
+  onRemindRow?: (row: OverlayRow) => void;
   /** Clic droit : marquer lu/non-lu une ligne single. */
   onMarkRowRead?: (row: OverlayRow, read: boolean) => void;
   /**
@@ -342,6 +347,7 @@ export function MailOverlayList({
     onLongPressRow,
     onSnoozeRow,
     onTaskRow,
+    onRemindRow,
     onTriageRow,
     indexAttr,
     hideLabelId,
@@ -543,6 +549,7 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
     onLongPressRow,
     onSnoozeRow,
     onTaskRow,
+    onRemindRow,
     onTriageRow,
     indexAttr,
     hideLabelId,
@@ -912,6 +919,11 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
               onPress={() => onToggleStar(singleItem.id, singleItem.labelIds)}
             >
               <Star size={14} weight={starred ? "fill" : "regular"} />
+            </RowAction>
+          )}
+          {onRemindRow && tally && (
+            <RowAction label={`Relancer ${tally}`} onPress={() => onRemindRow(row)}>
+              <ArrowBendUpLeft size={14} />
             </RowAction>
           )}
           {onTaskRow && (

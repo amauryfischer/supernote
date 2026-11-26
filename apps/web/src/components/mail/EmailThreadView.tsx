@@ -198,6 +198,8 @@ export interface EmailThreadHandle {
   loadDraft: (text: string) => void;
   /** Prépare une relance adressée à ces seuls destinataires. */
   remind: (emails: string[]) => void;
+  /** Prépare la relance des silencieux du tour de table, hors ceux qui ont écrit ailleurs. */
+  remindSilent: () => void;
   /** Place le curseur dans la zone de réponse (raccourci `r`). */
   focusReply: () => void;
   /** Active « répondre à tous » puis focus la zone de réponse (raccourci `a`). */
@@ -1111,6 +1113,11 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
     ref,
     () => ({
       remind,
+      remindSilent: () => {
+        const skip = onGatherStray?.emails ?? [];
+        const emails = (ownTour?.missing ?? []).map((a) => a.email).filter((e) => !skip.includes(e.toLowerCase()));
+        if (emails.length > 0) remind(emails);
+      },
       loadDraft: (text: string) => {
         setReplyBody((prev) => (prev.trim() ? `${prev}\n\n${text}` : text));
         focusComposerText();
