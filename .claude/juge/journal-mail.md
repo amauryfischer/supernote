@@ -150,3 +150,7 @@ Tête : 1. Parapheur (questions + promesses, 5 agents, 8,4) · 2. Réveil sur pr
 - Correctifs : les prénoms gardent leur place (l'expéditeur cède) ; « a répondu » = coche au lieu du nom barré ; capture du survol ajoutée.
 - Défaut réel révélé par le juge A : le brouillon automatique d'un fil gardait le texte sans les destinataires — une relance retrouvée repartait vers le dernier expéditeur. Corrigé (destinataires sauvés et restaurés), scénario ajouté au banc.
 - Non retenu (A seul) : place fixe à droite de l'objet avec bouton de relance visible sans survol.
+- Tour 2 de la série 4 (5e au total) : A 6,1 et B 6,3, version actuelle préférée par les deux, mais plateau (6,45 → 6,2). Cités par les deux : le retard d'un fil suivi ne se lit pas sur la ligne ; « Relancer » indistinct au survol ; la fonction reste enfouie au repos, d'où leur demande commune d'une section en tête.
+- Correctifs : ancienneté en orange sur la ligne suivie ; action « Relancer » en orange au survol.
+- Série arrêtée au plateau (règle de la skill). Question posée à Amaury : section « On attend » en tête ? Réponse : « ok ».
+- Livré : section « On attend » sous « À toi de répondre » (demandes à plusieurs sans réponse de tous, sujets compris). Réutilise les sections existantes. Tranché seul, réversible : elle passe avant Étoilés et Todo (sur sa vraie boîte ses demandes ouvertes sont dans « Étoilés » replié, sinon la section resterait vide) ; « À toi » garde la main. Sur une ligne suivie où il a parlé en dernier, les prénoms prennent la cellule de l'expéditeur. Banc : 18 passés.

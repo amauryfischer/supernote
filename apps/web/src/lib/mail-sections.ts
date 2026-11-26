@@ -2,7 +2,8 @@
  * mail-sections — découpe la liste d'emails en SECTIONS avec un mini-en-tête,
  * au lieu d'un long ruban indifférencié (repère : Shortwave).
  *
- * Trois natures de section, dans cet ordre :
+ * En tête, « À toi de répondre » puis « On attend » (demandes à plusieurs sans réponse de tous).
+ * Ensuite trois natures de section, dans cet ordre :
  *  1. « Todo » — les fils rangés dans un label de la matrice (cf.
  *     `mail-eisenhower`), repliée par défaut : ils vivent dans le split Todo.
  *  2. « Étoilés » — sorti des buckets temporels. Un fil qu'on a marqué compte
@@ -23,6 +24,7 @@ import { rowHasStar, type OverlayRow } from "./mail-overlay";
 
 export type MailSectionId =
   | "awaiting"
+  | "pending"
   | "starred"
   | "todo"
   | "today"
@@ -40,6 +42,7 @@ export interface MailSection {
 /** Libellés affichés, dans l'ordre d'apparition. */
 const SECTION_TITLES: Record<MailSectionId, string> = {
   awaiting: "À toi de répondre",
+  pending: "On attend",
   starred: "Étoilés",
   todo: "Todo",
   today: "Aujourd'hui",
@@ -53,6 +56,7 @@ const SECTION_TITLES: Record<MailSectionId, string> = {
 // Ce qui demande une action d'abord, puis ce que l'utilisateur a mis de côté, puis la chronologie.
 const SECTION_ORDER: readonly MailSectionId[] = [
   "awaiting",
+  "pending",
   "starred",
   "todo",
   "today",
@@ -137,17 +141,25 @@ export function buildMailSections(
   now: number,
   todoLabelIds: ReadonlySet<string>,
   isAwaiting: (it: RowItem) => boolean = () => false,
+  isPending: (it: RowItem) => boolean = () => false,
 ): MailSection[] {
+  // Une demande à plusieurs encore ouverte passe avant Étoilés et Todo : rangée là, elle resterait
+  // cachée dans une section repliée. Si c'est à moi de répondre, « À toi » garde la main.
+  const waitsOnThem = (it: RowItem) => isPending(it) && !isAwaiting(it);
   const isTodo = (it: RowItem) => it.labelIds.some((id) => todoLabelIds.has(id));
   const isStarred = (it: RowItem) => it.labelIds.includes("STARRED");
   const buckets = new Map<MailSectionId, OverlayRow[]>();
   // Étoiler ou passer en Todo, c'est ranger : le fil quitte « À toi » pour sa section.
+  const onThem = (r: OverlayRow) => rowItems(r).some(waitsOnThem);
   const split = rows
-    .flatMap((r) => splitRow(r, isTodo, "#todo"))
-    .flatMap((r) => (rowItems(r).some(isTodo) ? [r] : splitRow(r, isStarred, "#star")))
-    .flatMap((r) => (rowItems(r).some(isTodo) || rowHasStar(r) ? [r] : splitRow(r, isAwaiting, "#await")));
+    .flatMap((r) => splitRow(r, waitsOnThem, "#pend"))
+    .flatMap((r) => (onThem(r) ? [r] : splitRow(r, isTodo, "#todo")))
+    .flatMap((r) => (onThem(r) || rowItems(r).some(isTodo) ? [r] : splitRow(r, isStarred, "#star")))
+    .flatMap((r) => (onThem(r) || rowItems(r).some(isTodo) || rowHasStar(r) ? [r] : splitRow(r, isAwaiting, "#await")));
   for (const row of split) {
-    const id = rowItems(row).some(isTodo)
+    const id = onThem(row)
+      ? "pending"
+      : rowItems(row).some(isTodo)
       ? "todo"
       : rowHasStar(row)
         ? "starred"

@@ -41,7 +41,7 @@ import { EmailThreadView, type EmailThreadHandle } from "@/components/mail/Email
 import { MailConsoleBar } from "@/components/mail/MailConsoleBar";
 import { useSelfNotes } from "@/components/mail/useSelfNotes";
 import { awaitsMyReply } from "@/lib/mail-awaiting";
-import { SUBJECT_PREFIX, rememberSubjectTally, strayReplies as strayRepliesOf, tourDeTable } from "@/lib/mail-tour";
+import { SUBJECT_PREFIX, rememberSubjectTally, strayReplies as strayRepliesOf, subjectTally, tourDeTable } from "@/lib/mail-tour";
 import { TourDeTable } from "@/components/mail/TourDeTable";
 import { useSubjectThreads } from "@/components/mail/useSubjectThreads";
 import { useTourTallies } from "@/components/mail/useTourTallies";
@@ -590,15 +590,22 @@ export default function MailPage() {
   }, [labelNames]);
 
   const todoLabelIds = useMemo(() => resolveTodoLabelIds(labelNames), [labelNames]);
+  const tallyTick = useTourTallies(clientId, accountId, cumItems, selfAddresses);
   const { rows: displayRows, markers: sectionMarkers } = useMemo(
     () =>
       flattenSections(
-        buildMailSections(rows, Date.now(), todoLabelIdSet(todoLabelIds), (it) =>
-          awaitsMyReply(it, selfAddresses),
+        buildMailSections(
+          rows,
+          Date.now(),
+          todoLabelIdSet(todoLabelIds),
+          (it) => awaitsMyReply(it, selfAddresses),
+          // Fil suivi, ou fil d'un sujet dont quelqu'un n'a pas répondu.
+          (it) => Boolean(subjectTally(it.id)) || it.labelIds.some((id) => Boolean(subjectTally(id))),
         ),
         collapsedSections,
       ),
-    [rows, collapsedSections, todoLabelIds, selfAddresses],
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- tallyTick : les décomptes vivent dans le localStorage
+    [rows, collapsedSections, todoLabelIds, selfAddresses, tallyTick],
   );
   const threadPosition = useMemo(() => {
     if (!selectedThreadId) return null;
@@ -882,7 +889,6 @@ export default function MailPage() {
     [subjectThreads, selfAddresses],
   );
 
-  useTourTallies(clientId, accountId, cumItems, selfAddresses);
   useEffect(() => {
     if (subjectLabelId && subjectThreads) rememberSubjectTally(subjectLabelId, subjectTour);
   }, [subjectLabelId, subjectThreads, subjectTour]);

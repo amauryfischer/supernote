@@ -450,7 +450,7 @@ function MailSectionHeader({
   onToggle?: (id: MailSectionId) => void;
   onMarkRead?: (threadIds: string[]) => void;
 }) {
-  const openAsks = marker.collapsed ? marker.threadIds.filter((id) => subjectTally(id)).length : 0;
+  const openAsks = marker.collapsed && marker.id !== "pending" ? marker.threadIds.filter((id) => subjectTally(id)).length : 0;
   return (
     <div
       role="presentation"
@@ -459,7 +459,7 @@ function MailSectionHeader({
       <span
         aria-hidden
         className="absolute inset-x-0 bottom-0 h-px"
-        style={{ background: marker.id === "awaiting" ? EMBER : "var(--border)" }}
+        style={{ background: (marker.id === "awaiting" || marker.id === "pending") ? EMBER : "var(--border)" }}
       />
       <Button
         variant="ghost"
@@ -480,7 +480,7 @@ function MailSectionHeader({
         />
         <span
           className="truncate font-mono text-[10.5px] uppercase tracking-[0.08em]"
-          style={{ color: marker.id === "awaiting" ? EMBER_INK : "var(--text-secondary)" }}
+          style={{ color: (marker.id === "awaiting" || marker.id === "pending") ? EMBER_INK : "var(--text-secondary)" }}
         >
           {marker.title}
         </span>
@@ -502,7 +502,7 @@ function MailSectionHeader({
           {marker.unread > 0 && (
             <span
               className="text-[13px] font-semibold"
-              style={{ color: marker.id === "awaiting" ? EMBER_INK : "var(--text-primary)" }}
+              style={{ color: (marker.id === "awaiting" || marker.id === "pending") ? EMBER_INK : "var(--text-primary)" }}
             >
               {marker.unread}
             </span>
@@ -701,10 +701,11 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
           className={`col-start-2 row-start-1 flex min-w-0 items-center gap-1.5 text-[13px] ${unread ? "font-semibold" : "font-medium"} ${isSubject ? "@xl:col-end-4" : ""}`}
           style={{ color: unread || awaiting ? "var(--text-primary)" : "var(--text-secondary)" }}
         >
-          {who}
+          {/* Demande suivie : « Moi » n'apprend rien, les silencieux prennent la place. */}
+          {!(tally && row.kind === "single" && !awaiting) && who}
           {tally && (
             <span
-              className="inline-flex max-w-[75%] shrink-0 items-center gap-1 text-[11px] font-medium"
+              className="inline-flex min-w-0 items-center gap-1 text-[12px] font-medium"
               title={isUnsureTally(tally) ? "Réponses probablement arrivées dans d'autres fils : ouvre le fil pour les réunir" : `Sans réponse : ${tally}`}
               style={{ color: "var(--sn-ember-ink)" }}
             >
