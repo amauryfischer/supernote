@@ -40,6 +40,9 @@ import { EmailThreadView, type EmailThreadHandle } from "@/components/mail/Email
 import { MailConsoleBar } from "@/components/mail/MailConsoleBar";
 import { useSelfNotes } from "@/components/mail/useSelfNotes";
 import { awaitsMyReply } from "@/lib/mail-awaiting";
+import { AGENDA_HORIZON_MS, meetingAgendas, meetingWhen } from "@/lib/mail-agenda";
+import { MeetingAgendaStrip } from "@/components/mail/MeetingAgendaStrip";
+import { useAgendaData } from "@/components/agenda/useAgendaData";
 import { MAIL_SENT_EVENT } from "@/lib/mail-outgoing";
 import { MailOverlayList } from "@/components/mail/MailOverlayList";
 import { MailGroupList } from "@/components/mail/MailGroupList";
@@ -854,6 +857,18 @@ export default function MailPage() {
       clearTimeout(t);
     };
   }, [thread]);
+
+  // Recalé à chaque changement de liste : assez pour « dans 2 h », sans minuterie.
+  const agendaNow = useMemo(() => Date.now(), [cumItems]); // eslint-disable-line react-hooks/exhaustive-deps
+  const agendaRange = useMemo(() => {
+    const from = new Date(agendaNow).setHours(0, 0, 0, 0);
+    return { from, to: from + AGENDA_HORIZON_MS + 86_400_000 };
+  }, [Math.floor(agendaNow / 86_400_000)]); // eslint-disable-line react-hooks/exhaustive-deps
+  const agendaEvents = useAgendaData(agendaRange, { checklists: false }).events;
+  const agendas = useMemo(
+    () => meetingAgendas(agendaEvents, cumItems, labelNames, agendaNow),
+    [agendaEvents, cumItems, labelNames, agendaNow],
+  );
 
   const onPick = useCallback(
     (row: OverlayRow) => {
@@ -2585,6 +2600,23 @@ export default function MailPage() {
             liste garde toute la hauteur) ; desktop : toujours visible. */}
         {isMobile ? mobileSearchOpen && searchBox : !searchSlot && searchBox}
         {!activeGroup && bulkBar}
+        {mailTab === "inbox" && query === DEFAULT_MAIL_QUERY && (
+          <MeetingAgendaStrip
+            agendas={agendas}
+            now={agendaNow}
+            onOpen={(a) =>
+              onPick({
+                kind: "group",
+                groupType: "label",
+                key: `label:${a.labelId}`,
+                title: `${a.event.summary} · ${meetingWhen(a.event.startAt, agendaNow)}`,
+                count: a.items.length,
+                items: a.items,
+                date: a.items.at(-1)?.date ?? "",
+              })
+            }
+          />
+        )}
         {/* `relative` = bloc englobant : sans ça, un descendant `position:absolute`
             (ex. span interne de la Checkbox HeroUI) prend `html` comme référent,
             échappe au clip de l'overflow et fait scroller TOUT le document. */}
