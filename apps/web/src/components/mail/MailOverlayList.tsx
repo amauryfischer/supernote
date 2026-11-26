@@ -444,6 +444,7 @@ function MailSectionHeader({
   onToggle?: (id: MailSectionId) => void;
   onMarkRead?: (threadIds: string[]) => void;
 }) {
+  const openAsks = marker.collapsed ? marker.threadIds.filter((id) => subjectTally(id)).length : 0;
   return (
     <div
       role="presentation"
@@ -477,6 +478,16 @@ function MailSectionHeader({
         >
           {marker.title}
         </span>
+        {marker.collapsed && openAsks > 0 && (
+          <span
+            className="inline-flex shrink-0 items-center gap-0.5 font-mono text-[10.5px] font-semibold tabular-nums"
+            title={`${openAsks} demande${openAsks > 1 ? "s" : ""} à plusieurs encore sans réponse de tous`}
+            style={{ color: EMBER_INK }}
+          >
+            <UsersThree size={11} aria-hidden />
+            {openAsks}
+          </span>
+        )}
         <span
           className="ml-auto flex shrink-0 items-baseline font-mono tabular-nums"
           style={{ color: "var(--text-muted)" }}

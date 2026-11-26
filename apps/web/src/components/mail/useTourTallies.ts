@@ -10,6 +10,25 @@ const SCAN_LIMIT = 80;
 // Lectures Gmail par session : le quota du compte est partagé avec un consommateur inconnu.
 const FETCH_LIMIT = 12;
 
+const SEEN_KEY = "supernote.mail.tourSeen";
+
+// Fil → date de son dernier message déjà examiné : évite de relire Gmail à chaque ouverture.
+function loadSeen(): Map<string, string> {
+  try {
+    return new Map(Object.entries(JSON.parse(localStorage.getItem(SEEN_KEY) ?? "{}") as Record<string, string>));
+  } catch {
+    return new Map();
+  }
+}
+
+function saveSeen(seen: Map<string, string>): void {
+  try {
+    localStorage.setItem(SEEN_KEY, JSON.stringify(Object.fromEntries([...seen].slice(-300))));
+  } catch {
+    // Stockage indisponible : on relira à la prochaine session.
+  }
+}
+
 /**
  * Décompte « 2/6 » des fils de la boîte, calculé au repos. Le miroir local sert d'abord ; seuls
  * les fils où j'ai parlé en dernier (une demande sans réponse) sont lus chez Gmail, une fois.
@@ -21,7 +40,8 @@ export function useTourTallies(
   items: readonly ThreadListItem[],
   selfEmails: readonly string[],
 ): number {
-  const seen = useRef(new Map<string, string>());
+  const [seenMap] = useState(loadSeen);
+  const seen = useRef(seenMap);
   const fetched = useRef(0);
   const [tick, setTick] = useState(0);
   useEffect(() => {
@@ -44,6 +64,7 @@ export function useTourTallies(
         seen.current.set(it.id, it.date);
         rememberSubjectTally(it.id, tourDeTable([thread], selfEmails));
       }
+      saveSeen(seen.current);
       if (!stale) setTick((n) => n + 1);
     }, 1500);
     return () => {

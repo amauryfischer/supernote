@@ -177,6 +177,8 @@ export interface MailSectionMarker {
   unread: number;
   /** Ids des fils non lus — cible de « tout marquer lu ». */
   unreadIds: string[];
+  /** Tous les fils de la section : sert à signaler ce qu'une section repliée cache. */
+  threadIds: string[];
   collapsed: boolean;
 }
 
@@ -208,6 +210,7 @@ export function flattenSections(
       count: section.rows.reduce((n, r) => n + rowThreadCount(r), 0),
       unread: unreadIds.length,
       unreadIds,
+      threadIds: section.rows.flatMap((r) => (r.kind === "single" ? [r.item.id] : r.items.map((it) => it.id))),
       collapsed: isCollapsed,
     });
     if (!isCollapsed) rows.push(...section.rows);
