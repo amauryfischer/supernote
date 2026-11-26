@@ -133,3 +133,4 @@ Tête : 1. Parapheur (questions + promesses, 5 agents, 8,4) · 2. Réveil sur pr
 - Limite connue : la ligne nomme encore comme silencieux ceux qui ont écrit dans un autre fil, tant que le sujet n'est pas réuni.
 - Série close à 3 tours (règle de la skill). Levier restant selon les deux juges : relancer depuis la ligne sans ouvrir le fil ; volets vides au repos.
 - Déploiement : caa080c reçu par Scalingo mais construction échouée (« Something bad happened », erreur de plateforme) ; relancée par le commit suivant.
+- Vraie boîte, prod bc6becf (lecture seule, nombres) : 4 demandes ouvertes ; visibles au repos sur 5 lignes nommant les silencieux, 1 groupe marqué, 1 section repliée marquée « 3 » (hypothèse des sections repliées confirmée). Ouverture suivante : 3 appels Gmail, 0 lecture de fil, 78 fils mémorisés, pas de quota. Ordre du jour toujours affiché.
