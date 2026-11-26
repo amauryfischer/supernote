@@ -7,7 +7,14 @@ export interface TourDeTable {
   missing: EmailAddress[];
   /** Date ISO de la demande. */
   askedAt: string;
+  /** Fil qui porte la demande : une relance y reste, sinon ses réponses échapperaient au compte. */
+  threadId: string;
+  /** Aucune demande écrite retrouvée : seules les voix entendues sont connues, personne ne « manque ». */
+  open?: boolean;
 }
+
+/** Préfixe des labels Gmail qui réunissent plusieurs fils en un sujet. */
+export const SUBJECT_PREFIX = "Sujet/";
 
 const key = (a: EmailAddress) => a.email.trim().toLowerCase();
 
@@ -22,7 +29,14 @@ export function tourDeTable(threads: readonly EmailThread[], selfEmails: readonl
   const messages = threads.flatMap((t) => t.messages).filter((m) => m.date).sort((a, b) => a.date.localeCompare(b.date));
   const others = (list: EmailAddress[]) => list.filter((a) => a.email && !self.has(key(a)));
   const anchorAt = messages.findIndex((m) => self.has(key(m.from)) && others(m.to).length >= 2);
-  if (anchorAt < 0) return null;
+  if (anchorAt < 0) {
+    if (threads.length < 2) return null;
+    const voices = new Map<string, EmailAddress>();
+    for (const m of messages) if (!self.has(key(m.from)) && !voices.has(key(m.from))) voices.set(key(m.from), m.from);
+    if (voices.size < 2) return null;
+    const list = [...voices.values()];
+    return { asked: list, answered: list, missing: [], askedAt: messages[0]!.date, threadId: "", open: true };
+  }
 
   const asked = new Map<string, EmailAddress>();
   const answeredKeys = new Set<string>();
@@ -39,6 +53,7 @@ export function tourDeTable(threads: readonly EmailThread[], selfEmails: readonl
     answered: list.filter((a) => answeredKeys.has(key(a))),
     missing: list.filter((a) => !answeredKeys.has(key(a))),
     askedAt: messages[anchorAt]!.date,
+    threadId: messages[anchorAt]!.threadId,
   };
 }
 

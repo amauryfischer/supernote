@@ -31,3 +31,10 @@ Référence de comparaison : Linear, Superhuman, Shortwave. Cible 9/10.
 - Trois surfaces nouvelles rejetées (Orbite, « À aiguiller », Aiguillage) ; gardées : des actions sur une ligne (« Note à moi », « En tâche, puis ranger »). Un changement se juge à ce test : ajoute-t-il une surface, ou raccourcit-il un geste qu'il fait déjà ?
 - Critère Caractère : une surface nouvelle ne rapporte aucun point si elle double une information déjà à l'écran.
 - Rien ne s'empile sur une idée qu'il n'a pas vue et validée à l'écran.
+
+## Verdict du 2026-11-25 : 5/10, « il manque une touche wow »
+
+- Écart avec les juges : 6,7 contre 5. Le manque n'est pas de finition : aucune fonction ne fait la différence ni n'est mise en avant.
+- Critère ajouté, à juger avant tout autre : **fonction différenciante mise en avant**. L'écran montre-t-il, sans qu'on la cherche, une chose qu'un client mail ne fait pas et qui sert son suivi réel ? Une fonction enfouie dans un menu ne compte pas.
+- Demandé par Amaury le 2026-11-26 : ordre du jour des réunions (labels rapprochés de l'agenda) et sujet à plusieurs fils (qui a répondu, qui manque). Ces deux surfaces sont donc validées dans leur principe ; leur exécution reste à juger par lui.
+- Garde-fou repris de l'aiguillage : l'ordre du jour n'existe que rattaché à une réunion à venir. Une liste permanente de labels serait l'aiguillage sous un autre nom.

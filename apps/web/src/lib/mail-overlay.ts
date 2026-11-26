@@ -1,4 +1,5 @@
 import type { ThreadListItem } from "@/lib/gmail";
+import { SUBJECT_PREFIX } from "@/lib/mail-tour";
 
 export type OverlayRow =
   | { kind: "single"; item: ThreadListItem }
@@ -101,6 +102,9 @@ export function buildMailOverlay(
   // Tous les labels (≥1), triés par taille desc puis nom asc → un item
   // multi-label tombe dans le plus gros groupe traité en premier.
   const labelOrder = [...byLabel.entries()].sort((a, b) => {
+    // Un sujet réuni à la main prime : sinon un gros label (« voir avec X ») avalerait ses fils.
+    const subject = (id: string) => (userLabels.get(id)!.startsWith(SUBJECT_PREFIX) ? 0 : 1);
+    if (subject(a[0]) !== subject(b[0])) return subject(a[0]) - subject(b[0]);
     if (b[1].length !== a[1].length) return b[1].length - a[1].length;
     return userLabels.get(a[0])! < userLabels.get(b[0])! ? -1 : 1;
   });
@@ -115,7 +119,7 @@ export function buildMailOverlay(
       kind: "group",
       groupType: "label",
       key: `label:${lid}`,
-      title: userLabels.get(lid)!,
+      title: userLabels.get(lid)!.replace(SUBJECT_PREFIX, ""),
       count: members.length,
       items: members,
       date: mostRecent(members),

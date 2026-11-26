@@ -25,6 +25,7 @@ import {
   CaretDown,
   AddressBook,
   ListChecks,
+  UsersThree,
 } from "@phosphor-icons/react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { createPortal } from "react-dom";
@@ -40,6 +41,9 @@ import { EmailThreadView, type EmailThreadHandle } from "@/components/mail/Email
 import { MailConsoleBar } from "@/components/mail/MailConsoleBar";
 import { useSelfNotes } from "@/components/mail/useSelfNotes";
 import { awaitsMyReply } from "@/lib/mail-awaiting";
+import { SUBJECT_PREFIX, tourDeTable } from "@/lib/mail-tour";
+import { TourDeTable } from "@/components/mail/TourDeTable";
+import { useSubjectThreads } from "@/components/mail/useSubjectThreads";
 import { AGENDA_HORIZON_MS, meetingAgendas, meetingWhen } from "@/lib/mail-agenda";
 import { MeetingAgendaStrip } from "@/components/mail/MeetingAgendaStrip";
 import { useAgendaData } from "@/components/agenda/useAgendaData";
@@ -858,6 +862,20 @@ export default function MailPage() {
     };
   }, [thread]);
 
+  // Sujet actif : celui du groupe ouvert, sinon celui du fil ouvert.
+  const subjectLabelId =
+    [selectedGroupLabelId, ...(thread?.labelIds ?? [])].find((id) => id && labelNames.get(id)?.startsWith(SUBJECT_PREFIX)) ?? null;
+  const subjectThreads = useSubjectThreads(
+    clientId,
+    accountId,
+    subjectLabelId ? (labelNames.get(subjectLabelId) ?? null) : null,
+    cumItems.filter((it) => subjectLabelId && it.labelIds.includes(subjectLabelId)).length,
+  );
+  const subjectTour = useMemo(
+    () => (subjectThreads ? tourDeTable(subjectThreads, selfAddresses) : null),
+    [subjectThreads, selfAddresses],
+  );
+
   // Recalé à chaque changement de liste : assez pour « dans 2 h », sans minuterie.
   const agendaNow = useMemo(() => Date.now(), [cumItems]); // eslint-disable-line react-hooks/exhaustive-deps
   const agendaRange = useMemo(() => {
@@ -1571,6 +1589,26 @@ export default function MailPage() {
     [clientId, addLabel, labelError],
   );
 
+  const gatherSubject = useCallback(async () => {
+    const picked = cumItems.filter((it) => selectedThreadIds.has(it.id)).sort((a, b) => a.date.localeCompare(b.date));
+    if (!clientId || picked.length < 2) return;
+    const title = (picked[0]!.subject.replace(/^\s*((re|tr|fwd?)\s*:\s*)+/i, "").trim() || "Sans titre").slice(0, 60);
+    const name = `${SUBJECT_PREFIX}${title}`;
+    setLabelsError(null);
+    try {
+      let id = [...labelNames].find(([, n]) => n.toLowerCase() === name.toLowerCase())?.[0];
+      if (!id) {
+        const created = await createLabel(clientId, name);
+        addLabel(created);
+        id = created.id;
+      }
+      for (const it of picked) handleApplyLabel(it.id, id);
+      clearSelection();
+    } catch (err) {
+      labelError("Création du sujet échouée", err);
+    }
+  }, [clientId, cumItems, selectedThreadIds, labelNames, addLabel, handleApplyLabel, clearSelection, labelError]);
+
   const deleteUserLabel = useCallback(
     async (id: string) => {
       const name = labelNames.get(id);
@@ -1592,6 +1630,27 @@ export default function MailPage() {
       }
     },
     [clientId, labelNames, confirm, removeLabel, loadList, query, labelError],
+  );
+
+  const closeSubject = useCallback(
+    async (id: string) => {
+      if (!clientId) return;
+      const ok = await confirm({
+        title: "Clore ce sujet ?",
+        description: "Ses fils ne sont plus réunis. Aucun email n'est supprimé ni rangé.",
+        confirmLabel: "Clore",
+      });
+      if (!ok) return;
+      try {
+        await deleteLabel(clientId, id);
+        removeLabel(id);
+        setSelectedGroup(null);
+        void loadList(query);
+      } catch (err) {
+        labelError("Clôture du sujet échouée", err);
+      }
+    },
+    [clientId, confirm, removeLabel, loadList, query, labelError],
   );
 
   // ── Matrice todo : 4 labels Gmail ──────────────────────────────────────────
@@ -2252,6 +2311,13 @@ export default function MailPage() {
             <EnvelopeOpen size={16} />
           </Button>
         </Tooltip>
+        {selectedThreadIds.size > 1 && (
+          <Tooltip content="Réunir en un sujet : qui a répondu, qui manque">
+            <Button size="icon" variant="ghost" aria-label="Réunir en un sujet" onPress={() => void gatherSubject()}>
+              <UsersThree size={16} />
+            </Button>
+          </Tooltip>
+        )}
         <Tooltip content="En tâches, puis ranger">
           <Button
             size="icon"
@@ -2742,6 +2808,23 @@ export default function MailPage() {
       </div>
     );
 
+  const remindFromSubject = (emails: string[]) => {
+    const anchor = subjectTour?.threadId;
+    if (!anchor) return;
+    // Le composeur n'existe qu'une fois le fil monté.
+    void openThread(anchor).then(() => window.setTimeout(() => threadRef.current?.remind(emails), 250));
+  };
+  const subjectStrip =
+    subjectLabelId && selectedGroupLabelId === subjectLabelId && subjectTour ? (
+      <div className="px-1">
+        <TourDeTable tour={subjectTour} onRemind={remindFromSubject}>
+          <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onPress={() => void closeSubject(subjectLabelId)}>
+            Clore le sujet
+          </Button>
+        </TourDeTable>
+      </div>
+    ) : null;
+
   const pane2 = selectedGroup ? (
     <div
       className="flex h-full flex-col overflow-hidden"
@@ -2749,6 +2832,7 @@ export default function MailPage() {
     >
       {activeGroup && bulkBar}
       <div ref={groupScrollRef} className="flex-1 overflow-y-auto px-2 pb-4 pt-3">
+        {subjectStrip}
         <MailGroupList
           title={selectedGroup.title}
           items={selectedGroup.items}
@@ -2926,6 +3010,9 @@ export default function MailPage() {
                   listSummary={listSummaries.summaries.get(thread.id)}
                   onClose={isMobile ? undefined : closeThread}
                   selfEmail={settings.gmail.connectedEmail}
+                  subjectTour={subjectLabelId && thread.labelIds.includes(subjectLabelId) ? subjectTour : null}
+                  onRemindElsewhere={remindFromSubject}
+                  hideTour={!isMobile && subjectStrip !== null}
                   /* La page possède le clavier (useMailKeyboard) → pas de second
                      listener dans la vue fil. */
                   enableShortcuts={false}
@@ -3133,6 +3220,7 @@ export default function MailPage() {
           <div className="flex h-full flex-col overflow-hidden">
             <GmailReconnectBanner clientId={clientId} />
             <div className="flex-1 overflow-y-auto px-2 pb-4">
+              {subjectStrip}
               <MailGroupList
                 title={selectedGroup.title}
                 items={selectedGroup.items}

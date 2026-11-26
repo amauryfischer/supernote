@@ -91,3 +91,10 @@ Aucun aiguillage ; 27 lignes, toutes à 34 px ; 88 notes à soi relevées par la
 
 Convergences (idées citées indépendamment) : sujet à plusieurs fils / « Tour de table » 9 agents sur 10 (4 premiers choix) ; ordre du jour de réunion lié à l'agenda 7 sur 10 (1 premier choix) ; délégation close sur la réponse réelle 3 ; notes à soi routées ou converties 3 ; séance de vidange bornée 1 ; table/dossier par personne 2 (proche de l'aiguillage rejeté).
 Mon croisement : retenir « Tour de table » en version déterministe (destinataires d'un envoi + réunion manuelle de fils, jamais de regroupement deviné), « Ordre du jour vivant » en second. Écarté : table par personne (redite de l'aiguillage), regroupement par objet ou IA (faux positifs). Verdict d'Amaury attendu avant toute mise en prod.
+
+### 2026-11-26 — fonctions demandées par Amaury : ordre du jour + sujet à plusieurs fils
+
+- Tour de table (2726b6b) : dans un fil où j'ai écrit à ≥ 2 personnes, compte des réponses, noms des silencieux, relance préremplie à eux seuls. Demande = mon premier message à ≥ 2 destinataires ; seul `To` compte (le miroir ne stocke pas `Cc`).
+- Ordre du jour (719cc48) : en tête de boîte, réunions des 7 prochains jours rapprochées d'un label (mots du label dans le titre ; participant unique pour « voir avec X »). Pas de lien explicite label↔réunion : à ajouter si le rapprochement rate sur la vraie boîte.
+- Sujet à plusieurs fils : sélection de ≥ 2 fils → label Gmail `Sujet/<titre>` ; tour de table calculé sur tous les fils du label, lus par requête `label:` (un fil rangé reste compté) ; relance depuis le fil de la demande ; « Clore le sujet » supprime le label.
+- Preuves au banc : 2/6 et les 4 bons noms ; 4/6 après réunion de 3 fils ; compte inchangé après rangement ; réunion sans label correspondant = rien d'affiché.

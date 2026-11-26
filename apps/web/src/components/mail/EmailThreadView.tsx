@@ -55,7 +55,7 @@ import {
   type PendingAttachment,
 } from "@/lib/mail-attachments";
 import { buildReplyParams, pickReplyAll, buildQuotedBody, replyHeaders } from "@/lib/mail-reply";
-import { tourDeTable } from "@/lib/mail-tour";
+import { tourDeTable, type TourDeTable as TourDeTableData } from "@/lib/mail-tour";
 import { TourDeTable } from "./TourDeTable";
 import {
   buildForwardSubject,
@@ -179,6 +179,8 @@ const MENU_COMPONENT_ROW =
 export interface EmailThreadHandle {
   /** Charge un texte (ex. brouillon IA choisi) dans la zone de réponse + focus. */
   loadDraft: (text: string) => void;
+  /** Prépare une relance adressée à ces seuls destinataires. */
+  remind: (emails: string[]) => void;
   /** Place le curseur dans la zone de réponse (raccourci `r`). */
   focusReply: () => void;
   /** Active « répondre à tous » puis focus la zone de réponse (raccourci `a`). */
@@ -262,6 +264,12 @@ interface EmailThreadViewProps {
   listSummary?: string;
   /** Ferme le fil (desktop) : bouton à gauche de l'en-tête. */
   onClose?: () => void;
+  /** Tour de table du sujet (plusieurs fils) auquel ce fil appartient : remplace celui du fil seul. */
+  subjectTour?: TourDeTableData | null;
+  /** Le volet du sujet, visible à côté, porte déjà le tour de table. */
+  hideTour?: boolean;
+  /** Relance demandée alors que la demande vit dans un autre fil du sujet. */
+  onRemindElsewhere?: (emails: string[]) => void;
 }
 
 export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProps>(
@@ -283,6 +291,9 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
       draftsBusy = false,
       onCaptureNote,
       onToTask,
+      subjectTour,
+      onRemindElsewhere,
+      hideTour,
       onCaptureBase,
       listSummary,
       onClose,
@@ -552,7 +563,8 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
     [thread, selfEmail, settings.gmail.aliases],
   );
 
-  const tour = useMemo(() => tourDeTable([thread], aiThread.selfEmails ?? []), [thread, aiThread.selfEmails]);
+  const ownTour = useMemo(() => tourDeTable([thread], aiThread.selfEmails ?? []), [thread, aiThread.selfEmails]);
+  const tour = hideTour ? null : (subjectTour ?? ownTour);
 
   const lastFromMe =
     (thread.messages[thread.messages.length - 1]?.from.email ?? "").toLowerCase() ===
@@ -953,9 +965,18 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
   // Handle impératif : la page (clavier) pilote le fil ouvert. Déclaré APRÈS les
   // callbacks qu'il expose (closures à jour), et AVANT le garde « fil vide » —
   // un hook ne doit jamais se trouver après un `return` conditionnel.
+  const remind = (emails: string[]) => {
+    setReplyTo(emails);
+    setReplyCc([]);
+    setReplyBody((prev) =>
+      prev.trim() ? prev : `Petite relance sur ce point : où en ${emails.length > 1 ? "êtes-vous" : "es-tu"} ?`,
+    );
+    focusComposer();
+  };
   useImperativeHandle(
     ref,
     () => ({
+      remind,
       loadDraft: (text: string) => {
         setReplyBody((prev) => (prev.trim() ? `${prev}\n\n${text}` : text));
         focusComposer();
@@ -1544,17 +1565,8 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
       )}
 
       {tour && (
-        <TourDeTable
-          tour={tour}
-          onRemind={(emails) => {
-            setReplyTo(emails);
-            setReplyCc([]);
-            setReplyBody((prev) =>
-              prev.trim() ? prev : `Petite relance sur ce point : où en ${emails.length > 1 ? "êtes-vous" : "es-tu"} ?`,
-            );
-            focusComposer();
-          }}
-        />
+        // La relance part du fil de la demande : ailleurs, ses réponses échapperaient au compte.
+        <TourDeTable tour={tour} onRemind={!tour.threadId || tour.threadId === thread.id ? remind : onRemindElsewhere} />
       )}
       <ThreadTrunk
         messages={thread.messages}
