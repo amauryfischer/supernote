@@ -653,7 +653,9 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
   const waitMs = Date.now() - new Date(date).getTime();
   const heat = heatLevel(waitMs);
   const lastFromMe = Boolean(singleItem && isSelfAddress(singleItem.from.email, selfEmails) && !selfNoteIds?.has(singleItem.id));
-  const age = awaiting || lastFromMe ? spanLabel(waitMs) : "";
+  // Demande à plusieurs encore ouverte : son ancienneté se lit sur la ligne, comme une balle en jeu.
+  const followed = Boolean(tally) && row.kind === "single";
+  const age = awaiting || lastFromMe || followed ? spanLabel(waitMs) : "";
   const focused = activeKey === key || cursored;
   const rowBg: CSSProperties | undefined =
     activeKey === key
@@ -796,8 +798,8 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
             <Star size={13} weight="fill" aria-label="Étoilé" className={hoverActions ? "md:group-focus-within/row:hidden md:group-hover/row:hidden" : ""} style={{ color: "var(--text-primary)" }} />
           )}
           <span
-            className={`min-w-[3.25rem] text-right font-mono tabular-nums ${awaiting && age ? "text-[12px] font-semibold" : "text-[11px]"}`}
-            style={{ color: awaiting ? EMBER_INK : unread ? "var(--text-primary)" : "var(--text-muted)" }}
+            className={`min-w-[3.25rem] text-right font-mono tabular-nums ${(awaiting || followed) && age ? "text-[12px] font-semibold" : "text-[11px]"}`}
+            style={{ color: awaiting || followed ? EMBER_INK : unread ? "var(--text-primary)" : "var(--text-muted)" }}
             title={
               age
                 ? `${awaiting ? "Attend ta réponse" : "Sans réponse"} depuis ${age} · ${formatMailDate(date)}`
@@ -926,7 +928,7 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
             </RowAction>
           )}
           {onRemindRow && tally && !isUnsureTally(tally) && (
-            <RowAction label={`Relancer ${tally}`} onPress={() => onRemindRow(row)}>
+            <RowAction label={`Relancer ${tally}`} onPress={() => onRemindRow(row)} accent>
               <ArrowBendUpLeft size={14} />
             </RowAction>
           )}
@@ -961,7 +963,7 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
   );
 }
 
-function RowAction({ label, onPress, children }: { label: string; onPress: () => void; children: ReactNode }) {
+function RowAction({ label, onPress, children, accent }: { label: string; onPress: () => void; children: ReactNode; accent?: boolean }) {
   return (
     <Tooltip content={label}>
       <Button
@@ -969,7 +971,7 @@ function RowAction({ label, onPress, children }: { label: string; onPress: () =>
         size="icon"
         aria-label={label}
         className="h-7 min-h-7 w-7 min-w-7"
-        style={{ color: "var(--text-secondary)" }}
+        style={{ color: accent ? "var(--sn-ember-ink)" : "var(--text-secondary)" }}
         onPress={onPress}
       >
         {children}
