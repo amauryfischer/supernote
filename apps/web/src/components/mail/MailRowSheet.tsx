@@ -20,6 +20,7 @@ import {
   Star,
   ArrowSquareOut,
   SpeakerSlash,
+  UsersThree,
 } from "@phosphor-icons/react";
 import type { TriageAction } from "@/lib/mail-triage";
 import type { ThreadListItem } from "@/lib/gmail";
@@ -34,6 +35,10 @@ export interface MailRowSheetProps {
   onToggleStar: (threadId: string, labelIds: string[]) => void;
   onMarkRead: (item: ThreadListItem, read: boolean) => void;
   onMute: (threadId: string) => void;
+  /** Sujets ouverts (fils réunis) : le fil peut en rejoindre un. */
+  subjects: { id: string; title: string }[];
+  onNewSubject: (threadId: string) => void;
+  onAddToSubject: (threadId: string, labelId: string) => void;
 }
 
 /** Ligne d'action de la feuille (cible tactile 44 px). */
@@ -71,6 +76,9 @@ export function MailRowSheet({
   onToggleStar,
   onMarkRead,
   onMute,
+  subjects,
+  onNewSubject,
+  onAddToSubject,
 }: MailRowSheetProps) {
   const unread = item?.labelIds.includes("UNREAD") ?? false;
   const starred = item?.labelIds.includes("STARRED") ?? false;
@@ -107,6 +115,24 @@ export function MailRowSheet({
             label="En tâche, puis ranger"
             onPress={run(() => onTodo(item.id))}
           />
+          {subjects
+            .filter((sub) => !item.labelIds.includes(sub.id))
+            .slice(0, 3)
+            .map((sub) => (
+              <SheetAction
+                key={sub.id}
+                icon={<UsersThree size={18} />}
+                label={`Ajouter au sujet « ${sub.title} »`}
+                onPress={run(() => onAddToSubject(item.id, sub.id))}
+              />
+            ))}
+          {!subjects.some((sub) => item.labelIds.includes(sub.id)) && (
+            <SheetAction
+              icon={<UsersThree size={18} />}
+              label="Suivre comme sujet"
+              onPress={run(() => onNewSubject(item.id))}
+            />
+          )}
           <SheetAction
             icon={<Clock size={18} />}
             label="Reporter à…"

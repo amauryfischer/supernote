@@ -1589,9 +1589,11 @@ export default function MailPage() {
     [clientId, addLabel, labelError],
   );
 
-  const gatherSubject = useCallback(async () => {
-    const picked = cumItems.filter((it) => selectedThreadIds.has(it.id)).sort((a, b) => a.date.localeCompare(b.date));
-    if (!clientId || picked.length < 2) return;
+  const gatherSubject = useCallback(async (only?: string) => {
+    const picked = cumItems
+      .filter((it) => (only ? it.id === only : selectedThreadIds.has(it.id)))
+      .sort((a, b) => a.date.localeCompare(b.date));
+    if (!clientId || picked.length < (only ? 1 : 2)) return;
     const title = (picked[0]!.subject.replace(/^\s*((re|tr|fwd?)\s*:\s*)+/i, "").trim() || "Sans titre").slice(0, 60);
     const name = `${SUBJECT_PREFIX}${title}`;
     setLabelsError(null);
@@ -3100,6 +3102,9 @@ export default function MailPage() {
         onOpen={(id) => void openThread(id)}
         onTriage={(id, action) => triageThread(id, action)}
         onTodo={(id) => void runBulkAction("todo", [id])}
+        subjects={[...labelNames].filter(([, n]) => n.startsWith(SUBJECT_PREFIX)).map(([id, n]) => ({ id, title: n.replace(SUBJECT_PREFIX, "") }))}
+        onNewSubject={(id) => void gatherSubject(id)}
+        onAddToSubject={handleApplyLabel}
         onSnoozeMenu={(id, subject) => setSnoozeTarget({ id, subject })}
         onToggleStar={toggleRowStar}
         onMarkRead={(item, read) => handleMarkRowRead({ kind: "single", item }, read)}
