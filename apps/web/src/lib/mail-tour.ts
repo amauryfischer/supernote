@@ -63,3 +63,29 @@ export function shortName(a: EmailAddress): string {
   const first = base.split(/\s+/)[0] ?? base;
   return first.charAt(0).toUpperCase() + first.slice(1);
 }
+
+const TALLY_KEY = "supernote.mail.subjectTally";
+
+function tallies(): Record<string, string> {
+  try {
+    return JSON.parse(localStorage.getItem(TALLY_KEY) ?? "{}") as Record<string, string>;
+  } catch {
+    return {};
+  }
+}
+
+/** Dernier décompte connu d'un sujet (« 4/6 ») : la liste l'affiche sans relire ses fils. */
+export function subjectTally(labelId: string): string | null {
+  return tallies()[labelId] ?? null;
+}
+
+export function rememberSubjectTally(labelId: string, tour: TourDeTable | null): void {
+  const all = tallies();
+  if (tour && !tour.open) all[labelId] = `${tour.answered.length}/${tour.asked.length}`;
+  else delete all[labelId];
+  try {
+    localStorage.setItem(TALLY_KEY, JSON.stringify(all));
+  } catch {
+    // Stockage indisponible : la liste retombe sur « ×N ».
+  }
+}

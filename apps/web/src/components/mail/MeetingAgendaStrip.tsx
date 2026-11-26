@@ -42,7 +42,7 @@ export function MeetingAgendaStrip({
               </span>
               <span className="text-xs" style={{ color: "var(--text-secondary)" }}>
                 {a.items.length} fil{a.items.length > 1 ? "s" : ""} « {a.labelName} »
-                {a.oldestDays >= 7 ? ` · le plus ancien attend depuis ${a.oldestDays} j` : ""}
+                {a.oldestDays >= 7 ? ` · le plus ancien a ${a.oldestDays} j` : ""}
               </span>
             </span>
             <CaretRight size={14} aria-hidden style={{ color: "var(--text-muted)" }} />
@@ -51,7 +51,7 @@ export function MeetingAgendaStrip({
       })}
       {agendas.length > MAX_SHOWN && (
         <span className="px-2 text-[11px]" style={{ color: "var(--text-muted)" }}>
-          + {agendas.length - MAX_SHOWN} autre{agendas.length - MAX_SHOWN > 1 ? "s" : ""} réunion{agendas.length - MAX_SHOWN > 1 ? "s" : ""} avec des fils en attente
+          + {agendas.length - MAX_SHOWN} autre{agendas.length - MAX_SHOWN > 1 ? "s" : ""} réunion{agendas.length - MAX_SHOWN > 1 ? "s" : ""} avec des fils étiquetés
         </span>
       )}
     </section>

@@ -111,3 +111,12 @@ Tête : 1. Parapheur (questions + promesses, 5 agents, 8,4) · 2. Réveil sur pr
 - Mobile : « Répondre aux n questions » sur le composeur replié, une réponse par toucher, pas de clavier ouvert d'office.
 - Prouvé par e2e 27-parapheur (desktop clavier + mobile). Verdict d'Amaury attendu avant déploiement.
 - Vraie boîte, prod 3a23f86 (2026-11-26, lecture seule) : ordre du jour = 3 réunions rapprochées (labels daily, codir, coger) + 1 au-delà de la limite ; ouverture de /mail = 4 appels Gmail (2 lots, historique, labels), pas de bandeau de quota. Tour de table et sujet non essayés sur un vrai fil. Verdict d'Amaury attendu avant toute série de juges.
+
+### 2026-11-26 — série 3, tour 1 (grille avec « fonction différenciante mise en avant »)
+
+- Juges : A 6/10, B 5,5/10 (critère différenciant : 6 et 5). Proche du 5/10 d'Amaury : la grille corrigée ne flatte plus.
+- Cités par les deux : sujet indistinct d'un groupe de label et décompte absent de la liste ; tour de table d'un fil contredit par des réponses arrivées dans d'autres fils ; relance mobile mal adressée ; pastille « Annuler » sur la barre d'envoi.
+- Correctifs : ligne de sujet avec icône et décompte « 4/6 » (dernier connu, sans appel Gmail à l'ouverture) ; dans le fil, « N réponses dans d'autres fils · réunir » ; pastille à gauche quand un fil est ouvert ; libellé « le plus ancien a N j » (vérifiable).
+- Relance mobile : non reproduite en vrai contexte mobile (bons destinataires), la capture jugée venait d'un redimensionnement du banc.
+- Corrigé au passage : le sujet créé depuis un fil ouvert restait à l'ancien décompte (labels du fil non relus, recherche Gmail en retard) → relecture jusqu'à 3 fois.
+- Non traité : l'ordre du jour ouvre une liste chronologique plate (juge B seul).

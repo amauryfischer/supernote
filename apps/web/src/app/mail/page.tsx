@@ -41,7 +41,7 @@ import { EmailThreadView, type EmailThreadHandle } from "@/components/mail/Email
 import { MailConsoleBar } from "@/components/mail/MailConsoleBar";
 import { useSelfNotes } from "@/components/mail/useSelfNotes";
 import { awaitsMyReply } from "@/lib/mail-awaiting";
-import { SUBJECT_PREFIX, tourDeTable } from "@/lib/mail-tour";
+import { SUBJECT_PREFIX, rememberSubjectTally, tourDeTable } from "@/lib/mail-tour";
 import { TourDeTable } from "@/components/mail/TourDeTable";
 import { useSubjectThreads } from "@/components/mail/useSubjectThreads";
 import { AGENDA_HORIZON_MS, meetingAgendas, meetingWhen } from "@/lib/mail-agenda";
@@ -862,9 +862,14 @@ export default function MailPage() {
     };
   }, [thread]);
 
+  // La ligne de liste reçoit un label posé à l'instant avant que le fil ouvert ne soit relu.
+  const openThreadLabelIds = useMemo(
+    () => (thread ? [...thread.labelIds, ...(cumItems.find((it) => it.id === thread.id)?.labelIds ?? [])] : []),
+    [thread, cumItems],
+  );
   // Sujet actif : celui du groupe ouvert, sinon celui du fil ouvert.
   const subjectLabelId =
-    [selectedGroupLabelId, ...(thread?.labelIds ?? [])].find((id) => id && labelNames.get(id)?.startsWith(SUBJECT_PREFIX)) ?? null;
+    [selectedGroupLabelId, ...openThreadLabelIds].find((id) => id && labelNames.get(id)?.startsWith(SUBJECT_PREFIX)) ?? null;
   const subjectThreads = useSubjectThreads(
     clientId,
     accountId,
@@ -875,6 +880,19 @@ export default function MailPage() {
     () => (subjectThreads ? tourDeTable(subjectThreads, selfAddresses) : null),
     [subjectThreads, selfAddresses],
   );
+
+  useEffect(() => {
+    if (subjectLabelId && subjectThreads) rememberSubjectTally(subjectLabelId, subjectTour);
+  }, [subjectLabelId, subjectThreads, subjectTour]);
+
+  // Des silencieux du fil ouvert ont écrit ailleurs depuis la demande : leurs fils se réunissent en un geste.
+  const strayReplies = useMemo(() => {
+    if (!thread || (subjectLabelId && openThreadLabelIds.includes(subjectLabelId))) return [];
+    const own = tourDeTable([thread], selfAddresses);
+    if (!own) return [];
+    const missing = new Set(own.missing.map((a) => a.email.toLowerCase()));
+    return cumItems.filter((it) => it.id !== thread.id && it.date > own.askedAt && missing.has(it.from.email.toLowerCase()));
+  }, [thread, subjectLabelId, openThreadLabelIds, selfAddresses, cumItems]);
 
   // Recalé à chaque changement de liste : assez pour « dans 2 h », sans minuterie.
   const agendaNow = useMemo(() => Date.now(), [cumItems]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1589,12 +1607,14 @@ export default function MailPage() {
     [clientId, addLabel, labelError],
   );
 
-  const gatherSubject = useCallback(async (only?: string) => {
+  const gatherSubject = useCallback(async (only?: string[]) => {
     const picked = cumItems
-      .filter((it) => (only ? it.id === only : selectedThreadIds.has(it.id)))
+      .filter((it) => (only ? only.includes(it.id) : selectedThreadIds.has(it.id)))
       .sort((a, b) => a.date.localeCompare(b.date));
     if (!clientId || picked.length < (only ? 1 : 2)) return;
-    const title = (picked[0]!.subject.replace(/^\s*((re|tr|fwd?)\s*:\s*)+/i, "").trim() || "Sans titre").slice(0, 60);
+    // Depuis un fil, le sujet porte son objet ; sinon celui du plus ancien fil coché.
+    const lead = picked.find((it) => it.id === only?.[0]) ?? picked[0]!;
+    const title = (lead.subject.replace(/^\s*((re|tr|fwd?)\s*:\s*)+/i, "").trim() || "Sans titre").slice(0, 60);
     const name = `${SUBJECT_PREFIX}${title}`;
     setLabelsError(null);
     try {
@@ -3012,8 +3032,13 @@ export default function MailPage() {
                   listSummary={listSummaries.summaries.get(thread.id)}
                   onClose={isMobile ? undefined : closeThread}
                   selfEmail={settings.gmail.connectedEmail}
-                  subjectTour={subjectLabelId && thread.labelIds.includes(subjectLabelId) ? subjectTour : null}
+                  subjectTour={subjectLabelId && openThreadLabelIds.includes(subjectLabelId) ? subjectTour : null}
                   onRemindElsewhere={remindFromSubject}
+                  onGatherStray={
+                    strayReplies.length > 0
+                      ? { count: strayReplies.length, run: () => void gatherSubject([thread.id, ...strayReplies.map((it) => it.id)]) }
+                      : undefined
+                  }
                   hideTour={!isMobile && subjectStrip !== null}
                   /* La page possède le clavier (useMailKeyboard) → pas de second
                      listener dans la vue fil. */
@@ -3103,7 +3128,7 @@ export default function MailPage() {
         onTriage={(id, action) => triageThread(id, action)}
         onTodo={(id) => void runBulkAction("todo", [id])}
         subjects={[...labelNames].filter(([, n]) => n.startsWith(SUBJECT_PREFIX)).map(([id, n]) => ({ id, title: n.replace(SUBJECT_PREFIX, "") }))}
-        onNewSubject={(id) => void gatherSubject(id)}
+        onNewSubject={(id) => void gatherSubject([id])}
         onAddToSubject={handleApplyLabel}
         onSnoozeMenu={(id, subject) => setSnoozeTarget({ id, subject })}
         onToggleStar={toggleRowStar}
@@ -3154,7 +3179,8 @@ export default function MailPage() {
       )}
       {undoBanner && (
         <div
-          className="pointer-events-none sn-pop-in fixed inset-x-0 z-50 flex justify-center px-4"
+          // Fil ouvert sur bureau : à gauche, sinon la pastille recouvre la barre d'envoi.
+          className={`pointer-events-none sn-pop-in fixed inset-x-0 z-50 flex px-4 ${!isMobile && selectedThreadId ? "justify-start pl-20" : "justify-center"}`}
           style={{ bottom: isMobile ? "calc(64px + env(safe-area-inset-bottom, 0px))" : "1rem" }}
         >
           <div

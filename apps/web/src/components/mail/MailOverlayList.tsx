@@ -4,7 +4,8 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperti
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Button, Tooltip } from "@supernote/ui";
 import { Checkbox } from "@supernote/ui";
-import { Star, DotsSixVertical, Sparkle, CaretDown, Checks, Clock, ListChecks, Trash } from "@phosphor-icons/react";
+import { Star, DotsSixVertical, Sparkle, CaretDown, Checks, Clock, ListChecks, Trash, UsersThree } from "@phosphor-icons/react";
+import { subjectTally } from "@/lib/mail-tour";
 import {
   DndContext,
   useDraggable,
@@ -593,6 +594,7 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
   const preview = aiSummary ?? previewItem?.snippet ?? "";
   const aiPreview = Boolean(aiSummary);
 
+  const tally = row.kind === "group" && row.subject ? subjectTally(row.key.slice("label:".length)) : null;
   // Console : une ligne = statut · qui · quoi · quand, colonnes fixes pour lire 300 mails/jour en diagonale.
   const who =
     row.kind === "group" && row.groupType === "label" ? (
@@ -601,6 +603,7 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
         style={labelChipSoftStyle(labelColor)}
         title={title}
       >
+        {row.subject && <UsersThree size={12} aria-hidden className="shrink-0" />}
         <span className="truncate">{title.replace(/^Supernote\//, "")}</span>
       </span>
     ) : row.kind === "single" && selfNoteIds?.has(row.item.id) ? (
@@ -671,7 +674,16 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
           style={{ color: unread || awaiting ? "var(--text-primary)" : "var(--text-secondary)" }}
         >
           {who}
-          {row.kind === "group" && row.count > 1 && (
+          {tally && (
+            <span
+              className="shrink-0 font-mono text-[10.5px] font-semibold tabular-nums"
+              title={`${tally} ont répondu`}
+              style={{ color: "var(--sn-ember-ink)" }}
+            >
+              {tally}
+            </span>
+          )}
+          {row.kind === "group" && row.count > 1 && !tally && (
             <span
               className="shrink-0 font-mono text-[10.5px] tabular-nums"
               title={groupUnread > 0 ? `${groupUnread} non lu${groupUnread > 1 ? "s" : ""} sur ${row.count}` : `${row.count} fils`}

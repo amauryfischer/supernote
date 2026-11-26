@@ -11,6 +11,8 @@ export type OverlayRow =
       count: number;
       items: ThreadListItem[];
       date: string;
+      /** Fils réunis à la main en un sujet suivi. */
+      subject?: boolean;
     };
 
 function mostRecent(items: ThreadListItem[]): string {
@@ -120,6 +122,7 @@ export function buildMailOverlay(
       groupType: "label",
       key: `label:${lid}`,
       title: userLabels.get(lid)!.replace(SUBJECT_PREFIX, ""),
+      subject: userLabels.get(lid)!.startsWith(SUBJECT_PREFIX) || undefined,
       count: members.length,
       items: members,
       date: mostRecent(members),
