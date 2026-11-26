@@ -23,6 +23,7 @@ export function TourDeTable({
   const done = !tour.open && tour.missing.length === 0;
   const age = days(tour.askedAt);
   const wroteElsewhere = (email: string) => elsewhere.includes(email.toLowerCase());
+  const elsewhereCount = tour.open ? 0 : tour.missing.filter((a) => wroteElsewhere(a.email)).length;
   const toRemind = tour.missing.filter((a) => !wroteElsewhere(a.email));
   return (
     <div
@@ -34,6 +35,7 @@ export function TourDeTable({
         <span className="text-[15px] font-semibold" style={{ color: done ? "var(--text-secondary)" : "var(--sn-ember-ink)" }}>
           {tour.open ? tour.asked.length : `${tour.answered.length}/${tour.asked.length}`}
         </span>
+        {elsewhereCount > 0 && <span className="text-[9px]">+{elsewhereCount} ailleurs</span>}
       </span>
       <ul className="flex min-w-[11rem] flex-1 flex-wrap gap-1.5" aria-label="Réponses à ta demande">
         {tour.asked.map((a) => {

@@ -694,11 +694,12 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
           {who}
           {tally && (
             <span
-              className="shrink-0 font-mono text-[10.5px] font-semibold tabular-nums"
-              title={`${tally} ont répondu`}
+              className="inline-flex min-w-0 shrink items-center gap-1 text-[11px] font-medium"
+              title={`Sans réponse : ${tally}`}
               style={{ color: "var(--sn-ember-ink)" }}
             >
-              {tally}
+              <UsersThree size={11} aria-hidden className="shrink-0" />
+              <span className="truncate">{tally}</span>
             </span>
           )}
           {openAsks > 0 && (

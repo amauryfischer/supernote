@@ -10,7 +10,7 @@ const SCAN_LIMIT = 80;
 // Lectures Gmail par session : le quota du compte est partagé avec un consommateur inconnu.
 const FETCH_LIMIT = 12;
 
-const SEEN_KEY = "supernote.mail.tourSeen";
+const SEEN_KEY = "supernote.mail.tourSeen.v2";
 
 // Fil → date de son dernier message déjà examiné : évite de relire Gmail à chaque ouverture.
 function loadSeen(): Map<string, string> {

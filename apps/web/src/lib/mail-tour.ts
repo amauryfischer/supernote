@@ -64,7 +64,14 @@ export function shortName(a: EmailAddress): string {
   return first.charAt(0).toUpperCase() + first.slice(1);
 }
 
-const TALLY_KEY = "supernote.mail.subjectTally";
+/** Les silencieux en clair (« Sami · Léa +2 ») : un « 2/6 » se confondrait avec les compteurs de non-lus. */
+function silentNames(tour: TourDeTable): string {
+  const names = tour.missing.slice(0, 2).map(shortName).join(" · ");
+  return tour.missing.length > 2 ? `${names} +${tour.missing.length - 2}` : names;
+}
+
+// « v2 » : l'ancien format stockait un décompte « 2/6 ».
+const TALLY_KEY = "supernote.mail.subjectTally.v2";
 
 // Lu par chaque ligne de la liste à chaque rendu : on ne reparse que si le texte a changé.
 let parsed: { raw: string; value: Record<string, string> } = { raw: "{}", value: {} };
@@ -79,7 +86,7 @@ function tallies(): Record<string, string> {
   }
 }
 
-/** Dernier décompte connu d'un sujet ou d'un fil (« 4/6 ») : la liste l'affiche sans relire les messages. */
+/** Derniers silencieux connus d'un sujet ou d'un fil : la liste les affiche sans relire les messages. */
 export function subjectTally(id: string): string | null {
   return tallies()[id] ?? null;
 }
@@ -87,7 +94,7 @@ export function subjectTally(id: string): string | null {
 export function rememberSubjectTally(labelId: string, tour: TourDeTable | null): void {
   const all = { ...tallies() };
   // Tour bouclé : plus rien à suivre, la ligne redevient ordinaire.
-  if (tour && !tour.open && tour.missing.length > 0) all[labelId] = `${tour.answered.length}/${tour.asked.length}`;
+  if (tour && !tour.open && tour.missing.length > 0) all[labelId] = silentNames(tour);
   else delete all[labelId];
   try {
     localStorage.setItem(TALLY_KEY, JSON.stringify(all));
