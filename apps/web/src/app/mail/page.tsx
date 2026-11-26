@@ -44,6 +44,7 @@ import { awaitsMyReply } from "@/lib/mail-awaiting";
 import { SUBJECT_PREFIX, rememberSubjectTally, tourDeTable } from "@/lib/mail-tour";
 import { TourDeTable } from "@/components/mail/TourDeTable";
 import { useSubjectThreads } from "@/components/mail/useSubjectThreads";
+import { useTourTallies } from "@/components/mail/useTourTallies";
 import { AGENDA_HORIZON_MS, meetingAgendas, meetingWhen } from "@/lib/mail-agenda";
 import { MeetingAgendaStrip } from "@/components/mail/MeetingAgendaStrip";
 import { useAgendaData } from "@/components/agenda/useAgendaData";
@@ -881,6 +882,7 @@ export default function MailPage() {
     [subjectThreads, selfAddresses],
   );
 
+  useTourTallies(clientId, accountId, cumItems, selfAddresses);
   useEffect(() => {
     if (subjectLabelId && subjectThreads) rememberSubjectTally(subjectLabelId, subjectTour);
   }, [subjectLabelId, subjectThreads, subjectTour]);
