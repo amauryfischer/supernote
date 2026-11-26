@@ -110,3 +110,4 @@ Tête : 1. Parapheur (questions + promesses, 5 agents, 8,4) · 2. Réveil sur pr
 - Promesses : phrases à la 1ʳᵉ personne, fermes, datées (`findFrenchDeadline`), repérées à la frappe ; éteintes par défaut, « Suivre » (⌥P) → à l'envoi tâche datée liée au fil + engagement « je dois » accepté ; retirés si l'envoi est annulé.
 - Mobile : « Répondre aux n questions » sur le composeur replié, une réponse par toucher, pas de clavier ouvert d'office.
 - Prouvé par e2e 27-parapheur (desktop clavier + mobile). Verdict d'Amaury attendu avant déploiement.
+- Vraie boîte, prod 3a23f86 (2026-11-26, lecture seule) : ordre du jour = 3 réunions rapprochées (labels daily, codir, coger) + 1 au-delà de la limite ; ouverture de /mail = 4 appels Gmail (2 lots, historique, labels), pas de bandeau de quota. Tour de table et sujet non essayés sur un vrai fil. Verdict d'Amaury attendu avant toute série de juges.
