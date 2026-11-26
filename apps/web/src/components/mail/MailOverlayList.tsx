@@ -612,6 +612,7 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
   const preview = aiSummary ?? previewItem?.snippet ?? "";
   const aiPreview = Boolean(aiSummary);
 
+  const isSubject = row.kind === "group" && row.subject === true;
   const tally =
     row.kind === "single"
       ? subjectTally(row.item.id)
@@ -695,7 +696,7 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
 
         <span
           title={senders || fromAddr?.email || undefined}
-          className={`col-start-2 row-start-1 flex min-w-0 items-center gap-1.5 text-[13px] ${unread ? "font-semibold" : "font-medium"}`}
+          className={`col-start-2 row-start-1 flex min-w-0 items-center gap-1.5 text-[13px] ${unread ? "font-semibold" : "font-medium"} ${isSubject ? "@xl:col-end-4" : ""}`}
           style={{ color: unread || awaiting ? "var(--text-primary)" : "var(--text-secondary)" }}
         >
           {who}
@@ -730,7 +731,10 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
           )}
         </span>
 
-        <span className="col-start-2 col-end-4 row-start-2 flex h-5 min-w-0 flex-wrap content-start items-center gap-x-1.5 overflow-hidden text-[13px] leading-5 @xl:col-start-3 @xl:col-end-4 @xl:row-start-1">
+        <span
+          // Sujet : son titre occupe la ligne, les objets de ses fils ne feraient que le répéter.
+          className={`col-start-2 col-end-4 row-start-2 flex h-5 min-w-0 flex-wrap content-start items-center gap-x-1.5 overflow-hidden text-[13px] leading-5 @xl:col-start-3 @xl:col-end-4 @xl:row-start-1 ${isSubject ? "@xl:hidden" : ""}`}
+        >
           {row.kind === "group" ? (
             <span className="min-w-0 flex-1 truncate" style={{ color: "var(--text-secondary)" }}>
               {row.items.slice(0, GROUP_SUBJECT_MAX).map((it, i) => (
