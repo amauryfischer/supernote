@@ -4,7 +4,7 @@ import type { ThreadListItem } from "@/lib/gmail";
 import { isSelfAddress } from "@/lib/mail-awaiting";
 import { mirrorAvailable, mirrorGetThread } from "@/lib/mail-mirror";
 import { ensureThread } from "@/lib/mail-sync";
-import { rememberSubjectTally, tourDeTable } from "@/lib/mail-tour";
+import { rememberSubjectTally, strayReplies, tourDeTable } from "@/lib/mail-tour";
 
 const SCAN_LIMIT = 80;
 // Lectures Gmail par session : le quota du compte est partagé avec un consommateur inconnu.
@@ -62,7 +62,9 @@ export function useTourTallies(
         }
         if (!thread) continue;
         seen.current.set(it.id, it.date);
-        rememberSubjectTally(it.id, tourDeTable([thread], selfEmails));
+        const tour = tourDeTable([thread], selfEmails);
+        const elsewhere = tour ? strayReplies(tour, it.id, items).map((s) => s.from.email.toLowerCase()) : [];
+        rememberSubjectTally(it.id, tour, elsewhere);
       }
       saveSeen(seen.current);
       if (!stale) setTick((n) => n + 1);

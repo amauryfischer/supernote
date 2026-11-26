@@ -609,7 +609,11 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
   const ownTour = useMemo(() => tourDeTable([thread], aiThread.selfEmails ?? []), [thread, aiThread.selfEmails]);
   const tour = hideTour ? null : (subjectTour ?? ownTour);
   // La liste affiche ce décompte sur la ligne du fil, sans le relire.
-  useEffect(() => rememberSubjectTally(thread.id, ownTour), [thread.id, ownTour]);
+  const elsewhereKey = (onGatherStray?.emails ?? []).join(",");
+  useEffect(
+    () => rememberSubjectTally(thread.id, ownTour, elsewhereKey ? elsewhereKey.split(",") : []),
+    [thread.id, ownTour, elsewhereKey],
+  );
 
   const lastFromMe =
     (thread.messages[thread.messages.length - 1]?.from.email ?? "").toLowerCase() ===

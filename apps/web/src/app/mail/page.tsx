@@ -41,7 +41,7 @@ import { EmailThreadView, type EmailThreadHandle } from "@/components/mail/Email
 import { MailConsoleBar } from "@/components/mail/MailConsoleBar";
 import { useSelfNotes } from "@/components/mail/useSelfNotes";
 import { awaitsMyReply } from "@/lib/mail-awaiting";
-import { SUBJECT_PREFIX, rememberSubjectTally, tourDeTable } from "@/lib/mail-tour";
+import { SUBJECT_PREFIX, rememberSubjectTally, strayReplies as strayRepliesOf, tourDeTable } from "@/lib/mail-tour";
 import { TourDeTable } from "@/components/mail/TourDeTable";
 import { useSubjectThreads } from "@/components/mail/useSubjectThreads";
 import { useTourTallies } from "@/components/mail/useTourTallies";
@@ -892,8 +892,7 @@ export default function MailPage() {
     if (!thread || (subjectLabelId && openThreadLabelIds.includes(subjectLabelId))) return [];
     const own = tourDeTable([thread], selfAddresses);
     if (!own) return [];
-    const missing = new Set(own.missing.map((a) => a.email.toLowerCase()));
-    return cumItems.filter((it) => it.id !== thread.id && it.date > own.askedAt && missing.has(it.from.email.toLowerCase()));
+    return strayRepliesOf(own, thread.id, cumItems);
   }, [thread, subjectLabelId, openThreadLabelIds, selfAddresses, cumItems]);
 
   // Recalé à chaque changement de liste : assez pour « dans 2 h », sans minuterie.

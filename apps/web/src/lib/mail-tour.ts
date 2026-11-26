@@ -65,9 +65,19 @@ export function shortName(a: EmailAddress): string {
 }
 
 /** Les silencieux en clair (« Sami · Léa +2 ») : un « 2/6 » se confondrait avec les compteurs de non-lus. */
-function silentNames(tour: TourDeTable): string {
-  const names = tour.missing.slice(0, 2).map(shortName).join(" · ");
-  return tour.missing.length > 2 ? `${names} +${tour.missing.length - 2}` : names;
+function silentNames(silent: EmailAddress[]): string {
+  const names = silent.slice(0, 2).map(shortName).join(" · ");
+  return silent.length > 2 ? `${names} +${silent.length - 2}` : names;
+}
+
+/** Fils de la boîte où un silencieux du tour a écrit depuis la demande : sa réponse est probablement là. */
+export function strayReplies<T extends { id: string; date: string; from: EmailAddress }>(
+  tour: TourDeTable,
+  threadId: string,
+  items: readonly T[],
+): T[] {
+  const missing = new Set(tour.missing.map((a) => a.email.toLowerCase()));
+  return items.filter((it) => it.id !== threadId && it.date > tour.askedAt && missing.has(it.from.email.toLowerCase()));
 }
 
 // « v2 » : l'ancien format stockait un décompte « 2/6 ».
@@ -91,14 +101,15 @@ export function subjectTally(id: string): string | null {
   return tallies()[id] ?? null;
 }
 
-export function rememberSubjectTally(labelId: string, tour: TourDeTable | null): void {
+export function rememberSubjectTally(id: string, tour: TourDeTable | null, elsewhere: readonly string[] = []): void {
   const all = { ...tallies() };
-  // Tour bouclé : plus rien à suivre, la ligne redevient ordinaire.
-  if (tour && !tour.open && tour.missing.length > 0) all[labelId] = silentNames(tour);
-  else delete all[labelId];
+  // Ceux qui ont écrit dans un autre fil ne sont pas à relancer : la ligne ne les nomme pas.
+  const silent = tour && !tour.open ? tour.missing.filter((a) => !elsewhere.includes(a.email.toLowerCase())) : [];
+  if (silent.length > 0) all[id] = silentNames(silent);
+  else delete all[id];
   try {
     localStorage.setItem(TALLY_KEY, JSON.stringify(all));
   } catch {
-    // Stockage indisponible : la liste retombe sur « ×N ».
+    // Stockage indisponible : la ligne reste sans nom.
   }
 }
