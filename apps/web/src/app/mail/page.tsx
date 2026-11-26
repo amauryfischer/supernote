@@ -590,7 +590,10 @@ export default function MailPage() {
   }, [labelNames]);
 
   const todoLabelIds = useMemo(() => resolveTodoLabelIds(labelNames), [labelNames]);
-  const tallyTick = useTourTallies(clientId, accountId, cumItems, selfAddresses);
+  // ⚠️ Le résultat ne doit pas recomposer les sections : une demande détectée en fond marque sa
+  // ligne tout de suite, mais ne rejoint « On attend » qu'au prochain changement de la liste,
+  // sinon la liste descend d'un cran sous le doigt 1,5 s après l'ouverture.
+  useTourTallies(clientId, accountId, cumItems, selfAddresses);
   const { rows: displayRows, markers: sectionMarkers } = useMemo(
     () =>
       flattenSections(
@@ -604,8 +607,7 @@ export default function MailPage() {
         ),
         collapsedSections,
       ),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- tallyTick : les décomptes vivent dans le localStorage
-    [rows, collapsedSections, todoLabelIds, selfAddresses, tallyTick],
+    [rows, collapsedSections, todoLabelIds, selfAddresses],
   );
   const threadPosition = useMemo(() => {
     if (!selectedThreadId) return null;

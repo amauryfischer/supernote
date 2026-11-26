@@ -159,3 +159,9 @@ Tête : 1. Parapheur (questions + promesses, 5 agents, 8,4) · 2. Réveil sur pr
 - Correctifs : « On attend » passe au-dessus de « À toi de répondre » (tranché seul, réversible) ; « a écrit ailleurs » porte une flèche. Écarté : icônes de relance « invisibles » = capture prise pendant le fondu.
 - Risque connu, non corrigé : la section apparaît ~1,5 s après l'ouverture quand une demande vient d'être détectée et décale la liste ; un geste à cet instant peut viser le mail voisin. Les demandes déjà connues de l'appareil s'affichent au premier rendu.
 - Banc : 17 passés, 1 échec positionnel (ligne passée sous la barre du bas), corrigé dans le scénario et rejoué 2 fois.
+
+### 2026-11-26 — reprise autonome, hors série
+
+- Risque connu levé : « On attend » ne se recompose plus sur le calcul de fond. Une demande détectée 1,5 s après l'ouverture marque sa ligne tout de suite, mais ne rejoint la section qu'au prochain changement de la liste (ou à la prochaine ouverture). Avant : toute la liste descendait de 79 px sous le doigt (mesuré une fois avant l'arrêt du banc). Contrepartie tranchée seule, réversible : une demande toute neuve attend un changement de liste pour monter en tête.
+- « Deux décomptes pour un même groupe » (tour 3, série 4) : relu dans le code, ce n'est pas une contradiction simultanée. « 2/6 +2 ailleurs » est l'état avant réunion (les réponses d'ailleurs sont une supposition, jamais comptées), « 4/6 » l'état après. Un fil rattaché à un sujet affiche déjà le décompte du sujet. Rien changé.
+- 2026-11-26, Amaury : plus aucun test ni banc Playwright sur Supernote. Vérification d'un lot = typecheck + lint.
