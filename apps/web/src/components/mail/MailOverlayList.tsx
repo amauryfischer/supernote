@@ -600,6 +600,8 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
       : row.subject
         ? subjectTally(row.key.slice("label:".length))
         : null;
+  // Groupe ordinaire : ses fils suivis ne se voient pas un à un, il en porte le nombre.
+  const openAsks = row.kind === "group" && !row.subject ? row.items.filter((it) => subjectTally(it.id)).length : 0;
   // Console : une ligne = statut · qui · quoi · quand, colonnes fixes pour lire 300 mails/jour en diagonale.
   const who =
     row.kind === "group" && row.groupType === "label" ? (
@@ -686,6 +688,16 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
               style={{ color: "var(--sn-ember-ink)" }}
             >
               {tally}
+            </span>
+          )}
+          {openAsks > 0 && (
+            <span
+              className="inline-flex shrink-0 items-center gap-0.5 font-mono text-[10.5px] font-semibold tabular-nums"
+              title={`${openAsks} demande${openAsks > 1 ? "s" : ""} à plusieurs encore sans réponse de tous`}
+              style={{ color: "var(--sn-ember-ink)" }}
+            >
+              <UsersThree size={11} aria-hidden />
+              {openAsks}
             </span>
           )}
           {row.kind === "group" && row.count > 1 && !tally && (

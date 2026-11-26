@@ -66,9 +66,14 @@ export function shortName(a: EmailAddress): string {
 
 const TALLY_KEY = "supernote.mail.subjectTally";
 
+// Lu par chaque ligne de la liste à chaque rendu : on ne reparse que si le texte a changé.
+let parsed: { raw: string; value: Record<string, string> } = { raw: "{}", value: {} };
+
 function tallies(): Record<string, string> {
   try {
-    return JSON.parse(localStorage.getItem(TALLY_KEY) ?? "{}") as Record<string, string>;
+    const raw = localStorage.getItem(TALLY_KEY) ?? "{}";
+    if (raw !== parsed.raw) parsed = { raw, value: JSON.parse(raw) as Record<string, string> };
+    return parsed.value;
   } catch {
     return {};
   }
@@ -80,7 +85,7 @@ export function subjectTally(id: string): string | null {
 }
 
 export function rememberSubjectTally(labelId: string, tour: TourDeTable | null): void {
-  const all = tallies();
+  const all = { ...tallies() };
   // Tour bouclé : plus rien à suivre, la ligne redevient ordinaire.
   if (tour && !tour.open && tour.missing.length > 0) all[labelId] = `${tour.answered.length}/${tour.asked.length}`;
   else delete all[labelId];
