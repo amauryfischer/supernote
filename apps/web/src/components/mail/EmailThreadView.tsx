@@ -98,6 +98,23 @@ import {
   type EisenhowerQuadrant,
 } from "@/lib/mail-eisenhower";
 import { QuickRepliesRow } from "./QuickRepliesRow";
+import { ReplyGrid, type ReplyGridHandle } from "./ReplyGrid";
+import { PromiseStrip } from "./PromiseStrip";
+import {
+  addressForm,
+  extractQuestions,
+  findPromises,
+  followPromises,
+  freeSlots,
+  isAnswered,
+  isDateQuestion,
+  placeAnswer,
+  unfollowPromises,
+  type FollowedPromises,
+} from "@/lib/mail-parapheur";
+import { calListCalendars, calListEvents } from "@/lib/calendar-mirror";
+import { calendarAccount } from "@/lib/calendar-sync";
+import { mirrorAvailable } from "@/lib/mail-mirror";
 import { useQuickReplies } from "./useQuickReplies";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { createPortal } from "react-dom";
@@ -442,7 +459,21 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
   const replyTaRef = useRef<HTMLTextAreaElement>(null);
   // Replié, le textarea n'est pas monté : le focus attend le rendu qui le déplie.
   const pendingFocusRef = useRef(false);
+  // Parapheur : tant qu'on n'a rien écrit, « Répondre » ouvre d'abord les questions du message.
+  const gridRef = useRef<ReplyGridHandle>(null);
+  const gridFirstRef = useRef(false);
+  const pendingGridFocusRef = useRef(false);
   const focusComposer = () => {
+    if (!gridFirstRef.current) {
+      focusComposerText();
+      return;
+    }
+    setReplyOpen(true);
+    if (gridRef.current) gridRef.current.focus();
+    else pendingGridFocusRef.current = true;
+  };
+  /** Ouvre la réponse sur le texte libre (brouillon chargé, réponse éclair…). */
+  const focusComposerText = () => {
     setReplyOpen(true);
     const ta = replyTaRef.current;
     // Focus synchrone quand c'est possible : iOS n'ouvre le clavier que dans le geste.
@@ -454,6 +485,10 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
     ta.focus();
   };
   useEffect(() => {
+    if (pendingGridFocusRef.current && gridRef.current) {
+      pendingGridFocusRef.current = false;
+      gridRef.current.focus();
+    }
     if (!pendingFocusRef.current || !replyTaRef.current) return;
     pendingFocusRef.current = false;
     replyTaRef.current.scrollIntoView({ block: "nearest" });
@@ -518,6 +553,9 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
     setSummary(null);
     setSummaryOpen(false);
     setSuggestedQuadrant(null);
+    setGridHidden(false);
+    setFollowed(new Set());
+    gridUsedRef.current = false;
   }, [thread]);
 
   // Sauvegarde automatique de la réponse en cours (débattue).
@@ -579,8 +617,76 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
     canReply && replyOpen && !replyBody.trim() && (quick.busy || quick.items.length > 0);
   const pickQuickReply = (text: string) => {
     setReplyBody(text);
-    focusComposer();
+    focusComposerText();
   };
+
+  // ─── Parapheur : questions du dernier message reçu, promesses de la réponse ─
+  // Règles fixes, sans IA : même comportement sur téléphone.
+  const lastMessage = thread.messages[thread.messages.length - 1];
+  const gridSource = lastMessage && !lastFromMe ? lastMessage.bodyText || lastMessage.snippet : "";
+  const questions = useMemo(() => (gridSource ? extractQuestions(gridSource) : []), [gridSource]);
+  const replyForm = useMemo(() => addressForm(gridSource), [gridSource]);
+  const [gridHidden, setGridHidden] = useState(false);
+  const gridAvailable = canReply && questions.length > 0 && !gridHidden;
+  gridFirstRef.current = gridAvailable && !replyBody.trim();
+  // La grille a servi : envoyer en laissant une question ouverte demande confirmation.
+  const gridUsedRef = useRef(false);
+  const [gridArmed, setGridArmed] = useState(false);
+  useEffect(() => setGridArmed(false), [replyBody]);
+  const openQuestions = gridAvailable ? questions.filter((q) => !isAnswered(replyBody, q)) : [];
+  // Curseur à poser après une réponse : position, ou -1 pour la fin du texte.
+  const pendingCursorRef = useRef<number | null>(null);
+  useEffect(() => {
+    const c = pendingCursorRef.current;
+    const ta = replyTaRef.current;
+    if (c === null || !ta) return;
+    pendingCursorRef.current = null;
+    const pos = c < 0 ? ta.value.length : Math.min(c, ta.value.length);
+    ta.focus();
+    ta.setSelectionRange(pos, pos);
+  });
+  const answerQuestion = (index: number, answer: string, opts: { edit: boolean }) => {
+    const next = placeAnswer(replyBody, questions, index, answer);
+    gridUsedRef.current = true;
+    setReplyBody(next.body);
+    if (opts.edit) pendingCursorRef.current = next.cursor;
+  };
+  const leaveGrid = () => {
+    pendingCursorRef.current = -1;
+    setReplyOpen(true);
+  };
+  // Créneaux libres pour les questions de date : seulement si l'agenda local est synchronisé
+  // (sans calendrier connu, « libre » ne serait pas vérifié).
+  const calAccount = calendarAccount(settings)?.accountId ?? "";
+  const wantsSlots = gridAvailable && replyOpen && questions.some(isDateQuestion);
+  const [slots, setSlots] = useState<Date[]>([]);
+  useEffect(() => {
+    if (!wantsSlots || !calAccount || !mirrorAvailable()) {
+      setSlots([]);
+      return undefined;
+    }
+    let alive = true;
+    const now = new Date();
+    void Promise.all([calListCalendars(calAccount), calListEvents(calAccount, now.getTime(), now.getTime() + 21 * 86_400_000)])
+      .then(([calendars, events]) => {
+        if (alive) setSlots(calendars.length > 0 ? freeSlots(events, now) : []);
+      })
+      .catch(() => {
+        if (alive) setSlots([]);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [wantsSlots, calAccount, thread.id]);
+  const promises = useMemo(() => (canReply && replyBody.trim() ? findPromises(replyBody) : []), [canReply, replyBody]);
+  const [followed, setFollowed] = useState<ReadonlySet<string>>(() => new Set());
+  const togglePromise = (key: string) =>
+    setFollowed((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
   const composerRef = useRef<HTMLDivElement>(null);
   // Le composeur déplié (sticky) recouvre la fin du fil : on remonte pour lire
   // le dernier message en entier au-dessus, sans jamais en perdre le début.
@@ -713,6 +819,8 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
     setReplyToInput("");
     setReplyFieldsOpen(false);
     setReplyAttachments([]);
+    setFollowed(new Set());
+    gridUsedRef.current = false;
   };
 
   const submitReply = async (mode: "send" | "draft", sendAt?: number) => {
@@ -733,6 +841,15 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
     const body = withSignature(typed, signature);
     const inline = replyAttachments.some((a) => a.contentId);
     const html = hasMarkup(body) || inline ? markdownToHtml(body) : undefined;
+    if (mode === "send" && gridUsedRef.current && openQuestions.length > 0 && !gridArmed) {
+      const n = openQuestions.length;
+      setGridArmed(true);
+      setReplyNotice({
+        tone: "warning",
+        text: `${n} question${n > 1 ? "s" : ""} sans réponse (« ${openQuestions[0]} »). Envoyer de nouveau pour confirmer.`,
+      });
+      return;
+    }
     setReplyNotice(null);
     const fail = (message: string) =>
       setReplyNotice({
@@ -740,6 +857,16 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
         text: `${mode === "send" ? "Échec de l'envoi" : "Échec du brouillon"} : ${message}`,
       });
     if (mode === "send") {
+      // Promesses suivies : tâche datée + engagement, retirés si l'envoi est annulé à temps.
+      const toFollow = promises.filter((p) => followed.has(p.key));
+      const followTarget = {
+        accountId: selfEmail ?? "",
+        threadId: thread.id,
+        subject: thread.messages[0]?.subject ?? replyParams.subject,
+        who: { name: snippetContext.nom === snippetContext.email ? "" : snippetContext.nom, email: snippetContext.email },
+      };
+      const following: { done: Promise<FollowedPromises | null> | null } = { done: null };
+      const plural = toFollow.length > 1 ? "s" : "";
       // File d'envoi différé : « Annuler l'envoi » pendant la fenêtre configurée,
       // puis départ réel (cf. MailOutgoingRunner).
       const result = await replySendFb.run(
@@ -760,8 +887,9 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
             },
             {
               ...(sendAt !== undefined ? { sendAt } : {}),
-              label: "Réponse envoyée",
+              label: toFollow.length ? `Réponse envoyée · ${toFollow.length} promesse${plural} suivie${plural}` : "Réponse envoyée",
               onCancel: () => {
+                void following.done?.then((f) => (f ? unfollowPromises(followTarget, f) : undefined));
                 saveAutoDraft({ key: threadDraftKey(thread.id), body: typed, cc });
                 window.dispatchEvent(new CustomEvent(REPLY_RESTORE_EVENT, { detail: thread.id }));
               },
@@ -770,6 +898,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
         fail,
       );
       if (!result) return;
+      if (toFollow.length) following.done = followPromises(followTarget, toFollow).catch(() => null);
       clearReply();
       // Re-fetch fil + liste côté appelant pour faire apparaître la réponse.
       onReplied?.();
@@ -979,7 +1108,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
       remind,
       loadDraft: (text: string) => {
         setReplyBody((prev) => (prev.trim() ? `${prev}\n\n${text}` : text));
-        focusComposer();
+        focusComposerText();
       },
       focusReply: focusComposer,
       replyAll: () => {
@@ -1582,7 +1711,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
         selfEmails={aiThread.selfEmails ?? []}
         onDraft={(text) => {
           setReplyBody(text);
-          focusComposer();
+          focusComposerText();
         }}
       />
 
@@ -1655,6 +1784,21 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
                   {draftsBusy ? <Spinner size="sm" /> : <MagicWand size={14} aria-hidden />}
                 </ComposeAction>
               )}
+              {gridAvailable && (
+                <Tooltip content="Répondre question par question (r)">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="ml-auto h-8 min-h-8 gap-1.5 px-2 text-[12.5px]"
+                    style={{ color: "var(--text-secondary)" }}
+                    onPress={focusComposer}
+                  >
+                    <ListChecks size={14} aria-hidden />
+                    <span className="font-mono tabular-nums">{questions.length}</span>
+                    {questions.length > 1 ? "questions" : "question"}
+                  </Button>
+                </Tooltip>
+              )}
             </div>
           ) : (
           <>
@@ -1667,6 +1811,36 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
               altShortcuts
               className="mb-1.5"
             />
+          )}
+          {gridAvailable && !composerCompact && !replyOverlay && (
+            <ReplyGrid
+              ref={gridRef}
+              questions={questions}
+              body={replyBody}
+              form={replyForm}
+              slots={slots}
+              onAnswer={answerQuestion}
+              onDone={leaveGrid}
+              onSend={() => void submitReply("send")}
+              onDismiss={() => {
+                setGridHidden(true);
+                leaveGrid();
+              }}
+              isMobile={isMobile}
+            />
+          )}
+          {gridAvailable && composerCompact && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="mb-1 h-9 min-h-9 w-full justify-start gap-2 px-2 text-xs"
+              style={{ color: "var(--text-secondary)" }}
+              onPress={focusComposer}
+            >
+              <ListChecks size={15} aria-hidden />
+              Répondre aux <span className="font-mono tabular-nums">{questions.length}</span>
+              {questions.length > 1 ? "questions" : "question"}
+            </Button>
           )}
           {/* Desktop : la barre de format attend le premier mot, la hauteur reste au message lu. */}
           {!composerCompact && (isMobile || replyBody.trim() !== "") && <ComposerToolbar
@@ -1712,6 +1886,13 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
               if (quickRepliesShown && quick.items[quickIndex]) {
                 e.preventDefault();
                 pickQuickReply(quick.items[quickIndex]);
+                return;
+              }
+              // ⌥P : suivre (ou non) la dernière promesse écrite.
+              const lastPromise = promises[promises.length - 1];
+              if (e.altKey && e.code === "KeyP" && lastPromise) {
+                e.preventDefault();
+                togglePromise(lastPromise.key);
                 return;
               }
               if (e.key === "Escape" && !replyBody.trim() && replyAttachments.length === 0) {
@@ -1767,6 +1948,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
             }}
           />
           </div>
+          {!composerCompact && <PromiseStrip promises={promises} followed={followed} onToggle={togglePromise} />}
           {/* input file natif (exception justifiée : pas d'équivalent HeroUI). */}
           <input
             ref={replyFileRef}
