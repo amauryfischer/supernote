@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { ArrowBendUpLeft, Check } from "@phosphor-icons/react";
+import { ArrowBendUpLeft, ArrowUpRight, Check } from "@phosphor-icons/react";
 import { Button } from "@supernote/ui";
 import { shortName, type TourDeTable as Tour } from "@/lib/mail-tour";
 
@@ -53,6 +53,8 @@ export function TourDeTable({
             >
               {answered ? (
                 <Check size={11} weight="bold" aria-hidden />
+              ) : !tour.open && plain ? (
+                <ArrowUpRight size={11} aria-hidden />
               ) : (
                 <span
                   aria-hidden

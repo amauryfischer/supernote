@@ -2,7 +2,7 @@
  * mail-sections — découpe la liste d'emails en SECTIONS avec un mini-en-tête,
  * au lieu d'un long ruban indifférencié (repère : Shortwave).
  *
- * En tête, « À toi de répondre » puis « On attend » (demandes à plusieurs sans réponse de tous).
+ * En tête, « On attend » (demandes à plusieurs sans réponse de tous) puis « À toi de répondre ».
  * Ensuite trois natures de section, dans cet ordre :
  *  1. « Todo » — les fils rangés dans un label de la matrice (cf.
  *     `mail-eisenhower`), repliée par défaut : ils vivent dans le split Todo.
@@ -54,9 +54,10 @@ const SECTION_TITLES: Record<MailSectionId, string> = {
 
 /** Ordre canonique des sections. */
 // Ce qui demande une action d'abord, puis ce que l'utilisateur a mis de côté, puis la chronologie.
+// « On attend » d'abord : courte, elle tient dans le premier écran d'un téléphone ; sous « À toi » elle n'y apparaissait jamais.
 const SECTION_ORDER: readonly MailSectionId[] = [
-  "awaiting",
   "pending",
+  "awaiting",
   "starred",
   "todo",
   "today",
