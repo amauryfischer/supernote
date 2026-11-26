@@ -536,6 +536,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
       const saved = loadAutoDraft(threadDraftKey(thread.id));
       if (!saved) return;
       setReplyBody(saved.body);
+      if (saved.to?.length) setReplyTo(saved.to);
       setReplyCc(saved.cc ?? []);
       setReplyFieldsOpen(Boolean(saved.cc?.length));
       setReplyOpen(true);
@@ -551,7 +552,8 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
     setReplyBody(saved?.body ?? "");
     setReplyCc(saved?.cc ?? []);
     setReplyCcInput("");
-    setReplyTo(replyParams.to ? [replyParams.to] : []);
+    // Les destinataires reviennent avec le texte : une relance retrouvée ne repart pas vers le dernier expéditeur.
+    setReplyTo(saved?.to?.length ? saved.to : replyParams.to ? [replyParams.to] : []);
     setReplyToInput("");
     setReplyFrom("");
     setReplyFieldsOpen(Boolean(saved?.cc?.length));
@@ -568,10 +570,10 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
   // Sauvegarde automatique de la réponse en cours (débattue).
   useEffect(() => {
     const id = setTimeout(() => {
-      saveAutoDraft({ key: threadDraftKey(thread.id), body: replyBody, cc: replyCc });
+      saveAutoDraft({ key: threadDraftKey(thread.id), body: replyBody, to: replyTo, cc: replyCc });
     }, 500);
     return () => clearTimeout(id);
-  }, [thread.id, replyBody, replyCc]);
+  }, [thread.id, replyBody, replyTo, replyCc]);
 
   /**
    * Insère une image DANS la réponse : pièce jointe inline (Content-ID) +
@@ -903,7 +905,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
               label: toFollow.length ? `Réponse envoyée · ${toFollow.length} promesse${plural} suivie${plural}` : "Réponse envoyée",
               onCancel: () => {
                 void following.done?.then((f) => (f ? unfollowPromises(followTarget, f) : undefined));
-                saveAutoDraft({ key: threadDraftKey(thread.id), body: typed, cc });
+                saveAutoDraft({ key: threadDraftKey(thread.id), body: typed, to: replyTo, cc });
                 window.dispatchEvent(new CustomEvent(REPLY_RESTORE_EVENT, { detail: thread.id }));
               },
             },

@@ -702,7 +702,7 @@ function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: S
           {who}
           {tally && (
             <span
-              className="inline-flex min-w-0 shrink items-center gap-1 text-[11px] font-medium"
+              className="inline-flex max-w-[75%] shrink-0 items-center gap-1 text-[11px] font-medium"
               title={isUnsureTally(tally) ? "Réponses probablement arrivées dans d'autres fils : ouvre le fil pour les réunir" : `Sans réponse : ${tally}`}
               style={{ color: "var(--sn-ember-ink)" }}
             >

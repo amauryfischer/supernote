@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { ArrowBendUpLeft } from "@phosphor-icons/react";
+import { ArrowBendUpLeft, Check } from "@phosphor-icons/react";
 import { Button } from "@supernote/ui";
 import { shortName, type TourDeTable as Tour } from "@/lib/mail-tour";
 
@@ -48,15 +48,19 @@ export function TourDeTable({
               className={`flex h-6 items-center gap-1.5 rounded-full border px-2 text-xs ${!tour.open && plain ? "border-dashed" : ""}`}
               style={{
                 borderColor: answered || plain ? "var(--border-subtle)" : "color-mix(in oklab, var(--sn-ember) 45%, transparent)",
-                color: answered ? "var(--text-muted)" : "var(--text-primary)",
+                color: answered ? "var(--text-secondary)" : "var(--text-primary)",
               }}
             >
-              <span
-                aria-hidden
-                className="h-1.5 w-1.5 rounded-full"
-                style={{ background: answered || plain ? "var(--text-muted)" : "var(--sn-ember)" }}
-              />
-              <span className={answered ? "line-through decoration-[var(--border-strong,var(--text-muted))]" : "font-medium"}>{shortName(a)}</span>
+              {answered ? (
+                <Check size={11} weight="bold" aria-hidden />
+              ) : (
+                <span
+                  aria-hidden
+                  className="h-1.5 w-1.5 rounded-full"
+                  style={{ background: plain ? "var(--text-muted)" : "var(--sn-ember)" }}
+                />
+              )}
+              <span className={answered ? "" : "font-medium"}>{shortName(a)}</span>
               {!plain && <span className="sr-only">{answered ? "a répondu" : "n'a pas répondu"}</span>}
             </li>
           );
