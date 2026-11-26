@@ -55,6 +55,8 @@ import {
   type PendingAttachment,
 } from "@/lib/mail-attachments";
 import { buildReplyParams, pickReplyAll, buildQuotedBody, replyHeaders } from "@/lib/mail-reply";
+import { tourDeTable } from "@/lib/mail-tour";
+import { TourDeTable } from "./TourDeTable";
 import {
   buildForwardSubject,
   buildForwardedBody,
@@ -549,6 +551,8 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
     () => toMailAiThread(thread, [selfEmail ?? "", ...settings.gmail.aliases]),
     [thread, selfEmail, settings.gmail.aliases],
   );
+
+  const tour = useMemo(() => tourDeTable([thread], aiThread.selfEmails ?? []), [thread, aiThread.selfEmails]);
 
   const lastFromMe =
     (thread.messages[thread.messages.length - 1]?.from.email ?? "").toLowerCase() ===
@@ -1539,6 +1543,19 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
         </div>
       )}
 
+      {tour && (
+        <TourDeTable
+          tour={tour}
+          onRemind={(emails) => {
+            setReplyTo(emails);
+            setReplyCc([]);
+            setReplyBody((prev) =>
+              prev.trim() ? prev : `Petite relance sur ce point : où en ${emails.length > 1 ? "êtes-vous" : "es-tu"} ?`,
+            );
+            focusComposer();
+          }}
+        />
+      )}
       <ThreadTrunk
         messages={thread.messages}
         selfEmail={selfEmail}
