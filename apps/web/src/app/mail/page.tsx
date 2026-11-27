@@ -3017,7 +3017,9 @@ export default function MailPage() {
       )}
       {!threadLoading && !threadError && thread && (
         <div
-          key={selectedThreadId ?? "thread"}
+          // Clé sur le fil affiché, pas sur la sélection : celle-ci change avant l'arrivée du fil et
+          // remontait tout le panneau (~450 composants) avec l'ANCIEN fil, avant de le refaire.
+          key={thread.id}
           className="sn-overlay-in flex min-h-0 flex-1 flex-col overflow-hidden"
         >
           <div className="flex min-h-0 flex-1 overflow-hidden">
