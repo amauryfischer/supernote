@@ -275,6 +275,8 @@ interface EmailThreadViewProps {
   onGenerateDrafts?: () => void;
   /** Génération de brouillons en cours (état du bouton 🪄). */
   draftsBusy?: boolean;
+  /** Encart sous l'en-tête (sujets « voir avec » le correspondant…). */
+  topSlot?: ReactNode;
   /** Capture du fil (menu « Plus », desktop — la barre du haut mobile les porte déjà). */
   onCaptureNote?: () => void;
   /** Crée une tâche liée au fil puis le range (annulable depuis la page). */
@@ -316,6 +318,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
       onRemindElsewhere,
       hideTour,
       onGatherStray,
+      topSlot,
       onCaptureBase,
       listSummary,
       onClose,
@@ -1733,6 +1736,8 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
           }
         />
       )}
+
+      {!embedded && topSlot}
 
       {aiConfigured && !embedded && (
         <div className="rounded-md border" style={{ borderColor: "var(--border-subtle)" }}>

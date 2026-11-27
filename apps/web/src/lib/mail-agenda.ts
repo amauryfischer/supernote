@@ -1,5 +1,5 @@
 import type { CalEventRow } from "@supernote/ipc";
-import type { ThreadListItem } from "@/lib/gmail";
+import type { EmailAddress, ThreadListItem } from "@/lib/gmail";
 
 export interface MeetingAgenda {
   event: CalEventRow;
@@ -11,6 +11,8 @@ export interface MeetingAgenda {
 }
 
 export const AGENDA_HORIZON_MS = 7 * 86_400_000;
+/** Une réunion finie reste visible le temps de cocher ses points traités. */
+export const AGENDA_AFTERMATH_MS = 12 * 3_600_000;
 
 const tokens = (s: string) =>
   s
@@ -49,7 +51,7 @@ export function meetingAgendas(
   now: number,
 ): MeetingAgenda[] {
   const upcoming = events
-    .filter((e) => !e.allDay && e.status !== "cancelled" && e.endAt > now && e.startAt - now <= AGENDA_HORIZON_MS)
+    .filter((e) => !e.allDay && e.status !== "cancelled" && e.endAt > now - AGENDA_AFTERMATH_MS && e.startAt - now <= AGENDA_HORIZON_MS)
     .sort((a, b) => a.startAt - b.startAt);
   if (upcoming.length === 0) return [];
   const byLabel = new Map<string, ThreadListItem[]>();
@@ -80,12 +82,42 @@ export function meetingAgendas(
 }
 
 /** « aujourd'hui 14:00 », « demain 09:30 », « jeu. 14:00 ». */
-export function meetingWhen(startAt: number, now: number): string {
+export function meetingWhen(startAt: number, now: number, endAt?: number): string {
   const day = (ms: number) => new Date(ms).setHours(0, 0, 0, 0);
   const diff = Math.round((day(startAt) - day(now)) / 86_400_000);
   const time = new Date(startAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+  if (endAt !== undefined && endAt <= now) return "terminée";
   if (startAt <= now) return "en cours";
   if (diff === 0) return `aujourd'hui ${time}`;
   if (diff === 1) return `demain ${time}`;
   return `${new Date(startAt).toLocaleDateString("fr-FR", { weekday: "short" })} ${time}`;
+}
+
+const SEE_WITH = /^(?:a )?voir avec\s+(.+)$/;
+
+export interface PersonTopics {
+  labelId: string;
+  labelName: string;
+  items: ThreadListItem[];
+}
+
+/**
+ * Sujets « voir avec X » en attente quand X participe au fil ouvert : X est reconnu par les mots
+ * du label dans son nom ou le début de son adresse, comme pour les tête-à-tête de l'agenda.
+ */
+export function topicsWithPeople(
+  people: readonly EmailAddress[],
+  items: readonly ThreadListItem[],
+  labelNames: ReadonlyMap<string, string>,
+  openThreadId: string,
+): PersonTopics[] {
+  const who = people.map((p) => new Set(tokens(`${p.name} ${p.email.split("@")[0] ?? ""}`)));
+  const out: PersonTopics[] = [];
+  for (const [labelId, labelName] of labelNames) {
+    const person = SEE_WITH.exec(tokens(labelName).join(" "))?.[1]?.split(" ");
+    if (!person || !who.some((w) => person.every((t) => w.has(t)))) continue;
+    const list = items.filter((it) => it.id !== openThreadId && it.labelIds.includes(labelId));
+    if (list.length > 0) out.push({ labelId, labelName, items: list });
+  }
+  return out;
 }

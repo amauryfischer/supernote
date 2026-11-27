@@ -45,8 +45,9 @@ import { SUBJECT_PREFIX, rememberSubjectTally, strayReplies as strayRepliesOf, s
 import { TourDeTable } from "@/components/mail/TourDeTable";
 import { useSubjectThreads } from "@/components/mail/useSubjectThreads";
 import { useTourTallies } from "@/components/mail/useTourTallies";
-import { AGENDA_HORIZON_MS, meetingAgendas, meetingWhen } from "@/lib/mail-agenda";
+import { AGENDA_HORIZON_MS, meetingAgendas, meetingWhen, topicsWithPeople, type PersonTopics } from "@/lib/mail-agenda";
 import { MeetingAgendaStrip } from "@/components/mail/MeetingAgendaStrip";
+import { PersonTopicsBanner } from "@/components/mail/PersonTopicsBanner";
 import { useAgendaData } from "@/components/agenda/useAgendaData";
 import { MAIL_SENT_EVENT } from "@/lib/mail-outgoing";
 import { MailOverlayList } from "@/components/mail/MailOverlayList";
@@ -911,6 +912,12 @@ export default function MailPage() {
     () => meetingAgendas(agendaEvents, cumItems, labelNames, agendaNow),
     [agendaEvents, cumItems, labelNames, agendaNow],
   );
+  const personTopics = useMemo(() => {
+    if (!thread) return [];
+    const self = new Set(selfAddresses.map((a) => a.toLowerCase()));
+    const people = thread.messages.map((m) => m.from).filter((p) => p.email && !self.has(p.email.toLowerCase()));
+    return topicsWithPeople(people, cumItems, labelNames, thread.id);
+  }, [thread, selfAddresses, cumItems, labelNames]);
 
   const onPick = useCallback(
     (row: OverlayRow) => {
@@ -928,6 +935,19 @@ export default function MailPage() {
       }
     },
     [openThread],
+  );
+  const openTopics = useCallback(
+    (t: PersonTopics) =>
+      onPick({
+        kind: "group",
+        groupType: "label",
+        key: `label:${t.labelId}`,
+        title: t.labelName,
+        count: t.items.length,
+        items: t.items,
+        date: t.items.at(-1)?.date ?? "",
+      }),
+    [onPick],
   );
 
   // Retire un fil (par id) de la liste + désélectionne s'il était ouvert.
@@ -1305,6 +1325,27 @@ export default function MailPage() {
       );
     },
     [labelNames, selfAddresses, computeVisible, flatLabelIds, setRows, setCumItems],
+  );
+
+  // Ordre du jour traité : le label part, les fils restent dans la boîte. `on` remet le label (Annuler).
+  const setThreadsLabel = useCallback(
+    (ids: string[], labelId: string, on: boolean) => {
+      if (!clientId) return;
+      for (const id of ids) {
+        const it = cumItems.find((c) => c.id === id);
+        if (!it || it.labelIds.includes(labelId) === on) continue;
+        const before = it.labelIds;
+        syncThreadLabels(id, on ? [...before, labelId] : before.filter((l) => l !== labelId));
+        const change = on ? { addLabelIds: [labelId] } : { removeLabelIds: [labelId] };
+        void commitMutation({ threadId: id, kind: "modifyLabels", ...change }, () =>
+          modifyThreadLabels(clientId, id, change),
+        ).catch((err) => {
+          console.error(err);
+          syncThreadLabels(id, before);
+        });
+      }
+    },
+    [clientId, cumItems, syncThreadLabels, commitMutation],
   );
 
   const handleApplyLabel = useCallback(
@@ -2695,6 +2736,8 @@ export default function MailPage() {
           <MeetingAgendaStrip
             agendas={agendas}
             now={agendaNow}
+            annotations={annotations}
+            onSetLabel={clientId ? setThreadsLabel : undefined}
             onOpen={(a) =>
               onPick({
                 kind: "group",
@@ -3051,6 +3094,16 @@ export default function MailPage() {
                   selfEmail={settings.gmail.connectedEmail}
                   subjectTour={subjectLabelId && openThreadLabelIds.includes(subjectLabelId) ? subjectTour : null}
                   onRemindElsewhere={remindFromSubject}
+                  topSlot={
+                    personTopics.length > 0 ? (
+                      <PersonTopicsBanner
+                        topics={personTopics}
+                        annotations={annotations}
+                        onOpenThread={(id) => void openThread(id)}
+                        onOpenLabel={openTopics}
+                      />
+                    ) : undefined
+                  }
                   onGatherStray={
                     strayReplies.length > 0
                       ? { count: strayReplies.length, emails: strayReplies.map((it) => it.from.email.toLowerCase()), run: () => void gatherSubject([thread.id, ...strayReplies.map((it) => it.id)]) }
