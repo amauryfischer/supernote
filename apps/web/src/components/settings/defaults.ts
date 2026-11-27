@@ -42,8 +42,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   notifications: {
     osNotifications: true,
     sounds: false,
-    persistence: false,
-    toastDuration: 4,
     pushSubscribed: true,
     pushDefaultApplied: true,
   },

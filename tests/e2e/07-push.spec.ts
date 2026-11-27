@@ -108,28 +108,28 @@ test.describe("07 — notifications push", () => {
           body: "Point équipe",
           tag: "event:primary:ev1",
           data: { url: "/", joinUrl: "https://meet.google.com/abc-defg-hij" },
-          actions: ["join"],
+          actions: ["join", "later:300000"],
         },
         {
           title: "Pas de réponse",
           body: "Devis mairie de Lyon",
           tag: "followup:t1",
           data: { url: "/mail?thread=t1", joinUrl: "" },
-          actions: [],
+          actions: ["later:10800000"],
         },
         {
           title: "✅ Lire",
           body: "Pas encore fait aujourd'hui",
           tag: "habit:abc",
           data: { url: "/habits?habit=abc", joinUrl: "" },
-          actions: ["done"],
+          actions: ["done", "later:3600000"],
         },
         {
           title: "Alice Martin",
           body: "Devis signé",
-          tag: "mail-new",
+          tag: "mail:th9",
           data: { kind: "mail", url: "/mail?thread=th9", threadId: "th9" },
-          actions: ["archive", "read"],
+          actions: ["archive", "later:10800000"],
         },
       ]);
   });

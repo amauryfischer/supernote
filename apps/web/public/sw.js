@@ -313,28 +313,75 @@ async function setBadge(n) {
 
 const senderName = (from) => (from.match(/^\s*"?([^"<]+?)"?\s*</)?.[1] ?? from).trim();
 
-async function notifyMail(items, badge) {
-  await setBadge(badge);
-  if (items.length === 0) {
-    // Archivage ou lecture : rien à dire, mais Safari exige une notification par push.
-    await self.registration.showNotification("Supernote", { tag: "mail-sync", silent: true });
-    const shown = await self.registration.getNotifications({ tag: "mail-sync" });
-    shown.forEach((n) => n.close());
-    return;
-  }
-  const one = items.length === 1 ? items[0] : null;
-  return self.registration.showNotification(one ? one.from : `${items.length} nouveaux mails`, {
-    body: one ? one.subject : items.map((i) => i.from).join(", "),
-    tag: "mail-new",
-    icon: "/icons/icon-192.png",
-    data: { kind: "mail", url: one ? `/mail?thread=${encodeURIComponent(one.threadId)}` : "/mail", threadId: one?.threadId ?? "" },
-    actions: one ? [{ action: "archive", title: "Archiver" }, { action: "read", title: "Lu" }] : [],
-  });
+const BADGE_ICON = "/icons/badge-96.png";
+const later = (ms, title) => ({ action: `later:${ms}`, title });
+
+// Android n'affiche que 2 actions.
+function actionsFor(category, joinUrl) {
+  if (category === "reminder" || category === "habit") return [{ action: "done", title: "Fait" }, later(3_600_000, "Dans 1 h")];
+  if (category === "event") return [...(joinUrl ? [{ action: "join", title: "Rejoindre" }] : []), later(300_000, "Dans 5 min")];
+  if (category === "followup" || category === "snooze") return [later(10_800_000, "Dans 3 h")];
+  if (category === "mail") return [{ action: "archive", title: "Archiver" }, later(10_800_000, "Dans 3 h")];
+  return [];
 }
 
-function genericMail() {
+// « later:habit:<id> » revient avec les actions de l'habitude.
+function categoryOf(tag) {
+  const parts = tag.split(":");
+  return (parts[0] === "later" ? parts[1] : parts[0]) ?? "";
+}
+
+async function serverPost(path, body) {
+  const sub = await self.registration.pushManager.getSubscription();
+  if (!sub) throw new Error("no subscription");
+  const res = await fetch(`${text(await kvGet("pushServer"))}${path}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ endpoint: sub.endpoint, ...body }),
+  });
+  if (!res.ok) throw new Error(`${path} ${res.status}`);
+  return res.json().catch(() => ({}));
+}
+
+const threadUrl = (threadId) => `/mail?thread=${encodeURIComponent(threadId)}`;
+
+async function notifyMail(items, badge, close = [], silent = false) {
+  await setBadge(badge);
+  for (const threadId of close) {
+    (await self.registration.getNotifications({ tag: `mail:${threadId}` })).forEach((n) => n.close());
+  }
+  const seen = new Set((await kvGet("mailSeen")) || []);
+  // Un mail déjà montré ne revient jamais, même balayé : chaque push porte l'état entier.
+  const fresh = items.filter((i) => !i.messageId || !seen.has(i.messageId));
+  if (fresh.length === 0) {
+    // Rien de neuf, mais Chrome et Safari exigent une notification par push.
+    await self.registration.showNotification("Supernote", { tag: "mail-sync", silent: true });
+    (await self.registration.getNotifications({ tag: "mail-sync" })).forEach((n) => n.close());
+    return;
+  }
+  for (const [index, item] of fresh.entries()) {
+    // Une seule vibration par push, même au retour du réseau avec plusieurs mails.
+    const quiet = silent || index > 0;
+    await self.registration.showNotification(item.from || "Nouveau mail", {
+      body: item.subject,
+      tag: `mail:${item.threadId}`,
+      renotify: !quiet,
+      silent: quiet,
+      ...(quiet || item.cls !== "person" ? {} : { vibrate: [80, 40, 80] }),
+      icon: "/icons/icon-192.png",
+      badge: BADGE_ICON,
+      data: { kind: "mail", url: threadUrl(item.threadId), threadId: item.threadId },
+      actions: actionsFor("mail", ""),
+    });
+  }
+  const ids = fresh.map((i) => i.messageId).filter(Boolean);
+  if (ids.length) await kvSet("mailSeen", [...seen, ...ids].slice(-200));
+}
+
+function genericMail(silent = false) {
   return self.registration.showNotification("Du nouveau dans ta boîte", {
     tag: "mail-new",
+    silent,
     icon: "/icons/icon-192.png",
     data: { url: "/mail", kind: "mail" },
   });
@@ -345,13 +392,17 @@ async function showMail(data) {
   if (Array.isArray(data.items)) {
     // Garde le repli par jeton amorcé si le serveur perd un jour son refresh token.
     if (text(data.historyId)) await kvSet("mailHistoryId", text(data.historyId));
-    const items = data.items.map((i) => ({ from: text(i?.from), subject: text(i?.subject), threadId: text(i?.threadId) }));
-    return notifyMail(items, Number.isFinite(data.badge) ? data.badge : 0);
+    // `recent` porte l'état entier (rattrapage hors réseau) ; `items` seul vient d'un serveur d'avant la refonte.
+    const items = (Array.isArray(data.recent) ? data.recent : data.items).map((i) => ({
+      from: text(i?.from), subject: text(i?.subject), threadId: text(i?.threadId), messageId: text(i?.messageId), cls: text(i?.cls),
+    }));
+    const close = Array.isArray(data.close) ? data.close.map(text).filter(Boolean) : [];
+    return notifyMail(items, Number.isFinite(data.badge) ? data.badge : 0, close, data.silent === true);
   }
   const token = await gmailToken();
   if (!token) {
     await setBadge(((await kvGet("badgeCount")) || 0) + 1);
-    return genericMail();
+    return genericMail(data.silent === true);
   }
   try {
     const since = (await kvGet("mailHistoryId")) || text(data.historyId);
@@ -368,11 +419,13 @@ async function showMail(data) {
     );
     const header = (m, name) => m.payload?.headers?.find((h) => h.name === name)?.value ?? "";
     return notifyMail(
-      metas.map((m) => ({ from: senderName(header(m, "From")), subject: header(m, "Subject"), threadId: m.threadId })),
+      metas.map((m) => ({ from: senderName(header(m, "From")), subject: header(m, "Subject"), threadId: m.threadId, messageId: m.id })),
       inbox?.threadsUnread ?? inbox?.messagesUnread ?? 0,
+      [],
+      data.silent === true,
     );
   } catch {
-    return genericMail();
+    return genericMail(data.silent === true);
   }
 }
 
@@ -399,16 +452,20 @@ self.addEventListener("push", (event) => {
         return;
       }
       // Toujours afficher : Safari révoque la permission d'un site qui reçoit un push sans notification.
+      const category = categoryOf(payload.tag);
+      const silent = data.silent === true;
+      const threadId = category === "mail" ? payload.tag.split(":").pop() : "";
       await self.registration.showNotification(payload.title, {
         body: payload.body,
         tag: payload.tag || undefined,
+        // Même tag qu'un rappel encore affiché : sans renotify, le remplacement serait muet.
+        renotify: Boolean(payload.tag) && !silent,
+        silent,
         icon: "/icons/icon-192.png",
-        data: { url: payload.url, joinUrl: payload.joinUrl },
-        actions: payload.joinUrl
-          ? [{ action: "join", title: "Rejoindre" }]
-          : payload.url.startsWith("/habits?habit=")
-            ? [{ action: "done", title: "Fait" }]
-            : [],
+        badge: BADGE_ICON,
+        ...(Number.isFinite(data.at) ? { timestamp: data.at } : {}),
+        data: { url: payload.url, joinUrl: payload.joinUrl, ...(threadId ? { kind: "mail", threadId } : {}) },
+        actions: actionsFor(category, payload.joinUrl),
       });
     })(),
   );
@@ -417,10 +474,35 @@ self.addEventListener("push", (event) => {
 self.addEventListener("notificationclick", (event) => {
   const data = event.notification.data ?? {};
   event.notification.close();
+  if (event.action.startsWith("later:")) {
+    const tag = event.notification.tag;
+    const url = internalPath(text(data.url) || "/");
+    event.waitUntil(
+      serverPost("/api/push/later", {
+        key: tag.startsWith("later:") ? tag.slice("later:".length) : tag,
+        title: event.notification.title,
+        body: event.notification.body,
+        url,
+        joinUrl: httpsUrl(text(data.joinUrl)),
+        delayMs: Number(event.action.slice("later:".length)),
+      }).catch(() => self.clients.openWindow(url)),
+    );
+    return;
+  }
+  // « read » reste compris pour les notifications affichées avant la refonte.
   if ((event.action === "archive" || event.action === "read") && data.kind === "mail" && data.threadId) {
     const label = event.action === "archive" ? "INBOX" : "UNREAD";
     event.waitUntil(
       (async () => {
+        if (event.action === "archive") {
+          try {
+            const done = await serverPost("/api/push/archive", { threadId: data.threadId });
+            await setBadge(Number.isFinite(done.badge) ? done.badge : 0);
+            return;
+          } catch {
+            /* repli : jeton du SW, puis la page */
+          }
+        }
         const token = await gmailToken();
         if (token) {
           try {
@@ -448,7 +530,7 @@ self.addEventListener("notificationclick", (event) => {
   // periodic-sync : ramener l'app sans changer de page.
   const path = data.reason === "periodic-sync" ? null : internalPath(text(data.url) || "/");
   // « Fait » suit le clic normal : la page applique le check-in en lisant ?done=1.
-  const target = path && event.action === "done" ? `${path}&done=1` : path;
+  const target = path && event.action === "done" && path.includes("?") ? `${path}&done=1` : path;
   event.waitUntil(
     (async () => {
       const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });

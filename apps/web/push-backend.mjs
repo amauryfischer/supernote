@@ -9,6 +9,79 @@ const MAX_ROWS = 200;
 const MAX_BODY_BYTES = 1024 * 1024;
 const TICK_MS = 30_000;
 const TTL_S = 15 * 60;
+// Chaque push mail porte l'état entier : un push remplacé par le suivant (topic) ne perd rien, il peut donc attendre 6 h.
+const MAIL_TTL_S = 6 * 60 * 60;
+const RECENT_MS = 6 * 60 * 60 * 1000;
+const MAIL_ITEMS = 5;
+const LATER_KINDS = /^(reminder|event|followup|snooze|habit|mail):/;
+
+export const DEFAULT_PREFS = Object.freeze({
+  mail: "people",
+  reminder: true,
+  event: true,
+  habit: true,
+  followup: true,
+  quiet: Object.freeze({ on: true, start: "22:00", end: "07:30" }),
+  tz: "Europe/Paris",
+});
+const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+export function validPrefs(p) {
+  if (!p || typeof p !== "object" || !["people", "all", "off"].includes(p.mail)) return null;
+  const flags = ["reminder", "event", "habit", "followup"];
+  if (flags.some((k) => typeof p[k] !== "boolean")) return null;
+  const q = p.quiet;
+  if (!q || typeof q.on !== "boolean" || !HHMM.test(q.start) || !HHMM.test(q.end)) return null;
+  if (typeof p.tz !== "string" || p.tz.length > 64) return null;
+  try {
+    new Intl.DateTimeFormat("en-GB", { timeZone: p.tz });
+  } catch {
+    return null;
+  }
+  return { mail: p.mail, ...Object.fromEntries(flags.map((k) => [k, p[k]])), quiet: { on: q.on, start: q.start, end: q.end }, tz: p.tz };
+}
+
+export function parsePrefs(text) {
+  try {
+    return (text && validPrefs(JSON.parse(text))) || DEFAULT_PREFS;
+  } catch {
+    return DEFAULT_PREFS;
+  }
+}
+
+const minutesOf = (hhmm) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3));
+
+export function inQuiet(prefs, now = Date.now()) {
+  if (!prefs.quiet.on) return false;
+  const parts = new Intl.DateTimeFormat("en-GB", { timeZone: prefs.tz, hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
+    .formatToParts(now);
+  const at = Number(parts.find((x) => x.type === "hour")?.value) * 60 + Number(parts.find((x) => x.type === "minute")?.value);
+  const start = minutesOf(prefs.quiet.start);
+  const end = minutesOf(prefs.quiet.end);
+  return start <= end ? at >= start && at < end : at >= start || at < end;
+}
+
+const categoryOn = (prefs, category) =>
+  category === "later" || (category === "snooze" ? prefs.followup : prefs[category] !== false);
+
+const mailWanted = (mode, cls) => (mode === "all" ? cls !== "self" : mode === "people" && cls === "person");
+
+const addressOf = (from) => (from.match(/<([^>]+)>/)?.[1] ?? from).trim().toLowerCase();
+const domainOf = (address) => address.split("@")[1] ?? "";
+
+// Ordre voulu : un faux « auto » fait taire un humain, donc les signaux humains forts passent avant les signaux de masse.
+export function classifyMail({ labelIds = [], from = "", headers = {} }, watched) {
+  const address = addressOf(from);
+  if (labelIds.includes("SENT") || address === watched) return "self";
+  const autoSubmitted = String(headers["auto-submitted"] ?? "").trim().toLowerCase();
+  if (/no-?reply|do-?not-?reply|ne-?pas-?repondre|mailer-daemon/.test(address.split("@")[0] ?? "")) return "auto";
+  if (autoSubmitted && autoSubmitted !== "no") return "auto";
+  if (domainOf(address) && domainOf(address) === domainOf(watched)) return "person";
+  // UPDATES hors domaine : banque, transport, agenda… (vérifié sur la boîte réelle, sans motif noreply ni en-tête de liste).
+  if (["CATEGORY_PROMOTIONS", "CATEGORY_SOCIAL", "CATEGORY_UPDATES"].some((l) => labelIds.includes(l))) return "auto";
+  if (headers["list-unsubscribe"] || /^(bulk|junk)$/i.test(String(headers.precedence ?? "").trim())) return "auto";
+  return "person";
+}
 const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "content-type, x-sync-token",
@@ -173,9 +246,10 @@ export async function createPushBackend({ vaultAuthed, vaultProtected }) {
       const { token } = await grantToken(grant);
       let hist;
       try {
+        // Sans filtre labelId : un retrait d'INBOX ne porterait plus le libellé filtré.
         hist = await gmailApi(
           token,
-          `history?startHistoryId=${encodeURIComponent(grant.lasthistoryid)}&historyTypes=messageAdded&labelId=INBOX`,
+          `history?startHistoryId=${encodeURIComponent(grant.lasthistoryid)}&historyTypes=messageAdded&historyTypes=labelRemoved&maxResults=500`,
         );
       } catch (err) {
         if (err?.status !== 404) throw err;
@@ -185,24 +259,39 @@ export async function createPushBackend({ vaultAuthed, vaultProtected }) {
         return null;
       }
       if (hist?.historyId) await store.setMailGrantHistory(email, String(hist.historyId));
-      const added = (hist?.history ?? [])
-        .flatMap((h) => h.messagesAdded ?? [])
-        .map((m) => m.message)
-        .filter((m) => m?.labelIds?.includes("INBOX"))
-        .slice(0, 5);
-      const metas = await Promise.all(
-        added.map((m) => gmailApi(token, `messages/${m.id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject`)),
+      const records = hist?.history ?? [];
+      const addedIds = [...new Set(
+        records.flatMap((h) => h.messagesAdded ?? []).map((m) => m.message)
+          .filter((m) => m?.labelIds?.includes("INBOX")).map((m) => m.id),
+      )].slice(-10);
+      const closed = new Set(
+        records.flatMap((h) => h.labelsRemoved ?? [])
+          .filter((r) => r.labelIds?.includes("INBOX") || r.labelIds?.includes("UNREAD"))
+          .map((r) => String(r.message?.threadId ?? "")).filter(Boolean),
       );
+      const metaPath = (id) =>
+        `messages/${id}?format=metadata${["From", "Subject", "List-Unsubscribe", "Precedence", "Auto-Submitted"].map((h) => `&metadataHeaders=${h}`).join("")}`;
+      // Seul un message supprimé entre-temps (404) est sauté : une autre erreur retombe sur le push générique.
+      const metas = (await Promise.all(addedIds.map((id) => gmailApi(token, metaPath(id)).catch((err) => {
+        if (err?.status === 404) return null;
+        throw err;
+      })))).filter(Boolean);
       const inbox = await gmailApi(token, "labels/INBOX");
-      const header = (m, name) => m.payload?.headers?.find((h) => h.name === name)?.value ?? "";
-      return {
-        items: metas.map((m) => ({
-          from: senderName(header(m, "From")).slice(0, 80),
-          subject: header(m, "Subject").slice(0, 160),
-          threadId: String(m.threadId ?? ""),
-        })),
-        badge: inbox?.threadsUnread ?? inbox?.messagesUnread ?? 0,
-      };
+      const added = metas
+        // Libellés actuels : un message déjà lu ou archivé pendant la coalescence ne sonne plus.
+        .filter((m) => m.labelIds?.includes("INBOX") && m.labelIds?.includes("UNREAD"))
+        .map((m) => {
+          const headers = Object.fromEntries((m.payload?.headers ?? []).map((h) => [String(h.name).toLowerCase(), String(h.value ?? "")]));
+          return {
+            messageId: String(m.id),
+            threadId: String(m.threadId ?? ""),
+            from: senderName(headers.from ?? "").slice(0, 80),
+            subject: (headers.subject ?? "").slice(0, 160),
+            cls: classifyMail({ labelIds: m.labelIds ?? [], from: headers.from ?? "", headers }, email),
+          };
+        });
+      for (const item of added) closed.delete(item.threadId);
+      return { added, closed: [...closed], badge: inbox?.threadsUnread ?? inbox?.messagesUnread ?? 0 };
     } catch (err) {
       console.warn(`[push] lecture Gmail côté serveur échouée (${err?.message ?? err})`);
       return null;
@@ -230,15 +319,16 @@ export async function createPushBackend({ vaultAuthed, vaultProtected }) {
   // Topic : 32 caractères base64url au plus, et `key` contient des « @ » (id d'agenda = adresse).
   const topicOf = (key) => createHash("sha256").update(key).digest("base64url").slice(0, 32);
 
-  async function deliver(sub, payload, topic) {
+  async function deliver(sub, payload, topic, ttl = TTL_S) {
     try {
       // urgency high : Android en veille diffère les messages « normal ».
       await webpush.sendNotification(
         { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
         payload,
-        { TTL: TTL_S, topic, urgency: "high" },
+        { TTL: ttl, topic, urgency: "high" },
       );
       await store.markSubscriptionOk(sub.endpoint);
+      return { ok: true };
     } catch (err) {
       const status = err?.statusCode;
       if (status === 404 || status === 410) {
@@ -247,25 +337,107 @@ export async function createPushBackend({ vaultAuthed, vaultProtected }) {
       } else {
         console.warn(`[push] envoi refusé (${status ?? err})`);
       }
+      return { ok: false, status: status ?? 0 };
     }
   }
 
   // Une rafale Pub/Sub (lecture, archivage, plusieurs arrivées) ne fait qu'un push par fenêtre.
   // Clé par adresse : la lecture Gmail avance lasthistoryid, un second salon du même compte recevrait une liste vide.
   const mailPending = new Map(); // email → { lastSentAt, timer, historyId }
+  // shortcut: en mémoire, perdu au redémarrage (on perd seulement le rattrapage) ; un seul conteneur web, à passer en base s'il y en a plusieurs.
+  const recentMail = new Map(); // email → Map(threadId → { messageId, threadId, from, subject, cls, at, sentTo: Set<endpoint> })
 
   async function sendMail(email, historyId) {
     const detail = tokenSeal ? await detailedMail(email) : null;
-    const payload = JSON.stringify({
-      kind: "mail", title: "Nouveau mail", body: "", url: "/mail", tag: "mail-new", historyId, email, ...detail,
-    });
-    let count = 0;
-    for (const vault of await store.listMailWatchVaults(email)) {
-      const subs = await store.listSubscriptions(vault);
-      count += subs.length;
-      await Promise.all(subs.map((sub) => deliver(sub, payload, topicOf(`mail:${email}`))));
+    const vaults = await store.listMailWatchVaults(email);
+    if (!detail) {
+      // Sans lecture serveur, le SW lit Gmail lui-même avec le jeton de la page : pas de tri possible ici.
+      let count = 0;
+      for (const vault of vaults) {
+        const subs = (await store.listSubscriptions(vault)).filter((sub) => parsePrefs(sub.prefs).mail !== "off");
+        count += subs.length;
+        await Promise.all(subs.map((sub) => deliver(sub, JSON.stringify({
+          kind: "mail", title: "Nouveau mail", body: "", url: "/mail", tag: "mail-new", historyId, email,
+          silent: inQuiet(parsePrefs(sub.prefs)),
+        }), topicOf(`mail:${email}`))));
+      }
+      console.log(`[push] mail → ${count} abonnement(s)`);
+      return;
     }
-    console.log(`[push] mail → ${count} abonnement(s)${detail ? " (détaillé)" : ""}`);
+    const now = Date.now();
+    const state = recentMail.get(email) ?? new Map();
+    recentMail.set(email, state);
+    for (const [threadId, item] of state) if (now - item.at > RECENT_MS) state.delete(threadId);
+    const closedFor = new Map(); // threadId → abonnements qui l'avaient reçu
+    for (const threadId of detail.closed) {
+      const item = state.get(threadId);
+      if (!item) continue;
+      closedFor.set(threadId, item.sentTo);
+      state.delete(threadId);
+    }
+    for (const item of detail.added) {
+      state.set(item.threadId, { ...item, at: now, sentTo: state.get(item.threadId)?.sentTo ?? new Set() });
+    }
+    const fresh = new Set(detail.added.map((i) => i.messageId));
+    let sent = 0;
+    let freshCount = 0;
+    let closeCount = 0;
+    for (const vault of vaults) {
+      for (const sub of await store.listSubscriptions(vault)) {
+        const prefs = parsePrefs(sub.prefs);
+        const items = [...state.values()]
+          .filter((i) => mailWanted(prefs.mail, i.cls))
+          .sort((a, b) => b.at - a.at)
+          .slice(0, MAIL_ITEMS);
+        const close = [...closedFor].filter(([, to]) => to.has(sub.endpoint)).map(([threadId]) => threadId).slice(0, 20);
+        const news = items.filter((i) => fresh.has(i.messageId)).length;
+        if (news === 0 && close.length === 0) continue;
+        const shape = ({ messageId, threadId, from, subject, cls }) => ({ messageId, threadId, from, subject, cls });
+        const payload = JSON.stringify({
+          kind: "mail",
+          // Titre relayé au tiroir in-app quand une fenêtre est visible.
+          title: "Nouveau mail",
+          email,
+          historyId,
+          badge: detail.badge,
+          // `items` = nouveaux seulement : un SW d'avant la refonte les affiche tels quels sans fausse alerte.
+          items: items.filter((i) => fresh.has(i.messageId)).map(shape),
+          recent: items.map(shape),
+          close,
+          silent: inQuiet(prefs, now),
+        });
+        const { ok } = await deliver(sub, payload, topicOf(`mail:${email}`), MAIL_TTL_S);
+        if (!ok) continue;
+        for (const item of items) item.sentTo.add(sub.endpoint);
+        sent += 1;
+        freshCount += news;
+        closeCount += close.length;
+      }
+    }
+    const tally = (cls) => detail.added.filter((i) => i.cls === cls).length;
+    console.log(
+      `[push] mail → ${sent} abonnement(s), ${freshCount} nouveau(x), ${closeCount} fermé(s) ` +
+        `[reçus : ${tally("person")} personne(s), ${tally("auto")} auto, ${tally("self")} soi] (détaillé)`,
+    );
+  }
+
+  // Le serveur n'archive que ce qu'il a lui-même notifié à cet appareil, dans les 6 dernières heures.
+  async function archiveNotified(sub, threadId) {
+    for (const [email, state] of recentMail) {
+      const item = state.get(threadId);
+      if (!item?.sentTo.has(sub.endpoint) || Date.now() - item.at > RECENT_MS) continue;
+      if (!(await store.listMailWatchVaults(email)).includes(sub.vault)) continue;
+      const grant = await store.getMailGrant(email);
+      if (!grant) return null;
+      const { token } = await grantToken(grant);
+      await gmailApi(token, `threads/${encodeURIComponent(threadId)}/modify`, {
+        method: "POST",
+        body: JSON.stringify({ removeLabelIds: ["INBOX"] }),
+      });
+      const inbox = await gmailApi(token, "labels/INBOX");
+      return { badge: inbox?.threadsUnread ?? inbox?.messagesUnread ?? 0 };
+    }
+    return null;
   }
 
   function queueMail(email, historyId) {
@@ -289,15 +461,19 @@ export async function createPushBackend({ vaultAuthed, vaultProtected }) {
       for (const row of await store.claimDue(now)) {
         if (now - Number(row.fireat) > MISSED_MS) continue;
         if (!subsByVault.has(row.vault)) subsByVault.set(row.vault, await store.listSubscriptions(row.vault));
-        const subs = subsByVault.get(row.vault);
-        const payload = JSON.stringify({
+        // « Dans X » ne revient que sur l'appareil qui l'a demandé.
+        const subs = subsByVault.get(row.vault).filter((sub) =>
+          row.category === "later" ? sub.deviceid === row.deviceid : categoryOn(parsePrefs(sub.prefs), row.category),
+        );
+        await Promise.all(subs.map((sub) => deliver(sub, JSON.stringify({
           title: row.title,
           body: row.body,
           url: row.url,
           tag: row.key,
           joinUrl: row.joinurl,
-        });
-        await Promise.all(subs.map((sub) => deliver(sub, payload, topicOf(row.key))));
+          at: Number(row.fireat),
+          silent: inQuiet(parsePrefs(sub.prefs), now),
+        }), topicOf(row.key))));
         console.log(`[push] ${row.category} → ${subs.length} abonnement(s)`);
       }
       await store.purgeSent(now - HORIZON_MS);
@@ -335,6 +511,72 @@ export async function createPushBackend({ vaultAuthed, vaultProtected }) {
       }
       await store.removeSubscription(body.endpoint);
       sendJson(res, 200, { ok: true });
+      return true;
+    }
+
+    // Routes appelées par l'appareil lui-même, souvent depuis le SW qui n'a pas le mot de passe du salon : l'endpoint fait foi.
+    if (["/api/push/test", "/api/push/prefs", "/api/push/later", "/api/push/archive"].includes(path)) {
+      const body = await readJson(req);
+      const sub = typeof body?.endpoint === "string" ? await store.getSubscription(body.endpoint) : null;
+      if (!sub) {
+        sendJson(res, 404, { error: "unknown subscription" });
+        return true;
+      }
+
+      if (path === "/api/push/test" && req.method === "POST") {
+        const prefs = parsePrefs(sub.prefs);
+        const at = new Date().toLocaleTimeString("fr-FR", { timeZone: prefs.tz, hour: "2-digit", minute: "2-digit" });
+        const result = await deliver(sub, JSON.stringify({ title: "Test Supernote", body: `Envoyé à ${at}`, url: "/parametres", tag: "test", joinUrl: "" }), topicOf(`test:${sub.endpoint}`));
+        sendJson(res, 200, result);
+        return true;
+      }
+
+      if (path === "/api/push/prefs" && req.method === "PUT") {
+        const prefs = validPrefs(body?.prefs);
+        if (!prefs) {
+          sendJson(res, 400, { error: "invalid prefs" });
+          return true;
+        }
+        await store.setPrefs(sub.endpoint, JSON.stringify(prefs));
+        sendJson(res, 200, { ok: true });
+        return true;
+      }
+
+      if (path === "/api/push/later" && req.method === "POST") {
+        const { key, title, body: text, url: target, joinUrl, delayMs } = body;
+        const valid =
+          typeof key === "string" && key.length <= 480 && LATER_KINDS.test(key) &&
+          typeof title === "string" && typeof text === "string" && isInternalPath(target) &&
+          typeof joinUrl === "string" && (joinUrl === "" || joinUrl.startsWith("https://")) &&
+          Number.isInteger(delayMs) && delayMs >= 60_000 && delayMs <= 24 * 60 * 60 * 1000;
+        if (!valid) {
+          sendJson(res, 400, { error: "invalid later" });
+          return true;
+        }
+        await store.insertSchedule({ vault: sub.vault, deviceId: sub.deviceid, category: "later" }, [{
+          key: `later:${key}`, fireAt: Date.now() + delayMs, title: title.slice(0, 120), body: text.slice(0, 240), url: target, joinUrl,
+        }]);
+        sendJson(res, 200, { ok: true });
+        return true;
+      }
+
+      if (path === "/api/push/archive" && req.method === "POST") {
+        const threadId = body?.threadId;
+        if (typeof threadId !== "string" || !/^[0-9a-f]{1,32}$/i.test(threadId)) {
+          sendJson(res, 400, { error: "invalid threadId" });
+          return true;
+        }
+        try {
+          const done = tokenSeal ? await archiveNotified(sub, threadId) : null;
+          sendJson(res, done ? 200 : 403, done ? { ok: true, badge: done.badge } : { error: "not notified here" });
+        } catch (err) {
+          console.warn(`[push] archivage serveur échoué (${err?.message ?? err})`);
+          sendJson(res, 502, { error: "gmail refused" });
+        }
+        return true;
+      }
+
+      sendJson(res, 405, { error: "method not allowed" });
       return true;
     }
 
@@ -498,8 +740,22 @@ export async function createPushBackend({ vaultAuthed, vaultProtected }) {
         sendJson(res, 400, { error: "invalid subscription" });
         return true;
       }
-      await store.upsertSubscription({ endpoint, vault, deviceId, p256dh, auth });
+      const label = typeof body?.label === "string" ? body.label.slice(0, 60) : "";
+      await store.upsertSubscription({ endpoint, vault, deviceId, p256dh, auth, label });
       sendJson(res, 200, { ok: true });
+      return true;
+    }
+
+    if (path === "/api/push/devices" && req.method === "GET") {
+      const mine = url.searchParams.get("endpoint") ?? "";
+      const devices = (await store.listSubscriptions(vault)).map((sub) => ({
+        endpoint: sub.endpoint,
+        label: sub.label || "Appareil",
+        createdAt: Number(sub.createdat),
+        lastOkAt: sub.lastokat == null ? null : Number(sub.lastokat),
+        mine: sub.endpoint === mine,
+      }));
+      sendJson(res, 200, { devices });
       return true;
     }
 

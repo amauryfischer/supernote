@@ -61,8 +61,6 @@ export interface Shortcut {
 export interface NotificationSettings {
   osNotifications: boolean;
   sounds: boolean;
-  persistence: boolean;
-  toastDuration: number;
   pushSubscribed: boolean;
   pushDefaultApplied: boolean;
 }

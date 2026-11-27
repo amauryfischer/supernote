@@ -1,0 +1,241 @@
+<title>Notifications téléphone</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600&family=JetBrains+Mono:wght@400&display=swap">
+<style>
+  /* Layout : une colonne de lecture, schéma pleine largeur défilant seul sur mobile */
+  :root {
+    --bg: #f6f7f9; --surface: #ffffff; --fg: #1b2330; --muted: #5b6676; --line: #d5dbe3;
+    --accent: #0f6f8a; --accent-soft: #e3f1f5; --warn: #9a5b00; --warn-soft: #fbf0dc;
+    --display: "Space Grotesk", "Segoe UI", system-ui, sans-serif;
+    --body: "Inter", system-ui, -apple-system, sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #10151c; --surface: #18202a; --fg: #e4e9ef; --muted: #9aa6b5; --line: #2c3743;
+      --accent: #5cc3dd; --accent-soft: #15323b; --warn: #f0b45a; --warn-soft: #3a2a12; color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #10151c; --surface: #18202a; --fg: #e4e9ef; --muted: #9aa6b5; --line: #2c3743;
+    --accent: #5cc3dd; --accent-soft: #15323b; --warn: #f0b45a; --warn-soft: #3a2a12; color-scheme: dark;
+  }
+  body { background: var(--bg); color: var(--fg); font-family: var(--body); font-size: 15px; line-height: 1.55; }
+  .wrap { max-width: 980px; margin: 0 auto; padding-block: 40px 64px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 40px; }
+  h1, h2 { font-family: var(--display); text-wrap: balance; margin: 0; }
+  h1 { font-size: 2rem; line-height: 1.15; }
+  h2 { font-size: 1.25rem; }
+  p { margin: 0; max-width: 68ch; }
+  .lede { color: var(--muted); font-size: 1.05rem; }
+  .eyebrow { font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+  header { display: grid; gap: 12px; }
+  section { display: grid; gap: 14px; min-width: 0; }
+  .facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+  .fact { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; display: grid; gap: 4px; }
+  .fact b { font-family: var(--display); font-size: 1.5rem; font-variant-numeric: tabular-nums; }
+  .fact span { color: var(--muted); font-size: 0.875rem; }
+  .diagram { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
+  .diagram svg { display: block; min-width: 900px; width: 100%; height: auto; }
+  .legend { display: flex; flex-wrap: wrap; gap: 16px; font-size: 0.85rem; color: var(--muted); }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
+  .table { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.9rem; min-width: 560px; }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-weight: 600; color: var(--muted); font-size: 0.8rem; letter-spacing: 0.04em; text-transform: uppercase; }
+  td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  code, pre { font-family: var(--mono); font-size: 0.82rem; }
+  code { background: var(--accent-soft); color: var(--fg); padding: 1px 5px; border-radius: 4px; }
+  pre { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; overflow-x: auto; margin: 0; line-height: 1.5; }
+  .flows { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+  .flows li { display: grid; grid-template-columns: 7.5rem 1fr; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .flows li strong { font-family: var(--display); font-weight: 600; }
+  .flows li p { min-width: 0; }
+  .chip { display: inline-block; font-size: 0.72rem; padding: 1px 7px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-weight: 600; letter-spacing: 0.02em; }
+  .chip.warn { background: var(--warn-soft); color: var(--warn); }
+  .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+  .note { background: var(--warn-soft); border-radius: 8px; padding: 12px 14px; font-size: 0.9rem; }
+  @media (max-width: 520px) { .flows li { grid-template-columns: 1fr; gap: 4px; } h1 { font-size: 1.6rem; } }
+  svg text { font-family: var(--body); }
+  svg .t { fill: var(--fg); font-size: 13px; font-weight: 600; }
+  svg .l { fill: var(--muted); font-size: 11.5px; }
+  svg .n { fill: var(--accent); font-size: 11.5px; font-weight: 500; }
+  svg .g { fill: var(--muted); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; }
+  svg .box { fill: var(--surface); stroke: var(--line); stroke-width: 1.2; }
+  svg .grp { fill: var(--bg); stroke: var(--line); stroke-width: 1; stroke-dasharray: 4 4; }
+  svg .ar { stroke: var(--muted); stroke-width: 1.4; fill: none; marker-end: url(#arrow); }
+  svg .arn { stroke: var(--accent); stroke-width: 1.6; fill: none; marker-end: url(#arrowN); }
+  svg .al { fill: var(--muted); font-size: 11px; }
+  svg .aln { fill: var(--accent); font-size: 11px; font-weight: 500; }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Supernote · spec du 2026-11-27 · à relire</div>
+    <h1>Notifications téléphone</h1>
+    <p class="lede">Le téléphone ne vibre que pour ce qui compte, au bon moment. Chaque notification se traite depuis l'écran verrouillé, ou disparaît seule quand elle est réglée ailleurs. Le serveur décide pour chaque appareil, et le service worker se contente d'afficher et d'agir.</p>
+  </header>
+
+  <section>
+    <h2>Point de départ, mesuré en prod</h2>
+    <div class="facts">
+      <div class="fact"><b>92 %</b><span>des ~11 300 push depuis le 22/09 sont des mails</span></div>
+      <div class="fact"><b>150–290</b><span>push mail par jour, lectures et archivages compris</span></div>
+      <div class="fact"><b>3 sur 19</b><span>mails du 26/11 écrits par une personne (13 automatiques, 3 notes à soi)</span></div>
+      <div class="fact"><b>0</b><span>rappel de todo ou relance envoyé en deux mois</span></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Composants et flux</h2>
+    <div class="legend">
+      <span><i style="background: var(--muted)"></i>existe aujourd'hui</span>
+      <span><i style="background: var(--accent)"></i>ajouté par cette spec</span>
+    </div>
+    <div class="diagram" role="img" aria-label="Schéma : le téléphone (page et service worker), le serveur Scalingo (routes push, tri mail, planificateur, base Postgres) et Google (Gmail, Pub/Sub, FCM), reliés par les flux décrits plus bas.">
+      <svg viewBox="0 0 960 690" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill: var(--muted)"/></marker>
+          <marker id="arrowN" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill: var(--accent)"/></marker>
+        </defs>
+
+        <rect class="grp" x="10" y="14" width="280" height="540" rx="10"/>
+        <text class="g" x="24" y="36">Téléphone Android · PWA</text>
+        <rect class="grp" x="330" y="14" width="340" height="616" rx="10"/>
+        <text class="g" x="344" y="36">Serveur Scalingo · server.mjs</text>
+        <rect class="grp" x="710" y="14" width="240" height="540" rx="10"/>
+        <text class="g" x="724" y="36">Google</text>
+
+        <rect class="box" x="26" y="52" width="248" height="168" rx="8"/>
+        <text class="t" x="40" y="76">Page Supernote</text>
+        <text class="l" x="40" y="98">PushScheduleRunner : échéances à 7 j</text>
+        <text class="l" x="40" y="116">rappels · agenda · habitudes · relances</text>
+        <text class="n" x="40" y="140">Réglages › Sur cet appareil</text>
+        <text class="n" x="40" y="158">mails personnes/tous/aucun, heures calmes</text>
+        <text class="n" x="40" y="182">Réglages › Appareils</text>
+        <text class="n" x="40" y="200">dernière livraison, Tester, Retirer</text>
+
+        <rect class="box" x="26" y="330" width="248" height="208" rx="8"/>
+        <text class="t" x="40" y="354">Service worker · sw.js</text>
+        <text class="l" x="40" y="376">affiche toujours une notif par push</text>
+        <text class="n" x="40" y="398">une notif par fil, tag mail:&lt;fil&gt;</text>
+        <text class="n" x="40" y="416">messageId déjà vus (IndexedDB, 200)</text>
+        <text class="n" x="40" y="434">close → referme les fils réglés</text>
+        <text class="n" x="40" y="452">1 vibration par push, silent la nuit</text>
+        <text class="l" x="40" y="476">actions : Archiver · Rejoindre</text>
+        <text class="n" x="40" y="494">+ Fait (todo) · Dans 5 min / 1 h / 3 h</text>
+        <text class="n" x="40" y="516">icône badge + timestamp</text>
+
+        <rect class="box" x="346" y="52" width="308" height="210" rx="8"/>
+        <text class="t" x="360" y="76">push-backend.mjs · /api/push/*</text>
+        <text class="l" x="360" y="100">POST /subscribe · PUT /schedule</text>
+        <text class="l" x="360" y="118">POST /gmail (Pub/Sub, clé secrète)</text>
+        <text class="n" x="360" y="142">POST /test : un push vers cet appareil</text>
+        <text class="n" x="360" y="160">GET /devices : appareils du salon</text>
+        <text class="n" x="360" y="178">PUT /prefs : préférences + fuseau</text>
+        <text class="n" x="360" y="196">POST /later · POST /archive (depuis la notif)</text>
+        <text class="l" x="360" y="222">auth : salon protégé, ou endpoint = secret</text>
+        <text class="l" x="360" y="240">(test, prefs, later, archive, unsubscribe)</text>
+
+        <rect class="box" x="346" y="280" width="308" height="124" rx="8"/>
+        <text class="t" x="360" y="304">Mail : lecture, tri, état</text>
+        <text class="l" x="360" y="326">detailedMail : refresh token serveur</text>
+        <text class="n" x="360" y="346">history : ajouts + retraits INBOX/UNREAD</text>
+        <text class="n" x="360" y="364">tri person / auto / self (en-têtes, catégories)</text>
+        <text class="n" x="360" y="382">état récent 6 h en mémoire, TTL 6 h</text>
+
+        <rect class="box" x="346" y="420" width="308" height="76" rx="8"/>
+        <text class="t" x="360" y="444">Planificateur · toutes les 30 s</text>
+        <text class="l" x="360" y="466">claimDue → envoi, TTL 15 min</text>
+        <text class="n" x="360" y="484">filtre catégories + heures calmes par appareil</text>
+
+        <rect class="box" x="346" y="512" width="308" height="104" rx="8"/>
+        <text class="t" x="360" y="536">push-store · Postgres</text>
+        <text class="l" x="360" y="558">push_subscription <tspan class="n">+ label, + prefs</tspan></text>
+        <text class="l" x="360" y="576">push_schedule <tspan class="n">+ catégorie later</tspan></text>
+        <text class="l" x="360" y="594">push_mail_watch · push_mail_grant (chiffré)</text>
+
+        <rect class="box" x="726" y="52" width="208" height="88" rx="8"/>
+        <text class="t" x="740" y="76">Gmail API</text>
+        <text class="l" x="740" y="98">users.watch INBOX (24 h)</text>
+        <text class="l" x="740" y="116">history · messages metadata</text>
+
+        <rect class="box" x="726" y="206" width="208" height="64" rx="8"/>
+        <text class="t" x="740" y="230">Pub/Sub · gmail-push</text>
+        <text class="l" x="740" y="252">chaque changement d'INBOX</text>
+
+        <rect class="box" x="726" y="420" width="208" height="76" rx="8"/>
+        <text class="t" x="740" y="444">FCM</text>
+        <text class="l" x="740" y="466">Web Push, urgency high</text>
+        <text class="l" x="740" y="484">topic : remplace le push en attente</text>
+
+        <path class="ar" d="M830,140 L830,204"/>
+        <text class="al" x="838" y="178">notifie</text>
+        <path class="ar" d="M726,238 L656,238"/>
+        <text class="al" x="672" y="230">POST /gmail</text>
+        <path class="arn" d="M656,330 C690,330 700,140 726,128"/>
+        <text class="aln" x="664" y="300">history.list</text>
+        <path class="arn" d="M656,392 C690,392 700,440 724,446"/>
+        <text class="aln" x="664" y="414">par appareil</text>
+        <path class="ar" d="M656,470 L724,470"/>
+        <path class="ar" d="M830,496 L830,656 L150,656 L150,540"/>
+        <text class="al" x="420" y="650">push vers chaque abonnement (Android, bureau)</text>
+        <path class="ar" d="M274,110 L344,110"/>
+        <text class="al" x="282" y="102">échéances</text>
+        <path class="arn" d="M274,172 L344,172"/>
+        <text class="aln" x="282" y="164">prefs · test</text>
+        <path class="arn" d="M274,372 C310,372 312,230 344,214"/>
+        <text class="aln" x="284" y="300">Dans X · Archiver</text>
+      </svg>
+    </div>
+  </section>
+
+  <section>
+    <h2>Flux de données</h2>
+    <ul class="flows">
+      <li><strong>Nouveau mail</strong><p>Gmail notifie Pub/Sub, qui appelle <code>POST /gmail</code>. Le serveur regroupe 30 s puis lit <code>history.list</code> : ajouts en INBOX, retraits d'INBOX ou d'UNREAD. Il classe chaque message, met à jour l'état récent, puis construit <b>une charge utile par abonnement</b> selon la préférence mail. Si l'abonnement n'a ni nouveauté ni fil à refermer, rien ne part.</p></li>
+      <li><strong>Échéances</strong><p>L'appareil calcule 7 jours d'échéances et les envoie par <code>PUT /schedule</code>, sans jamais filtrer de catégorie. Le planificateur réserve les lignes dues, saute les catégories coupées pour chaque appareil et ajoute <code>silent</code> pendant les heures calmes, calculées dans le fuseau de l'appareil.</p></li>
+      <li><strong>Préférences</strong><p>Le téléphone envoie <code>PUT /prefs</code> avec son endpoint à chaque changement et à chaque ouverture de l'app. La copie locale vit dans <code>localStorage</code>. Une préférence absente ou illisible vaut les défauts : personnes seulement, tout le reste actif, heures calmes de 22 h à 7 h 30.</p></li>
+      <li><strong>Agir</strong><p>« Dans X » : le SW appelle <code>POST /later</code>, qui crée une ligne <code>later</code> pour ce seul appareil. « Fait » ouvre <code>/todos?edit=…&amp;done=1</code>, sur le patron des habitudes. « Archiver » passe par <code>POST /archive</code> : le serveur archive avec son refresh token, mais seulement un fil qu'il a lui-même notifié à ce salon depuis moins de 6 h. En repli, on utilise le jeton du SW, puis l'outbox de la page.</p></li>
+      <li><strong>Rangement</strong><p>Un fil lu ou archivé ailleurs part dans <code>close</code>, seulement pour les appareils qui l'ont reçu. Un push qui ne porte que <code>close</code> referme la notif au prix d'un réveil discret : quelques fois par jour, au lieu de 150 à 290 aujourd'hui.</p></li>
+      <li><strong>Test</strong><p><code>POST /test</code> pousse vers ce seul appareil et renvoie le vrai statut FCM. Le bouton affiche chargement, puis coche ou ⚠, sans toast.</p></li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Charge utile d'un push mail</h2>
+    <pre>{
+  "kind": "mail", "email": "…", "historyId": "…", "badge": 12,
+  "recent": [ { "messageId": "…", "threadId": "…", "from": "Paul", "subject": "Devis Copil", "cls": "person" } ],
+  "items":  [ …seulement les nouveaux de ce push… ],
+  "close":  [ "threadId lu ou archivé ailleurs", "…" ],
+  "silent": false
+}</pre>
+    <p>Chaque push porte <b>l'état entier</b> dans <code>recent</code> (les 5 derniers mails notifiables) : si FCM remplace un push en attente par le suivant, rien n'est perdu. Le SW n'affiche que les <code>messageId</code> qu'il n'a jamais montrés. <code>items</code> ne garde que les nouveaux, pour qu'un téléphone pas encore mis à jour n'affiche pas de fausse alerte.</p>
+  </section>
+
+  <section>
+    <h2>Frontières</h2>
+    <div class="cols">
+      <div class="fact"><span class="eyebrow">Téléphone</span><p>N'accède pas au coffre depuis le SW. Ce qui touche le coffre (« Fait ») passe par l'ouverture de la page. Ce qui touche Gmail passe par le jeton en IndexedDB ou par l'outbox.</p></div>
+      <div class="fact"><span class="eyebrow">Serveur</span><p>Seul lieu de décision : tri, préférences, heures calmes, report. Il ne stocke aucun contenu de mail, et l'état récent reste en mémoire 6 h au plus.</p></div>
+      <div class="fact"><span class="eyebrow">Google</span><p>Gmail est lu avec le refresh token chiffré déjà en place. FCM est le seul transport (abonnements Chrome uniquement).</p></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Lots</h2>
+    <div class="table">
+      <table>
+        <thead><tr><th>Lot</th><th>Résultat visible sur le téléphone</th><th>Touche</th><th>Estim.</th></tr></thead>
+        <tbody>
+          <tr><td>L1 Banc d'essai</td><td>« Tester » envoie un vrai push ; liste des appareils et de leur dernière livraison</td><td>store, backend, Réglages</td><td class="num">~1 h 30</td></tr>
+          <tr><td>L2 Personnes</td><td>plus de vibration pour les mails automatiques ni les notes à soi</td><td>detailedMail</td><td class="num">~2 h</td></tr>
+          <tr><td>L3 Mails propres</td><td>une notif par fil, refermée seule, aucune perte hors réseau, plus de réveils vides</td><td>backend, sw.js</td><td class="num">~3 h</td></tr>
+          <tr><td>L4 Par appareil</td><td>catégories et heures calmes réglables sur le téléphone</td><td>store, backend, Réglages</td><td class="num">~3 h</td></tr>
+          <tr><td>L5 Agir</td><td>« Dans X », « Archiver » sans déverrouiller, « Fait » sur les todos, icône de barre d'état</td><td>sw.js, backend, todos</td><td class="num">~3 h 45</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note"><span class="chip warn">Contraintes</span> Le SW doit toujours afficher, et ce qui ne doit pas sonner ne part pas. <code>computeSchedule</code> ne filtre jamais : une liste vide effacerait celle du salon. Le serveur et le client se déploient ensemble.</p>
+  </section>
+</div>

@@ -453,15 +453,25 @@ export default function TodosPage() {
   }, [todosQuery.data]);
 
   const [searchParams, setSearchParams] = useSearchParams();
-  // `?edit=<id>` : « Ouvrir la tâche » depuis un bloc de l'agenda.
+  // `?edit=<id>` : « Ouvrir la tâche » depuis un bloc de l'agenda ; `&done=1` : « Fait » depuis la notification de rappel.
   useEffect(() => {
     const id = searchParams.get("edit");
     if (!id || !todosQuery.data) return;
     const row = standaloneRows.find((r) => r.id === id);
-    if (row) setEditing(row);
+    const done = searchParams.get("done") === "1";
+    // URL nettoyée avant d'agir : un rechargement ne recoche pas.
     searchParams.delete("edit");
+    searchParams.delete("done");
     setSearchParams(searchParams, { replace: true });
-  }, [searchParams, setSearchParams, todosQuery.data, standaloneRows]);
+    if (!row) return;
+    if (!done) setEditing(row);
+    else if (!row.done) {
+      void trpcVanillaClient.entities.update
+        .mutate({ id: row.id, fields: { done: true } })
+        .then(() => utils.entities.list.invalidate({ typeId: TODO_TYPE_ID }))
+        .catch(() => setEditing(row));
+    }
+  }, [searchParams, setSearchParams, todosQuery.data, standaloneRows, utils]);
 
   const allTodos: UiTodoRow[] = useMemo(
     () => withScheduledAt([...noteRows, ...standaloneRows], blocks),

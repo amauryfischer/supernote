@@ -7,7 +7,7 @@
 const DB_NAME = "supernote-sw";
 const STORE = "kv";
 
-export type SwKvKey = "gmailToken" | "mailHistoryId" | "badgeCount";
+export type SwKvKey = "gmailToken" | "mailHistoryId" | "badgeCount" | "pushServer";
 
 function open(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {

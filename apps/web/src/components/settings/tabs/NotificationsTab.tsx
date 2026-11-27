@@ -1,23 +1,30 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Bell, GearSix } from "@phosphor-icons/react";
-import { Button, Switch, Tooltip } from "@supernote/ui";
+import { useCallback, useEffect, useState } from "react";
+import { Bell, DeviceMobile, Devices, GearSix, Trash } from "@phosphor-icons/react";
+import { Button, Input, Switch, Tooltip } from "@supernote/ui";
 import { useSettings } from "../SettingsContext";
 import { SettingRow } from "../SettingRow";
 import { SettingSection } from "../SettingSection";
 import { ToggleSwitch } from "../ToggleSwitch";
-import { RangeSlider } from "../RangeSlider";
-import { useNotificationsContext, buildNotification } from "@supernote/notifications/renderer";
+import { NativeSelect } from "../NativeSelect";
 import { useOnlineSync } from "@/lib/online-sync/OnlineSyncProvider";
 import { useActionFeedback, FeedbackIcon } from "@/lib/action-feedback";
+import { formatAgo } from "@/lib/dateFormat";
 import { grantMailAccess, mailGrantEmail } from "@/lib/mail-push-watch";
 import {
   fetchPushConfig,
+  listPushDevices,
+  loadDevicePrefs,
   pushAvailability,
+  removePushDevice,
+  sendPushPrefs,
+  sendTestPush,
   subscribePush,
   unsubscribePush,
   type PushAvailability,
+  type PushDevice,
+  type PushDevicePrefs,
 } from "@/lib/push/push-client";
 
 const PUSH_HINTS: Record<PushAvailability, string> = {
@@ -127,17 +134,185 @@ function MailGrantRow() {
   );
 }
 
+const MAIL_MODES = [
+  { value: "people", label: "Personnes seulement", hint: "Pas de vibration pour les mails automatiques ni pour tes notes à toi-même." },
+  { value: "all", label: "Tous", hint: "Chaque nouveau mail, sauf ceux que tu t'envoies." },
+  { value: "off", label: "Aucun", hint: "Aucune notification de mail sur cet appareil." },
+] as const;
+
+const CATEGORY_ROWS: { key: "reminder" | "event" | "habit" | "followup"; label: string; description: string }[] = [
+  { key: "reminder", label: "Rappels de tâches", description: "À l'heure du rappel, avec « Fait » et « Dans 1 h »." },
+  { key: "event", label: "Agenda", description: "15 min avant chaque événement, avec « Rejoindre » s'il y a une visio." },
+  { key: "habit", label: "Habitudes", description: "Les rappels réglés sur chaque habitude." },
+  { key: "followup", label: "Relances et reports", description: "Mails restés sans réponse, fils reportés qui reviennent." },
+];
+
+function DevicePrefsSection() {
+  const [prefs, setPrefs] = useState<PushDevicePrefs>(loadDevicePrefs);
+  const [error, setError] = useState<string | null>(null);
+  const mode = MAIL_MODES.find((m) => m.value === prefs.mail) ?? MAIL_MODES[0];
+
+  const save = (next: PushDevicePrefs) => {
+    setPrefs(next);
+    setError(null);
+    void sendPushPrefs(next).catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)));
+  };
+  const setQuietTime = (edge: "start" | "end", value: string) => {
+    if (value) save({ ...prefs, quiet: { ...prefs.quiet, [edge]: value } });
+  };
+
+  return (
+    <SettingSection
+      title="Sur cet appareil"
+      description="Ce que cet appareil reçoit quand Supernote est fermé. Chaque appareil a ses propres réglages."
+      icon={<DeviceMobile size={16} />}
+    >
+      <SettingRow label="Mails" description={mode.hint}>
+        <NativeSelect
+          value={mode.value}
+          onChange={(v) => {
+            const next = MAIL_MODES.find((m) => m.value === v);
+            if (next) save({ ...prefs, mail: next.value });
+          }}
+          options={MAIL_MODES.map(({ value, label }) => ({ value, label }))}
+        />
+      </SettingRow>
+      {CATEGORY_ROWS.map(({ key, label, description }) => (
+        <SettingRow key={key} label={label} description={description}>
+          <Switch aria-label={label} className="sn-hit" isSelected={prefs[key]} onChange={(on) => save({ ...prefs, [key]: on })} />
+        </SettingRow>
+      ))}
+      <SettingRow
+        label="Heures calmes"
+        description="Rien ne sonne ni ne vibre : les notifications arrivent en silence dans le volet."
+      >
+        <div className="flex flex-wrap items-center gap-2">
+          {prefs.quiet.on && (
+            <>
+              <Input
+                id="push-quiet-start"
+                aria-label="Début des heures calmes"
+                type="time"
+                step={900}
+                value={prefs.quiet.start}
+                onChange={(e) => setQuietTime("start", e.target.value)}
+                className="w-[7rem]"
+              />
+              <span aria-hidden="true" style={{ color: "var(--text-muted)" }}>→</span>
+              <Input
+                id="push-quiet-end"
+                aria-label="Fin des heures calmes"
+                type="time"
+                step={900}
+                value={prefs.quiet.end}
+                onChange={(e) => setQuietTime("end", e.target.value)}
+                className="w-[7rem]"
+              />
+            </>
+          )}
+          <Switch
+            aria-label="Heures calmes"
+            className="sn-hit"
+            isSelected={prefs.quiet.on}
+            onChange={(on) => save({ ...prefs, quiet: { ...prefs.quiet, on } })}
+          />
+        </div>
+      </SettingRow>
+      {error && (
+        <p role="alert" className="py-2 text-xs" style={{ color: "var(--danger)" }}>
+          {error}
+        </p>
+      )}
+    </SettingSection>
+  );
+}
+
+function DeviceRow({ device, onChanged }: { device: PushDevice; onChanged: () => void }) {
+  const fb = useActionFeedback();
+  const delivered = device.lastOkAt ? `Dernière livraison ${formatAgo(device.lastOkAt)}` : "Aucune livraison confirmée";
+
+  return (
+    <SettingRow label={device.mine ? `${device.label} · cet appareil` : device.label} description={delivered}>
+      {device.mine ? (
+        <Button
+          size="sm"
+          variant="outline"
+          className="flex items-center gap-1.5"
+          isDisabled={fb.isPending}
+          onPress={() => void fb.run(async () => {
+            await sendTestPush();
+            onChanged();
+          })}
+        >
+          <FeedbackIcon state={fb.state} error={fb.error} size={14} idle={null} />
+          Tester
+        </Button>
+      ) : (
+        <Tooltip content="Retirer cet appareil (il se réabonne à sa prochaine ouverture)">
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={`Retirer ${device.label}`}
+            isDisabled={fb.isPending}
+            onPress={() => void fb.run(async () => {
+              await removePushDevice(device.endpoint);
+              onChanged();
+            })}
+          >
+            {fb.state === "idle" ? <Trash size={16} /> : <FeedbackIcon state={fb.state} error={fb.error} size={16} idle={null} />}
+          </Button>
+        </Tooltip>
+      )}
+    </SettingRow>
+  );
+}
+
+function DevicesSection() {
+  const online = useOnlineSync();
+  const vaultKey = online?.config.vaultKey ?? "";
+  const [devices, setDevices] = useState<PushDevice[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const reload = useCallback(() => {
+    if (!vaultKey) return;
+    void listPushDevices()
+      .then((list) => {
+        setDevices(list);
+        setError(null);
+      })
+      .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)));
+  }, [vaultKey]);
+  useEffect(reload, [reload]);
+
+  return (
+    <SettingSection
+      title="Appareils"
+      description="Les appareils de ce salon qui reçoivent les notifications. « Tester » envoie un vrai push par le serveur."
+      icon={<Devices size={16} />}
+    >
+      {devices?.map((device) => <DeviceRow key={device.endpoint} device={device} onChanged={reload} />)}
+      {devices?.length === 0 && (
+        <p className="py-3 text-xs" style={{ color: "var(--text-muted)" }}>
+          Aucun appareil abonné.
+        </p>
+      )}
+      {error && (
+        <p role="alert" className="py-2 text-xs" style={{ color: "var(--danger)" }}>
+          {error}
+        </p>
+      )}
+    </SettingSection>
+  );
+}
+
 export function NotificationsTab({ onOpenSync }: { onOpenSync: () => void }) {
   const { settings, updateSettings } = useSettings();
   const { notifications } = settings;
-  const { push } = useNotificationsContext();
+  const online = useOnlineSync();
+  const pushReady = notifications.pushSubscribed && online !== null && pushAvailability(online.config) === "ok";
 
   const update = (patch: Partial<typeof notifications>) =>
     updateSettings("notifications", { ...notifications, ...patch });
-
-  const sendTestNotification = () => {
-    push(buildNotification({ level: "info", title: "Test", body: "Ceci est un test" }));
-  };
 
   return (
     <div className="space-y-6">
@@ -147,8 +322,8 @@ export function NotificationsTab({ onOpenSync }: { onOpenSync: () => void }) {
         icon={<Bell size={16} />}
       >
         <SettingRow
-          label="Notifications OS"
-          description="Afficher les notifications système natives"
+          label="Notifications quand Supernote est ouvert"
+          description="Alertes système des routines pendant que l'app tourne"
         >
           <ToggleSwitch
             checked={notifications.osNotifications}
@@ -165,50 +340,10 @@ export function NotificationsTab({ onOpenSync }: { onOpenSync: () => void }) {
             onChange={(v) => update({ sounds: v })}
           />
         </SettingRow>
-
-        <SettingRow
-          label="Persistance"
-          description="Conserver les notifications jusqu'à leur fermeture manuelle"
-        >
-          <ToggleSwitch
-            checked={notifications.persistence}
-            onChange={(v) => update({ persistence: v })}
-          />
-        </SettingRow>
-
-        <SettingRow
-          label="Durée des toasts"
-          description={`${notifications.toastDuration} secondes`}
-        >
-          <RangeSlider
-            min={1}
-            max={15}
-            step={1}
-            value={notifications.toastDuration}
-            onChange={(v) => update({ toastDuration: v })}
-          />
-        </SettingRow>
       </SettingSection>
 
-      <SettingSection
-        title="Test"
-        description="Envoyez une notification de test pour vérifier le centre de notifications"
-        icon={<Bell size={16} />}
-      >
-        <SettingRow
-          label="Notification de test"
-          description="Pousse une notification info dans le centre"
-        >
-          <Button
-            variant="primary"
-            size="sm"
-            onPress={sendTestNotification}
-            className="rounded-md px-3 py-1.5 text-xs font-medium"
-          >
-            Ajouter une notif test
-          </Button>
-        </SettingRow>
-      </SettingSection>
+      {pushReady && <DevicePrefsSection />}
+      {pushReady && <DevicesSection />}
     </div>
   );
 }

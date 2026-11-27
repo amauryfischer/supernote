@@ -80,21 +80,40 @@ async function openDb() {
 export async function createPushStore() {
   const db = await openDb();
   await db.exec(SCHEMA);
+  // SQLite n'a pas de « ADD COLUMN IF NOT EXISTS » : on tente, et une colonne déjà là n'est pas une erreur.
+  for (const column of ["label TEXT", "prefs TEXT"]) {
+    try {
+      await db.exec(`ALTER TABLE push_subscription ADD COLUMN ${column}`);
+    } catch (err) {
+      // 42701 = duplicate_column chez Postgres, indépendant de la langue du serveur.
+      if (err?.code !== "42701" && !/duplicate|already exists/i.test(String(err?.message ?? err))) throw err;
+    }
+  }
   return {
     kind: db.kind,
     label: db.label,
-    upsertSubscription: ({ endpoint, vault, deviceId, p256dh, auth }) =>
+    upsertSubscription: ({ endpoint, vault, deviceId, p256dh, auth, label }) =>
       db.run(
-        `INSERT INTO push_subscription (endpoint, vault, deviceid, p256dh, auth, createdat)
-         VALUES (?, ?, ?, ?, ?, ?)
+        `INSERT INTO push_subscription (endpoint, vault, deviceid, p256dh, auth, createdat, label)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT (endpoint) DO UPDATE SET vault = excluded.vault, deviceid = excluded.deviceid,
-           p256dh = excluded.p256dh, auth = excluded.auth`,
-        [endpoint, vault, deviceId, p256dh, auth, Date.now()],
+           p256dh = excluded.p256dh, auth = excluded.auth, label = excluded.label`,
+        [endpoint, vault, deviceId, p256dh, auth, Date.now(), label],
       ),
     removeSubscription: (endpoint) =>
       db.run(`DELETE FROM push_subscription WHERE endpoint = ?`, [endpoint]),
+    getSubscription: async (endpoint) =>
+      (await db.all(
+        `SELECT endpoint, vault, deviceid, p256dh, auth, label, prefs FROM push_subscription WHERE endpoint = ?`,
+        [endpoint],
+      ))[0] ?? null,
     listSubscriptions: (vault) =>
-      db.all(`SELECT endpoint, p256dh, auth FROM push_subscription WHERE vault = ?`, [vault]),
+      db.all(
+        `SELECT endpoint, p256dh, auth, deviceid, label, prefs, createdat, lastokat FROM push_subscription WHERE vault = ?`,
+        [vault],
+      ),
+    setPrefs: (endpoint, prefs) =>
+      db.run(`UPDATE push_subscription SET prefs = ? WHERE endpoint = ?`, [prefs, endpoint]),
     markSubscriptionOk: (endpoint) =>
       db.run(`UPDATE push_subscription SET lastokat = ? WHERE endpoint = ?`, [Date.now(), endpoint]),
     async replaceSchedule({ vault, deviceId, category, shared }, rows) {
@@ -104,6 +123,9 @@ export async function createPushStore() {
           : `DELETE FROM push_schedule WHERE vault = ? AND category = ? AND deviceid = ? AND sentat IS NULL`,
         shared ? [vault, category] : [vault, category, deviceId],
       );
+      await this.insertSchedule({ vault, deviceId, category }, rows);
+    },
+    async insertSchedule({ vault, deviceId, category }, rows) {
       if (rows.length === 0) return;
       await db.run(
         `INSERT INTO push_schedule (id, vault, deviceid, category, key, fireat, title, body, url, joinurl)
@@ -118,7 +140,7 @@ export async function createPushStore() {
     claimDue: (now) =>
       db.all(
         `UPDATE push_schedule SET sentat = ? WHERE sentat IS NULL AND fireat <= ?
-         RETURNING vault, category, key, fireat, title, body, url, joinurl`,
+         RETURNING vault, deviceid, category, key, fireat, title, body, url, joinurl`,
         [now, now],
       ),
     purgeSent: (before) =>

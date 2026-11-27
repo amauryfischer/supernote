@@ -3,6 +3,7 @@ import {
   loadOnlineSyncConfig,
   type OnlineSyncConfig,
 } from "@/lib/online-sync/config-storage";
+import { swKvSet } from "@/lib/sw-kv";
 
 export type PushCategory = "reminder" | "event" | "followup" | "snooze" | "habit";
 
@@ -53,13 +54,118 @@ function base64UrlToBytes(value: string): Uint8Array {
   return Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
 }
 
+function deviceLabel(): string {
+  const ua = navigator.userAgent;
+  const os = /Android/.test(ua) ? "Android" : isIos() ? "iPhone" : /Windows/.test(ua) ? "Windows" : /Mac OS/.test(ua) ? "Mac" : /Linux/.test(ua) ? "Linux" : "Appareil";
+  const browser = /Edg\//.test(ua) ? "Edge" : /Firefox\//.test(ua) ? "Firefox" : /Chrome\//.test(ua) ? "Chrome" : /Safari\//.test(ua) ? "Safari" : "";
+  return browser ? `${os} · ${browser}` : os;
+}
+
 async function registerOnServer(config: OnlineSyncConfig, sub: PushSubscription): Promise<void> {
   const res = await fetch(apiUrl(config, "/api/push/subscribe", true), {
     method: "POST",
     headers: headers(config),
-    body: JSON.stringify({ deviceId: getOrCreateClientId(), subscription: sub.toJSON() }),
+    body: JSON.stringify({ deviceId: getOrCreateClientId(), subscription: sub.toJSON(), label: deviceLabel() }),
   });
   if (!res.ok) throw refusal(res.status);
+  // Le SW n'a ni la config du salon ni l'URL du serveur : il en a besoin pour « Archiver » et « Dans X ».
+  await swKvSet("pushServer", config.serverUrl.replace(/\/+$/, "")).catch(() => undefined);
+  await sendPushPrefs(loadDevicePrefs(), config).catch((err: unknown) => console.warn("[push] préférences", err));
+}
+
+export async function currentEndpoint(): Promise<string> {
+  if (!("serviceWorker" in navigator)) return "";
+  const sub = await (await navigator.serviceWorker.getRegistration())?.pushManager.getSubscription();
+  return sub?.endpoint ?? "";
+}
+
+export interface PushDevicePrefs {
+  mail: "people" | "all" | "off";
+  reminder: boolean;
+  event: boolean;
+  habit: boolean;
+  followup: boolean;
+  quiet: { on: boolean; start: string; end: string };
+}
+
+export const DEFAULT_DEVICE_PREFS: PushDevicePrefs = {
+  mail: "people",
+  reminder: true,
+  event: true,
+  habit: true,
+  followup: true,
+  quiet: { on: true, start: "22:00", end: "07:30" },
+};
+
+const DEVICE_PREFS_KEY = "supernote.push.devicePrefs";
+
+export function loadDevicePrefs(): PushDevicePrefs {
+  try {
+    const raw: unknown = JSON.parse(localStorage.getItem(DEVICE_PREFS_KEY) ?? "null");
+    if (raw && typeof raw === "object") {
+      const p = raw as Partial<PushDevicePrefs>;
+      return { ...DEFAULT_DEVICE_PREFS, ...p, quiet: { ...DEFAULT_DEVICE_PREFS.quiet, ...(p.quiet ?? {}) } };
+    }
+  } catch {
+    /* stockage indisponible : défauts */
+  }
+  return DEFAULT_DEVICE_PREFS;
+}
+
+export async function sendPushPrefs(prefs: PushDevicePrefs, config: OnlineSyncConfig = loadOnlineSyncConfig()): Promise<void> {
+  try {
+    localStorage.setItem(DEVICE_PREFS_KEY, JSON.stringify(prefs));
+  } catch {
+    /* le serveur reste la référence */
+  }
+  const endpoint = await currentEndpoint();
+  if (!endpoint) return;
+  const res = await fetch(apiUrl(config, "/api/push/prefs", false), {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ endpoint, prefs: { ...prefs, tz: Intl.DateTimeFormat().resolvedOptions().timeZone } }),
+  });
+  if (!res.ok) throw new Error(`Préférences refusées par le serveur (HTTP ${res.status}).`);
+}
+
+export async function sendTestPush(config: OnlineSyncConfig = loadOnlineSyncConfig()): Promise<void> {
+  const endpoint = await currentEndpoint();
+  if (!endpoint) throw new Error("Cet appareil n'est pas abonné aux notifications.");
+  const res = await fetch(apiUrl(config, "/api/push/test", false), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ endpoint }),
+  });
+  const body = (await res.json().catch(() => null)) as { ok?: boolean; status?: number } | null;
+  if (res.status === 404) throw new Error("Abonnement inconnu du serveur : désactive puis réactive les notifications.");
+  if (!res.ok || !body?.ok) throw new Error(`Le service push a refusé l'envoi (${body?.status || res.status}).`);
+}
+
+export interface PushDevice {
+  endpoint: string;
+  label: string;
+  createdAt: number;
+  lastOkAt: number | null;
+  mine: boolean;
+}
+
+export async function listPushDevices(config: OnlineSyncConfig = loadOnlineSyncConfig()): Promise<PushDevice[]> {
+  const mine = await currentEndpoint();
+  const res = await fetch(`${apiUrl(config, "/api/push/devices", true)}&endpoint=${encodeURIComponent(mine)}`, {
+    headers: headers(config),
+  });
+  if (!res.ok) throw refusal(res.status);
+  const body = (await res.json()) as { devices?: PushDevice[] };
+  return (body.devices ?? []).sort((a, b) => Number(b.mine) - Number(a.mine) || (b.lastOkAt ?? 0) - (a.lastOkAt ?? 0));
+}
+
+export async function removePushDevice(endpoint: string, config: OnlineSyncConfig = loadOnlineSyncConfig()): Promise<void> {
+  const res = await fetch(apiUrl(config, "/api/push/unsubscribe", false), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ endpoint }),
+  });
+  if (!res.ok) throw new Error(`Retrait refusé (HTTP ${res.status}).`);
 }
 
 export async function fetchPushConfig(

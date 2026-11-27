@@ -77,7 +77,7 @@ async function computeSchedule(calendarAccountId: string): Promise<Partial<Recor
     fireAt: r.reminderAt,
     title: "Rappel",
     body: r.reminderText || r.text,
-    url: "/todos",
+    url: `/todos?edit=${encodeURIComponent(r.todoId)}`,
     joinUrl: "",
   }));
   const { items } = await trpcVanillaClient.entities.list.query({ typeId: HABIT_TYPE_ID, limit: 1000, offset: 0 });
