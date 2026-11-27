@@ -63,6 +63,11 @@ export function paintHighlights(win: Window | null | undefined, ranges: Range[])
 export function selectionWithin(root: Node | null, selection: Selection | null): string {
   if (!root || !selection || selection.isCollapsed || selection.rangeCount === 0) return "";
   const r = selection.getRangeAt(0);
-  if (!root.contains(r.commonAncestorContainer)) return "";
-  return selection.toString().replace(/\s+/g, " ").trim();
+  if (!r.intersectsNode(root) || !root.ownerDocument) return "";
+  // Un triple-clic pousse la fin de sélection au début du bloc suivant : on la coupe au message.
+  const clip = root.ownerDocument.createRange();
+  clip.selectNodeContents(root);
+  if (r.compareBoundaryPoints(Range.START_TO_START, clip) > 0) clip.setStart(r.startContainer, r.startOffset);
+  if (r.compareBoundaryPoints(Range.END_TO_END, clip) < 0) clip.setEnd(r.endContainer, r.endOffset);
+  return clip.toString().replace(/\s+/g, " ").trim();
 }

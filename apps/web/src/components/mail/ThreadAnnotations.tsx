@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { NotePencil, X } from "@phosphor-icons/react";
 import { Button, Input, Textarea, Tooltip } from "@supernote/ui";
 import { saveAnnotation, type MailAnnotation, type MailHighlight } from "@/lib/mail-annotations";
@@ -36,6 +36,28 @@ export function ThreadAnnotations({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editing, threadId]);
 
+  const boxRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!editing) return undefined;
+    const field = () => boxRef.current?.querySelector<HTMLElement>("input, textarea");
+    field()?.focus();
+    // Le menu « Plus » rend le focus à son bouton à la fin de sa fermeture, après ce montage.
+    const keep = (e: FocusEvent) => {
+      if (!boxRef.current?.contains(e.target as Node)) field()?.focus();
+    };
+    const stop = () => {
+      document.removeEventListener("focusin", keep, true);
+      document.removeEventListener("pointerdown", stop, true);
+    };
+    document.addEventListener("focusin", keep, true);
+    document.addEventListener("pointerdown", stop, true);
+    const timer = window.setTimeout(stop, 1500);
+    return () => {
+      stop();
+      window.clearTimeout(timer);
+    };
+  }, [editing]);
+
   if (!editing && !title && !note) return null;
 
   const save = async () => {
@@ -60,11 +82,10 @@ export function ThreadAnnotations({
   };
 
   return (
-    <div className="flex flex-col gap-1.5 text-[13px]">
+    <div ref={boxRef} className="flex flex-col gap-1.5 text-[13px]">
       {editing === "title" ? (
         <div className="flex items-center gap-2">
           <Input
-            autoFocus
             aria-label="Objet pour toi"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
@@ -85,7 +106,6 @@ export function ThreadAnnotations({
       {editing === "note" ? (
         <div className="flex flex-col gap-1.5">
           <Textarea
-            autoFocus
             aria-label="Note privée"
             value={draft}
             rows={2}
