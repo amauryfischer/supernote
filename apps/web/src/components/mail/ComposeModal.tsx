@@ -36,6 +36,7 @@ import { SendLaterButton } from "./SendLaterButton";
 import { useSnippetAutocomplete, SnippetPopup } from "./SnippetAutocomplete";
 import { firstName } from "@/lib/mail-snippets";
 import { markdownToHtml, hasMarkup } from "@/lib/mail-markdown";
+import { presendWarnings } from "@/lib/mail-presend";
 import { withSignature } from "@/lib/mail-signature";
 import type { ForwardThread } from "@/lib/mail-forward";
 import {
@@ -344,6 +345,20 @@ export function ComposeModal({
     if (!subject.trim() && !body.trim()) {
       setNotice({ tone: "danger", text: "Objet ou corps requis." });
       return;
+    }
+    if (!confirmArmed) {
+      const warnings = presendWarnings({
+        text: body,
+        attachmentCount: attachments.length,
+        recipients: [...allTo, ...cc, ...bcc],
+        people: allSuggestions,
+        selfEmails: [settings.gmail.connectedEmail, ...settings.gmail.aliases],
+      });
+      if (warnings.length > 0) {
+        setConfirmArmed(true);
+        setNotice({ tone: "warning", text: `${warnings.join(" ")} Appuie de nouveau sur Envoyer pour confirmer.` });
+        return;
+      }
     }
     // Sans fenêtre d'annulation ni date d'envoi, rien ne rattrape un envoi : on confirme.
     if (undoSeconds <= 0 && sendAt === undefined && !confirmArmed) {

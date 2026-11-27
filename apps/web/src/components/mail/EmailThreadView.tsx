@@ -124,6 +124,7 @@ import { useMobileBottomBar } from "@/components/shell/shell-chrome-context";
 import { shortcutKey } from "@/lib/mail-shortcuts";
 import { useKeyboardViewport } from "@/hooks/useKeyboardOpen";
 import { findTextRanges, paintHighlights, selectionWithin, MAIL_MARK } from "@/lib/mail-highlight";
+import { presendWarnings } from "@/lib/mail-presend";
 import { saveAnnotation, type MailHighlight } from "@/lib/mail-annotations";
 import {
   isAiConfigured,
@@ -682,6 +683,10 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
   const gridUsedRef = useRef(false);
   const [gridArmed, setGridArmed] = useState(false);
   useEffect(() => setGridArmed(false), [replyBody]);
+  const threadPeople = useMemo(() => thread.messages.flatMap((m) => [m.from, ...m.to, ...(m.cc ?? [])]), [thread.messages]);
+  const knownPeople = useRecipientSuggestions(threadPeople);
+  const [presendArmed, setPresendArmed] = useState(false);
+  useEffect(() => setPresendArmed(false), [replyBody, replyTo, replyCc, replyAttachments]);
   const openQuestions = gridAvailable ? questions.filter((q) => !isAnswered(replyBody, q)) : [];
   // Curseur à poser après une réponse : position, ou -1 pour la fin du texte.
   const pendingCursorRef = useRef<number | null>(null);
@@ -890,6 +895,20 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
     const body = withSignature(typed, signature);
     const inline = replyAttachments.some((a) => a.contentId);
     const html = hasMarkup(body) || inline ? markdownToHtml(body) : undefined;
+    if (mode === "send" && !presendArmed) {
+      const warnings = presendWarnings({
+        text: typed,
+        attachmentCount: replyAttachments.length,
+        recipients: [...to, ...cc],
+        people: knownPeople,
+        selfEmails: [selfEmail ?? "", ...settings.gmail.aliases],
+      });
+      if (warnings.length > 0) {
+        setPresendArmed(true);
+        setReplyNotice({ tone: "warning", text: `${warnings.join(" ")} Envoyer de nouveau pour confirmer.` });
+        return;
+      }
+    }
     if (mode === "send" && gridUsedRef.current && openQuestions.length > 0 && !gridArmed) {
       const n = openQuestions.length;
       setGridArmed(true);
