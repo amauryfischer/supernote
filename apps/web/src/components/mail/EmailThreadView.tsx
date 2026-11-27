@@ -125,6 +125,7 @@ import { shortcutKey } from "@/lib/mail-shortcuts";
 import { useKeyboardViewport } from "@/hooks/useKeyboardOpen";
 import { findTextRanges, paintHighlights, selectionWithin, MAIL_MARK } from "@/lib/mail-highlight";
 import { presendWarnings } from "@/lib/mail-presend";
+import { RelatedThreads } from "./RelatedThreads";
 import { saveAnnotation, type MailHighlight } from "@/lib/mail-annotations";
 import {
   isAiConfigured,
@@ -295,6 +296,9 @@ interface EmailThreadViewProps {
   hideTour?: boolean;
   /** Relance demandée alors que la demande vit dans un autre fil du sujet. */
   onRemindElsewhere?: (emails: string[]) => void;
+  /** Ouvre un autre fil (fils liés). */
+  onOpenThread?: (threadId: string) => void;
+  onOpenAttachments?: (who: EmailAddress) => void;
 }
 
 export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProps>(
@@ -317,6 +321,8 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
       onToTask,
       subjectTour,
       onRemindElsewhere,
+      onOpenThread,
+      onOpenAttachments,
       hideTour,
       onGatherStray,
       topSlot,
@@ -1488,6 +1494,19 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
                           <span>Créer / compléter le contact</span>
                         </Button>
                       )}
+                      {correspondentMsg?.from.email && onOpenAttachments && (
+                        <Button
+                          variant="ghost"
+                          className={MENU_ROW}
+                          onPress={() => {
+                            setMoreOpen(false);
+                            onOpenAttachments(correspondentMsg.from);
+                          }}
+                        >
+                          <Paperclip size={16} />
+                          <span>Pièces jointes de {correspondentMsg.from.name || correspondentMsg.from.email}</span>
+                        </Button>
+                      )}
                       <div className={MENU_COMPONENT_ROW}>
                         <EmailToEventButton message={firstMsg} />
                       </div>
@@ -1848,6 +1867,16 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
       />
 
       {/* Sous le dernier message, près de la réponse : arrivé en différé, il ne décale pas la lecture. */}
+      {!embedded && onOpenThread && clientId && (
+        <RelatedThreads
+          clientId={clientId}
+          threadId={thread.id}
+          subject={thread.messages[0]?.subject ?? ""}
+          correspondent={correspondentMsg?.from}
+          onOpenThread={onOpenThread}
+        />
+      )}
+
       <CommitmentsBanner
         thread={thread}
         accountId={selfEmail ?? ""}

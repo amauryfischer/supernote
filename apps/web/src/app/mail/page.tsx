@@ -48,6 +48,7 @@ import { useTourTallies } from "@/components/mail/useTourTallies";
 import { AGENDA_HORIZON_MS, meetingAgendas, meetingWhen, topicsWithPeople, type PersonTopics } from "@/lib/mail-agenda";
 import { MeetingAgendaStrip } from "@/components/mail/MeetingAgendaStrip";
 import { PersonTopicsBanner } from "@/components/mail/PersonTopicsBanner";
+import { AttachmentGallery, type GalleryScope } from "@/components/mail/AttachmentGallery";
 import { useAgendaData } from "@/components/agenda/useAgendaData";
 import { MAIL_SENT_EVENT } from "@/lib/mail-outgoing";
 import { MailOverlayList } from "@/components/mail/MailOverlayList";
@@ -343,6 +344,7 @@ export default function MailPage() {
 
 
   const [selectedGroup, setSelectedGroup] = useState<GroupRow | null>(null);
+  const [gallery, setGallery] = useState<GalleryScope | null>(null);
   const selectedGroupLabelId =
     selectedGroup?.groupType === "label"
       ? selectedGroup.key.replace(/^label:/, "").replace(/#star$/, "")
@@ -2940,6 +2942,11 @@ export default function MailPage() {
           userLabels={labelNames}
           labelColors={labelColors}
           groupLabelId={selectedGroupLabelId}
+          onOpenAttachments={
+            selectedGroupLabelId && clientId
+              ? () => setGallery({ kind: "label", labelId: selectedGroupLabelId, name: selectedGroup.title })
+              : undefined
+          }
         />
       </div>
     </div>
@@ -3094,6 +3101,8 @@ export default function MailPage() {
                   selfEmail={settings.gmail.connectedEmail}
                   subjectTour={subjectLabelId && openThreadLabelIds.includes(subjectLabelId) ? subjectTour : null}
                   onRemindElsewhere={remindFromSubject}
+                  onOpenThread={(id) => void openThread(id)}
+                  onOpenAttachments={(who) => setGallery({ kind: "person", email: who.email, name: who.name })}
                   topSlot={
                     personTopics.length > 0 ? (
                       <PersonTopicsBanner
@@ -3154,6 +3163,15 @@ export default function MailPage() {
   // Surfaces globales (modales, annonces) montées quel que soit le layout.
   const overlays = (
     <>
+      {gallery && clientId && (
+        <AttachmentGallery
+          clientId={clientId}
+          initialScope={gallery}
+          labelNames={labelNames}
+          onClose={() => setGallery(null)}
+          onOpenThread={(id) => void openThread(id)}
+        />
+      )}
       {isMobile && todaySheet && (
         <MobileSheet isOpen onClose={() => setTodaySheet(false)} title="Aujourd'hui" size="lg">
           <TodayPanel />

@@ -843,6 +843,48 @@ async function getThreadListItemsBatch(
   return out;
 }
 
+// Parties et en-têtes seulement : ni corps ni octets de fichier, une galerie de 30 messages reste légère.
+const ATTACHMENT_FIELDS = encodeURIComponent("id,threadId,payload(mimeType,filename,headers,body(attachmentId,size),parts(mimeType,filename,headers,body(attachmentId,size),parts(mimeType,filename,headers,body(attachmentId,size),parts(mimeType,filename,headers,body(attachmentId,size)))))");
+
+export interface AttachmentHit extends EmailAttachment {
+  threadId: string;
+  from: EmailAddress;
+  subject: string;
+  date: string;
+}
+
+/**
+ * Pièces jointes (hors images de corps) des messages qui répondent à `query`, du plus récent au
+ * plus ancien, sans télécharger les fichiers : 1 `messages.list` + un lot `messages.get` masqué.
+ */
+export async function listAttachments(
+  clientId: string,
+  query: string,
+  opts: { maxMessages?: number; pageToken?: string; labelIds?: string[] } = {},
+): Promise<{ items: AttachmentHit[]; nextPageToken?: string }> {
+  const token = opts.pageToken ? `&pageToken=${encodeURIComponent(opts.pageToken)}` : "";
+  const labels = (opts.labelIds ?? []).map((id) => `&labelIds=${encodeURIComponent(id)}`).join("");
+  const list = await gmailFetch<{ messages?: Array<{ id: string; threadId: string }>; nextPageToken?: string }>(
+    clientId,
+    `/messages?q=${encodeURIComponent(query)}&maxResults=${opts.maxMessages ?? 30}${token}${labels}`,
+  );
+  const ids = (list.messages ?? []).map((m) => m.id);
+  const raw = await gmailBatchGet<GmailRawMessage>(
+    clientId,
+    ids.map((id) => ({ id, path: `/messages/${encodeURIComponent(id)}?format=full&fields=${ATTACHMENT_FIELDS}` })),
+  );
+  const items: AttachmentHit[] = [];
+  for (const id of ids) {
+    const res = raw.get(id);
+    if (!res || res instanceof GoogleApiError) continue;
+    const msg = parseGmailMessage(res);
+    for (const a of msg.attachments) {
+      if (!a.inline) items.push({ ...a, threadId: msg.threadId, from: msg.from, subject: msg.subject, date: msg.date });
+    }
+  }
+  return { items, nextPageToken: list.nextPageToken };
+}
+
 const UNANSWERED_MIN_AGE_MS = 3 * 86_400_000;
 
 /**

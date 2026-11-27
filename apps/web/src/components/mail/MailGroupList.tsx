@@ -2,7 +2,7 @@
 
 import { useMemo, type ComponentProps } from "react";
 import { Tooltip, Button } from "@supernote/ui";
-import { Trash, EnvelopeOpen, CheckCircle } from "@phosphor-icons/react";
+import { Trash, EnvelopeOpen, CheckCircle, Paperclip } from "@phosphor-icons/react";
 import type { ThreadListItem } from "@/lib/gmail";
 import type { OverlayRow } from "@/lib/mail-overlay";
 import { MailOverlayList } from "./MailOverlayList";
@@ -21,6 +21,7 @@ export function MailGroupList({
   onMarkAllRead,
   deleteBusy,
   groupLabelId,
+  onOpenAttachments,
   ...list
 }: {
   title: string;
@@ -37,6 +38,7 @@ export function MailGroupList({
   deleteBusy?: boolean;
   /** Label du groupe ouvert : commun à toutes les lignes, donc pas répété en pastille. */
   groupLabelId?: string;
+  onOpenAttachments?: () => void;
 } & Omit<ListProps, "rows" | "activeKey" | "selectedIndex" | "onPick" | "indexAttr" | "hideLabelId" | "sections">) {
   const rows = useMemo<OverlayRow[]>(() => items.map((item) => ({ kind: "single", item })), [items]);
   const unreadCount = items.filter((it) => it.labelIds.includes("UNREAD")).length;
@@ -47,6 +49,13 @@ export function MailGroupList({
           {title} · {items.length}
         </p>
         <div className="flex shrink-0 items-center gap-0.5">
+          {onOpenAttachments && (
+            <Tooltip content="Pièces jointes du label">
+              <Button size="icon" variant="ghost" aria-label="Pièces jointes du label" onPress={onOpenAttachments}>
+                <Paperclip size={16} />
+              </Button>
+            </Tooltip>
+          )}
           {onMarkAllRead && unreadCount > 0 && (
             <Tooltip content="Tout marquer comme lu">
               <Button size="icon" variant="ghost" aria-label="Tout marquer comme lu" onPress={onMarkAllRead}>
