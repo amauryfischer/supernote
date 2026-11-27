@@ -217,7 +217,7 @@ export function GmailTab() {
                 type="number"
                 min={0}
                 max={60}
-                value={String(gmail.undoSendSeconds ?? 8)}
+                value={String(gmail.undoSendSeconds ?? 0)}
                 onChange={(e) => {
                   const n = Math.max(0, Math.min(60, Number(e.target.value) || 0));
                   updateSettings("gmail", { ...gmail, undoSendSeconds: n });

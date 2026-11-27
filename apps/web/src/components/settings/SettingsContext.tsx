@@ -10,7 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import type { AppSettings } from "./types";
-import { DEFAULT_SETTINGS, migrateIa, migrateNotifications } from "./defaults";
+import { DEFAULT_SETTINGS, migrateGmail, migrateIa, migrateNotifications } from "./defaults";
 
 interface SettingsContextValue {
   settings: AppSettings;
@@ -48,7 +48,10 @@ function loadInitialSettings(): AppSettings {
         { ...DEFAULT_SETTINGS.notifications, ...(parsed.notifications ?? {}) },
         parsed.notifications?.pushDefaultApplied === true,
       ),
-      gmail: { ...DEFAULT_SETTINGS.gmail, ...(parsed.gmail ?? {}) },
+      gmail: migrateGmail(
+        { ...DEFAULT_SETTINGS.gmail, ...(parsed.gmail ?? {}) },
+        parsed.gmail?.undoSendZeroApplied === true,
+      ),
       plugins: parsed.plugins ?? DEFAULT_SETTINGS.plugins,
       shortcuts: parsed.shortcuts ?? DEFAULT_SETTINGS.shortcuts,
       editorShortcuts: parsed.editorShortcuts ?? DEFAULT_SETTINGS.editorShortcuts,

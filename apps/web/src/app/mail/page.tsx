@@ -3065,7 +3065,6 @@ export default function MailPage() {
                   onTriaged={handleTriaged}
                   onTriage={handleThreadTriage}
                   commitMutation={commitMutation}
-                  onReplied={handleReplied}
                   onLabelsChanged={syncThreadLabels}
                   onLabelCreated={addLabel}
                   onForward={handleForward}

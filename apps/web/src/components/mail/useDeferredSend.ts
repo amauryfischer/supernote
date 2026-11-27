@@ -21,7 +21,7 @@ import { useCallback } from "react";
 import { useToast } from "@supernote/ui";
 import { useSettings } from "@/components/settings/SettingsContext";
 import { sendMessage, sendReply, type OutgoingAttachment } from "@/lib/gmail";
-import { enqueueOutgoing, cancelOutgoing, queueTooLarge } from "@/lib/mail-outgoing";
+import { enqueueOutgoing, cancelOutgoing, queueTooLarge, MAIL_SENT_EVENT } from "@/lib/mail-outgoing";
 
 export interface DeferredSendInput {
   kind: "message" | "reply";
@@ -69,17 +69,18 @@ export function useDeferredSend() {
           ...(input.references ? { references: input.references } : {}),
           ...(input.attachments?.length ? { attachments: input.attachments } : {}),
         });
-        return;
+      } else {
+        await sendMessage(clientId, {
+          to: input.to,
+          ...(input.cc?.length ? { cc: input.cc } : {}),
+          ...(input.bcc?.length ? { bcc: input.bcc } : {}),
+          subject: input.subject,
+          body: input.body,
+          ...(input.html ? { html: input.html } : {}),
+          ...(input.attachments?.length ? { attachments: input.attachments } : {}),
+        });
       }
-      await sendMessage(clientId, {
-        to: input.to,
-        ...(input.cc?.length ? { cc: input.cc } : {}),
-        ...(input.bcc?.length ? { bcc: input.bcc } : {}),
-        subject: input.subject,
-        body: input.body,
-        ...(input.html ? { html: input.html } : {}),
-        ...(input.attachments?.length ? { attachments: input.attachments } : {}),
-      });
+      window.dispatchEvent(new CustomEvent(MAIL_SENT_EVENT, { detail: { threadId: input.threadId } }));
     },
     [clientId],
   );

@@ -112,6 +112,7 @@ export interface GmailSettings {
    * message part réellement à l'expiration du délai.
    */
   undoSendSeconds: number;
+  undoSendZeroApplied: boolean;
   /** Délai par défaut d'un rappel de relance, en jours. */
   followupDays: number;
   /** Classement automatique des nouveaux emails par l'IA locale (auto-labels). */

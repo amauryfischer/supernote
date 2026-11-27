@@ -241,11 +241,6 @@ interface EmailThreadViewProps {
    */
   commitMutation?: MailMirrorApi["commitMutation"];
   /**
-   * Appelé après un ENVOI de réponse réussi (mode `send` uniquement, pas le
-   * brouillon) — l'appelant re-fetch le fil + la liste pour afficher la réponse.
-   */
-  onReplied?: () => void;
-  /**
    * Appelé quand les labelIds optimistes du thread changent (étoile, marqué non
    * lu) — l'appelant resynchronise la ligne correspondante dans la liste.
    */
@@ -305,7 +300,6 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
       onTriaged,
       onTriage,
       commitMutation,
-      onReplied,
       onLabelsChanged,
       onLabelCreated,
       onForward,
@@ -882,8 +876,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
       };
       const following: { done: Promise<FollowedPromises | null> | null } = { done: null };
       const plural = toFollow.length > 1 ? "s" : "";
-      // File d'envoi différé : « Annuler l'envoi » pendant la fenêtre configurée,
-      // puis départ réel (cf. MailOutgoingRunner).
+      // Départ direct, ou file différée si une fenêtre « Annuler l'envoi » est réglée (cf. MailOutgoingRunner).
       const result = await replySendFb.run(
         () =>
           scheduleSend(
@@ -914,9 +907,8 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
       );
       if (!result) return;
       if (toFollow.length) following.done = followPromises(followTarget, toFollow).catch(() => null);
+      // Le re-fetch fil + liste vient de MAIL_SENT_EVENT, émis au départ réel (direct ou file).
       clearReply();
-      // Re-fetch fil + liste côté appelant pour faire apparaître la réponse.
-      onReplied?.();
       return;
     }
     const draft = await replyDraftFb.run(

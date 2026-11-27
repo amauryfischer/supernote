@@ -1,4 +1,4 @@
-import type { AppSettings, IaSettings, NotificationSettings } from "./types";
+import type { AppSettings, GmailSettings, IaSettings, NotificationSettings } from "./types";
 
 export const DEFAULT_SETTINGS: AppSettings = {
   general: {
@@ -56,9 +56,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
     connectedEmail: "",
     aliases: [],
     signature: "",
-    // 8 s : assez pour rattraper une bourde, assez court pour ne pas donner
-    // l'impression que l'app « retient » les envois.
-    undoSendSeconds: 8,
+    // Envoi immédiat : la fenêtre de 8 s rendait chaque réponse pénible.
+    undoSendSeconds: 0,
+    undoSendZeroApplied: true,
     followupDays: 3,
     autoLabel: false,
     // Unanimité par défaut : un tag faux fait SORTIR le fil de la boîte.
@@ -96,4 +96,10 @@ export function migrateNotifications(
   return rawPushDefaultApplied
     ? n
     : { ...n, pushSubscribed: true, pushDefaultApplied: true };
+}
+
+// Une seule fois par appareil : un 8 stocké est l'ancien défaut, pas un choix — il passe à 0 ; toute autre valeur est gardée.
+export function migrateGmail(g: GmailSettings, rawUndoSendZeroApplied: boolean): GmailSettings {
+  if (rawUndoSendZeroApplied) return g;
+  return { ...g, undoSendSeconds: g.undoSendSeconds === 8 ? 0 : g.undoSendSeconds, undoSendZeroApplied: true };
 }
