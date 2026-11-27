@@ -9,7 +9,8 @@ on:
 jobs:
   check:
     name: Lint + Typecheck + E2E
-    runs-on: ubuntu-latest
+    # Playwright ne sait pas installer chromium sur ubuntu-latest (26.04).
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
