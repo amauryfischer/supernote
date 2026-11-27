@@ -39,7 +39,7 @@ function relativeTime(isoDate: string): string {
   return `il y a ${diffDays} j`;
 }
 
-const INTERNAL_TYPES = new Set(["email_ai_cache", "mail_commitment"]);
+const INTERNAL_TYPES = new Set(["email_ai_cache", "mail_commitment", "mail_annotation"]);
 
 function entityLabel(entity: { typeName: string; fields: Record<string, unknown> }): string {
   const title = entity.fields["title"] ?? entity.fields["name"] ?? entity.fields["subject"] ?? entity.fields["text"];

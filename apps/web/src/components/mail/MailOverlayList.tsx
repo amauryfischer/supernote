@@ -4,7 +4,8 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Button, Tooltip } from "@supernote/ui";
 import { Checkbox } from "@supernote/ui";
-import { Star, DotsSixVertical, Sparkle, CaretDown, Checks, Clock, ListChecks, Trash, UsersThree, ArrowBendUpLeft } from "@phosphor-icons/react";
+import { Star, DotsSixVertical, Sparkle, CaretDown, Checks, Clock, ListChecks, Trash, UsersThree, ArrowBendUpLeft, NotePencil } from "@phosphor-icons/react";
+import { displaySubject, type MailAnnotation } from "@/lib/mail-annotations";
 import { isUnsureTally, subjectTally, subjectTallyStamp } from "@/lib/mail-tour";
 import {
   DndContext,
@@ -69,6 +70,7 @@ interface SharedRowProps {
   hideLabelId?: string;
   /** threadId → mini-résumé IA. Remplace le snippet Gmail quand il existe. */
   summaries?: ReadonlyMap<string, string>;
+  annotations?: ReadonlyMap<string, MailAnnotation>;
   selfEmails: readonly string[];
   selfNoteIds?: ReadonlySet<string>;
   /** Les décomptes vivent hors de React : leur texte brut suffit à invalider les lignes. */
@@ -175,6 +177,7 @@ export function MailOverlayList({
   onSwipeRow,
   onLongPressRow,
   summaries,
+  annotations,
   selfEmails = NO_SELF,
   selfNoteIds,
   sections,
@@ -253,6 +256,8 @@ export function MailOverlayList({
    * Absent → comportement historique (snippet).
    */
   summaries?: ReadonlyMap<string, string>;
+  /** Repères perso (objet renommé, note privée) : l'objet perso et la note passent avant l'objet et l'extrait. */
+  annotations?: ReadonlyMap<string, MailAnnotation>;
   /** Adresses « à moi » : un fil dont le dernier message n'en vient pas attend ta réponse. */
   selfEmails?: readonly string[];
   /** Fils que l'utilisateur s'est envoyés à lui-même : personne n'y doit de réponse. */
@@ -377,6 +382,7 @@ export function MailOverlayList({
     indexAttr,
     hideLabelId,
     summaries,
+    annotations,
     selfEmails,
     selfNoteIds,
     tallyStamp: subjectTallyStamp(),
@@ -581,6 +587,7 @@ function MailRowView({ row, idx, shared }: { row: OverlayRow; idx: number; share
     indexAttr,
     hideLabelId,
     summaries,
+    annotations,
     selfEmails,
     selfNoteIds,
   } = shared;
@@ -611,7 +618,8 @@ function MailRowView({ row, idx, shared }: { row: OverlayRow; idx: number; share
   });
 
   const title = row.kind === "single" ? row.item.from.name || row.item.from.email : row.title;
-  const subject = row.kind === "single" ? row.item.subject : row.items[0]?.subject ?? "";
+  const subject = row.kind === "single" ? displaySubject(row.item.subject, row.item.snippet, annotations?.get(row.item.id)) : "";
+  const renamedFrom = row.kind === "single" && annotations?.get(row.item.id)?.title ? row.item.subject || "(sans objet)" : null;
   const date = row.kind === "single" ? row.item.date : row.date;
   const labelColor = labelId ? labelColors?.get(labelId) : undefined;
   const unread = rowHasUnread(row);
@@ -636,8 +644,10 @@ function MailRowView({ row, idx, shared }: { row: OverlayRow; idx: number; share
   // un résumé est une INTERPRÉTATION du message, pas une citation.
   const previewItem = row.kind === "single" ? row.item : row.items[0];
   const aiSummary = previewItem ? summaries?.get(previewItem.id) : undefined;
-  const preview = aiSummary ?? previewItem?.snippet ?? "";
-  const aiPreview = Boolean(aiSummary);
+  // La note privée passe avant tout : c'est ce qu'on a voulu se rappeler du fil.
+  const note = row.kind === "single" ? annotations?.get(row.item.id)?.note || undefined : undefined;
+  const preview = note ?? aiSummary ?? previewItem?.snippet ?? "";
+  const aiPreview = !note && Boolean(aiSummary);
 
   const isSubject = row.kind === "group" && row.subject === true;
   const tally =
@@ -773,7 +783,7 @@ function MailRowView({ row, idx, shared }: { row: OverlayRow; idx: number; share
                   <span
                     style={it.labelIds.includes("UNREAD") ? { fontWeight: 600, color: "var(--text-primary)" } : undefined}
                   >
-                    {it.subject || "(sans objet)"}
+                    {displaySubject(it.subject, it.snippet, annotations?.get(it.id)) || "(sans objet)"}
                   </span>
                 </span>
               ))}
@@ -784,6 +794,7 @@ function MailRowView({ row, idx, shared }: { row: OverlayRow; idx: number; share
                 <span
                   className={`min-w-0 truncate ${unread ? "font-semibold" : ""}`}
                   style={{ color: unread || awaiting ? "var(--text-primary)" : "var(--text-secondary)" }}
+                  title={renamedFrom ? `Objet réel : ${renamedFrom}` : undefined}
                 >
                   {subject || "(sans objet)"}
                 </span>
@@ -793,10 +804,10 @@ function MailRowView({ row, idx, shared }: { row: OverlayRow; idx: number; share
                 <span
                   className="hidden h-5 min-w-[7rem] flex-1 items-center gap-1 @xl:flex"
                   style={{ color: "var(--text-muted)" }}
-                  title={aiPreview ? `Résumé par l'IA locale : ${preview}` : preview}
+                  title={aiPreview ? `Résumé par l'IA locale : ${preview}` : note ? `Ta note : ${preview}` : preview}
                 >
-                  <span aria-hidden>—</span>
-                  <span className="min-w-0 truncate">{preview}</span>
+                  {note ? <NotePencil size={12} aria-label="Ta note" className="shrink-0" style={{ color: "var(--text-secondary)" }} /> : <span aria-hidden>—</span>}
+                  <span className="min-w-0 truncate" style={note ? { color: "var(--text-secondary)" } : undefined}>{preview}</span>
                 </span>
               )}
             </>
@@ -807,12 +818,13 @@ function MailRowView({ row, idx, shared }: { row: OverlayRow; idx: number; share
         {preview && row.kind === "single" && (
           <span
             className={`col-start-2 col-end-4 row-start-3 hidden min-w-0 items-start gap-1.5 text-[12px] leading-snug max-md:flex @xl:col-start-3 @xl:col-end-5 @xl:row-start-2`}
-            style={{ color: aiPreview ? "var(--text-secondary)" : "var(--text-muted)" }}
-            title={aiPreview ? `Résumé par l'IA locale : ${preview}` : preview}
+            style={{ color: aiPreview || note ? "var(--text-secondary)" : "var(--text-muted)" }}
+            title={aiPreview ? `Résumé par l'IA locale : ${preview}` : note ? `Ta note : ${preview}` : preview}
           >
             {aiPreview && (
               <Sparkle size={10} weight="fill" aria-hidden className="mt-[3px] shrink-0" style={{ color: "var(--text-muted)" }} />
             )}
+            {note && <NotePencil size={11} aria-label="Ta note" className="mt-[2px] shrink-0" />}
             <span className="line-clamp-2 min-w-0 max-md:line-clamp-1">{preview}</span>
           </span>
         )}

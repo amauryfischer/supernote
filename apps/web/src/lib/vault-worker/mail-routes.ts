@@ -8,7 +8,7 @@
 import type { Database } from "./sqlite-adapter";
 import type { RouteHandler, RouterLifecycleHooks } from "./worker-router";
 import { row, rows, runInTransaction, type SqlRow } from "./sql";
-import { EMAIL_AI_CACHE_TYPE_ID, MAIL_COMMITMENT_TYPE_ID } from "./seed-default-types";
+import { EMAIL_AI_CACHE_TYPE_ID, MAIL_ANNOTATION_TYPE_ID, MAIL_COMMITMENT_TYPE_ID } from "./seed-default-types";
 import { now, tombstoneAdd } from "./entity-helpers";
 
 /** Helpers du miroir mail dont `sync.applyOps` a besoin pour répercuter les ops reçues. */
@@ -346,6 +346,8 @@ export function buildMailRoutes(
     `eac_${accountId.replace(/[^a-zA-Z0-9]/g, "_")}_${threadId}`;
   const mailCommitmentEntityId = (accountId: string, threadId: string): string =>
     `mc_${accountId.replace(/[^a-zA-Z0-9]/g, "_")}_${threadId}`;
+  const mailAnnotationEntityId = (accountId: string, threadId: string): string =>
+    `ma_${accountId.replace(/[^a-zA-Z0-9]/g, "_")}_${threadId}`;
 
   // Miroir partagé : le premier appareil qui lit Gmail publie fils, labels et
   // curseur via les entités email_ai_cache ; les autres les reçoivent au lieu de
@@ -576,6 +578,28 @@ export function buildMailRoutes(
         base: { mc_thread_id: threadId, mc_account_email: accountId },
       },
       { mc_subject: subject, mc_items: items, mc_fp: fingerprint, mc_at: Date.now() },
+    );
+    return { ok: true };
+  };
+
+  const mailSetAnnotation = async (input: unknown): Promise<unknown> => {
+    const { accountId, threadId, title, note, highlights } = input as {
+      accountId: string; threadId: string; title?: string; note?: string; highlights?: string;
+    };
+    if (!accountId || !threadId) return { ok: false };
+    const patch: Record<string, unknown> = {};
+    if (title !== undefined) patch["ma_title"] = title;
+    if (note !== undefined) patch["ma_note"] = note;
+    if (highlights !== undefined) patch["ma_highlights"] = highlights;
+    if (Object.keys(patch).length === 0) return { ok: true };
+    upsertSystemEntity(
+      {
+        typeId: MAIL_ANNOTATION_TYPE_ID,
+        entityId: mailAnnotationEntityId(accountId, threadId),
+        filePath: `@system/mail-annotations/${threadId}`,
+        base: { ma_thread_id: threadId, ma_account_email: accountId },
+      },
+      { ...patch, ma_at: Date.now() },
     );
     return { ok: true };
   };
@@ -943,6 +967,7 @@ export function buildMailRoutes(
       "mail.setAiCategory": mailSetAiCategory,
       "mail.setAiSummary": mailSetAiSummary,
       "mail.setCommitments": mailSetCommitments,
+      "mail.setAnnotation": mailSetAnnotation,
       "mail.getAiCache": mailGetAiCache,
       "mail.syncUpsert": mailSyncUpsert,
       "mail.applyLocalMutation": mailApplyLocalMutation,

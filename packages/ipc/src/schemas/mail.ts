@@ -286,6 +286,22 @@ export type SetCommitmentsInput = z.infer<typeof SetCommitmentsInput>;
 export const SetCommitmentsOutput = z.object({ ok: z.boolean() });
 export type SetCommitmentsOutput = z.infer<typeof SetCommitmentsOutput>;
 
+// ── mail.setAnnotation ─────────────────────────────────────────────────────
+// Repères perso d'un fil (objet renommé, note, passages surlignés) : entité mail_annotation.
+// Champ absent = inchangé ; chaîne vide = effacé.
+
+export const SetAnnotationInput = z.object({
+  accountId: z.string(),
+  threadId: z.string(),
+  title: z.string().optional(),
+  note: z.string().optional(),
+  highlights: z.string().optional(),
+});
+export type SetAnnotationInput = z.infer<typeof SetAnnotationInput>;
+
+export const SetAnnotationOutput = z.object({ ok: z.boolean() });
+export type SetAnnotationOutput = z.infer<typeof SetAnnotationOutput>;
+
 // ── mail.getAiCache ────────────────────────────────────────────────────────
 // Bulk read AI classification + summary for a list of threads (used by hooks
 // to hydrate on mount without a full listThreads call).

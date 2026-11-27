@@ -67,6 +67,7 @@ import { SwipeableRow, type SwipeAction } from "@/components/mail/SwipeableRow";
 import type { ForwardThread } from "@/lib/mail-forward";
 import { useMailKeyboard } from "@/components/mail/useMailKeyboard";
 import { useMailList, DEFAULT_MAIL_QUERY } from "@/components/mail/useMailList";
+import { useMailAnnotations } from "@/components/mail/useMailAnnotations";
 import { useMailMirror } from "@/components/mail/useMailMirror";
 import { useMailDrafts } from "@/components/mail/useMailDrafts";
 import { MAIL_COMPOSE_EVENT, type MailActionId, type MailContext } from "@/lib/mail-shortcuts";
@@ -258,6 +259,7 @@ export default function MailPage() {
   const clientId = settings.googleDrive.clientId.trim();
   // Compte Gmail connecté = clé de scoping du mirror local (mail_* tables).
   const accountId = settings.gmail.connectedEmail;
+  const annotations = useMailAnnotations(accountId);
   const connected = useGmailConnected();
   // Prêt du worker vault : `connected` (settings) passe à true AVANT que le
   // worker OPFS ait fini de booter. Sans ce signal, loadList se lancerait trop
@@ -350,7 +352,9 @@ export default function MailPage() {
   const [thread, setThread] = useState<EmailThread | null>(null);
   // Compteur : chaque « . » demande à la liste d'ouvrir le menu de la ligne sous le curseur.
   const [rowMenuRequest, setRowMenuRequest] = useState(0);
-  const openSubject = selectedThreadId ? thread?.messages[0]?.subject || "(sans objet)" : null;
+  const openSubject = selectedThreadId
+    ? (thread && annotations.get(thread.id)?.title) || thread?.messages[0]?.subject || "(sans objet)"
+    : null;
   useMobileTitle(
     isMobile ? (openSubject ?? "Mail") : null,
     isMobile && !openSubject
@@ -2671,6 +2675,7 @@ export default function MailPage() {
               activeThreadId={selectedThreadId ?? undefined}
               onPick={(id) => void openThread(id)}
               summaries={listSummaries.summaries}
+              annotations={annotations}
             />
           )}
         </div>
@@ -2790,6 +2795,7 @@ export default function MailPage() {
                 onSwipeRow={isMobile ? handleSwipeRow : undefined}
                 onLongPressRow={isMobile ? handleLongPressRow : undefined}
                 summaries={listSummaries.summaries}
+                annotations={annotations}
                 selfEmails={selfAddresses}
                 selfNoteIds={selfNotes?.ids}
                 sections={sectionMarkers}
@@ -2886,6 +2892,7 @@ export default function MailPage() {
           onMarkAllRead={() => void markGroupRead(selectedGroup)}
           deleteBusy={bulkBusy}
           summaries={listSummaries.summaries}
+          annotations={annotations}
           selfEmails={selfAddresses}
           userLabels={labelNames}
           labelColors={labelColors}
@@ -3277,6 +3284,7 @@ export default function MailPage() {
                 onMarkAllRead={() => void markGroupRead(selectedGroup)}
                 deleteBusy={bulkBusy}
                 summaries={listSummaries.summaries}
+                annotations={annotations}
                 selfEmails={selfAddresses}
                 selfNoteIds={selfNotes?.ids}
                 userLabels={labelNames}

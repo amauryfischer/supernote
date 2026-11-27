@@ -300,6 +300,18 @@ const mailCommitmentFields: SeedField[] = [
   { id: "mc_at", name: "analyzedAt", label: "Analysé le", kind: "number" },
 ];
 
+export const MAIL_ANNOTATION_TYPE_ID = "mail_annotation";
+
+// Repères perso posés sur un fil : jamais envoyés à Gmail, invisibles des correspondants.
+const mailAnnotationFields: SeedField[] = [
+  { id: "ma_thread_id", name: "threadId", label: "Gmail thread ID", kind: "text", required: true },
+  { id: "ma_account_email", name: "accountEmail", label: "Compte Gmail", kind: "email" },
+  { id: "ma_title", name: "title", label: "Objet perso", kind: "text" },
+  { id: "ma_note", name: "note", label: "Note privée", kind: "longtext" },
+  { id: "ma_highlights", name: "highlights", label: "Passages surlignés (JSON)", kind: "longtext" },
+  { id: "ma_at", name: "updatedAt", label: "Modifié le", kind: "number" },
+];
+
 const vaultMountFields: SeedField[] = [
   { id: "vm_label", name: "label", label: "Nom affiché", kind: "text", required: true },
   { id: "vm_server_url", name: "serverUrl", label: "URL du serveur", kind: "text", required: true },
@@ -355,6 +367,7 @@ export const DEFAULT_ENTITY_TYPES: SeedEntityType[] = [
   { id: "vault_mount", name: "vault_mount", plural: "vault_mounts", icon: "Plugs", color: "#8b5cf6", fields: vaultMountFields, defaultPath: "VaultMounts", fileNamePattern: "{label}" },
   { id: EMAIL_AI_CACHE_TYPE_ID, name: "email_ai_cache", plural: "email_ai_cache", icon: "Brain", color: "#6366F1", fields: emailAiCacheFields, defaultPath: "@system/email-ai", fileNamePattern: "{threadId}" },
   { id: MAIL_COMMITMENT_TYPE_ID, name: "mail_commitment", plural: "mail_commitment", icon: "Handshake", color: "#6366F1", fields: mailCommitmentFields, defaultPath: "@system/mail-commitments", fileNamePattern: "{threadId}" },
+  { id: MAIL_ANNOTATION_TYPE_ID, name: "mail_annotation", plural: "mail_annotation", icon: "NotePencil", color: "#6366F1", fields: mailAnnotationFields, defaultPath: "@system/mail-annotations", fileNamePattern: "{threadId}" },
   { id: TEMPLATE_TYPE_ID, name: "Modèle", plural: "Modèles", icon: "FileDashed", color: "#64748B", fields: templateFields, defaultPath: TEMPLATE_FOLDER, fileNamePattern: "{name}" },
 ];
 

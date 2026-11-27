@@ -2,7 +2,9 @@
 
 import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, forwardRef, useImperativeHandle, type ReactNode } from "react";
 import { spanLabel } from "@/lib/mail-age";
-import { ArrowSquareOut, Plus, X, Tag, MagnifyingGlass, Check, PaperPlaneTilt, Quotes, Paperclip, Star, Envelope, ArrowBendUpRight, Sparkle, MagicWand, ArrowsClockwise, CaretUp, DotsThreeVertical, Copy, Image as ImageIcon, SpeakerSlash, UserMinus, UserPlus, WarningCircle, ShareNetwork, ArrowBendUpLeft, ArrowBendDoubleUpLeft, FilePlus, ListChecks, Database, CaretRight } from "@phosphor-icons/react";
+import { ArrowSquareOut, Plus, X, Tag, MagnifyingGlass, Check, PaperPlaneTilt, Quotes, Paperclip, Star, Envelope, ArrowBendUpRight, Sparkle, MagicWand, ArrowsClockwise, CaretUp, DotsThreeVertical, Copy, Image as ImageIcon, SpeakerSlash, UserMinus, UserPlus, WarningCircle, ShareNetwork, ArrowBendUpLeft, ArrowBendDoubleUpLeft, FilePlus, ListChecks, Database, CaretRight, NotePencil, PencilSimple } from "@phosphor-icons/react";
+import { ThreadAnnotations, type AnnotationEditing } from "./ThreadAnnotations";
+import { useMailAnnotations } from "./useMailAnnotations";
 import { Spinner, Popover } from "@heroui/react";
 import { AttachmentPreviewModal } from "./AttachmentPreviewModal";
 import { useToast, Tooltip, Badge, Button, Input, ContextMenu, useContextMenu, Select } from "@supernote/ui";
@@ -460,6 +462,8 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
   };
   // Pièces jointes de la réponse en cours (réinitialisées au changement de fil).
   const [replyAttachments, setReplyAttachments] = useState<PendingAttachment[]>([]);
+  const annotation = useMailAnnotations(selfEmail ?? "").get(thread.id);
+  const [annotationEditing, setAnnotationEditing] = useState<AnnotationEditing>(null);
   const replyFileRef = useRef<HTMLInputElement>(null);
   // Zone de saisie : grandit avec le contenu (auto-resize, plafonné). Les
   // brouillons IA sont gérés par le parent (colonne dédiée) → `loadDraft` y
@@ -1255,12 +1259,12 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
                 </Button>
               </Tooltip>
             )}
-            {subject ? (
+            {annotation?.title || subject ? (
               <h2
                 className={`line-clamp-2 min-w-0 flex-1 text-base font-semibold md:truncate${bottomSlot ? " max-md:sr-only" : ""}`}
                 style={{ color: "var(--text-primary)" }}
               >
-                {subject}
+                {annotation?.title || subject}
               </h2>
             ) : (
               <span />
@@ -1365,6 +1369,35 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
                             className={MENU_ROW}
                           />
                         </div>
+                      )}
+                      {selfEmail && (
+                        <>
+                          <p className="sn-eyebrow sn-eyebrow--compact px-3 pb-0.5 pt-2" aria-hidden>Pour toi seul</p>
+                          <Button
+                            variant="ghost"
+                            className={MENU_ROW}
+                            aria-label="Renommer l'objet pour toi"
+                            onPress={() => {
+                              setMoreOpen(false);
+                              setAnnotationEditing("title");
+                            }}
+                          >
+                            <PencilSimple size={16} />
+                            <span className="flex-1 text-left">Renommer l'objet</span>
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            className={MENU_ROW}
+                            aria-label={annotation?.note ? "Modifier ta note privée" : "Ajouter une note privée"}
+                            onPress={() => {
+                              setMoreOpen(false);
+                              setAnnotationEditing("note");
+                            }}
+                          >
+                            <NotePencil size={16} />
+                            <span className="flex-1 text-left">{annotation?.note ? "Modifier la note privée" : "Note privée"}</span>
+                          </Button>
+                        </>
                       )}
                       <p className="sn-eyebrow sn-eyebrow--compact px-3 pb-0.5 pt-2" aria-hidden>Capturer</p>
                       {onToTask && (
@@ -1665,6 +1698,17 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
         </div>
 
       </div>
+
+      {!embedded && selfEmail && (
+        <ThreadAnnotations
+          accountId={selfEmail}
+          threadId={thread.id}
+          subject={subject ?? ""}
+          annotation={annotation}
+          editing={annotationEditing}
+          onEditingChange={setAnnotationEditing}
+        />
+      )}
 
       {aiConfigured && !embedded && (
         <div className="rounded-md border" style={{ borderColor: "var(--border-subtle)" }}>

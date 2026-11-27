@@ -9,7 +9,7 @@ import type { Database } from "./sqlite-adapter";
 import { row, rows, type SqlRow } from "./sql";
 import { generateId } from "./fsa-file-io";
 import { derivePath } from "./path-utils";
-import { EMAIL_AI_CACHE_TYPE_ID, MAIL_COMMITMENT_TYPE_ID } from "./seed-default-types";
+import { EMAIL_AI_CACHE_TYPE_ID, MAIL_ANNOTATION_TYPE_ID, MAIL_COMMITMENT_TYPE_ID } from "./seed-default-types";
 
 export interface EntityDoc {
   id: string;
@@ -179,9 +179,9 @@ export function ftsRebuild(db: Database, vaultId: string): void {
        FROM entity e
        LEFT JOIN entity_tag et ON et.entityId = e.id
        LEFT JOIN tag t ON t.id = et.tagId
-       WHERE e.vaultId = ? AND e.typeId NOT IN (?, ?)
+       WHERE e.vaultId = ? AND e.typeId NOT IN (?, ?, ?)
        GROUP BY e.id`,
-      [vaultId, EMAIL_AI_CACHE_TYPE_ID, MAIL_COMMITMENT_TYPE_ID],
+      [vaultId, EMAIL_AI_CACHE_TYPE_ID, MAIL_COMMITMENT_TYPE_ID, MAIL_ANNOTATION_TYPE_ID],
     ),
   );
   for (const r of allEntities) {

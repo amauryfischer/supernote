@@ -27,6 +27,8 @@ import {
   SetAiSummaryOutput,
   SetCommitmentsInput,
   SetCommitmentsOutput,
+  SetAnnotationInput,
+  SetAnnotationOutput,
   GetAiCacheInput,
   GetAiCacheOutput,
 } from "../schemas/mail.js";
@@ -143,6 +145,14 @@ export const mailRouter = router({
     .output(SetCommitmentsOutput)
     .mutation(() => {
       throw notImplemented("mail.setCommitments");
+    }),
+
+  /** Store the personal annotations of a thread (mail_annotation entity, synced). */
+  setAnnotation: publicProcedure
+    .input(SetAnnotationInput)
+    .output(SetAnnotationOutput)
+    .mutation(() => {
+      throw notImplemented("mail.setAnnotation");
     }),
 
   /** Bulk read AI classification + summary for a set of threads. */

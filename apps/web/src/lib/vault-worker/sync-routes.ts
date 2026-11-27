@@ -18,7 +18,7 @@ import { moveExcalidrawSibling, deleteExcalidrawSibling } from "./canvas-excalid
 import { resolveMountWrite, crossProvenanceCollision } from "./mount-provenance";
 import { decodeTagPaths } from "./tag-paths";
 import { derivePath } from "./path-utils";
-import { TEMPLATE_TYPE_ID, TEMPLATE_SEED_TS, EMAIL_AI_CACHE_TYPE_ID, MAIL_COMMITMENT_TYPE_ID } from "./seed-default-types";
+import { TEMPLATE_TYPE_ID, TEMPLATE_SEED_TS, EMAIL_AI_CACHE_TYPE_ID, MAIL_COMMITMENT_TYPE_ID, MAIL_ANNOTATION_TYPE_ID } from "./seed-default-types";
 import {
   now,
   deriveTitle,
@@ -314,7 +314,11 @@ export function buildSyncRoutes(
           applyEntityTags(db, vaultId, op.entityId, payload.tags ?? [], payload.updatedAt);
           // Le cache mail n'est pas une note : l'indexer ferait remonter objets et
           // extraits de mails dans la recherche globale.
-          if (payload.typeId === EMAIL_AI_CACHE_TYPE_ID || payload.typeId === MAIL_COMMITMENT_TYPE_ID) {
+          if (
+            payload.typeId === EMAIL_AI_CACHE_TYPE_ID ||
+            payload.typeId === MAIL_COMMITMENT_TYPE_ID ||
+            payload.typeId === MAIL_ANNOTATION_TYPE_ID
+          ) {
             ftsRemove(db, op.entityId);
           } else {
             ftsAdd(db, {
