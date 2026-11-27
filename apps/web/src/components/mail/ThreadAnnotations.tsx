@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { NotePencil } from "@phosphor-icons/react";
-import { Button, Input, Textarea } from "@supernote/ui";
-import { saveAnnotation, type MailAnnotation } from "@/lib/mail-annotations";
+import { NotePencil, X } from "@phosphor-icons/react";
+import { Button, Input, Textarea, Tooltip } from "@supernote/ui";
+import { saveAnnotation, type MailAnnotation, type MailHighlight } from "@/lib/mail-annotations";
 
 export type AnnotationEditing = "title" | "note" | null;
 
@@ -119,5 +119,55 @@ export function ThreadAnnotations({
         </Button>
       ) : null}
     </div>
+  );
+}
+
+/** Passages surlignés du fil, en tête : un clic ramène au message, la croix retire le passage. */
+export function ThreadHighlights({
+  highlights,
+  authorOf,
+  onJump,
+  onRemove,
+}: {
+  highlights: readonly MailHighlight[];
+  authorOf: (messageId: string) => string;
+  onJump: (messageId: string) => void;
+  onRemove: (h: MailHighlight) => void;
+}) {
+  return (
+    <ul className="flex flex-col gap-1" aria-label="Passages surlignés">
+      {highlights.map((h) => (
+        <li
+          key={`${h.messageId}:${h.text}`}
+          className="flex items-start gap-1 rounded-[var(--radius-md)] border-l-2 pl-1"
+          style={{ borderColor: "var(--warning)", background: "color-mix(in oklab, var(--warning) 12%, transparent)" }}
+        >
+          <Button
+            variant="ghost"
+            aria-label={`Aller au passage : ${h.text}`}
+            onPress={() => onJump(h.messageId)}
+            className="h-auto min-h-8 min-w-0 flex-1 flex-col items-start justify-start gap-0.5 px-1.5 py-1 text-left font-normal"
+          >
+            <span className="line-clamp-2 whitespace-normal text-[13px]" style={{ color: "var(--text-primary)" }}>
+              « {h.text} »
+            </span>
+            <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>
+              {authorOf(h.messageId) || "Message retiré du fil"}
+            </span>
+          </Button>
+          <Tooltip content="Retirer ce passage">
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Retirer ce passage"
+              onPress={() => onRemove(h)}
+              className="sn-hit h-8 min-h-8 w-8 min-w-8 shrink-0"
+            >
+              <X size={12} aria-hidden />
+            </Button>
+          </Tooltip>
+        </li>
+      ))}
+    </ul>
   );
 }

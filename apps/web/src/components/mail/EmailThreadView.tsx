@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, forwardRef, useImperativeHandle, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, forwardRef, useImperativeHandle, type ReactNode } from "react";
 import { spanLabel } from "@/lib/mail-age";
-import { ArrowSquareOut, Plus, X, Tag, MagnifyingGlass, Check, PaperPlaneTilt, Quotes, Paperclip, Star, Envelope, ArrowBendUpRight, Sparkle, MagicWand, ArrowsClockwise, CaretUp, DotsThreeVertical, Copy, Image as ImageIcon, SpeakerSlash, UserMinus, UserPlus, WarningCircle, ShareNetwork, ArrowBendUpLeft, ArrowBendDoubleUpLeft, FilePlus, ListChecks, Database, CaretRight, NotePencil, PencilSimple } from "@phosphor-icons/react";
-import { ThreadAnnotations, type AnnotationEditing } from "./ThreadAnnotations";
+import { ArrowSquareOut, Plus, X, Tag, MagnifyingGlass, Check, PaperPlaneTilt, Quotes, Paperclip, Star, Envelope, ArrowBendUpRight, Sparkle, MagicWand, ArrowsClockwise, CaretUp, DotsThreeVertical, Copy, Image as ImageIcon, SpeakerSlash, UserMinus, UserPlus, WarningCircle, ShareNetwork, ArrowBendUpLeft, ArrowBendDoubleUpLeft, FilePlus, ListChecks, Database, CaretRight, NotePencil, PencilSimple, HighlighterCircle } from "@phosphor-icons/react";
+import { ThreadAnnotations, ThreadHighlights, type AnnotationEditing } from "./ThreadAnnotations";
 import { useMailAnnotations } from "./useMailAnnotations";
 import { Spinner, Popover } from "@heroui/react";
 import { AttachmentPreviewModal } from "./AttachmentPreviewModal";
@@ -123,6 +123,8 @@ import { createPortal } from "react-dom";
 import { useMobileBottomBar } from "@/components/shell/shell-chrome-context";
 import { shortcutKey } from "@/lib/mail-shortcuts";
 import { useKeyboardViewport } from "@/hooks/useKeyboardOpen";
+import { findTextRanges, paintHighlights, selectionWithin, MAIL_MARK } from "@/lib/mail-highlight";
+import { saveAnnotation, type MailHighlight } from "@/lib/mail-annotations";
 import {
   isAiConfigured,
   summarizeThread,
@@ -464,6 +466,12 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
   const [replyAttachments, setReplyAttachments] = useState<PendingAttachment[]>([]);
   const annotation = useMailAnnotations(selfEmail ?? "").get(thread.id);
   const [annotationEditing, setAnnotationEditing] = useState<AnnotationEditing>(null);
+  const [messageFocus, setMessageFocus] = useState<{ id: string; n: number } | null>(null);
+  const addHighlight = (messageId: string, text: string) => {
+    if (!selfEmail) return;
+    const kept = (annotation?.highlights ?? []).filter((h) => !(h.messageId === messageId && h.text === text));
+    void saveAnnotation(selfEmail, thread.id, { highlights: [...kept, { messageId, text }] });
+  };
   const replyFileRef = useRef<HTMLInputElement>(null);
   // Zone de saisie : grandit avec le contenu (auto-resize, plafonné). Les
   // brouillons IA sont gérés par le parent (colonne dédiée) → `loadDraft` y
@@ -1710,6 +1718,22 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
         />
       )}
 
+      {!embedded && selfEmail && annotation && annotation.highlights.length > 0 && (
+        <ThreadHighlights
+          highlights={annotation.highlights}
+          authorOf={(id) => {
+            const m = thread.messages.find((x) => x.id === id);
+            return m ? (classifyBubble(m.from.email, selfEmail) === "mine" ? "Moi" : m.from.name || m.from.email) : "";
+          }}
+          onJump={(id) => setMessageFocus((f) => ({ id, n: (f?.n ?? 0) + 1 }))}
+          onRemove={(h) =>
+            void saveAnnotation(selfEmail, thread.id, {
+              highlights: annotation.highlights.filter((x) => x !== h),
+            })
+          }
+        />
+      )}
+
       {aiConfigured && !embedded && (
         <div className="rounded-md border" style={{ borderColor: "var(--border-subtle)" }}>
           <div className="flex min-h-7 items-center gap-1.5 pl-2 pr-1">
@@ -1794,6 +1818,9 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
         selfEmail={selfEmail}
         clientId={clientId}
         forwardNotes={(id) => forwardsById.get(id)?.map((f) => forwardLabel(f, selfEmail))}
+        highlights={annotation?.highlights}
+        onHighlight={!embedded && selfEmail ? addHighlight : undefined}
+        focus={messageFocus}
       />
 
       {/* Sous le dernier message, près de la réponse : arrivé en différé, il ne décale pas la lecture. */}
@@ -2613,6 +2640,7 @@ body { font-size: 14px; line-height: 1.5; overflow-wrap: break-word; }
 img { max-width: 100%; height: auto; }
 pre { white-space: pre-wrap; word-break: break-word; }
 blockquote { margin: 0.5em 0; padding-left: 0.75em; border-left: 2px solid rgb(128 128 128 / 0.4); }
+::highlight(${MAIL_MARK}) { background-color: rgb(250 204 21 / 0.45); color: inherit; }
 `;
 
 /**
@@ -2628,15 +2656,23 @@ function MailHtmlFrame({
   templated,
   className,
   style,
+  marks,
+  onSelectText,
 }: {
   html: string;
   styles: string;
   templated: boolean;
   className?: string;
   style?: React.CSSProperties;
+  /** Passages surlignés, joints par \u0000 : une chaîne garde l'effet stable d'un rendu à l'autre. */
+  marks?: string;
+  onSelectText?: (text: string) => void;
 }) {
   const ref = useRef<HTMLIFrameElement>(null);
   const [height, setHeight] = useState(0);
+  const [docVersion, setDocVersion] = useState(0);
+  const onSelectRef = useRef(onSelectText);
+  onSelectRef.current = onSelectText;
   const srcDoc = useMemo(
     () =>
       `<!doctype html><html><head><meta charset="utf-8"><base target="_blank"><style>${MAIL_FRAME_CSS}</style>${styles}</head><body><div id="sn-root" style="padding:0 12px">${html}</div></body></html>`,
@@ -2702,10 +2738,14 @@ function MailHtmlFrame({
         if (!iframe.dispatchEvent(relayed)) e.preventDefault();
       };
       doc.addEventListener("keydown", relayKey);
+      const relaySelection = () => onSelectRef.current?.(selectionWithin(root, doc.getSelection()));
+      doc.addEventListener("selectionchange", relaySelection);
+      setDocVersion((v) => v + 1);
       cleanup = () => {
         inner.disconnect();
         outer.disconnect();
         doc.removeEventListener("keydown", relayKey);
+        doc.removeEventListener("selectionchange", relaySelection);
       };
     };
     iframe.addEventListener("load", setup);
@@ -2715,6 +2755,13 @@ function MailHtmlFrame({
       cleanup();
     };
   }, [srcDoc, templated]);
+
+  useEffect(() => {
+    const doc = ref.current?.contentDocument;
+    const root = doc?.getElementById("sn-root");
+    if (!marks || !root) return undefined;
+    return paintHighlights(doc?.defaultView, findTextRanges(root, marks.split("\u0000")));
+  }, [marks, docVersion]);
 
   return (
     <iframe
@@ -2774,14 +2821,30 @@ function ThreadTrunk({
   selfEmail,
   clientId,
   forwardNotes,
+  highlights = [],
+  onHighlight,
+  focus,
 }: {
   messages: EmailMessage[];
   selfEmail: string | undefined;
   clientId: string;
   forwardNotes: (messageId: string) => Array<{ label: string; title: string }> | undefined;
+  highlights?: readonly MailHighlight[];
+  onHighlight?: (messageId: string, text: string) => void;
+  /** Saut demandé vers un message (n change à chaque demande, même message compris). */
+  focus?: { id: string; n: number } | null;
 }) {
   const lastId = messages[messages.length - 1]?.id;
   const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set(lastId ? [lastId] : []));
+  const trunkRef = useRef<HTMLOListElement>(null);
+  useEffect(() => {
+    if (!focus) return;
+    setOpen((prev) => (prev.has(focus.id) ? prev : new Set(prev).add(focus.id)));
+    requestAnimationFrame(() =>
+      trunkRef.current?.querySelector(`[data-message-id="${CSS.escape(focus.id)}"]`)?.scrollIntoView({ block: "start", behavior: "smooth" }),
+    );
+  }, [focus]);
+  const marksOf = (id: string) => highlights.filter((h) => h.messageId === id).map((h) => h.text).join("\u0000");
   // Fil rechargé (réponse envoyée, nouveau message) : le nouveau dernier s'ouvre.
   useEffect(() => {
     if (lastId) setOpen((prev) => (prev.has(lastId) ? prev : new Set(prev).add(lastId)));
@@ -2826,7 +2889,7 @@ function ThreadTrunk({
           </Button>
         )}
       </div>
-      <ol className="flex flex-col">
+      <ol ref={trunkRef} className="flex flex-col">
         {messages.map((m, i) => {
           const kind = classifyBubble(m.from.email, selfEmail);
           const isLast = i === messages.length - 1;
@@ -2846,7 +2909,7 @@ function ThreadTrunk({
               ? spanLabel(at(m) - at(prev))
               : "";
           return (
-            <li key={m.id} className="relative pb-2 pl-6" data-last-message={isLast || undefined}>
+            <li key={m.id} className="relative pb-2 pl-6" data-last-message={isLast || undefined} data-message-id={m.id}>
               {!isLast && (
                 <span
                   aria-hidden
@@ -2876,7 +2939,16 @@ function ThreadTrunk({
               </Button>
               {hot && <span className="sr-only">À toi de répondre</span>}
               {isOpen ? (
-                <MessageBubble message={m} kind={kind} clientId={clientId} forwardNotes={forwardNotes(m.id)} onCollapse={toggle} reply={reply} />
+                <MessageBubble
+                  message={m}
+                  kind={kind}
+                  clientId={clientId}
+                  forwardNotes={forwardNotes(m.id)}
+                  onCollapse={toggle}
+                  reply={reply}
+                  marks={marksOf(m.id)}
+                  onHighlight={onHighlight ? (text) => onHighlight(m.id, text) : undefined}
+                />
               ) : (
                 <Button
                   variant="ghost"
@@ -2928,6 +3000,8 @@ function MessageBubble({
   forwardNotes,
   onCollapse,
   reply = "",
+  marks = "",
+  onHighlight,
 }: {
   message: EmailMessage;
   kind: BubbleKind;
@@ -2936,7 +3010,21 @@ function MessageBubble({
   onCollapse?: () => void;
   /** Délai de réponse au message précédent (« 4 h »), vide s'il ne répond à personne. */
   reply?: string;
+  /** Passages surlignés de ce message, joints par \u0000. */
+  marks?: string;
+  onHighlight?: (text: string) => void;
 }) {
+  // Dernière sélection dans ce message. Toucher le bouton efface la sélection avant le clic :
+  // on la garde un instant pour qu'il sache encore quoi surligner.
+  const [selected, setSelected] = useState("");
+  const clearSelTimer = useRef<number | undefined>(undefined);
+  const onSelectText = useCallback((text: string) => {
+    window.clearTimeout(clearSelTimer.current);
+    if (text) setSelected(text.slice(0, 500));
+    else clearSelTimer.current = window.setTimeout(() => setSelected(""), 1500);
+  }, []);
+  useEffect(() => () => window.clearTimeout(clearSelTimer.current), []);
+  const plainRef = useRef<HTMLParagraphElement>(null);
   const mine = kind === "mine";
   const internal = kind === "internal";
   const tint = mine ? null : senderTint(message.from.email || message.from.name);
@@ -2966,6 +3054,16 @@ function MessageBubble({
     () => (htmlParts ? { body: "", quoted: "", signature: "" } : parseEmailBody(message.bodyText || message.snippet)),
     [htmlParts, message.bodyText, message.snippet],
   );
+  useEffect(() => {
+    if (htmlParts || !onHighlight) return undefined;
+    const relay = () => onSelectText(selectionWithin(plainRef.current, document.getSelection()));
+    document.addEventListener("selectionchange", relay);
+    return () => document.removeEventListener("selectionchange", relay);
+  }, [htmlParts, onHighlight, onSelectText]);
+  useEffect(() => {
+    if (htmlParts || !marks || !plainRef.current) return undefined;
+    return paintHighlights(window, findTextRanges(plainRef.current, marks.split("\u0000")));
+  }, [htmlParts, marks, body]);
   const copyFb = useActionFeedback();
   // Copie le contenu neuf (sans citation ni signature) ; en HTML, garde la mise en forme au collage.
   const copyMessage = () =>
@@ -3024,6 +3122,24 @@ function MessageBubble({
           </Button>
           <span className="flex shrink-0 items-center gap-1 font-mono text-[11px] tabular-nums" style={{ color: "var(--text-muted)" }}>
             {date}
+            {selected && onHighlight && (
+              <Tooltip content="Surligner la sélection, pour toi seul">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-label="Surligner la sélection"
+                  className="sn-hit -my-1 h-6 min-h-6 gap-1 px-1.5 font-sans text-[11px]"
+                  style={{ color: "var(--text-primary)" }}
+                  onPress={() => {
+                    onHighlight(selected);
+                    setSelected("");
+                  }}
+                >
+                  <HighlighterCircle size={13} aria-hidden />
+                  Surligner
+                </Button>
+              </Tooltip>
+            )}
             {canCopy && (
               <Tooltip content={copyFb.state === "success" ? "Copié" : (copyFb.error ?? "Copier le message")}>
                 <Button
@@ -3072,6 +3188,8 @@ function MessageBubble({
                 html={htmlParts.body}
                 styles={htmlParts.styles}
                 templated={templated}
+                marks={marks}
+                onSelectText={onHighlight ? onSelectText : undefined}
                 className={templated ? "-mx-3" : undefined}
                 style={{ color: "var(--text-secondary)", ...(templated && { width: "calc(100% + 1.5rem)", maxWidth: "none" }) }}
               />
@@ -3096,7 +3214,7 @@ function MessageBubble({
         ) : (
           <>
             {body && (
-              <p className="whitespace-pre-wrap break-words text-sm leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+              <p ref={plainRef} className="whitespace-pre-wrap break-words text-sm leading-relaxed" style={{ color: "var(--text-secondary)" }}>
                 {body}
               </p>
             )}
