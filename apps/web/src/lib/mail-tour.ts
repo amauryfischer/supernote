@@ -121,6 +121,12 @@ function tallies(): Record<string, string> {
   }
 }
 
+/** Texte brut des décomptes : change dès qu'un décompte change, pour invalider les lignes mémoïsées. */
+export function subjectTallyStamp(): string {
+  tallies();
+  return parsed.raw;
+}
+
 /** Derniers silencieux connus d'un sujet ou d'un fil : la liste les affiche sans relire les messages. */
 export function subjectTally(id: string): string | null {
   return tallies()[id] ?? null;

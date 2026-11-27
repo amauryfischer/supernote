@@ -594,6 +594,8 @@ export default function MailPage() {
   // ligne tout de suite, mais ne rejoint « On attend » qu'au prochain changement de la liste,
   // sinon la liste descend d'un cran sous le doigt 1,5 s après l'ouverture.
   useTourTallies(clientId, accountId, cumItems, selfAddresses);
+  // Les lignes inchangées gardent leur identité : sans ce jour en dépendance, « Aujourd'hui » survivrait à minuit.
+  const today = new Date().toDateString();
   const { rows: displayRows, markers: sectionMarkers } = useMemo(
     () =>
       flattenSections(
@@ -607,7 +609,8 @@ export default function MailPage() {
         ),
         collapsedSections,
       ),
-    [rows, collapsedSections, todoLabelIds, selfAddresses],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [rows, collapsedSections, todoLabelIds, selfAddresses, today],
   );
   const threadPosition = useMemo(() => {
     if (!selectedThreadId) return null;
@@ -716,27 +719,17 @@ export default function MailPage() {
       setPeekList(false); // sélection faite → on referme l'overlay liste
 
       // Optimiste : ouvrir un fil le marque lu → retirer UNREAD de la ligne.
-      setRows((rs) =>
-        rs.map<OverlayRow>((r) => {
-          if (r.kind === "single") {
-            return r.item.id === threadId
-              ? {
-                  ...r,
-                  item: { ...r.item, labelIds: r.item.labelIds.filter((id) => id !== "UNREAD") },
-                }
-              : r;
-          }
-          if (!r.items.some((it) => it.id === threadId)) return r;
-          return {
-            ...r,
-            items: r.items.map((it) =>
-              it.id === threadId
-                ? { ...it, labelIds: it.labelIds.filter((id) => id !== "UNREAD") }
-                : it,
-            ),
-          };
-        }),
-      );
+      // Un fil déjà lu laisse la liste intacte : la recomposer redessinerait toutes les lignes.
+      const unreadHere = (it: ThreadListItem) => it.id === threadId && it.labelIds.includes("UNREAD");
+      const markRead = (it: ThreadListItem) => ({ ...it, labelIds: it.labelIds.filter((id) => id !== "UNREAD") });
+      setRows((rs) => {
+        if (!rs.some((r) => (r.kind === "single" ? unreadHere(r.item) : r.items.some(unreadHere)))) return rs;
+        return rs.map<OverlayRow>((r) => {
+          if (r.kind === "single") return unreadHere(r.item) ? { ...r, item: markRead(r.item) } : r;
+          if (!r.items.some(unreadHere)) return r;
+          return { ...r, items: r.items.map((it) => (unreadHere(it) ? markRead(it) : it)) };
+        });
+      });
 
       const canMirror = mirrorAvailable() && !!accountId;
       if (canMirror) patchMirror({ threadId, kind: "modifyLabels", removeLabelIds: ["UNREAD"] });

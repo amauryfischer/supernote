@@ -433,8 +433,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
   // Mobile : le composeur reste une ligne tant qu'on n'y a pas touché — déplié
   // d'office, il mangeait un tiers de l'écran au-dessus du fil.
   const [replyOpen, setReplyOpen] = useState(false);
-  // Toggle « Répondre à tous » : défaut = réponse simple. Pas de Cc à ajouter
-  // (seul le destinataire principal) → l'option est sans effet, on la masque.
+  // Défaut = répondre à tous ; sans autre participant, le choix simple/tous est sans effet, on le masque.
   const hasCc = replyAll.cc.length > 0;
   // Destinataires modifiables (façon Shortwave) : une ligne résumé qui se déplie en De / À / Cc.
   const [replyTo, setReplyTo] = useState<string[]>([]);
@@ -451,6 +450,14 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
     setReplyCc((prev) => dedupeEmails([...prev, ...replyAll.cc]));
   };
   const replyAllPending = hasCc && replyAll.cc.some((e) => !replyCc.includes(e) && !replyTo.includes(e));
+  const recipientDefaultsRef = useRef<{ id: string; to: string[]; cc: string[] } | null>(null);
+  // Une réponse déjà entamée garde les destinataires choisis.
+  const replySenderOnly = () => {
+    if (!replyBody.trim()) {
+      setReplyTo(replyAll.to ? [replyAll.to] : []);
+      setReplyCc([]);
+    }
+  };
   // Pièces jointes de la réponse en cours (réinitialisées au changement de fil).
   const [replyAttachments, setReplyAttachments] = useState<PendingAttachment[]>([]);
   const replyFileRef = useRef<HTMLInputElement>(null);
@@ -472,6 +479,11 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
     setReplyOpen(true);
     if (gridRef.current) gridRef.current.focus();
     else pendingGridFocusRef.current = true;
+  };
+  // Tout ce qui porte « (r) » répond à l'expéditeur seul ; le reste garde le défaut « à tous ».
+  const replyToSender = () => {
+    replySenderOnly();
+    focusComposer();
   };
   /** Ouvre la réponse sur le texte libre (brouillon chargé, réponse éclair…). */
   const focusComposerText = () => {
@@ -542,12 +554,25 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
   useEffect(() => {
     // Réponse en cours non envoyée : on la retrouve en revenant sur le fil
     // (fermer le fil ou recharger l'onglet ne perd plus la frappe).
-    const saved = loadAutoDraft(threadDraftKey(thread.id));
+    // Sans texte, l'entrée n'est que l'enregistrement auto des destinataires par défaut : elle ne fige rien.
+    const loaded = loadAutoDraft(threadDraftKey(thread.id));
+    const saved = loaded?.body.trim() ? loaded : null;
     setReplyBody(saved?.body ?? "");
-    setReplyCc(saved?.cc ?? []);
-    setReplyCcInput("");
     // Les destinataires reviennent avec le texte : une relance retrouvée ne repart pas vers le dernier expéditeur.
-    setReplyTo(saved?.to?.length ? saved.to : replyParams.to ? [replyParams.to] : []);
+    const recipients = {
+      id: thread.id,
+      to: saved?.to?.length ? saved.to : replyAll.to ? [replyAll.to] : [],
+      cc: saved?.cc ?? replyAll.cc,
+    };
+    // Une version plus fraîche du même fil ne remplace que des destinataires restés tels quels (« Répondre » = expéditeur seul tient).
+    const prev = recipientDefaultsRef.current;
+    const chosen = prev?.id === thread.id && (prev.to.join() !== replyTo.join() || prev.cc.join() !== replyCc.join());
+    recipientDefaultsRef.current = recipients;
+    if (!chosen) {
+      setReplyTo(recipients.to);
+      setReplyCc(recipients.cc);
+    }
+    setReplyCcInput("");
     setReplyToInput("");
     setReplyFrom("");
     setReplyFieldsOpen(Boolean(saved?.cc?.length));
@@ -822,9 +847,9 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
   const clearReply = () => {
     clearAutoDraft(threadDraftKey(thread.id));
     setReplyBody("");
-    setReplyCc([]);
+    setReplyCc(replyAll.cc);
     setReplyCcInput("");
-    setReplyTo(replyParams.to ? [replyParams.to] : []);
+    setReplyTo(replyAll.to ? [replyAll.to] : []);
     setReplyToInput("");
     setReplyFieldsOpen(false);
     setReplyAttachments([]);
@@ -1123,7 +1148,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
         setReplyBody((prev) => (prev.trim() ? `${prev}\n\n${text}` : text));
         focusComposerText();
       },
-      focusReply: focusComposer,
+      focusReply: replyToSender,
       replyAll: () => {
         applyReplyAll();
         focusComposer();
@@ -1260,7 +1285,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
                   size="icon"
                   aria-label="Répondre"
                   className="h-10 min-h-10 w-10 min-w-10"
-                  onPress={focusComposer}
+                  onPress={replyToSender}
                 >
                   <ArrowBendUpLeft size={20} aria-hidden />
                 </Button>
@@ -1777,7 +1802,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
         >
           {composerCollapsed ? (
             <div className="flex h-8 items-center gap-1" role="toolbar" aria-label="Répondre au fil">
-              <ComposeAction label="Répondre" shortcut={shortcutKey("reply")} onPress={focusComposer}>
+              <ComposeAction label="Répondre" shortcut={shortcutKey("reply")} onPress={replyToSender}>
                 <ArrowBendUpLeft size={14} aria-hidden />
               </ComposeAction>
               {hasCc && (
@@ -1814,7 +1839,7 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
                     size="sm"
                     className="ml-auto h-8 min-h-8 gap-1.5 px-2 text-[12.5px]"
                     style={{ color: "var(--text-secondary)" }}
-                    onPress={focusComposer}
+                    onPress={replyToSender}
                   >
                     <ListChecks size={14} aria-hidden />
                     <span className="font-mono tabular-nums">{questions.length}</span>

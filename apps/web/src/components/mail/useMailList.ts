@@ -93,6 +93,36 @@ export interface MailListApi {
   removeLabel: (id: string) => void;
 }
 
+// Chaque relecture du miroir recrée toutes les lignes : on garde celles d'avant quand rien n'a changé,
+// sinon les lignes mémoïsées se redessinent toutes à chaque ouverture de fil.
+const jsonCache = new WeakMap<object, string>();
+function jsonOf(o: object): string {
+  let s = jsonCache.get(o);
+  if (s === undefined) jsonCache.set(o, (s = JSON.stringify(o)));
+  return s;
+}
+
+function keepUnchanged<T extends object>(prev: T[], next: T[], keyOf: (t: T) => string): T[] {
+  if (next === prev || prev.length === 0) return next;
+  const before = new Map(prev.map((t) => [keyOf(t), t]));
+  let same = next.length === prev.length;
+  const out = next.map((t, i) => {
+    const old = before.get(keyOf(t));
+    const kept = old !== undefined && jsonOf(old) === jsonOf(t) ? old : t;
+    if (kept !== prev[i]) same = false;
+    return kept;
+  });
+  return same ? prev : out;
+}
+
+const rowKeyOf = (r: OverlayRow) => (r.kind === "single" ? `t:${r.item.id}` : r.key);
+
+function keepMap<V>(prev: Map<string, V>, next: Map<string, V>): Map<string, V> {
+  if (prev.size !== next.size) return next;
+  for (const [k, v] of next) if (!prev.has(k) || JSON.stringify(prev.get(k)) !== JSON.stringify(v)) return next;
+  return prev;
+}
+
 export function useMailList({
   clientId,
   accountId,
@@ -101,7 +131,11 @@ export function useMailList({
   flatLabelIds,
   onResetSelection,
 }: UseMailListOptions): MailListApi {
-  const [rows, setRows] = useState<OverlayRow[]>([]);
+  const [rows, setRowsRaw] = useState<OverlayRow[]>([]);
+  const setRows = useCallback<React.Dispatch<React.SetStateAction<OverlayRow[]>>>(
+    (next) => setRowsRaw((prev) => keepUnchanged(prev, typeof next === "function" ? next(prev) : next, rowKeyOf)),
+    [],
+  );
   const [cumItems, setCumItems] = useState<ThreadListItem[]>([]);
   const [labelNames, setLabelNames] = useState<Map<string, string>>(new Map());
   const [labelColors, setLabelColors] = useState<Map<string, GmailLabelColor>>(new Map());
@@ -123,8 +157,9 @@ export function useMailList({
   const applyListData = useCallback(
     (items: ThreadListItem[], labels: GmailLabel[], nextToken: string | undefined) => {
       const names = new Map(labels.map((l) => [l.id, l.name]));
-      setLabelNames(names);
-      setLabelColors(new Map(labels.flatMap((l) => (l.color ? [[l.id, l.color] as const] : []))));
+      setLabelNames((prev) => keepMap(prev, names));
+      const colors = new Map(labels.flatMap((l) => (l.color ? [[l.id, l.color] as const] : [])));
+      setLabelColors((prev) => keepMap(prev, colors));
       setCumItems(items);
       setNextPageToken(nextToken);
       setRows(buildMailOverlay(computeVisible(items), names, selfAddresses, flatLabelIds()));

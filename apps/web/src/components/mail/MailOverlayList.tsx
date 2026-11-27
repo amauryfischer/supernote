@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Button, Tooltip } from "@supernote/ui";
 import { Checkbox } from "@supernote/ui";
 import { Star, DotsSixVertical, Sparkle, CaretDown, Checks, Clock, ListChecks, Trash, UsersThree, ArrowBendUpLeft } from "@phosphor-icons/react";
-import { isUnsureTally, subjectTally } from "@/lib/mail-tour";
+import { isUnsureTally, subjectTally, subjectTallyStamp } from "@/lib/mail-tour";
 import {
   DndContext,
   useDraggable,
@@ -71,6 +71,32 @@ interface SharedRowProps {
   summaries?: ReadonlyMap<string, string>;
   selfEmails: readonly string[];
   selfNoteIds?: ReadonlySet<string>;
+  /** Les décomptes vivent hors de React : leur texte brut suffit à invalider les lignes. */
+  tallyStamp: string;
+  /** Minute courante : l'âge et la chaleur d'une ligne avancent même quand son contenu ne bouge pas. */
+  minute: number;
+}
+
+// Changer de fil re-rendait toute la liste (~1000 composants) : seules les lignes dont l'état change se redessinent.
+const MailRow = memo(MailRowView, (a, b) => {
+  if (a.row !== b.row || a.idx !== b.idx) return false;
+  const key = a.row.kind === "single" ? `t:${a.row.item.id}` : a.row.key;
+  for (const k of Object.keys(b.shared) as (keyof SharedRowProps)[]) {
+    const x = a.shared[k];
+    const y = b.shared[k];
+    if (k === "activeKey" ? (x === key) !== (y === key) : k === "selectedIndex" ? (x === a.idx) !== (y === a.idx) : x !== y) {
+      return false;
+    }
+  }
+  return true;
+});
+
+// Relais stable vers le dernier rappel reçu : une ligne mémoïsée n'appelle jamais une page périmée.
+function useRelay<A extends unknown[]>(fn: ((...args: A) => void) | undefined): ((...args: A) => void) | undefined {
+  const ref = useRef(fn);
+  ref.current = fn;
+  const relay = useCallback((...args: A) => ref.current?.(...args), []);
+  return fn ? relay : undefined;
 }
 
 /**
@@ -332,28 +358,30 @@ export function MailOverlayList({
 
   const shared: SharedRowProps = {
     activeKey,
-    onPick,
-    onToggleStar,
+    onPick: useRelay(onPick)!,
+    onToggleStar: useRelay(onToggleStar),
     labelColors,
     labelNames: userLabels,
     selectedIndex,
     selectedThreadIds,
-    onToggleRowSelection,
+    onToggleRowSelection: useRelay(onToggleRowSelection),
     selectable,
     anySelected,
     dndEnabled,
     onOpenContext: setCtx,
-    onSwipeRow,
-    onLongPressRow,
-    onSnoozeRow,
-    onTaskRow,
-    onRemindRow,
-    onTriageRow,
+    onSwipeRow: useRelay(onSwipeRow),
+    onLongPressRow: useRelay(onLongPressRow),
+    onSnoozeRow: useRelay(onSnoozeRow),
+    onTaskRow: useRelay(onTaskRow),
+    onRemindRow: useRelay(onRemindRow),
+    onTriageRow: useRelay(onTriageRow),
     indexAttr,
     hideLabelId,
     summaries,
     selfEmails,
     selfNoteIds,
+    tallyStamp: subjectTallyStamp(),
+    minute: Math.floor(Date.now() / 60_000),
   };
 
   return (
@@ -531,7 +559,7 @@ function MailSectionHeader({
 /** Une ligne de la boîte : source draggable (single) ou cible droppable
  *  (groupe-tag). Les hooks DnD sont TOUJOURS appelés (règle des hooks) et
  *  neutralisés via `disabled` selon le type de ligne et `dndEnabled`. */
-function MailRow({ row, idx, shared }: { row: OverlayRow; idx: number; shared: SharedRowProps }) {
+function MailRowView({ row, idx, shared }: { row: OverlayRow; idx: number; shared: SharedRowProps }) {
   const {
     activeKey,
     onPick,
