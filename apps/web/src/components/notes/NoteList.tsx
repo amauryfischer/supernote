@@ -30,6 +30,9 @@ import { cloudRoomSlug, cloudVaultId, MOUNT_PATH_PREFIX } from "@/lib/online-syn
 type SortKey = "updatedAt" | "title" | "manual";
 
 const SHOW_ARCHIVED_KEY = "supernote.notes.showArchived";
+// Hors du rendu : des options neuves à chaque rendu changent le contexte dnd-kit et redessinent toute la liste.
+const POINTER_SENSOR_OPTIONS = { activationConstraint: { distance: 6 } };
+const KEYBOARD_SENSOR_OPTIONS = { coordinateGetter: sortableKeyboardCoordinates };
 
 interface NoteListProps {
   notes: Note[];
@@ -216,10 +219,7 @@ export function NoteList({
     [utils, isFallback],
   );
 
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
-  );
+  const sensors = useSensors(useSensor(PointerSensor, POINTER_SENSOR_OPTIONS), useSensor(KeyboardSensor, KEYBOARD_SENSOR_OPTIONS));
 
   const sortedNotes = useMemo(() => {
     const q = query.toLowerCase().trim();

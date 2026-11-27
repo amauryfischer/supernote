@@ -77,6 +77,10 @@ interface SharedRowProps {
   minute: number;
 }
 
+// distance 6px → un clic (ouvre le fil) ne déclenche pas un drag. Hors du rendu : des options neuves à chaque
+// rendu changent le contexte dnd-kit, qui redessine alors toutes les lignes malgré le memo.
+const POINTER_SENSOR_OPTIONS = { activationConstraint: { distance: 6 } };
+
 // Changer de fil re-rendait toute la liste (~1000 composants) : seules les lignes dont l'état change se redessinent.
 const MailRow = memo(MailRowView, (a, b) => {
   if (a.row !== b.row || a.idx !== b.idx) return false;
@@ -271,12 +275,7 @@ export function MailOverlayList({
   const [ctx, setCtx] = useState<{ x: number; y: number; row: OverlayRow } | null>(null);
   const dndEnabled = Boolean(onApplyLabel);
 
-  const sensors = useSensors(
-    // distance 6px → un clic (ouvre le fil) ne déclenche pas un drag ; au-delà,
-    // c'est un glisser.
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
-    useSensor(KeyboardSensor),
-  );
+  const sensors = useSensors(useSensor(PointerSensor, POINTER_SENSOR_OPTIONS), useSensor(KeyboardSensor));
 
   // Drop d'une ligne single sur un groupe-tag → applique ce tag au thread.
   const handleDragEnd = (e: DragEndEvent) => {
