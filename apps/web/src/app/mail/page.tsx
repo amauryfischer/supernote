@@ -1743,30 +1743,26 @@ export default function MailPage() {
   }, [connected, clientId, loadTodoLabels, loadList, query]);
 
   // ── Réponse envoyée : re-fetch fil + liste ─────────────────────────────────
+  // Pas de loadList : il vide la sélection, le fil se fermait puis se rouvrait vide à chaque envoi.
+  // shortcut: refreshList relit la boîte de réception, d'où le garde idle ; une liste de recherche garde sa ligne d'avant jusqu'à la prochaine recherche.
   const handleReplied = useCallback(() => {
+    if (refreshStateRef.current.idle) void refreshList();
     const id = selectedThreadId;
-    const group = selectedGroup;
-    const wishToken = reqRef.current;
-    void loadList(query).then(() => {
-      if (!id) return;
-      if (reqRef.current !== wishToken) return;
-      setSelectedGroup(group);
-      setSelectedThreadId(id);
-      const reqId = ++reqRef.current;
-      // refresh:true — une réponse vient de partir, le mirror est forcément
-      // périmé (le message envoyé n'y est pas encore) : on veut Gmail, pas le cache.
-      ensureThread(clientId, accountId, id, { refresh: true })
-        .then((t) => {
-          if (reqId !== reqRef.current) return;
-          setThread(t);
-        })
-        .catch(() => {
-          /* re-fetch best-effort : la liste rechargée reflète déjà l'envoi */
-        });
-    });
-  }, [clientId, accountId, selectedThreadId, selectedGroup, query, loadList]);
+    if (!id) return;
+    const reqId = ++reqRef.current;
+    // refresh:true — une réponse vient de partir, le mirror est forcément
+    // périmé (le message envoyé n'y est pas encore) : on veut Gmail, pas le cache.
+    ensureThread(clientId, accountId, id, { refresh: true })
+      .then((t) => {
+        if (reqId !== reqRef.current) return;
+        setThread(t);
+      })
+      .catch(() => {
+        /* re-fetch best-effort : la liste rechargée reflète déjà l'envoi */
+      });
+  }, [clientId, accountId, selectedThreadId, refreshList]);
 
-  // L'envoi part après la fenêtre « Annuler » : on relit le fil quand il est vraiment parti.
+  // On relit le fil quand l'envoi est vraiment parti, direct ou à la sortie de la file.
   useEffect(() => {
     const onSent = () => handleReplied();
     window.addEventListener(MAIL_SENT_EVENT, onSent);
