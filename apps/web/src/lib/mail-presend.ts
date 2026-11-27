@@ -4,6 +4,9 @@ import { parseEmailBody } from "@/lib/email-quote";
 const ATTACHMENT_HINT =
   /\b(ci[- ]joint(e|es|s)?|en pi[eè]ces? jointes?|pi[eè]ces? jointes?|je (te |vous )?joins|vous trouverez joint|attached|attachment)\b|\bPJ\b/i;
 
+// Expéditeurs automatiques (« Google Calendar », « Service Client ») : leur « prénom » est un mot courant.
+const AUTOMATED = /^(no-?reply|ne-?pas-?repondre|notifications?|calendar-notification|info|contact|support|hello|bonjour|news(letter)?|marketing|mailer-daemon|team|service)\b/i;
+
 const fold = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 
 /**
@@ -40,6 +43,7 @@ export function presendWarnings({
     const f = firstName(p);
     // Un nom d'un seul mot (« Support », « Facturation ») n'est pas un prénom fiable.
     if (f.length < 3 || p.name.trim().split(/\s+/).length < 2 || self.has(p.email.toLowerCase())) continue;
+    if (AUTOMATED.test(p.email.split("@")[0] ?? "")) continue;
     if (!byFirst.has(f)) byFirst.set(f, p);
   }
   const missing = new Map<string, { word: string; person: EmailAddress }>();

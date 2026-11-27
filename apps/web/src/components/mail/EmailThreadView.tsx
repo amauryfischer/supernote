@@ -689,10 +689,14 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
   const gridUsedRef = useRef(false);
   const [gridArmed, setGridArmed] = useState(false);
   useEffect(() => setGridArmed(false), [replyBody]);
+  // Participants du fil seulement : un oubli de « répondre à tous » est le cas visé, et pas de chargement en plus.
   const threadPeople = useMemo(() => thread.messages.flatMap((m) => [m.from, ...m.to, ...(m.cc ?? [])]), [thread.messages]);
-  const knownPeople = useRecipientSuggestions(threadPeople);
   const [presendArmed, setPresendArmed] = useState(false);
-  useEffect(() => setPresendArmed(false), [replyBody, replyTo, replyCc, replyAttachments]);
+  const presendNotice = useRef<string | null>(null);
+  useEffect(() => {
+    setPresendArmed(false);
+    setReplyNotice((n) => (n && n.text === presendNotice.current ? null : n));
+  }, [replyBody, replyTo, replyCc, replyAttachments]);
   const openQuestions = gridAvailable ? questions.filter((q) => !isAnswered(replyBody, q)) : [];
   // Curseur à poser après une réponse : position, ou -1 pour la fin du texte.
   const pendingCursorRef = useRef<number | null>(null);
@@ -906,12 +910,13 @@ export const EmailThreadView = forwardRef<EmailThreadHandle, EmailThreadViewProp
         text: typed,
         attachmentCount: replyAttachments.length,
         recipients: [...to, ...cc],
-        people: knownPeople,
+        people: threadPeople,
         selfEmails: [selfEmail ?? "", ...settings.gmail.aliases],
       });
       if (warnings.length > 0) {
         setPresendArmed(true);
-        setReplyNotice({ tone: "warning", text: `${warnings.join(" ")} Envoyer de nouveau pour confirmer.` });
+        presendNotice.current = `${warnings.join(" ")} Envoyer de nouveau pour confirmer.`;
+        setReplyNotice({ tone: "warning", text: presendNotice.current });
         return;
       }
     }

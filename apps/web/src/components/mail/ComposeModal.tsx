@@ -122,6 +122,8 @@ export function ComposeModal({
   const [ccOpen, setCcOpen] = useState(false);
   // Sans fenêtre d'annulation, le premier appui sur Envoyer arme, le second part.
   const [confirmArmed, setConfirmArmed] = useState(false);
+  const [presendArmed, setPresendArmed] = useState(false);
+  const presendNotice = useRef<string | null>(null);
   const [subject, setSubject] = useState(initialSubject);
   const [body, setBody] = useState(initialBody);
   const draftFb = useActionFeedback();
@@ -205,7 +207,9 @@ export function ComposeModal({
 
   useEffect(() => {
     setConfirmArmed(false);
-  }, [isOpen, recipients, toInput, ccList, ccInput, bccList, bccInput, subject, body]);
+    setPresendArmed(false);
+    setNotice((n) => (n && n.text === presendNotice.current ? null : n));
+  }, [isOpen, recipients, toInput, ccList, ccInput, bccList, bccInput, subject, body, attachments]);
 
   // Inclut une adresse tapée mais non encore validée (pas de perte silencieuse).
   const pendingRecipients = () => ({
@@ -346,7 +350,7 @@ export function ComposeModal({
       setNotice({ tone: "danger", text: "Objet ou corps requis." });
       return;
     }
-    if (!confirmArmed) {
+    if (!presendArmed) {
       const warnings = presendWarnings({
         text: body,
         attachmentCount: attachments.length,
@@ -355,8 +359,9 @@ export function ComposeModal({
         selfEmails: [settings.gmail.connectedEmail, ...settings.gmail.aliases],
       });
       if (warnings.length > 0) {
-        setConfirmArmed(true);
-        setNotice({ tone: "warning", text: `${warnings.join(" ")} Appuie de nouveau sur Envoyer pour confirmer.` });
+        setPresendArmed(true);
+        presendNotice.current = `${warnings.join(" ")} Appuie de nouveau sur Envoyer pour confirmer.`;
+        setNotice({ tone: "warning", text: presendNotice.current });
         return;
       }
     }
