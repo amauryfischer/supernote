@@ -129,7 +129,21 @@ function splitRow(row: OverlayRow, test: (it: RowItem) => boolean, suffix: strin
   // Une moitié réduite à un fil redevient une ligne seule : un « groupe » de 1 masquerait l'expéditeur.
   const part = (items: RowItem[], key: string): OverlayRow =>
     items.length === 1 ? { kind: "single", item: items[0]! } : { ...row, key, items, count: items.length, date: latest(items) };
-  return [part(hit, `${row.key}${suffix}`), part(rest, row.key)];
+  return [keepPart(row, part(hit, `${row.key}${suffix}`)), keepPart(row, part(rest, row.key))];
+}
+
+// Les moitiés sont recréées à chaque calcul : on rend celles d'avant quand elles portent les mêmes fils,
+// sinon leurs lignes mémoïsées se redessinent toutes à chaque changement de fil.
+const splitParts = new WeakMap<OverlayRow, Map<string, OverlayRow>>();
+function keepPart(src: OverlayRow, part: OverlayRow): OverlayRow {
+  const key = part.kind === "single" ? `t:${part.item.id}` : part.key;
+  let cache = splitParts.get(src);
+  if (!cache) splitParts.set(src, (cache = new Map()));
+  const old = cache.get(key);
+  const items = rowItems(part);
+  if (old && rowItems(old).length === items.length && rowItems(old).every((it, i) => it === items[i])) return old;
+  cache.set(key, part);
+  return part;
 }
 
 /**
